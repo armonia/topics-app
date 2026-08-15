@@ -277,8 +277,17 @@ test.describe.serial("La chrome del telefono", () => {
     await expect(tasto).toContainText("Task");
 
     // Andata: la Kanban compare e il cassetto si toglie di mezzo.
+    //
+    // SI GUARDA LA BOARD, NON LA SUA TAB. Questo test cercava
+    // `[data-pane-id="__board__"]`, che è la TESSERA nella striscia delle tab —
+    // e su un telefono quella striscia non esiste più da `b58b01a9` («da mobile
+    // la barra delle tab in alto non serve, c'è già la lista delle tab»), che è
+    // arrivata poche ore dopo questo file. Da allora il locator non trovava
+    // niente mentre la board era a schermo intero: il rosso diceva «la board non
+    // si apre» di una board aperta. `kanban-board` è il marcatore della pane
+    // stessa, quindi risponde alla domanda vera su entrambe le sponde.
     await tasto.tap();
-    await expect(page.locator('[data-pane-id="__board__"], [data-testid="board-pane"]').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15_000 });
     await expect(tasto).toContainText("Tab");
 
     // Ritorno: torna la lista, e la board NON si è chiusa — è ciò che rende
@@ -286,10 +295,8 @@ test.describe.serial("La chrome del telefono", () => {
     await tasto.tap();
     await expect(page.locator('[data-testid="sidebar-topic-list"]')).toBeVisible();
     await expect(tasto).toContainText("Task");
-    const boardAncoraAperta = await page.evaluate(() =>
-      !!document.querySelector('[data-pane-id="__board__"], [data-testid="board-pane"]'),
-    );
-    expect(boardAncoraAperta).toBe(true);
+    // Montata, non per forza in primo piano: il cassetto le sta davanti.
+    await expect(page.getByTestId("kanban-board")).toHaveCount(1);
   });
 
   test("MOBILE-CHROME-05 — nel menu restano prestazioni e versione, l'account no", async ({ page }) => {

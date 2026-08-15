@@ -238,7 +238,11 @@ test.describe("Board · revisione del diff riga per riga", () => {
     const res = await request.get(`${API}/boards/${PROJECT_ID}/tasks/${taskId}`);
     const got = (await res.json()) as { comments: { content: string }[] };
     const body = got.comments[0].content;
-    expect(body).toContain("Revisione del diff — 1 commento su 1 file.");
+    // Due punti, non un trattino lungo: `check:emdash` ha tolto il trattino da
+    // ogni testo che si legge, e `formatReviewNotes` è uno di quelli. Il fatto
+    // che questa riga presidia è il CONTEGGIO (un commento, un file), non il
+    // segno di punteggiatura che li separa.
+    expect(body).toContain("Revisione del diff: 1 commento su 1 file.");
     expect(body).toContain("**`conta.txt:6`**");
     expect(body).toContain("+sei");
     expect(body).toContain("Questa riga non serve.");

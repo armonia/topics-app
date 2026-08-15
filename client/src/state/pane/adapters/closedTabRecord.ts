@@ -311,7 +311,16 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
           const revived = await fetch(`/api/terminal/sessions/${sessionId}/revive`, {
             method: 'POST',
           });
-          if (revived.ok) {
+          // 409 = ANOTHER client (or this window's own dormant-revive) is already
+          // bringing THIS id back. It is a queue, not a failure, and it must not
+          // read like one: falling through to the POST below would mint a second
+          // session id for a terminal that is materialising under the first —
+          // the exact "two tabs, one full one empty" this branch exists to stop.
+          // The pane keeps its id, and id-dedup collapses the two arrivals into
+          // one restored, full pane. Today's server no longer answers 409 (the
+          // loser awaits the in-flight revive, see server/routes/terminal.ts),
+          // so this is the belt for an older server on the other side.
+          if (revived.ok || revived.status === 409) {
             return record.pane;
           }
         } catch {

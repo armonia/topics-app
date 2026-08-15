@@ -18,9 +18,9 @@
  */
 
 import { HUMAN_AUTHOR, isMachineNote, isThreadSpeech } from '../../../../shared/board';
-import type { TaskComment } from '../../lib/board';
+import type { BoardTask, CardComment } from '../../lib/board';
 
-export interface CardComments {
+export interface CardComments<T extends CardComment = CardComment> {
   /**
    * The thread's last word. The card leads with it, as it always did.
    *
@@ -29,9 +29,9 @@ export interface CardComments {
    * why `humanContext` is gated on a real reply existing rather than on this
    * field alone.
    */
-  latest: TaskComment;
+  latest: T;
   /** The human request `latest` follows, or null when there is none to quote. */
-  humanContext: TaskComment | null;
+  humanContext: T | null;
 }
 
 /**
@@ -45,7 +45,7 @@ export interface CardComments {
  * interrotto." back to you as your own request, on a task where you never typed
  * a word.
  */
-export function isHumanComment(comment: TaskComment): boolean {
+export function isHumanComment(comment: CardComment): boolean {
   return comment.author === HUMAN_AUTHOR
     && comment.kind === 'comment'
     && !isMachineNote(comment.content);
@@ -57,7 +57,7 @@ export function isHumanComment(comment: TaskComment): boolean {
  * Same as `isHumanComment` plus text: an attachment-only comment has nothing to
  * put on that line, and the card must never open a row it then leaves blank.
  */
-function isHumanRequest(comment: TaskComment): boolean {
+function isHumanRequest(comment: CardComment): boolean {
   return isHumanComment(comment) && comment.content.trim() !== '';
 }
 
@@ -69,7 +69,7 @@ function isHumanRequest(comment: TaskComment): boolean {
  * preview screenshot has nothing that reads as an answer. Quoting the request
  * above it would promise a pair the card cannot deliver.
  */
-function isReply(comment: TaskComment): boolean {
+function isReply(comment: CardComment): boolean {
   return comment.kind === 'comment' && comment.author !== HUMAN_AUTHOR;
 }
 
@@ -84,7 +84,7 @@ function isReply(comment: TaskComment): boolean {
  * became the card's `latest`: the card printed "In attesa di uno slot" as the
  * delivery while the buttons underneath still offered the agent's question.
  */
-export function selectCardComments(comments: readonly TaskComment[]): CardComments | null {
+export function selectCardComments<T extends CardComment>(comments: readonly T[]): CardComments<T> | null {
   const speech = comments.filter(isThreadSpeech);
   const latest = speech[speech.length - 1];
   if (!latest) return null;
@@ -98,4 +98,50 @@ export function selectCardComments(comments: readonly TaskComment[]): CardCommen
   if (requestAt < 0) return { latest, humanContext: null };
   const answered = speech.slice(requestAt + 1).some(isReply);
   return { latest, humanContext: answered ? speech[requestAt]! : null };
+}
+
+/** I campi della riga su cui si decide cosa la card mostra e cosa deve chiedere. */
+export type CardThreadRow = Pick<BoardTask, 'status' | 'assignedTopicId' | 'deliveredReason' | 'subtaskCount' | 'recentComments'>;
+
+/**
+ * La card ha una PAROLA da mostrare: l'ultima del thread, con i suoi bottoni.
+ *
+ * Due sorgenti, un solo ramo: l'agente che ha consegnato, e il SISTEMA quando
+ * lo stallo dei figli parcheggiati fa la domanda al posto suo (lì la card può
+ * non avere nessun topic legato). Fuori dalla review nessuna delle due esiste,
+ * ed è per questo che il server attacca `recentComments` solo a quella colonna.
+ */
+export function showsCardThread(task: CardThreadRow): boolean {
+  return task.status === 'review'
+    && (!!task.assignedTopicId || task.deliveredReason === 'parked_children');
+}
+
+/**
+ * COSA MANCA ALLA CARD dopo quello che la lista le ha già dato — cioè se deve
+ * aprire un `GET /api/tasks/:id` per conto suo.
+ *
+ * Era una richiesta PER CARD, e il dettaglio non è una riga: si porta dietro
+ * l'intero thread del task. Aprendo la board, ogni scheda in review ne
+ * sparava una. Adesso i commenti viaggiano con la lista, e resta un solo
+ * motivo per chiedere: i sottotask, che nel feed non ci sono
+ * (`rootsOnly`) e che la card in review espande come checklist della consegna.
+ *
+ * `'thread'` è la ricaduta per un server più vecchio del client (il guscio
+ * Tauri incorpora il suo `public/` e può restare indietro): senza il campo
+ * nuovo la card torna a chiedere, invece di restare muta.
+ *
+ * La decisione sta QUI e non dentro il componente perché è ciò che il test può
+ * eseguire: montare la card vorrebbe dire montare mezza board.
+ */
+export function cardDetailNeed(task: CardThreadRow): 'none' | 'children' | 'thread' {
+  if (showsCardThread(task) && task.recentComments === undefined) return 'thread';
+  if (task.status === 'review' && task.subtaskCount > 0) return 'children';
+  return 'none';
+}
+
+/** I commenti che la card disegna, presi dalla riga della lista. `null` quando
+ *  non c'è niente da mostrare o quando il server non li manda. */
+export function cardCommentsFromRow(task: CardThreadRow): CardComments | null {
+  if (!showsCardThread(task) || !task.recentComments) return null;
+  return selectCardComments(task.recentComments);
 }

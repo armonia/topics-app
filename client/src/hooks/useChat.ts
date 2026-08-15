@@ -6,11 +6,13 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 // applica il server prima di cancellare la riga. Due definizioni di "vuoto"
 // vorrebbero dire bolla via da una parte e ancora lì dall'altra.
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
-import { mergeCatchupIntoPartial } from './streamCatchupMerge';
+import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach } from './streamReattachReset';
+import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
 import { decideCacheWrite } from './messageCacheWrite';
 import { useRefMirror } from './useRefMirror';
-import { reconcileMessages } from './reconcileMessages';
+import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
+import { buildRequestMessages } from './chatRequestPayload';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
 import { armPushAsk } from '../state/pushAsk';
@@ -105,7 +107,7 @@ const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 // stesso momento; questa finestra serve solo a non abortire un drain lento.
 const SSE_FAILSAFE_MS = 5000;
 
-const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+const generateMessageId = () => `${CLIENT_MESSAGE_ID_PREFIX}${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 // Topic/project/browser control moved from {{...}} markers to MCP/SDK tools,
 // so the model no longer emits markers and stored history was backfilled clean.
@@ -583,6 +585,26 @@ export function useChat() {
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  /**
+   * sessionKey → id della riga che il turno IN VOLO sta scrivendo, annunciato da
+   * `stream:start`. Vive quanto il turno.
+   *
+   * È la guardia di `addMessage`: mentre un turno è aperto arrivano dei
+   * `message:new` che NON sono la sua fine — l'uscita di un sotto-agente, per
+   * dirne una (`server/lib/subagent-watch.ts` la scrive e la trasmette come una
+   * riga qualsiasi). Il ramo che fonde la riga persistita nel segnaposto
+   * guardava solo la POSIZIONE («l'ultimo messaggio è un assistant parziale»),
+   * quindi la scambiava per la conclusione del turno: il rapporto del
+   * sotto-agente si mangiava id, testo e bandiera della bolla viva, e tutto il
+   * resto del turno finiva incollato sotto quel rapporto.
+   *
+   * Il nome si DIMENTICA su ogni strada per cui un turno muore, non solo su
+   * `stream:end`/`stream:error`: watchdog, riconciliazione degli stream orfani,
+   * stop dell'utente, sfratto delle cache, e in cima a un invio nuovo. Un nome
+   * sopravvissuto al suo turno fa scrivere la risposta SUCCESSIVA dentro la
+   * bolla morta. Vedi `liveTurn.ts`.
+   */
+  const streamMessageIdRef = useRef<LiveTurnIds>(new LiveTurnIds());
   // Watchdog per il caso "il server ha finito, il nostro SSE no": vedi
   // scheduleSSEFailsafe.
   const sseFailsafeRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -691,6 +713,9 @@ export function useChat() {
           return;
         }
         console.warn(`[useChat] Stream timeout for ${sessionKey}, auto-clearing (server: non più in streaming)`);
+        // Il turno è morto senza `stream:end`: il nome della sua bolla muore con
+        // lui, o il turno DOPO scriverà lì dentro invece che nel segnaposto nuovo.
+        streamMessageIdRef.current.end(sessionKey);
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
         setLoading(prev => ({ ...prev, [sessionKey]: false }));
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
@@ -782,7 +807,9 @@ export function useChat() {
     streamMissRef.current = nextMiss;
     if (orphans.length === 0) return;
     console.warn('[useChat] clearing orphaned stream flag(s) — server no longer streaming:', orphans);
-    for (const sk of orphans) clearStreamTimeout(sk);
+    // Stesso motivo del watchdog: qui si dichiara morto un turno che non ha mai
+    // mandato la sua fine, quindi il nome della bolla in volo va dimenticato.
+    for (const sk of orphans) { clearStreamTimeout(sk); streamMessageIdRef.current.end(sk); }
     setStreaming(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
     setLoading(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
     setThinking(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
@@ -797,8 +824,21 @@ export function useChat() {
     setMessages(prev => {
       const existing = prev[sessionKey] || [];
       // Dedupe by stable id (cross-window message:new + history fetch races).
-      if (newMessage.id && existing.some(m => m.id === newMessage.id)) {
-        return prev;
+      //
+      // Ma il doppione NON è sempre un no-op: da quando il segnaposto nasce con
+      // l'id durevole annunciato da `stream:start`, questo confronto scatta anche
+      // sulla bolla VIVA — e la riga persistita che arriva a fine turno è l'unica
+      // occasione di riempirla per una finestra che le delta non le ha mai viste
+      // (i `stream:content_chunk` viaggiano solo agli iscritti della topic,
+      // `server/lib/ws-topic-routing.ts`). Prima ci pensava il ramo di adozione
+      // qui sotto, che ora non viene più raggiunto. Vedi `shouldFillFromBroadcast`.
+      const dupIndex = newMessage.id ? existing.findIndex(m => m.id === newMessage.id) : -1;
+      if (dupIndex >= 0) {
+        const held = existing[dupIndex];
+        if (!shouldFillFromBroadcast(held, newMessage.content ?? '')) return prev;
+        const updated = [...existing];
+        updated[dupIndex] = { ...held, content: newMessage.content, partial: false };
+        return { ...prev, [sessionKey]: updated };
       }
       // Viewer-side reconcile: when a turn driven by ANOTHER client ends, the
       // server broadcasts the PERSISTED assistant row (message:new, durable
@@ -809,8 +849,17 @@ export function useChat() {
       // final content, keep the streamed blocks/toolCalls (the broadcast
       // carries text only). Gated on `message.id` so synthetic id-less adds
       // (e.g. agents:spawned markers) never clobber an in-flight placeholder.
+      //
+      // E gatato sull'IDENTITÀ, non sulla posizione: vedi
+      // `shouldAdoptIntoPlaceholder` per la riga di sotto-agente che si mangiava
+      // la bolla viva.
       const last = existing[existing.length - 1];
-      if (message.id && newMessage.role === 'assistant' && last?.role === 'assistant' && last.partial) {
+      if (last && shouldAdoptIntoPlaceholder({
+        incomingId: message.id,
+        incomingRole: newMessage.role,
+        last,
+        streamingMessageId: streamMessageIdRef.current.get(sessionKey),
+      })) {
         const updated = [...existing];
         updated[existing.length - 1] = { ...last, id: newMessage.id, content: newMessage.content, partial: false };
         return { ...prev, [sessionKey]: updated };
@@ -827,21 +876,21 @@ export function useChat() {
   const updateLastMessage = useCallback((sessionKey: string, updates: Partial<ChatMessage>) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
-      const lastMessageIndex = sessionMessages.length - 1;
-      
-      if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
+      const lastMessageIndex = liveAssistantIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey));
+
+      if (lastMessageIndex >= 0) {
         const updatedMessages = [...sessionMessages];
         updatedMessages[lastMessageIndex] = {
           ...updatedMessages[lastMessageIndex],
           ...updates,
         };
-        
+
         return {
           ...prev,
           [sessionKey]: updatedMessages,
         };
       }
-      
+
       return prev;
     });
   }, []);
@@ -900,9 +949,9 @@ export function useChat() {
   const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
-      const lastMessageIndex = sessionMessages.length - 1;
+      const lastMessageIndex = liveAssistantIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey));
 
-      if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
+      if (lastMessageIndex >= 0) {
         const updatedMessages = [...sessionMessages];
         const lastMsg = sessionMessages[lastMessageIndex];
 
@@ -931,9 +980,9 @@ export function useChat() {
   const addToolCallToLastMessage = useCallback((sessionKey: string, toolCall: ToolCall) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
-      const lastMessageIndex = sessionMessages.length - 1;
+      const lastMessageIndex = liveAssistantIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey));
 
-      if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
+      if (lastMessageIndex >= 0) {
         const updatedMessages = [...sessionMessages];
         const lastMsg = updatedMessages[lastMessageIndex];
 
@@ -1023,11 +1072,89 @@ export function useChat() {
     }
   }, [flushLiveDeltas]);
 
+  /**
+   * Una patch a UNA riga di tool, pubblicata SOLO se ha cambiato qualcosa.
+   *
+   * I gestori scrivevano `{ ...prev, [sessionKey]: msgs }` in ogni caso, anche
+   * quando la scansione all'indietro non trovava la riga: un oggetto di stato
+   * nuovo, quindi una passata di render dell'intera chat, per zero modifiche. E
+   * i frame che finiscono qui hanno il ritmo dell'OUTPUT del comando, non quello
+   * dei token. `patchToolCallInMessages` restituisce l'array com'era quando non
+   * trova niente: qui quel «com'era» diventa un `prev` che React salta.
+   */
+  const applyToolPatch = useCallback((sessionKey: string, toolCallId: string, patch: (tc: ToolCall) => ToolCall) => {
+    setMessages(prev => {
+      const cur = prev[sessionKey];
+      if (!cur || cur.length === 0) return prev;
+      const next = patchToolCallInMessages(cur, toolCallId, patch);
+      return next === cur ? prev : { ...prev, [sessionKey]: next };
+    });
+  }, []);
+
+  // ── Coalescing degli aggiornamenti di tool (CHAT-PERF-02) ─────────────────
+  // `stream:tool_update` porta l'output di un comando ancora in corso, e ne
+  // arriva uno per RIGA stampata: un `npm install` ne manda centinaia al
+  // secondo. Il gestore lo applica SOSTITUENDO `result` — non appendendo — e
+  // questo è ciò che rende il buffer senza perdite: applicare tutti i frame in
+  // sequenza o solo l'ULTIMO di ciascun tool lascia esattamente lo stesso stato.
+  // (Il lato server conferma la lettura: `providers/codex.ts` manda
+  // `aggregated_output`, cioè il cumulato, e sul ramo `exec_command_output_delta`
+  // accumula in `ctx.partial` prima di spedire. Ma la garanzia sta QUI, nella
+  // forma della patch, non nella cortesia del provider.)
+  const toolUpdateBufferRef = useRef<Map<string, Map<string, string>>>(new Map());
+  const toolUpdateRafRef = useRef<number | null>(null);
+
+  const flushToolUpdates = useCallback((sessionKey?: string) => {
+    const buf = toolUpdateBufferRef.current;
+    if (buf.size === 0) return;
+    const keys = sessionKey != null ? (buf.has(sessionKey) ? [sessionKey] : []) : [...buf.keys()];
+    if (keys.length === 0) return;
+    const pending: Array<[string, Map<string, string>]> = [];
+    for (const k of keys) {
+      const perTool = buf.get(k);
+      buf.delete(k);
+      if (perTool && perTool.size > 0) pending.push([k, perTool]);
+    }
+    if (buf.size === 0 && toolUpdateRafRef.current != null) {
+      cancelAnimationFrame(toolUpdateRafRef.current);
+      toolUpdateRafRef.current = null;
+    }
+    if (pending.length === 0) return;
+    setMessages(prev => {
+      let next = prev;
+      for (const [sk, perTool] of pending) {
+        const cur = next[sk];
+        if (!cur || cur.length === 0) continue;
+        let msgs = cur;
+        for (const [toolCallId, partialResult] of perTool) {
+          msgs = patchToolCallInMessages(msgs, toolCallId, tc => ({ ...tc, result: partialResult }));
+        }
+        if (msgs !== cur) next = { ...next, [sk]: msgs };
+      }
+      return next;
+    });
+  }, []);
+
+  const bufferToolUpdate = useCallback((sessionKey: string, toolCallId: string, partialResult: string) => {
+    const buf = toolUpdateBufferRef.current;
+    const perTool = buf.get(sessionKey) ?? new Map<string, string>();
+    perTool.set(toolCallId, partialResult);
+    buf.set(sessionKey, perTool);
+    if (toolUpdateRafRef.current == null) {
+      toolUpdateRafRef.current = requestAnimationFrame(() => {
+        toolUpdateRafRef.current = null;
+        flushToolUpdates();
+      });
+    }
+  }, [flushToolUpdates]);
+
   // Drop any buffered deltas on unmount (server holds the authoritative copy;
   // this window re-syncs via loadHistory). No setState on a dead component.
   useEffect(() => () => {
     if (liveDeltaRafRef.current != null) cancelAnimationFrame(liveDeltaRafRef.current);
     liveDeltaBufferRef.current.clear();
+    if (toolUpdateRafRef.current != null) cancelAnimationFrame(toolUpdateRafRef.current);
+    toolUpdateBufferRef.current.clear();
   }, []);
 
   const handleStreamEvent = useCallback((event: WSMessage) => {
@@ -1042,6 +1169,14 @@ export function useChat() {
     // committed before it reads/mutates the last message (blocks timeline).
     if (event.type !== 'stream:content_chunk' && event.type !== 'stream:thinking_chunk') {
       flushLiveDeltas(sessionKey);
+    }
+    // Stessa regola per gli output di tool bufferati: qualunque evento che NON
+    // sia un altro `tool_update` deve vedere l'ultimo parziale già applicato. Il
+    // caso che conta è `stream:tool_result`, che scrive l'esito definitivo sulla
+    // stessa riga: se un parziale in coda atterrasse dopo, lo sovrascriverebbe
+    // con del testo vecchio.
+    if (event.type !== 'stream:tool_update') {
+      flushToolUpdates(sessionKey);
     }
 
     // Skip WS stream events for sessions with an active local SSE stream
@@ -1091,6 +1226,12 @@ export function useChat() {
       case 'stream:start':
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey); // Start timeout watchdog
+        // Il nome DUREVOLE della bolla in volo, tenuto per sessione finché il
+        // turno non finisce. Serve a `addMessage`: un `message:new` che arriva a
+        // turno aperto con un id DIVERSO da questo non è la fine del turno, è
+        // un'altra riga (l'uscita di un sotto-agente), e non deve fondersi nel
+        // segnaposto vivo. Vedi il ramo di fusione in `addMessage`.
+        if (event.messageId) streamMessageIdRef.current.begin(sessionKey, event.messageId);
         // Le delta del turno di PRIMA non devono atterrare dopo l'azzeramento:
         // sono già dentro la bolla che stiamo per svuotare, e ricomparirebbero
         // in testa al replay.
@@ -1113,10 +1254,17 @@ export function useChat() {
             return prev;
           }
           // No partial assistant msg — this is from another window, create placeholder
+          //
+          // L'id è QUELLO DEL SERVER quando ce lo dice, e ce lo dice sempre
+          // (`shared/ws-outbound.ts`: `messageId` è obbligatorio su
+          // `stream:start`). Coniarne uno locale significava che la riga in DB e
+          // la bolla a schermo avevano due nomi diversi: un `loadHistory` a metà
+          // turno riportava indietro la stessa risposta sotto il nome vero, non
+          // riconosceva il segnaposto e la disegnava DUE VOLTE.
           return {
             ...prev,
             [sessionKey]: [...sessionMessages, {
-              id: generateMessageId(),
+              id: event.messageId || generateMessageId(),
               role: 'assistant' as const,
               content: '',
               timestamp: new Date().toISOString(),
@@ -1170,45 +1318,22 @@ export function useChat() {
         break;
 
       case 'stream:tool_result':
+        // Replace the ToolCall with a new instance so React.memo on
+        // MessageContent sees a real prop change. `patchToolCallInMessages`
+        // mirrors it into both the legacy `toolCalls` bucket and the
+        // chronological `blocks` timeline — e restituisce l'array com'era se la
+        // riga non c'è, così un id sconosciuto non ridisegna la chat.
         if (event.toolCallId) {
-          setMessages(prev => {
-            const msgs = [...(prev[sessionKey] || [])];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
-                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
-                if (tcIdx >= 0) {
-                  // Replace the ToolCall with a new instance so React.memo
-                  // on MessageContent sees a real prop change. Mirror the
-                  // change into both the legacy `toolCalls` bucket and the
-                  // chronological `blocks` timeline.
-                  const oldTc = msgs[i].toolCalls![tcIdx];
-                  const newTc: ToolCall = {
-                    ...oldTc,
-                    status: ((event.status as ToolCall['status']) || 'success'),
-                    result: event.result as string | undefined,
-                    error: (event.error as string | undefined) ?? oldTc.error,
-                    detail: (event.detail as ToolCall['detail']) ?? oldTc.detail,
-                    // Server stamps the real-usage close on the result event;
-                    // durations render from endedAt - startedAt.
-                    endedAt: (typeof event.endedAt === 'number' ? event.endedAt : undefined) ?? oldTc.endedAt,
-                  };
-                  const nextToolCalls = msgs[i].toolCalls!.slice();
-                  nextToolCalls[tcIdx] = newTc;
-                  let nextBlocks = msgs[i].blocks;
-                  if (nextBlocks) {
-                    nextBlocks = nextBlocks.map(b =>
-                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
-                        ? { kind: 'tool' as const, toolCall: newTc }
-                        : b,
-                    );
-                  }
-                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
-                  break;
-                }
-              }
-            }
-            return { ...prev, [sessionKey]: msgs };
-          });
+          applyToolPatch(sessionKey, event.toolCallId, oldTc => ({
+            ...oldTc,
+            status: ((event.status as ToolCall['status']) || 'success'),
+            result: event.result as string | undefined,
+            error: (event.error as string | undefined) ?? oldTc.error,
+            detail: (event.detail as ToolCall['detail']) ?? oldTc.detail,
+            // Server stamps the real-usage close on the result event;
+            // durations render from endedAt - startedAt.
+            endedAt: (typeof event.endedAt === 'number' ? event.endedAt : undefined) ?? oldTc.endedAt,
+          }));
         }
         break;
 
@@ -1218,35 +1343,11 @@ export function useChat() {
         // stream:tool_result — nuova istanza ToolCall così React.memo vede il
         // cambio. Arriva mentre il tool è ancora running: non tocca status.
         if (event.toolCallId) {
-          setMessages(prev => {
-            const msgs = [...(prev[sessionKey] || [])];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
-                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
-                if (tcIdx >= 0) {
-                  const oldTc = msgs[i].toolCalls![tcIdx];
-                  const newTc: ToolCall = {
-                    ...oldTc,
-                    ...(typeof event.tokens === 'number' ? { tokens: event.tokens } : {}),
-                    ...(typeof event.costCents === 'number' ? { costCents: event.costCents } : {}),
-                  };
-                  const nextToolCalls = msgs[i].toolCalls!.slice();
-                  nextToolCalls[tcIdx] = newTc;
-                  let nextBlocks = msgs[i].blocks;
-                  if (nextBlocks) {
-                    nextBlocks = nextBlocks.map(b =>
-                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
-                        ? { kind: 'tool' as const, toolCall: newTc }
-                        : b,
-                    );
-                  }
-                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
-                  break;
-                }
-              }
-            }
-            return { ...prev, [sessionKey]: msgs };
-          });
+          applyToolPatch(sessionKey, event.toolCallId, oldTc => ({
+            ...oldTc,
+            ...(typeof event.tokens === 'number' ? { tokens: event.tokens } : {}),
+            ...(typeof event.costCents === 'number' ? { costCents: event.costCents } : {}),
+          }));
         }
         break;
 
@@ -1258,33 +1359,12 @@ export function useChat() {
         // the partial so the user sees output flowing in instead of staring
         // at a spinner. Status stays 'running' — the terminal status comes
         // later via stream:tool_result.
+        //
+        // Passa dal buffer a frame: ne arriva uno per riga stampata, e la patch
+        // SOSTITUISCE `result`, quindi tenere solo l'ultimo del frame lascia lo
+        // stesso stato. Vedi `bufferToolUpdate`.
         if (event.toolCallId && typeof event.partialResult === 'string') {
-          setMessages(prev => {
-            const msgs = [...(prev[sessionKey] || [])];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
-                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
-                if (tcIdx >= 0) {
-                  const oldTc = msgs[i].toolCalls![tcIdx];
-                  const partialResult = event.partialResult as string;
-                  const newTc: ToolCall = { ...oldTc, result: partialResult };
-                  const nextToolCalls = msgs[i].toolCalls!.slice();
-                  nextToolCalls[tcIdx] = newTc;
-                  let nextBlocks = msgs[i].blocks;
-                  if (nextBlocks) {
-                    nextBlocks = nextBlocks.map(b =>
-                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
-                        ? { kind: 'tool' as const, toolCall: newTc }
-                        : b,
-                    );
-                  }
-                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
-                  break;
-                }
-              }
-            }
-            return { ...prev, [sessionKey]: msgs };
-          });
+          bufferToolUpdate(sessionKey, event.toolCallId, event.partialResult);
         }
         break;
 
@@ -1294,34 +1374,8 @@ export function useChat() {
         // actions[] log so the renderer's <SubAgentCard> can show live progress.
         // Snapshot, not delta — replace the whole detail.
         if (event.toolCallId && event.detail) {
-          setMessages(prev => {
-            const msgs = [...(prev[sessionKey] || [])];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
-                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
-                if (tcIdx >= 0) {
-                  const oldTc = msgs[i].toolCalls![tcIdx];
-                  const newTc: ToolCall = {
-                    ...oldTc,
-                    detail: event.detail as ToolCall['detail'],
-                  };
-                  const nextToolCalls = msgs[i].toolCalls!.slice();
-                  nextToolCalls[tcIdx] = newTc;
-                  let nextBlocks = msgs[i].blocks;
-                  if (nextBlocks) {
-                    nextBlocks = nextBlocks.map(b =>
-                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
-                        ? { kind: 'tool' as const, toolCall: newTc }
-                        : b,
-                    );
-                  }
-                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
-                  break;
-                }
-              }
-            }
-            return { ...prev, [sessionKey]: msgs };
-          });
+          const detail = event.detail as ToolCall['detail'];
+          applyToolPatch(sessionKey, event.toolCallId, oldTc => ({ ...oldTc, detail }));
         }
         break;
 
@@ -1331,15 +1385,11 @@ export function useChat() {
         // spariva e della decisione non restava traccia fino al reload,
         // perché `stream:tool_update` porta solo `partialResult`.
         if (event.toolCallId) {
-          const id = event.toolCallId;
           const outcome = event.outcome;
-          setMessages(prev => ({
-            ...prev,
-            [sessionKey]: patchToolCallInMessages([...(prev[sessionKey] || [])], id, (tc) => ({
-              ...tc,
-              status: 'running',
-              permissionOutcome: outcome,
-            })),
+          applyToolPatch(sessionKey, event.toolCallId, (tc) => ({
+            ...tc,
+            status: 'running',
+            permissionOutcome: outcome,
           }));
         }
         break;
@@ -1351,16 +1401,12 @@ export function useChat() {
         // riga: `awaiting_permission` + una richiesta tipizzata.
         if (event.toolCallId) {
           resetStreamTimeout(sessionKey);
-          const id = event.toolCallId;
           const request = event.request;
-          setMessages(prev => ({
-            ...prev,
-            [sessionKey]: patchToolCallInMessages([...(prev[sessionKey] || [])], id, (tc) => ({
-              ...tc,
-              status: 'awaiting_permission',
-              permissionRequest: request,
-              permissionOutcome: undefined,
-            })),
+          applyToolPatch(sessionKey, event.toolCallId, (tc) => ({
+            ...tc,
+            status: 'awaiting_permission',
+            permissionRequest: request,
+            permissionOutcome: undefined,
           }));
         }
         break;
@@ -1376,35 +1422,12 @@ export function useChat() {
         // provider, but it won't fire as long as a tool is open.
         if (event.toolCallId) {
           resetStreamTimeout(sessionKey);
-          setMessages(prev => {
-            const msgs = [...(prev[sessionKey] || [])];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
-                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
-                if (tcIdx >= 0) {
-                  const oldTc = msgs[i].toolCalls![tcIdx];
-                  const newTc: ToolCall = {
-                    ...oldTc,
-                    status: 'waiting_for_input',
-                    userInputSchema: event.schema,
-                  };
-                  const nextToolCalls = msgs[i].toolCalls!.slice();
-                  nextToolCalls[tcIdx] = newTc;
-                  let nextBlocks = msgs[i].blocks;
-                  if (nextBlocks) {
-                    nextBlocks = nextBlocks.map(b =>
-                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
-                        ? { kind: 'tool' as const, toolCall: newTc }
-                        : b,
-                    );
-                  }
-                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
-                  break;
-                }
-              }
-            }
-            return { ...prev, [sessionKey]: msgs };
-          });
+          const schema = event.schema;
+          applyToolPatch(sessionKey, event.toolCallId, oldTc => ({
+            ...oldTc,
+            status: 'waiting_for_input',
+            userInputSchema: schema,
+          }));
         }
         break;
 
@@ -1446,6 +1469,7 @@ export function useChat() {
 
       case 'stream:error':
         clearStreamTimeout(sessionKey);
+        streamMessageIdRef.current.end(sessionKey);
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
         if (event.error) {
@@ -1478,14 +1502,17 @@ export function useChat() {
         const cacheOnEnd: { msgs: ChatMessage[] | null } = { msgs: null };
         setMessages(prev => {
           const msgs = prev[sessionKey] || [];
-          const last = msgs[msgs.length - 1];
-          if (last?.role === 'assistant') {
+          // La bolla del TURNO, non «l'ultima»: a turno con sotto-agenti in coda
+          // può esserci il rapporto di uno di loro. Vedi `liveAssistantIndex`.
+          const at = liveAssistantIndex(msgs, streamMessageIdRef.current.get(sessionKey));
+          const last = at >= 0 ? msgs[at] : undefined;
+          if (last) {
             // Always run through the centralized cleaner so detection tracks the
             // full marker set; only rewrite if it actually changed something.
             const cleaned = cleanInvisibleMarkers(last.content);
             if (cleaned !== last.content) {
               const updated = [...msgs];
-              updated[msgs.length - 1] = { ...last, content: cleaned, partial: false };
+              updated[at] = { ...last, content: cleaned, partial: false };
               cacheOnEnd.msgs = updated;
               return { ...prev, [sessionKey]: updated };
             }
@@ -1521,6 +1548,11 @@ export function useChat() {
         // esattamente per questo che il freno è una bandiera a sé
         // (`holdQueue`): senza, premere «ferma» faceva PARTIRE il messaggio in
         // coda. Vedi `state/chatQueue.ts`.
+        // Il nome della riga in volo si dimentica QUI, non in cima al caso: la
+        // finalizzazione qui sopra (`partial:false`, durata, token, costo) deve
+        // ancora trovare la bolla giusta, e senza il nome ricadrebbe sull'ultimo
+        // messaggio — che a turno con sotto-agenti non è più lui.
+        streamMessageIdRef.current.end(sessionKey);
         drainTurnQueueRef.current?.(sessionKey);
         break;
 
@@ -1532,6 +1564,9 @@ export function useChat() {
         // `streamCatchupMerge.ts` so it can be unit-tested without React.
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey);
+        // Chi si attacca a turno già iniziato non ha visto `stream:start`: il
+        // nome della riga in volo glielo dice il catchup, ed è lo stesso.
+        if (event.messageId) streamMessageIdRef.current.begin(sessionKey, event.messageId);
         if (event.isThinking) {
           setThinking(prev => ({ ...prev, [sessionKey]: true }));
         }
@@ -1567,7 +1602,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker, beginStreaming]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1624,6 +1659,11 @@ export function useChat() {
 
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
+    // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
+    // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
+    // turno precedente morto male è ormai il nome di una bolla morta, e le delta
+    // di questo turno ci finirebbero dentro invece che nel segnaposto qui sotto.
+    streamMessageIdRef.current.end(sessionKey);
 
     // Create AbortController for this session
     const abortController = new AbortController();
@@ -1639,11 +1679,11 @@ export function useChat() {
         timestamp: new Date().toISOString(),
       });
 
+      // La coda, non tutto. Il ramo legato a una topic legge solo l'ultimo
+      // elemento; quello senza topic usa `slice(0, -1)` come storia. Vedi
+      // `chatRequestPayload.ts` per il perché di ciascuna delle due regole.
       const sessionMessages = messagesRef.current[sessionKey] || [];
-      const apiMessages: Message[] = [
-        ...sessionMessages.map(msg => ({ role: msg.role, content: msg.content })),
-        { role: 'user', content }
-      ];
+      const apiMessages: Message[] = buildRequestMessages(sessionMessages, content);
 
       beginStreaming(sessionKey);
 
@@ -2191,6 +2231,11 @@ export function useChat() {
       updateLastMessage(sessionKey, { partial: false });
     }
 
+    // Il nome si dimentica DOPO la finalizzazione, per la stessa ragione di
+    // `stream:end`: la riga qui sopra deve ancora trovare la bolla del turno e
+    // non «l'ultima», che a turno con sotto-agenti non è più lei.
+    streamMessageIdRef.current.end(sessionKey);
+
     return clearedByServer;
   }, [updateLastMessage, dropEmptyTurn]);
 
@@ -2236,11 +2281,7 @@ export function useChat() {
       // local-only messages whose id isn't in the fetched set.
       setMessages(prev => {
         const existing = prev[sessionKey] || [];
-        const fetchedIds = new Set(chatMessages.map(m => m.id));
-        const localOnly = existing.filter(m => m.id && !fetchedIds.has(m.id));
-        const merged = localOnly.length > 0
-          ? [...chatMessages, ...localOnly]
-          : chatMessages;
+        const merged = mergeFetchedHistory(existing, chatMessages);
         // La storia che arriva è quasi sempre quella che è già a schermo: se lo
         // è, questa riga restituisce l'array PRECEDENTE e React salta il render
         // — niente ri-misura delle altezze, niente lista che si ri-assembla
@@ -2574,6 +2615,10 @@ export function useChat() {
     filteredMessagesCacheRef.current.delete(sessionKey);
     lastHistoryFetchAtRef.current.delete(sessionKey);
     hydratedSessionsRef.current.delete(sessionKey);
+    // Anche il nome della bolla in volo: i messaggi di questa sessione non ci
+    // sono più (svuotata, o sfrattata dallo spazzino), quindi quel nome non
+    // indica più niente e al rientro punterebbe a una riga che non esiste.
+    streamMessageIdRef.current.end(sessionKey);
   }, []);
 
   const clearSession = useCallback((sessionKey: string) => {

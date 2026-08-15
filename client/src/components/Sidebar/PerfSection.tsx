@@ -2,6 +2,7 @@ import { Activity, Cpu, MonitorSmartphone, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import { useT } from '@/hooks/useT';
 
 const SPARK_W = 288;
 const SPARK_H = 40;
@@ -76,6 +77,7 @@ function PerfStat({ label, value, color, title, className }: { label: string; va
  *   • PC — system load average + GPU hardware-acceleration status.
  */
 export function PerfSection() {
+  const tr = useT();
   const fps = useFps();
   const history = useFpsHistory();
   const perf = usePerfMetrics(true);
@@ -130,13 +132,13 @@ export function PerfSection() {
   const totalMemMB = mem ? mem.totalMB + (serverSideMemMB ?? 0) : serverSideMemMB;
   const memLabel = mem?.metric === 'footprint' ? 'footprint' : 'RSS';
   const serverSideTitle = fleet
-    ? `Somma RSS dei ${fleet.processCount} processi lato server: server Bun`
+    ? tr('perf.serverTitleFleet', { n: fleet.processCount })
       + fleet.roots
           .filter(r => r.kind !== 'server' && r.processCount > 0)
-          .map(r => ` + ${r.kind} (${r.processCount} proc., ${r.memoryMB} MB)`)
+          .map(r => tr('perf.serverTitleRoot', { kind: r.kind, procs: r.processCount, mb: r.memoryMB }))
           .join('')
-      + `${status?.server ? ` · heap del server ${status.server.heapUsedMB} MB` : ''}`
-    : `RSS del processo server Bun${status?.server ? ` · heap ${status.server.heapUsedMB} MB` : ''}`;
+      + `${status?.server ? tr('perf.serverTitleHeap', { mb: status.server.heapUsedMB }) : ''}`
+    : tr('perf.serverTitleSingle') + `${status?.server ? tr('perf.serverTitleHeapShort', { mb: status.server.heapUsedMB }) : ''}`;
 
   // How much of the footprint the OS has had to compress or swap out. Measured at
   // 6937 MB footprint against 610 MB resident with ~20 browser panes open — the
@@ -149,17 +151,17 @@ export function PerfSection() {
   // culprits, so the user reads it directly instead of being told.
   let verdict: { text: string; color: string } | null = null;
   if (perf && accelerated === false) {
-    verdict = { text: 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.', color: 'text-red-500' };
+    verdict = { text: tr('perf.verdict.noAccel'), color: 'text-red-500' };
   } else if (compressedMB > 2048) {
     verdict = {
-      text: `${(compressedMB / 1024).toFixed(1)} GB compressi o in swap. Chiudi qualche pannello browser.`,
+      text: tr('perf.verdict.compressed', { gb: (compressedMB / 1024).toFixed(1) }),
       color: 'text-amber-500',
     };
     // Soglia su scala 0-100 dell'intera macchina (vedi `usePerfMetrics`): metà
     // macchina presa dalla sola shell è già "sotto carico". Era `> 100`, che
     // aveva senso finché il numero era per-core e poteva arrivare a 1200.
   } else if (perf && (perf.cpu.total ?? 0) > 50) {
-    verdict = { text: 'Processo Topics sotto carico', color: 'text-amber-500' };
+    verdict = { text: tr('perf.verdict.loaded'), color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
   // already say it. The verdict only speaks up when there's a real problem.
@@ -191,7 +193,7 @@ export function PerfSection() {
             className="col-span-4"
             value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
-            title="CPU del processo shell di Topics · non include i processi WKWebView dei pannelli · può superare 100% (per core)"
+            title={tr('perf.cpuShellTitle')}
           />
         </div>
       )}
@@ -203,21 +205,21 @@ export function PerfSection() {
             value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
             title={[
-              `CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) · somma per-core, può superare 100% come in Activity Monitor`,
+              tr('perf.cpuAllTitle', { n: mem?.processCount ?? '?' }),
               perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
-                ? `misura su ${perf.cpu.sampled}/${perf.cpu.pids} processi: gli altri sono appena comparsi e non hanno ancora un delta`
+                ? tr('perf.cpuSampled', { sampled: perf.cpu.sampled, pids: perf.cpu.pids })
                 : null,
             ].filter(Boolean).join(' · ')}
           />
           <PerfStat
             label="Renderer"
             value={`${formatCpuPercent(perf.cpu.renderer)}%`}
-            title="CPU dei processi WKWebView di contenuto · uno per pannello browser"
+            title={tr('perf.cpuRendererTitle')}
           />
           <PerfStat
             label="GPU"
             value={`${formatCpuPercent(perf.cpu.gpu)}%`}
-            title="CPU del processo GPU/compositor di Topics"
+            title={tr('perf.cpuGpuTitle')}
           />
         </div>
       )}
@@ -238,14 +240,14 @@ export function PerfSection() {
       {fleet && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
-            label={`CPU lato server ×${serverSideProcs}`}
+            label={tr('perf.cpuServerSideLabel', { n: serverSideProcs })}
             className="col-span-4"
             value={`${formatCpuPercent(fleet.cpuPercent)}%`}
             color={fleet.cpuPercent > 50 ? 'text-amber-500' : 'text-app-text'}
-            title={`CPU del server e di tutto ciò che ne dipende, sui ${fleet.cpuCores} core della macchina${fleet.roots
+            title={tr('perf.cpuServerTitle', { cores: fleet.cpuCores }) + fleet.roots
               .filter(r => r.kind !== 'server' && r.cpuPercent > 0)
-              .map(r => ` · ${r.kind} ${r.cpuPercent}%`)
-              .join('')}`}
+              .map(r => tr('perf.cpuServerRoot', { kind: r.kind, pct: r.cpuPercent }))
+              .join('')}
           />
         </div>
       )}
@@ -256,18 +258,18 @@ export function PerfSection() {
       <div
         className="flex items-center justify-between px-0.5 pt-0.5"
         title={(isPartial
-          ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli).'
+          ? tr('perf.memShellTitle')
           : memLabel === 'footprint'
-            ? `Footprint di TUTTI i ${mem?.processCount ?? '?'} processi della shell (finestra + WKWebView dei pannelli) · lo stesso valore della colonna "Memoria" di Activity Monitor.`
-            : 'Memoria residente (RSS) dei processi della shell. Activity Monitor mostra un valore più alto (footprint).')
-          + ` PIÙ ${serverSideTitle.charAt(0).toLowerCase()}${serverSideTitle.slice(1)}.`}
+            ? tr('perf.memFootprintTitle', { n: mem?.processCount ?? '?' })
+            : tr('perf.memRssTitle'))
+          + tr('perf.memPlus', { rest: `${serverSideTitle.charAt(0).toLowerCase()}${serverSideTitle.slice(1)}` })}
       >
         <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <HardDrive size={12} /> Memoria{' '}
+          <HardDrive size={12} /> {tr('perf.memLabel')}{' '}
           <span className="text-[9px] opacity-60">
             {isPartial
-              ? `shell + ${serverSideProcs} lato server`
-              : `${(mem?.processCount ?? 0) + serverSideProcs} processi · ${memLabel} + RSS`}
+              ? tr('perf.memShellPlusServer', { n: serverSideProcs })
+              : tr('perf.memProcesses', { n: (mem?.processCount ?? 0) + serverSideProcs, metric: memLabel })}
           </span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
@@ -280,14 +282,14 @@ export function PerfSection() {
       {!isPartial && mem && (
         <div
           className="flex items-center justify-between px-0.5 text-[10px] text-app-text-muted"
-          title="Quanta di quella memoria è davvero nella RAM fisica adesso. Il resto lo ha compresso o spostato in swap il sistema: rientrarci costa tempo, ed è quello che fa scattare l'interfaccia."
+          title={tr('perf.residentTitle')}
         >
-          <span>di cui in RAM</span>
+          <span>{tr('perf.residentLabel')}</span>
           <span className="tabular-nums">
             {mem.residentMB} MB
             {compressedMB > 0 && (
               <span className={compressedMB > 2048 ? 'text-amber-500' : ''}>
-                {' '}· {compressedMB} MB compressi
+                {' '}· {tr('perf.compressed', { n: compressedMB })}
               </span>
             )}
           </span>
@@ -300,12 +302,12 @@ export function PerfSection() {
               label="Topics (shell)"
               className="col-span-2"
               value={`${mem.totalMB}MB`}
-              title="RSS del processo shell di Topics · i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)"
+              title={tr('perf.shellRssTitle')}
             />
             <PerfStat
-              label={fleet ? `Lato server ×${serverSideProcs}` : 'Server Bun'}
+              label={fleet ? tr('perf.serverSideLabel', { n: serverSideProcs }) : tr('perf.serverBun')}
               className="col-span-2"
-              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
+              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : tr('perf.na')}
               title={serverSideTitle}
             />
           </>
@@ -314,24 +316,24 @@ export function PerfSection() {
             <PerfStat
               label="Renderer"
               value={`${mem.rendererMB}MB`}
-              title="Memoria dei processi renderer · finestre e ogni pannello browser nativo"
+              title={tr('perf.memRendererTitle')}
             />
-            <PerfStat label="GPU" value={`${mem.gpuMB}MB`} title="Memoria del processo GPU/compositor" />
-            <PerfStat label="Altri" value={`${mem.otherMB}MB`} title="Processo main + utility (network, storage, audio)" />
+            <PerfStat label="GPU" value={`${mem.gpuMB}MB`} title={tr('perf.memGpuTitle')} />
+            <PerfStat label={tr('perf.otherLabel')} value={`${mem.otherMB}MB`} title={tr('perf.memOtherTitle')} />
             <PerfStat
-              label={fleet ? `Server ×${serverSideProcs}` : 'Server'}
-              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
+              label={fleet ? tr('perf.serverN', { n: serverSideProcs }) : tr('perf.server')}
+              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : tr('perf.na')}
               title={serverSideTitle}
             />
           </>
         ) : (
           <PerfStat
-            label={fleet ? `Lato server ×${serverSideProcs}` : 'Server'}
+            label={fleet ? tr('perf.serverSideLabel', { n: serverSideProcs }) : tr('perf.server')}
             className="col-span-4"
-            value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
+            value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : tr('perf.na')}
             title={fleet
-              ? serverSideTitle + " · in modalità web la memoria della shell non è disponibile"
-              : "In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server"}
+              ? serverSideTitle + tr('perf.webNoShellMem')
+              : tr('perf.webNoPerProcess')}
           />
         )}
       </div>
@@ -345,14 +347,14 @@ export function PerfSection() {
           {accelerated ? (
             <>
               <MonitorSmartphone size={11} className="text-emerald-500" />
-              <span className="text-app-text-muted">Accelerazione hardware</span>
-              <span className="text-emerald-500 font-medium ml-auto">attiva</span>
+              <span className="text-app-text-muted">{tr('perf.hwAccel')}</span>
+              <span className="text-emerald-500 font-medium ml-auto">{tr('perf.hwAccelOn')}</span>
             </>
           ) : (
             <>
               <Cpu size={11} className="text-red-500" />
-              <span className="text-app-text-muted">Rendering software</span>
-              <span className="text-red-500 font-medium ml-auto">no GPU</span>
+              <span className="text-app-text-muted">{tr('perf.softwareRendering')}</span>
+              <span className="text-red-500 font-medium ml-auto">{tr('perf.noGpu')}</span>
             </>
           )}
         </div>
@@ -364,7 +366,7 @@ export function PerfSection() {
         <div className="space-y-0.5 pt-0.5">
           <div className="flex items-center justify-between px-1.5">
             <span className="text-[9px] uppercase tracking-wide text-app-text-muted">Top CPU</span>
-            <span className="text-[9px] text-app-text-muted">sistema · per core</span>
+            <span className="text-[9px] text-app-text-muted">{tr('perf.topCpuScope')}</span>
           </div>
           {topByCommand.map(([command, { cpu, count, isTopics }]) => (
             <div key={command} className="flex items-center gap-2 px-1.5 py-0.5 rounded">

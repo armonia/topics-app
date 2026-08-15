@@ -164,3 +164,105 @@ describe('fusione della corsa', () => {
     expect(carrierById.size).toBe(0);
   });
 });
+
+/**
+ * L'IDENTITÀ DEGLI ITEM È LA PRESTAZIONE.
+ *
+ * `MessageBubble` è `memo`: salta il render solo se il messaggio che riceve è
+ * lo STESSO oggetto di prima. Rifondendo tutto a ogni token, ogni corsa già
+ * chiusa tornava come oggetto nuovo — quindi tutte le bolle di tool visibili si
+ * ridisegnavano a ogni frame di streaming, e nessun test se ne accorgeva perché
+ * il VALORE era giusto. Qui si prova il riferimento, che è la cosa che conta.
+ */
+describe('stabilità del riferimento fra due chiamate', () => {
+  /** La bolla viva: `partial`, quindi non si fonde mai — è la coda che cresce. */
+  const viva = (testo: string, id: string): ChatMessage =>
+    msg({ id, content: testo, partial: true });
+
+  it('la corsa già chiusa NON si riconia quando cresce solo la coda viva', () => {
+    const corsa = [azione('Read'), azione('Edit'), azione('Bash')];
+    const primo = coalesceToolRuns([...corsa, viva('ci sto', 'live')]);
+    const secondo = coalesceToolRuns([...corsa, viva('ci sto lavor', 'live')]);
+    expect(primo.items[0].toolCalls).toHaveLength(3);
+    expect(secondo.items[0]).toBe(primo.items[0]);
+    // …e la coda viva è l'unico item nuovo.
+    expect(secondo.items[1]).not.toBe(primo.items[1]);
+    expect(secondo.items).toHaveLength(2);
+  });
+
+  it('un messaggio nuovo in coda lascia intatti gli item di prima', () => {
+    const testa = [msg({ role: 'user', content: 'vai' }), azione('Read'), azione('Edit')];
+    const primo = coalesceToolRuns(testa);
+    const secondo = coalesceToolRuns([...testa, msg({ content: 'ecco' })]);
+    expect(secondo.items[0]).toBe(primo.items[0]);
+    expect(secondo.items[1]).toBe(primo.items[1]);
+    expect(secondo.items[2].content).toBe('ecco');
+  });
+
+  it('ma un\'azione nuova in coda RIAPRE la corsa: l\'item cresce, non si congela', () => {
+    const corsa = [azione('Read'), azione('Edit')];
+    const primo = coalesceToolRuns(corsa);
+    const secondo = coalesceToolRuns([...corsa, azione('Bash')]);
+    expect(secondo.items).toHaveLength(1);
+    expect(secondo.items[0].toolCalls).toHaveLength(3);
+    expect(secondo.items[0]).not.toBe(primo.items[0]);
+  });
+
+  it('la stessa lista due volte torna lo stesso identico risultato', () => {
+    const lista = [azione('Read'), azione('Edit'), msg({ content: 'fatto' })];
+    const primo = coalesceToolRuns(lista);
+    const secondo = coalesceToolRuns(lista);
+    expect(secondo.items).toBe(primo.items);
+    expect(secondo.carrierById).toBe(primo.carrierById);
+  });
+
+  it('la memoria non falsifica: cambiando la TESTA si rifonde tutto', () => {
+    const coda = [azione('Read'), azione('Edit')];
+    const primo = coalesceToolRuns([msg({ role: 'user', content: 'a' }), ...coda]);
+    const secondo = coalesceToolRuns([msg({ role: 'user', content: 'b' }), ...coda]);
+    expect(secondo.items[0].content).toBe('b');
+    expect(secondo.items[1].toolCalls).toHaveLength(2);
+    expect(secondo.items[1]).not.toBe(primo.items[1]);
+  });
+});
+
+/**
+ * LA MEMORIA HA UNA SCADENZA, non solo un tetto.
+ *
+ * Quattro voci limitano QUANTE, non PER QUANTO: ogni voce trattiene l'array dei
+ * messaggi, i portanti fusi e le mappe di un trascritto, e senza scadenza li
+ * teneva per la vita della pagina — anche di una pane chiusa un'ora fa o di una
+ * sessione che lo spazzino della residenza aveva già sfrattato.
+ *
+ * L'orologio si passa per argomento: la scadenza si prova solo se si può far
+ * passare il tempo senza aspettarlo.
+ */
+describe('scadenza della memoria', () => {
+  const T0 = 1_800_000_000_000;
+  const MINUTO = 60_000;
+
+  it('un trascritto che nessuno disegna da un minuto viene lasciato andare', () => {
+    const corsa = [azione('Read'), azione('Bash')];
+    const primo = coalesceToolRuns(corsa, T0);
+    // Stessa chiamata, stesso istante: è la memoria che risponde.
+    expect(coalesceToolRuns(corsa, T0).items).toBe(primo.items);
+
+    // Passa il minuto e disegna QUALCUN ALTRO: la voce vecchia se ne va.
+    coalesceToolRuns([azione('Grep')], T0 + MINUTO + 1);
+
+    const dopo = coalesceToolRuns(corsa, T0 + MINUTO + 1);
+    expect(dopo.items).not.toBe(primo.items);
+    // E il risultato è lo stesso: si è pagata una ricostruzione, non un errore.
+    expect(dopo.items.length).toBe(1);
+    expect(dopo.items[0].toolCalls?.length).toBe(2);
+  });
+
+  it('la scadenza si misura dall’ULTIMO disegno, non dalla nascita', () => {
+    const corsa = [azione('Read'), azione('Bash')];
+    const primo = coalesceToolRuns(corsa, T0);
+    // Disegnata di continuo: a schermo il chiamante ripassa a ogni frame.
+    coalesceToolRuns(corsa, T0 + MINUTO - 1);
+    const tardi = coalesceToolRuns(corsa, T0 + 2 * MINUTO - 2);
+    expect(tardi.items).toBe(primo.items);
+  });
+});

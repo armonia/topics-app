@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createBurstCoalescer, latestWins } from './burstCoalescer';
+import { createBurstCoalescer, createCoalescedReader, latestWins } from './burstCoalescer';
 
 /** A hand-driven clock: the test decides when a window expires. */
 function fakeClock() {
@@ -128,5 +128,66 @@ describe('latestWins', () => {
     await guarded(() => Promise.resolve('a'));
     await guarded(() => Promise.resolve('b'));
     expect(written).toEqual(['a', 'b']);
+  });
+});
+
+describe('createCoalescedReader', () => {
+  test('a burst of 10 events costs two reads', () => {
+    const clock = fakeClock();
+    let loads = 0;
+    const r = createCoalescedReader<number>({
+      windowMs: 400,
+      load: async () => ++loads,
+      apply: () => {},
+      schedule: clock.schedule, cancel: clock.cancel,
+    });
+    for (let i = 0; i < 10; i++) r.trigger();
+    expect(loads).toBe(1);
+    clock.tick();
+    expect(loads).toBe(2);
+  });
+
+  test('two reads coming back INVERTED leave the later-issued one in the store', async () => {
+    // The read that was issued FIRST answers LAST. Whoever writes last wins, so
+    // without the guard the board keeps the older snapshot and no later event
+    // exists to correct it: this is the state that sticks.
+    const clock = fakeClock();
+    const store: string[] = [];
+    let unblockOld: (v: string) => void = () => {};
+    const old = new Promise<string>((res) => { unblockOld = res; });
+    const answers = [() => old, () => Promise.resolve('new')];
+    let issued = 0;
+    const r = createCoalescedReader<string>({
+      windowMs: 400,
+      load: () => answers[issued++](),
+      apply: (v) => { store.push(v); },
+      schedule: clock.schedule, cancel: clock.cancel,
+    });
+
+    r.trigger();          // read 1: slow
+    r.trigger();          // queued
+    clock.tick();         // read 2: fast, answers immediately
+    await Promise.resolve();
+    unblockOld('old');    // read 1 answers now, out of order
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store).toEqual(['new']);
+  });
+
+  test('dispose kills the tail: an unmounted reader does not write', () => {
+    const clock = fakeClock();
+    let loads = 0;
+    const r = createCoalescedReader<number>({
+      windowMs: 400,
+      load: async () => ++loads,
+      apply: () => {},
+      schedule: clock.schedule, cancel: clock.cancel,
+    });
+    r.trigger();
+    r.trigger();
+    r.dispose();
+    clock.tick();
+    expect(loads).toBe(1);
   });
 });

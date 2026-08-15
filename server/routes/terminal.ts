@@ -111,6 +111,25 @@ const sessionSockets = new Map<string, Set<any>>();
 // same session (double right-click → "Ricarica", two clients) that would race the
 // kill→recreate sequence.
 const reloadingSessionIds = new Set<string>();
+// Same guard for POST /revive, and it is not optional decoration. `/revive` had
+// none, so two clients clicking the dormant tab together (or a client retrying a
+// slow request) both passed the `status = 'dormant'` read and both called
+// `createSession` for the SAME id: two PTYs, one map entry. The bridge `exit`
+// frame is keyed by id alone, with no pid or generation, so the FIRST of the two
+// to die tore down the survivor — closing its sockets and deleting its row — and
+// the surviving PTY then existed in neither the session map nor the DB.
+//
+// It holds the in-flight PROMISE, not just the id, and that is the whole
+// difference: the loser AWAITS the winner and gets the same session back. When
+// this was a Set the loser got a 409, which no caller could tell apart from a
+// real failure — `closedTabRecord.reopenClosedTab` fell through to
+// `POST /api/terminal/sessions` and minted a SECOND terminal (the "two tabs, one
+// full one empty" duplication its own comment warns about), and
+// `SingleTerminalPane`'s auto-revive gave up and left the "Sessione scaduta"
+// overlay on a session that was coming back at that very moment, with nothing to
+// re-trigger it. Serialisation is a server-side concern; making every client
+// implement a retry for it is how one of them gets it wrong.
+const revivingSessions = new Map<string, Promise<TerminalSession>>();
 
 // A sub-agent spawned FROM a topic chat (its `parentSessionKey` is `topic:<id>`)
 // exits with no one watching: the chat turn that launched it completed long ago,
@@ -751,8 +770,22 @@ const pendingCreates = new Map<string, { resolve: (pid: number) => void; reject:
 
 function awaitBridgeCreate(id: string, timeoutMs = 5000): Promise<number> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    // A second create for the same id used to overwrite the entry and LEAK its
+    // timer: the first waiter never resolved nor rejected (its map entry was
+    // gone), and its orphan timer later fired a `pendingCreates.delete(id)` that
+    // stole the ack belonging to the SECOND create. Fail the earlier waiter
+    // explicitly and clear its timer, so at most one create is outstanding per
+    // id and the caller sees a real error instead of a hang.
+    const prev = pendingCreates.get(id);
+    if (prev) {
+      clearTimeout(prev.timer);
       pendingCreates.delete(id);
+      prev.reject(new Error(`Superseded by a newer create for session ${id}`));
+    }
+    const timer = setTimeout(() => {
+      // Only drop the entry if it is still OURS: a later create may have
+      // replaced it between the timer firing and this line.
+      if (pendingCreates.get(id)?.timer === timer) pendingCreates.delete(id);
       reject(new Error(`Bridge did not ack create within ${timeoutMs}ms`));
     }, timeoutMs);
     pendingCreates.set(id, { resolve, reject, timer });
@@ -802,7 +835,11 @@ function handleBridgeMessage(msg: any) {
       break;
     }
     case "error": {
-      consecutiveSpawnErrors++;
+      // `exists` is the bridge refusing a SECOND create for an id it already
+      // has (the double /revive). Its PTY layer is perfectly healthy, so it
+      // must not feed the circuit breaker: three of these would recycle the
+      // bridge and take every live terminal down with it.
+      if (msg.code !== "exists") consecutiveSpawnErrors++;
       // Failed creates: surface to whoever was awaiting that id, if
       // any. The bridge sends `{type:'error', error, id?}` from the
       // catch block in handleMessage — but it doesn't know the id, so
@@ -2362,6 +2399,14 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         body.type === 'opencode' ? 'opencode' : 'shell';
       const skipPermissions = body.skipPermissions !== false;
       const claudeSessionId = resumeIdForNewSession(body.claudeSessionId, sessionType);
+      // `command` E' ESECUZIONE ARBITRARIA: createSession lo spezza e lo passa
+      // al bridge come file + argv. Questa rotta non aveva nessun cancello,
+      // mentre ogni rotta che si limita a LEGGERE lo scrollback ne ha uno; e il
+      // server ascolta su 0.0.0.0, quindi era una shell per chiunque fosse sulla
+      // LAN. Il cancello e' sul `command` e non sulla rotta intera perche' la UI
+      // apre le sue tab senza (una shell di login, `claude`, `codex`) e chiuderla
+      // del tutto vorrebbe dire un token nel client.
+      if (command && !agentAuthOk(req)) return errorResponse(401, "unauthorized");
 
       try {
         await ensureBridge();
@@ -2525,9 +2570,36 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     const reviveMatch = matchRoute(pathname, "/api/terminal/sessions/:id/revive");
     if (method === "POST" && reviveMatch) {
       const db = getDatabase();
+      // Already awake: answer with the live session instead of building a second
+      // PTY over it. A revive is idempotent from the caller's point of view, and
+      // the losing client of a double-click must not be told "not found" for a
+      // tab that is right there.
+      const revivedShape = (s: TerminalSession) => ({
+        id: s.id, name: s.name, cwd: s.cwd,
+        command: s.command, type: s.type,
+        claudeSessionId: s.claudeSessionId || null,
+      });
+      const already = sessions.get(reviveMatch.id);
+      if (already) return json(revivedShape(already));
+
+      // Serialize on the id: see `revivingSessions`. The loser does NOT get a
+      // 409 — it awaits the winner and answers with the same session. One
+      // double-click must produce ONE terminal, and the scrollback is the
+      // winner's PTY, not a fresh one.
+      const inFlight = revivingSessions.get(reviveMatch.id);
+      if (inFlight) {
+        try {
+          return json(revivedShape(await inFlight));
+        } catch (err: any) {
+          return errorResponse(500, `Failed to revive session: ${err.message}`);
+        }
+      }
       const row = db.query("SELECT * FROM terminal_sessions WHERE id = ? AND status = 'dormant'").get(reviveMatch.id) as any;
       if (!row) return errorResponse(404, "Dormant session not found");
-      try {
+      // Registered BEFORE the first await: between here and the bridge ack there
+      // is nothing to serialise on otherwise, and that window is exactly where
+      // the double click lands.
+      const revival = (async (): Promise<TerminalSession> => {
         await ensureBridge();
         const session = await createSession(
           row.id, row.name, row.cwd, undefined,
@@ -2542,13 +2614,15 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // Mark as active
         try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch {}
         broadcastTerminalSessions();
-        return json({
-          id: session.id, name: session.name, cwd: session.cwd,
-          command: session.command, type: session.type,
-          claudeSessionId: session.claudeSessionId || null,
-        });
+        return session;
+      })();
+      revivingSessions.set(reviveMatch.id, revival);
+      try {
+        return json(revivedShape(await revival));
       } catch (err: any) {
         return errorResponse(500, `Failed to revive session: ${err.message}`);
+      } finally {
+        revivingSessions.delete(reviveMatch.id);
       }
     }
 

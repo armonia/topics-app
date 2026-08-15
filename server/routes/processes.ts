@@ -54,6 +54,13 @@ interface ScriptProcess {
    *  arriva dai `BashOutput` dello stream, il pid dall'albero del CLI (3.5).
    *  Defaults to 'script'. */
   source?: "script" | "detected" | "shell";
+  /**
+   * `ps -o lstart=` del pid, catturato allo spawn. E' l'IDENTITA' del processo,
+   * non un dettaglio: un pid da solo viene riciclato dal sistema, e riadottarlo
+   * al boot per numero significa appendere il bottone Stop a un estraneo. Vedi
+   * `readoptVerdict`. Persistito accanto al pid.
+   */
+  pidLstart?: string;
   /** Solo per `source: 'shell'`. */
   shell?: {
     /** L'id che il CLI usa nei suoi `BashOutput`/`KillShell`. */
@@ -85,6 +92,8 @@ interface PersistedScript {
   projectPath: string;
   status: "running" | "done" | "error";
   pid: number | null;
+  /** Vedi `ScriptProcess.pidLstart`. Assente nei file scritti prima del fix. */
+  pidLstart?: string;
   startedAt: string;
   completedAt?: string;
   exitCode?: number;
@@ -122,12 +131,12 @@ function saveState() {
     // sistema, e ci si appenderebbe un bottone «Stop».
     running: Array.from(runningScripts.values()).filter(sp => !sp.source || sp.source === "script").map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
-      projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
+      projectPath: sp.projectPath, status: sp.status, pid: sp.pid, pidLstart: sp.pidLstart,
       startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
     })),
     recent: recentScripts.map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
-      projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
+      projectPath: sp.projectPath, status: sp.status, pid: sp.pid, pidLstart: sp.pidLstart,
       startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
     })),
   };
@@ -166,7 +175,7 @@ function loadState() {
     // Check if the PID is still alive. If yes, re-adopt; if no, mark as error.
     if (Array.isArray(data.running)) {
       for (const r of data.running as PersistedScript[]) {
-        if (r.pid && isPidAlive(r.pid)) {
+        if (readoptVerdict({ pid: r.pid, pidLstart: r.pidLstart, probe: pidStartTime }) === "adopt") {
           // Process is still alive — re-track it (we can't re-capture stdout,
           // but we can track its PID for port detection and stop)
           const sp: ScriptProcess = {
@@ -242,6 +251,52 @@ function loadState() {
       }
     } catch {}
   } catch {}
+}
+
+/**
+ * `ps -o lstart=` per un pid, sincrono. `undefined` se il pid non c'e' piu'.
+ *
+ * Sincrono perche' `loadState()` gira all'import, prima che esista un event
+ * loop a cui appendere una promise, ed e' un solo `ps` per script riadottato.
+ * `getPidStartTimes` e' il gemello asincrono e in blocco della strada di kill.
+ */
+function pidStartTime(pid: number): string | undefined {
+  try {
+    const result = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]);
+    const out = new TextDecoder().decode(result.stdout).trim();
+    return out || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Riadottare o no uno script `running` letto dal disco.
+ *
+ * IL PID DA SOLO NON E' UN'IDENTITA'. Il server puo' restare giu' ore, e in
+ * quel tempo il sistema ricicla i numeri: riadottare per numero significa
+ * mettere in pannello un processo di qualcun altro con sopra un bottone Stop
+ * che gli manda SIGTERM. Il commento di `saveState` nomina questo pericolo da
+ * sempre; qui c'e' la difesa. Lo stesso disambiguatore (`lstart`) che la strada
+ * di kill usa per il SIGKILL ritardato.
+ *
+ * Senza timbro si RINUNCIA, e non e' pignoleria: uno stato scritto prima del
+ * fix non puo' dimostrare la propria identita', e sbagliare verso qui vuol dire
+ * ammazzare un estraneo. Costa una riga «error» per un boot solo.
+ *
+ * Puro (la sonda si passa) perche' la corsa che descrive non si riproduce: un
+ * pid riciclato non si fabbrica a comando.
+ */
+export function readoptVerdict(args: {
+  pid: number | null | undefined;
+  pidLstart?: string;
+  probe: (pid: number) => string | undefined;
+}): "adopt" | "dead" {
+  if (!args.pid || args.pid <= 0) return "dead";
+  const live = args.probe(args.pid);
+  if (live === undefined) return "dead"; // il pid non esiste piu'
+  if (!args.pidLstart) return "dead";    // non possiamo provare che sia lo stesso
+  return live === args.pidLstart ? "adopt" : "dead";
 }
 
 function isPidAlive(pid: number): boolean {
@@ -360,9 +415,9 @@ let _procTableAt = 0;
 let _childrenByPpid: Map<number, number[]> = new Map();
 const PROC_TABLE_TTL = 2000;
 
-async function getProcTable(): Promise<Map<number, number[]>> {
+async function getProcTable(fresh = false): Promise<Map<number, number[]>> {
   const now = Date.now();
-  if (now - _procTableAt < PROC_TABLE_TTL && _childrenByPpid.size) return _childrenByPpid;
+  if (!fresh && now - _procTableAt < PROC_TABLE_TTL && _childrenByPpid.size) return _childrenByPpid;
   const children = new Map<number, number[]>();
   try {
     const proc = Bun.spawn(["ps", "-axo", "pid=,ppid="], { stdout: "pipe", stderr: "ignore" });
@@ -381,8 +436,19 @@ async function getProcTable(): Promise<Map<number, number[]>> {
   return _childrenByPpid;
 }
 
-async function getDescendantPids(pid: number): Promise<Set<number>> {
-  const children = await getProcTable();
+/**
+ * `fresh: true` = ristampa la tabella dei processi invece di riusarne una vecchia
+ * fino a 2 secondi.
+ *
+ * La cache esiste per il DETECTOR, che gira ogni pochi secondi e non ha fretta.
+ * Chi sta per uccidere un albero sì: un discendente nato dentro quella finestra
+ * (ed è la finestra in cui nascono — si spegne un server proprio mentre sta
+ * finendo di tirare su i suoi lavoratori) non compare nella tabella vecchia, non
+ * riceve nessun segnale e resta vivo con la sua porta occupata. Una `ps` in più
+ * per ogni kill è un prezzo che si paga volentieri.
+ */
+export async function getDescendantPids(pid: number, opts?: { fresh?: boolean }): Promise<Set<number>> {
+  const children = await getProcTable(opts?.fresh === true);
   const out = new Set<number>([pid]);
   const stack = [pid];
   while (stack.length) {
@@ -607,10 +673,17 @@ function broadcastScriptsUpdate(ctx: AppContext) {
 // human can see/kill it. Registered as a `script` entry (not `detected`, which
 // the detector reconcile would reap) keyed by task, so teardown removes exactly
 // one. Ports fill in via the lsof-by-pid path on the HTTP serialize.
-const previewProcessKey = (taskId: string) => `preview:${taskId.slice(0, 8)}`;
+// CHIAVE = task + PORTA. Con la sola parte del task, una seconda accensione
+// (porta diversa, per esempio dopo che la prima si era prosciugata) SOVRASCRIVEVA
+// la riga che teneva il pid vecchio: quel processo restava vivo senza nessuna
+// riga, quindi senza bottone Stop e senza nessuno che lo spazzasse, con la sua
+// porta occupata per sempre. Il prefisso resta comune cosi' `unregister` puo'
+// togliere ogni accensione dello stesso task.
+const previewProcessPrefix = (taskId: string) => `preview:${taskId.slice(0, 8)}:`;
+const previewProcessKey = (taskId: string, port: number) => `${previewProcessPrefix(taskId)}${port}`;
 
 export function registerPreviewProcess(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void {
-  const processId = previewProcessKey(entry.taskId);
+  const processId = previewProcessKey(entry.taskId, entry.port);
   runningScripts.set(processId, {
     processId,
     scriptName: `preview :${entry.port}`,
@@ -618,6 +691,7 @@ export function registerPreviewProcess(entry: { taskId: string; port: number; pi
     projectPath: entry.cwd,
     status: "running",
     pid: entry.pid,
+    pidLstart: entry.pid ? pidStartTime(entry.pid) : undefined,
     startedAt: new Date().toISOString(),
     output: [`[anteprima task ${entry.taskId.slice(0, 8)} · http://localhost:${entry.port}]`],
     outputBytes: 0,
@@ -628,8 +702,49 @@ export function registerPreviewProcess(entry: { taskId: string; port: number; pi
   if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
 }
 
+/**
+ * I pid che il pannello Processi RIVENDICA, coi loro discendenti.
+ *
+ * A cosa serve: la spazzata delle anteprime cammina le 51 porte del pool e
+ * chiude chi ci ascolta se il suo cwd è un worktree conosciuto. Un dev server
+ * che un agente ha acceso nel proprio worktree con `run_script` risponde parola
+ * per parola a quella descrizione, e senza questo elenco la spazzata non poteva
+ * distinguerlo da un residuo: il pannello lo mostra con un bottone Stop, cioè
+ * qualcuno lo sta guardando.
+ *
+ * I DISCENDENTI e non solo il pid registrato: chi ascolta sulla porta è quasi
+ * sempre un figlio del lanciatore (`bun run dev` → server), quindi confrontare
+ * il solo pid registrato con il listener non avrebbe protetto quasi niente.
+ *
+ * Le anteprime NON entrano: sono proprio ciò che la spazzata esiste per
+ * raccogliere, e proteggerle vorrebbe dire non spazzare mai.
+ */
+export async function trackedScriptPidTrees(): Promise<Set<number>> {
+  const out = new Set<number>();
+  for (const [processId, sp] of runningScripts) {
+    if (processId.startsWith("preview:")) continue;
+    if (sp.status !== "running" || !sp.pid || sp.pid <= 0) continue;
+    out.add(sp.pid);
+    try { for (const p of await getDescendantPids(sp.pid)) out.add(p); }
+    catch { /* la tabella dei processi è best-effort: resta il pid registrato */ }
+  }
+  return out;
+}
+
 export function unregisterPreviewProcess(taskId: string): void {
-  if (runningScripts.delete(previewProcessKey(taskId))) {
+  // OGNI accensione del task, non solo l'ultima: la chiave porta la porta, e una
+  // riga rimasta indietro sarebbe un processo vivo che nessuno ritira.
+  const prefix = previewProcessPrefix(taskId);
+  let removed = false;
+  for (const key of Array.from(runningScripts.keys())) {
+    // `preview:<8>` senza porta e' la forma vecchia, ancora possibile in uno
+    // stato scritto prima del cambio di chiave: si toglie lo stesso.
+    if (key === prefix.slice(0, -1) || key.startsWith(prefix)) {
+      runningScripts.delete(key);
+      removed = true;
+    }
+  }
+  if (removed) {
     saveState();
     if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
   }
@@ -935,6 +1050,72 @@ export async function sweepOrphanedShellTree(
   }, 5000);
 }
 
+/**
+ * SIGTERM a un pid e a tutti i suoi DISCENDENTI, poi un SIGKILL protetto
+ * dall'identita' dopo la grazia.
+ *
+ * PERCHE' ESPORTATA. Chi spawna `bun run dev` non uccide il server: quel figlio
+ * e' un lanciatore, e chi ASCOLTA sulla porta e' un suo discendente. Un
+ * `proc.kill()` sul solo wrapper lascia il vero server in piedi con la porta
+ * occupata — e' cosi' che il pool delle anteprime si prosciugava, finche' una
+ * card in review non aveva piu' una porta su cui nascere. La stessa forma della
+ * strada di Stop del pannello (`killRunningScript`) e dello sweep delle shell:
+ * discendenti, SIGTERM, poi SIGKILL solo su chi e' ancora la STESSA incarnazione
+ * (un pid puo' essere riciclato dentro i 5 secondi di grazia).
+ *
+ * Non lancia mai: chiuderne uno solo e' meglio di non chiuderne nessuno.
+ */
+export interface KillTreeDeps {
+  /** L'albero da colpire. Deve leggere una tabella FRESCA (vedi sotto). */
+  descendants(pid: number): Promise<Set<number>>;
+  startTimes(pids: number[]): Promise<Map<number, string>>;
+  signal(pid: number, sig: "SIGTERM" | "SIGKILL"): void;
+  /** Ritorna la maniglia del timer: chi la usa deve poterla staccare dal loop. */
+  defer(fn: () => void, ms: number): { unref?: () => void };
+}
+
+/** Il corpo di `killProcessTree`, con le primitive iniettate (test). */
+export async function killProcessTreeWith(pid: number, graceMs: number, deps: KillTreeDeps): Promise<void> {
+  if (!pid || pid <= 0) return;
+  let pids: number[];
+  try {
+    pids = [...await deps.descendants(pid)];
+  } catch {
+    pids = [pid];
+  }
+  if (!pids.includes(pid)) pids.push(pid);
+  // L'identita' si cattura PRIMA del segnale: dopo la grazia il numero da solo
+  // puo' essere di un altro processo.
+  const identity = await deps.startTimes(pids);
+  for (const p of pids) { try { deps.signal(p, "SIGTERM"); } catch { /* gia' morto */ } }
+  // UNREF. Il SIGKILL ritardato è una cortesia, non un impegno: un timer
+  // referenziato tiene sveglio l'event loop per tutta la grazia a OGNI chiamata,
+  // e `teardownAll()` allo spegnimento ne accende uno per anteprima — cinque
+  // secondi di ritardo sullo shutdown per un segnale che, se il processo se ne
+  // va prima, non serviva a nessuno.
+  const timer = deps.defer(async () => {
+    const still = await deps.startTimes(pids);
+    for (const p of pids) {
+      const then = identity.get(p);
+      if (then && still.get(p) === then) {
+        try { deps.signal(p, "SIGKILL"); } catch { /* uscito nel grace */ }
+      }
+    }
+  }, graceMs);
+  timer.unref?.();
+}
+
+export async function killProcessTree(pid: number, graceMs = 5000): Promise<void> {
+  return killProcessTreeWith(pid, graceMs, {
+    // FRESCA: un discendente nato negli ultimi 2 secondi non sta nella tabella
+    // in cache, e senza questa riga non riceveva nessun segnale.
+    descendants: (p) => getDescendantPids(p, { fresh: true }),
+    startTimes: getPidStartTimes,
+    signal: (p, sig) => { process.kill(p, sig); },
+    defer: (fn, ms) => setTimeout(fn, ms),
+  });
+}
+
 // ── Auto-detection of servers started inside Claude PTY sessions ──────────────
 // Claude often starts a dev server with a bare shell command (`bun run dev`)
 // instead of the run_script MCP tool. That process is a descendant of the
@@ -1229,6 +1410,10 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       projectPath,
       status: "running",
       pid: proc.pid,
+      // Timbrato allo spawn, finche' il processo e' certamente nostro: dopo un
+      // riavvio del server questo e' l'unico modo di sapere che il pid sul
+      // disco e' ancora la stessa incarnazione. Vedi `readoptVerdict`.
+      pidLstart: pidStartTime(proc.pid),
       startedAt: new Date().toISOString(),
       output: [],
       outputBytes: 0,

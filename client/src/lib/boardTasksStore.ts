@@ -21,11 +21,23 @@ import { useSyncExternalStore } from 'react';
 import type { BoardTask } from './board';
 
 let tasks: readonly BoardTask[] = [];
+let loaded = false;
 const listeners = new Set<() => void>();
 
 /** La lista, o quella vuota finché la prima lettura non è tornata. */
 export function getBoardTasks(): readonly BoardTask[] {
   return tasks;
+}
+
+/**
+ * `false` = nessuna lettura è ancora tornata, quindi la lista vuota qui sopra
+ * significa «non lo so», non «non ci sono task». Chi disegna un numero può
+ * ignorare la differenza; chi disegna una BOARD no: senza questo, aprirla
+ * mostrava le colonne vuote per il tempo della prima fetch invece del giro
+ * d'attesa.
+ */
+export function hasLoadedBoardTasks(): boolean {
+  return loaded;
 }
 
 /**
@@ -36,7 +48,41 @@ export function getBoardTasks(): readonly BoardTask[] {
  */
 export function setBoardTasks(next: readonly BoardTask[]): void {
   tasks = next;
+  loaded = true;
   listeners.forEach((cb) => cb());
+}
+
+/**
+ * Una lettura è TORNATA, ma a mani vuote (rete giù, server che riparte).
+ *
+ * Serve perché «non ho ancora letto» e «ho letto e non c'è niente» disegnano
+ * due cose diverse: senza questo, una board che aspetta la prima lettura
+ * filerebbe per sempre sul giro d'attesa invece di mostrare le colonne. Il
+ * prossimo evento (o la riconnessione) la riempie.
+ */
+export function markBoardTasksSettled(): void {
+  if (loaded) return;
+  loaded = true;
+  listeners.forEach((cb) => cb());
+}
+
+/**
+ * La patch OTTIMISTA di una riga sola, da chi l'ha appena scritta al server.
+ *
+ * Passa da qui e non da una copia locale della superficie: da quando la board
+ * generale legge queste righe, una copia locale verrebbe sovrascritta dalla
+ * prima rilettura del feed — e nel frattempo le due superfici mostrerebbero la
+ * stessa card in due colonne diverse. Un id che non c'è non sveglia nessuno.
+ */
+export function patchBoardTask(id: string, patch: Partial<BoardTask>): void {
+  let hit = false;
+  const next = tasks.map((t) => {
+    if (t.id !== id) return t;
+    hit = true;
+    return { ...t, ...patch };
+  });
+  if (!hit) return;
+  setBoardTasks(next);
 }
 
 export function subscribeBoardTasks(cb: () => void): () => void {
@@ -44,7 +90,41 @@ export function subscribeBoardTasks(cb: () => void): () => void {
   return () => { listeners.delete(cb); };
 }
 
+/**
+ * Il proprietario del feed registra qui la sua rilettura, così un LETTORE può
+ * chiederne una senza aprire una seconda fetch (che è esattamente ciò che
+ * questo store esiste per impedire): la richiesta finisce nel coalescer del
+ * proprietario, quindi una raffica di richiedenti costa comunque una lettura.
+ *
+ * Senza proprietario montato non succede niente, ed è la risposta giusta: chi
+ * chiede è una superficie che al massimo resta ferma un momento in più.
+ */
+let refresher: (() => void) | null = null;
+
+/** Ritorna la disiscrizione: sgancia SOLO se il proprietario è ancora questo. */
+export function setBoardTasksRefresher(fn: () => void): () => void {
+  refresher = fn;
+  return () => { if (refresher === fn) refresher = null; };
+}
+
+export function requestBoardTasksRefresh(): void {
+  refresher?.();
+}
+
+/** Solo per i test: riporta lo store allo stato di boot. */
+export function __resetBoardTasks(): void {
+  tasks = [];
+  loaded = false;
+  refresher = null;
+  listeners.clear();
+}
+
 /** Le righe della board, reattive. */
 export function useBoardTasks(): readonly BoardTask[] {
   return useSyncExternalStore(subscribeBoardTasks, getBoardTasks, getBoardTasks);
+}
+
+/** «La prima lettura è tornata?», reattivo (vedi `hasLoadedBoardTasks`). */
+export function useBoardTasksLoaded(): boolean {
+  return useSyncExternalStore(subscribeBoardTasks, hasLoadedBoardTasks, hasLoadedBoardTasks);
 }

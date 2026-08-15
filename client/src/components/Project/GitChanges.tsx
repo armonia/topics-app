@@ -86,10 +86,11 @@ function fileTitle(file: { path: string; origPath?: string }): string {
  * rumore che occupa lo spazio di un'informazione.
  */
 function LineStat({ file, group }: { file: GitFile; group: 'staged' | 'unstaged' | 'conflicted' }) {
+  const tr = useT();
   const s = group === 'staged' ? file.staged : file.unstaged;
   if (!s) return null;
   if (s.binary) {
-    return <span className="text-[10px] text-app-text-muted flex-shrink-0 tabular-nums" title="File binario: git non conta le righe">bin</span>;
+    return <span className="text-[10px] text-app-text-muted flex-shrink-0 tabular-nums" title={tr('git.binaryNoLines')}>bin</span>;
   }
   if (!s.added && !s.removed) return null;
   return (
@@ -1000,7 +1001,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 aria-expanded={showStoria}
                 data-testid="git-history-button"
                 className={`w-5 h-5 inline-flex items-center justify-center rounded hover:bg-app-hover transition-colors flex-shrink-0 ${showStoria ? 'text-primary bg-primary/10' : 'text-app-text-tertiary'}`}
-                title="Cronologia dei commit"
+                title={tr('git.history.title')}
               >
                 <History size={12} />
               </button>
@@ -1172,7 +1173,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       // sapeva già; questo no, e rispondeva comunque.
                       disabled={generatingMsg || stagedFiles.length === 0}
                       className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-muted hover:text-primary transition-colors disabled:opacity-40 flex-shrink-0"
-                      title={stagedFiles.length === 0 ? 'Niente in stage da descrivere' : 'Scrivi il messaggio dalle modifiche in stage'}
+                      title={stagedFiles.length === 0 ? tr('git.commitMsg.nothingStaged') : tr('git.commitMsg.writeFromStaged')}
                     >
                       {generatingMsg ? (
                         <Spinner size="sm" />
@@ -1205,12 +1206,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     >
                       <AlertCircle size={11} className="flex-shrink-0 mt-[1px]" />
                       <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono">
-                        Commit non riuscito, niente è stato committato. {commitError}
+                        {tr('git.commitFailed')} {commitError}
                       </span>
                       <button
                         onClick={() => setCommitError(null)}
                         className="flex-shrink-0 p-0.5 rounded hover:bg-red-500/20"
-                        title="Nascondi"
+                        title={tr('git.dismiss')}
                       >
                         <X size={10} />
                       </button>
@@ -1221,7 +1222,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       descrizione, ed è esattamente per questo che va detto. */}
                   {msgSource === 'rules' && (
                     <div data-testid="commit-message-source" className="px-2 pb-1 text-[10px] text-app-text-muted flex-shrink-0">
-                      dalle regole, nessun modello collegato
+                      {tr('git.msgFromRules')}
                     </div>
                   )}
 
@@ -1267,7 +1268,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           <div
             ref={storiaPopRef}
             role="dialog"
-            aria-label="Cronologia dei commit"
+            aria-label={tr('git.history.title')}
             data-testid="git-history-popover"
             className={`fixed w-64 overflow-hidden flex flex-col ${POPOVER_PANEL}`}
             style={{
@@ -1512,7 +1513,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 onClick={handleGenerateMessage}
                 disabled={generatingMsg || fullStagedFiles.length === 0}
                 className="absolute top-1 right-1 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-muted hover:text-primary transition-colors disabled:opacity-40"
-                title={fullStagedFiles.length === 0 ? 'Niente in stage da descrivere' : 'Scrivi il messaggio dalle modifiche in stage'}
+                title={fullStagedFiles.length === 0 ? tr('git.commitMsg.nothingStaged') : tr('git.commitMsg.writeFromStaged')}
               >
                 {generatingMsg ? (
                   <Spinner size="sm" />
@@ -1523,7 +1524,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
             {msgSource === 'rules' && (
               <div data-testid="commit-message-source" className="text-[10px] text-app-text-muted">
-                dalle regole, nessun modello collegato
+                {tr('git.msgFromRules')}
               </div>
             )}
             <button

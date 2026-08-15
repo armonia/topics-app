@@ -492,7 +492,7 @@ function App() {
   // taskId (un click apre il drawer del task) e lo legge per NON bannerizzare
   // né la fine turno né i messaggi di un agente di board al lavoro — quelli li
   // annuncia `task:review-ready`.
-  const taskForTopic = useTaskTopicIndex(onWSMessage);
+  const taskForTopic = useTaskTopicIndex();
 
   // A stable global the native (Tauri) notification delegate can call on click to
   // open a task — the web/Electron path opens it directly via notifyNative.onclick.
@@ -2143,20 +2143,14 @@ function App() {
  * deep-link della board (l'intento `topics:open-tab` in usePanelLifecycle).
  */
 function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
-  // Il valore del context dei toast NON è memoizzato (ToastProvider ricrea
-  // l'oggetto a ogni render), quindi metterlo fra le dipendenze rifarebbe
-  // partire l'intera corsa di boot a ogni toast mostrato. Rifless in un ref:
-  // l'effetto gira UNA volta, e legge il toast che c'è nel momento in cui
-  // deve parlare.
+  // `useToast()` restituisce l'API STABILE del provider (Toast.tsx: due context,
+  // quello dei mittenti non cambia mai identità dopo il mount), quindi sta fra
+  // le dipendenze come qualunque altro valore fermo e l'effetto di boot gira una
+  // volta sola. Fino al 2026-08-15 qui c'era un ref-shim sincronizzato in un
+  // effetto: serviva perché il context value si ricostruiva a ogni render di
+  // App, e metterlo fra le dipendenze avrebbe rifatto partire l'intera corsa di
+  // boot a ogni toast mostrato.
   const toast = useToast();
-  const toastRef = useRef(toast);
-  // Sincronizzato in un effetto, non durante il render: scrivere un ref mentre
-  // React sta renderizzando e' proprio la cosa che rompe sotto concurrent. Gli
-  // effetti girano nell'ordine di dichiarazione, quindi questo aggiorna il ref
-  // PRIMA che il corpo dell'effetto di boot qui sotto lo legga, al mount e a
-  // ogni render successivo. E' lo stesso schema di pinnedIdsRef/orderedIdsRef
-  // in usePaneOrdering.
-  useEffect(() => { toastRef.current = toast; });
   useEffect(() => {
     // Le finestre STACCATE (`?topics=`) sono read-only verso il pane-store
     // (bootstrap.ts: niente persistenza locale, niente PUT, niente cross-tab):
@@ -2174,7 +2168,7 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     if (!BOOT_TAB_PERMALINK && !boot) return;
     // Il canale per dire all'utente che il link non porta da nessuna parte.
     // `warning` e non `error`: non è un guasto dell'app, è un indirizzo vecchio.
-    const notify = (message: string) => toastRef.current.warning(message);
+    const notify = (message: string) => toast.warning(message);
     // Una rotta `/tab/` si CONSUMA (il pane-store è già la persistenza della
     // tab: lasciarla nella URL la riaprirebbe a ogni reload, per sempre — il
     // difetto noto di `/topic/<id>`). Va consumata anche quando il target è
@@ -2268,7 +2262,7 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     // Boot window only — never yank focus long after load.
     const deadline = setTimeout(stop, 8000);
     return stop;
-  }, [isDetached]);
+  }, [isDetached, toast]);
   return null;
 }
 

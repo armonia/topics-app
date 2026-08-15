@@ -4,6 +4,7 @@ import { join, dirname } from "path";
 import { getDatabase } from "./db";
 import { resolveStateDir } from "./lib/data-dir";
 import { DEFAULT_WHEN_OPEN, parseWhenOpen } from "./push-devices";
+import { deliverableSubscriptions, type DeliverableSubscription } from "./push-recipients";
 import type { NotifyAction, NotifyActionRequest } from "../shared/notify-actions";
 
 interface VapidKeys {
@@ -49,18 +50,12 @@ export function getVapidPublicKey(): string {
   return keys.publicKey;
 }
 
-/** La riga come sta in SQLite: colonne piatte. */
-interface PushSubscriptionRow {
-  endpoint: string;
-  keys_p256dh: string;
-  keys_auth: string;
-  /** Cosa fa questo dispositivo ad app aperta (migration 101). Viaggia DENTRO
-   *  il payload invece di essere una copia che il service worker si tiene da
-   *  parte: la preferenza è per-dispositivo e il mittente la conosce già riga
-   *  per riga, quindi non c'è nessuna cache da mantenere in sincrono e nessun
-   *  modo che il worker decida con un valore vecchio. */
-  when_open: string | null;
-}
+/** La riga come sta in SQLite: colonne piatte. Il tipo vive accanto alla query
+ *  che la produce (`push-recipients.ts`) — due dichiarazioni della stessa riga
+ *  sono due verità in attesa di separarsi. `when_open` viaggia DENTRO il payload
+ *  invece di essere una copia che il service worker si tiene da parte: la
+ *  preferenza è per-dispositivo e il mittente la conosce già riga per riga. */
+type PushSubscriptionRow = DeliverableSubscription;
 
 /** La forma che vuole webpush: chiavi annidate. NON coincide con la riga, ed è
  *  il motivo per cui esistono entrambi i tipi — l'interfaccia c'era già ma non la
@@ -99,12 +94,11 @@ export interface OutgoingPushPayload {
 export async function sendPushToAll(payload: OutgoingPushPayload) {
   initVapid();
   const db = getDatabase();
-  // `enabled = 0` è un dispositivo che l'utente ha spento, e spegnerlo deve
-  // valere SOLO per lui: il filtro sta qui, sulla riga, perché è l'unico posto
-  // in cui la scelta di un dispositivo non può tracimare sugli altri.
-  const subs = db.query(
-    "SELECT endpoint, keys_p256dh, keys_auth, when_open FROM push_subscriptions WHERE enabled = 1"
-  ).all() as PushSubscriptionRow[];
+  // Chi riceve lo decide `deliverableSubscriptions`, e la decisione sta in un
+  // modulo suo: spento dall'utente E dispositivo ancora vivo sono due domande,
+  // e la seconda qui non veniva posta affatto (`WHERE enabled = 1` e basta),
+  // quindi un telefono revocato continuava a ricevere per sempre.
+  const subs = deliverableSubscriptions(db);
 
   if (subs.length === 0) return;
 

@@ -27,7 +27,7 @@ import {
   BRIDGED_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
-import { PARKED_WAITED_OUT, PREVIEW_RULE } from "../../shared/board";
+import { PARKED_WAITED_OUT, PREVIEW_RULE, TASK_STATUSES } from "../../shared/board";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 
@@ -236,7 +236,12 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        status: { type: "string", description: "Optional filter: backlog | todo | in_progress | review | done." },
+        // `enum`, non solo la prosa: senza, «in-progress» arriva al server come
+        // un filtro che non matcha niente e l'agente legge una board VUOTA — una
+        // risposta plausibile, quindi il refuso non si vede. La lista viene da
+        // `TASK_STATUSES` e non è ricopiata: una copia a mano è la prossima a
+        // restare indietro.
+        status: { type: "string", enum: [...TASK_STATUSES], description: "Optional filter: backlog | todo | in_progress | review | done." },
         scope: { type: "string", description: "'project' (default — this session's project) or 'all' (every project)." },
       },
     },
@@ -281,7 +286,7 @@ const TOOLS = [
       type: "object",
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
-        status: { type: "string", description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
+        status: { type: "string", enum: [...TASK_STATUSES], description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
         output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
@@ -623,7 +628,7 @@ interface ParsedArgs {
  *     (`agent-census.ts`, letto sia dal claim che dalla rotta di spawn);
  *   · il loro consumo si contabilizza sul task padre (`dispatch-usage.ts`);
  *   · profondita' 1: una figlia non apre nipoti (`boardSpawnRefusal`);
- *   · muoiono col padre (`orphanBoardChildSessions`, spazzata del dispatcher).
+ *   · muoiono col padre (`orphanChildSessions`, spazzata del dispatcher).
  * `list_agents` resta fuori: chi ha aperto le figlie e' il coordinatore, che gli
  * id ce li ha gia' dallo `spawn_agent`, e uno schema in meno e' un prefisso in
  * meno moltiplicato per ogni chiamata del turno.

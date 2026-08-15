@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
-import { selectCardComments, isHumanComment } from './cardComments';
+import { cardCommentsFromRow, cardDetailNeed, selectCardComments, isHumanComment, showsCardThread, type CardThreadRow } from './cardComments';
 import { NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, noteParkedChildrenResolved } from '../../../../shared/board';
-import type { TaskComment } from '../../lib/board';
+import type { CardComment, TaskComment } from '../../lib/board';
 
 /**
  * The card kept only the thread's last word, and on a task that had already
@@ -179,6 +179,89 @@ describe('selectCardComments', () => {
     const hold = comment('system', 'In coda: questo task e\' PESANTE.', 'service');
     const agent = comment('claude', 'rifatta');
     expect(selectCardComments([request, hold, agent])?.humanContext).toBe(request);
+  });
+});
+
+/**
+ * UNA RICHIESTA PER CARD, E OGNUNA CARICAVA UN THREAD INTERO.
+ *
+ * Aprendo la board, ogni scheda in review sparava un `GET /api/tasks/:id` solo
+ * per leggere il fondo del suo thread — e quel dettaglio non porta tre righe,
+ * porta tutto il thread più i figli. Adesso i commenti viaggiano con la lista
+ * (`task.recentComments`, misurato: 731 KB attaccati a 455 schede su 467 perché
+ * ne leggessero 11) e resta un solo motivo per chiedere: i sottotask, che nel
+ * feed non ci sono.
+ *
+ * La decisione vive qui e non dentro `Card.tsx` proprio perché QUESTO si può
+ * eseguire: la card importa `@/lib/popoverStyles`, un alias che `bun test` non
+ * risolve, quindi montarla non è possibile (stessa nota in `Card.test.ts`).
+ */
+function row(patch: Partial<CardThreadRow> = {}): CardThreadRow {
+  return {
+    status: 'review',
+    assignedTopicId: 'topic-1',
+    deliveredReason: null,
+    subtaskCount: 0,
+    recentComments: [],
+    ...patch,
+  };
+}
+
+const speech = (author: string, content: string, kind: CardComment['kind'] = 'comment'): CardComment =>
+  ({ author, content, kind });
+
+describe('cardDetailNeed: quando la card deve ancora chiedere', () => {
+  test('la lista porta i commenti: nessuna richiesta', () => {
+    expect(cardDetailNeed(row({ recentComments: [speech('claude', 'consegnato')] }))).toBe('none');
+    // Anche quando non c'è niente da dire: `[]` è una risposta, non un vuoto da
+    // riempire con una GET.
+    expect(cardDetailNeed(row({ recentComments: [] }))).toBe('none');
+  });
+
+  test('fuori dalla review non si chiede niente, qualunque cosa ci sia sulla riga', () => {
+    for (const status of ['backlog', 'todo', 'in_progress', 'done'] as const) {
+      expect(cardDetailNeed(row({ status, subtaskCount: 3, recentComments: undefined })), status).toBe('none');
+    }
+  });
+
+  test('i sottotask restano l\'unico motivo per aprire il dettaglio', () => {
+    // I figli non viaggiano nel feed (`rootsOnly`), e la card in review li
+    // espande come checklist della consegna.
+    expect(cardDetailNeed(row({ subtaskCount: 2 }))).toBe('children');
+    // Senza figli non si chiede: era questa la GET moltiplicata per ogni card.
+    expect(cardDetailNeed(row({ subtaskCount: 0 }))).toBe('none');
+  });
+
+  test('un server più vecchio del client fa tornare la card a chiedere', () => {
+    // Il guscio Tauri incorpora il suo `public/` e può parlare con un server
+    // che `recentComments` non lo manda: senza questa ricaduta la scheda in
+    // review resterebbe muta invece di pagare una richiesta.
+    expect(cardDetailNeed(row({ recentComments: undefined }))).toBe('thread');
+    // E la domanda del SISTEMA (figli parcheggiati) è l'altro ramo che mostra
+    // il thread pur senza topic dell'agente.
+    expect(cardDetailNeed(row({ assignedTopicId: null, deliveredReason: 'parked_children', recentComments: undefined })))
+      .toBe('thread');
+    // Una review senza né agente né domanda di sistema non mostra parole: non
+    // chiede nemmeno con il server vecchio.
+    expect(cardDetailNeed(row({ assignedTopicId: null, recentComments: undefined }))).toBe('none');
+  });
+});
+
+describe('showsCardThread / cardCommentsFromRow', () => {
+  test('la coppia si costruisce dalla riga, senza rete', () => {
+    const got = cardCommentsFromRow(row({
+      recentComments: [speech('user', 'rifai la testata'), speech('claude', 'rifatta')],
+    }));
+    expect(got?.latest.content).toBe('rifatta');
+    expect(got?.humanContext?.content).toBe('rifai la testata');
+  });
+
+  test('le stesse tre righe su una card che non li disegna non danno niente', () => {
+    // Il predicato è lo stesso che il server usa per decidere a chi attaccarli:
+    // se qui si allargasse, la card leggerebbe un campo che nessuno riempie.
+    expect(showsCardThread(row({ status: 'done' }))).toBe(false);
+    expect(cardCommentsFromRow(row({ status: 'done', recentComments: [speech('claude', 'fatto')] }))).toBeNull();
+    expect(cardCommentsFromRow(row({ recentComments: undefined }))).toBeNull();
   });
 });
 

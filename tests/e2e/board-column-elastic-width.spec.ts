@@ -88,12 +88,24 @@ type Metrics = {
   scrollWidth: number;
   gap: number;
   paddingX: number;
-  columns: { status: string; width: number }[];
+  columns: { status: string; width: number; maxWidth: string }[];
 };
 
 /**
  * La riga delle colonne è il PADRE della prima colonna: presa così invece che
  * per classi, sopravvive a un ritocco di Tailwind sul contenitore.
+ *
+ * UNA COLONNA È UN FIGLIO DIRETTO DI QUELLA RIGA, non «un testid che comincia
+ * per `kanban-column-`». Sotto quel prefisso vivono anche pezzi che stanno
+ * DENTRO la colonna — il corpo scrollabile (`kanban-column-body-*`), il
+ * contatore in testa (`kanban-column-count-*`), la coda «altre N»
+ * (`kanban-column-more-*`) — e nessuno di quelli porta la larghezza della
+ * colonna. Prenderli per prefisso vuol dire misurare uno `<span>` e chiamarlo
+ * colonna, con uno stato inventato («count-backlog») su cui il pavimento e il
+ * soffitto non vogliono dire niente. Il legame di parentela non si sporca
+ * quando la colonna cresce di pezzi, quindi è lui il criterio — e sta in UN
+ * posto solo, con dentro anche il soffitto calcolato: due letture separate
+ * erano due selettori da tenere d'accordo, e uno dei due è andato alla deriva.
  */
 async function rowMetrics(page: Page): Promise<Metrics> {
   const firstColumn = page.getByTestId("kanban-column-backlog");
@@ -106,6 +118,7 @@ async function rowMetrics(page: Page): Promise<Metrics> {
       .map((el) => ({
         status: (el.dataset.testid || el.getAttribute("data-testid") || "").replace("kanban-column-", ""),
         width: el.getBoundingClientRect().width,
+        maxWidth: getComputedStyle(el).maxWidth,
       }));
     return {
       clientWidth: row.clientWidth,
@@ -204,19 +217,11 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
 
     // Il soffitto non si dimostra allargando la finestra (il pane del progetto
     // non arriva necessariamente così largo): si legge sulla proprietà calcolata,
-    // che è ciò che ferma la crescita.
-    const caps = await page.getByTestId("kanban-board").evaluate((board) =>
-      Array.from(board.querySelectorAll<HTMLElement>('[data-testid^="kanban-column-"]'))
-        // `kanban-column-body-*` (il corpo scrollabile) condivide il prefisso: è
-        // dentro la colonna, non è la colonna, e non porta nessun tetto.
-        .filter((el) => !(el.getAttribute("data-testid") || "").startsWith("kanban-column-body-"))
-        .map((el) => ({
-          status: (el.getAttribute("data-testid") || "").replace("kanban-column-", ""),
-          maxWidth: getComputedStyle(el).maxWidth,
-        })),
-    );
-    expect(caps.length).toBeGreaterThan(0);
-    for (const c of caps) {
+    // che è ciò che ferma la crescita. Le colonne sono le stesse misurate qui
+    // sopra — un secondo selettore per la stessa cosa è il modo in cui i due
+    // finiscono per non parlare più della stessa cosa.
+    expect(m.columns.length).toBeGreaterThan(0);
+    for (const c of m.columns) {
       const { ceil } = bounds(c.status, 2560);
       expect(c.maxWidth, `colonna ${c.status}: il soffitto di leggibilità deve essere ${ceil}px`).toBe(`${ceil}px`);
     }

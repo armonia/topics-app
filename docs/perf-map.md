@@ -23,8 +23,8 @@ intentions.
 
 | Surface | What it measures | Command | In CI |
 |---|---|---|---|
-| Transcript scrolling | dropped frames, worst gap, long tasks | `bun run check:fluido` | yes (`\|\| test $? -eq 2`) |
-| Latency of 4 hot routes | median ms on a fixed corpus, ratchet | `bun run check:rotte` | yes (`\|\| test $? -eq 2`) |
+| Transcript scrolling | dropped frames, worst gap, long tasks | `bun run check:scroll-fluidity` | yes (`\|\| test $? -eq 2`) |
+| Latency of 4 hot routes | median ms on a fixed corpus, ratchet | `bun run check:route-latency` | yes (`\|\| test $? -eq 2`) |
 | Bundle weight | bytes of entry / critical path / total assets | `bun run check:bundle` | yes |
 | Click to ink | ms from the gesture to the first painted frame | `bun run check:ink` | yes (since 2026-08-14) |
 | Weight of a chat payload | anti-duplication invariant plus bytes per message | `bun test tests/integration/history-payload-weight.test.ts` | yes (`bun test:unit`) |
@@ -188,7 +188,7 @@ The two CPU-bound routes are inside, the two disk-bound ones are out by 1.5x and
 in the 40 commits since the baseline was recorded, and the same overrun
 reproduces on a tree from BEFORE any of that day's work.
 
-`scripts/rotte-baseline.json` was recorded on an Apple Silicon SSD, and it is the
+`scripts/route-latency-baseline.json` was recorded on an Apple Silicon SSD, and it is the
 only baseline there is. So the ratchet currently answers "is this machine as fast
 as the one that recorded the baseline", which on any other machine is not the
 question anyone wanted asked.

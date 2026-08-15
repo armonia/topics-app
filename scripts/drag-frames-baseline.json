@@ -1,0 +1,67 @@
+{
+  "$schema": "drag-frames-baseline-v1",
+  "surface": "kanban-board-drag",
+  "recorded": true,
+  "updated": "2026-08-15",
+  "why": [
+    "The goal asks for a stable 60 FPS while dragging, and nothing in this repo measured what the main thread does WHILE the pointer is down. The scroll bench (scripts/fluido-baseline.json) measures a virtualised transcript, which is a different machine: there the per-frame work is virtuoso mounting rows, here it is dnd-kit running collision detection against every registered droppable on every pointer move, plus the DragOverlay and the board's own state. A regression in one is invisible to the other.",
+    "The surface is the Kanban board because that is where dragging happens and because it is where the volume is: 449 of the 467 root cards on the live board are `done` (measured 2026-08-15), and until the column was paged every one of them was live DOM re-rendered on every `task:*` event and inside every drag move.",
+    "The bench is tests/e2e/board-drag-frames.spec.ts, the judge is scripts/check-drag-frames.ts. The spec asserts no threshold on purpose: a red there would be a statement about the machine, and a suite that goes red for that gets ignored."
+  ],
+  "recorded_why": "`recorded: false` means NO measurement has ever been taken on any machine, so the numbers in `budget` come from the product goal and not from this bench. While it is false the gate exits 2 (not measurable) instead of green: a budget that has never seen a real number cannot tell 'fine' from 'the bench measured nothing'. Record it with `bun run check:drag -- --update-baseline`, on an idle machine, and commit the diff.",
+  "protocol": {
+    "passes": 3,
+    "warmup_passes": 1,
+    "steps_per_drag": 60,
+    "done_seeded": 150,
+    "todo_seeded": 8,
+    "route": "todo card -> in progress -> backlog, one pointer move per animation frame",
+    "aggregation": "median of the 3 timed passes"
+  },
+  "measured": {
+    "p95_frame_ms": 9.5,
+    "p50_frame_ms": 8.3,
+    "worst_frame_ms": 10.1,
+    "longtask_count": 0,
+    "longtask_ms": 0,
+    "calibration_gap_ms": 8.3,
+    "cards_rendered": 33
+  },
+  "budget": {
+    "_": "The threshold that makes the gate exit non-zero. Every number has its reason in `budget_why`. Until `recorded` is true these are the product goal written down, not a measurement.",
+    "p95_frame_ms": 16.7,
+    "worst_frame_ms": 100,
+    "longtask_count": 1
+  },
+  "budget_why": {
+    "p95_frame_ms": "16.7 ms is 60 FPS, which is the number the goal states. The 95th percentile and not the median: a median hides the one frame in twenty that a hand feels as the card lagging behind the pointer. On a machine whose display runs slower than 60 Hz this bar is unreachable by construction, and that is what the `calibration_gap_ms_ceiling` guard is for: it turns that case into exit 2 instead of a red that speaks about the screen.",
+    "worst_frame_ms": "100 ms. A single stall while the overlay mounts is invisible in a p95 over 60 frames, and it is exactly what a hand notices as the drag catching. 100 ms is the same instant/not-instant boundary the ink budget uses.",
+    "longtask_count": "1. A long task is by definition a block over 50 ms, so during a one second gesture the healthy number is expected to be zero and the first one that appears is already a new fact. One is allowed so that a single unlucky GC does not decide the verdict."
+  },
+  "guards": {
+    "_": "Not quality thresholds: the conditions under which the measurement MEANS anything. Outside them the gate exits 2 (not measurable) instead of a red that speaks about the machine rather than the product.",
+    "calibration_gap_ms_ceiling": 20,
+    "calibration_why": "Idle cadence measured on a BLANK page, that is what the machine can deliver right now. 20 ms is 50 Hz: below that it is not the app that stutters, and the 16.7 ms budget could not be met by any app. Measured outside the app page on purpose, otherwise the app's own slowness would widen the guard exactly when the defect gets worse.",
+    "frames_floor": 30,
+    "drag_span_px_floor": 200,
+    "cards_rendered_floor": 20,
+    "drops_committed_floor": 3,
+    "witness_why": "Frames collected, pixels travelled, cards actually drawn on the board, and drops the SERVER confirmed. A bench that waggles the mouse over a static board reports a perfect p95 forever: `drops_committed` is the one that cannot be faked, because it means dnd-kit really picked the card up and the drop really changed a column. `drops_committed_floor` equals `protocol.passes`: every timed pass must have landed."
+  },
+  "update_rule": {
+    "_": "How `--update-baseline` recomputes the budgets from the numbers just measured. It lives here and not in the code so that the diff of an update shows the rule it was made with. The FLOOR keeps a measurement of zero from producing a budget of zero, which nobody could ever meet.",
+    "p95_frame_ms": {
+      "floor": 16.7,
+      "multiplier": 1.5
+    },
+    "worst_frame_ms": {
+      "floor": 100,
+      "multiplier": 2
+    },
+    "longtask_count": {
+      "floor": 1,
+      "multiplier": 2
+    }
+  },
+  "how_to_see_it_red": "TOPICS_DRAG_JANK_MS=40 bun run check:drag. It burns 40 ms inside a real capture-phase `pointermove` listener, which is the exact shape of the defect this bench exists to catch: work proportional to drag events, the way a board that re-renders all its columns per move behaves. Lowering the threshold instead would only prove that `>` works."
+}

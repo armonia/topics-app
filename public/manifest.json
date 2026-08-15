@@ -1,7 +1,7 @@
 {
   "name": "Topics",
   "short_name": "Topics",
-  "description": "AI Chat companion for OpenClaw",
+  "description": "Desktop workspace for Claude Code and other CLI coding agents",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#080a0e",

@@ -199,7 +199,12 @@ test.describe("Chip «riaperta» · una card che esce da Done lo dice", () => {
     await patchAsHuman(request, task.id, { status: "in_progress" });
     const chip = card.getByTestId("card-reopened");
     await expect(chip).toContainText("riaperta", { timeout: 10000 });
-    await expect(chip).toHaveAttribute("title", /Era in Done/);
+    // Il tooltip NON nomina più la colonna di partenza: da quando il segno si
+    // accende anche uscendo da `review` (`reopenedChip`, client/src/lib/board.ts)
+    // «Era in Done» sarebbe falso su tre uscite su quattro. Il fatto che il
+    // tooltip deve portare è rimasto lo stesso, ed è quello che si prova qui:
+    // che aveva consegnato, CHI l'ha riaperta e QUANDO.
+    await expect(chip).toHaveAttribute("title", /Aveva consegnato: riaperta da te il \d/);
     await didascalia(page, "L'umano riapre → chip «riaperta»");
     await beat(page, 2200);
 

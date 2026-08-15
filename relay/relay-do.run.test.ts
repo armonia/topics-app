@@ -92,7 +92,6 @@ function CoppiaFinta(this: unknown) {
  * campo passerebbe lo stesso, ma la sua identità qui non si troverebbe.
  */
 class StatoFinto {
-  storage = {};
   private tag = new Map<CapoFinto, string[]>();
 
   acceptWebSocket(ws: CapoFinto, tags: string[] = []): void {

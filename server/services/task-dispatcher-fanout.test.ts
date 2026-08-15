@@ -195,10 +195,10 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     const k = h.turns[0].content;
-    expect(k).toContain("IL REPO E' PUBBLICO");
+    expect(k).toContain("THE REPO IS PUBLIC");
     // Le due meta' che servono: cosa non scrivere, e cosa scrivere al posto.
-    expect(k).toContain("nemmeno nei commenti");
-    expect(k).toContain("RUOLO");
+    expect(k).toContain("not in comments either");
+    expect(k).toContain("the ROLE");
     // E il cancello nominato, perche' un divieto senza il suo controllo si
     // legge come un consiglio.
     expect(k).toContain("no-personal-data-tracked");
@@ -212,19 +212,19 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     const k = h.turns[1].content;
-    expect(k).toContain("TENTATIVO 2 di 2");
-    expect(k).toContain("NON spostare il task di stato");
-    expect(k).toContain("NON scrivere nel thread del task");
-    expect(k).toContain("COMMITTA tutto sul tuo branch");
+    expect(k).toContain("ATTEMPT 2 of 2");
+    expect(k).toContain("Do NOT move the task's status");
+    expect(k).toContain("Do NOT write in the task thread");
+    expect(k).toContain("COMMIT everything on your branch");
     // Il divieto è su main, non sulla BASE del proprio ramo. La vecchia formula
     // ("nessun rebase su main") vietava anche il gesto che RISOLVE il conflitto
     // di land, e tre card in un pomeriggio ci sono rimaste incastrate.
-    expect(k).toContain("NON TOCCARE main");
+    expect(k).toContain("DO NOT TOUCH main");
     expect(k).toContain("git rebase main");
-    expect(k).not.toContain("nessun rebase");
+    expect(k).not.toContain("no rebase");
     // Il contratto normale ("sei l'owner, porta in review") NON deve comparire:
     // due contratti opposti nello stesso prompt = il modello ne sceglie uno a caso.
-    expect(k).not.toContain("owner esclusivo del task");
+    expect(k).not.toContain("exclusive owner of task");
   });
 
   /**
@@ -390,7 +390,7 @@ describe("task-dispatcher fan-out", () => {
 
     expect(h.turns.length).toBe(1);
     expect(h.rows("t1").length).toBe(0);              // nessun tentativo: path storico
-    expect(h.turns[0].content).toContain("owner esclusivo del task");
+    expect(h.turns[0].content).toContain("exclusive owner of task");
     expect(h.comments("t1").join("\n")).toContain("board IN-PLACE");
   });
 
@@ -403,7 +403,7 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     expect(h.turns.length).toBe(1);
-    expect(h.turns[0].content).toContain("owner esclusivo del task");
+    expect(h.turns[0].content).toContain("exclusive owner of task");
   });
 
   it("riavvio a metà giro: chiude i tentativi orfani con ciò che i worktree hanno salvato", async () => {

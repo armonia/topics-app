@@ -6,12 +6,12 @@ import { join, resolve } from "path";
 import { filtraTermini } from "../tests/unit/no-personal-data-tracked.test";
 
 /**
- * Il banco che falsifica `check:sicurezza`, un pezzo alla volta.
+ * Il banco che falsifica `check:security`, un pezzo alla volta.
  *
  * UN CANCELLO SI CREDE SOLO SE LO SI E' VISTO ROSSO. Un controllo che non e'
  * mai fallito non e' un controllo dimostrato: e' un controllo di cui nessuno ha
  * ancora scoperto che guarda dalla parte sbagliata. Questo file introduce, uno
- * per uno, i quattro guasti che `scripts/check-sicurezza.ts` esiste per
+ * per uno, i quattro guasti che `scripts/check-security.ts` esiste per
  * fermare, e pretende di vedere esito 1 quattro volte.
  *
  * MAI SUL CHECKOUT VIVO, ed e' il motivo per cui il comando ha `--root`. Ogni
@@ -27,7 +27,7 @@ import { filtraTermini } from "../tests/unit/no-personal-data-tracked.test";
  * file tracciato: il cancello si denuncerebbe da solo, e la via d'uscita
  * sarebbe un'esenzione che copre proprio il file dove i finti segreti vivono.
  * Concatenate a runtime, nel sorgente non esiste nessuna stringa di quella
- * forma, e l'esenzione di `scripts/check-sicurezza.test.ts` resta la deroga
+ * forma, e l'esenzione di `scripts/check-security.test.ts` resta la deroga
  * stretta che e' scritta accanto ad essa.
  *
  * PERCHE' LA CARTELLA TEMPORANEA NON E' UN PERCORSO FISSO. Due corse in
@@ -36,7 +36,7 @@ import { filtraTermini } from "../tests/unit/no-personal-data-tracked.test";
  */
 
 const ROOT = resolve(import.meta.dir, "..");
-const SCRIPT = join(ROOT, "scripts/check-sicurezza.ts");
+const SCRIPT = join(ROOT, "scripts/check-security.ts");
 
 /** Il comando sotto esame, puntato su una copia. Torna esito piu' referto. */
 function esegui(root: string, ...args: string[]): { code: number; out: string } {
@@ -59,7 +59,7 @@ function git(cwd: string, ...args: string[]): void {
 
 /** Un repo git di tre file, con dentro cio' che il caso vuole. */
 function repoMinimo(file: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), "sicurezza-min-"));
+  const dir = mkdtempSync(join(tmpdir(), "security-min-"));
   git(dir, "init", "--quiet");
   for (const [rel, contenuto] of Object.entries(file)) {
     const abs = join(dir, rel);
@@ -70,7 +70,7 @@ function repoMinimo(file: Record<string, string>): string {
   return dir;
 }
 
-describe("check:sicurezza - il pezzo dei segreti", () => {
+describe("check:security - il pezzo dei segreti", () => {
   const temporanee: string[] = [];
   afterAll(() => {
     for (const d of temporanee) rmSync(d, { recursive: true, force: true });
@@ -84,7 +84,7 @@ describe("check:sicurezza - il pezzo dei segreti", () => {
 
   test("un albero pulito esce zero", () => {
     const dir = conRepo({ "src/a.ts": 'export const saluto = "ciao";\n' });
-    const { code, out } = esegui(dir, "--only=segreti");
+    const { code, out } = esegui(dir, "--only=secrets");
     expect(out).toContain("nessun segreto in chiaro");
     expect(code).toBe(0);
   });
@@ -94,7 +94,7 @@ describe("check:sicurezza - il pezzo dei segreti", () => {
     // intera, quindi il cancello non ha niente da trovare qui.
     const chiave = `sk-${"ant"}-api03-${"Q7wR2xL9pKm4TvB8nZc1JdF6hY3sG5uA"}`;
     const dir = conRepo({ "src/a.ts": `const client = { apiKey: "${chiave}" };\n` });
-    const { code, out } = esegui(dir, "--only=segreti");
+    const { code, out } = esegui(dir, "--only=secrets");
     expect(out).toContain("chiave Anthropic");
     expect(out).toContain("src/a.ts:1");
     // Il referto finisce nei log della CI: mostra la testa, non la chiave.
@@ -105,7 +105,7 @@ describe("check:sicurezza - il pezzo dei segreti", () => {
   test("una chiave privata PEM fa ROSSO", () => {
     const pem = `-----${"BEGIN"} RSA PRIVATE KEY-----`;
     const dir = conRepo({ "deploy/id_rsa.txt": `${pem}\nMIIEow...\n` });
-    const { code, out } = esegui(dir, "--only=segreti");
+    const { code, out } = esegui(dir, "--only=secrets");
     expect(out).toContain("chiave privata PEM");
     expect(code).toBe(1);
   });
@@ -113,7 +113,7 @@ describe("check:sicurezza - il pezzo dei segreti", () => {
   test("una password ad alta entropia dentro una URL fa ROSSO", () => {
     const url = `postgres://utente:${"Xk7$"}${"vQ2mNp9Lr4Ts"}@db.example.com:5432/topics`;
     const dir = conRepo({ "config/db.yml": `url: "${url}"\n` });
-    const { code, out } = esegui(dir, "--only=segreti");
+    const { code, out } = esegui(dir, "--only=secrets");
     expect(out).toContain("credenziale dentro una URL");
     expect(code).toBe(1);
   });
@@ -121,23 +121,23 @@ describe("check:sicurezza - il pezzo dei segreti", () => {
   test("un valore ad alta entropia assegnato a `secret` fa ROSSO, un segnaposto no", () => {
     const vero = `${"9fK2"}${"pQ7xL4vN"}${"8mZ3rT6yB1"}${"cW5jH0sD"}`;
     const sporco = conRepo({ "src/conf.ts": `export const secret = "${vero}";\n` });
-    expect(esegui(sporco, "--only=segreti").code).toBe(1);
+    expect(esegui(sporco, "--only=secrets").code).toBe(1);
 
     // La stessa riga con un segnaposto resta verde. Senza questo il cancello
     // sarebbe rumoroso su ogni `.env.example` del mondo, e un cancello che
     // grida sempre e' un cancello che si impara a saltare.
     const pulito = conRepo({ "src/conf.ts": 'export const secret = "your-secret-goes-here";\n' });
-    expect(esegui(pulito, "--only=segreti").code).toBe(0);
+    expect(esegui(pulito, "--only=secrets").code).toBe(0);
   });
 
   test("un file .env TRACCIATO fa ROSSO anche se dentro non c'e' niente", () => {
     const dir = conRepo({ ".env": "# vuoto\n", "src/a.ts": "export const x = 1;\n" });
-    const { code, out } = esegui(dir, "--only=segreti");
+    const { code, out } = esegui(dir, "--only=secrets");
     expect(out).toContain(".env TRACCIATO");
     expect(code).toBe(1);
     // Ma `.env.example` e' fatto apposta per essere tracciato.
     const ok = conRepo({ ".env.example": "ANTHROPIC_API_KEY=\n", "src/a.ts": "export const x = 1;\n" });
-    expect(esegui(ok, "--only=segreti").code).toBe(0);
+    expect(esegui(ok, "--only=secrets").code).toBe(0);
   });
 
   test("`allow-secret:` con una ragione spegne la riga, senza ragione no", () => {
@@ -145,11 +145,11 @@ describe("check:sicurezza - il pezzo dei segreti", () => {
     const conRagione = conRepo({
       "docs/esempio.md": `Esempio: \`${chiave}\` allow-secret: chiave finta di documentazione\n`,
     });
-    expect(esegui(conRagione, "--only=segreti").code).toBe(0);
+    expect(esegui(conRagione, "--only=secrets").code).toBe(0);
 
     // Una deroga senza ragione non e' una deroga: e' un interruttore.
     const muta = conRepo({ "docs/esempio.md": `Esempio: \`${chiave}\` allow-secret: x\n` });
-    expect(esegui(muta, "--only=segreti").code).toBe(1);
+    expect(esegui(muta, "--only=secrets").code).toBe(1);
   });
 });
 
@@ -178,7 +178,7 @@ function copiaAlbero(da: string, a: string): void {
   // del comando, ma in quel momento puo' essere un file nuovo e quindi non
   // comparire ancora in `git ls-files`. La copiamo esplicitamente invece di
   // portare tutti gli untracked, che includerebbero materiale locale estraneo.
-  const baseline = "scripts/sicurezza-baseline.json";
+  const baseline = "scripts/security-baseline.json";
   if (!rel.includes(baseline)) {
     if (!existsSync(join(da, baseline))) throw new Error(`manca ${baseline}: il banco non puo' verificare le dipendenze`);
     rel.push(baseline);
@@ -197,12 +197,12 @@ function copiaAlbero(da: string, a: string): void {
   git(a, "add", "-A");
 }
 
-describe("check:sicurezza - i pezzi che vogliono l'albero vero", () => {
+describe("check:security - i pezzi che vogliono l'albero vero", () => {
   let copia = "";
   let temporanea = "";
 
   beforeAll(() => {
-    temporanea = mkdtempSync(join(tmpdir(), "sicurezza-copia-"));
+    temporanea = mkdtempSync(join(tmpdir(), "security-copy-"));
     copia = join(temporanea, "copia");
     copiaAlbero(ROOT, copia);
   });
@@ -223,7 +223,7 @@ describe("check:sicurezza - i pezzi che vogliono l'albero vero", () => {
     expect(code).toBe(0);
   }, 120_000);
 
-  test("PEZZO dati: un nome personale in un file tracciato fa ROSSO", () => {
+  test("PEZZO data: un nome personale in un file tracciato fa ROSSO", () => {
     // Il termine si DERIVA come fa il cancello, mai scritto: scriverlo qui
     // sarebbe esattamente la fuga che il cancello impedisce. Le fonti sono le
     // sue, nello stesso ordine, e la prima che da' un termine di almeno quattro
@@ -257,15 +257,15 @@ describe("check:sicurezza - i pezzi che vogliono l'albero vero", () => {
     // Nessun termine affatto = la derivazione e' rotta, ed e' un guasto (sopra).
     // Termine presente ma di servizio = su questa macchina non c'e' nessuna
     // identita' da proteggere, quindi il caso da falsificare non ESISTE. Il
-    // pezzo `dati` e' locale per natura — in ci.yml gira `--only=segreti,
-    // dipendenze` per questa identica ragione — e la sua falsificazione vive
+    // pezzo `data` e' locale per natura — in ci.yml gira `--only=secrets,
+    // dependencies` per questa identica ragione — e la sua falsificazione vive
     // dove vive lui.
     if (filtraTermini([termine]).length === 0) {
-      console.log(`[check-sicurezza.test] PEZZO dati: saltato, «${termine}» e' un account di servizio e il cancello lo ignora per progetto.`);
+      console.log(`[check-security.test] PEZZO data: saltato, «${termine}» e' un account di servizio e il cancello lo ignora per progetto.`);
       return;
     }
     appendFileSync(join(copia, "README.md"), `\n<!-- deciso da ${termine} -->\n`);
-    const { code, out } = esegui(copia, "--only=dati");
+    const { code, out } = esegui(copia, "--only=data");
     expect(out).toContain("ROSSO");
     expect(code).toBe(1);
     ripristina();
@@ -279,29 +279,29 @@ describe("check:sicurezza - i pezzi che vogliono l'albero vero", () => {
     ripristina();
   }, 120_000);
 
-  test("PEZZO segreti: una chiave nell'albero vero fa ROSSO", () => {
+  test("PEZZO secrets: una chiave nell'albero vero fa ROSSO", () => {
     const chiave = `${"AKIA"}${"Q7WR2XL9PKM4TVB8"}`;
     appendFileSync(join(copia, "README.md"), `\nAWS: ${chiave}\n`);
-    const { code, out } = esegui(copia, "--only=segreti");
+    const { code, out } = esegui(copia, "--only=secrets");
     expect(out).toContain("chiave AWS");
     expect(out).toContain("README.md");
     expect(code).toBe(1);
     ripristina();
   }, 120_000);
 
-  test("PEZZO dipendenze: un avviso NON dichiarato nella baseline fa ROSSO", () => {
+  test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
     // La leva onesta. Il cancello osserva UNA cosa: c'e' un avviso che la
     // baseline non elenca? Togliere una voce dalla baseline e installare un
     // pacchetto vulnerabile producono per lui lo stesso stato, e il primo non
     // ha bisogno della rete per scaricare mezzo registro.
-    const path = join(copia, "scripts/sicurezza-baseline.json");
-    const base = JSON.parse(readFileSync(path, "utf8")) as { avvisi: Record<string, unknown[]> };
-    const conAvvisi = Object.keys(base.avvisi).filter((d) => (base.avvisi[d] ?? []).length > 0);
-    expect(conAvvisi.length).toBeGreaterThan(0);
-    base.avvisi[conAvvisi[0]!] = [];
+    const path = join(copia, "scripts/security-baseline.json");
+    const base = JSON.parse(readFileSync(path, "utf8")) as { advisories: Record<string, unknown[]> };
+    const withAdvisories = Object.keys(base.advisories).filter((d) => (base.advisories[d] ?? []).length > 0);
+    expect(withAdvisories.length).toBeGreaterThan(0);
+    base.advisories[withAdvisories[0]!] = [];
     writeFileSync(path, `${JSON.stringify(base, null, 2)}\n`);
 
-    const { code, out } = esegui(copia, "--only=dipendenze");
+    const { code, out } = esegui(copia, "--only=dependencies");
     if (out.includes("bun audit non ha risposto")) {
       throw new Error("questo caso interroga il registro degli avvisi: senza rete non si puo' dimostrare, e non si finge");
     }

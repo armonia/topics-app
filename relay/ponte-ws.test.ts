@@ -81,7 +81,6 @@ class CoppiaFinta {
 /** Lo stato del Durable Object, ridotto a ciò che il relay usa: i TAG sono
  *  l'unica memoria, com'è sotto ibernazione. */
 class StatoFinto {
-  storage = {};
   private tag = new Map<object, string[]>();
   acceptWebSocket(ws: object, tags: string[] = []): void { this.tag.set(ws, tags); }
   getWebSockets(tag?: string): object[] {

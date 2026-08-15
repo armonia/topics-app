@@ -8,7 +8,8 @@ import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
-import { selectCardComments, type CardComments } from './cardComments';
+import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
+import { cardCommentsFromRow, cardDetailNeed, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -18,7 +19,7 @@ import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { taskActionWord } from './taskActionWords';
-import { useT } from '../../hooks/useT';
+import { useT, useLocale } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
@@ -55,13 +56,20 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
    *  archiviano di nuovo. */
   archived?: boolean;
 }) {
+  const tr = useT();
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
+  // QUANTE card si disegnano. La regola (e il perché vale solo su Review e Done)
+  // sta in `columnSlice`; qui c'è solo la memoria di quante ne hai chieste.
+  const [shown, setShown] = useState(COLUMN_PAGE);
+  const slice = useMemo(() => columnSlice(status, tasks, shown), [status, tasks, shown]);
   // Stable identity across the board's 4s live-usage tick: SortableContext gets a
-  // fresh array only when the task set actually changes, not every render.
-  const itemIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
+  // fresh array only when the task set actually changes, not every render. Gli id
+  // sono quelli DISEGNATI: un id senza nodo nel registro di dnd-kit è un
+  // bersaglio che non esiste.
+  const itemIds = useMemo(() => slice.rows.map((t) => t.id), [slice]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -119,7 +127,10 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           <StatusIcon status={status} />
           {STATUS_LABEL[status]}
         </span>
-        <span className="rounded bg-white/10 px-1.5 text-xs text-app-text-secondary">{tasks.length}</span>
+        {/* Il TOTALE della colonna, non quante card se ne disegnano: sfogliare
+            Done non deve accorciarne la storia. La testid esiste perché il
+            numero è il solo posto in cui i due valori si potrebbero confondere. */}
+        <span data-testid={`kanban-column-count-${status}`} className="rounded bg-white/10 px-1.5 text-xs text-app-text-secondary">{tasks.length}</span>
       </div>
       {/* Bottom clearance lives on the scroll body (not the outer board padding)
           so the column FRAME reaches the bottom of the pane, while a full column's
@@ -146,7 +157,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           di netto. Sei pixel, non uno spazio scelto a occhio. */}
       <div data-testid={`kanban-column-body-${status}`} className="flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-36 scrollbar-standard">
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-          {tasks.map((t) => (
+          {slice.rows.map((t) => (
             <Card
               key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
               error={cardError?.taskId === t.id ? cardError.message : null}
@@ -162,21 +173,33 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
             />
           ))}
         </SortableContext>
+        {/* La coda della colonna: quante card ci sono ancora e il gesto per
+            tirarne su un'altra pagina. Si dice il numero perché una colonna
+            tagliata in silenzio è una colonna che sembra vuota di storia. */}
+        {slice.hidden > 0 && (
+          <button
+            onClick={() => setShown((n) => n + COLUMN_PAGE)}
+            data-testid={`kanban-column-more-${status}`}
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-xs text-app-text-secondary hover:bg-white/5"
+          >
+            {tr('board.column.showMore', { n: Math.min(slice.hidden, COLUMN_PAGE), left: slice.hidden })}
+          </button>
+        )}
         {!canCreate ? null : adding ? (
           <div className="rounded-md border border-app-border bg-white/5 p-2">
             <textarea
               autoFocus value={text} onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } if (e.key === 'Escape') { setText(''); setAdding(false); } }}
-              className="w-full resize-none bg-transparent text-sm text-app-text outline-none" rows={2} placeholder="Task…"
+              className="w-full resize-none bg-transparent text-sm text-app-text outline-none" rows={2} placeholder={tr('board.column.newTaskPlaceholder')}
             />
             <div className="mt-1 flex justify-end gap-1">
-              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-xs text-app-text-secondary hover:bg-white/10">Annulla</button>
-              <button onClick={submit} className="rounded bg-emerald-500/80 px-2 py-0.5 text-xs text-white hover:bg-emerald-500">Aggiungi</button>
+              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-xs text-app-text-secondary hover:bg-white/10">{tr('board.column.cancel')}</button>
+              <button onClick={submit} className="rounded bg-emerald-500/80 px-2 py-0.5 text-xs text-white hover:bg-emerald-500">{tr('board.column.add')}</button>
             </div>
           </div>
         ) : (
           <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs text-app-text-secondary hover:bg-white/5">
-            <Plus className="h-3.5 w-3.5" /> Aggiungi
+            <Plus className="h-3.5 w-3.5" /> {tr('board.column.add')}
           </button>
         )}
       </div>
@@ -231,14 +254,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // drop targeting went with it.
   const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: task.id });
 
-  // Review context, lazily loaded from the task detail (one GET, two uses):
-  // for an agent-driven task the comment PAIR (`selectCardComments`) — the
-  // thread's last word as a quick-reply with option buttons when it's a
-  // question block and plain text otherwise, plus the human request it answers
-  // (the human must never be asked Approva/Rimanda indietro blind, nor read an answer
-  // whose question is off the card); for ANY review card with steps the direct
-  // CHILDREN, expanded on the card as the delivery checklist. Subtasks never
-  // ride the board feed (rootsOnly), so the card fetches them itself.
+  // Review context. The comment PAIR (`selectCardComments`) — the thread's last
+  // word as a quick-reply with option buttons when it's a question block and
+  // plain text otherwise, plus the human request it answers (the human must
+  // never be asked Approva/Rimanda indietro blind, nor read an answer whose
+  // question is off the card) — RIDES THE LIST: `task.recentComments`. It used
+  // to be one full `GET /api/tasks/:id` per review card, and that detail loads
+  // the entire thread.
+  //
+  // What still needs a GET is the direct CHILDREN, which a review card with
+  // steps expands as the delivery checklist: subtasks never ride the board feed
+  // (rootsOnly). `cardDetailNeed` decides, and it is that function the test
+  // executes.
   const [thread, setThread] = useState<CardComments | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [freeText, setFreeText] = useState('');
@@ -260,6 +287,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const cardLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const confirm = useConfirm();
   const tr = useT();
+  // Numeri e date della card seguono la lingua scelta, non una fissata a mano.
+  const locale = useLocale();
   // The context menu offers two of the same actions as the button row (stop,
   // archive): the words come from the same table, or the card goes back to
   // calling them two different things depending on where you press.
@@ -268,31 +297,72 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Stessa tavola dell'«Archivia» che sostituisce: una porta e il suo ritorno
   // non possono chiamarsi in due sistemi diversi.
   const restoreWord = taskActionWord('restore', tr);
-  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   // Lo stallo dei sottotask parcheggiati È una domanda, e la fa il SISTEMA: la
   // card può non avere nessun topic legato (il padre era stato rilasciato prima
-  // di finire fermo). Senza questa riga la domanda arrivava in review muta — con
+  // di finire fermo). Senza quel ramo la domanda arrivava in review muta — con
   // le due risposte scritte in un commento e nessun bottone per darle.
-  const isSystemQuestion = task.status === 'review' && task.deliveredReason === 'parked_children';
-  const showsQuestion = isAgentReview || isSystemQuestion;
-  const wantDetail = showsQuestion || (task.status === 'review' && task.subtaskCount > 0);
+  // Entrambi i rami stanno in `showsCardThread`, che è anche il predicato con
+  // cui il server decide a quali schede attaccare i commenti.
+  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
+  const showsQuestion = showsCardThread(task);
+  const need = cardDetailNeed(task);
   useEffect(() => {
-    if (!wantDetail) { setThread(null); setChildren([]); return; }
+    if (need === 'none') { setThread(null); setChildren([]); return; }
     let alive = true;
     boardApi.get(task.projectId, task.id)
       .then(({ comments, children: kids }) => {
         if (!alive) return;
-        setThread(showsQuestion ? selectCardComments(comments) : null);
+        // `need === 'children'` = i commenti li ha già la riga: riscriverli da
+        // qui vorrebbe dire farli lampeggiare a ogni giro di lista.
+        setThread(need === 'thread' ? selectCardComments(comments) : null);
         setChildren(kids ?? []);
       })
       .catch(() => { if (alive) { setThread(null); setChildren([]); } });
     return () => { alive = false; };
     // Re-check when the task changes (a re-kick bumps updatedAt).
-  }, [wantDetail, showsQuestion, task.projectId, task.id, task.updatedAt]);
-  const lastComment = thread?.latest ?? null;
+  }, [need, task.projectId, task.id, task.updatedAt]);
+  // Il testo del corpo: l'anteprima della lista, o la descrizione intera quando
+  // a rispondere è un server che l'anteprima non la manda.
+  const descriptionText = task.descriptionPreview ?? task.description;
+  // «Copia» vuole la descrizione INTERA, che la lista non porta più. Si chiede
+  // quando il menu si APRE, non al click: `navigator.clipboard.writeText` deve
+  // girare nello stesso task del gesto (in WebKit un `await` in mezzo perde il
+  // permesso), quindi al momento del click il testo dev'essere già qui.
+  const [fullDescription, setFullDescription] = useState<string | null>(null);
+  // Si chiede ogni volta che c'è un'anteprima senza il testo dietro, anche
+  // quando l'anteprima è già tutta la descrizione: dedurlo dalla lunghezza
+  // vorrebbe dire scrivere qui il numero di caratteri del taglio del server, e
+  // il giorno che quel numero cambia si copierebbe un testo tagliato senza che
+  // niente lo dica. Una richiesta in più su un tasto destro non si sente.
+  const wantsFullDescription = task.description === null && !!task.descriptionPreview;
+  useEffect(() => {
+    if (!ctxMenu || !wantsFullDescription || fullDescription !== null) return;
+    let alive = true;
+    boardApi.get(task.projectId, task.id)
+      .then(({ task: full }) => { if (alive) setFullDescription(full.description); })
+      .catch(() => { /* si ricade sull'attesa nel gesto */ });
+    return () => { alive = false; };
+  }, [ctxMenu, wantsFullDescription, fullDescription, task.projectId, task.id]);
+  const copyTask = (): void => {
+    const description = task.description ?? fullDescription;
+    if (description !== null || !wantsFullDescription) {
+      void copyText(taskCopyText({ text: task.text, description }));
+      return;
+    }
+    // Non è ancora atterrata: si aspetta. Incollare i 240 caratteri
+    // dell'anteprima spacciandoli per il testo è il guasto silenzioso; se
+    // nemmeno questa risponde si copia il titolo, che è vero.
+    void boardApi.get(task.projectId, task.id)
+      .then(({ task: full }) => copyText(taskCopyText(full)))
+      .catch(() => copyText(taskCopyText({ text: task.text, description: null })));
+  };
+  // La riga della lista comanda; il fetch è la ricaduta per un server vecchio.
+  const rowThread = useMemo(() => cardCommentsFromRow(task), [task]);
+  const lastComment = rowThread?.latest ?? thread?.latest ?? null;
+  const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
-  const humanContextText = thread?.humanContext ? stripMarkdown(thread.humanContext.content) : '';
+  const humanContextText = humanContext ? stripMarkdown(humanContext.content) : '';
   const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
   // A quick reply whose text IS one of the card's real choices is a trap: the
   // reply rejects the card and restarts the agent with those words, while the
@@ -312,7 +382,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Il ripiego, quando il server non manda una frase, nomina l'azione con la
   // PAROLA della tabella condivisa: dire «Approva non è riuscito» sotto un
   // bottone che si chiama «Va bene» rimetterebbe due nomi sulla stessa porta.
-  const failedWord = (id: Parameters<typeof taskActionWord>[0]) => `${taskActionWord(id, tr).label}: non è riuscito`;
+  const failedWord = (id: Parameters<typeof taskActionWord>[0]) => tr('board.card.actionFailed', { action: taskActionWord(id, tr).label });
   const clearError = () => onError(task.id, null);
   // Le scelte (`TaskChoiceRow`) passano di qui per la stessa ragione: il loro
   // messaggio arriva già con l'etichetta della voce premuta, e va tradotto e
@@ -355,9 +425,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     // davvero un agent da fermare: su una card ferma la domanda sarebbe rumore.
     if (isAgentWorking(task.dispatchState)) {
       const ok = await confirm({
-        title: 'Archiviare un task in corso?',
-        confirmLabel: 'Archivia e ferma',
-        body: <p>Su questo task c&apos;è un agent al lavoro: archiviandolo il suo turno viene interrotto e non riprende.</p>,
+        title: tr('board.card.archiveRunning'),
+        confirmLabel: tr('board.card.archiveRunningConfirm'),
+        body: <p>{tr('board.card.archiveRunningBody')}</p>,
       });
       if (!ok) return;
     }
@@ -393,7 +463,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     if (busy || !v) return;
     setBusy(true); clearError();
     try { await boardApi.comment(task.projectId, task.id, v, { quiet: opts?.quiet }); setFreeText(''); onRefetch(); }
-    catch (e) { fail(e, 'Il messaggio non è partito'); }
+    catch (e) { fail(e, tr('board.card.messageNotSent')); }
     finally { setBusy(false); }
   };
   // Human-readable project label = the dirName prefix before the id hash.
@@ -515,8 +585,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
               // «il tab del task», che è l'altra superficie e non ha un campo
               // dove rispondere a un turno vivo.
-              title="Il turno e' vivo ma aspetta te: apri la sessione dell'agente per rispondere"
-            >aspetta te</span>
+              title={tr('board.task.awaitingYouTitle')}
+            >{tr('board.card.awaitingYou')}</span>
           ) : (live && task.dispatchState === 'working') ? null : task.queueReason ? (
             // Una card ferma in Todo dice PERCHÉ, e la ragione arriva già
             // scritta dal server. Vince sul chip di stato («in coda», «in
@@ -526,7 +596,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           ) : (!task.dispatchState && task.dispatchError) ? (
-            <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
+            <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
           ) : null}
           {live && task.dispatchState === 'working' ? (
             <LiveEffortChip usage={live} />
@@ -545,8 +615,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               // la stessa la usano la dashboard e il piede di un messaggio.
               // «Quanto contesto e' passato» resta qui sotto, nel tooltip.
               title={(task.agentMs > 0 || costo > 0)
-                ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${costo ? `, ${costo.toLocaleString('it-IT')} token di costo` : ''}${task.agentCacheReadTokens > 0 ? ` (${fmtTok(contesto)} di contesto passato, di cui ${fmtTok(task.agentCacheReadTokens)} riletti dalla cache: contano un decimo)` : ''} · modello ${fmtModel(task.model)}`
-                : `Modello: ${fmtModel(task.model)}`}
+                ? tr('board.card.effortTitle', {
+                  work: fmtMs(task.agentMs),
+                  cost: costo ? tr('board.card.effortCost', { cost: costo.toLocaleString(locale) }) : '',
+                  cache: task.agentCacheReadTokens > 0
+                    ? tr('board.card.effortCache', { context: fmtTok(contesto), cache: fmtTok(task.agentCacheReadTokens) })
+                    : '',
+                  model: fmtModel(task.model),
+                })
+                : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
               className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
             >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}</span>
           ) : null}
@@ -555,7 +632,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               onClick={(e) => { e.stopPropagation(); onOpenTopic!(task.assignedTopicId!); }}
               data-testid="card-open-session"
               className="shrink-0 rounded bg-white/10 p-1 text-app-text hover:bg-white/20"
-              title="Apri la sessione dell'agente: la chat dove sta lavorando (chiuderla NON la ferma)"
+              title={tr('board.task.openSessionTitle')}
             ><MessageSquare className="h-3 w-3" /></button>
           )}
           {/* La sessione c'era e non c'è più. Non si nasconde e non si apre il
@@ -564,7 +641,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-session-gone"
               className="shrink-0 rounded bg-white/5 p-1 text-app-text-faint"
-              title="L'agente non è più vivo: la sua sessione non esiste più. Quello che ha fatto resta qui, sulla scheda."
+              title={tr('board.task.sessionGoneTitle')}
             ><MessageSquare className="h-3 w-3" /></span>
           )}
         </div>
@@ -588,7 +665,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       <span className="block break-words leading-snug">
         {showPriority && (
           <span
-            title={`Priorità: ${PRIORITY_LABEL[task.priority] ?? task.priority}`}
+            title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
             className={`mr-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-middle text-xs md:text-[10px] ${
               task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
             }`}
@@ -616,7 +693,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <button
               key={s.id}
               onClick={() => onOpen(s.id)}
-              title={`${STATUS_LABEL[s.status]} · apri il sottotask`}
+              title={tr('board.card.openSubtaskTitle', { status: STATUS_LABEL[s.status] })}
               className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
             >
               <StatusIcon status={s.status} />
@@ -642,30 +719,37 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {checklist.length > 5 && (
             <button
               onClick={() => onOpen(task.id)}
-              title="Apri la scheda del task: la checklist per intero"
+              title={tr('board.card.fullChecklistTitle')}
               className="px-0.5 text-xs md:text-[11px] text-app-text-secondary hover:text-app-text"
-            >+{checklist.length - 5}… Vedi tutti</button>
+            >+{checklist.length - 5}… {tr('board.card.seeAll')}</button>
           )}
         </div>
       ) : task.subtaskCount > 0 ? (
         <div className="mt-1">
           <span
-            title={`${task.subtaskDoneCount}/${task.subtaskCount} sottotask completati`}
+            title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
             className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
       {/* Description preview — plain text, clamped (the full markdown lives in
-          the drawer). The update time closes the body — but on an agent review
-          card the agent's LAST COMMENT is the true tail, so the date renders
-          after that (inside the review block) instead of here. */}
-      {task.description && (
-        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(task.description)}</p>
+          the drawer). The update time closes the body — but on a REVIEW card the
+          review block below owns the tail, and prints the date itself after the
+          agent's last word, so it must not be printed here as well.
+          The gate used to be `!isAgentReview`, which is narrower than the block
+          it defers to: the block renders on every review card, so a review card
+          with no agent bound to it (a delivery nobody dispatched) printed the
+          same date TWICE, one line under the other.
+          `descriptionPreview` è ciò che la lista manda (240 caratteri: il
+          riquadro ne mostra due righe); `description` è la ricaduta per un
+          server più vecchio del client, che l'anteprima non la calcola. */}
+      {descriptionText && (
+        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
       )}
-      {!isAgentReview && (
+      {task.status !== 'review' && (
         <div
           className="mt-1 text-xs md:text-[10px] text-app-text-muted"
-          title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
+          title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
         >{fmtUpdatedAt(task.updatedAt)}</div>
       )}
       {/* Relational chips (blocker / parent / thread / plan / assignee): the
@@ -709,20 +793,23 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {task.parentTaskId && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
-              title={parentTitle ? `Apri la scheda del padre: ${parentTitle}` : 'Apri la scheda del task padre'}
+              title={parentTitle ? tr('board.card.openParentNamedTitle', { title: parentTitle }) : tr('board.task.openParentCardTitle')}
               className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300 hover:bg-violet-500/25"
-            >⤴ {parentTitle ?? 'padre'}</button>
+            >⤴ {parentTitle ?? tr('board.card.parent')}</button>
           )}
           {task.userCommentCount > 0 && (
             <span
-              title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
+              title={tr(task.userCommentCount === 1 ? 'board.card.yourMessagesOne' : 'board.card.yourMessagesMany', { n: task.userCommentCount })}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
           )}
           {notLanded && (
             <span
               data-testid="card-not-landed"
-              title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Apri il task per landarlo prima che il branch venga potato.`}
+              title={tr('board.card.notLandedTitle', {
+                commit: task.deliveryCommit?.slice(0, 8) ?? '?',
+                branch: task.deliveryBranch ? tr('board.card.notLandedBranch', { branch: task.deliveryBranch }) : '',
+              })}
               className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
               // Il RAMO sta nel testo, non solo nel `title`: su touch l'hover non
               // esiste, e senza il nome la card dice che c'è un problema ma non
@@ -730,19 +817,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               // il chip prende la sua riga invece di comprimere il nome, e
               // `truncate` resta solo per il caso estremo (nome intero nel DOM
               // e nel tooltip, colonna che non si allarga mai).
-            ><AlertTriangle className="h-3 w-3 shrink-0" /> <span className="truncate">non su main{notLandedBranch ? ` · ${notLandedBranch}` : ''}</span></span>
+            ><AlertTriangle className="h-3 w-3 shrink-0" /> <span className="truncate">{tr('board.task.notOnMain')}{notLandedBranch ? ` · ${notLandedBranch}` : ''}</span></span>
           )}
           {checksRed && (
             <span
-              title={`Checks pre-review ROSSI: ${(task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || 'un comando è fallito'}`}
+              title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
               className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
-            ><AlertTriangle className="h-3 w-3 shrink-0" /> checks rossi</span>
+            ><AlertTriangle className="h-3 w-3 shrink-0" /> {tr('board.card.checksRed')}</span>
           )}
           {task.planFirst && (
             <span
-              title="L'agent consegna prima un piano da approvare"
+              title={tr('board.card.planTitle')}
               className="rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300"
-            >piano</span>
+            >{tr('board.card.plan')}</span>
           )}
           {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading">@{task.assignedTo}</span>}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
@@ -754,9 +841,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {task.status === 'review' && whoCloses(task.labels.map((l) => l.label), task.checksState) === 'conductor' && (
             <span
               data-testid="card-conductor-closes"
-              title="Invisibile e barra verde: questa card la può chiudere il conduttore senza passare da te."
+              title={tr('board.card.conductorClosesTitle')}
               className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-emerald-300"
-            ><ShieldCheck className="h-3 w-3 shrink-0" /> la chiude il conduttore</span>
+            ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.conductorCloses')}</span>
           )}
         </div>
       )}
@@ -779,17 +866,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               value={freeText} disabled={busy}
               onChange={(e) => setFreeText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
-              placeholder="…oppure scrivi all'agent"
+              placeholder={tr('board.card.steerPlaceholder')}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
             <button
               disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
-              title="Invia all'agent. Lo riceve al prossimo turno, come Claude Code."
+              title={tr('board.card.steerSendTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
             <TaskChoiceMenu
               task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
-              ariaLabel="Azioni su questo turno"
+              ariaLabel={tr('board.card.turnActions')}
             />
           </div>
         </div>
@@ -808,8 +895,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           anche per una consegna che nessun agente ha fatto. Tenerle sotto lo
           stesso gate lasciava quella card con la sola casella di testo, che è
           esattamente il difetto che `taskChoices` ha chiuso. */}
+      {/* LO STOP AL CLICK STA SUI COMANDI, NON SU TUTTO IL BLOCCO.
+          La card È il bottone che apre la scheda (`onClick` sulla radice), e
+          questo blocco è la parte più alta di una card in review: con il freno
+          sul contenitore, il gesto principale moriva su quasi tutta la
+          superficie — testo dell'agente, richiesta citata, data e ogni pixel
+          vuoto fra un comando e l'altro. Il freno serve alle SCELTE e alla
+          casella (lì un click ha già il suo effetto), quindi è lì che sta. */}
       {task.status === 'review' && (
-        <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+        <div className="mt-2 space-y-1.5">
           {/* The human request the answer below is answering, kept to ONE line.
               On a card that bounced back through review it is the rework note,
               and without it the answer arrives with its question missing. It is
@@ -820,7 +914,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <p
               data-testid="card-human-context"
               className="truncate border-l-2 border-sky-400/40 pl-1.5 text-xs md:text-[11px] leading-relaxed text-app-text-muted"
-              title={`La tua richiesta: ${humanContextText}`}
+              title={tr('board.card.yourRequest', { text: humanContextText })}
             >{humanContextText}</p>
           )}
           {/* The agent's last word, ALWAYS on the card — a formatted question
@@ -847,10 +941,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {/* Update time trails the agent's last word (the card body's true tail). */}
           <div
             className="text-xs md:text-[10px] text-app-text-muted"
-            title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
+            title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
           >{fmtUpdatedAt(task.updatedAt)}</div>
           {replyOptions.length > 0 && (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
               {replyOptions.map((opt, i) => (
                 <button
                   key={i} disabled={busy}
@@ -868,19 +962,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               «Rimanda indietro». Prima restava nella casella e l'agente
               ripartiva senza indicazione — stesso difetto del drawer, stessa
               riga di codice che lo causava (`review(reject)` senza commento). */}
-          <TaskChoiceRow
-            task={task} disabled={busy}
-            onDone={choiceDone} onError={choiceFailed}
-            onNeedText={() => freeTextRef.current?.focus()}
-            pendingText={() => freeText}
-          />
-          <div className="flex items-center gap-1">
+          <div onClick={(e) => e.stopPropagation()}>
+            <TaskChoiceRow
+              task={task} disabled={busy}
+              onDone={choiceDone} onError={choiceFailed}
+              onNeedText={() => freeTextRef.current?.focus()}
+              pendingText={() => freeText}
+            />
+          </div>
+          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             <input
               ref={freeTextRef}
               value={freeText} disabled={busy}
               onChange={(e) => setFreeText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); replyFree(); } }}
-              placeholder={isAgentReview ? tr('board.task.replyPlaceholderShort') : '…oppure commenta'}
+              placeholder={isAgentReview ? tr('board.task.replyPlaceholderShort') : tr('board.card.commentPlaceholder')}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
             {/* DUE GESTI, DUE BOTTONI, e ognuno si chiama come il suo effetto.
@@ -889,7 +985,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 RIMANDAVA la consegna all'agent, e nessuna icona lo diceva. */}
             <button
               disabled={busy || !freeText.trim()} onClick={() => replyFree()}
-              title={isAgentReview ? tr('board.task.sendBackReplyTitle') : 'Commenta'}
+              title={isAgentReview ? tr('board.task.sendBackReplyTitle') : tr('board.card.comment')}
               data-testid="card-reply-send-back"
               className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" />{isAgentReview && <span>{tr('board.task.sendBackReply')}</span>}</button>
@@ -920,7 +1016,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{error}</span>
           <button
-            aria-label="Chiudi l'errore"
+            aria-label={tr('board.task.closeError')}
             onClick={clearError}
             className="shrink-0 rounded p-0.5 hover:bg-white/10"
           ><X className="h-3 w-3" /></button>
@@ -934,30 +1030,30 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             className={POPOVER_ITEM}
             // «Apri» da solo non diceva QUALE delle due superfici: questa è la
             // scheda, l'altra voce qui sotto è la sessione.
-            title="Apri la scheda del task: descrizione, checklist, consegna, thread"
-          ><ClipboardList className="h-3.5 w-3.5 text-app-text-secondary" /> Apri la scheda</button>
+            title={tr('board.task.openCardTitle')}
+          ><ClipboardList className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.task.openCard')}</button>
           {/* Stesso testo che copia il bottone del drawer (`taskCopyText`):
               titolo + descrizione. Qui è a portata di tasto destro perché il
               gesto — «prendo questo task e lo incollo altrove» — parte quasi
               sempre dalla card, senza aprire niente. */}
           <button
             role="menuitem"
-            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); void copyText(taskCopyText(task)); }}
+            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); copyTask(); }}
             className={POPOVER_ITEM}
-          ><Copy className="h-3.5 w-3.5 text-app-text-secondary" /> Copia task</button>
+          ><Copy className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.card.copyTask')}</button>
           {canOpenSession && (
             <button
               role="menuitem"
               onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic!(task.assignedTopicId!); }}
               className={POPOVER_ITEM}
-              title="Apri la sessione dell'agente: la chat dove sta lavorando (chiuderla NON la ferma)"
-            ><MessageSquare className="h-3.5 w-3.5 text-app-text-secondary" /> Apri la sessione</button>
+              title={tr('board.task.openSessionTitle')}
+            ><MessageSquare className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.task.openSession')}</button>
           )}
           {sessionEnded && (
             <span
               className={`${POPOVER_ITEM} cursor-default text-app-text-faint`}
-              title="L'agente non è più vivo: la sua sessione non esiste più. Quello che ha fatto resta qui, sulla scheda."
-            ><MessageSquare className="h-3.5 w-3.5" /> Sessione finita</span>
+              title={tr('board.task.sessionGoneTitle')}
+            ><MessageSquare className="h-3.5 w-3.5" /> {tr('board.task.sessionGone')}</span>
           )}
           {/* Solo quando c'è davvero un turno da tagliare: su una card ferma la
               voce sarebbe un bottone che risponde 409. `agentBusy` è la stessa
@@ -1006,6 +1102,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
  * agent_ms/agent_tokens chip the instant the turn ends.
  */
 export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
+  const tr = useT();
+  const locale = useLocale();
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 1000);
@@ -1015,7 +1113,11 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
   return (
     <span
-      title={`In esecuzione · modello ${fmtModel(usage.model)}, ${fmtLive(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
+      title={tr('board.card.liveEffortTitle', {
+        model: fmtModel(usage.model),
+        work: fmtLive(ms),
+        tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
+      })}
       className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300 tabular-nums"
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />

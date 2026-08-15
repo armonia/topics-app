@@ -298,6 +298,36 @@ describe("review gate (KANBAN-05)", () => {
     expect(agentMove.dispatchAttempts).toBe(3);
   });
 
+  /**
+   * IL BUDGET NON ERA L'UNICA COSA CHE TENEVA FERMA LA CARD.
+   *
+   * `dispatch_deferred_until` è la finestra d'attesa che l'agente dichiara, e il
+   * CAS del claim la rifiuta finché non è passata: fino a 24 ore. Il bottone
+   * «rimetti in Todo» azzerava i tentativi e lasciava lì la finestra — la card
+   * tornava in una colonna dove nessuno la prendeva, con il chip del parcheggio
+   * ancora sopra a raccontare la storia di prima.
+   */
+  test("rimettere in Todo azzera anche la finestra di rinvio e il chip, non solo i tentativi", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "backlog" });
+    db.prepare(
+      "UPDATE tasks SET dispatch_attempts = 3, dispatch_deferred_until = '2099-01-01T00:00:00.000Z', " +
+        "dispatch_state = 'failed', dispatch_error = 'budget finito' WHERE id = ?",
+    ).run(t.id);
+
+    const back = s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "todo" } });
+
+    expect(back.dispatchAttempts).toBe(0);
+    expect(back.dispatchDeferredUntil).toBeNull();
+    expect(back.dispatchState).toBeNull();
+    expect(back.dispatchError).toBeNull();
+    // La controprova sull'asse dei permessi: un AGENTE non si ridà niente.
+    db.prepare(
+      "UPDATE tasks SET status = 'backlog', dispatch_deferred_until = '2099-01-01T00:00:00.000Z' WHERE id = ?",
+    ).run(t.id);
+    const agente = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "todo" } });
+    expect(agente.dispatchDeferredUntil).toBe("2099-01-01T00:00:00.000Z");
+  });
+
   test("human drag review → done clears the lingering dispatch chip", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "review" } });
@@ -450,6 +480,38 @@ describe("review gate (KANBAN-05)", () => {
     s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { text: "work rinominato" } });
     const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
     expect(ap.status).toBe("pending");
+  });
+
+  /**
+   * LE DUE STRADE CHE LASCIAVANO LA RICHIESTA APPESA.
+   *
+   * Il land chiude la card a SQL grezzo (`settleLanded`) e l'archiviazione la
+   * toglie dalla board: nessuna delle due passava da `update`, quindi la riga
+   * `pending` restava lì per sempre — il task non è più in review e
+   * `reviewDecision` la rifiuterebbe. Misurate il 13/08: 13 appese su 48, 9 su
+   * card già `done`. È la stessa perdita che la migration 068 aveva ripulito.
+   */
+  test("il LAND chiude l'approvazione pendente: approved, che è ciò che chiedeva", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    s.settleLanded({ taskId: t.id, by: "system", reason: "il land è riuscito" });
+
+    const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
+    expect(ap.status).toBe("approved");
+    expect(ap.reviewed_at).not.toBeNull();
+  });
+
+  test("l'ARCHIVIAZIONE la fa scadere: expired, perché nessuno ha detto di no", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    s.archive({ taskId: t.id });
+
+    const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
+    expect(ap.status).toBe("expired");
   });
 
   test("human reject → in_progress + comment + approval rejected", () => {
@@ -1973,6 +2035,42 @@ describe("settleLanded / verdetto testimoniato", () => {
     expect(dopo.doneActor).toBe("human");
   });
 
+  /**
+   * IL LAND NON CHIUDE UN PADRE CON STEP APERTI.
+   *
+   * `settleLanded` era l'unica porta verso `done` che saltasse l'invariante:
+   * scrive SQL grezzo, quindi il cancello di `update()` e dell'approvazione non
+   * la incontrava. «Landa su main» chiudeva il padre e i suoi passi restavano
+   * appesi sotto una card chiusa — fuori dalle colonne (il feed è `rootsOnly`),
+   * fuori dalla presa del dispatcher (uno step non lo claima nessuno), cioè
+   * lavoro irraggiungibile.
+   */
+  test("un padre con step aperti NON si chiude col land, ma il chip si spegne lo stesso", () => {
+    const padre = nuovo("status = 'review', dispatch_state = 'working', dispatch_deferred_until = '2099-01-01T00:00:00Z'");
+    const figlio = svc.create({ projectId: "pX", text: "passo aperto", parentTaskId: padre });
+
+    const dopo = svc.settleLanded({ taskId: padre, by: "system", reason: "il land è riuscito" })!;
+
+    expect(dopo.status).toBe("review");   // resta dov'era: il merge non la chiude
+    expect(svc.get(figlio.id)!.task.status).not.toBe("done");
+    // Il merge però è avvenuto: la card non deve restare claimabile, o un agente
+    // riparte a rifare ciò che sta su main.
+    expect(dopo.dispatchState).toBeNull();
+    expect(dopo.dispatchDeferredUntil).toBeNull();
+    // E nessuna riga di storico per una transizione che non c'è stata.
+    expect(svc.get(padre)!.comments.filter((c) => c.kind === "status")).toEqual([]);
+  });
+
+  test("chiuso l'ultimo step, lo stesso land chiude il padre", () => {
+    // La controprova: senza di questa il cancello sopra potrebbe essere «non
+    // chiude mai» e passerebbe uguale.
+    const padre = nuovo("status = 'review', dispatch_state = 'working'");
+    const figlio = svc.create({ projectId: "pX", text: "passo", parentTaskId: padre });
+    svc.update({ taskId: figlio.id, actor: "human", by: "attilio", patch: { status: "done" } });
+
+    expect(svc.settleLanded({ taskId: padre, by: "system", reason: "il land è riuscito" })!.status).toBe("done");
+  });
+
   test("un ATTERRAGGIO testimoniato esce dai candidati della passata: non lo si rideduce", () => {
     const dedotto = nuovo();
     const visto = nuovo();
@@ -2603,5 +2701,383 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(dopo.dispatchAttempts).toBe(1);  // NON rimborsato: qui il freno serve
     expect(dopo.waitStreak).toBe(0);        // e non era un'attesa
     expect(dopo.waitSince).toBeNull();
+  });
+});
+
+/**
+ * IL COSTO DI UNA LISTA, MISURATO IN STATEMENT E IN BYTE.
+ *
+ * Misurato il 15/08 su `GET /api/all-boards/tasks` contro il database vivo
+ * (2.135 task, 651 MB): 467 radici, 1.435.735 byte, 145 ms. Il mappatore faceva
+ * da 4 a 7 query PER RIGA — etichette, bloccante, topic, dipendenti, stato del
+ * padre, e per ogni card in `todo` due COUNT correlati sull'intera coda — cioè
+ * O(N) statement più O(Q²) scansioni: ~1.500 statement per una lista sola.
+ *
+ * Due cancelli, e sono su due grandezze diverse apposta. Il primo conta gli
+ * STATEMENT: è la forma del guasto (per riga invece che per lotto), e va rosso
+ * il giorno in cui qualcuno rimette una lettura dentro il ciclo, qualunque sia
+ * la sua durata su questa macchina. Il secondo conta i BYTE per task: è il
+ * grasso nuovo, quello che nessun invariante conosce ancora.
+ */
+describe("il costo di una lista non cresce con le righe", () => {
+  /**
+   * Conta le COMPILAZIONI, non le esecuzioni. È la grandezza giusta: una query
+   * dentro il ciclo si vede qui anche quando SQLite se la cava in un
+   * microsecondo, mentre un tempo misurato su questa macchina direbbe cose
+   * diverse su un'altra.
+   *
+   * Si intercetta `prepare` e BASTA: in `bun:sqlite` è `db.query` a chiamarlo
+   * (e a tenersi il risultato in cache per la stessa SQL), quindi contare
+   * entrambi conterebbe due volte ogni `query` e nasconderebbe proprio il
+   * risparmio della cache.
+   */
+  function countStatements<T>(db: Database, run: () => T): { n: number; out: T } {
+    const raw = db.prepare.bind(db);
+    let n = 0;
+    (db as unknown as { prepare: unknown }).prepare =
+      (...a: unknown[]) => { n++; return (raw as unknown as (...x: unknown[]) => unknown)(...a); };
+    try {
+      const out = run();
+      return { n, out };
+    } finally {
+      (db as unknown as { prepare: unknown }).prepare = raw;
+    }
+  }
+
+  /** 300 righe, 100 delle quali radici in coda: la forma del feed vero. */
+  function seed(db: Database, opts: { description?: string; rows?: number } = {}): void {
+    const totale = opts.rows ?? 300;
+    const ins = db.prepare(
+      `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, created_at, updated_at, checks_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const checks = JSON.stringify([
+      { name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 4210, timedOut: false, tail: "x".repeat(600) },
+    ]);
+    for (let i = 0; i < totale; i++) {
+      const status = i < totale / 3 ? "todo" : i < (2 * totale) / 3 ? "review" : "done";
+      ins.run(
+        `t-${i}`, `board-${i % 5}`, `task numero ${i}`, opts.description ?? null,
+        status, i % 5, i, `2026-08-${String((i % 27) + 1).padStart(2, "0")}T10:00:00.000Z`,
+        "2026-08-15T10:00:00.000Z", checks,
+      );
+    }
+  }
+
+  test("300 task, 100 in coda: una lista sta sotto i 25 statement (ne faceva ~1500)", () => {
+    const db = freshDb();
+    const s = svc(db);
+    seed(db);
+    const { n, out } = countStatements(db, () => s.list({ scope: "all", rootsOnly: true }));
+    expect(out.length).toBe(300);
+    expect(n).toBeLessThan(25);
+  });
+
+  test("e non cresce: dieci volte le righe, lo STESSO numero di statement", () => {
+    // La controprova che rende il numero sopra un INVARIANTE e non una soglia
+    // calibrata: stessa forma, dieci volte le righe. Se una lettura tornasse
+    // dentro il ciclo questo conto si moltiplicherebbe, anche lasciando il primo
+    // cancello verde su una board piccola.
+    const piccolo = freshDb(); seed(piccolo, { rows: 30 });
+    const grande = freshDb(); seed(grande, { rows: 300 });
+    const a = countStatements(piccolo, () => svc(piccolo).list({ scope: "all", rootsOnly: true })).n;
+    const b = countStatements(grande, () => svc(grande).list({ scope: "all", rootsOnly: true })).n;
+    expect(b).toBe(a);
+  });
+
+  /**
+   * IL BUDGET IN BYTE, e il numero non è quello che sembrava.
+   *
+   * La descrizione da 2.500 caratteri è la coda misurata sul database vivo
+   * (massimo 5.140 byte, 470 KB sul feed); i `checks` sono l'altra metà del
+   * grasso (217 KB). Nessuno dei due viaggia nella proiezione magra.
+   *
+   * Il tetto è 1.600 e non 700 perché 700 sta SOTTO IL PAVIMENTO: un task con
+   * ogni campo a null pesa già 1.458 byte, che sono i nomi delle 63 chiavi e i
+   * loro `null`. Restano poi due campi che non sono grasso ma contenuto —
+   * l'anteprima (263 byte, ed è ciò che la card disegna) e `queueReason`
+   * (242 byte, la frase che dice perché la card non parte). Sotto i 700 non ci
+   * si arriva accorciando: ci si arriva togliendo chiavi, che è un altro
+   * cambio, con un altro client da avvisare.
+   *
+   * La CONTROPROVA sotto è la parte che non si può ricalibrare: il payload
+   * magro non deve contenere né la descrizione intera né la coda dell'output
+   * dei check, e quella condizione va rossa il giorno in cui uno dei due torna,
+   * qualunque soglia si scriva sopra.
+   */
+  test("proiezione magra: sotto i 1600 byte per task, con descrizioni da 2500 caratteri", () => {
+    const db = freshDb();
+    const s = svc(db);
+    seed(db, { description: "d".repeat(2500) });
+    const magra = s.list({ scope: "all", rootsOnly: true });
+    expect(magra.length).toBe(300);
+    const testo = JSON.stringify({ tasks: magra });
+    expect(testo.length / magra.length).toBeLessThan(1600);
+    // Strutturale: i due pesi che questo cambio toglie non sono nel payload.
+    expect(testo).not.toContain("d".repeat(300));  // la descrizione intera
+    expect(testo).not.toContain("x".repeat(300));  // la coda dei check
+    // E il confronto con la proiezione di prima, che li portava entrambi.
+    // `withDescription` è l'interruttore che resta acceso per le due letture
+    // che il testo intero lo LEGGONO (proposta di collegamento, lista di un
+    // agente): la lista che disegna card non lo accende mai.
+    const grassa = s.list({ scope: "all", rootsOnly: true, withDescription: true });
+    expect(JSON.stringify({ tasks: grassa }).length / grassa.length).toBeGreaterThan(2500);
+  });
+
+  test("la lista porta l'anteprima della descrizione, il dettaglio la porta intera", () => {
+    const db = freshDb();
+    const s = svc(db);
+    seed(db, { description: "d".repeat(2500) });
+    const [primo] = s.list({ scope: "all", rootsOnly: true });
+    expect(primo!.descriptionPreview!.length).toBe(240);
+    expect(primo!.checks).toBeNull();          // fuori dalla proiezione della lista
+    const dettaglio = s.get(primo!.id)!.task;
+    expect(dettaglio.description!.length).toBe(2500);
+    expect(dettaglio.checks!.length).toBe(1);  // il dettaglio li porta
+  });
+});
+
+describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  /**
+   * IL PREDICATO DI AUTORIZZAZIONE ARRIVA FINO A SQL.
+   *
+   * Il feed dell'ospite idratava OGNI task del database — etichette, bloccante,
+   * ragione di coda, commenti — per poi tenere in JS i due condivisi con lui.
+   * Pagava l'intera board per rispondere «due card».
+   */
+  test("`ids` taglia in SQL, e l'insieme VUOTO vale «nessuna riga»", () => {
+    const a = s.create({ projectId: PID, text: "condivisa" });
+    s.create({ projectId: PID, text: "privata" });
+
+    expect(s.list({ scope: "all", rootsOnly: true, ids: [a.id] }).map((t) => t.text)).toEqual(["condivisa"]);
+    // Vuoto = niente, non «nessun filtro»: sbagliare qui vorrebbe dire mostrare
+    // a un ospite l'intera board.
+    expect(s.list({ scope: "all", rootsOnly: true, ids: [] })).toEqual([]);
+    // E si compone con gli altri tagli invece di sostituirli.
+    expect(s.list({ scope: "all", rootsOnly: true, status: "done", ids: [a.id] })).toEqual([]);
+  });
+
+  /**
+   * UNO STATO CHE NON ESISTE È UN ERRORE, NON UNA BOARD VUOTA. Il filtro
+   * arrivava dal query string con un `as any` e finiva in `WHERE status = ?`,
+   * dove non matcha niente: 200 con zero card, cioè una risposta perfettamente
+   * plausibile sopra un refuso.
+   */
+  test("uno stato inesistente è invalid_input, non una lista vuota", () => {
+    s.create({ projectId: PID, text: "c'è" });
+    expect(() => s.list({ scope: "all", status: "in-progress" as never }))
+      .toThrow(TaskServiceError);
+    expect(s.list({ scope: "all", status: "backlog" }).length).toBe(1); // il caso buono resta
+  });
+
+  /**
+   * I COMMENTI DELLA CARD VIAGGIANO CON LA LISTA. Senza, la board apriva un
+   * `GET /api/tasks/:id` per ogni card in review solo per leggere il fondo del
+   * thread — e quel dettaglio carica l'INTERO thread.
+   */
+  test("recentComments: gli ultimi tre PARLATI, senza cronologia né contabilità", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    for (const n of [1, 2, 3, 4]) s.addComment({ taskId: t.id, author: "claude", content: `parola ${n}` });
+    // `status` (transizioni) e `service` (contabilità del dispatcher) non sono
+    // le parole di nessuno: stesso taglio di `isThreadSpeech`.
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { priority: 1 } });
+    s.addComment({ taskId: t.id, author: "system", kind: "service", content: "in coda" });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true });
+    expect(card!.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
+    // E su OGNI payload, anche su quelli che le scritture ribaltano sul WS: un
+    // campo riempito solo in lettura si spegnerebbe al primo giro di WS.
+    const dopoScrittura = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { priority: 3 } });
+    expect(dopoScrittura.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
+  });
+
+  /**
+   * I COMMENTI VIAGGIANO SOLO DOVE LA CARD LI DISEGNA.
+   *
+   * Misurato il 15/08 su `GET /api/all-boards/tasks`: 731 KB di commenti
+   * attaccati a 455 schede su 467, per le 11 in review che li leggono. Il
+   * predicato è lo stesso del client (`showsCardThread`), e il verso conta:
+   * allargarlo qui è peso che non serve, stringerlo è una card muta.
+   */
+  test("fuori dalla review i commenti non partono, e tornano appena la card ci entra", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "todo" });
+    s.addComment({ taskId: t.id, author: "claude", content: "una parola" });
+
+    const inCoda = s.list({ scope: "all", rootsOnly: true })[0]!;
+    expect(inCoda.recentComments).toEqual([]);
+    // Il thread c'è, ed è il dettaglio a portarlo: la lista non lo nasconde,
+    // semplicemente non è lei a doverlo spedire.
+    expect(s.get(t.id)!.comments.map((c) => c.content)).toContain("una parola");
+
+    // Entrare in review fa scrivere al servizio la sua nota di evidenza: la
+    // parola dell'agente è quella davanti, e la nota è la coda del thread.
+    const inReview = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "review" } });
+    expect(inReview.recentComments.map((c) => c.content)).toContain("una parola");
+  });
+
+  /**
+   * IL TESTO È TAGLIATO, MA NON DENTRO UNA ```question.
+   *
+   * Il blocco domanda non è prosa: la card ne ricava i bottoni di risposta
+   * rapida. Tagliato a metà `parseQuestionBlock` torna `null` e la card perde i
+   * bottoni stampando il recinto grezzo, senza che niente diventi rosso.
+   */
+  test("il contenuto viaggia tagliato, e i tre campi sono quelli che la card legge", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    s.addComment({ taskId: t.id, author: "user", content: `chiedo: ${"x".repeat(3000)}` });
+    s.addComment({ taskId: t.id, author: "claude", content: `rispondo: ${"y".repeat(3000)}` });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true });
+    const [contesto, ultima] = card!.recentComments;
+    // L'ultima parola la card la stampa intera: 1.200 caratteri. Quelle prima
+    // stanno in una riga sola già tagliata dal CSS: 200 bastano.
+    expect(ultima!.content.length).toBe(1201);
+    expect(contesto!.content.length).toBe(201);
+    expect(Object.keys(ultima!).sort()).toEqual(["author", "content", "kind"]);
+  });
+
+  test("una ```question più lunga del tetto viaggia INTERA: i bottoni sopravvivono", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    const domanda = `Ho finito.\n${"prosa lunga. ".repeat(90)}\n\`\`\`question\nChe faccio?\n- Vai\n- Fermati\n\`\`\`\ncoda`;
+    expect(domanda.length).toBeGreaterThan(1200);
+    s.addComment({ taskId: t.id, author: "claude", content: domanda });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true });
+    const testo = card!.recentComments[0]!.content;
+    expect(testo).toContain("```question");
+    expect(testo).toContain("- Fermati");
+    // Il recinto è chiuso: è la condizione che `parseQuestionBlock` chiede.
+    expect(testo.split("```").length - 1).toBe(2);
+    // E il taglio c'è comunque: la coda dopo il recinto non viaggia.
+    expect(testo).not.toContain("coda");
+  });
+});
+
+/**
+ * IL LOTTO DEVE DIRE ESATTAMENTE CIÒ CHE DICEVA LA RIGA-PER-RIGA.
+ *
+ * Il rischio di questo cambio non è la lentezza, è il SILENZIO: una query di
+ * lotto che dimentica una colonna, o una `JOIN` che perde la riga senza legame,
+ * non fa fallire niente — spegne un campo su una card, e chi la guarda pensa
+ * che il dato non ci sia. Nessuno dei test sopra lo vedrebbe: guardano un campo
+ * alla volta, quindi coprono i campi a cui qualcuno ha già pensato.
+ *
+ * Qui il confronto è STRUTTURALE, chiave per chiave, fra le due porte che il
+ * lotto ha separato: `list` (proiezione + mappatore a lotti) e `get`
+ * (`SELECT *` + lotto da una riga). L'unica differenza ammessa è dichiarata e
+ * pinzata sotto: `checks`, che la lista non porta apposta.
+ */
+describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () => {
+  /** Il valore che ogni colonna nullable riceve, per tipo: vedi `tuttoPieno`. */
+  const TS = "2026-07-09T09:00:00.000Z";
+
+  /**
+   * Un task con OGNI colonna di `tasks` valorizzata, più tutto ciò che il
+   * mappatore va a cercare FUORI dalla riga: etichette, bloccante, topic,
+   * padre, un figlio aperto, dipendenti e commenti.
+   *
+   * `dispatch_deferred_until` è nel PASSATO di proposito: sul futuro la ragione
+   * di coda porta i minuti che mancano, arrotondati, e le due letture avvengono
+   * a due istanti diversi — un confronto che fallisce una volta su ventimila
+   * non è un cancello, è un rumore.
+   */
+  function tuttoPieno(db: Database, s: TaskService): { id: string; altri: string[] } {
+    db.run("INSERT INTO topics (id, effort) VALUES ('top-1', 'xhigh')");
+    db.run("INSERT INTO agent_profiles (id) VALUES ('ap-1')");
+    const bloccante = s.create({ projectId: PID, text: "prima questo" });
+    const padre = s.create({ projectId: PID, text: "il padre" });
+    const t = s.create({ projectId: PID, text: "tutto pieno", parentTaskId: padre.id });
+    const passo = s.create({ projectId: PID, text: "un passo ancora aperto", parentTaskId: t.id });
+    // Una radice in coda: è l'unica forma per cui la ragione di coda calcola la
+    // FILA, cioè il ramo che il lotto ha riscritto con la ricerca binaria.
+    const inCoda = s.create({ projectId: PID, text: "in coda", status: "todo" });
+    // Un dipendente vivo, così `waitingOnCount` non è zero da entrambe le parti.
+    const dipendente = s.create({ projectId: PID, text: "aspetta il pieno" });
+    db.run("UPDATE tasks SET blocked_by_task_id = ? WHERE id = ?", [t.id, dipendente.id]);
+    for (const label of ["visibile", "bugfix"]) {
+      db.run("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'human', ?)", [t.id, label, TS]);
+    }
+    s.addComment({ taskId: t.id, author: "user", content: "una parola" });
+    s.addComment({ taskId: t.id, author: "claude", content: "un'altra parola" });
+
+    db.run(
+      `UPDATE tasks SET
+         description = ?, status = 'review', priority = 3, kanban_order = 7,
+         assigned_to = 'il-reviewer', fingerprint = 'fp-1', due_date = ?, chat_id = 'chat-1',
+         created_at = ?, completed_at = ?, updated_at = ?, assigned_agent_id = 'ap-1',
+         in_progress_at = ?, archived = 0, assigned_topic_id = 'top-1', claude_task_id = 'ct-1',
+         dispatch_attempts = 2, dispatch_state = 'working', dispatch_error = 'un errore',
+         output_url = 'https://example.invalid/x', plan_first = 1, agent_ms = 1234,
+         agent_tokens = 5678, model = 'claude-opus-5', blocked_by_task_id = ?,
+         reuse_blocker_context = 1, priority_auto = 0, agent_cache_read_tokens = 90,
+         preview_image = '/tmp/x.png', dispatch_deferred_until = ?, delivery_branch = 'topics/x',
+         delivery_commit = 'abc1234', landing_state = 'landed', landing_checked_at = ?,
+         checks_state = 'green', checks_at = ?, checks_commit = 'abc1234', checks_json = ?,
+         delivered_by = 'claude', delivered_reason = 'finito', dispatch_weight = 'heavy',
+         created_by_topic_id = 'top-1', plan_comment_id = 'id-9', done_actor = 'human',
+         reopened_at = ?, reopened_by = 'il-reviewer', reopened_actor = 'human',
+         landing_witnessed = 1, wait_streak = 2, wait_reason = 'aspetto il gate',
+         wait_since = ?, preview_retired_at = ?, preview_retired_reason = 'sostituita',
+         interrupt_claimed_at = ?
+       WHERE id = ?`,
+      [
+        // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
+        // conta CARATTERI, `String.slice` conta unità UTF-16: su un'emoji le due
+        // porte tagliavano in due punti diversi, ed è esattamente la forma di
+        // divergenza che questo confronto esiste per prendere.
+        `🎯${"d".repeat(400)}`,
+        TS, TS, TS, TS, TS, bloccante.id, "2020-01-01T00:00:00.000Z",
+        TS, TS, JSON.stringify([{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "ok" }]),
+        TS, TS, TS, TS, t.id,
+      ],
+    );
+    return { id: t.id, altri: [padre.id, passo.id, bloccante.id, inCoda.id, dipendente.id] };
+  }
+
+  test("nessuna colonna resta a NULL: «tutti i campi» è verificato, non promesso", () => {
+    const db = freshDb();
+    const { id } = tuttoPieno(db, svc(db));
+    const riga = db.query("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown>;
+    // Una colonna aggiunta domani entra in questo cancello da sola: se la
+    // migration non la valorizza qui, il confronto sotto non la copre e questo
+    // test lo dice invece di passare in silenzio.
+    expect(Object.entries(riga).filter(([, v]) => v === null).map(([k]) => k)).toEqual([]);
+  });
+
+  test("list() e get() concordano su OGNI chiave, tranne le due dichiarate", () => {
+    const db = freshDb();
+    const s = svc(db);
+    const { id, altri } = tuttoPieno(db, s);
+    const listati = new Map(s.list({ scope: "all" }).map((x) => [x.id, x]));
+
+    for (const each of [id, ...altri]) {
+      const dallaLista = listati.get(each);
+      const dalDettaglio = s.get(each)?.task;
+      expect(dallaLista).toBeDefined();
+      expect(dalDettaglio).toBeDefined();
+      // `checks` e `description` fuori dal confronto e pinzate a parte: sono le
+      // DUE differenze volute fra le due porte, quindi vanno nominate invece
+      // che tollerate. Tutto il resto deve coincidere, campo per campo.
+      const senzaGrasso = { checks: null, description: null };
+      expect({ ...dallaLista!, ...senzaGrasso }).toEqual({ ...dalDettaglio!, ...senzaGrasso });
+    }
+
+    expect(listati.get(id)!.checks).toBeNull();          // la lista non li porta
+    expect(s.get(id)!.task.checks!.length).toBe(1);      // il dettaglio sì
+    // La descrizione: sulla lista solo l'anteprima, sul dettaglio il testo.
+    expect(listati.get(id)!.description).toBeNull();
+    expect(listati.get(id)!.descriptionPreview).toBe(s.get(id)!.task.descriptionPreview);
+    expect(s.get(id)!.task.description!.length).toBe(402); // 400 «d» + l'emoji, che sono due unità UTF-16
+    // E la prova che il confronto ha davvero guardato dei valori, non due
+    // oggetti vuoti che si somigliano.
+    expect(listati.get(id)!.labels.map((l) => l.label)).toEqual(["bugfix", "visibile"]);
+    expect(listati.get(id)!.blockedBy?.text).toBe("prima questo");
+    expect(listati.get(id)!.waitingOnCount).toBe(1);
+    expect(listati.get(id)!.recentComments.length).toBe(2);
+    expect(listati.get(id)!.effort).toBe("xhigh");
+    expect(listati.get(id)!.model).toBe("claude-opus-5");
   });
 });

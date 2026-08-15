@@ -29,6 +29,8 @@ import { configureSessionParkingForTracker, parkTopicSession } from "./server/li
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
+import { servedFileHeaders } from "./server/lib/served-file-headers";
+import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
@@ -56,7 +58,7 @@ import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
-import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
+import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
@@ -67,7 +69,7 @@ import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, t
 import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain } from "./server/services/landing-verdict";
 import { createTranscriptUsageReader } from "./server/services/transcript-usage";
 import { createDispatchUsageReader } from "./server/services/dispatch-usage";
-import { orphanBoardChildSessions } from "./server/services/agent-census";
+import { orphanChildSessions } from "./server/services/agent-census";
 import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
 import { homedir } from "os";
@@ -130,7 +132,7 @@ import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
-import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
+import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
 import { ROUTE_FAULT, applyRouteFault } from "./server/lib/route-fault";
@@ -146,6 +148,9 @@ import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/li
 // sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
 // entrambi i silenzi.
 import { pendingAskVerdict, cancelAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+// The stale-stream rule, pure so it can be tested without a server: the
+// finalize decision must never be reachable while the child process is alive.
+import { staleStreamVerdict } from "./server/lib/stale-stream-verdict";
 // La porta unica di «questo turno aspetta una PERSONA». Le due sorgenti di
 // silenzio legittimo sono una domanda a schermo E una richiesta di permesso a
 // schermo: qui dentro tre punti ne conoscevano solo la prima, che è esattamente
@@ -1373,10 +1378,35 @@ previewManager = createPreviewManager({
   },
   registerProcess: (entry) => registerPreviewProcess(entry),
   unregisterProcess: (taskId) => unregisterPreviewProcess(taskId),
+  // Chi ASCOLTA sulla porta e' un DISCENDENTE di `bun run dev`, non il figlio
+  // che spawniamo: senza l'albero il teardown lasciava il server vivo con la
+  // porta occupata. Stessa primitiva del bottone Stop del pannello.
+  killTree: (pid) => killProcessTree(pid),
+  // I worktree che questa macchina conosce: e' il riconoscimento della spazzata
+  // d'avvio ("chi tiene questa porta del pool e' una nostra anteprima?").
+  knownWorktreePaths: () => ctx.worktreeStore.list().map((w) => w.absPath).filter(Boolean),
+  // Chi il pannello Processi rivendica non e' un residuo: il dev server che un
+  // agente ha acceso col `run_script` nel SUO worktree ascolta su una porta e
+  // sta in una cartella conosciuta, cioe' e' identico a un'anteprima orfana per
+  // tutto cio' che la spazzata sa guardare.
+  protectedPids: () => trackedScriptPidTrees(),
   mediaDir: PREVIEW_MEDIA_DIR,
   ensureMediaDir: () => { try { mkdirSync(PREVIEW_MEDIA_DIR, { recursive: true }); } catch { /* ignore */ } },
   log: (msg, err) => console.error(msg, err ?? ""),
 });
+
+// SPAZZATA D'AVVIO delle anteprime rimaste in piedi. Il registro delle anteprime
+// vive sta in MEMORIA: un server morto (o ricaricato) mentre una era su lascia il
+// suo albero acceso e la porta del pool occupata PER SEMPRE, e nessun altro le
+// raccoglie — il rilevatore del pannello attribuisce per albero di una PTY
+// claude, e un'anteprima non e' figlia di nessuna PTY. Con 51 porte bastano
+// poche morti per lasciare una card in review senza evidenza. Differita e
+// best-effort: un `lsof` per porta non deve stare sulla strada del boot.
+setTimeout(() => {
+  previewManager?.sweepOrphans()
+    .then((ports) => { if (ports.length) console.log(`[preview] spazzata d'avvio: liberate le porte ${ports.join(", ")}`); })
+    .catch((err) => console.error("[preview] spazzata d'avvio fallita", err));
+}, 10_000).unref?.();
 
 const taskAutoMerge = createTaskAutoMerge({
   resolveTaskMerge: (taskId) => {
@@ -2072,6 +2102,17 @@ const opzioniServer = {
     // costante. Costo zero per chi lo usa davvero: `cli/topics.ts`, la sonda del
     // guscio Tauri e la procedura di reload chiamano tutte da 127.0.0.1.
     if (pathname.startsWith("/__daemon/")) {
+      // L'ASSE HOST, per primo, come in `evaluateAuth`. Loopback + token non
+      // bastano contro il DNS rebinding: una pagina su un dominio che l'attaccante
+      // fa risolvere a 127.0.0.1 arriva qui DA loopback, e il token del daemon e'
+      // leggibile da chi e' sulla LAN (`/preview/…/.topics/daemon-state.json`).
+      // Un `Host` assente passa per contratto: la CLI, i tool MCP e gli hook non
+      // lo mandano, e sono gia' sulla macchina. Vedi `isAllowedHost`.
+      if (!isAllowedHost(req.headers.get("host"), resolveAllowedOrigins())) {
+        return new Response(JSON.stringify({ error: "unauthorized" }), {
+          status: 401, headers: { "content-type": "application/json" },
+        });
+      }
       // Attraverso il tunnel il peer e' 127.0.0.1: senza questa domanda,
       // gli endpoint del daemon sarebbero aperti a Internet.
       if (!isLocalTransport(req, server.requestIP(req)?.address ?? null, isLoopbackAddress)) {
@@ -2447,9 +2488,34 @@ const opzioniServer = {
     // Serve uploaded files (screenshots, attachments)
     if (isRead && pathname.startsWith("/uploads/")) {
       const filePath = join(ctx.UPLOADS_DIR, pathname.slice("/uploads/".length));
+      // Lo stesso cancello di `/media/`: il confronto e' su una CARTELLA, con il
+      // separatore in coda, cosi' un fratello tipo `…/uploads-evil` non passa.
+      const resolvedUpload = resolve(filePath);
+      const resolvedUploads = resolve(ctx.UPLOADS_DIR);
+      if (resolvedUpload !== resolvedUploads && !resolvedUpload.startsWith(resolvedUploads + sep)) {
+        return new Response("Forbidden", { status: 403 });
+      }
       const file = Bun.file(filePath);
       if (await file.exists()) {
-        return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": "public, max-age=3600" } });
+        // UN UPLOAD E' CONTENUTO DI QUALCUN ALTRO servito sull'origine della app.
+        // Senza `nosniff` un browser puo' indovinare il tipo e rendere un .svg o
+        // un .html come pagina: XSS memorizzata, stessa origine, sessione inclusa.
+        // Le immagini/video/audio/pdf restano `inline` perche' e' cosi' che si
+        // guardano in chat; tutto il resto scende come allegato, come gia' fanno
+        // i download del browser pane qui sotto.
+        // `image/svg+xml` PASSAVA il test `^image/`, ed e' esattamente il buco
+        // che quel commento diceva di chiudere: un .svg navigato direttamente
+        // esegue il suo `<script>` sull'origine della app, con la sessione
+        // dentro. La decisione sta in `served-file-headers` perche' era gia'
+        // scritta due volte — qui e nei download del browser pane 40 righe piu'
+        // sotto — e le due copie erano divergenti.
+        return new Response(file, {
+          headers: servedFileHeaders({
+            mime: getMimeType(filePath),
+            filename: pathname.split("/").pop() || "file",
+            cacheControl: "public, max-age=3600",
+          }),
+        });
       }
       return new Response("Not Found", { status: 404 });
     }
@@ -3464,128 +3530,58 @@ finalizeOrphanedRunningTools();
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
-// One rescue round per silent stream: the sweeper's 3-min silence has two
-// causes, a dead turn and a turn we stopped HEARING (a broker attachment lost
-// to a socket reconnect / a spawn acked without an attach — the child keeps
-// working and the store keeps filling, we just get nothing). Declaring the
-// second one dead is how a live turn ended as "nessuna attività per 3 minuti"
-// while it was still running. So when the provider vouches the child is ALIVE
-// we spend one round asking it to re-attach; if the next tick is still silent
-// we finalize as before. Bounded (one extra 3-min round), and the entry is
-// dropped as soon as the stream leaves the map.
+// One RESYNC per silent stream, not one reprieve. The sweeper's 3-min silence
+// has two causes: a dead turn, and a turn we stopped HEARING (a broker
+// attachment lost to a socket reconnect / a spawn acked without an attach — the
+// child keeps working and the store keeps filling, we just get nothing).
+// Declaring the second one dead is how a live turn ended as "nessuna attività
+// per 3 minuti" while it was still running. So when the provider vouches the
+// child is ALIVE we spend one round asking it to re-attach.
+// This set records only that the ATTEMPT was spent. It is NOT a countdown to
+// finalization: while `isTurnProcessAlive` keeps saying yes the sweeper keeps
+// extending (see `staleStreamVerdict`). Bounding the reprieve is what killed
+// 12-min builds and auto-compacts. The entry is dropped as soon as the stream
+// leaves the map.
 const staleStreamRescued = new Set<string>();
+const staleStreamSilence = new Map<string, SilenceMark>();
 const staleStreamTimer = setInterval(() => {
-  const now = Date.now();
-  for (const key of staleStreamRescued) if (!activeStreams.has(key)) staleStreamRescued.delete(key);
-  for (const [sessionKey, stream] of activeStreams.entries()) {
-    if (!activeStreams.has(sessionKey)) continue;
-    // Fast path — DB says the partial assistant message is already finalized
-    // but the in-memory entry lingered (lost cleanup in some endStream path).
-    // Drop it silently: nobody is mid-stream to notify, and leaving it would
-    // cause ghost `stream:catchup` events on future WS reconnects.
-    const partial = getMessageById(stream.messageId);
-    if (!partial || partial.partial !== true) {
-      activeStreams.delete(sessionKey);
-      continue;
-    }
-    // Un turno fermo su una domanda all'umano è silenzioso PER DESIGN: il
-    // figlio è bloccato sulla risposta JSON-RPC del bridge e non produce un
-    // byte finché nessuno clicca. Questo sweeper contava quel silenzio come
-    // morte e a 3 minuti chiudeva il turno con "nessuna attività per 3 minuti"
-    // — lasciando però il pannello cliccabile, perché `endStream` finalizza i
-    // tool 'running' e non i `waiting_for_input`. Risultato osservato su
-    // topic:ed2070df: una domanda a schermo da 22 minuti accanto a un bottone
-    // Retry, cioè un pannello vivo su un turno che non esisteva più.
-    //
-    // Il watchdog del provider (claude-code.ts, 30 min) ha già esattamente
-    // questa esenzione; qui mancava. L'esenzione è a tempo — l'età della
-    // domanda, non un "per sempre" — e vale solo finché il provider giura che
-    // il figlio è VIVO: se muore mentre il pannello è su, nessuna gamba di
-    // poll arriva più e niente, dentro il bridge, se ne accorgerebbe.
-    // `humanHoldAgeMs`, non `pendingAskAgeMs`: i silenzi legittimi sono DUE —
-    // una domanda a schermo e una richiesta di PERMESSO a schermo — e questo
-    // spazzino conosceva solo il primo. È il difetto che ha ucciso il turno
-    // dell'8 agosto sotto un pannello di permesso aperto, ed è nominato per
-    // nome nella docstring di `human-hold.ts`, che elenca proprio «lo spazzino
-    // degli stream fermi» fra i sei posti che devono interrogare UNA cosa sola.
-    // Il tetto resta a tempo e resta condizionato al «figlio VIVO»: un pannello
-    // su una sessione morta non deve disarmare niente.
-    const askAge = humanHoldAgeMs(sessionKey);
-    if (askAge !== null) {
-      const askProv = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
-      const verdict = pendingAskVerdict({
-        askAgeMs: askAge,
-        askTtlMs: ASK_TTL_MS,
-        childAlive: askProv?.isTurnProcessAlive?.(sessionKey),
-      });
-      if (verdict === "defer") {
-        ctx.updateStreamActivity(sessionKey);
-        continue;
-      }
-      // La domanda non è più onorabile (figlio morto sotto il pannello, o TTL
-      // scaduto): chiudila — così chi è bloccato fallisce pulito — e lascia
-      // che il turno venga finalizzato qui sotto come ogni altro stream morto.
-      console.warn(`[StaleStream] ${sessionKey} aveva una domanda a schermo non più onorabile — chiudo l'ask e finalizzo`);
-      cancelAsk(sessionKey, "il processo del turno è morto mentre la domanda era a schermo");
-    }
-    const lastActivity = new Date(stream.lastActivity).getTime();
-    if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
-      if (!staleStreamRescued.has(sessionKey)) {
-        const prov = getProvider("claude-code") as {
-          isTurnProcessAlive?: (sk: string) => boolean;
-          resyncStream?: (sk: string) => Promise<boolean>;
-        } | undefined;
-        if (prov?.isTurnProcessAlive?.(sessionKey)) {
-          staleStreamRescued.add(sessionKey);
-          console.warn(`[StaleStream] ${sessionKey} silent for 3 min but its child is ALIVE — re-attaching the stream and granting one more round before finalizing`);
-          prov.resyncStream?.(sessionKey)
-            .catch((err) => console.warn(`[StaleStream] resync failed for ${sessionKey}:`, err));
-          // Push lastActivity forward so the rescue gets a full round to land;
-          // real output re-bumps it and the stream leaves this path entirely.
-          ctx.updateStreamActivity(sessionKey);
-          continue;
-        }
-      }
-      console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
-      staleStreamRescued.delete(sessionKey);
-      const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
-      // Finalize any tool call left 'running'. Previously the sweeper did a bare
-      // `activeStreams.delete`, bypassing endStream — so a hung tool kept its
-      // spinner ticking forever (observed: a tool "running" for 2h+ at session
-      // end). endStream marks them interrupted + stamps endedAt (and deletes the
-      // in-memory entry); we broadcast so LIVE clients stop the spinner without a
-      // reload.
-      const interrupted = ctx.endStream(sessionKey);
-      for (const tc of interrupted) {
-        broadcastToAll({ type: "stream:tool_result", sessionKey, topicId, toolCallId: tc.id, status: "error", result: "", error: tc.error, endedAt: tc.endedAt });
-      }
-      // Non-destructive content finalize. A genuinely stale partial means the turn
-      // died without a clean `result` (detached/orphaned/wedged process). Do NOT
-      // just flip `partial = 0` — a turn that streamed only tool calls (no final
-      // prose) would be left as a blank bubble that the client then hides, which
-      // is the "message streams then disappears" bug. If no prose was streamed,
-      // drop in an explicit interrupted marker so the user sees WHAT happened;
-      // any tool blocks are untouched and still render below it.
-      const hadProse = typeof partial.content === "string" && partial.content.trim().length > 0;
-      if (hadProse) {
-        db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [stream.messageId]);
-      } else {
-        const marker = "⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprova.";
-        db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, stream.messageId]);
-      }
-      // Il turno è morto senza un `result` pulito: chi lo sta guidando (il
-      // dispatcher) deve leggere "fermato dal watchdog", non la fine di default.
-      recordTurnEnd(sessionKey, cancelled("watchdog", "stale stream sweep"));
-      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "stale_timeout", stopReason: "cancelled", stopCause: "watchdog" });
-      // Sveglia il client HTTP. Il broadcast sopra parla ai soli spettatori WS:
-      // chi ha MANDATO il messaggio sta leggendo la risposta SSE, e quel canale
-      // scarta per contratto gli eventi WS della propria sessione. Senza questo
-      // abort la sua richiesta resta aperta su un turno che qui abbiamo appena
-      // dichiarato morto — la chat continua a mostrare i puntini finché non
-      // ricarica la pagina. La route ci ha lasciato l'AbortController apposta.
-      try { stream.abortController?.abort(); } catch (err) { console.warn(`[StaleStream] abort SSE fallito per ${sessionKey}:`, err); }
-    }
-  }
+  // IL GIRO STA IN `stale-stream-sweep.ts`. Il verdetto puro era gia' uscito da
+  // qui per essere provabile, ma il cablaggio no: il caso che conta — un figlio
+  // VIVO al secondo tick muto, cioe' il turno che NON va finalizzato — vive
+  // tutto nel cablaggio, e un test ci arrivava solo aspettando sette minuti
+  // contro un server vero. Con le dipendenze iniettate due tick costano un
+  // millisecondo.
+  const prov = getProvider("claude-code") as {
+    isTurnProcessAlive?: (sk: string) => boolean;
+    resyncStream?: (sk: string) => Promise<boolean>;
+  } | undefined;
+  sweepStaleStreams({
+    now: () => Date.now(),
+    timeoutMs: STALE_STREAM_TIMEOUT_MS,
+    askTtlMs: ASK_TTL_MS,
+    activeStreams,
+    rescued: staleStreamRescued,
+    silence: staleStreamSilence,
+    getMessageById,
+    humanHoldAgeMs,
+    childAlive: (sk) => prov?.isTurnProcessAlive?.(sk),
+    resyncStream: (sk) => {
+      prov?.resyncStream?.(sk)
+        .catch((err) => console.warn(`[StaleStream] resync failed for ${sk}:`, err));
+    },
+    cancelAsk,
+    updateStreamActivity: (sk) => ctx.updateStreamActivity(sk),
+    getTopicId: (sk) => ctx.getTopicBySessionKey(sk)?.id,
+    endStream: (sk) => ctx.endStream(sk),
+    broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
+    finalizeMessage: ({ messageId, marker }) => {
+      if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [messageId]);
+      else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, messageId]);
+    },
+    recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
+    warn: (msg) => console.warn(msg),
+    info: (msg) => console.log(msg),
+  });
 }, STALE_STREAM_CHECK_INTERVAL_MS);
 
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
@@ -3616,8 +3612,14 @@ const dispatchTimer = setInterval(() => {
   // nascere e morire gli agenti risponde alla domanda giusta — «il task ha
   // ancora un agente vivo?» — su OGNI strada di uscita, invece che su quelle
   // che ci siamo ricordati di agganciare.
+  // Il padre però non è sempre un task: un sotto-agente aperto da una chat
+  // qualunque non aveva NESSUNO addosso — non la cascata (che vuole un padre
+  // terminale), non il parcheggio (`tryParkSession` rifiuta chi ha un
+  // `parentSessionKey`), non questa spazzata (che faceva JOIN su `tasks`). Il
+  // suo PTY sopravviveva all'archiviazione della chat per sempre.
+  // `orphanChildSessions` chiede la stessa domanda alle due forme di padre.
   try {
-    for (const id of orphanBoardChildSessions(ctx.db)) retireTerminalSession(id);
+    for (const id of orphanChildSessions(ctx.db)) retireTerminalSession(id);
   } catch (err) { console.error("[board] reap delle sessioni figlie fallito", err); }
 }, DISPATCH_POLL_MS);
 
