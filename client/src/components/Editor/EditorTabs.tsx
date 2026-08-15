@@ -10,6 +10,7 @@ import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia'
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
+import { useT } from '../../hooks/useT';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -40,6 +41,7 @@ interface EditorTabsProps {
 }
 
 export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function EditorTabs({ projectPath }, ref) {
+  const t = useT();
   const confirm = useConfirm();
   // La X di una tab non ha un altro percorso col dito (il tasto centrale e' del
   // mouse, e qui non c'e' menu contestuale): senza puntatore si vede.
@@ -260,7 +262,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               {status === 'error' && <span className="text-[11px] text-red-500 flex-shrink-0">!</span>}
               <button
                 onClick={(e) => closeTab(i, e)}
-                aria-label={`Chiudi ${tab.name}`}
+                aria-label={t('editor.tab.close', { name: tab.name })}
                 className={`ml-auto p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 flex-shrink-0 ${closeReveal}`}
               >
                 <X size={10} />
@@ -307,13 +309,13 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
             <div className="text-center max-w-md">
               <p className="text-[13px] text-red-500 mb-1">{activeTab.loadError}</p>
               <p className="text-[12px] text-app-text-tertiary mb-3">
-                Il file non è stato caricato, quindi non è modificabile da qui.
+                {t('editor.loadFailed')}
               </p>
               <button
                 onClick={() => { const p = activeTab.path; setTabs(prev => prev.map(t => t.path === p ? { ...t, loadError: undefined, loading: true } : t)); filesApi.content(p).then(content => setTabs(prev => prev.map(t => t.path === p ? { ...t, content, originalContent: content, loadError: undefined, loading: false } : t))).catch((err: unknown) => setTabs(prev => prev.map(t => t.path === p ? { ...t, loadError: err instanceof Error ? err.message : String(err), loading: false } : t))); }}
                 className="text-[12px] text-primary hover:underline"
               >
-                Riprova
+                {t('common.retry')}
               </button>
             </div>
           </div>

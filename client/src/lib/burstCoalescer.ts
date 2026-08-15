@@ -107,3 +107,31 @@ export function latestWins<T>(apply: (value: T) => void): (load: () => Promise<T
     apply(value);
   };
 }
+
+export interface CoalescedReaderOptions<T> extends Pick<CoalescerOptions, 'windowMs' | 'schedule' | 'cancel'> {
+  /** The read. Called at most once per window. */
+  load: () => Promise<T>;
+  /** Where the answer goes. Only ever called for the run still in charge. */
+  apply: (value: T) => void;
+}
+
+/**
+ * The two halves, welded: a burst becomes one read, and a read that has been
+ * superseded never writes.
+ *
+ * They are separable and they were separate, and every reader of the board feed
+ * that was added afterwards took the coalescer and forgot the guard — which is
+ * the worse half to lose, because a missing coalescer costs bandwidth while a
+ * missing guard leaves the OLD state on screen with no later event to correct
+ * it. A reader that cannot be built without both is one that nobody has to
+ * remember.
+ */
+export function createCoalescedReader<T>(opts: CoalescedReaderOptions<T>): Coalescer {
+  const write = latestWins<T>(opts.apply);
+  return createBurstCoalescer({
+    windowMs: opts.windowMs,
+    run: () => write(opts.load),
+    schedule: opts.schedule,
+    cancel: opts.cancel,
+  });
+}

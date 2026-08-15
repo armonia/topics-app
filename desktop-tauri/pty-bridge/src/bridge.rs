@@ -42,6 +42,14 @@ const DEFAULT_IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 // How long a connection must persist before it counts as "the server came back"
 // rather than a single-instance probe. See spawn_orphan_monitor().
 const DEFAULT_REAL_CLIENT: Duration = Duration::from_secs(5);
+// How long a killed child gets to honour SIGHUP before the process GROUP is
+// SIGKILLed. `kill` used to be one SIGHUP and nothing else: a child that traps
+// or ignores HUP (a shell script, a CLI with its own handler) simply stayed,
+// and since the entry was removed from the map on the spot it was invisible to
+// `list`, to reconcile and to shutdown. Two seconds is well past what a healthy
+// TUI needs to save and exit, and far under the 5 s ack window the server gives
+// a create.
+const DEFAULT_KILL_GRACE: Duration = Duration::from_secs(2);
 
 // A trivially-exiting program used by the self-test and single-instance spawn-probe.
 // `/bin/sh -c :` is the most portable choice on unix — /bin/sh is guaranteed on
@@ -96,6 +104,9 @@ struct Shared {
     clients: Mutex<HashMap<u64, UnixStream>>, // write-capable clones, keyed by client id
     connected_at: Mutex<HashMap<u64, Instant>>, // when each client attached: a probe is not a server
     sessions: Mutex<HashMap<String, Session>>,
+    /// Monotonic stamp handed to each new session, so a reader thread can tell
+    /// its own entry from a later one that reused the id. See Session.generation.
+    next_generation: Mutex<u64>,
     socket_path: PathBuf,
     pid_path: PathBuf,
 }
@@ -106,6 +117,17 @@ struct Session {
     killer: Box<dyn ChildKiller + Send + Sync>,
     buffer: Arc<Mutex<VecDeque<u8>>>,
     pid: Option<u32>,
+    /// Which incarnation of this id this entry is. The reader thread outlives
+    /// its own session by however long the child takes to reap, and it used to
+    /// `remove(&id)` unconditionally: a late exit could therefore evict a
+    /// NEWER entry that had taken the same id, leaving a live PTY in no map at
+    /// all. Every remove is now guarded on this stamp.
+    generation: u64,
+    /// A `kill` has been signalled and we are waiting for the reader loop to
+    /// confirm the death. The entry deliberately STAYS in the map until then:
+    /// removing it on the spot is what made a HUP-ignoring survivor invisible
+    /// to `list`, to reconcile and to `shutdown`.
+    killing: bool,
 }
 
 // ── Wire I/O ────────────────────────────────────────────────────────────────
@@ -258,10 +280,31 @@ fn handle_message(shared: &Arc<Shared>, cid: u64, msg: &Value) -> Result<(), Str
         }
         "kill" => {
             if let Some(id) = msg["id"].as_str() {
-                let removed = shared.sessions.lock_ok().remove(id);
-                if let Some(mut s) = removed {
-                    let _ = s.killer.kill();
+                // THE ENTRY STAYS. It used to be removed here, before anything
+                // confirmed the child was dead, and the signal was a single
+                // SIGHUP: a child that traps or ignores HUP survived a `kill`
+                // and was then in no map at all, so `list`, reconcile and
+                // `shutdown` could not see it and nothing ever reaped it. Now
+                // the reader loop's remove plus its `exit` broadcast are the
+                // ONE place a session disappears, and an escalation thread
+                // guarantees the child gets there.
+                let mut escalate: Option<(Box<dyn ChildKiller + Send + Sync>, Option<u32>, u64)> = None;
+                {
+                    let mut sessions = shared.sessions.lock_ok();
+                    if let Some(s) = sessions.get_mut(id) {
+                        let first = !s.killing;
+                        s.killing = true;
+                        let _ = s.killer.kill();
+                        if first {
+                            escalate = Some((s.killer.clone_killer(), s.pid, s.generation));
+                        }
+                    }
                 }
+                if let Some((killer, pid, generation)) = escalate {
+                    spawn_kill_escalation(shared.clone(), id.to_string(), generation, pid, killer);
+                }
+                // `killed` still goes out immediately: it acks the request, not
+                // the death. The death is the `exit` frame.
                 broadcast(shared, &json!({ "type": "killed", "id": id }));
             }
             Ok(())
@@ -304,8 +347,116 @@ fn handle_message(shared: &Arc<Shared>, cid: u64, msg: &Value) -> Result<(), Str
     }
 }
 
+/// Is the entry under `id` still the one stamped `generation`?
+fn generation_present(shared: &Shared, id: &str, generation: u64) -> bool {
+    shared
+        .sessions
+        .lock_ok()
+        .get(id)
+        .is_some_and(|s| s.generation == generation)
+}
+
+/// SIGKILL a process GROUP, falling back to the single pid.
+///
+/// The group, not the pid, is what has to go: portable_pty puts the child in
+/// its own session (setsid + TIOCSCTTY), so `sh -c 'trap "" HUP; sleep 300'`
+/// leaves `sleep` in the same group holding the slave tty. Killing only `sh`
+/// leaves that fd open, the master read never sees EOF, and the reader loop
+/// (the only place that broadcasts `exit`) never runs.
+#[cfg(unix)]
+fn kill_group(pid: u32) {
+    let pid = pid as i32;
+    unsafe {
+        if libc::kill(-pid, libc::SIGKILL) != 0 {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+}
+#[cfg(not(unix))]
+fn kill_group(_pid: u32) {}
+
+/// SIGHUP was sent; give the child a grace window, then take the group out —
+/// and if even that does not produce an EOF, force the entry out of the map.
+///
+/// The reader loop is the ONLY place a session leaves the map on the happy
+/// path, and that is deliberate. But SIGKILL to the group does not guarantee
+/// EOF on the master: anything outside that group still holding the slave fd (a
+/// grandchild that called `setsid`) keeps it open, the reader never returns,
+/// and the entry would live forever — every later `create` for that id
+/// answering `exists`, which the server deliberately does NOT count toward its
+/// spawn breaker. The tab became permanently un-recreatable. Two bounded steps,
+/// then the entry goes, exactly as the pre-escalation code always did.
+fn spawn_kill_escalation(
+    shared: Arc<Shared>,
+    id: String,
+    generation: u64,
+    pid: Option<u32>,
+    mut killer: Box<dyn ChildKiller + Send + Sync>,
+) {
+    let grace = window_from_env("TOPICS_PTY_BRIDGE_KILL_GRACE_MS", DEFAULT_KILL_GRACE);
+    thread::spawn(move || {
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline {
+            if !generation_present(&shared, &id, generation) {
+                return; // it honoured the signal; the reader loop already reaped it
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        if !generation_present(&shared, &id, generation) {
+            return;
+        }
+        eprintln!("[PTY Bridge] {id} ignored SIGHUP for {grace:?}, escalating to SIGKILL");
+        match pid {
+            Some(p) => kill_group(p),
+            // No pid (should not happen on unix): the killer handle is all we
+            // have, and a second kill is better than leaving it forever.
+            None => {
+                let _ = killer.kill();
+            }
+        }
+        // Second and last window. If the reader still has not reaped it, the
+        // master is being held by something the group kill could not reach.
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline {
+            if !generation_present(&shared, &id, generation) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        {
+            let mut sessions = shared.sessions.lock_ok();
+            if !sessions.get(&id).is_some_and(|s| s.generation == generation) {
+                return;
+            }
+            sessions.remove(&id);
+        }
+        eprintln!("[PTY Bridge] {id} never reached EOF after SIGKILL — forcing it out of the map");
+        // The `exit` frame is what the server listens to: without it the id
+        // stays busy on its side too.
+        broadcast(&shared, &json!({ "type": "exit", "id": id, "exitCode": -1 }));
+    });
+}
+
 fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
     let id = msg["id"].as_str().ok_or("create: missing id")?.to_string();
+    // ONE PTY PER ID, always. Two concurrent creates for the same id (the
+    // double /revive) used to build two children over one map slot; the first
+    // to exit then broadcast an `exit` that tore down the survivor, which after
+    // that lived in neither the bridge's map nor the server's. Refusing the
+    // second is what makes `create` idempotent. `code: "exists"` matters: the
+    // server counts consecutive `error` frames as spawn failures and recycles
+    // the whole bridge at three, and this is not a spawn failure.
+    // The check needs no extra lock to be atomic against the case that matters:
+    // one client is one reader thread, and `handle_create` runs to completion
+    // (spawn included) before that thread reads the next line, so two creates
+    // from the same server socket can never interleave here.
+    if shared.sessions.lock_ok().contains_key(&id) {
+        broadcast(
+            shared,
+            &json!({ "type": "error", "id": id, "code": "exists", "error": format!("session {id} already exists") }),
+        );
+        return Ok(());
+    }
     let shell = msg["shell"].as_str().ok_or("create: missing shell")?.to_string();
     let args: Vec<String> = msg["args"]
         .as_array()
@@ -378,6 +529,11 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
         .map_err(|e| format!("take_writer: {e}"))?;
 
     let buffer = Arc::new(Mutex::new(VecDeque::<u8>::new()));
+    let generation = {
+        let mut g = shared.next_generation.lock_ok();
+        *g += 1;
+        *g
+    };
     shared.sessions.lock_ok().insert(
         id.clone(),
         Session {
@@ -386,6 +542,8 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
             killer,
             buffer: buffer.clone(),
             pid,
+            generation,
+            killing: false,
         },
     );
 
@@ -393,7 +551,7 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
     {
         let shared = shared.clone();
         let id = id.clone();
-        thread::spawn(move || reader_loop(shared, id, reader, buffer, child));
+        thread::spawn(move || reader_loop(shared, id, generation, reader, buffer, child));
     }
 
     broadcast(shared, &json!({ "type": "created", "id": id, "pid": pid }));
@@ -403,6 +561,7 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
 fn reader_loop(
     shared: Arc<Shared>,
     id: String,
+    generation: u64,
     mut reader: Box<dyn Read + Send>,
     buffer: Arc<Mutex<VecDeque<u8>>>,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
@@ -433,7 +592,15 @@ fn reader_loop(
     // Reap for the exit code. The `kill` path uses a separate ChildKiller handle, so
     // this blocking wait can never deadlock against it.
     let code: i64 = child.wait().map(|s| s.exit_code() as i64).unwrap_or(0);
-    shared.sessions.lock_ok().remove(&id);
+    // THE ONLY PLACE A SESSION LEAVES THE MAP, and it removes only its OWN
+    // incarnation: an unconditional `remove(&id)` here would let a late exit
+    // evict a newer session that had taken the same id.
+    {
+        let mut sessions = shared.sessions.lock_ok();
+        if sessions.get(&id).is_some_and(|s| s.generation == generation) {
+            sessions.remove(&id);
+        }
+    }
     broadcast(&shared, &json!({ "type": "exit", "id": id, "exitCode": code }));
 }
 
@@ -595,11 +762,31 @@ fn self_test() {
 }
 
 fn shutdown(shared: &Shared) -> ! {
-    let mut sessions = shared.sessions.lock_ok();
-    for s in sessions.values_mut() {
-        let _ = s.killer.kill();
+    // Same escalation as `kill`, inline: SIGHUP, a grace, then the process
+    // GROUP. Exiting straight after one SIGHUP is how a HUP-ignoring child
+    // outlived the daemon that owned it, holding a PTY nobody could reach
+    // again. We cannot wait for the reader threads here (we are on the signal
+    // path and the process is about to go), so this polls the pids directly.
+    let pids: Vec<u32> = {
+        let mut sessions = shared.sessions.lock_ok();
+        let pids = sessions.values().filter_map(|s| s.pid).collect::<Vec<_>>();
+        for s in sessions.values_mut() {
+            let _ = s.killer.kill();
+        }
+        sessions.clear();
+        pids
+    };
+    if !pids.is_empty() {
+        let grace = window_from_env("TOPICS_PTY_BRIDGE_KILL_GRACE_MS", DEFAULT_KILL_GRACE);
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline && pids.iter().any(|p| pid_alive(*p as i32)) {
+            thread::sleep(Duration::from_millis(25));
+        }
+        for p in pids.iter().filter(|p| pid_alive(**p as i32)) {
+            eprintln!("[PTY Bridge] shutdown: {p} ignored SIGHUP, escalating to SIGKILL");
+            kill_group(*p);
+        }
     }
-    sessions.clear();
     let _ = std::fs::remove_file(&shared.socket_path);
     let _ = std::fs::remove_file(&shared.pid_path);
     std::process::exit(0);
@@ -809,6 +996,7 @@ pub fn run() {
         clients: Mutex::new(HashMap::new()),
         connected_at: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
+        next_generation: Mutex::new(0),
         socket_path,
         pid_path,
     });

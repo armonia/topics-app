@@ -15,9 +15,11 @@ Grab the latest build for your platform from the **[latest release](https://gith
 |----------|------|
 | **macOS** (Universal: Apple Silicon + Intel) | `.dmg` |
 | **Windows** | `.exe` installer (also `.msi` on the Tauri channel) |
-| **Linux** | `.AppImage` · `.deb` (Tauri also ships `.rpm`) |
+| **Linux** | `.deb` · `.rpm` |
 
 All builds and their checksums live on the [Releases](https://github.com/armonia/topics-app/releases) page.
+
+There is no `.AppImage`: the Linux build carries a compiled Bun sidecar that AppImage's `linuxdeploy` step cannot package, so CI builds `deb,rpm` only.
 
 > **v2 = Tauri.** Starting with **v2.0.0** the desktop app ships as a [Tauri](https://tauri.app) shell (`desktop-tauri/`), released from `tauri-vX.Y.Z` tags (release names "Topics (Tauri) …"). The older **Electron** shell was **archived in v2.0.0** — its source is preserved on the `electron-archive` branch and can be restored from there if ever needed. The legacy Electron installers (`v*` tags) remain downloadable on the Releases page but are no longer built or updated.
 
@@ -33,7 +35,7 @@ Topics checks GitHub Releases for new versions. Use **menu → Check for Updates
 - **Project integration** — file explorer, Git changes, an embedded terminal (run your agent here) and browser per topic
 - **Agent monitoring** — see every session's state and get notified when an agent finishes or needs you
 - **Context visualization** — see how much context each session is using
-- **Bring your own agent & keys** — works against the Anthropic API directly, or via an optional OpenClaw gateway
+- **Bring your own agent & keys** — drives the `claude-code` and `codex` CLIs already installed on your machine (covered by your subscription, no API bill), or talks to the Anthropic (`claude`) and OpenAI (`openai`) APIs with your own keys, or relays through an optional `openclaw` gateway
 
 ## Configuration
 
@@ -42,7 +44,7 @@ Topics reads configuration from environment variables (or a `.env` file). Copy `
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | Local server port | `3333` |
-| `AI_PROVIDER` | `claude`, `openai`, or `openclaw` — when unset, auto-detected from available keys (`ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else `openclaw` only if `GATEWAY_URL` is set) | `claude` |
+| `AI_PROVIDER` | Pins one provider: `claude-code`, `codex`, `claude`, `openai` or `openclaw`. Leave it unset. Unset is not a ranking: the default is decided by your keys (`ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else `GATEWAY_URL` → `openclaw`, else `claude`), and it stays the default for as long as it is connected. The subscription-first order `claude-code` → `codex` → `claude` → `openai` → `openclaw` only picks the REPLACEMENT once the current default goes offline, so with a key set the CLIs above it never get a turn. A pin beats connectivity, so a pinned provider that is offline stays the target and its chats never answer | first key set, else `claude` |
 | `GATEWAY_TOKEN` | OpenClaw gateway token (required when `AI_PROVIDER=openclaw`) | — |
 | `GATEWAY_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789` |
 | `ANTHROPIC_API_KEY` | Anthropic API key (required when `AI_PROVIDER=claude`) | — |

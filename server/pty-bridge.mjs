@@ -58,8 +58,33 @@ function getDefaultSocketPath() {
   return `/tmp/topics-pty-bridge-${hash}.sock`;
 }
 
+// How long a killed child gets to honour SIGHUP before its process GROUP is
+// SIGKILLed. `kill` used to be one SIGHUP and nothing else: a child that traps
+// or ignores HUP simply stayed, and since the entry left the map on the spot it
+// was invisible to `list`, to reconcile and to shutdown. Two seconds is well
+// past what a healthy TUI needs to save and exit, and far under the 5s ack
+// window the server gives a create. Same env knob as the Rust bridge.
+const KILL_GRACE_MS = Number(process.env.TOPICS_PTY_BRIDGE_KILL_GRACE_MS) > 0
+  ? Number(process.env.TOPICS_PTY_BRIDGE_KILL_GRACE_MS)
+  : 2000;
+
+/**
+ * SIGKILL a process GROUP, falling back to the single pid.
+ *
+ * The group, not the pid, is what has to go: node-pty puts the child in its own
+ * session, so `sh -c 'trap "" HUP; sleep 300'` leaves `sleep` in the same group
+ * holding the slave tty. Killing only the shell leaves that fd open, the master
+ * never sees EOF, and `onExit` (the only place that broadcasts `exit`) never
+ * runs.
+ */
+function killGroup(pid) {
+  if (!pid || pid <= 0) return;
+  try { process.kill(-pid, 'SIGKILL'); return; } catch {}
+  try { process.kill(pid, 'SIGKILL'); } catch {}
+}
+
 // --- State ---
-const sessions = new Map();        // id -> { pty, buffer: { chunks: Buffer[], totalSize: number } }
+const sessions = new Map();        // id -> { pty, buffer: { chunks, totalSize }, killing, killTimer }
 const clients = new Set();         // connected server sockets
 const connectedAt = new Map();     // socket -> quando si è attaccato (monitor anti-orfano)
 
@@ -79,6 +104,17 @@ function handleMessage(msg, client) {
   switch (msg.type) {
     case 'create': {
       const { id, shell, args, cwd, cols, rows, env } = msg;
+      // ONE PTY PER ID, always. Two concurrent creates for the same id (the
+      // double POST /revive) used to build two children over one map slot; the
+      // first to exit then broadcast an `exit` that tore down the survivor,
+      // which after that lived in neither this map nor the server's. Refusing
+      // the second is what makes `create` idempotent. `code: 'exists'` matters:
+      // the server counts consecutive `error` frames as spawn failures and
+      // recycles the whole bridge at three, and this is not a spawn failure.
+      if (sessions.has(id)) {
+        broadcast({ type: 'error', id, code: 'exists', error: `session ${id} already exists` });
+        break;
+      }
       // HOME before ...env so a polluted process.env.HOME is overridden by the
       // real home, but an explicit env.HOME (test sandboxes) still wins.
       const mergedEnv = { ...process.env, HOME: realHome(), ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
@@ -107,7 +143,7 @@ function handleMessage(msg, client) {
         cwd: cwd || mergedEnv.HOME || realHome(),
         env: mergedEnv,
       });
-      sessions.set(id, { pty: p, buffer: { chunks: [], totalSize: 0 } });
+      sessions.set(id, { pty: p, buffer: { chunks: [], totalSize: 0 }, killing: false, killTimer: null });
       p.onData((data) => {
         // Append to output buffer
         const session = sessions.get(id);
@@ -123,7 +159,14 @@ function handleMessage(msg, client) {
         broadcast({ type: 'data', id, data });
       });
       p.onExit(({ exitCode }) => {
-        sessions.delete(id);
+        // THE ONLY PLACE A SESSION LEAVES THE MAP, and it removes only its OWN
+        // pty: an unconditional delete here would let a late exit evict a newer
+        // session that had taken the same id.
+        const cur = sessions.get(id);
+        if (cur && cur.pty === p) {
+          if (cur.killTimer) clearTimeout(cur.killTimer);
+          sessions.delete(id);
+        }
         broadcast({ type: 'exit', id, exitCode });
       });
       broadcast({ type: 'created', id, pid: p.pid });
@@ -141,7 +184,45 @@ function handleMessage(msg, client) {
     }
     case 'kill': {
       const s = sessions.get(msg.id);
-      if (s) { s.pty.kill(); sessions.delete(msg.id); }
+      // THE ENTRY STAYS. It used to be deleted here, before anything confirmed
+      // the child was dead, and the signal was a single SIGHUP: a child that
+      // traps or ignores HUP survived a `kill` and was then in no map at all,
+      // so `list`, reconcile and shutdown could not see it and nothing ever
+      // reaped it. Now `onExit` is the ONE place a session disappears, and this
+      // timer guarantees the child gets there.
+      if (s && !s.killing) {
+        s.killing = true;
+        try { s.pty.kill(); } catch {}
+        s.killTimer = setTimeout(() => {
+          if (sessions.get(msg.id) !== s) return; // it honoured the signal
+          console.error(`[PTY Bridge] ${msg.id} ignored SIGHUP for ${KILL_GRACE_MS}ms, escalating to SIGKILL`);
+          killGroup(s.pty.pid);
+          // SECOND AND LAST STEP, and it is not belt-and-braces: SIGKILL to the
+          // group does not guarantee EOF on the master. Anything outside that
+          // group still holding the slave fd (a grandchild that called setsid)
+          // keeps the master open, `onExit` never fires, and since `onExit` is
+          // now the ONLY place a session leaves the map the entry would live
+          // forever — every later `create` for that id answering `exists`,
+          // which the server deliberately does NOT count toward its spawn
+          // breaker. The tab became permanently un-recreatable. The old code
+          // always removed the entry; this restores that guarantee, bounded.
+          s.killTimer = setTimeout(() => {
+            if (sessions.get(msg.id) !== s) return; // `onExit` got there
+            console.error(`[PTY Bridge] ${msg.id} never reached onExit after SIGKILL — forcing it out of the map`);
+            sessions.delete(msg.id);
+            // The `exit` frame is what the server listens to: without it the id
+            // stays busy on its side too.
+            broadcast({ type: 'exit', id: msg.id, exitCode: -1 });
+          }, KILL_GRACE_MS);
+          if (typeof s.killTimer.unref === 'function') s.killTimer.unref();
+        }, KILL_GRACE_MS);
+        // The escalation must not be what keeps the daemon alive.
+        if (typeof s.killTimer.unref === 'function') s.killTimer.unref();
+      } else if (s) {
+        try { s.pty.kill(); } catch {}
+      }
+      // `killed` still goes out immediately: it acks the request, not the
+      // death. The death is the `exit` frame.
       broadcast({ type: 'killed', id: msg.id });
       break;
     }
@@ -350,14 +431,45 @@ async function start() {
   // Graceful shutdown
   function shutdown(signal) {
     console.error(`[PTY Bridge] Received ${signal}, shutting down...`);
-    for (const [id, s] of sessions) {
+    // Same escalation as `kill`: SIGHUP, a grace, then the process GROUP.
+    // Exiting straight after one SIGHUP is how a HUP-ignoring child outlived
+    // the daemon that owned it, holding a PTY nobody could reach again.
+    const pids = [];
+    for (const [, s] of sessions) {
+      if (s.killTimer) clearTimeout(s.killTimer);
+      if (typeof s.pty.pid === 'number') pids.push(s.pty.pid);
       try { s.pty.kill(); } catch {}
     }
     sessions.clear();
     server.close();
-    try { fs.unlinkSync(socketPath); } catch {}
-    try { fs.unlinkSync(pidPath); } catch {}
-    process.exit(0);
+    const finish = () => {
+      try { fs.unlinkSync(socketPath); } catch {}
+      try { fs.unlinkSync(pidPath); } catch {}
+      process.exit(0);
+    };
+    // The socket and the pidfile go away only at the very end, so nobody can
+    // take over while children of ours are still being taken down. A signal
+    // handler is an ordinary callback, so the loop is still turning here and a
+    // timer WILL fire: no busy-wait, and the delay is bounded by the grace.
+    //
+    // MISURATO il 2026-08-15, contro il sospetto che un SIGKILL dentro la
+    // grazia lasci entrambi i file su disco: il SOCKET no. `net.Server.close()`
+    // toglie da solo il path del socket unix, quindi a metà grazia quel file
+    // non c'è già più (SIGTERM, poi SIGKILL a +500ms su una grazia di 5s: file
+    // assente). Resta il PIDFILE, e non c'è modo in-process di difenderlo da un
+    // SIGKILL — è esattamente il caso per cui `checkExistingBridge` sonda
+    // l'owner invece di fidarsi del numero.
+    if (pids.some(pidAlive)) {
+      setTimeout(() => {
+        for (const pid of pids.filter(pidAlive)) {
+          console.error(`[PTY Bridge] shutdown: ${pid} ignored SIGHUP, escalating to SIGKILL`);
+          killGroup(pid);
+        }
+        finish();
+      }, KILL_GRACE_MS);
+      return;
+    }
+    finish();
   }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));

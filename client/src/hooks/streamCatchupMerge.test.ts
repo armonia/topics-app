@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergeCatchupIntoPartial } from "./streamCatchupMerge";
+import { isClientGeneratedMessageId, mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder } from "./streamCatchupMerge";
 import type { ChatMessage, ContentBlock, ToolCall } from "../types";
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
@@ -199,6 +199,21 @@ describe("mergeCatchupIntoPartial", () => {
       expect(msg.content).toBe("Hello, world!");
     });
 
+    test("adotta l'id DUREVOLE sopra un segnaposto coniato dal client", () => {
+      // Il segnaposto nasce con un `msg_…` quando il server non ha annunciato
+      // l'id (o quando lo ha creato `sendMessage` per l'SSE). Tenerselo vuol
+      // dire che il prossimo `loadHistory` riporta indietro la stessa risposta
+      // sotto il nome vero, non riconosce la bolla e la disegna DUE VOLTE.
+      const local = partial({ id: "msg_1765432100000_ab12cd34e" });
+      const msg = mergeCatchupIntoPartial(
+        { messageId: "srv_42", content: "x" },
+        local,
+        ID,
+        NOW,
+      );
+      expect(msg.id).toBe("srv_42");
+    });
+
     test("preserves message id from local partial", () => {
       // Once a partial exists with id=srv_42 it MUST stay that id, otherwise
       // a follow-up loadHistory() (which returns srv_42 from DB) would
@@ -259,5 +274,97 @@ describe("mergeCatchupIntoPartial", () => {
       expect(msg.thinking).toBe("deliberating...");
       expect(msg.content).toBe("");
     });
+  });
+});
+
+/**
+ * IL RAPPORTO DEL SOTTO-AGENTE CHE SI MANGIAVA LA BOLLA VIVA.
+ *
+ * `server/lib/subagent-watch.ts` scrive l'uscita di un sotto-agente e la
+ * trasmette come un `message:new` qualunque, a turno ancora aperto. Il ramo di
+ * fusione decideva per POSIZIONE — «l'ultimo messaggio è un assistant parziale»
+ * — quindi quella riga si prendeva id, testo e bandiera del turno in corso, e
+ * tutto il resto della risposta finiva incollato sotto il rapporto.
+ */
+describe("shouldAdoptIntoPlaceholder", () => {
+  const vivo = (id: string): ChatMessage => partial({ id });
+
+  test("la riga che CHIUDE il turno si fonde: stesso id del segnaposto", () => {
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: "srv_42",
+      incomingRole: "assistant",
+      last: vivo("srv_42"),
+      streamingMessageId: "srv_42",
+    })).toBe(true);
+  });
+
+  test("un id DIVERSO non si fonde: è un'altra riga, si accoda", () => {
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: "srv_subagent_99",
+      incomingRole: "assistant",
+      last: vivo("srv_42"),
+      streamingMessageId: "srv_42",
+    })).toBe(false);
+  });
+
+  test("segnaposto ancora senza nome: la seconda rete è l'id annunciato da stream:start", () => {
+    // Server che non manda `messageId`: il segnaposto resta `msg_…` e la
+    // posizione è tutto ciò che si ha. Ma se sappiamo quale id sta scrivendo il
+    // turno, un id diverso resta un'altra riga.
+    const segnaposto = vivo("msg_1765432100000_ab12cd34e");
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: "srv_subagent_99",
+      incomingRole: "assistant",
+      last: segnaposto,
+      streamingMessageId: "srv_42",
+    })).toBe(false);
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: "srv_42",
+      incomingRole: "assistant",
+      last: segnaposto,
+      streamingMessageId: undefined,
+    })).toBe(true);
+  });
+
+  test("senza id non si fonde niente: sono le aggiunte sintetiche", () => {
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: undefined,
+      incomingRole: "assistant",
+      last: vivo("srv_42"),
+      streamingMessageId: "srv_42",
+    })).toBe(false);
+  });
+
+  test("un messaggio utente non tocca mai il segnaposto", () => {
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: "srv_u1",
+      incomingRole: "user",
+      last: vivo("srv_42"),
+      streamingMessageId: "srv_42",
+    })).toBe(false);
+  });
+
+  test("senza un parziale in coda non c'è niente in cui fondere", () => {
+    const finito: ChatMessage = { id: "srv_1", role: "assistant", content: "fatto", timestamp: NOW };
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: "srv_2",
+      incomingRole: "assistant",
+      last: finito,
+      streamingMessageId: undefined,
+    })).toBe(false);
+    expect(shouldAdoptIntoPlaceholder({
+      incomingId: "srv_2",
+      incomingRole: "assistant",
+      last: undefined,
+      streamingMessageId: undefined,
+    })).toBe(false);
+  });
+});
+
+describe("isClientGeneratedMessageId", () => {
+  test("distingue il segnaposto locale dall'uuid del server", () => {
+    expect(isClientGeneratedMessageId("msg_1765432100000_ab12cd34e")).toBe(true);
+    expect(isClientGeneratedMessageId("3f6d0f1e-2b0a-4a55-9c8e-1a2b3c4d5e6f")).toBe(false);
+    expect(isClientGeneratedMessageId(undefined)).toBe(false);
   });
 });

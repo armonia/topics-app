@@ -559,9 +559,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const filePath: string = body?.file;
       const indici: number[] = Array.isArray(body?.hunks) ? body.hunks : [];
       const azione: string = body?.action;
-      if (!body?.path || !filePath || indici.length === 0) return json({ error: "path, file e hunks richiesti" }, 400);
+      if (!body?.path || !filePath || indici.length === 0) return json({ error: "path, file and hunks are required" }, 400);
       if (azione !== "stage" && azione !== "unstage" && azione !== "discard") {
-        return json({ error: "action non valida" }, 400);
+        return json({ error: "invalid action" }, 400);
       }
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
@@ -583,7 +583,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // cambiato sotto (un salvataggio, un altro client) e gli indici che il
         // browser aveva in mano non descrivono più niente. Dirlo, invece di
         // rispondere ok su un lavoro non fatto.
-        if (!patch) return json({ error: "I blocchi non ci sono più: ricarica il diff" }, 409);
+        if (!patch) return json({ error: "Those hunks are gone: reload the diff" }, 409);
 
         const applyArgs = azione === "stage" ? ["git", "apply", "--cached", "-"]
           : azione === "unstage" ? ["git", "apply", "--cached", "-R", "-"]
@@ -708,7 +708,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!dirPath || !hash) return json({ error: "path and hash required" }, 400);
       // Un hash, non una revisione qualunque: qui non serve `HEAD~3` e più
       // stretto è il filtro, meno c'è da ragionare su cosa ci finisce dentro.
-      if (!/^[0-9a-fA-F]{4,64}$/.test(hash)) return json({ error: "hash non valido" }, 400);
+      if (!/^[0-9a-fA-F]{4,64}$/.test(hash)) return json({ error: "invalid hash" }, 400);
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
@@ -729,7 +729,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           leggi(SHOW_NUMSTAT_ARGS(hash)),
           leggi(COMMIT_META_ARGS(hash)),
         ]);
-        if (!meta.trim()) return json({ error: "Commit non trovato" }, 404);
+        if (!meta.trim()) return json({ error: "Commit not found" }, 404);
         const [fullHash = "", shortHash = "", message = "", author = "", ago = "", date = ""] = meta.trim().split("|");
         const files = scopeCommitFiles(mergeCommitFiles(nameStatus, numstat), prefix);
         return json({ hash: fullHash, shortHash, message, author, ago, date, files });
@@ -961,7 +961,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         const r = await runNetworkGit(["git", "pull"], resolvedDir, 120_000);
-        if (r.timedOut) return json({ error: "Pull: il remote non risponde (timeout)" }, 504);
+        if (r.timedOut) return json({ error: "Pull: the remote is not answering (timeout)" }, 504);
         if (!r.ok) return json({ error: r.stderr || "Pull failed" }, 400);
         invalidateGitCache(resolvedDir);
         return json({ ok: true, output: r.stdout });
@@ -985,7 +985,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // `--prune`: senza, i rami cancellati sul remote restano nella lista per
         // sempre e si può fare checkout di qualcosa che non esiste più.
         const r = await runNetworkGit(["git", "fetch", "--all", "--prune"], resolvedDir, 60_000);
-        if (r.timedOut) return json({ error: "Fetch: il remote non risponde (timeout)" }, 504);
+        if (r.timedOut) return json({ error: "Fetch: the remote is not answering (timeout)" }, 504);
         if (!r.ok) return json({ error: r.stderr || "Fetch failed" }, 400);
         // Il fetch muove le ref remote-tracking: lo stato in cache è vecchio di
         // un istante. Senza questa riga i nuovi `behind` si vedrebbero solo al
@@ -1019,7 +1019,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           ? ["git", "push", remote, branch]
           : ["git", "push", "-u", remote, branch];
         const r = await runNetworkGit(args, resolvedDir, 120_000);
-        if (r.timedOut) return json({ error: "Push: il remote non risponde (timeout)" }, 504);
+        if (r.timedOut) return json({ error: "Push: the remote is not answering (timeout)" }, 504);
         if (!r.ok) return json({ error: r.stderr || "Push failed" }, 400);
         invalidateGitCache(resolvedDir);
         // git scrive l'esito del push su stderr anche quando va bene.
@@ -1040,7 +1040,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       // niente `:` (che spezzerebbe l'argomento in due), niente `..`.
       const rev = url.searchParams.get("rev") || "HEAD";
       if (!/^[A-Za-z0-9_./^~@{}-]{1,200}$/.test(rev) || rev.includes("..")) {
-        return json({ error: "rev non valida" }, 400);
+        return json({ error: "invalid rev" }, 400);
       }
       /**
        * `side=index` legge il contenuto DELL'INDICE, cioè `git show :0:<file>`.
@@ -1060,7 +1060,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
        */
       const side = url.searchParams.get("side");
       if (side !== null && side !== "index") {
-        return json({ error: "side non valido" }, 400);
+        return json({ error: "invalid side" }, 400);
       }
       if (!dirPath || !filePath) return json({ error: "path and file required" }, 400);
       const resolvedDir = resolveProjectPath(dirPath);
@@ -1383,7 +1383,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const staged = stagedEntries(porcelain);
 
         if (staged.length === 0) {
-          return json({ error: "Niente in stage da descrivere", code: "no_staged_changes" }, 400);
+          return json({ error: "Nothing staged to describe", code: "no_staged_changes" }, 400);
         }
 
         // La mappa completa (costa poco anche su venti file) più il diff
@@ -1427,14 +1427,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         ]);
 
         if (risposta === scaduto) {
-          return json({ error: "Il modello non ha risposto in tempo", code: "timeout", fallbackMessage: fallback }, 504);
+          return json({ error: "The model did not answer in time", code: "timeout", fallbackMessage: fallback }, 504);
         }
         // `complete()` su exit non-zero NON lancia: risolve con
         // `content: "Error: CLI exited with code N"`. Senza il controllo, quella
         // stringa finirebbe incollata nella casella del commit.
         const message = usableMessage(risposta?.content);
         if (!message) {
-          return json({ error: "Il modello non ha prodotto un messaggio", code: "provider_failed", fallbackMessage: fallback }, 503);
+          return json({ error: "The model produced no message", code: "provider_failed", fallbackMessage: fallback }, 503);
         }
         return json({ message, source: "ai" });
       } catch (err: any) {

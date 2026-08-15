@@ -2,9 +2,9 @@
 /**
  * IL CANCELLO DELLA FLUIDITA'.
  *
- *   bun run check:fluido                    misura e giudica
- *   bun run check:fluido -- --from FILE.json  giudica una misura gia' fatta
- *   bun run check:fluido -- --update-baseline registra i numeri nuovi
+ *   bun run check:scroll-fluidity                    misura e giudica
+ *   bun run check:scroll-fluidity -- --from FILE.json  giudica una misura gia' fatta
+ *   bun run check:scroll-fluidity -- --update-baseline registra i numeri nuovi
  *
  * PERCHE'. «Fluido» era una parola in una card, e una parola non puo' fallire.
  * Questo repo misura il bundle, i tipi, la densita' di `any`, i frame chiesti a
@@ -31,7 +31,7 @@
  *      piu' vecchia della run). Un cancello che confonde questi due casi finisce
  *      per non essere creduto, ed e' peggio di nessun cancello.
  *
- * COME LO SI VEDE ROSSO. `TOPICS_FLUIDO_JANK_MS=70 bun run check:fluido` blocca
+ * COME LO SI VEDE ROSSO. `TOPICS_FLUIDO_JANK_MS=70 bun run check:scroll-fluidity` blocca
  * davvero il main thread della pagina a intervalli regolari. Iniettare lentezza
  * vera prova che la sonda vede un'app che scatta; abbassare la soglia proverebbe
  * soltanto che una disuguaglianza funziona.
@@ -41,11 +41,22 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const BASELINE_PATH = join(REPO_ROOT, "scripts/fluido-baseline.json");
+const BASELINE_PATH = join(REPO_ROOT, "scripts/scroll-fluidity-baseline.json");
 const SPEC_PATH = "tests/e2e/scroll-fluidity.spec.ts";
+
+/**
+ * IL NOME `fluido` SOPRAVVIVE QUI, e non per distrazione.
+ *
+ * Questo percorso e le variabili `TOPICS_FLUIDO_*` sono il contratto con
+ * `tests/e2e/scroll-fluidity.spec.ts`: e' la spec a scrivere il file e a leggere
+ * quelle variabili, e i due lati devono cambiare nello STESSO edit o la misura
+ * finisce in un posto e il giudizio la cerca in un altro. Il rinomino della spec
+ * e' un edit a se': quando lo si fa, si spostano anche queste tre righe e la
+ * riga 34 qui sopra.
+ */
 const DEFAULT_OUT = join(REPO_ROOT, "test-results/fluido-measure.json");
 
-export interface Misura {
+export interface Measurement {
   measured_at?: string;
   jank_injected_ms?: number;
   calibration_gap_ms: number;
@@ -71,49 +82,49 @@ export interface Baseline {
 }
 
 /** 0 verde, 1 regressione, 2 non misurabile. Vedi l'intestazione. */
-export type Uscita = 0 | 1 | 2;
+export type ExitCode = 0 | 1 | 2;
 
-export interface Esito {
-  uscita: Uscita;
+export interface Verdict {
+  exitCode: ExitCode;
   /** Le righe della tabella misurato-contro-budget, sempre stampate. */
-  righe: string[];
+  rows: string[];
   /** Cosa ha sforato. Vuoto quando l'uscita non e' 1. */
-  sforati: string[];
+  exceeded: string[];
   /** Perche' la misura non vale niente. Vuoto quando l'uscita non e' 2. */
-  impedimenti: string[];
+  blockers: string[];
 }
 
 /** Le tre metriche giudicate, in un posto solo: nome, dove sta, come si legge. */
-const METRICHE = [
-  { chiave: "dropped_pct", etichetta: "frame persi", unita: "%" },
-  { chiave: "worst_gap_ms", etichetta: "buco peggiore", unita: "ms" },
-  { chiave: "longtask_ms", etichetta: "long task", unita: "ms" },
+const METRICS = [
+  { key: "dropped_pct", label: "frame persi", unit: "%" },
+  { key: "worst_gap_ms", label: "buco peggiore", unit: "ms" },
+  { key: "longtask_ms", label: "long task", unit: "ms" },
 ] as const;
 
 /**
  * Il giudizio, puro: due oggetti dentro, un esito fuori.
  *
- * Puro perche' sia falsificabile senza un browser: `scripts/check-fluido.test.ts`
+ * Puro perche' sia falsificabile senza un browser: `scripts/check-scroll-fluidity.test.ts`
  * gli passa misure sintetiche, comprese quelle che DEVONO uscire rosse.
  *
- * `nonPrimaDi`, quando c'e', e' l'istante in cui e' partita la misura: una
+ * `notBefore`, quando c'e', e' l'istante in cui e' partita la misura: una
  * misura piu' vecchia della run e' un artefatto di prima, e giudicarla
  * significherebbe dare il verde a codice che non e' mai stato provato.
  */
-export function giudica(m: Misura, b: Baseline, nonPrimaDi?: Date): Esito {
-  const righe: string[] = [];
-  const sforati: string[] = [];
-  const impedimenti: string[] = [];
+export function judge(m: Measurement, b: Baseline, notBefore?: Date): Verdict {
+  const rows: string[] = [];
+  const exceeded: string[] = [];
+  const blockers: string[] = [];
 
-  for (const { chiave, etichetta, unita } of METRICHE) {
-    const got = m.median[chiave];
-    const max = b.budget[chiave];
-    const dentro = got <= max;
-    righe.push(
-      `${dentro ? "  " : "✗ "}${etichetta.padEnd(14)} ${String(got).padStart(8)} ${unita.padEnd(2)}` +
-        `   budget ${max} ${unita}`,
+  for (const { key, label, unit } of METRICS) {
+    const got = m.median[key];
+    const max = b.budget[key];
+    const within = got <= max;
+    rows.push(
+      `${within ? "  " : "✗ "}${label.padEnd(14)} ${String(got).padStart(8)} ${unit.padEnd(2)}` +
+        `   budget ${max} ${unit}`,
     );
-    if (!dentro) sforati.push(`${chiave}: ${got}${unita} > ${max}${unita}`);
+    if (!within) exceeded.push(`${key}: ${got}${unit} > ${max}${unit}`);
   }
 
   const g = b.guards;
@@ -128,10 +139,10 @@ export function giudica(m: Misura, b: Baseline, nonPrimaDi?: Date): Esito {
    * spec perche' la difesa che questo cancello dichiara come propria si
    * spegnesse in silenzio, e per sempre.
    */
-  const numeroOppureNulla = (v: unknown, nome: string): number | null => {
+  const numberOrNull = (v: unknown, name: string): number | null => {
     if (typeof v === "number" && Number.isFinite(v)) return v;
-    impedimenti.push(
-      `il testimone \`${nome}\` non e' un numero (${JSON.stringify(v)}): ` +
+    blockers.push(
+      `il testimone \`${name}\` non e' un numero (${JSON.stringify(v)}): ` +
         `senza di lui non si sa se il banco abbia misurato qualcosa, e una misura ` +
         `che non si sa se e' avvenuta non si giudica`,
     );
@@ -139,22 +150,22 @@ export function giudica(m: Misura, b: Baseline, nonPrimaDi?: Date): Esito {
   };
 
   if (m.calibration_gap_ms > g.calibration_gap_ms_ceiling) {
-    impedimenti.push(
+    blockers.push(
       `calibrazione ${m.calibration_gap_ms}ms > ${g.calibration_gap_ms_ceiling}ms: ` +
         `questa macchina non consegna frame nemmeno su una pagina vuota, quindi ` +
         `qualunque numero raccolto sotto scorrimento parla di lei e non dell'app`,
     );
   }
-  const span = numeroOppureNulla(m.witness?.scroll_span_px, "scroll_span_px");
+  const span = numberOrNull(m.witness?.scroll_span_px, "scroll_span_px");
   if (span !== null && span < g.scroll_span_px_floor) {
-    impedimenti.push(
+    blockers.push(
       `il banco ha percorso ${span}px < ${g.scroll_span_px_floor}px: ` +
         `non ha scorso abbastanza perche' la misura voglia dire qualcosa`,
     );
   }
-  const churn = numeroOppureNulla(m.witness?.render_churn, "render_churn");
+  const churn = numberOrNull(m.witness?.render_churn, "render_churn");
   if (churn !== null && churn < g.render_churn_floor) {
-    impedimenti.push(
+    blockers.push(
       `la virtualizzazione ha cambiato item ${churn} volte < ${g.render_churn_floor}: ` +
         `il banco ha scorso senza far montare niente, e zero lavoro da' sempre zero frame persi`,
     );
@@ -162,14 +173,14 @@ export function giudica(m: Misura, b: Baseline, nonPrimaDi?: Date): Esito {
   // Stessa asimmetria di prima su `measured_at`: era opzionale, quindi se la
   // spec avesse smesso di scriverlo il controllo di freschezza sarebbe sparito
   // senza un rumore. Adesso la sua assenza e' un impedimento come gli altri.
-  if (nonPrimaDi && !m.measured_at) {
-    impedimenti.push(
+  if (notBefore && !m.measured_at) {
+    blockers.push(
       `la misura non porta \`measured_at\`: non si puo' dire se e' di questo giro ` +
         `o l'artefatto di uno precedente`,
     );
   }
-  if (nonPrimaDi && m.measured_at && new Date(m.measured_at) < nonPrimaDi) {
-    impedimenti.push(
+  if (notBefore && m.measured_at && new Date(m.measured_at) < notBefore) {
+    blockers.push(
       `la misura e' del ${m.measured_at}, cioe' PRIMA di questa run: ` +
         `e' l'artefatto di un giro precedente e non dice niente sul codice di adesso`,
     );
@@ -177,8 +188,8 @@ export function giudica(m: Misura, b: Baseline, nonPrimaDi?: Date): Esito {
 
   // L'impedimento vince sullo sforo: se la misura non vale, il rosso che darebbe
   // sarebbe un rosso su una misura che non vale.
-  const uscita: Uscita = impedimenti.length > 0 ? 2 : sforati.length > 0 ? 1 : 0;
-  return { uscita, righe, sforati, impedimenti };
+  const exitCode: ExitCode = blockers.length > 0 ? 2 : exceeded.length > 0 ? 1 : 0;
+  return { exitCode, rows, exceeded, blockers };
 }
 
 /**
@@ -188,39 +199,39 @@ export function giudica(m: Misura, b: Baseline, nonPrimaDi?: Date): Esito {
  * `--update-baseline` scriverebbe un budget di zero, cioe' una soglia che
  * nessuna run puo' rispettare, e il cancello diventerebbe rumore da spegnere.
  */
-export function budgetAggiornato(
-  m: Misura,
+export function updatedBudget(
+  m: Measurement,
   b: Baseline,
 ): { dropped_pct: number; worst_gap_ms: number; longtask_ms: number } {
-  const uno = (chiave: (typeof METRICHE)[number]["chiave"]): number => {
-    const regola = b.update_rule[chiave];
-    if (!regola) return b.budget[chiave];
-    return Math.max(regola.floor, Math.round(m.median[chiave] * regola.multiplier * 100) / 100);
+  const one = (key: (typeof METRICS)[number]["key"]): number => {
+    const rule = b.update_rule[key];
+    if (!rule) return b.budget[key];
+    return Math.max(rule.floor, Math.round(m.median[key] * rule.multiplier * 100) / 100);
   };
   return {
-    dropped_pct: uno("dropped_pct"),
-    worst_gap_ms: uno("worst_gap_ms"),
-    longtask_ms: uno("longtask_ms"),
+    dropped_pct: one("dropped_pct"),
+    worst_gap_ms: one("worst_gap_ms"),
+    longtask_ms: one("longtask_ms"),
   };
 }
 
-/** Lettura difensiva: un JSON valido con la forma sbagliata non e' una misura. */
-export function leggiMisura(path: string): Misura {
-  const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<Misura>;
+/** Lettura difensiva: un JSON valido con la forma sbagliata non e' una measurement. */
+export function readMeasurement(path: string): Measurement {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<Measurement>;
   if (!raw.median || !raw.witness || typeof raw.calibration_gap_ms !== "number") {
     throw new Error(
       `${path} non ha la forma di una misura (servono median, witness, calibration_gap_ms).`,
     );
   }
-  return raw as Misura;
+  return raw as Measurement;
 }
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
-  const aggiorna = argv.includes("--update-baseline");
-  const iDa = argv.indexOf("--from");
-  const da = iDa >= 0 ? argv[iDa + 1] : undefined;
-  if (iDa >= 0 && !da) {
+  const update = argv.includes("--update-baseline");
+  const fromIndex = argv.indexOf("--from");
+  const from = fromIndex >= 0 ? argv[fromIndex + 1] : undefined;
+  if (fromIndex >= 0 && !from) {
     console.error("✗ --from vuole un percorso.");
     process.exit(2);
   }
@@ -228,16 +239,16 @@ if (import.meta.main) {
   const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline;
   // `resolve` e non `join`: con un percorso assoluto `join` lo incollerebbe in
   // coda alla radice del repo, e il file «non esisterebbe» per un motivo finto.
-  const outPath = da ? resolve(REPO_ROOT, da) : DEFAULT_OUT;
-  let nonPrimaDi: Date | undefined;
+  const outPath = from ? resolve(REPO_ROOT, from) : DEFAULT_OUT;
+  let notBefore: Date | undefined;
 
-  if (!da) {
+  if (!from) {
     // Il banco si avvia da solo: il globalSetup di Playwright tira su il server
     // di test isolato, il suo SQLite e la fotografia del bundle. `E2E_PORT` e
     // `TOPICS_E2E_BUNDLE_DIR` passano da qui senza essere toccate, cosi' un
     // worktree o una macchina senza watcher del client restano governabili
     // esattamente come per il resto della suite.
-    nonPrimaDi = new Date();
+    notBefore = new Date();
     console.log(`▸ misuro ${SPEC_PATH} (banco e2e, ~40s)\n`);
     const run = spawnSync(
       "npx",
@@ -262,31 +273,31 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  let misura: Misura;
+  let measurement: Measurement;
   try {
-    misura = leggiMisura(outPath);
+    measurement = readMeasurement(outPath);
   } catch (e) {
     console.error(`✗ ${(e as Error).message}`);
     process.exit(2);
   }
 
   console.log(`\nsuperficie     trascritto di una chat (react-virtuoso)`);
-  console.log(`testimoni      ${misura.witness.scroll_span_px}px percorsi, ${misura.witness.render_churn} cambi di item`);
-  console.log(`calibrazione   ${misura.calibration_gap_ms} ms a riposo su pagina vuota (tetto ${baseline.guards.calibration_gap_ms_ceiling} ms)`);
-  if (misura.jank_injected_ms) {
+  console.log(`testimoni      ${measurement.witness.scroll_span_px}px percorsi, ${measurement.witness.render_churn} cambi di item`);
+  console.log(`calibrazione   ${measurement.calibration_gap_ms} ms a riposo su pagina vuota (tetto ${baseline.guards.calibration_gap_ms_ceiling} ms)`);
+  if (measurement.jank_injected_ms) {
     console.log(
-      `\n⚠ LENTEZZA INIETTATA: ${misura.jank_injected_ms} ms di blocco ogni 100 ms nel main thread.\n` +
+      `\n⚠ LENTEZZA INIETTATA: ${measurement.jank_injected_ms} ms di blocco ogni 100 ms nel main thread.\n` +
         `  Questa misura serve a vedere il cancello fallire, non a giudicare il repo.`,
     );
   }
   console.log("");
 
-  const esito = giudica(misura, baseline, nonPrimaDi);
-  for (const r of esito.righe) console.log(r);
+  const verdict = judge(measurement, baseline, notBefore);
+  for (const r of verdict.rows) console.log(r);
 
-  if (aggiorna) {
-    if (esito.impedimenti.length > 0) {
-      console.error(`\n✗ Non registro una misura che non vale:\n  - ${esito.impedimenti.join("\n  - ")}`);
+  if (update) {
+    if (verdict.blockers.length > 0) {
+      console.error(`\n✗ Non registro una misura che non vale:\n  - ${verdict.blockers.join("\n  - ")}`);
       process.exit(2);
     }
     // UNA REGRESSIONE NON SI REGISTRA COME NUOVA NORMALITA' SENZA DIRLO.
@@ -298,25 +309,25 @@ if (import.meta.main) {
     // misura sfora, la baseline si scrive ma l'uscita resta 1: il numero nuovo
     // c'e' e nel diff si vede cosa ha comprato, ma nessuno puo' dire che il
     // giro era verde.
-    if (esito.sforati.length > 0) {
+    if (verdict.exceeded.length > 0) {
       console.error(
-        `\n⚠ Registro la baseline SU UNA MISURA PEGGIORATA:\n  - ${esito.sforati.join("\n  - ")}\n` +
+        `\n⚠ Registro la baseline SU UNA MISURA PEGGIORATA:\n  - ${verdict.exceeded.join("\n  - ")}\n` +
           `  L'uscita resta 1: se il costo e' voluto, il commit deve dirlo.`,
       );
       process.exitCode = 1;
     }
-    const nuovo = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, any>;
-    nuovo.updated = new Date().toISOString().slice(0, 10);
-    nuovo.measured = {
-      ...nuovo.measured,
-      dropped_pct: misura.median.dropped_pct,
-      worst_gap_ms: misura.median.worst_gap_ms,
-      longtask_ms: misura.median.longtask_ms,
-      median_gap_ms: misura.median.median_gap_ms ?? nuovo.measured.median_gap_ms,
-      calibration_gap_ms: misura.calibration_gap_ms,
+    const next = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, any>;
+    next.updated = new Date().toISOString().slice(0, 10);
+    next.measured = {
+      ...next.measured,
+      dropped_pct: measurement.median.dropped_pct,
+      worst_gap_ms: measurement.median.worst_gap_ms,
+      longtask_ms: measurement.median.longtask_ms,
+      median_gap_ms: measurement.median.median_gap_ms ?? next.measured.median_gap_ms,
+      calibration_gap_ms: measurement.calibration_gap_ms,
     };
-    nuovo.budget = { _: nuovo.budget._, ...budgetAggiornato(misura, baseline) };
-    writeFileSync(BASELINE_PATH, `${JSON.stringify(nuovo, null, 2)}\n`);
+    next.budget = { _: next.budget._, ...updatedBudget(measurement, baseline) };
+    writeFileSync(BASELINE_PATH, `${JSON.stringify(next, null, 2)}\n`);
     console.log(
       `\n✓ Baseline aggiornata in ${BASELINE_PATH}.\n` +
         `  Aggiorna a mano anche \`budget_why\`: un numero senza il suo perche' e' un numero\n` +
@@ -325,14 +336,14 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  if (esito.uscita === 2) {
-    console.error(`\n✗ MISURA NON UTILIZZABILE:\n  - ${esito.impedimenti.join("\n  - ")}`);
+  if (verdict.exitCode === 2) {
+    console.error(`\n✗ MISURA NON UTILIZZABILE:\n  - ${verdict.blockers.join("\n  - ")}`);
     console.error(`\nNessun giudizio sulla fluidita': la misura non parla del prodotto.`);
     process.exit(2);
   }
 
-  if (esito.uscita === 1) {
-    console.error(`\n✗ La superficie ha perso fluidita':\n  - ${esito.sforati.join("\n  - ")}`);
+  if (verdict.exitCode === 1) {
+    console.error(`\n✗ La superficie ha perso fluidita':\n  - ${verdict.exceeded.join("\n  - ")}`);
     console.error(
       `\nDove guardare: un long task che cresce dice lavoro sul main thread dentro lo\n` +
         `scorrimento (un layout sincrono, un effetto che rimisura, una lista non memoizzata).\n` +

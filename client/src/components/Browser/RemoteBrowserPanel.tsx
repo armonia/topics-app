@@ -551,7 +551,16 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       )}
       {/* Navigation error strip — native-path parity with BRW-REL-02. Fed by the
           Rust did-fail queue (browser_take_nav_errors). The failed load leaves
-          the previous page alive, hence the explicit dismiss next to Riprova. */}
+          the previous page alive, hence the explicit dismiss next to Riprova.
+
+          Qui NON si ricontrolla che `navError.url` sia ancora l'indirizzo di
+          questa pane, e non per dimenticanza: la freschezza è decisa a monte,
+          nel drain (`pickNavError` in useTauriBrowser), dove si sa se la lettura
+          è un tick o un RECUPERO dopo un periodo a finestra nascosta. Ripetere
+          il confronto qui vorrebbe dire due regole sullo stesso soggetto, e la
+          seconda non ha l'informazione che serve a deciderlo. È anche il motivo
+          per cui «Riprova» può fidarsi di `navError.url`: non è mai la URL di
+          una navigazione che la pane si è già lasciata alle spalle. */}
       {browser.navError && (
         <BrowserNoticeStrip
           testId="browser-nav-error"

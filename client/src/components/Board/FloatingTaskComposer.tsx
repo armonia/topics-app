@@ -15,13 +15,16 @@ import { autoGrow, friendlyModelLabel } from './format';
 import { StatusIcon } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
+import { useT } from '../../hooks/useT';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
- *  offre, ognuna con la riga che dice cosa succede scegliendola. Le colonne più
- *  avanti (in corso, review, done) non sono un'origine: ci si arriva. */
+ *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
+ *  Chiave e non testo: questa è una costante di modulo, e `tr` esiste solo
+ *  dentro il componente. Le colonne più avanti (in corso, review, done) non
+ *  sono un'origine: ci si arriva. */
 const START_CHOICES: readonly (readonly [BirthStatus, string])[] = [
-  ['todo', "Parte subito: un agent la prende dalla coda."],
-  ['backlog', 'Resta ferma finché non la promuovi tu.'],
+  ['todo', 'board.composer.startTodoHint'],
+  ['backlog', 'board.composer.startBacklogHint'],
 ];
 
 /** Le sole due colonne che sono un'ORIGINE (le altre si raggiungono). */
@@ -191,6 +194,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
      lavoro doveva scriverlo a mano, o dettarlo altrove e copiarlo qui.
      Il testo entra AL CURSORE (`insertAtCaret`) e non in coda, così una
      dettatura in due riprese resta nell'ordine in cui l'hai detta. */
+  const tr = useT();
   const toast = useToast();
   const insertDictated = useCallback((spoken: string) => {
     const ta = taRef.current;
@@ -395,7 +399,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           onKeyUp={saveCursor}
           onClick={saveCursor}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-          placeholder="Descrivi un task per l'agent…"
+          placeholder={tr('board.composer.placeholder')}
           className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-app-text outline-none transition-[min-height] duration-200 ease-out placeholder:text-app-placeholder ${
             expanded ? 'min-h-[4.5rem]' : 'min-h-0'
           }`}
@@ -416,13 +420,13 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   : <Lock className="h-3 w-3 shrink-0 text-amber-400" />}
                 <span className="min-w-0 flex-1 truncate text-app-text" title={link.proposal.reason}>
                   {link.kind === 'subtask'
-                    ? <>Sottotask di <span className="text-app-text-heading">«{link.proposal.targetText}»</span></>
-                    : <>Parte quando chiude <span className="text-app-text-heading">«{link.proposal.targetText}»</span>, riprendendo quel filo</>}
+                    ? <>{tr('board.composer.subtaskOf')} <span className="text-app-text-heading">«{link.proposal.targetText}»</span></>
+                    : <>{tr('board.composer.chainedStart')} <span className="text-app-text-heading">«{link.proposal.targetText}»</span>{tr('board.composer.chainedEnd')}</>}
                 </span>
                 <button
                   onClick={clearLink}
                   data-testid="composer-intake-unlink"
-                  title="Togli il collegamento: il task nasce libero"
+                  title={tr('board.composer.unlinkTitle')}
                   className="shrink-0 rounded p-0.5 text-app-text-muted hover:bg-black/10 hover:text-app-text dark:hover:bg-white/10"
                 ><X className="h-3 w-3" /></button>
               </>
@@ -430,33 +434,33 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               <>
                 <Link2 className="h-3 w-3 shrink-0 text-app-text-muted" />
                 <span className="min-w-0 flex-1 truncate text-app-text-secondary" title={proposal.reason}>
-                  Sembra legato a <span className="text-app-text-heading">«{proposal.targetText}»</span>
+                  {tr('board.composer.looksLinkedTo')} <span className="text-app-text-heading">«{proposal.targetText}»</span>
                   <span className="text-app-text-muted"> ({STATUS_LABEL[proposal.targetStatus].toLowerCase()})</span>
                 </span>
                 <button
                   onClick={() => acceptProposal('chain')}
                   data-testid="composer-intake-chain"
-                  title="Non parte finché quella card non chiude, poi riprende il suo filo"
+                  title={tr('board.composer.chainTitle')}
                   className={`shrink-0 rounded-md px-2 py-1 transition-colors ${
                     proposal.recommended === 'chain'
                       ? 'bg-amber-500/25 text-amber-200'
                       : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
                   }`}
-                >Incatena</button>
+                >{tr('board.composer.chain')}</button>
                 <button
                   onClick={() => acceptProposal('subtask')}
                   data-testid="composer-intake-subtask"
-                  title="Diventa un pezzo di quella card (compare nel suo elenco)"
+                  title={tr('board.composer.subtaskTitle')}
                   className={`shrink-0 rounded-md px-2 py-1 transition-colors ${
                     proposal.recommended === 'subtask'
                       ? 'bg-emerald-500/25 text-emerald-200'
                       : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
                   }`}
-                >Sottotask</button>
+                >{tr('board.composer.subtask')}</button>
                 <button
                   onClick={dismissProposal}
                   data-testid="composer-intake-dismiss"
-                  title="No: task nuovo, senza collegamenti"
+                  title={tr('board.composer.dismissTitle')}
                   className="shrink-0 rounded p-0.5 text-app-text-muted hover:bg-black/10 hover:text-app-text dark:hover:bg-white/10"
                 ><X className="h-3 w-3" /></button>
               </>
@@ -480,8 +484,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   onClick={() => setProjOpen(true)}
                   data-testid="composer-project-chip"
                   title={autoTarget
-                    ? 'Progetto automatico: risolto dal testo del task (nome citato); se non è chiaro va nel progetto generale'
-                    : targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
+                    ? tr('board.composer.projectAutoTitle')
+                    : targetLabel ? tr('board.composer.projectNamedTitle', { label: targetLabel }) : tr('board.composer.projectPickTitle')}
                   // L'UNICO chip che può stringersi (l'etichetta è troncabile),
                   // con un pavimento: sotto ~5.5rem resterebbero icona e chevron
                   // senza una lettera di nome, che è peggio di far scorrere la riga.
@@ -490,7 +494,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   {autoTarget
                     ? <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
                     : <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject && !noneTarget ? 'bg-emerald-400' : 'bg-app-text-faint'}`} />} />}
-                  <span className="truncate">{targetLabel || 'Progetto…'}</span>
+                  <span className="truncate">{targetLabel || tr('board.composer.projectPlaceholder')}</span>
                   <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
                 </button>
                 <Menu
@@ -519,18 +523,18 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               ref={modelBtnRef}
               onClick={() => { setModelOpen(true); loadModels(); }}
               data-testid="composer-model-chip"
-              title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: intelligenza automatica (sceglie il provider)'}
+              title={model ? tr('board.composer.modelNamedTitle', { label: friendlyModelLabel(model) }) : tr('board.composer.modelAutoTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
-            ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{model ? friendlyModelLabel(model) : 'Modello auto'}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
+            ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{model ? friendlyModelLabel(model) : tr('board.composer.modelAutoChip')}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
             <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Modello</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.model')}</p>
               <button
                 role="option" aria-selected={model === null}
                 onClick={() => { setModel(null); setModelOpen(false); }}
-                title="Lascia scegliere il provider"
+                title={tr('board.composer.modelAutoOptionTitle')}
                 className={POPOVER_ITEM}
               >
-                <span className="min-w-0 flex-1">Intelligenza automatica</span>
+                <span className="min-w-0 flex-1">{tr('board.composer.modelAuto')}</span>
                 {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
               {claudeModels.map((m) => (
@@ -548,23 +552,23 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               ref={prioBtnRef}
               onClick={() => setPrioOpen(true)}
               data-testid="composer-priority-chip"
-              title={prio !== null ? `Priorità: ${PRIORITY_LABEL[prio]}` : "Priorità automatica: la valuta l'agent appena inquadra il task"}
+              title={prio !== null ? tr('board.composer.priorityNamedTitle', { label: PRIORITY_LABEL[prio] }) : tr('board.composer.priorityAutoTitle')}
               className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             >
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-app-text-faint'}`} />
-              <span className={CHIP_LABEL}>{prio !== null ? PRIORITY_LABEL[prio] : 'Priorità auto'}</span>
+              <span className={CHIP_LABEL}>{prio !== null ? PRIORITY_LABEL[prio] : tr('board.composer.priorityAutoChip')}</span>
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Priorità</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
               <button
                 role="option" aria-selected={prio === null}
                 onClick={() => { setPrio(null); setPrioOpen(false); }}
-                title="La valuta l'agent al primo turno; la coda serve prima le priorità alte"
+                title={tr('board.composer.priorityAutoOptionTitle')}
                 className={POPOVER_ITEM}
               >
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />
-                <span className="min-w-0 flex-1">Automatica</span>
+                <span className="min-w-0 flex-1">{tr('board.composer.priorityAuto')}</span>
                 {prio === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
               {PRIORITY_ORDER.map((p) => (
@@ -583,8 +587,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               ref={startBtnRef}
               onClick={() => setStartOpen(true)}
               data-testid="composer-start-chip"
-              title={`${todo ? 'Nasce in Todo: un agent la prende dalla coda' : 'Nasce in Backlog: resta ferma finché non la promuovi'}${
-                planFirst ? " · piano prima: l'agent consegna un piano da approvare" : ''
+              title={`${tr(todo ? 'board.composer.startTodoTitle' : 'board.composer.startBacklogTitle')}${
+                planFirst ? tr('board.composer.startPlanFirstTitle') : ''
               }`}
               className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             >
@@ -596,8 +600,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={startOpen} anchorRef={startBtnRef} onClose={() => setStartOpen(false)} minWidth={240} role="menu">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Avvio</p>
-              {START_CHOICES.map(([s, hint]) => (
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.start')}</p>
+              {START_CHOICES.map(([s, hintKey]) => (
                 <button
                   key={s} role="menuitemradio" aria-checked={birthStatus === s}
                   onClick={() => { setBirthStatus(s); setStartOpen(false); }}
@@ -607,7 +611,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   <StatusIcon status={s} className="h-3 w-3" />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span>{STATUS_LABEL[s]}</span>
-                    <span className="text-[11px] leading-tight text-app-text-muted">{hint}</span>
+                    <span className="text-[11px] leading-tight text-app-text-muted">{tr(hintKey)}</span>
                   </span>
                   {birthStatus === s && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
@@ -624,8 +628,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               >
                 <ClipboardList className={`h-3 w-3 shrink-0 ${planFirst ? 'text-violet-300' : 'text-app-text-muted'}`} />
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span>Piano prima</span>
-                  <span className="text-[11px] leading-tight text-app-text-muted">Consegna un piano da approvare. Implementa dopo il tuo ok.</span>
+                  <span>{tr('board.task.planFirst')}</span>
+                  <span className="text-[11px] leading-tight text-app-text-muted">{tr('board.composer.planFirstHint')}</span>
                 </span>
                 {planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
@@ -643,11 +647,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               data-listening={dictation.isListening ? 'true' : 'false'}
               disabled={dictation.isTranscribing}
               title={dictation.isTranscribing
-                ? 'Trascrivo…'
+                ? tr('board.composer.dictationTranscribing')
                 : dictation.isListening
-                  ? 'Ferma la dettatura'
-                  : `Detta il task. Tocca per accendere, tieni premuto per parlare e mollare${dictation.modelLabel ? ` · ${dictation.modelLabel}` : ''}`}
-              aria-label={dictation.isListening ? 'Ferma la dettatura' : 'Detta il task'}
+                  ? tr('board.composer.dictationStop')
+                  : tr('board.composer.dictateTitle', { model: dictation.modelLabel ? ` · ${dictation.modelLabel}` : '' })}
+              aria-label={tr(dictation.isListening ? 'board.composer.dictationStop' : 'board.composer.dictate')}
               // `touch-none` toglie il gesto al browser: senza, tenere premuto
               // su un telefono fa partire lo scroll e il gesto muore a metà.
               className={`shrink-0 touch-none select-none rounded-lg p-1.5 transition-colors disabled:opacity-40 ${
@@ -663,7 +667,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           )}
           <button
             onClick={submit} disabled={!text.trim() || submitting}
-            title={todo ? "Crea il task in Todo (l'agent parte da lì)" : 'Crea il task in Backlog (non parte nessun agent)'}
+            title={tr(todo ? 'board.composer.sendTodoTitle' : 'board.composer.sendBacklogTitle')}
             data-testid="composer-send"
             className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
           >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>

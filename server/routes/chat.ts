@@ -677,7 +677,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let turnStartMs = requestStartMs;
           let fullContent = "";
           let fullThinking = "";
-          let lastTextDelta = ""; // track cumulative text from delta events
           // Carry-over tail for the localhost auto-nav scan: instead of
           // re-scanning the whole accumulated fullContent every delta (O(n²) over
           // a stream), we scan only `carry + newDelta` where `carry` holds the
@@ -960,12 +959,27 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
           };
 
+          /**
+           * Suspend while ≥1 tool call is `running`. The next resetStreamTimer
+           * (fired on onToolResult / new event) will re-arm if needed.
+           *
+           * INVARIANT — this reads `trackedToolCallIds` as it is AT CALL TIME, so
+           * every caller must have already applied the event it is reacting to.
+           * Push before reset in `onToolStart`, splice before reset in every
+           * completion path. Getting it backwards broke both ends of a turn:
+           *
+           *   - last tool result: the splice ran AFTER the reset, so the reset
+           *     still saw one tool running, set `softTimer = null`, and nothing
+           *     re-armed it. The watchdog stayed off for the rest of the turn —
+           *     no soft timeout, no grace, no `stream:slow`.
+           *   - first tool start: the push ran AFTER the reset, so the reset saw
+           *     an empty set and armed a 60 s timer against a turn that was, by
+           *     design, waiting on a tool. One minute later the user got a
+           *     spurious "slowing down" banner on a perfectly healthy turn.
+           */
           const armSoftTimer = () => {
             if (streamState !== "streaming") return;
             if (softTimer) clearTimeout(softTimer);
-            // Suspend while ≥1 tool call is `running`. The next
-            // resetStreamTimer (fired on onToolResult / new event) will
-            // re-arm if needed.
             if (trackedToolCallIds.length > 0) { softTimer = null; return; }
             softTimer = setTimeout(handleSoftTimeout, STREAM_TIMEOUT_MS);
           };
@@ -1165,6 +1179,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           };
 
           /**
+           * Un tool ha finito: PRIMA esce dall'insieme, POI si riarma il timer.
+           *
+           * L'ordine è la regola scritta su `armSoftTimer`, e questo è l'unico
+           * posto in cui si toglie un id: i cinque siti che facevano
+           * `indexOf`+`splice` a mano (risultato del tool, i due esiti della
+           * dispatch dei tool `browser_*`, i due dei control tool) erano cinque
+           * occasioni di dimenticarsene — e tre di loro se n'erano già
+           * dimenticate, lasciando il watchdog spento dopo l'ultimo tool.
+           */
+          const settleTrackedTool = (toolCallId: string) => {
+            const idx = trackedToolCallIds.indexOf(toolCallId);
+            if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+            resetStreamTimer();
+          };
+
+          /**
            * Tiene vive nel pannello Processi le shell che l'agente lascia in
            * background (3.5). Il transcript le mostra una volta e le dimentica;
            * qui diventano stato: si contano, si leggono, si fermano.
@@ -1227,6 +1257,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           externalAbort.signal.addEventListener("abort", () => {
             if (streamState === "finalized") return;
             console.warn(`[StreamWS] finalizzazione esterna su ${sessionKey} — chiudo l'SSE`);
+            // I BLOCCHI si salvano PRIMA di dichiarare finito il turno, ed è
+            // l'ultimo momento in cui si può: da qui in poi `streamState` è
+            // `finalized`, quindi `finalizeStream` esce subito e chi finalizza da
+            // fuori scrive `content` ma non li tocca — `/api/chat/abort` passa a
+            // `updateLastMessage` solo content/thinking, e il COALESCE tiene la
+            // colonna vecchia (server/utils.ts).
+            //
+            // `content` lo tiene lo stream in memoria a ogni delta, i blocchi si
+            // persistono ogni SAVE_INTERVAL=10: fermare un turno al quindicesimo
+            // delta lasciava la riga con quindici delta in `content` e dieci in
+            // `blocks` — e chi disegna legge `blocks`. Il finale della risposta
+            // c'era, in una colonna che nessuno guarda.
+            //
+            // Solo i blocchi, non il testo: sulla via dello sweeper StaleStream la
+            // riga porta già il cartello «Risposta interrotta» scritto in
+            // `content`, e riscriverci sopra cancellerebbe la spiegazione. E i
+            // flag di controllo non si toccano — `persistTurnBody` non passa
+            // `partial`, quindi resta quello della riga.
+            try { persistBlocks(); }
+            catch (err) { console.warn(`[StreamWS] salvataggio dei blocchi su abort esterno fallito:`, err); }
             streamState = "finalized";
             clearAllTimers();
             topicProvider.unregisterStreamHandler?.(sessionKey);
@@ -1608,16 +1658,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const handler: StreamHandler = {
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
-              // Gateway sends cumulative text in delta events
-              // Extract the new portion by comparing with what we've seen
-              let newText = text;
-              if (text.length > lastTextDelta.length && text.startsWith(lastTextDelta)) {
-                newText = text.slice(lastTextDelta.length);
-              } else if (text === lastTextDelta) {
-                return; // No new content
-              }
-              lastTextDelta = text;
-
+              // Il primo argomento È il pezzo nuovo, sempre: lo dice il contratto
+              // su `StreamHandler.onTextDelta` e lo rispettano tutti e cinque i
+              // provider. L'unico cumulativo — il gateway OpenClaw — si
+              // normalizza da sé con `nextTextDelta` (server/providers/text-delta.ts).
+              //
+              // Qui prima si indovinava: prefisso tagliato se il testo cominciava
+              // per quello di prima, evento SCARTATO se era identico. Su quattro
+              // provider su cinque quella seconda regola perdeva un token ripetuto
+              // — «the the», due `\n` di fila, un `= =` in una tabella — e la
+              // perdita era muta, perché la riga salvata e lo schermo dicevano
+              // esattamente la stessa cosa sbagliata.
+              const newText = text;
               if (newText) {
                 fullContent += newText;
                 appendTextBlock(newText);
@@ -1675,7 +1727,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             },
 
             onToolStart: (toolCallId: string, name: string, args?: Record<string, unknown>) => {
-              resetStreamTimer();
               console.log(`[StreamWS] Tool start: ${name} (${toolCallId.slice(0,8)}) for ${sessionKey}`);
               // Build a typed `detail` at the boundary so the renderer doesn't
               // have to JSON-grovel `args`. Bash → shell, Read → read, Task →
@@ -1705,6 +1756,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // raro a quotidiano. Una tool call È attività: si dichiara qui.
               updateStreamActivity(sessionKey);
               trackedToolCallIds.push(toolCallId);
+              // DOPO la push, mai prima: `armSoftTimer` si sospende sull'insieme
+              // che vede in questo istante. Vedi l'invariante su `armSoftTimer`.
+              resetStreamTimer();
               addToolCallToLastMessage(sessionKey, toolCall);
               appendToolBlock(toolCall);
               broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
@@ -1737,8 +1791,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
 
                     // Close the tool→UI loop: browser_open navigates Playwright server-side,
                     // but until now nothing opened the user-visible pane. Broadcast the same
@@ -1773,8 +1826,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: browserErrEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
                   });
               }
 
@@ -1794,8 +1846,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'success', result: confirmation, endedAt: controlEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: confirmation } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
                   })
                   .catch((err: unknown) => {
                     const msg = err instanceof ControlToolError ? err.message : (err instanceof Error ? err.message : String(err));
@@ -1806,8 +1857,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: controlErrEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
                   });
               }
 
@@ -1909,18 +1959,30 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 ...(snapshot.result ? { result: snapshot.result } : {}),
               };
               updateBlockTool(parentToolCallId, { detail });
-              broadcastToAll({
+              // Alla topic, non a tutti. Questo è lo snapshot INTERO del
+              // sotto-agente — actions[] ricostruito a ogni colpo, i frame più
+              // grossi del turno — ed era l'unico callback di tool rimasto su
+              // `broadcastToAll` mentre i vicini passavano già da
+              // `broadcastStreamToTopic`. Ogni finestra aperta su un'altra topic
+              // li riceveva tutti per instradarli su `topicId` e buttarli.
+              broadcastStreamToTopic({
                 type: "stream:tool_detail",
                 sessionKey,
                 topicId: matchedTopic?.id,
                 toolCallId: parentToolCallId,
                 detail,
                 finished: snapshot.finished,
-              });
+              }, matchedTopic?.id);
             },
 
             onToolResult: (toolCallId: string, result: string, isError?: boolean) => {
-              resetStreamTimer();
+              // IL TURNO È VIVO, e lo si dichiara SUBITO — come in `onToolStart`,
+              // e per la stessa ragione: lo spazzino degli stream fermi guarda
+              // `lastActivity`, e un risultato di tool è attività. Il riarmo del
+              // watchdog invece va in fondo, con `settleTrackedTool`: farlo qui
+              // vorrebbe dire riarmarlo mentre questo tool risulta ancora in
+              // corso, cioè non riarmarlo affatto (vedi `armSoftTimer`).
+              updateStreamActivity(sessionKey);
               // Se questo tool stava aspettando una risposta, l'attesa finisce
               // qui: da adesso è di nuovo lavoro. Sui tool che non hanno mai
               // chiesto niente non fa nulla.
@@ -1963,9 +2025,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // solo nel transcript. Vedi `providers/claude/background-shell.ts`.
               trackBackgroundShell(detail, result, isError === true);
 
-              // Remove from tracked list (it's already finalized)
-              const idx = trackedToolCallIds.indexOf(toolCallId);
-              if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+              // Fuori dall'insieme dei tool in corso, e solo ORA il watchdog
+              // torna armato: era l'ultimo, e il silenzio che segue è silenzio.
+              settleTrackedTool(toolCallId);
             },
 
             onToolUsage: (toolCallId, u) => {

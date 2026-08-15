@@ -26,7 +26,7 @@ export type { GlobalDispatchCap } from '../../../shared/board';
 // they are matched, never drawn.
 export { normalizeActionLabel, LAND_ACTION_LABEL } from '../../../shared/board';
 export type {
-  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  TaskStatus, TaskComment, CardComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
   LandingTicket,
   SubtaskWork, QueueReason, QueueTone,
 } from '../../../shared/board';
@@ -37,7 +37,7 @@ export { CLOSER_LABELS, KIND_LABELS, whoCloses } from '../../../shared/task-labe
 export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
-  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
+  TaskStatus, TaskComment, CardComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
   QueueReason,
 } from '../../../shared/board';
 // Who spoke on a comment. The stored `author` is an identity, so the label a
@@ -331,7 +331,31 @@ export interface BoardTask {
   id: string;
   projectId: string;
   text: string;
+  /**
+   * SOLO dal dettaglio (`boardApi.get`). La lista non la porta: erano 470 KB
+   * sui 1,4 MB del feed per un testo che la card taglia comunque a due righe.
+   * Chi disegna una card legge `descriptionPreview`.
+   */
   description: string | null;
+  /**
+   * I primi 240 caratteri della descrizione — ciò che la card disegna.
+   *
+   * Opzionale perché un server più vecchio del client non lo manda (il guscio
+   * Tauri incorpora il suo `public/` e può restare indietro rispetto al server
+   * su :3333): chi lo legge ricade su `description`.
+   */
+  descriptionPreview?: string | null;
+  /**
+   * Gli ultimi commenti PARLATI del thread, dal più vecchio al più recente:
+   * quello che la card in review mostra (l'ultima parola dell'agente e la
+   * richiesta umana a cui risponde). Il server li attacca SOLO alle schede in
+   * review, che sono le uniche a disegnarli.
+   *
+   * `undefined` = questo server non li manda (client più nuovo del server) e la
+   * card torna a chiedere il dettaglio; `[]` = non c'è niente da mostrare, e
+   * nessuna richiesta parte.
+   */
+  recentComments?: CardComment[];
   status: TaskStatus;
   priority: number;
   /** Nobody chose a priority: the dispatched agent evaluates and sets one. */

@@ -146,8 +146,14 @@ const stats = repoStats();
              light moves out of it, and what stays down there is the two controls
              and the app.
              It reads better in that order anyway: claim, proof, act. */}
+        {/* "releases" used to be the first of the two, counted up from a
+             literal 78 that nobody could have refuted from this page. It is
+             gone rather than corrected: no file in the tree carries a truthful
+             release count, so any number here was a number that could rot in
+             silence. Price says the same thing to the same reader and is
+             checkable in one click on the pricing section. */}
         <dl class="hero__proof">
-          <div><dt>releases</dt><dd data-count={stats.releases}>{stats.releases}</dd></div>
+          <div><dt>price</dt><dd class="is-word">&euro;0</dd></div>
           <div><dt>telemetry</dt><dd class="is-word">none</dd></div>
         </dl>
 
@@ -499,7 +505,7 @@ const stats = repoStats();
         <li class="verdict">
           <p class="verdict__if">You need accounts, roles or a board your team shares.</p>
           <p class="verdict__tag" data-v="wrong">Wrong tool</p>
-          <p class="verdict__why">There is no authentication layer at all, which is also why there is no telemetry and no sign-up. Boards sync between <em>your</em> machines; exposing one over a tunnel means putting your own auth in front of it.</p>
+          <p class="verdict__why">There are no accounts and no team roles, and no sign-up anywhere. Devices pair instead: the machine Topics runs on is the owner, any other device is approved once from it, and the token it gets can be revoked from the same panel. Boards sync between <em>your</em> machines, which is a different thing from a board your team shares.</p>
         </li>
         <li class="verdict">
           <p class="verdict__if">You were hoping it would replace your editor.</p>
@@ -514,7 +520,7 @@ const stats = repoStats();
         <li class="verdict">
           <p class="verdict__if">You are on Windows or Linux.</p>
           <p class="verdict__tag" data-v="young">Not yet</p>
-          <p class="verdict__why">First commit {longDate(stats.since)}. Both are built and released on every tag and both work, and both are used far less than macOS, which is exactly where you should expect to find the rough edges first.</p>
+          <p class="verdict__why">{stats.since !== null && `First commit ${longDate(stats.since)}. `}Both are built and released on every tag and both work, and both are used far less than macOS, which is exactly where you should expect to find the rough edges first.</p>
         </li>
       </ul>
       {/* Anyone convinced by this section had 3,000px to scroll before finding a

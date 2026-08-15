@@ -123,6 +123,39 @@ export interface PreviewManagerDeps {
   /** Surface the preview in the Processes panel (Stop button + logs). Optional. */
   registerProcess?(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void;
   unregisterProcess?(taskId: string): void;
+  /**
+   * Chiude un pid E TUTTI I SUOI DISCENDENTI (SIGTERM, poi un SIGKILL protetto
+   * dall'identita').
+   *
+   * NON e' un lusso: chi spawniamo e' `bun run dev`, un LANCIATORE, e chi
+   * ascolta sulla porta e' un suo discendente. `proc.kill()` sul solo wrapper
+   * lasciava il server vivo con la porta occupata, e il pool si prosciugava
+   * finche' una card in review non aveva piu' una porta su cui nascere.
+   * Assente ⇒ si ricade sul solo `proc.kill()` (il comportamento vecchio).
+   */
+  killTree?(pid: number): Promise<void>;
+  /**
+   * I worktree che questa macchina conosce, path assoluti. Serve alla spazzata
+   * d'avvio: un processo che ascolta su una porta del pool e ha per cwd un
+   * worktree e' un'anteprima rimasta indietro da un server morto, e nessuno
+   * l'avrebbe mai ritirata. Assente ⇒ la spazzata non fa niente (non si uccide
+   * mai un processo che non si e' saputo riconoscere).
+   */
+  knownWorktreePaths?(): string[];
+  /**
+   * I pid che QUALCUN ALTRO su questa macchina rivendica, e i loro discendenti.
+   *
+   * La spazzata riconosce un residuo dal cwd — «ascolta su una porta del pool e
+   * sta in un worktree conosciuto» — e un dev server che un agente ha acceso nel
+   * SUO worktree con `run_script` risponde parola per parola a quella
+   * descrizione. Il pannello Processi sa già chi è (pid, cwd, bottone Stop): non
+   * consultarlo significava che la spazzata non poteva distinguere il lavoro di
+   * un agente da un rifiuto di un server morto, e sbagliare qui uccide un
+   * processo vivo che qualcuno sta guardando.
+   *
+   * Assente ⇒ non si protegge nessuno (il comportamento vecchio).
+   */
+  protectedPids?(): Promise<Set<number>> | Set<number>;
   /** Dir for screenshots (allowlisted): ~/.openclaw/media/task-previews. */
   mediaDir: string;
   /** Ensure `mediaDir` exists (injected so tests skip real fs). */
@@ -173,6 +206,11 @@ export interface PreviewManager {
   teardown(taskId: string): Promise<void>;
   /** Tear every preview down (shutdown). */
   teardownAll(): Promise<void>;
+  /**
+   * Spazzata d'AVVIO: chiude le anteprime rimaste in piedi da un server morto.
+   * Torna le porte ripulite. Idempotente, non lancia mai.
+   */
+  sweepOrphans(): Promise<number[]>;
   /** Introspection (tests / status). */
   list(): { taskId: string; port: number; url: string }[];
 }
@@ -246,15 +284,32 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const log = deps.log ?? (() => {});
 
+  /**
+   * Le porte PRENOTATE: scelte da `pickPort` ma non ancora in `live`.
+   *
+   * Fra le due cose passa tutto l'avvio — lo spawn, fino a 40 s di `waitReady`,
+   * la sonda d'identità — e in quella finestra la porta non risultava «mia» a
+   * nessuno. La spazzata ci cammina sopra e ammazza per cwd: un'anteprima che
+   * stava nascendo veniva chiusa dalla spazzata d'avvio, che parte a T+10 s
+   * proprio mentre la prima consegna sta bootando. La prenotazione chiude la
+   * finestra; il `finally` di `bootPreview` la rilascia su OGNI uscita.
+   */
+  const reserved = new Set<number>();
+
   function usedPorts(): Set<number> {
-    return new Set(Array.from(live.values()).map((p) => p.port));
+    const used = new Set(Array.from(live.values()).map((p) => p.port));
+    for (const p of reserved) used.add(p);
+    return used;
   }
 
   async function pickPort(): Promise<number | null> {
     const used = usedPorts();
     for (let port = range[0]; port <= range[1]; port++) {
       if (used.has(port)) continue;
-      if (await portFree(port)) return port;
+      if (await portFree(port)) {
+        reserved.add(port);
+        return port;
+      }
     }
     return null;
   }
@@ -336,43 +391,50 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       return no(`nessuna porta libera nel pool ${range[0]}-${range[1]} (troppe anteprime vive insieme)`);
     }
 
-    let proc: PreviewProcess;
+    // La prenotazione della porta vale finché non è in `live` (o finché non si
+    // rinuncia): il `finally` è l'unico punto che la rilascia, così nessuna
+    // uscita nuova può dimenticarsene.
     try {
-      deps.ensureMediaDir();
-      proc = deps.spawn(command.cmd, {
-        cwd: wt.absPath,
-        env: { PORT: String(port), HOST: "127.0.0.1", BROWSER: "none", ...(command.env ?? {}) },
-      });
-    } catch (err) {
-      log(`[preview] spawn failed for ${taskId}`, err);
-      return no(`avvio fallito: \`${command.cmd.join(" ")}\` non è partito`);
-    }
+      let proc: PreviewProcess;
+      try {
+        deps.ensureMediaDir();
+        proc = deps.spawn(command.cmd, {
+          cwd: wt.absPath,
+          env: { PORT: String(port), HOST: "127.0.0.1", BROWSER: "none", ...(command.env ?? {}) },
+        });
+      } catch (err) {
+        log(`[preview] spawn failed for ${taskId}`, err);
+        return no(`avvio fallito: \`${command.cmd.join(" ")}\` non è partito`);
+      }
 
-    const probeUrl = `http://127.0.0.1:${port}/`;
-    const ready = await waitReady(probeUrl, proc);
-    if (!ready) {
-      log(`[preview] server for ${taskId} never became ready on :${port} — killing`);
-      try { proc.kill(); } catch { /* ignore */ }
-      return no(`\`${command.cmd.join(" ")}\` non ha risposto su :${port} entro ${Math.round(readyTimeoutMs / 1000)}s (dipendenze non installate? build mancante?)`);
-    }
+      const probeUrl = `http://127.0.0.1:${port}/`;
+      const ready = await waitReady(probeUrl, proc);
+      if (!ready) {
+        log(`[preview] server for ${taskId} never became ready on :${port} — killing`);
+        try { proc.kill(); } catch { /* ignore */ }
+        return no(`\`${command.cmd.join(" ")}\` non ha risposto su :${port} entro ${Math.round(readyTimeoutMs / 1000)}s (dipendenze non installate? build mancante?)`);
+      }
 
-    // Risponde: ma è LUI? Un dev server estraneo già in ascolto sulla porta del
-    // pool verrebbe adottato in silenzio come anteprima del task.
-    const owns = await ownership(port, { pid: proc.pid, cwd: wt.absPath });
-    if (owns === "foreign") {
-      log(`[preview] :${port} answers but belongs to another process — refusing to adopt it for ${taskId}`);
-      try { proc.kill(); } catch { /* ignore */ }
-      return no(`su :${port} risponde un processo che non è di questo worktree, e non lo adotto come anteprima`);
-    }
-    if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
+      // Risponde: ma è LUI? Un dev server estraneo già in ascolto sulla porta del
+      // pool verrebbe adottato in silenzio come anteprima del task.
+      const owns = await ownership(port, { pid: proc.pid, cwd: wt.absPath });
+      if (owns === "foreign") {
+        log(`[preview] :${port} answers but belongs to another process — refusing to adopt it for ${taskId}`);
+        try { proc.kill(); } catch { /* ignore */ }
+        return no(`su :${port} risponde un processo che non è di questo worktree, e non lo adotto come anteprima`);
+      }
+      if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
 
-    const deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
-    const url = `http://localhost:${port}${deepLink}`;
-    live.set(taskId, { taskId, port, url, proc, worktreePath: wt.absPath, startedAt: now() });
-    try {
-      deps.registerProcess?.({ taskId, port, pid: proc.pid, command: command.cmd.join(" "), cwd: wt.absPath });
-    } catch { /* panel registration is best-effort */ }
-    return { preview: { url, port }, reason: null };
+      const deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      const url = `http://localhost:${port}${deepLink}`;
+      live.set(taskId, { taskId, port, url, proc, worktreePath: wt.absPath, startedAt: now() });
+      try {
+        deps.registerProcess?.({ taskId, port, pid: proc.pid, command: command.cmd.join(" "), cwd: wt.absPath });
+      } catch { /* panel registration is best-effort */ }
+      return { preview: { url, port }, reason: null };
+    } finally {
+      reserved.delete(port);
+    }
   }
 
   async function ensurePreview(taskId: string): Promise<{ url: string; port: number } | null> {
@@ -492,6 +554,18 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     const p = live.get(taskId);
     if (!p) return;
     live.delete(taskId);
+    // L'ALBERO, non il wrapper, e PRIMA di lui. `deps.spawn` lancia
+    // `bun run dev`: il processo che ASCOLTA e' un suo discendente, e segnalare
+    // solo il padre lo lasciava vivo con la porta occupata per sempre.
+    // L'ordine e' misurato, non estetico: uccidere prima il wrapper spezza
+    // l'albero — il figlio viene reparentato a init e da quel momento nessuna
+    // discendenza lo ritrova. Quindi si chiude l'albero (che comprende il
+    // wrapper) e solo dopo si chiude l'handle, per i casi in cui la
+    // discendenza non si e' potuta leggere.
+    const pid = p.proc.pid;
+    if (pid && deps.killTree) {
+      try { await deps.killTree(pid); } catch (err) { log(`[preview] killTree failed for ${taskId}`, err); }
+    }
     try { p.proc.kill(); } catch (err) { log(`[preview] kill failed for ${taskId}`, err); }
     try { deps.unregisterProcess?.(taskId); } catch { /* ignore */ }
   }
@@ -500,9 +574,62 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     for (const taskId of Array.from(live.keys())) await teardown(taskId);
   }
 
+  /**
+   * Le anteprime che nessuno ha mai ritirato.
+   *
+   * Il registro delle anteprime vive e' in MEMORIA: se il server muore (o
+   * ricarica) mentre una e' su, il suo albero resta in piedi e la porta del pool
+   * resta occupata per sempre — e con un pool di 51 porte bastano poche morti
+   * per lasciare una card in review senza evidenza. Nessun altro le raccoglie:
+   * il rilevatore del pannello attribuisce per ALBERO di una PTY claude, e
+   * un'anteprima non e' figlia di nessuna PTY.
+   *
+   * Il riconoscimento e' lo stesso del cancello d'identita': chi ascolta su una
+   * porta del pool con per cwd un worktree conosciuto e' una nostra anteprima.
+   * Un dev server di un'altra cartella non viene toccato, mai — un falso
+   * positivo qui ammazzerebbe il lavoro di una persona.
+   */
+  async function sweepOrphans(): Promise<number[]> {
+    if (!deps.listenerPid || !deps.processCwd || !deps.knownWorktreePaths || !deps.killTree) return [];
+    let roots: string[];
+    try { roots = deps.knownWorktreePaths(); } catch { return []; }
+    if (!roots.length) return [];
+    const known = new Set(await Promise.all(roots.map(canonical)));
+    // I pid rivendicati dal pannello Processi si leggono UNA volta, prima del
+    // giro: un dev server acceso da un agente nel suo worktree è
+    // indistinguibile da un residuo se si guarda solo il cwd.
+    let protectedPids = new Set<number>();
+    if (deps.protectedPids) {
+      try { protectedPids = await deps.protectedPids(); } catch { protectedPids = new Set(); }
+    }
+    const cleared: number[] = [];
+    for (let port = range[0]; port <= range[1]; port++) {
+      // `usedPorts()` SI RILEGGE A OGNI PORTA, e non è pignoleria: il giro fa un
+      // `lsof` per porta su 51 porte, e un'anteprima che nasce nel frattempo non
+      // esisteva nello snapshot preso all'inizio. Con la prenotazione a
+      // `pickPort`, la sua porta è già «mia» prima ancora dello spawn.
+      if (usedPorts().has(port)) continue; // e' un'anteprima VIVA (o in avvio) di questo processo
+      let pid: number | null = null;
+      try { pid = await deps.listenerPid(port); } catch { continue; }
+      if (pid == null || pid <= 0) continue;
+      if (protectedPids.has(pid)) {
+        log(`[preview] sweep: :${port} tenuta da ${pid}, che il pannello Processi rivendica — non la tocco`);
+        continue;
+      }
+      let cwd: string | null = null;
+      try { cwd = await deps.processCwd(pid); } catch { continue; }
+      if (!cwd) continue;
+      if (!known.has(await canonical(cwd))) continue;
+      log(`[preview] sweep: :${port} tenuta da ${pid} in un worktree senza anteprima viva — la chiudo`);
+      try { await deps.killTree(pid); cleared.push(port); }
+      catch (err) { log(`[preview] sweep: killTree failed on :${port}`, err); }
+    }
+    return cleared;
+  }
+
   function listPreviews() {
     return Array.from(live.values()).map((p) => ({ taskId: p.taskId, port: p.port, url: p.url }));
   }
 
-  return { prepareForReview, ensurePreview, teardown, teardownAll, list: listPreviews };
+  return { prepareForReview, ensurePreview, teardown, teardownAll, sweepOrphans, list: listPreviews };
 }

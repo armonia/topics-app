@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * scripts/check-sicurezza.ts - UN comando che risponde a UNA domanda: questo
+ * scripts/check-security.ts - UN comando che risponde a UNA domanda: questo
  * checkout si puo' pubblicare?
  *
  * PERCHE' ESISTE. I controlli c'erano gia', ma si ricordavano a mano. Il repo e'
@@ -15,14 +15,14 @@
  *
  * I QUATTRO PEZZI, e falliscono per ragioni diverse:
  *
- *   dati        nome, cognome, email, username di una persona vera in un file
- *               tracciato. Delegato a `tests/unit/no-personal-data-tracked.test.ts`.
- *   home        il percorso della home di chi committa. Delegato a
- *               `tests/unit/no-home-paths-tracked.test.ts`.
- *   segreti     NUOVO. Chiavi, token, password e chiavi private in chiaro, piu'
- *               i file `.env` che non devono nemmeno essere tracciati.
- *   dipendenze  NUOVO. `bun audit` sui tre lockfile (radice, client, landing),
- *               a cricchetto contro una baseline dichiarata.
+ *   data          nome, cognome, email, username di una persona vera in un file
+ *                 tracciato. Delegato a `tests/unit/no-personal-data-tracked.test.ts`.
+ *   home          il percorso della home di chi committa. Delegato a
+ *                 `tests/unit/no-home-paths-tracked.test.ts`.
+ *   secrets       NUOVO. Chiavi, token, password e chiavi private in chiaro, piu'
+ *                 i file `.env` che non devono nemmeno essere tracciati.
+ *   dependencies  NUOVO. `bun audit` sui tre lockfile (radice, client, landing),
+ *                 a cricchetto contro una baseline dichiarata.
  *
  * DELEGARE INVECE DI RISCRIVERE. I primi due pezzi lanciano i test che esistono,
  * nel checkout indicato da `--root`. Copiarne la logica qui dentro avrebbe
@@ -43,15 +43,15 @@
  * Sull'albero intero sono ~3 secondi.
  *
  * IN CI NE GIRANO DUE SU QUATTRO, ed e' una scelta, non una dimenticanza.
- * `dati` e `home` cercano il nome e la home di CHI COMMITTA e li DERIVANO dalla
+ * `data` e `home` cercano il nome e la home di CHI COMMITTA e li DERIVANO dalla
  * macchina, apposta per non doverli scrivere in un repo pubblico. Un runner di
  * GitHub non ha un'identita' da proteggere: il suo account si chiama `runner`,
  * che non e' il nome di nessuno e compare in decine di file tracciati. La'
  * quei due pezzi misurerebbero come si chiama l'utente della macchina di build.
  * Mordono dove il commit nasce davvero: sulla postazione (`bun run
- * check:sicurezza`, tutti e quattro) e nei check pre-review, che eseguono
+ * check:security`, tutti e quattro) e nei check pre-review, che eseguono
  * `test:unit` nel worktree dell'agente. In `.github/workflows/ci.yml` va la
- * meta' che non dipende da chi e' alla tastiera: `--only=segreti,dipendenze`.
+ * meta' che non dipende da chi e' alla tastiera: `--only=secrets,dependencies`.
  *
  * EXIT CODES
  *   0  il checkout e' pubblicabile
@@ -62,16 +62,16 @@
  *      questo repo hanno smesso di mordere tre volte.
  *
  * USAGE
- *   bun run check:sicurezza                     tutti e quattro i pezzi
- *   bun run check:sicurezza --json              stesso esito, leggibile a macchina
- *   bun run check:sicurezza --only=segreti      un pezzo solo (dati|home|segreti|dipendenze)
- *   bun run check:sicurezza --root=<dir>        misura un ALTRO checkout
- *   bun run check:sicurezza --update-baseline   riscrive la baseline delle dipendenze
+ *   bun run check:security                     tutti e quattro i pezzi
+ *   bun run check:security --json              stesso esito, leggibile a macchina
+ *   bun run check:security --only=secrets      un pezzo solo (data|home|secrets|dependencies)
+ *   bun run check:security --root=<dir>        misura un ALTRO checkout
+ *   bun run check:security --update-baseline   riscrive la baseline delle dipendenze
  *
  * COME SI FALSIFICA, e mai sul checkout vivo. `--root` esiste per questo: si
  * copia l'albero tracciato in una cartella temporanea, ci si introduce la
  * violazione, si punta il comando li'. Il banco automatico e'
- * `scripts/check-sicurezza.test.ts`: introduce i quattro guasti uno per uno e
+ * `scripts/check-security.test.ts`: introduce i quattro guasti uno per uno e
  * pretende di vedere esito 1 quattro volte, piu' esito 2 quando un pezzo non
  * sa misurare.
  *
@@ -89,15 +89,15 @@ import { spawnSync } from "node:child_process";
 const DEFAULT_ROOT = resolve(import.meta.dir, "..");
 
 /** I quattro pezzi, nell'ordine in cui si leggono nel referto. */
-const PEZZI = ["dati", "home", "segreti", "dipendenze"] as const;
-type Pezzo = (typeof PEZZI)[number];
+const PARTS = ["data", "home", "secrets", "dependencies"] as const;
+type Part = (typeof PARTS)[number];
 
-interface Esito {
-  pezzo: Pezzo;
-  /** ok = niente da dire; rosso = violazione; muto = non si e' potuto misurare. */
-  stato: "ok" | "rosso" | "muto";
-  riassunto: string;
-  dettagli: string[];
+interface Outcome {
+  part: Part;
+  /** ok = niente da dire; red = violazione; mute = non si e' potuto misurare. */
+  status: "ok" | "red" | "mute";
+  summary: string;
+  details: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -113,15 +113,15 @@ interface Esito {
  * domani uno dei due prendesse una dipendenza, il banco di falsificazione lo
  * scopre subito: la copia che costruisce non ha `node_modules`.
  */
-function eseguiTest(pezzo: Pezzo, root: string, file: string): Esito {
+function runDelegatedTest(part: Part, root: string, file: string): Outcome {
   if (!existsSync(join(root, file))) {
     return {
-      pezzo,
-      stato: "muto",
-      riassunto: `${file} non esiste sotto ${root}`,
-      dettagli: [
+      part,
+      status: "mute",
+      summary: `${file} non esiste sotto ${root}`,
+      details: [
         "Il cancello che questo pezzo doveva eseguire non c'e' piu'. O e' stato",
-        "rinominato (aggiorna il percorso qui in check-sicurezza.ts), o e' stato",
+        "rinominato (aggiorna il percorso qui in check-security.ts), o e' stato",
         "tolto, e allora la domanda da farsi e' chi guarda quella classe di fuga.",
       ],
     };
@@ -133,18 +133,18 @@ function eseguiTest(pezzo: Pezzo, root: string, file: string): Esito {
     env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
   });
   if (res.error) {
-    return { pezzo, stato: "muto", riassunto: `bun test non e' partito: ${String(res.error)}`, dettagli: [] };
+    return { part, status: "mute", summary: `bun test non e' partito: ${String(res.error)}`, details: [] };
   }
   // bun scrive il referto dei test su stderr.
   const out = `${res.stdout ?? ""}${res.stderr ?? ""}`.trim();
   if (res.status === 0) {
-    return { pezzo, stato: "ok", riassunto: `${file}: verde`, dettagli: [] };
+    return { part, status: "ok", summary: `${file}: verde`, details: [] };
   }
   return {
-    pezzo,
-    stato: "rosso",
-    riassunto: `${file}: rosso (bun test e' uscito ${res.status})`,
-    dettagli: out.split("\n").slice(-40),
+    part,
+    status: "red",
+    summary: `${file}: rosso (bun test e' uscito ${res.status})`,
+    details: out.split("\n").slice(-40),
   };
 }
 
@@ -157,10 +157,10 @@ function eseguiTest(pezzo: Pezzo, root: string, file: string): Esito {
  * leggono come stringhe, e un lockfile e' pieno di hash che somigliano a
  * chiavi senza esserlo.
  */
-const TESTABILE = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|md|sql|sh|yml|yaml|toml|css|html|rs|plist|txt|env|example)$/;
+const SCANNABLE = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|md|sql|sh|yml|yaml|toml|css|html|rs|plist|txt|env|example)$/;
 
 /** File senza estensione che vanno guardati lo stesso: sono quasi tutti config. */
-const SENZA_ESTENSIONE = /(?:^|\/)(?:\.env[^/]*|Dockerfile|Procfile|\.npmrc|\.netrc)$/;
+const EXTENSIONLESS = /(?:^|\/)(?:\.env[^/]*|Dockerfile|Procfile|\.npmrc|\.netrc)$/;
 
 /**
  * Le firme. Sono TUTTE di forma, mai di parola: cercano come e' fatta una
@@ -171,26 +171,26 @@ const SENZA_ESTENSIONE = /(?:^|\/)(?:\.env[^/]*|Dockerfile|Procfile|\.npmrc|\.ne
  * viene spenta: su questo albero produceva decine di righe, tutte finte
  * (fixture dei test, valori di esempio nei .md, chiavi di localStorage). Un
  * cancello che grida sempre e' un cancello che si impara a saltare. La regola
- * generica resta, ma solo con un valore ad ALTA ENTROPIA (vedi `entropia`):
+ * generica resta, ma solo con un valore ad ALTA ENTROPIA (vedi `entropy`):
  * quello che distingue una chiave vera da un segnaposto non e' il nome, e' che
  * una chiave vera e' casuale.
  */
-const FIRME: { nome: string; re: RegExp }[] = [
-  { nome: "chiave Anthropic", re: /\bsk-ant-[A-Za-z0-9_-]{24,}/g },
-  { nome: "chiave OpenAI", re: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/g },
-  { nome: "token GitHub", re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{40,}/g },
-  { nome: "chiave AWS", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
-  { nome: "chiave Google", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
-  { nome: "token Slack", re: /\bxox[baprse]-[0-9A-Za-z-]{12,}/g },
-  { nome: "chiave Stripe di produzione", re: /\b[sr]k_live_[0-9A-Za-z]{20,}/g },
-  { nome: "token ElevenLabs", re: /\bsk_[0-9a-f]{40,}\b/g },
-  { nome: "chiave privata PEM", re: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/g },
-  { nome: "credenziale dentro una URL", re: /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@"']+:[^/\s:@"']{8,}@[^\s"']+/gi },
-  { nome: "JSON Web Token firmato", re: /\beyJ[A-Za-z0-9_-]{16,}\.eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g },
+const SIGNATURES: { name: string; re: RegExp }[] = [
+  { name: "chiave Anthropic", re: /\bsk-ant-[A-Za-z0-9_-]{24,}/g },
+  { name: "chiave OpenAI", re: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/g },
+  { name: "token GitHub", re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{40,}/g },
+  { name: "chiave AWS", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
+  { name: "chiave Google", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+  { name: "token Slack", re: /\bxox[baprse]-[0-9A-Za-z-]{12,}/g },
+  { name: "chiave Stripe di produzione", re: /\b[sr]k_live_[0-9A-Za-z]{20,}/g },
+  { name: "token ElevenLabs", re: /\bsk_[0-9a-f]{40,}\b/g },
+  { name: "chiave privata PEM", re: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/g },
+  { name: "credenziale dentro una URL", re: /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@"']+:[^/\s:@"']{8,}@[^\s"']+/gi },
+  { name: "JSON Web Token firmato", re: /\beyJ[A-Za-z0-9_-]{16,}\.eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g },
 ];
 
 /** La regola generica, tenuta a bada dall'entropia del VALORE. */
-const ASSEGNAZIONE =
+const ASSIGNMENT =
   /\b(?:password|passwd|secret|client_secret|api[_-]?key|apikey|access[_-]?token|auth[_-]?token|private[_-]?key)\b["']?\s*[:=]\s*["`']([^"`'\s$]{20,})["`']/gi;
 
 /**
@@ -200,7 +200,7 @@ const ASSEGNAZIONE =
  * corregge con una riga di esenzione motivata, sbagliare verso il silenzio si
  * scopre quando la chiave e' gia' pubblica.
  */
-function entropia(s: string): number {
+function entropy(s: string): number {
   const freq = new Map<string, number>();
   for (const c of s) freq.set(c, (freq.get(c) ?? 0) + 1);
   let h = 0;
@@ -212,7 +212,7 @@ function entropia(s: string): number {
 }
 
 /** I valori che NON sono segreti per costruzione, e non serve misurarli. */
-const SEGNAPOSTO =
+const PLACEHOLDER =
   /^(?:your|my|the|a|some|test|fake|dummy|example|sample|placeholder|changeme|redacted|hidden|xxx+|\.\.\.|<|\{|\$|process\.env|import\.meta)/i;
 
 /**
@@ -220,54 +220,58 @@ const SEGNAPOSTO =
  * `allow-secret: <ragione>`. Come `allow-emdash`, e per la stessa ragione: un
  * cancello senza sfogo motivato si spegne del tutto alla prima riga legittima.
  */
-const SFOGO = /\ballow-secret:\s*(\S.*)$/;
+const ESCAPE_HATCH = /\ballow-secret:\s*(\S.*)$/;
 
 /**
  * Esenzioni per file, ognuna con la sua ragione. Un'esenzione senza ragione
  * scritta e' un buco che fra sei mesi nessuno sa piu' valutare.
+ *
+ * LE CHIAVI SONO PERCORSI, quindi vivono e muoiono con il nome del file: al
+ * rinomino da `check-sicurezza` a `check-security` queste due righe vanno
+ * spostate nello STESSO edit, o il cancello denuncia il proprio sorgente.
  */
-const ESENTI = new Map<string, string>([
+const EXEMPT = new Map<string, string>([
   [
-    "scripts/check-sicurezza.ts",
+    "scripts/check-security.ts",
     "Questo file: contiene le FIRME dei segreti come codice che li cerca, mai un segreto come dato.",
   ],
   [
-    "scripts/check-sicurezza.test.ts",
+    "scripts/check-security.test.ts",
     "Il banco che falsifica questo cancello: costruisce i finti segreti a runtime, pezzo per pezzo, proprio per non scriverli qui.",
   ],
 ]);
 
 /** Un `.env` tracciato e' una fuga a prescindere da cosa c'e' dentro. */
-const ENV_TRACCIATO = /(?:^|\/)\.env(?:\.[^/]*)?$/;
-const ENV_AMMESSI = /(?:^|\/)\.env\.(?:example|sample|template)$/;
+const ENV_TRACKED = /(?:^|\/)\.env(?:\.[^/]*)?$/;
+const ENV_ALLOWED = /(?:^|\/)\.env\.(?:example|sample|template)$/;
 
-function fileTracciati(root: string): string[] {
+function trackedFiles(root: string): string[] {
   const res = spawnSync("git", ["-C", root, "ls-files", "-z"], { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 });
   if (res.status !== 0) {
-    console.error(`[check-sicurezza] non riesco a elencare i file tracciati sotto ${root}: git e' uscito ${res.status}`);
+    console.error(`[check-security] non riesco a elencare i file tracciati sotto ${root}: git e' uscito ${res.status}`);
     process.exit(2);
   }
   return res.stdout.toString("utf8").split("\0").filter(Boolean);
 }
 
-function cercaSegreti(root: string): Esito {
-  const tracciati = fileTracciati(root);
-  if (tracciati.length === 0) {
-    return { pezzo: "segreti", stato: "muto", riassunto: `nessun file tracciato sotto ${root}`, dettagli: [] };
+function scanSecrets(root: string): Outcome {
+  const tracked = trackedFiles(root);
+  if (tracked.length === 0) {
+    return { part: "secrets", status: "mute", summary: `nessun file tracciato sotto ${root}`, details: [] };
   }
 
-  const trovati: string[] = [];
+  const found: string[] = [];
 
-  for (const rel of tracciati) {
-    if (ENV_TRACCIATO.test(rel) && !ENV_AMMESSI.test(rel)) {
-      trovati.push(
+  for (const rel of tracked) {
+    if (ENV_TRACKED.test(rel) && !ENV_ALLOWED.test(rel)) {
+      found.push(
         `${rel}  e' un file .env TRACCIATO. Non e' una questione di cosa contiene oggi: ` +
           `togli il file dall'indice (\`git rm --cached\`) e mettilo in .gitignore.`,
       );
       continue;
     }
-    if (ESENTI.has(rel)) continue;
-    if (!TESTABILE.test(rel) && !SENZA_ESTENSIONE.test(rel)) continue;
+    if (EXEMPT.has(rel)) continue;
+    if (!SCANNABLE.test(rel) && !EXTENSIONLESS.test(rel)) continue;
 
     const abs = join(root, rel);
     try {
@@ -276,46 +280,46 @@ function cercaSegreti(root: string): Esito {
     } catch {
       continue; // tracciato ma assente dal disco
     }
-    let testo: string;
+    let text: string;
     try {
-      testo = readFileSync(abs, "utf8");
+      text = readFileSync(abs, "utf8");
     } catch {
       continue; // binario travestito da testo
     }
 
-    const righe = testo.split(/\r?\n/);
-    for (let i = 0; i < righe.length; i++) {
-      const riga = righe[i]!;
-      const sfogo = SFOGO.exec(riga);
-      if (sfogo && sfogo[1]!.trim().length >= 8) continue;
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const escape = ESCAPE_HATCH.exec(line);
+      if (escape && escape[1]!.trim().length >= 8) continue;
 
-      for (const firma of FIRME) {
-        firma.re.lastIndex = 0;
-        const m = firma.re.exec(riga);
-        if (m) trovati.push(`${rel}:${i + 1}  ${firma.nome} (${anteprima(m[0])})`);
+      for (const signature of SIGNATURES) {
+        signature.re.lastIndex = 0;
+        const m = signature.re.exec(line);
+        if (m) found.push(`${rel}:${i + 1}  ${signature.name} (${preview(m[0])})`);
       }
 
-      ASSEGNAZIONE.lastIndex = 0;
+      ASSIGNMENT.lastIndex = 0;
       let a: RegExpExecArray | null;
-      while ((a = ASSEGNAZIONE.exec(riga)) !== null) {
-        const valore = a[1]!;
-        if (SEGNAPOSTO.test(valore)) continue;
-        if (entropia(valore) < 3.5) continue;
-        trovati.push(`${rel}:${i + 1}  valore ad alta entropia assegnato a un nome che sa di credenziale (${anteprima(valore)})`);
+      while ((a = ASSIGNMENT.exec(line)) !== null) {
+        const value = a[1]!;
+        if (PLACEHOLDER.test(value)) continue;
+        if (entropy(value) < 3.5) continue;
+        found.push(`${rel}:${i + 1}  valore ad alta entropia assegnato a un nome che sa di credenziale (${preview(value)})`);
       }
     }
   }
 
-  if (trovati.length === 0) {
-    return { pezzo: "segreti", stato: "ok", riassunto: `${tracciati.length} file tracciati, nessun segreto in chiaro`, dettagli: [] };
+  if (found.length === 0) {
+    return { part: "secrets", status: "ok", summary: `${tracked.length} file tracciati, nessun segreto in chiaro`, details: [] };
   }
   return {
-    pezzo: "segreti",
-    stato: "rosso",
-    riassunto: `${trovati.length} segreto/i in chiaro in file TRACCIATI`,
-    dettagli: [
-      ...trovati.slice(0, 40),
-      ...(trovati.length > 40 ? [`... e altri ${trovati.length - 40}`] : []),
+    part: "secrets",
+    status: "red",
+    summary: `${found.length} segreto/i in chiaro in file TRACCIATI`,
+    details: [
+      ...found.slice(0, 40),
+      ...(found.length > 40 ? [`... e altri ${found.length - 40}`] : []),
       "",
       "Un segreto in un file tracciato e' gia' pubblico dal commit che lo ha aggiunto:",
       "toglierlo dal file NON lo toglie dalla storia. Prima REVOCA la chiave, poi",
@@ -327,17 +331,17 @@ function cercaSegreti(root: string): Esito {
 }
 
 /** Mai stampare il segreto intero: il referto finisce nei log della CI. */
-function anteprima(s: string): string {
-  const testa = s.slice(0, 8);
-  return `${testa}... ${s.length} caratteri`;
+function preview(s: string): string {
+  const head = s.slice(0, 8);
+  return `${head}... ${s.length} caratteri`;
 }
 
 // ---------------------------------------------------------------------------
 // Pezzo 4: dipendenze
 // ---------------------------------------------------------------------------
 
-interface Avviso {
-  pacchetto: string;
+interface Advisory {
+  package: string;
   id: number;
   severity: string;
   title: string;
@@ -349,123 +353,123 @@ interface Baseline {
   _comment: string[];
   updated: string;
   /** cartella (relativa alla radice) -> avvisi noti e accettati quel giorno. */
-  avvisi: Record<string, Avviso[]>;
+  advisories: Record<string, Advisory[]>;
 }
 
 /** Le cartelle con un lockfile proprio. `bun audit` guarda una cartella sola. */
 const LOCKFILE_DIRS = [".", "client", "landing"];
 
-const BASELINE_REL = "scripts/sicurezza-baseline.json";
+const BASELINE_REL = "scripts/security-baseline.json";
 
-function auditDir(root: string, dir: string): { avvisi: Avviso[]; errore: string | null } {
+function auditDir(root: string, dir: string): { advisories: Advisory[]; error: string | null } {
   const cwd = dir === "." ? root : join(root, dir);
-  if (!existsSync(join(cwd, "bun.lock"))) return { avvisi: [], errore: null };
+  if (!existsSync(join(cwd, "bun.lock"))) return { advisories: [], error: null };
   const res = spawnSync("bun", ["audit", "--json"], { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
-  if (res.error) return { avvisi: [], errore: `bun audit non e' partito in ${dir}: ${String(res.error)}` };
-  const grezzo = (res.stdout ?? "").trim();
-  if (grezzo.length === 0) {
+  if (res.error) return { advisories: [], error: `bun audit non e' partito in ${dir}: ${String(res.error)}` };
+  const raw = (res.stdout ?? "").trim();
+  if (raw.length === 0) {
     // Nessun avviso: bun stampa il banner su stderr e niente su stdout.
-    if (res.status === 0) return { avvisi: [], errore: null };
-    return { avvisi: [], errore: `bun audit in ${dir} e' uscito ${res.status} senza JSON: ${(res.stderr ?? "").trim().slice(0, 300)}` };
+    if (res.status === 0) return { advisories: [], error: null };
+    return { advisories: [], error: `bun audit in ${dir} e' uscito ${res.status} senza JSON: ${(res.stderr ?? "").trim().slice(0, 300)}` };
   }
   let parsed: Record<string, { id: number; severity: string; title: string; url: string }[]>;
   try {
-    parsed = JSON.parse(grezzo);
+    parsed = JSON.parse(raw);
   } catch {
-    return { avvisi: [], errore: `bun audit in ${dir} non ha risposto JSON: ${grezzo.slice(0, 300)}` };
+    return { advisories: [], error: `bun audit in ${dir} non ha risposto JSON: ${raw.slice(0, 300)}` };
   }
-  const avvisi: Avviso[] = [];
-  for (const [pacchetto, elenco] of Object.entries(parsed)) {
-    for (const a of elenco ?? []) {
-      avvisi.push({ pacchetto, id: a.id, severity: a.severity, title: a.title, url: a.url });
+  const advisories: Advisory[] = [];
+  for (const [pkg, list] of Object.entries(parsed)) {
+    for (const a of list ?? []) {
+      advisories.push({ package: pkg, id: a.id, severity: a.severity, title: a.title, url: a.url });
     }
   }
-  avvisi.sort((x, y) => x.pacchetto.localeCompare(y.pacchetto) || x.id - y.id);
-  return { avvisi, errore: null };
+  advisories.sort((x, y) => x.package.localeCompare(y.package) || x.id - y.id);
+  return { advisories, error: null };
 }
 
-function controllaDipendenze(root: string, baseline: Baseline | null, aggiorna: boolean): { esito: Esito; misurato: Record<string, Avviso[]> } {
-  const misurato: Record<string, Avviso[]> = {};
-  const errori: string[] = [];
+function checkDependencies(root: string, baseline: Baseline | null, update: boolean): { outcome: Outcome; measured: Record<string, Advisory[]> } {
+  const measured: Record<string, Advisory[]> = {};
+  const errors: string[] = [];
   for (const dir of LOCKFILE_DIRS) {
-    const { avvisi, errore } = auditDir(root, dir);
-    if (errore) errori.push(errore);
-    else misurato[dir] = avvisi;
+    const { advisories, error } = auditDir(root, dir);
+    if (error) errors.push(error);
+    else measured[dir] = advisories;
   }
 
-  if (errori.length > 0) {
+  if (errors.length > 0) {
     return {
-      esito: {
-        pezzo: "dipendenze",
-        stato: "muto",
-        riassunto: "bun audit non ha risposto",
-        dettagli: [
-          ...errori,
+      outcome: {
+        part: "dependencies",
+        status: "mute",
+        summary: "bun audit non ha risposto",
+        details: [
+          ...errors,
           "",
           "`bun audit` interroga il registro: senza rete non c'e' misura, e senza misura",
           "questo comando non stampa verde. E' la ragione per cui l'esito e' 2 e non 0.",
         ],
       },
-      misurato,
+      measured,
     };
   }
 
-  if (aggiorna) {
-    return { esito: { pezzo: "dipendenze", stato: "ok", riassunto: "baseline da riscrivere", dettagli: [] }, misurato };
+  if (update) {
+    return { outcome: { part: "dependencies", status: "ok", summary: "baseline da riscrivere", details: [] }, measured };
   }
 
   if (!baseline) {
     return {
-      esito: {
-        pezzo: "dipendenze",
-        stato: "muto",
-        riassunto: `manca ${BASELINE_REL}`,
-        dettagli: [`Riscrivila con \`bun run check:sicurezza --update-baseline\` e leggi il diff prima di committarlo.`],
+      outcome: {
+        part: "dependencies",
+        status: "mute",
+        summary: `manca ${BASELINE_REL}`,
+        details: [`Riscrivila con \`bun run check:security --update-baseline\` e leggi il diff prima di committarlo.`],
       },
-      misurato,
+      measured,
     };
   }
 
-  const nuovi: string[] = [];
-  const curati: string[] = [];
-  for (const dir of Object.keys(misurato)) {
-    const noti = new Set((baseline.avvisi[dir] ?? []).map((a) => `${a.pacchetto}#${a.id}`));
-    for (const a of misurato[dir]!) {
-      if (noti.has(`${a.pacchetto}#${a.id}`)) continue;
-      nuovi.push(`${dir === "." ? "radice" : dir}: ${a.pacchetto} [${a.severity}] ${a.title}\n      ${a.url}`);
+  const fresh: string[] = [];
+  const healed: string[] = [];
+  for (const dir of Object.keys(measured)) {
+    const known = new Set((baseline.advisories[dir] ?? []).map((a) => `${a.package}#${a.id}`));
+    for (const a of measured[dir]!) {
+      if (known.has(`${a.package}#${a.id}`)) continue;
+      fresh.push(`${dir === "." ? "radice" : dir}: ${a.package} [${a.severity}] ${a.title}\n      ${a.url}`);
     }
-    const ora = new Set(misurato[dir]!.map((a) => `${a.pacchetto}#${a.id}`));
-    for (const a of baseline.avvisi[dir] ?? []) {
-      if (!ora.has(`${a.pacchetto}#${a.id}`)) curati.push(`${dir === "." ? "radice" : dir}: ${a.pacchetto} (${a.id}) non c'e' piu'`);
+    const now = new Set(measured[dir]!.map((a) => `${a.package}#${a.id}`));
+    for (const a of baseline.advisories[dir] ?? []) {
+      if (!now.has(`${a.package}#${a.id}`)) healed.push(`${dir === "." ? "radice" : dir}: ${a.package} (${a.id}) non c'e' piu'`);
     }
   }
 
-  if (nuovi.length === 0) {
-    const totale = Object.values(misurato).reduce((n, v) => n + v.length, 0);
+  if (fresh.length === 0) {
+    const total = Object.values(measured).reduce((n, v) => n + v.length, 0);
     return {
-      esito: {
-        pezzo: "dipendenze",
-        stato: "ok",
-        riassunto: `${totale} avviso/i, tutti dentro la baseline del ${baseline.updated}`,
+      outcome: {
+        part: "dependencies",
+        status: "ok",
+        summary: `${total} avviso/i, tutti dentro la baseline del ${baseline.updated}`,
         // Migliorare non fallisce mai, ma va detto o la baseline marcisce.
-        dettagli: curati.length > 0 ? [...curati, "Riscrivi la baseline con `--update-baseline` per congelare il miglioramento."] : [],
+        details: healed.length > 0 ? [...healed, "Riscrivi la baseline con `--update-baseline` per congelare il miglioramento."] : [],
       },
-      misurato,
+      measured,
     };
   }
   return {
-    esito: {
-      pezzo: "dipendenze",
-      stato: "rosso",
-      riassunto: `${nuovi.length} avviso/i NUOVO/I rispetto alla baseline del ${baseline.updated}`,
-      dettagli: [
-        ...nuovi.map((n) => `  ${n}`),
+    outcome: {
+      part: "dependencies",
+      status: "red",
+      summary: `${fresh.length} avviso/i NUOVO/I rispetto alla baseline del ${baseline.updated}`,
+      details: [
+        ...fresh.map((n) => `  ${n}`),
         "",
         "Aggiorna il pacchetto, oppure accetta l'avviso con `--update-baseline` NELLO",
         "STESSO commit che lo accetta, cosi' il diff dice cosa si e' deciso di tenersi.",
       ],
     },
-    misurato,
+    measured,
   };
 }
 
@@ -476,8 +480,8 @@ function controllaDipendenze(root: string, baseline: Baseline | null, aggiorna: 
 function main(): void {
   let root = DEFAULT_ROOT;
   let json = false;
-  let aggiorna = false;
-  let solo: Pezzo[] = [...PEZZI];
+  let update = false;
+  let only: Part[] = [...PARTS];
 
   for (const arg of process.argv.slice(2)) {
     if (arg.startsWith("--root=")) {
@@ -485,26 +489,26 @@ function main(): void {
     } else if (arg === "--json") {
       json = true;
     } else if (arg === "--update-baseline") {
-      aggiorna = true;
+      update = true;
     } else if (arg.startsWith("--only=")) {
-      const chiesti = arg.slice("--only=".length).split(",").map((s) => s.trim());
-      const ignoti = chiesti.filter((c) => !PEZZI.includes(c as Pezzo));
-      if (ignoti.length > 0) {
-        console.error(`[check-sicurezza] pezzo sconosciuto: ${ignoti.join(", ")}. Sono: ${PEZZI.join(" ")}`);
+      const requested = arg.slice("--only=".length).split(",").map((s) => s.trim());
+      const unknown = requested.filter((c) => !PARTS.includes(c as Part));
+      if (unknown.length > 0) {
+        console.error(`[check-security] pezzo sconosciuto: ${unknown.join(", ")}. Sono: ${PARTS.join(" ")}`);
         process.exit(2);
       }
-      solo = chiesti as Pezzo[];
+      only = requested as Part[];
     } else {
-      console.error(`[check-sicurezza] argomento sconosciuto: ${arg}`);
+      console.error(`[check-security] argomento sconosciuto: ${arg}`);
       process.exit(2);
     }
   }
 
-  if (aggiorna && !solo.includes("dipendenze")) {
-    // Senza questa riga `--update-baseline --only=segreti` non scriverebbe
+  if (update && !only.includes("dependencies")) {
+    // Senza questa riga `--update-baseline --only=secrets` non scriverebbe
     // niente e uscirebbe zero: chi lo ha lanciato crede di aver aggiornato la
     // baseline, e il prossimo avviso nuovo passa perche' quella e' vecchia.
-    console.error("[check-sicurezza] --update-baseline riguarda solo il pezzo `dipendenze`, che --only ha escluso.");
+    console.error("[check-security] --update-baseline riguarda solo il pezzo `dependencies`, che --only ha escluso.");
     process.exit(2);
   }
 
@@ -514,55 +518,55 @@ function main(): void {
     try {
       baseline = JSON.parse(readFileSync(baselinePath, "utf8")) as Baseline;
     } catch (err) {
-      console.error(`[check-sicurezza] baseline illeggibile in ${baselinePath} (${String(err)})`);
+      console.error(`[check-security] baseline illeggibile in ${baselinePath} (${String(err)})`);
       process.exit(2);
     }
   }
 
-  const esiti: Esito[] = [];
-  if (solo.includes("dati")) esiti.push(eseguiTest("dati", root, "tests/unit/no-personal-data-tracked.test.ts"));
-  if (solo.includes("home")) esiti.push(eseguiTest("home", root, "tests/unit/no-home-paths-tracked.test.ts"));
-  if (solo.includes("segreti")) esiti.push(cercaSegreti(root));
-  if (solo.includes("dipendenze")) {
-    const { esito, misurato } = controllaDipendenze(root, baseline, aggiorna);
-    if (aggiorna) {
+  const outcomes: Outcome[] = [];
+  if (only.includes("data")) outcomes.push(runDelegatedTest("data", root, "tests/unit/no-personal-data-tracked.test.ts"));
+  if (only.includes("home")) outcomes.push(runDelegatedTest("home", root, "tests/unit/no-home-paths-tracked.test.ts"));
+  if (only.includes("secrets")) outcomes.push(scanSecrets(root));
+  if (only.includes("dependencies")) {
+    const { outcome, measured } = checkDependencies(root, baseline, update);
+    if (update) {
       const next: Baseline = {
-        $schema: "sicurezza-baseline-v1",
+        $schema: "security-baseline-v1",
         _comment: baseline?._comment ?? [],
         updated: new Date().toISOString().slice(0, 10),
-        avvisi: misurato,
+        advisories: measured,
       };
       writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`);
-      console.log(`[check-sicurezza] baseline riscritta: ${baselinePath}`);
+      console.log(`[check-security] baseline riscritta: ${baselinePath}`);
       process.exit(0);
     }
-    esiti.push(esito);
+    outcomes.push(outcome);
   }
 
   if (json) {
-    console.log(JSON.stringify({ root, misurato_il: new Date().toISOString().slice(0, 10), esiti }, null, 2));
+    console.log(JSON.stringify({ root, misurato_il: new Date().toISOString().slice(0, 10), esiti: outcomes }, null, 2));
   } else {
-    console.log(`[check-sicurezza] ${root}`);
+    console.log(`[check-security] ${root}`);
     console.log("");
-    for (const e of esiti) {
-      const bollo = e.stato === "ok" ? "OK  " : e.stato === "rosso" ? "ROSSO" : "MUTO";
-      console.log(`${bollo}  ${e.pezzo.padEnd(11)} ${e.riassunto}`);
-      for (const d of e.dettagli) console.log(`      ${d}`);
-      if (e.dettagli.length > 0) console.log("");
+    for (const e of outcomes) {
+      const badge = e.status === "ok" ? "OK  " : e.status === "red" ? "ROSSO" : "MUTO";
+      console.log(`${badge}  ${e.part.padEnd(13)} ${e.summary}`);
+      for (const d of e.details) console.log(`      ${d}`);
+      if (e.details.length > 0) console.log("");
     }
   }
 
-  const muti = esiti.filter((e) => e.stato === "muto");
-  const rossi = esiti.filter((e) => e.stato === "rosso");
-  if (rossi.length > 0) {
-    console.error(`[check-sicurezza] NON PUBBLICABILE - ${rossi.map((r) => r.pezzo).join(", ")}.`);
+  const mutes = outcomes.filter((e) => e.status === "mute");
+  const reds = outcomes.filter((e) => e.status === "red");
+  if (reds.length > 0) {
+    console.error(`[check-security] NON PUBBLICABILE - ${reds.map((r) => r.part).join(", ")}.`);
     process.exit(1);
   }
-  if (muti.length > 0) {
-    console.error(`[check-sicurezza] MISURA NON PRESA - ${muti.map((m) => m.pezzo).join(", ")}. Verde non se ne stampa.`);
+  if (mutes.length > 0) {
+    console.error(`[check-security] MISURA NON PRESA - ${mutes.map((m) => m.part).join(", ")}. Verde non se ne stampa.`);
     process.exit(2);
   }
-  console.log(`[check-sicurezza] OK - ${esiti.length} pezzo/i verde/i: il checkout e' pubblicabile.`);
+  console.log(`[check-security] OK - ${outcomes.length} pezzo/i verde/i: il checkout e' pubblicabile.`);
   process.exit(0);
 }
 

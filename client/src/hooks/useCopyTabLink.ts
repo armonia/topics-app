@@ -18,7 +18,6 @@
  */
 import { useCallback, useMemo } from 'react';
 import { useToast } from '../components/Shared/Toast';
-import { useRefMirror } from './useRefMirror';
 import { copyText } from '../lib/clipboard';
 import { buildTabLinkForTarget } from '../lib/tabLink';
 import type { TabTarget } from '../../../shared/tab-link';
@@ -41,24 +40,27 @@ export interface CopyTabLink {
 }
 
 export function useCopyTabLink(): CopyTabLink {
-  // Il valore del context dei toast NON è memoizzato: `ToastProvider` ricrea
-  // l'oggetto a ogni render di App, quindi metterlo nelle dipendenze darebbe a
-  // queste funzioni un'identità nuova ogni giro — e chi le mette in un
-  // `useMemo` (la palette) ricalcolerebbe per niente. Lo specchiamo in un ref,
-  // che è stabile, e leggiamo l'ultimo valore al momento del click.
-  const toast = useRefMirror(useToast());
+  // `useToast()` è una DIPENDENZA normale, senza specchi. Qui c'era un
+  // `useRefMirror` perché il valore del context dei toast si ricostruiva a ogni
+  // render di App: metterlo nelle dipendenze avrebbe dato a queste funzioni
+  // un'identità nuova ogni giro, e chi le mette in un `useMemo` (la palette)
+  // avrebbe ricalcolato per niente. Ora il context è diviso in due — l'API sta
+  // in `ToastApiContext`, che dopo il mount non cambia MAI identità (vedi
+  // Toast.tsx e il test che lo tiene) — quindi lo specchio non comprava più
+  // niente e costava un livello di indirezione su ogni chiamata.
+  const toast = useToast();
 
   const copyTabLink = useCallback(async (target: TabTarget | null | undefined) => {
     const link = target ? buildTabLinkForTarget(target) : null;
-    if (!link) { toast.current.warning(LINK_UNAVAILABLE); return; }
-    if (await copyText(link)) toast.current.success(TAB_LINK_COPIED);
-    else toast.current.warning(COPY_FAILED);
+    if (!link) { toast.warning(LINK_UNAVAILABLE); return; }
+    if (await copyText(link)) toast.success(TAB_LINK_COPIED);
+    else toast.warning(COPY_FAILED);
   }, [toast]);
 
   const copyUrl = useCallback(async (url: string | null | undefined) => {
-    if (!url) { toast.current.warning(LINK_UNAVAILABLE); return; }
-    if (await copyText(url)) toast.current.success(PAGE_URL_COPIED);
-    else toast.current.warning(COPY_FAILED);
+    if (!url) { toast.warning(LINK_UNAVAILABLE); return; }
+    if (await copyText(url)) toast.success(PAGE_URL_COPIED);
+    else toast.warning(COPY_FAILED);
   }, [toast]);
 
   return useMemo(() => ({ copyTabLink, copyUrl }), [copyTabLink, copyUrl]);

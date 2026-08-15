@@ -113,9 +113,9 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         if (!firstLeg) {
           // The ask outlived its TTL. Close it here rather than letting the
           // bridge poll on into the CLI child's own lifetime cap.
-          cancelAsk(sk, "nessuna risposta: la domanda è scaduta");
+          cancelAsk(sk, "no answer: the question expired");
           clearRoutedAskForSession(sk);
-          return json({ cancelled: true, reason: "ask_user_question: la domanda è scaduta senza risposta" });
+          return json({ cancelled: true, reason: "ask_user_question: the question expired with no answer" });
         }
         // LA DOMANDA ESCE NEL THREAD DEL TASK, se questa sessione ne ha uno.
         // La chiamata è su OGNI gamba ma scrive una volta sola: il registro di
@@ -208,8 +208,8 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           : undefined;
 
         if (!beginPermission(sk, toolUseId)) {
-          cancelPermission(sk, toolUseId, "nessuna risposta: la richiesta è scaduta");
-          return json({ cancelled: true, reason: "permesso: la richiesta è scaduta senza risposta" });
+          cancelPermission(sk, toolUseId, "no answer: the request expired");
+          return json({ cancelled: true, reason: "permission: the request expired with no answer" });
         }
 
         // 2. Il pannello si dipinge finché non è a schermo — non «una volta».
@@ -304,7 +304,7 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           // Il pannello è a schermo ma sotto non c'è più nessuno: turno morto,
           // server riavviato, richiesta scaduta. Dirlo è meglio che accettare
           // un click che non arriverà da nessuna parte.
-          return json({ error: "nessuna richiesta di permesso aperta per questa riga", code: "permission_not_pending" }, 409);
+          return json({ error: "no permission request is open for this row", code: "permission_not_pending" }, 409);
         }
 
         const decidedAt = new Date().toISOString();
@@ -344,7 +344,7 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           const change = switchSessionToFree({ getTopicBySessionKey, saveSingleTopic, broadcastToAll }, sk);
           if (!change) {
             return json(
-              { error: "questa sessione non ha un topic: non c'è dove scrivere la modalità", code: "no_topic_for_session" },
+              { error: "this session has no topic: there is nowhere to write the mode", code: "no_topic_for_session" },
               409,
             );
           }
@@ -356,8 +356,8 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           logActivity({
             category: "permission",
             level: "warn",
-            title: "sessione passata a modalità libera dal pannello del permesso",
-            detail: `strumento consentito: ${toolNameOnRow() ?? "sconosciuto"} · livello precedente: ${change.previous ?? "non scelto"}`,
+            title: "session switched to free mode from the permission panel",
+            detail: `tool allowed: ${toolNameOnRow() ?? "unknown"} · previous level: ${change.previous ?? "not chosen"}`,
             entityType: "topic",
             entityId: change.topic.id,
             actor: outcome.actor,
@@ -414,7 +414,7 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         const pattern = typeof body?.pattern === "string" ? body.pattern.trim() : "";
         if (!pattern) return json({ error: "pattern is required" }, 400);
         if (!addToolGrant(pattern)) {
-          return json({ error: "pattern non valido (un '*' nudo non è una regola)", code: "invalid_pattern" }, 400);
+          return json({ error: "invalid pattern (a bare '*' is not a rule)", code: "invalid_pattern" }, 400);
         }
         return json({ ok: true, grants: listToolGrants() });
       }

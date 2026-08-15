@@ -36,6 +36,8 @@ import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
+import { bucketSessionMsgs, EMPTY_SESSION_BUCKETS, type SessionBuckets, type SessionMsg } from './sessionBuckets';
+import { usePaneAlive } from '../../state/paneLiveness';
 import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
@@ -776,8 +778,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => { load(); }, [load, bump]);
   // Wake-up refresh (same rationale as the board's): an open drawer coming back
   // from sleep would keep yesterday's chip/ticker until some WS event lands.
+  //
+  // It also catches the session poll up. That poll is gated on visibility (see
+  // `sessionCatchUp` further down, where `loadSession` exists), and the two
+  // refreshes have to land TOGETHER: a task row from now next to a session tail
+  // from three ticks ago reads as an agent that stopped talking.
+  const sessionCatchUp = useRef<(() => void) | null>(null);
   useEffect(() => {
-    const onWake = () => { if (document.visibilityState === 'visible') load(); };
+    const onWake = () => {
+      if (document.visibilityState !== 'visible') return;
+      load();
+      sessionCatchUp.current?.();
+    };
     document.addEventListener('visibilitychange', onWake);
     window.addEventListener('focus', onWake);
     return () => {
@@ -1456,29 +1468,67 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   // While a turn runs, poll the history (it overlays the LIVE stream content)
   // so the drawer shows what the agent is thinking/writing right now.
+  //
+  // GATED, on both axes, because neither one alone stops it. `PaneKeepAlive`
+  // freezes RENDERS, not the effects of a subtree that is already mounted, so a
+  // drawer parked behind another pane kept fetching 200 messages every 3s;
+  // and a pane that IS the visible one keeps fetching with the window in the
+  // background. The tick therefore asks both: the pane has a box (`paneAlive`,
+  // the context), and the document is on screen (checked INSIDE the timer, like
+  // the two siblings above, so no re-render is needed to park the cycle).
+  const paneAlive = usePaneAlive();
   useEffect(() => {
-    if (!agentBusy || !sessionKey) return;
-    const t = setInterval(() => { void loadSession(); }, 3000);
+    if (!agentBusy || !sessionKey || !paneAlive) return;
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadSession();
+    }, 3000);
     return () => clearInterval(t);
+  }, [agentBusy, sessionKey, loadSession, paneAlive]);
+
+  // Coming back from hidden, the drawer would sit on the last tick it managed
+  // to run until the next one fires. The wake-up listener up at `onWake` calls
+  // this through the ref (it is declared above `loadSession`, and one listener
+  // for both refreshes keeps the two in step).
+  useEffect(() => {
+    sessionCatchUp.current = agentBusy && sessionKey ? () => { void loadSession(); } : null;
+    return () => { sessionCatchUp.current = null; };
   }, [agentBusy, sessionKey, loadSession]);
 
-  // Tail of the newest agent message (reasoning first): the "come sta andando"
-  // glance without opening anything.
+  // Tail of the newest agent message (reasoning first): the "how is it going"
+  // glance without opening anything. Walked backwards rather than
+  // `[...msgs].reverse().find()`: that copied all 200 rows on every poll.
   const streamPreview = useMemo(() => {
     if (!agentBusy || !sessionMsgs?.length) return null;
-    const last = [...sessionMsgs].reverse().find((m) => m.role !== 'user');
+    let last: SessionMsg | undefined;
+    for (let i = sessionMsgs.length - 1; i >= 0; i--) {
+      if (sessionMsgs[i].role !== 'user') { last = sessionMsgs[i]; break; }
+    }
     if (!last) return null;
     const text = (last.thinking?.trim() || last.content.trim()).replace(/\s+/g, ' ');
     return text ? text.slice(-280) : null;
   }, [agentBusy, sessionMsgs]);
 
-  // Session messages that fall strictly between two thread boundaries (ISO
-  // string compare — both sides are UTC toISOString). null = open-ended.
-  const sliceBetween = useCallback((from: string | null, to: string | null): SessionMsg[] => {
-    if (!sessionMsgs) return [];
-    return sessionMsgs.filter((m) =>
-      m.timestamp && (!from || m.timestamp > from) && (!to || m.timestamp <= to));
-  }, [sessionMsgs]);
+  /**
+   * The session cut at the comment boundaries, ONE pass per poll.
+   *
+   * Every thread row needs the slice above it, and asking for it row by row was
+   * a filter over the whole history per row (200 x N, every 3s) that also
+   * handed each `SessionSlice` a new array even when nothing had moved. The
+   * split now happens once and unchanged buckets keep their array, so a slice
+   * that did not change is reference-equal between polls. `bucketsRef` carries
+   * the previous result in: the memo cannot read its own output.
+   */
+  const bucketsRef = useRef<SessionBuckets>(EMPTY_SESSION_BUCKETS);
+  const sessionBuckets = useMemo(
+    () => bucketSessionMsgs(sessionMsgs, threadComments, bucketsRef.current),
+    [sessionMsgs, threadComments],
+  );
+  useEffect(() => { bucketsRef.current = sessionBuckets; }, [sessionBuckets]);
+  const sliceFor = useCallback(
+    (commentId: string): SessionMsg[] => sessionBuckets.byComment.get(commentId) ?? EMPTY_SESSION_BUCKETS.tail,
+    [sessionBuckets],
+  );
 
   /**
    * A run of dispatcher bookkeeping is CUT wherever the agent spoke in the gap
@@ -1486,25 +1536,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    * fold that swallowed those would hide the very speech the fold exists to
    * surface, so the wall breaks there and the words stay outside it.
    */
-  const threadBreaksRun = useCallback((c: TaskComment, i: number) => (
-    sliceBetween(threadComments[i - 1]?.createdAt ?? null, c.createdAt).some((m) => m.role !== 'user')
-  ), [threadComments, sliceBetween]);
+  const threadBreaksRun = useCallback((c: TaskComment) => (
+    sliceFor(c.id).some((m) => m.role !== 'user')
+  ), [sliceFor]);
 
   // ── Drawer body = ONE task-scoped GroupLayout ─────────────────────────────
   // Thread, live browser tabs, Piano and each media attachment are all PANES of
   // the app's REAL PaneTabBar (a single tab bar; native split/resize/drag). The
   // hook owns identity + tiling; the derived (thread/plan/media) pane bodies
   // render through `renderSurface`. Defined here (after the thread deps:
-  // sliceBetween/agentBusy/streamPreview…) so every dep array is in scope.
+  // sliceFor/agentBusy/streamPreview…) so every dep array is in scope.
   const browserRef = useRef<TaskBrowserGroupLayout | null>(null);
   const renderThread = useCallback((): React.ReactNode => {
     if (!task) return null;
-    // One row, at its index in `threadComments` (the index is what finds the
-    // session steps that belong in the gap above it). Same markup folded or not.
-    const row = (c: TaskComment, i: number) => (
+    // One row. Its slice is keyed by the comment's OWN id (the bucketing did
+    // the walk), so the row no longer needs its index in `threadComments`.
+    const row = (c: TaskComment) => (
       <div key={c.id} className="space-y-2">
         {task.assignedTopicId && (
-          <SessionSlice msgs={sliceBetween(threadComments[i - 1]?.createdAt ?? null, c.createdAt)} />
+          <SessionSlice msgs={sliceFor(c.id)} />
         )}
         {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />}
       </div>
@@ -1515,8 +1565,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         <ThreadRuns comments={threadComments} breaksRun={threadBreaksRun} renderRow={row} />
         {task.assignedTopicId && (
           <SessionSlice
-            msgs={sliceBetween(threadComments[threadComments.length - 1]?.createdAt ?? null, null)}
-            label={agentBusy ? 'Sta lavorando' : undefined}
+            msgs={sessionBuckets.tail}
+            label={agentBusy ? tr('board.task.sessionWorking') : undefined}
             preview={streamPreview}
           />
         )}
@@ -1546,7 +1596,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
-  }, [task, threadComments, threadBreaksRun, sliceBetween, agentBusy, streamPreview, busy, tr, stopWord.label, stopWord.title]);
+  }, [task, threadComments, threadBreaksRun, sliceFor, sessionBuckets.tail, agentBusy, streamPreview, busy, tr, stopWord.label, stopWord.title]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('thread:')) return renderThread();
@@ -1779,13 +1829,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       {landing && (landing.phase === 'queued' || landing.phase === 'running') && (
         <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
           {landing.ahead > 0
-            ? <>Land <strong>in coda</strong>: {landing.ahead} {landing.ahead === 1 ? 'fusione' : 'fusioni'} davanti su questa board (toccano tutte main nello stesso checkout).</>
-            : <>Land <strong>in corso</strong>: la fusione su main sta girando adesso. L'esito arriva nel thread.</>}
+            ? <>{tr('board.task.land')} <strong>{tr('board.task.landQueued')}</strong>{tr(landing.ahead === 1 ? 'board.task.landQueuedRestOne' : 'board.task.landQueuedRestMany', { n: landing.ahead })}</>
+            : <>{tr('board.task.land')} <strong>{tr('board.task.landRunning')}</strong>{tr('board.task.landRunningRest')}</>}
         </div>
       )}
       {landing?.phase === 'failed' && (
         <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
-          ⚠️ Land <strong>fallito</strong>: {landing.error ?? 'errore sconosciuto'}
+          ⚠️ {tr('board.task.land')} <strong>{tr('board.task.landFailed')}</strong>: {landing.error ?? tr('board.task.landUnknownError')}
         </div>
       )}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
@@ -1826,7 +1876,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           data-testid="task-reopened-notice"
           className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
         >
-          ↩︎ <strong>Riaperta</strong> {reopened.detail}. Aveva consegnato, e il motivo è nel thread qui sotto.
+          ↩︎ <strong>{tr('board.task.reopened')}</strong> {tr('board.task.reopenedRest', { detail: reopened.detail })}
         </div>
       )}
       {/* IL GUSCIO — chi possiede l'altezza, e dove sta il solo scroll.
@@ -2068,11 +2118,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
                   <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
-                  <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : 'etichette'}</span>
+                  <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : tr('board.task.labelsChip')}</span>
                   <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
                 </button>
                 <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Chi la chiude</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.whoCloses')}</p>
                   {CLOSER_LABELS.map((l) => (
                     <button
                       key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
@@ -2083,7 +2133,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                       {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                     </button>
                   ))}
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Genere</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.kind')}</p>
                   {KIND_LABELS.map((l) => (
                     <button
                       key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
@@ -2116,7 +2166,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     className={`${POPOVER_ITEM} disabled:opacity-40`}
                   >
                     <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
-                    <span className="min-w-0 flex-1">Auto <span className="text-app-text-muted">(opus-first)</span></span>
+                    <span className="min-w-0 flex-1">{tr('board.task.modelAutoOption')} <span className="text-app-text-muted">(opus-first)</span></span>
                     {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                   </button>
                   {models.map((m) => (
@@ -2803,8 +2853,8 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
  * task title, so any label would read like a bogus username; it survives only
  * in the tooltip). System notes are dimmed.
  */
-/** One session message with its placement timestamp (from /api/history). */
-export interface SessionMsg { role: string; content: string; timestamp: string; thinking?: string }
+// `SessionMsg` lives in `./sessionBuckets` now, next to the code that places
+// the messages between the comments.
 
 /**
  * A status transition in the timeline: "chi l'ha spostato e quando", rendered

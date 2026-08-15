@@ -121,10 +121,18 @@ describe("l'anello: rimettere in coda una seconda volta non si offre piu'", () =
     // in `todo` conta fermo lo stesso (il tick lista `rootsOnly`), quindi la
     // domanda torna identica e chi risponde ripreme lo stesso bottone. Offrire
     // due volte un'uscita circolare non e' dare una scelta.
+    //
+    // LA SONDA GUARDAVA IL POSTO SBAGLIATO, e questo test lo nascondeva: il
+    // conto era `content = REQUEUE_PARKED_LABEL`, e nessuna porta scrive mai un
+    // commento il cui corpo INTERO sia l'etichetta del bottone. Il test lo
+    // scriveva a mano — quella riga qui sotto non c'è più — quindi provava che
+    // la logica funzionava DATO un fatto che in produzione non esisteva: il
+    // conto restava zero, la terza uscita non compariva mai, e chi rispondeva si
+    // ritrovava lo stesso bottone circolare. Adesso si conta la nota che
+    // `resolveParkedChildren` scrive davvero.
     const { padre } = padreConFiglioParcheggiato(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
     s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" });
-    s.addComment({ taskId: padre, author: "user", content: "Rimetti in coda i sottotask" });
     // Il turno riparte e finisce di nuovo senza toccare gli step.
     s.update({ taskId: padre, actor: "human", by: "attilio", patch: { status: "in_progress" } });
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });

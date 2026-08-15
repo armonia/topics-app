@@ -1,7 +1,7 @@
 /**
  * useTaskTopicIndex — a live topicId → task index for DISPATCHED tasks (those
- * with an `assignedTopicId`). Sourced from the global board feed once on mount,
- * refreshed on any task:* WebSocket event (same trigger as useGlobalBoard).
+ * with an `assignedTopicId`), DERIVED from the board feed everyone else already
+ * reads (`boardTasksStore`, written by `useGlobalBoard`).
  *
  * Returns a STABLE resolver so a completion banner for a dispatched-task topic
  * can carry the taskId — clicking the OS notification then opens that task's
@@ -16,57 +16,40 @@
  *
  * LA STESSA LETTURA SERVE ALLE CHAT. Da dentro la sessione di un task si deve
  * poter tornare alla sua SCHEDA, e quel legame è esattamente questo indice —
- * solo letto al contrario e in modo reattivo. Invece di una seconda fetch, ogni
- * refresh lo riversa in `state/taskSessions.ts`, lo store per-topic che la chat
- * osserva. Una fonte, due consumatori.
+ * solo letto al contrario e in modo reattivo. Ogni giro lo riversa in
+ * `state/taskSessions.ts`, lo store per-topic che la chat osserva. Una fonte,
+ * due consumatori.
+ *
+ * PERCHÉ NON FETCHA PIÙ. Questo hook è montato in App senza condizioni, e la
+ * sua `listAll()` era una SECONDA lettura del feed globale (1,44 MB, 145 ms,
+ * misurati il 15/08) a ogni evento `task:*`, non coalescata e senza guardia
+ * d'ordine: durante una raffica di dispatch bastava che due risposte tornassero
+ * invertite perché nello store della chat restasse installata la voce VECCHIA —
+ * cioè un `dispatchState` che dice «sta lavorando» di un turno già finito, che
+ * è precisamente la cosa che decide se una notifica si vede o no. Derivandolo
+ * dallo store la fetch è una sola, ed è già ordinata all'origine.
  */
-import { useCallback, useEffect, useRef } from 'react';
-import type { WSMessage } from '../types';
-import { boardApi, type TaskStatus } from '../lib/board';
-import { applyTaskSessionIndex, type TopicTaskRef as StoreTaskRef } from '../state/taskSessions';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useBoardTasks } from '../lib/boardTasksStore';
+import { buildTopicTaskIndex, type TopicTaskRef } from '../lib/taskTopicIndex';
+import { applyTaskSessionIndex } from '../state/taskSessions';
 
-/** Il task che gira (o è girato) in un topic. */
-export interface TopicTaskRef {
-  taskId: string;
-  /** Colonna kanban corrente (backlog | todo | in_progress | review | done). */
-  status: TaskStatus;
-  /** null = non dispatchato; queued | starting | working | waiting | delivered | needs_input | … */
-  dispatchState: string | null;
-}
+export type { TopicTaskRef };
 
 export type TopicTaskResolver = (topicId: string) => TopicTaskRef | null;
 
-export function useTaskTopicIndex(
-  onMessage?: (handler: (msg: WSMessage) => void) => () => void,
-): TopicTaskResolver {
-  const mapRef = useRef<Map<string, TopicTaskRef>>(new Map());
-
-  const refresh = useCallback(async () => {
-    try {
-      const tasks = await boardApi.listAll();
-      const m = new Map<string, TopicTaskRef>();
-      const forStore: Record<string, StoreTaskRef> = {};
-      for (const t of tasks) {
-        if (!t.assignedTopicId) continue;
-        m.set(t.assignedTopicId, { taskId: t.id, status: t.status, dispatchState: t.dispatchState });
-        forStore[t.assignedTopicId] = { taskId: t.id, text: t.text, status: t.status, dispatchState: t.dispatchState };
-      }
-      mapRef.current = m;
-      applyTaskSessionIndex(forStore);
-    } catch {
-      /* keep the last index on a transient failure */
-    }
-  }, []);
-
-  useEffect(() => { void refresh(); }, [refresh]);
+export function useTaskTopicIndex(): TopicTaskResolver {
+  const tasks = useBoardTasks();
+  const index = useMemo(() => buildTopicTaskIndex(tasks), [tasks]);
+  const mapRef = useRef(index.byTopic);
 
   useEffect(() => {
-    if (!onMessage) return;
-    return onMessage((msg) => {
-      const t = (msg as { type?: string })?.type;
-      if (t === 'task:created' || t === 'task:updated' || t === 'task:deleted') void refresh();
-    });
-  }, [onMessage, refresh]);
+    mapRef.current = index.byTopic;
+    // Sostituzione dell'indice intero: `applyTaskSessionIndex` sveglia solo i
+    // topic in cui qualcosa è davvero cambiato, quindi un giro a vuoto (lo
+    // store riscritto con le stesse righe) non costa un render a nessuna chat.
+    applyTaskSessionIndex(index.forStore);
+  }, [index]);
 
   return useCallback((topicId: string) => mapRef.current.get(topicId) ?? null, []);
 }

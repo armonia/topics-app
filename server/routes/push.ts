@@ -22,6 +22,28 @@ export function createPushRouter(ctx: AppContext): RouteHandler {
     // lista sono indistinguibili e si spegne quello sbagliato.
     if (method === "GET" && pathname === "/api/push/devices") {
       const thisDeviceId = url.searchParams.get("deviceId");
+      // BACKFILL della colonna su cui si decide la revoca.
+      //
+      // `auth_device_id` è stata aggiunta dopo, quindi le righe scritte prima
+      // ce l'hanno NULL — e NULL è «consegna comunque», perché è anche il caso
+      // del Mac su cui gira il server. Una revoca non le raggiunge:
+      // `dimenticaPush` filtra su quella colonna. La nota «si popola alla prima
+      // re-iscrizione» non reggeva: `POST /api/push/subscribe` parte solo da un
+      // gesto esplicito dell'utente, mentre all'avvio il client si limita a
+      // `pushManager.getSubscription()`.
+      //
+      // Qui invece si passa ogni volta che si apre la card delle notifiche, con
+      // l'identità già risolta dal gate. Se la riga porta lo stesso `device_id`
+      // del localStorage che sta chiedendo l'elenco, quel browser È questo
+      // dispositivo appaiato: la si timbra, e da quel momento la revoca la
+      // vede. Non si tocca nessuna riga già attribuita.
+      const authDeviceId = ctx.requestIdentity?.(req)?.deviceId ?? null;
+      if (authDeviceId && thisDeviceId) {
+        db.run(
+          "UPDATE push_subscriptions SET auth_device_id = ? WHERE device_id = ? AND auth_device_id IS NULL",
+          [authDeviceId, thisDeviceId],
+        );
+      }
       const rows = db.query(
         `SELECT endpoint, device_id, device_label, enabled, when_open, user_agent, created_at, last_seen_at
            FROM push_subscriptions
@@ -46,12 +68,30 @@ export function createPushRouter(ctx: AppContext): RouteHandler {
         : deviceLabelFromUserAgent(userAgent);
       const id = typeof deviceId === "string" && deviceId.trim() ? deviceId.trim().slice(0, 64) : null;
 
+      // Il dispositivo APPAIATO, e viene dall'identità della richiesta — mai dal
+      // corpo. `deviceId` qui sopra è un UUID che il client si genera nel
+      // localStorage: tiene insieme le righe di uno stesso browser e dice
+      // «questo sei tu» nell'elenco, ma chi scrive la richiesta lo sceglie,
+      // quindi non può reggere una revoca. Questo sì: è `devices.id`, ed è ciò
+      // su cui `sendPushToAll` verifica che il dispositivo sia ancora vivo.
+      // `null` = loopback (questa macchina) o nessuna identità risolta.
+      const authDeviceId = ctx.requestIdentity?.(req)?.deviceId ?? null;
+
       // Un dispositivo = una riga. Il browser rigenera l'endpoint quando gli
       // pare (chiavi ruotate, PWA reinstallata): senza questa potatura la
       // vecchia riga resta nell'elenco come un secondo telefono che non esiste,
       // e riceve push che nessuno consegnerà mai. Prima dell'insert, e solo
       // sull'endpoint DIVERSO, così una re-iscrizione identica non si cancella
       // da sola le preferenze.
+      //
+      // La potatura NON si restringe all'identità, ed è deliberato: su
+      // `device_id` c'è un indice UNIQUE (migration 101), quindi «prima riga
+      // vince» non sarebbe una difesa ma un `SQLITE_CONSTRAINT_UNIQUE` — cioè
+      // un 500 sul telefono che si RIAPPAIA dopo una revoca, che è il caso
+      // legittimo in cui lo stesso id del localStorage torna con un'identità
+      // nuova. Misurato: il test «un dispositivo non cancella l'iscrizione di un
+      // altro» falliva esattamente così. Chi arriva qui ha comunque un'identità
+      // appaiata, e per colpire dovrebbe indovinare un UUID altrui.
       if (id) db.run("DELETE FROM push_subscriptions WHERE device_id = ? AND endpoint != ?", [id, endpoint]);
 
       // `enabled` e `when_open` NON si toccano sul conflitto: una re-iscrizione
@@ -60,12 +100,12 @@ export function createPushRouter(ctx: AppContext): RouteHandler {
       // default qui vorrebbe dire riaccendere in silenzio un dispositivo che
       // l'utente aveva spento.
       db.run(
-        `INSERT INTO push_subscriptions (endpoint, keys_p256dh, keys_auth, user_agent, device_id, device_label, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO push_subscriptions (endpoint, keys_p256dh, keys_auth, user_agent, device_id, device_label, auth_device_id, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(endpoint) DO UPDATE SET
-           keys_p256dh = ?, keys_auth = ?, user_agent = ?, device_id = ?, device_label = ?, last_seen_at = datetime('now')`,
-        [endpoint, keys.p256dh, keys.auth, userAgent, id, deviceLabel,
-         keys.p256dh, keys.auth, userAgent, id, deviceLabel]
+           keys_p256dh = ?, keys_auth = ?, user_agent = ?, device_id = ?, device_label = ?, auth_device_id = ?, last_seen_at = datetime('now')`,
+        [endpoint, keys.p256dh, keys.auth, userAgent, id, deviceLabel, authDeviceId,
+         keys.p256dh, keys.auth, userAgent, id, deviceLabel, authDeviceId]
       );
 
       const row = db.query(

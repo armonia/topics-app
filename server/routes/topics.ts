@@ -43,6 +43,8 @@ import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
 import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
+import { recordTurnEnd } from "../providers/turn-end-registry";
+import { cancelled } from "../providers/stop-reason";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -2050,15 +2052,34 @@ export function createTopicsRouter(
         return json({ ok: false, reason: "no_active_stream", cleared: false });
       }
 
+      // CHI ha fermato il turno si DEPOSITA, prima di qualunque altra cosa.
+      //
+      // Chi guida un turno headless (`runHeadlessTurn` in server.ts) legge la
+      // fine da `takeTurnEnd`, e quando non la trova assume `end_turn`. Da qui
+      // non ci passava mai: `stream.abortController.abort()` fa scattare il
+      // listener della route di chat, che latcha `streamState = "finalized"`, e
+      // da quel momento `finalizeStream` esce alla prima riga — quindi il suo
+      // `recordTurnEnd` non gira. Uno stop premuto da una persona arrivava al
+      // dispatcher come una consegna RIUSCITA: bruciava un tentativo e
+      // rilanciava l'agente all'istante, sul task che l'umano aveva appena
+      // fermato.
+      //
+      // `cancelled("user")` è quello che il provider stesso depositerebbe: se la
+      // sua finalizzazione arriva comunque, riscrive lo stesso verdetto.
+      recordTurnEnd(sessionKey, cancelled("user", "POST /api/chat/abort"));
+
+      // PRIMA il provider, POI il controller dell'SSE. L'ordine conta: l'abort
+      // del controller chiude la macchina a stati della route, quindi tutto ciò
+      // che il provider ha ancora da dire su questo turno (il suo `onAborted`,
+      // con la ragione autorevole) troverebbe un `finalizeStream` già spento.
+      if (abortProvider.connected) {
+        abortProvider.abort?.(sessionKey, undefined, "user")?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
+        abortProvider.unregisterStreamHandler?.(sessionKey);
+      }
+
       // Abort the gateway request (HTTP fallback)
       if (stream.abortController) {
         try { stream.abortController.abort(); } catch {}
-      }
-
-      // Also abort via provider if connected
-      if (abortProvider.connected) {
-        abortProvider.abort?.(sessionKey)?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
-        abortProvider.unregisterStreamHandler?.(sessionKey);
       }
 
       // If a `mcp__topics__ask_user_question` bridge handler is blocked waiting

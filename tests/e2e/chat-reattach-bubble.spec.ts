@@ -97,6 +97,28 @@ test.describe("Riadozione: la bolla si svuota, il record no", () => {
     }
   }
 
+  /**
+   * Quante volte la frase compare nella bolla, LETTA COME LA LEGGE CHI GUARDA.
+   *
+   * `innerText` e non `textContent`: `toContainText` con una stringa passa anche
+   * su un testo doppio, quindi le occorrenze si contano, e si contano
+   * sull'inchiostro reso — un `textContent` conta anche quello che il markdown
+   * non stampa.
+   *
+   * Ma `innerText` di un sottoalbero `visibility: hidden` è la STRINGA VUOTA, e
+   * la lista sta appunto nascosta per i primi ~320ms dopo l'apertura: è il
+   * sipario di `MessageList` (`LIST_REVEAL_FLOOR_MS`), che tiene ferma la chat
+   * mentre Virtuoso misura le altezze. Tutta questa sequenza di frame ci sta
+   * dentro — misurato: la bolla nasce a 40ms e si scopre a 350ms — quindi un
+   * conteggio preso al volo leggeva zero su una bolla scritta giusta. Prima si
+   * aspetta che la bolla sia visibile davvero (`toBeVisible` considera
+   * `visibility: hidden` come NON visibile), poi si conta.
+   */
+  async function occorrenze(bolla: import("@playwright/test").Locator): Promise<number> {
+    await expect(bolla).toBeVisible({ timeout: 10_000 });
+    return ((await bolla.innerText()).match(/trovato la pratica di voltura/g) ?? []).length;
+  }
+
   test("il replay riscrive la bolla senza raddoppiarla", async ({ page, chatPage }) => {
     const send = await apri(page, chatPage);
     const bolla = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
@@ -119,11 +141,9 @@ test.describe("Riadozione: la bolla si svuota, il record no", () => {
     send({ type: "stream:end", messageId: MSG_ID });
     await posa(page);
 
-    // Una volta sola. `toContainText` con una stringa passa anche su un testo
-    // doppio: si contano le occorrenze.
+    // Una volta sola.
     await expect(bolla).toContainText(TESTO, { timeout: 10_000 });
-    const quante = ((await bolla.innerText()).match(/trovato la pratica di voltura/g) ?? []).length;
-    expect(quante, "il replay non deve sommarsi a quello che c'era già").toBe(1);
+    expect(await occorrenze(bolla), "il replay non deve sommarsi a quello che c'era già").toBe(1);
   });
 
   test("senza `reattached` il replay si somma: è il motivo per cui il segnale esiste", async ({ page, chatPage }) => {
@@ -145,8 +165,6 @@ test.describe("Riadozione: la bolla si svuota, il record no", () => {
     send({ type: "stream:end", messageId: MSG_ID });
     await posa(page);
 
-    await expect
-      .poll(async () => ((await bolla.innerText()).match(/trovato la pratica di voltura/g) ?? []).length, { timeout: 10_000 })
-      .toBe(2);
+    await expect.poll(() => occorrenze(bolla), { timeout: 10_000 }).toBe(2);
   });
 });

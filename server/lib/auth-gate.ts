@@ -2,7 +2,12 @@
  * auth-gate — la UNICA decisione di autorizzazione su `/api`, `/ws` e le radici
  * che servono file (`/preview`, `/media`, `/uploads`) del server :3333.
  *
- * DUE assi, e vanno superati ENTRAMBI:
+ * TRE assi, e vanno superati TUTTI:
+ *
+ *   HOST (DNS rebinding) — *con quale nome ci hanno chiamati*. Un sito ostile
+ *     che fa risolvere il proprio nome a `127.0.0.1` diventa same-site per
+ *     davvero: gli altri due assi non hanno niente da segnalare, ed è per
+ *     questo che questo va per primo. Vedi `isAllowedHost`.
  *
  *   ORIGINE (CSRF) — *quale pagina sta guidando il browser*. Un sito ostile
  *     aperto in una scheda qualunque raggiunge questo server DALLA MACCHINA
@@ -22,9 +27,10 @@
  *
  * La regola:
  *   1. `authOff`                                   → allow (botola di recupero)
- *   2. mutante o WS, con Origin forestiera         → 403
- *   3. identità risolta e negativa                 → 401 col suo `code`
- *   4. altrimenti                                  → allow
+ *   2. `Host` che non è dei nostri                 → 403
+ *   3. mutante o WS, con Origin forestiera         → 403
+ *   4. identità risolta e negativa                 → 401 col suo `code`
+ *   5. altrimenti                                  → allow
  *
  * Il confronto same-site è sull'HOSTNAME canonicalizzato, non sull'autorità, e
  * `localhost`/`127.*`/`::1`/`*.localhost` collassano in una classe sola. Serve a
@@ -111,6 +117,10 @@ export function isOriginGatedPath(pathname: string): boolean {
  * Loopback nelle due famiglie (inclusa la forma v4-mapped-v6 che Bun può
  * restituire). Non è più parte della decisione su `/api`: il suo unico chiamante è
  * il ramo `/__daemon/*` in `server.ts`, che è loopback-only per davvero.
+ *
+ * VINCOLO: l'argomento è l'INDIRIZZO del peer (`server.requestIP()`), mai un
+ * nome preso da un header. `/^127\./` su un NOME accetta `127.0.0.1.nip.io`, ed
+ * è esattamente il buco che `canonHost` ha dovuto chiudere.
  */
 export function isLoopbackAddress(ip: string | null): boolean {
   if (!ip) return false;
@@ -148,13 +158,27 @@ export function canonHost(raw: string | null | undefined): string | null {
   }
   if (!h) return null;
 
+  // `#local` non è un hostname legale (il `#` non è ammesso in un `Host:`), ma
+  // se qualcuno lo manda comunque coinciderebbe con la SENTINELLA e verrebbe
+  // preso per questa macchina. Una collisione col proprio valore di comodo è
+  // sempre un buco: qui si chiude prima di tutto il resto.
+  if (h === LOCAL_CLASS) return null;
+
+  // I nomi `127.…` collassano in `#local` SOLO se sono davvero un letterale
+  // d'indirizzo. Senza questa condizione bastava un nome DNS che COMINCIA per
+  // `127.` — `127.0.0.1.nip.io`, `127.pwn.evil.com`, entrambi registrabili e
+  // risolvibili a 127.0.0.1 dall'attaccante — per farsi dichiarare locale:
+  // `isAllowedHost` passava, `isSameSite` passava, il peer loopback implicava
+  // PROPRIETARIO senza credenziali e `POST /api/terminal/sessions` diventava
+  // esecuzione di codice arbitrario. Misurato 200 sul server vivo.
+  // `localhost`/`::1` restano confronti ESATTI (e `.localhost` è una zona
+  // riservata, RFC 6761), quindi lì il prefisso non si può allungare.
   if (
     h === "localhost" ||
     h.endsWith(".localhost") ||
     h === "::1" ||
     h === "0:0:0:0:0:0:0:1" ||
-    /^127\./.test(h) ||
-    /^::ffff:127\./.test(h)
+    ((/^127\./.test(h) || /^::ffff:127\./.test(h)) && isIpLiteral(h))
   ) {
     return LOCAL_CLASS;
   }
@@ -184,6 +208,103 @@ export function isSameSite(origin: string | null, host: string | null): boolean 
   return h !== null && o === h;
 }
 
+/** Un IPv4 in forma decimale puntata, ottetti compresi. */
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/**
+ * IPv6 già spogliato di parentesi e porta da `canonHost`, zona `%en0` inclusa.
+ * Il `:` è la parte che DECIDE: un nome DNS non può contenerne uno, quindi la
+ * sua presenza basta a dire «questo non è un nome che qualcuno può registrare».
+ * Il resto della classe serve solo a scartare la spazzatura.
+ */
+const IPV6 = /^[0-9a-f:.]+(%[0-9a-z._-]+)?$/;
+
+/** True per un LETTERALE d'indirizzo, v4 o v6. Un letterale non si registra in
+ *  nessun DNS, quindi non può essere il nome che un attaccante fa puntare qui. */
+function isIpLiteral(h: string): boolean {
+  const m = IPV4.exec(h);
+  if (m) return m.slice(1).every((o) => Number(o) <= 255);
+  return h.includes(":") && IPV6.test(h);
+}
+
+/**
+ * A QUALI NOMI questo server accetta di rispondere: l'asse che mancava, ed è
+ * esattamente `allowedHosts` di Vite.
+ *
+ * ── IL BUCO ────────────────────────────────────────────────────────────────
+ * `isSameSite` chiede soltanto se `Origin` e `Host` CONCORDANO, e un sito
+ * ostile li fa concordare senza fatica: pubblica `rebind.evil.com` con un TTL
+ * di un secondo, lo fa risolvere prima al proprio indirizzo e poi a
+ * `127.0.0.1`, e da quel momento la sua pagina parla con questo server come
+ * SAME-ORIGIN — stessa `Origin`, stesso `Host`, nessuna violazione da
+ * segnalare. Il DNS rebinding non forgia una richiesta cross-site: la rende
+ * same-site per davvero.
+ *
+ * E qui dentro il peer è loopback, quindi `evaluateIdentity` lo fa
+ * PROPRIETARIO senza chiedere nessuna credenziale. `POST /api/terminal/sessions`
+ * trasforma quel proprietario in esecuzione di codice arbitrario.
+ *
+ * ── PERCHÉ QUESTA FORMA ────────────────────────────────────────────────────
+ * L'attacco ha bisogno di un NOME che l'attaccante controlla nel DNS pubblico.
+ * Quindi la difesa non è un elenco di indirizzi (l'IP in LAN cambia col DHCP e
+ * un'allowlist di IP marcisce), ma il rifiuto di ogni nome DNS che non sia uno
+ * dei quattro modi in cui questa app viene davvero raggiunta:
+ *
+ *   · un LETTERALE d'indirizzo, v4 o v6 — la LAN, il guscio Tauri
+ *     (`127.0.0.1:13333`), il proxy Vite, l'ascoltatore del tunnel
+ *     (`127.0.0.1:3334`, dove il relay rigioca la richiesta dopo aver spogliato
+ *     `Host`, vedi `VIETATE_RICHIESTA` in `shared/relay-http.ts`);
+ *   · `localhost` e `*.localhost` — già collassati in `#local` da `canonHost`,
+ *     e non registrabili da nessuno (RFC 6761);
+ *   · `*.local` — mDNS/Bonjour, la strada consigliata sul telefono perché
+ *     l'IP cambia col DHCP e il nome no. Zona riservata (RFC 6762), quindi nel
+ *     DNS PUBBLICO un `.local` non si registra e il rebinding classico non
+ *     passa di qui. Non è però una zona che nessuno controlla: chi è già sulla
+ *     STESSA LAN può far rispondere il proprio responder mDNS per un nome
+ *     `.local` a piacere. È una superficie che vale solo per un vicino di rete
+ *     — lo stesso vicino che comunque raggiunge la porta — e la si accetta
+ *     perché senza `.local` il telefono non ha una strada stabile;
+ *   · `*.ts.net` — MagicDNS di Tailscale;
+ *   · qualunque hostname già dichiarato in `TOPICS_ALLOWED_ORIGINS` — cioè
+ *     l'hostname del tunnel Cloudflare, che `cloudflared` inoltra INTATTO
+ *     (`docs/tunnel.md`). È la stessa manopola che apre l'asse d'origine, e
+ *     sta qui apposta: «a quali host rispondo» e «quali origini sono
+ *     same-site» non possono divergere se le decide la stessa variabile.
+ *
+ * CHI RESTA FUORI, DI PROPOSITO: un nome CORTO senza punto (`macbook:3333`, che
+ * il DNS search di macOS e molti router risolvono) e i suffissi assegnati dal
+ * router — `.lan`, `.home.arpa`. Non sono zone riservate a questa macchina:
+ * chi controlla il DHCP o il resolver della rete decide a chi puntano, quindi
+ * ammetterli per FORMA vorrebbe dire fidarsi di un nome che non è nostro. La
+ * strada è dichiararli in `TOPICS_ALLOWED_ORIGINS`, che è una riga di
+ * configurazione e non un'allowlist di IP che marcisce. Documentato in
+ * SECURITY.md, perché il sintomo (403 sul proprio nome di rete) è
+ * indistinguibile da un guasto se non è scritto da qualche parte.
+ *
+ * `Host` ASSENTE passa, e non è una svista: l'attacco è un attacco DA BROWSER,
+ * e un browser l'header lo manda sempre. A poterlo omettere sono la CLI, i tool
+ * MCP e gli hook HTTP, cioè chi è già sulla macchina — chiuderli fuori sarebbe
+ * il 403 sul proprio Mac che questa regola esiste per evitare.
+ */
+export function isAllowedHost(host: string | null | undefined, allowedOrigins: readonly string[] = []): boolean {
+  if (host === null || host === undefined || host.trim() === "") return true;
+  const h = canonHost(host);
+  // `canonHost` torna `null` solo su una forma STORTA (una parentesi mai
+  // chiusa): il vuoto l'abbiamo già lasciato passare sopra.
+  if (h === null) return false;
+  if (h === LOCAL_CLASS) return true;
+  if (isIpLiteral(h)) return true;
+  if (h.endsWith(".local") || h.endsWith(".ts.net")) return true;
+  for (const o of allowedOrigins) {
+    // Si accetta sia l'origine intera (`https://tunnel.example`, la forma
+    // documentata) sia un hostname nudo, perché chi configura la variabile
+    // scrive l'una o l'altro e un 403 qui sarebbe indistinguibile da un guasto.
+    const oh = originHost(o) ?? canonHost(o);
+    if (oh !== null && oh === h) return true;
+  }
+  return false;
+}
+
 /**
  * Origini extra ammesse oltre alla same-site — per esempio l'hostname di un
  * tunnel. Da `TOPICS_ALLOWED_ORIGINS` (separate da virgola), letta a OGNI
@@ -204,6 +325,17 @@ export function resolveAllowedOrigins(): string[] {
  */
 export function evaluateAuth(i: AuthInput): AuthResult {
   if (i.authOff) return { allow: true };
+
+  // ── Asse HOST (DNS rebinding) ──────────────────────────────────────────────
+  // PRIMO, e su OGNI metodo. Gli altri due assi non lo vedono nemmeno: per
+  // l'origine una richiesta ribattezzata è same-site (stessa `Origin`, stesso
+  // `Host`), e per l'identità è loopback, cioè proprietario senza credenziali.
+  // Vale anche sulle LETTURE, a differenza del CSRF: il rebinding legge la
+  // risposta per davvero, perché la pagina crede di essere sulla nostra origine
+  // e il CORS non entra in gioco. Vedi `isAllowedHost`.
+  if (!isAllowedHost(i.host, i.allowedOrigins ?? [])) {
+    return { allow: false, status: 403, reason: "host not allowed" };
+  }
 
   // ── Asse ORIGINE (CSRF) ────────────────────────────────────────────────────
   // Vale per CHIUNQUE, sessione valida compresa: un cookie buono guidato da una

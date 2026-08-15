@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { useT } from '../../hooks/useT';
 
 /**
  * A tiny schematic of the current split layout — one strip per layout row, one
@@ -32,6 +33,7 @@ export const SplitMiniMap = memo(function SplitMiniMap({
   active,
   className,
 }: SplitMapDescriptor & { className?: string }) {
+  const t = useT();
   // Defensive: a malformed/legacy descriptor (no rows) renders nothing rather
   // than throwing on `.map` and taking down the whole tree.
   if (!rows?.length) return null;
@@ -41,7 +43,7 @@ export const SplitMiniMap = memo(function SplitMiniMap({
       className={className}
       style={{ display: 'flex', flexDirection: 'column', gap: GAP, width: W, height: H }}
       aria-hidden
-      title="Posizione nel layout"
+      title={t('minimap.position')}
     >
       {rows.map((cols, rowIdx) => (
         <div

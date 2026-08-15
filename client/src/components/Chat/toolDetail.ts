@@ -38,6 +38,20 @@ const EDIT_NAMES = new Set(['edit', 'multiedit', 'apply_patch', 'apply_diff', 's
 const WRITE_NAMES = new Set(['write', 'write_file', 'create_file']);
 const SEARCH_NAMES = new Set(['search', 'websearch', 'web_search']);
 const FETCH_NAMES = new Set(['webfetch', 'web_fetch', 'fetch']);
+/** The whole-list form: one call carries the ENTIRE todo list. */
+const TODO_LIST_NAMES = new Set(['todowrite', 'todo_write']);
+/** The per-item form the CLI 2.1.220 added: one call, one task. */
+const TODO_ITEM_NAMES = new Set(['taskcreate', 'task_create', 'taskupdate', 'task_update']);
+/**
+ * Every name that can produce a `detail.type === 'todo'` here.
+ *
+ * Exported because `selectLatestTodo` needs the same list as a cheap pre-filter
+ * (it runs on the whole transcript at every streaming frame, and Zod-parsing a
+ * detail per tool call to answer "no" was the cost it avoids). That list used to
+ * be a SECOND copy held in sync by a comment: a name added to the branches below
+ * and not to the copy silently lost its strip. One set, two readers.
+ */
+export const TODO_TOOL_NAMES: ReadonlySet<string> = new Set([...TODO_LIST_NAMES, ...TODO_ITEM_NAMES]);
 
 export function deriveToolDetail(
   name: string,
@@ -138,7 +152,7 @@ export function deriveToolDetail(
     };
   }
 
-  if (c === 'todowrite' || c === 'todo_write') {
+  if (TODO_LIST_NAMES.has(c)) {
     if (Array.isArray(a.todos)) {
       const items = (a.todos as Array<Record<string, unknown>>).map((t) => ({
         content: s(t.content) ?? '',
@@ -162,7 +176,7 @@ export function deriveToolDetail(
   // generica (una riga di todo senza todo). In quel caso si lascia passare
   // invece di fingere. Stessa scelta per `status: "deleted"`, che non è uno
   // stato di avanzamento: mapparlo su "completed" direbbe una cosa falsa.
-  if (c === 'taskcreate' || c === 'task_create' || c === 'taskupdate' || c === 'task_update') {
+  if (TODO_ITEM_NAMES.has(c)) {
     const content = s(a.subject);
     const rawStatus = s(a.status);
     const known = rawStatus === 'in_progress' || rawStatus === 'completed' || rawStatus === 'pending';

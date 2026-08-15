@@ -83,8 +83,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `toast` is used only in the catch path; the ToastProvider's context value isn't memoized, so including it would give loadBranches a new identity on every toast and re-trigger the load effect (re-fetching branches whenever any toast appears)
-  }, [projectPath]);
+  }, [projectPath, toast]);
 
   useEffect(() => {
     loadBranches();
@@ -134,8 +133,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
     } catch (err) {
       toast.error(errMessage(err) || 'Failed to remove remote');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `toast` viene dal ToastProvider, il cui context value non e' memoizzato: includerlo darebbe a removeRemote una nuova identita' a ogni toast.
-  }, [onRemoveRemote]);
+  }, [onRemoveRemote, toast]);
 
   /**
    * IL DIALOGO DI CONFERMA NON DEVE MORIRE COL PANNELLO CHE L'HA APERTO.
@@ -186,8 +184,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
     } finally {
       setDeleting(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `toast` viene dal ToastProvider, il cui context value non e' memoizzato: includerlo darebbe a questa callback una nuova identita' a ogni toast.
-  }, [projectPath, loadBranches, confirm]);
+  }, [projectPath, loadBranches, confirm, toast]);
 
   const handleAddRemoteSubmit = async () => {
     const name = newRemoteName.trim();

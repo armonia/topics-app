@@ -148,6 +148,21 @@ export interface ProviderDiagnostic {
 
 /** Callback-style handler — maps to the existing ChatStreamHandler pattern */
 export interface StreamHandler {
+  /**
+   * Nuovo testo dal modello: `(delta, cumulato)`.
+   *
+   * Il PRIMO argomento è il pezzo nuovo e basta — il consumatore lo appende
+   * senza guardarlo. Il secondo è il testo del turno finora, per chi preferisce
+   * lo stato al pezzo; i due devono restare coerenti (`cumulato` finisce per
+   * `delta`).
+   *
+   * Il contratto è scritto qui perché è stato disatteso: `gateway-ws.ts` mandava
+   * il messaggio INTERO come primo argomento, e la route compensava indovinando
+   * — se il testo era identico al precedente lo scartava. Su claude, openai,
+   * codex e claude-code, che i delta li mandano veri, quella regola cancellava
+   * ogni token ripetuto di fila. Chi è cumulativo si normalizza da sé con
+   * `nextTextDelta` (./text-delta.ts) e chiama questo con il pezzo.
+   */
   onTextDelta: (text: string, fullText: string) => void;
   onThinkingDelta?: (text: string) => void;
   onToolStart: (toolCallId: string, name: string, args?: ToolArgs) => void;

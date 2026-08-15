@@ -53,6 +53,11 @@ export interface UseProjectBrowserPanesArgs {
   /** Handler definiti PIÙ IN BASSO in `useProjectLayout`, passati come ref
    *  proprio per questo: l'effetto si monta qui in cima e li chiama a runtime. */
   handleAddPaneToGroupRef: React.RefObject<((groupId: string, type: PaneType, subType?: string, paneKey?: string) => Promise<string | undefined>) | null>;
+  /** La stessa cosa per un progetto SENZA gruppi: crea il gruppo insieme alla
+   *  pane. Serve perché «Apri nel workspace» può arrivare su una finestra di
+   *  progetto con tutte le tab chiuse, e lì `handleAddPaneToGroup` non ha
+   *  nessun gruppo a cui appendere. */
+  handleAddPaneWhenEmptyRef: React.RefObject<((type: PaneType, subType?: string, paneKey?: string) => Promise<string | undefined>) | null>;
   handleSplitGroupRef: React.RefObject<((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom', opts?: { fullRow?: boolean }) => void) | null>;
   handleClosePaneRef: React.RefObject<((groupId: string, paneId: string) => void) | null>;
   updatePaneRef: React.RefObject<((paneId: string, updates: Partial<Pane>) => void) | null>;
@@ -71,6 +76,7 @@ export function useProjectBrowserPanes({
   onWSMessage,
   onBrowserNavigateUrl,
   handleAddPaneToGroupRef,
+  handleAddPaneWhenEmptyRef,
   handleSplitGroupRef,
   handleClosePaneRef,
   updatePaneRef,
@@ -127,8 +133,12 @@ export function useProjectBrowserPanes({
       // Fall back to the first group when nothing is focused yet: a freshly
       // opened project window can drain a parked "Apri nel workspace" navigate
       // before focus settles, and we still want the pane to land somewhere.
+      // `undefined` quando il progetto non ha NESSUN gruppo — tutte le tab
+      // chiuse, il ramo «No chats open». Non è una ragione per lasciar cadere
+      // l'apertura: sotto, il ramo di creazione si fa dare la pane e il suo
+      // gruppo insieme. Fino al 15/08 qui c'era un `return` muto, e «Apri nel
+      // workspace» su un progetto vuoto non apriva niente senza dirlo.
       const fgid = targetGroupId ?? focusedGroupIdRef.current ?? groupsRef.current[0]?.id;
-      if (!fgid) return;
 
       // Reuse ANY existing browser in this project — refresh it in place rather
       // than spawning a second. A project shares one browser context across its
@@ -173,12 +183,16 @@ export function useProjectBrowserPanes({
       // of sitting hidden as a tab. The split effect below consumes this once
       // the pane is committed and picks side-by-side vs stacked by space.
       queueMicrotask(async () => {
-        const newId = await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, contextId);
+        const newId = fgid
+          ? await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, contextId)
+          : await handleAddPaneWhenEmptyRef.current?.('browser', undefined, contextId);
         if (newId) {
           const ctx = getBrowserContextFromPaneId(newId);
           if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
           seedPaneUrl(newId);
-          setPendingBrowserSplit({ paneId: newId, sourceGroupId: fgid });
+          // Niente split quando il gruppo è nato adesso: non c'è nessun vicino
+          // da cui staccarsi, e la pane è già sola nella sua cella.
+          if (fgid) setPendingBrowserSplit({ paneId: newId, sourceGroupId: fgid });
           // Navigate the pane we just created — and ONLY that one. The old
           // untargeted call here fired before the pane even existed and landed
           // on whatever browser panes happened to be visible.
@@ -291,7 +305,10 @@ export function useProjectBrowserPanes({
   // copy is what actually opens the pane). Fires once the layout has a group to
   // host it; idempotent — a re-run finds the queue already drained.
   useEffect(() => {
-    if (groups.length === 0) return;
+    // Nessuna guardia su `groups.length`: i gruppi sono seminati in modo
+    // SINCRONO dallo snapshot al mount (`useState(() => initial.groups)`),
+    // quindi zero gruppi vuol dire zero gruppi, non «non ancora caricati» — e
+    // la navigazione parcheggiata deve aprire la sua pane anche lì.
     for (const nav of drainProjectBrowserNavigates(projectPath)) {
       ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
     }

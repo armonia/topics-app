@@ -207,8 +207,17 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
     // stessa contabilità di un messaggio finito: totale, quanto era rilettura,
     // quanto nuovo, e il costo.
     await expect(footer).toBeVisible({ timeout: 10_000 });
-    await expect(footer).toContainText("1.0M tokens");
-    await expect(page.getByTestId("message-token-split").last()).toContainText("da cache");
+    // Il totale è QUANTO È COSTATO, non quanti token sono passati:
+    // `shared/token-cost.ts` pesa la rilettura di cache 0,1, ed è la stessa
+    // definizione della card e del grafico. Da 1.000.000 letti di cui 900.000
+    // riletti e 40.000 scritti, più 12.000 di output:
+    // (1.000.000 − 900.000) + 12.000 + 0,1 × 900.000 = 202.000 → `202k`.
+    await expect(footer).toContainText("202k tokens");
+    // Le due quote in chiaro, coi loro numeri: sommano al letto (900k + 100k) e
+    // sono la ragione per cui il totale sopra non è un milione.
+    const split = page.getByTestId("message-token-split").last();
+    await expect(split).toContainText("900k da cache");
+    await expect(split).toContainText("100k nuovi");
     await expect(footer).toContainText("$0.42");
     // E i numeri NON sono più anche in riga: detti due volte sarebbero rumore.
     await expect(inlineUsage).toHaveCount(0);

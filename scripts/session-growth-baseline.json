@@ -1,0 +1,67 @@
+{
+  "$schema": "session-growth-baseline-v1",
+  "surface": "chat panes, tab switching and streamed messages",
+  "recorded": false,
+  "updated": null,
+  "why": [
+    "The goal asks for no meaningful progressive heap, DOM node, listener or process growth during long sessions, and this app IS a long session: it is left open for days while panes are opened and closed, topics are switched and messages stream in. Every other gate in this repo takes ONE sample (bundle bytes at build time, the latency of one gesture, the frames of one scroll), and a leak is invisible to all of them by construction, because a leak is a derivative.",
+    "The bar is a RATIO between cycle 5 and cycle 50, not an absolute number. An absolute megabyte figure is a fact about the machine that took it and would have to be refitted on every laptop and every runner; a ratio is a fact about the code. Cycle 5 and not cycle 1 because the first cycles are warm-up (lazy chunks, first paint of each pane type, caches filling), and measuring against cycle 1 would call warm-up a leak.",
+    "The bench is tests/e2e/long-session-growth.spec.ts, the judge is scripts/check-session-growth.ts. Heap and listeners come from CDP (`Performance.getMetrics` after `HeapProfiler.collectGarbage`), DOM nodes from `document.getElementsByTagName('*').length` in the page, so the headline number is one anybody can reproduce in a console."
+  ],
+  "recorded_why": "`recorded: false` means NO measurement has ever been taken on any machine, so the ratios in `budget` are a reading of the goal and not of this app. While it is false the gate exits 2 (not measurable) instead of green: a budget that has never seen a real number cannot tell 'the app is flat' from 'the bench measured nothing'. ATTEMPTED 2026-08-15 on an idle machine and the BENCH ITSELF is what failed, not the app: `bun run check:growth -- --update-baseline` ran 41 minutes without writing a sample, and cutting it to TOPICS_GROWTH_CYCLES=6 still hung past 10 minutes, so the stall is in one cycle and not in the cycle count. The two steps the author flagged as unverified are the suspects, in this order: the pane close is a 3 s SOFT CONFIRM (client/src/components/Layout/PaneTabBar.tsx) and the reopen goes through the command palette's 'recently closed', so a cycle that misses either waits on a locator that will never appear. Fix the harness first, one cycle at a time with --reporter=line and no pipe (a piped reporter hides the per-step progress that would name the stuck locator), then record. The sibling gate `check:drag` WAS recorded the same day and is armed, so the shape of this pair is proven; it is this bench's DOM choreography that is not.",
+  "protocol": {
+    "cycles": 50,
+    "baseline_cycle": 5,
+    "final_cycle": 50,
+    "burst_per_cycle": 2,
+    "cycle": "switch to B, back to A, close B and reopen it from the command palette, stream a burst into A",
+    "gc": "HeapProfiler.collectGarbage before every sample"
+  },
+  "known_growth": "The transcript keeps the messages the bench streams into it, 2 per cycle, 100 over a full run. That is retained state the app is SUPPOSED to hold, it is bounded, the DOM does not grow with it because the transcript is virtualised, and `witness.messages_streamed` is in the artefact so a reader can size it against the heap ratio. It is the reason the heap budget is not 1.00.",
+  "measured": {
+    "_": "PLACEHOLDER. Not measured yet: a full E2E suite held the ports when this gate was written, so the bench has never run. Fill this in with `bun run check:growth -- --update-baseline`, which writes these numbers and the budgets derived from them via `update_rule`, and flips `recorded` to true.",
+    "heap": null,
+    "dom_nodes": null,
+    "listeners": null,
+    "retained_nodes": null,
+    "first_heap_bytes": null,
+    "first_dom_nodes": null,
+    "first_listeners": null
+  },
+  "budget": {
+    "_": "Maximum ratio of the cycle-50 sample over the cycle-5 sample. 1.00 means perfectly flat. Until `recorded` is true these are a reading of the goal, not a measurement.",
+    "heap": 1.35,
+    "dom_nodes": 1.05,
+    "listeners": 1.05
+  },
+  "budget_why": {
+    "heap": "1.35. Not 1.00, because the run legitimately retains what it streams (see `known_growth`) and because a forced collection still leaves V8 free to keep arenas warm. Not 2.00 either: at that point a session that doubles its heap every fifty cycles would pass, which is exactly the defect the goal names. The number is the loosest one that still fails a real leak, and it is the first one to re-derive from `measured` once a real run exists.",
+    "dom_nodes": "1.05. The DOM is the metric with the least excuse to move: the transcript is virtualised, panes are reused, and a cycle ends in the state it started in. Anything past a few per cent is a subtree that outlived its owner.",
+    "listeners": "1.05. Same argument, and it is the metric that catches the classic React leak: an effect that subscribes and whose cleanup stopped running. Listeners never come back down on their own, so even a slow slope here is a real finding."
+  },
+  "guards": {
+    "_": "Not quality thresholds: the conditions under which the ratio MEANS anything. Outside them the gate exits 2 instead of a red that speaks about the bench rather than the product.",
+    "cycles_completed_floor": 40,
+    "panes_reopened_floor": 40,
+    "messages_streamed_floor": 80,
+    "first_heap_bytes_floor": 5000000,
+    "first_dom_nodes_floor": 300,
+    "witness_why": "A ratio is a fraction, and both halves can lie. If the run stopped after five cycles the ratio is 1.00 and means nothing, so the cycle counters have floors. If the denominator is tiny (a page that never loaded, a heap reading of a few hundred kilobytes) then any noise becomes a huge ratio, so the first sample has floors too. `gc_forced` must be true: without a forced collection the heap number is whatever V8 had not bothered to reclaim, which moves by tens of megabytes between two identical states."
+  },
+  "update_rule": {
+    "_": "How `--update-baseline` recomputes the budgets. The margin is ADDED, not multiplied: these are ratios near 1, and multiplying 1.02 by two would write a budget of 2.04, which is not a budget. The FLOOR keeps a perfectly flat measurement from writing a budget of 1.00 that ordinary noise would break.",
+    "heap": {
+      "floor": 1.35,
+      "margin": 0.15
+    },
+    "dom_nodes": {
+      "floor": 1.05,
+      "margin": 0.03
+    },
+    "listeners": {
+      "floor": 1.05,
+      "margin": 0.03
+    }
+  },
+  "how_to_see_it_red": "TOPICS_GROWTH_LEAK_NODES=120 bun run check:growth. It appends 120 retained nodes, listeners and payload strings per cycle, held by a global array so a forced collection cannot reclaim them: a real leak of exactly the shape this bench claims to catch, moving all three metrics at once. Lowering the budget instead would only prove that a comparison operator works."
+}

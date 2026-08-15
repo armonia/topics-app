@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -990,6 +990,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
         // di storico al percorso che funzionava.
         const closed = svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
+        // IL MERGE È AVVENUTO ANCHE QUANDO LA CARD NON SI CHIUDE. `settleLanded`
+        // rifiuta di chiudere un padre che ha ancora step aperti (chiuderlo li
+        // renderebbe irraggiungibili: il feed è `rootsOnly`), e senza questa riga
+        // chi ha cliccato «Landa su main» leggerebbe «Mergiato su main» sopra una
+        // card che resta in review, senza sapere perché. Si nominano i passi:
+        // sono quelli da chiudere o archiviare prima di approvarla.
+        if (closed && closed.status !== "done") {
+          const aperti = (svc.get(taskId, { projectId })?.children ?? [])
+            .filter((c) => c.status !== "done")
+            .map((c) => `«${c.text}»`);
+          if (aperti.length) {
+            svc.addComment({
+              taskId, author: "system",
+              content:
+                `Il lavoro è su main, ma la card NON si chiude: restano ${aperti.length} sottotask aperti (${aperti.join(", ")}). ` +
+                "Chiudili o archiviali, poi approva questa card.",
+            });
+          }
+        }
         // Chi ASPETTAVA questa card lo scopre qui, non più all'approvazione:
         // adesso è questa la porta da cui una card landata arriva in `done`.
         if (closed && closed.status === "done") dispatcher?.onBlockerDone(taskId);
@@ -1316,6 +1335,26 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return null;
   }
 
+  /**
+   * `?status=` dal query string, SENZA `as any`.
+   *
+   * Il cast passava «in-progress» dritto al servizio, che lo metteva in un
+   * `WHERE status = ?` dove non matcha niente: 200 con zero card. Una board
+   * vuota è una risposta plausibilissima, quindi il refuso restava invisibile e
+   * si andava a cercare il guasto nel dispatcher. Qui il dominio è chiuso e lo
+   * sbaglio si dichiara — 400 con l'elenco degli stati veri. La stessa guardia
+   * sta anche in `svc.list`, che è la porta comune: questa nomina il valore che
+   * è arrivato dalla rete, quella copre chi il servizio lo chiama da dentro.
+   */
+  function asTaskStatus(raw: string | null | undefined): TaskStatus | undefined {
+    if (!raw) return undefined;
+    const found = TASK_STATUSES.find((s) => s === raw);
+    if (!found) {
+      throw new TaskServiceError("invalid_input", `stato "${raw}" inesistente: gli stati sono ${TASK_STATUSES.join(", ")}`);
+    }
+    return found;
+  }
+
   function fail(e: unknown): Response {
     if (e instanceof TaskServiceError) return json({ error: e.message, code: e.code }, ERROR_STATUS[e.code] ?? 400);
     // Un valore fuori da un dominio chiuso è colpa di chi chiama, non del
@@ -1392,10 +1431,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         grantedResourceIds(ctx.db, resolvePrincipals(ctx.db, deviceId).list, "task"),
       );
 
-      // L'elenco: solo i suoi.
+      // L'elenco: solo i suoi, e il PREDICATO ARRIVA FINO A SQL. Prima si
+      // idratava ogni task del database — ogni etichetta, ogni bloccante, ogni
+      // conto di coda — per poi tenerne i due condivisi in JS: l'ospite pagava
+      // l'intera board per vedere le sue due schede. `ids` rende quel filtro una
+      // clausola, e un insieme vuoto esce senza interrogare niente.
       if (pathname === "/api/all-boards/tasks") {
-        const tutti = svc.list({ scope: "all", rootsOnly: true }) as Array<{ id: string }>;
-        return json({ tasks: tutti.filter((t) => condivisi.has(t.id)) });
+        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi] }) });
       }
       // Un task singolo, il suo thread, i suoi allegati: passa solo se l'id è
       // fra i condivisi. L'id si legge dal path, che è la forma che tutte le
@@ -1422,7 +1464,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
       // Tranne gli ORFANI (padre chiuso, archiviato o sparito): quello non è
       // l'albero di nessuno, e fuori dalle colonne non lo guarda più niente.
-      try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true, includeOrphanSubtasks: true }) }); }
+      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true }) }); }
       catch (e) { return fail(e); }
     }
 
@@ -1670,6 +1712,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           return json({
             error: "questo tentativo non ha mai avuto una sessione: non c'è niente da tenere",
             code: "invalid_input",
+          }, 409);
+        }
+
+        // ── LA SCELTA SI FA UNA VOLTA SOLA ────────────────────────────────
+        //
+        // `attempts.select` è atomico DENTRO di sé (una transazione: mai due
+        // `selected`), ma non ha una PRECONDIZIONE: una seconda `select` su un
+        // tentativo diverso ripuntava il task su un worktree che la prima aveva
+        // già potato — `reapAttemptWorkspace` sui perdenti gira fuori dalla
+        // transazione, e da lì in poi diff, checks, land e anteprima seguivano
+        // un'indirezione morta. Due click su due schede, o un doppio invio, e
+        // il lavoro scelto per primo non è più raggiungibile.
+        //
+        // Il cancello sta QUI, alla porta, con la stessa forma del 409
+        // `fanout_running` qui sopra: si nomina il tentativo che ha già vinto,
+        // così chi legge sa cosa è stato deciso invece di riprovare. Ripremere
+        // sullo STESSO tentativo resta idempotente: non c'è niente da rifare,
+        // ma neanche niente di sbagliato da dire.
+        const giaScelto = attempts.list(taskId).find((a) => a.state === "selected");
+        if (giaScelto && giaScelto.id !== attemptId) {
+          return json({
+            error: `il fan-out di questo task è già stato deciso: ha vinto il tentativo #${giaScelto.idx}, e i worktree degli altri sono stati potati`,
+            code: "fanout_already_decided",
+            attemptId: giaScelto.id,
           }, 409);
         }
 
@@ -1977,7 +2043,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (boardId === UNASSIGNED_PROJECT_ID) return json({ proposal: null });
           // rootsOnly: un sottotask è la checklist di qualcun altro, non una
           // destinazione — appenderci sotto un feedback lo seppellirebbe.
-          const candidates = svc.list({ scope: "project", projectId: boardId, rootsOnly: true });
+          // `withDescription`: qui il testo intero è il DATO su cui si decide
+          // (proposeLink confronta le descrizioni), non qualcosa da disegnare.
+          const candidates = svc.list({ scope: "project", projectId: boardId, rootsOnly: true, withDescription: true });
           const proposal = proposeLink({
             text,
             description,
@@ -2008,7 +2076,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           try {
             return json({
               tasks: svc.list({
-                scope: "project", projectId, status: status as any, rootsOnly: true,
+                scope: "project", projectId, status: asTaskStatus(status), rootsOnly: true,
                 includeOrphanSubtasks: true,
                 labels: parseLabelsParam(params.get("labels")),
                 archived,
@@ -2595,7 +2663,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const scope = params.get("scope") === "all" ? "all" : "project";
         const status = params.get("status") || undefined;
         try {
-          const tasks = svc.list({ scope, projectId: sess.projectId, status: status as any });
+          // La lista di un AGENTE porta la descrizione intera: la board umana
+          // ne manda solo l'anteprima perché la card la taglia comunque a due
+          // righe, ma un agente legge, e 240 caratteri senza dirlo si leggono
+          // come «descrizione corta» invece che come «descrizione tagliata».
+          const tasks = svc.list({ scope, projectId: sess.projectId, status: asTaskStatus(status), withDescription: true });
           return json({ tasks });
         } catch (e) { return fail(e); }
       }

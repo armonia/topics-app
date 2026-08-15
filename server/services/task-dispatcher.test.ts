@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
@@ -36,6 +36,10 @@ function freshDb(): Database {
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
+    -- I comandi che l'envelope nomina alla consegna. Senza questa colonna il
+    -- ramo dei check del kickoff non era raggiungibile da qui, cioe' proprio
+    -- le righe che nessun test leggeva.
+    review_checks TEXT,
     max_agents_auto INTEGER, dispatch_fanout INTEGER
   )`);
   // I tentativi in parallelo: servono al fan-out, che è l'unico posto in cui
@@ -168,7 +172,7 @@ describe("task-dispatcher", () => {
     expect(h.topicsCreated[0].worktreeId).toBe("wt-store-1");
     expect(h.turns.length).toBe(1);
     expect(h.turns[0].sessionKey).toBe("topic:sk1");
-    expect(h.turns[0].content).toContain("owner esclusivo del task");
+    expect(h.turns[0].content).toContain("exclusive owner of task");
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
   });
 
@@ -827,7 +831,7 @@ describe("task-dispatcher", () => {
     expect(h.topicsCreated.length).toBe(1); // no fresh topic
     expect(h.turns.length).toBe(2);
     expect(h.turns[1].sessionKey).toBe("topic:topic-1"); // same tab resumed (prod sessionKey convention)
-    expect(h.turns[1].content).toContain("interrotto");
+    expect(h.turns[1].content).toContain("was interrupted");
     // Kickoff turn carries the FULL context envelope; the continuation is LEAN
     // (the persistent session already has CLAUDE.md/README/awareness — resending
     // them only compounds cache write/read).
@@ -993,7 +997,7 @@ describe("task-dispatcher", () => {
     h.finishTurn(); await flush(); // attempt 1 → continuation (attempt 2 = cap)
     // The single continuation is already the LAST chance (deliver-what-you-have).
     expect(h.turns.length).toBe(2);
-    expect(h.turns[1].content).toContain("ULTIMO TURNO");
+    expect(h.turns[1].content).toContain("LAST TURN");
     h.finishTurn(); await flush(); // attempt 2 at cap → park, no 3rd turn
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");
@@ -1563,7 +1567,7 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);                 // one continuation turn on the SAME session
     expect(h.turns[0].sessionKey).toBe("topic:" + "topic-live".slice(0, 8));
     expect(h.turns[0].contextMode).toBe("lean");    // envelope already in the session history
-    expect(h.turns[0].content).toContain("Riprendi da dove eri");
+    expect(h.turns[0].content).toContain("Resume where you were");
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((c) => c.author === "system" && c.content.includes("riprendo la stessa sessione"))).toBe(true);
   });
@@ -1653,7 +1657,7 @@ describe("task-dispatcher", () => {
     expect(t.assignedTopicId).toBe("topic-1");                    // FRESH topic, not the dead one
     expect(t.dispatchAttempts).toBe(1);                            // rolled back to 0, re-claim bumped to 1
     expect(h.turns.length).toBe(1);
-    expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff da capo
+    expect(h.turns[0].content).toContain("exclusive owner of task"); // kickoff da capo
   });
 
   it("reconcile with the global switch OFF requeues without resuming and without a stranded chip", async () => {
@@ -1717,7 +1721,7 @@ describe("task-dispatcher", () => {
     expect(t.assignedTopicId).toBe("topic-1");                       // topic NUOVO, il fantasma era sbindato
     expect(t.dispatchAttempts).toBe(1);                              // rimborsato (1→0) e riclaimato (0→1)
     expect(h.turns.length).toBe(1);                                  // lo slot lavora davvero
-    expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff, non un turno fantasma
+    expect(h.turns[0].content).toContain("exclusive owner of task"); // kickoff, non un turno fantasma
   });
 
   it("un'attesa di slot VIVA non è un orfano: reconcile la lascia stare, il riavvio no", async () => {
@@ -1831,7 +1835,7 @@ describe("task-dispatcher", () => {
     expect(t.status).toBe("in_progress");     // resumed, not parked
     expect(t.dispatchAttempts).toBe(2);       // still no burn
     expect(h.turns.length).toBe(1);
-    expect(h.turns[0].content).toContain("ULTIMO TURNO"); // budget exhausted → deliver-now nudge
+    expect(h.turns[0].content).toContain("LAST TURN"); // budget exhausted → deliver-now nudge
   });
 
   it("launch parks (not requeues) when setup fails and attempts are exhausted", async () => {
@@ -1908,12 +1912,12 @@ describe("task-dispatcher", () => {
     const kickoff = h.turns[0].content;
     expect(kickoff).toContain('parent_task_id="t1"');
     expect(kickoff).toContain('status="done"'); // marca ogni step done
-    expect(kickoff).toContain("TUTTI i tuoi step devono essere done");
+    expect(kickoff).toContain("ALL your steps must be done");
     // Consegna = tab del task + file consegnati, niente concetto "Output":
     // l'agente deve sapere che una pagina viva si apre come TAB, non si dichiara
     // come url in un campo a parte.
     expect(kickoff).toContain("open_browser_pane");
-    expect(kickoff).toContain("FILE CONSEGNATI");
+    expect(kickoff).toContain("DELIVERED FILES");
     expect(kickoff).not.toContain("output_url");
   });
 
@@ -1965,7 +1969,7 @@ describe("task-dispatcher", () => {
     const kickoff = h.turns[0].content;
     expect(kickoff).toContain("cassetto cookie al contrario");
     expect(kickoff).toContain("[kid1]");
-    expect(kickoff).toContain("1 sottotask aperti");
+    expect(kickoff).toContain("1 open subtask(s)");
     // I figli chiusi sono storia: ripassarli invita a rifarli.
     expect(kickoff).not.toContain("già chiuso");
   });
@@ -2053,7 +2057,7 @@ describe("blocked-by + context reuse", () => {
     expect(h.worktreesCreated.length).toBe(0);          // topic carries its own cwd
     expect(h.turns.length).toBe(1);
     expect(h.turns[0].sessionKey).toBe("topic:topic-bl"); // topic:<id8>
-    expect(h.turns[0].content).toContain("STESSA sessione");
+    expect(h.turns[0].content).toContain("SAME session as the previous one");
   });
 
   it("passes the task's model override to the fresh agent topic", async () => {
@@ -2152,14 +2156,14 @@ describe("priority", () => {
     const auto = h.svc.create({ projectId: PID, status: "todo", text: "senza priorità" });
     await h.dispatcher.tick(PID);
     await flush();
-    expect(h.turns[0].content).toContain("Priorità automatica");
+    expect(h.turns[0].content).toContain("AUTOMATIC PRIORITY");
     h.finishTurn(); await flush();
     const h2 = harness();
     h2.svc.updateBoardSettings(PID, { autoDispatch: true });
     h2.svc.create({ projectId: PID, status: "todo", text: "scelta umana", priority: 3 });
     await h2.dispatcher.tick(PID);
     await flush();
-    expect(h2.turns[0].content).not.toContain("Priorità automatica");
+    expect(h2.turns[0].content).not.toContain("AUTOMATIC PRIORITY");
     expect(auto.priorityAuto).toBe(true);
   });
 
@@ -2499,16 +2503,17 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     await flush();
 
     const kickoff = h.turns[0].content;
-    // Estratta per STRUTTURA (dalla riga «EVIDENZA DI REVIEW» a «Cancello
-    // unico»), non cercando la costante: un test che cerca la stringa che ha
+    // Estratta per STRUTTURA (dalla riga «REVIEW EVIDENCE» a «One single
+    // gate»), non cercando la costante: un test che cerca la stringa che ha
     // appena interpolato non può fallire.
     const kickoffPreviewRule = extractPreviewRule(kickoff);
     expect(kickoffPreviewRule).toBe(PREVIEW_RULE);
     // E una sola volta: due blocchi nello stesso envelope sarebbero già la
     // divergenza che ricomincia.
     expect(kickoff.split(PREVIEW_RULE).length - 1).toBe(1);
-    expect(kickoff).toContain("· DIAGRAMMA");
-    expect(kickoff).not.toContain("UI STATICA"); // il vecchio ramo a due vie è sparito
+    expect(kickoff).toContain("· DIAGRAM");
+    expect(kickoff).not.toContain("UI STATICA");   // il vecchio ramo a due vie è sparito
+    expect(kickoff).not.toContain("· DIAGRAMMA");  // e nemmeno la versione italiana
   });
 
   it("il resume porta la STESSA regola, non un riassunto che perde un ramo", async () => {
@@ -2537,7 +2542,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.7, 3);
     expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(2));
     expect(PREVIEW_RULE).toContain("≤20s");        // il tetto del video
-    expect(PREVIEW_RULE).toContain("DUE O PIÙ STATI"); // il criterio del ramo video
+    expect(PREVIEW_RULE).toContain("TWO OR MORE STATES"); // il criterio del ramo video
   });
 
   it("la soglia del protocollo È il CSS della card, non un numero che gli somiglia", () => {
@@ -2570,7 +2575,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
   it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
     // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
     // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
-    const MARK = "· DIAGRAMMA .svg";
+    const MARK = "· DIAGRAM .svg";
     const roots = ["server", "scripts", "shared", "client/src"];
     const repo = join(import.meta.dir, "..", "..");
     const hits: string[] = [];
@@ -2951,8 +2956,15 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // `done` con figli aperti è uno stato che la board non sa raccontare, e le
     // porte normali lo rifiutano (`update` e l'approvazione in review lanciano
     // `open_subtasks`). La chiusura del cancello passa da `settleLanded`, che
-    // scrive SQL grezzo e non ripassa da lì: senza guardia il padre finiva `done`
-    // col figlio ancora in Todo.
+    // scrive SQL grezzo e non ripassava da lì: senza guardia il padre finiva
+    // `done` col figlio ancora in Todo.
+    //
+    // La guardia adesso sta DENTRO `settleLanded`, cioè nella stessa porta che
+    // la applica all'approvazione e al trascinamento. Perciò a git si chiede
+    // eccome — un predicato solo, e sta a valle della sonda — e la card, non
+    // essendosi chiusa, prosegue fino al claim: ha una checklist da muovere, e
+    // saltarla la lascerebbe ferma per sempre. Il conto della sonda è UNA
+    // chiamata, non una per tick per card.
     const { h, chieste } = conSonda(true);
     seedTask(h.db, { id: "padre", status: "todo", deliveryCommit: "cccc3333".repeat(5) });
     seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
@@ -2961,8 +2973,9 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     await flush();
 
     expect(h.task("padre")!.status).not.toBe("done");
+    expect(h.task("padre")!.status).toBe("in_progress");
     expect(h.task("figlio")!.status).toBe("todo");
-    expect(chieste).toEqual([]);
+    expect(chieste.length).toBe(1);
     // …e la porta normale la pensa uguale, sulla stessa riga di DB.
     expect(() => h.svc.update({ taskId: "padre", actor: "human", by: "attilio", patch: { status: "done" } }))
       .toThrow(/open subtasks/i);
@@ -3068,5 +3081,219 @@ describe("chip at delivery: delivery versus question", () => {
     await consegna(h, "Quale approccio uso?", ["JWT in cookie", "Bearer token"]);
     expect(h.task("t1")!.dispatchState).toBe("needs_input");
     h.dispatcher.shutdown();
+  });
+});
+
+/**
+ * IL PAVIMENTO DI CPU DEL RECONCILE.
+ *
+ * Gira ogni 10 secondi, sempre, e il suo primo gesto era: idrata OGNI todo di
+ * OGNI board — payload completo per riga: etichette, bloccante, ragione di coda,
+ * commenti recenti — poi leggine solo `projectId` e butta il resto. Con
+ * l'interruttore globale SPENTO quel lavoro finiva comunque nel cestino, perché
+ * ogni `tick` esce alla seconda riga.
+ *
+ * Si misura in STATEMENT e non in millisecondi apposta: è la FORMA del guasto
+ * (per riga invece che per lotto, e prima dell'interruttore invece che dopo), e
+ * il numero non cambia da una macchina all'altra.
+ */
+describe("il reconcile non idrata la board per contare le board", () => {
+  function contaStatement<T>(db: Database, run: () => Promise<T>): Promise<number> {
+    const raw = db.prepare.bind(db);
+    let n = 0;
+    (db as unknown as { prepare: unknown }).prepare =
+      (...a: unknown[]) => { n++; return (raw as unknown as (...x: unknown[]) => unknown)(...a); };
+    return run().then(
+      () => { (db as unknown as { prepare: unknown }).prepare = raw; return n; },
+      (e) => { (db as unknown as { prepare: unknown }).prepare = raw; throw e; },
+    );
+  }
+
+  /** 100 radici in coda su 5 board, che è la forma della coda vera. */
+  function seedCoda(db: Database): void {
+    for (let i = 0; i < 100; i++) {
+      const ts = new Date(Date.UTC(2026, 7, 15, 0, 0, i)).toISOString();
+      db.run(
+        `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'todo', ?, ?)`,
+        [`q-${i}`, `board-${i % 5}`, `card ${i}`, ts, ts],
+      );
+    }
+  }
+
+  it("interruttore SPENTO: un reconcile sta sotto i 15 statement (ne faceva centinaia)", async () => {
+    const h = harness();
+    seedCoda(h.db);
+    // L'interruttore è la riga globale `*`, e di serie è spento.
+    expect(h.svc.getGlobalAutoDispatch()).toBe(false);
+
+    const n = await contaStatement(h.db, () => h.dispatcher.reconcile());
+
+    expect(n).toBeLessThan(15);
+    h.dispatcher.shutdown();
+  });
+
+  it("e non cresce con la coda: dieci volte le card, lo stesso conto", async () => {
+    // La controprova che rende il numero un INVARIANTE e non una soglia
+    // calibrata su questo seed.
+    const piccola = harness();
+    for (let i = 0; i < 10; i++) {
+      const ts = new Date(Date.UTC(2026, 7, 15, 0, 0, i)).toISOString();
+      piccola.db.run(
+        "INSERT INTO tasks (id, project_id, text, status, created_at, updated_at) VALUES (?, ?, ?, 'todo', ?, ?)",
+        [`q-${i}`, `board-${i % 5}`, `card ${i}`, ts, ts],
+      );
+    }
+    const grande = harness();
+    seedCoda(grande.db);
+
+    const a = await contaStatement(piccola.db, () => piccola.dispatcher.reconcile());
+    const b = await contaStatement(grande.db, () => grande.dispatcher.reconcile());
+
+    expect(b).toBe(a);
+    piccola.dispatcher.shutdown();
+    grande.dispatcher.shutdown();
+  });
+
+  it("acceso, la coda si guarda ancora: il risparmio non è «non fare niente»", async () => {
+    // Il cancello sopra passerebbe anche se il reconcile fosse rotto. Questa dice
+    // che con l'interruttore acceso le board con roba in coda vengono servite.
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    h.dispatcher.shutdown();
+  });
+});
+
+/**
+ * L'ENVELOPE È IN INGLESE, TUTTO, E QUESTO È IL CANCELLO CHE LO TIENE.
+ *
+ * È un contratto di runtime letto da un modello, sta nel codice, e in questo
+ * repo il codice è in inglese (`docs/board-protocol.md` §DUE LINGUE). La ragione
+ * per cui serve un cancello e non una lettura attenta: l'envelope si compone da
+ * quattro funzioni e tre costanti condivise, e ognuna ha rami che si accendono
+ * solo su una certa forma di task (plan-first, priorità automatica, sottotask
+ * aperti, cancelli della board). Un envelope mezzo tradotto è peggio di
+ * entrambe le lingue: il modello imita quella che vede per ultima.
+ *
+ * Le ETICHETTE DEI BOTTONI restano italiane ed escono dal confronto: il server
+ * le scrive, il client e le rotte le confrontano PER VALORE
+ * (`isLandActionLabel`, `hasPlanApproveOption`), quindi tradurne una sola parte
+ * romperebbe la app. Si tolgono prima, per nome, invece di allargare il
+ * dizionario: così restano visibili come eccezione dichiarata.
+ */
+describe("l'envelope non parla italiano", () => {
+  /**
+   * Parole funzione italiane che NON sono anche parole inglesi. `per`, `come`,
+   * `in`, `a` e `no` restano fuori apposta: compaiono in inglese («one tab per
+   * surface»), e un cancello che urla su un testo giusto lo si spegne.
+   */
+  const ITALIANO = /\b(?:il|lo|la|le|gli|un|una|uno|del|dello|della|dei|delle|degli|che|non|con|sul|sulla|nel|nella|dal|dalla|alla|questo|questa|quello|quella|quando|perché|perche|già|gia|senza|sempre|anche|ancora|adesso|quindi|invece|oppure|ogni|tutti|tutte|nessuno|niente|appena|subito|mentre|sotto|sono|essere|fare|fatto|deve|devi|puoi|può|puo|cosa|dove|più|piu|sei|tuo|tua|tuoi|suo|sua)\b|è/i;
+
+  /** L'envelope meno le etichette che il resto della app confronta per valore. */
+  function senzaEtichette(envelope: string): string {
+    return [LAND_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, "Pubblica"]
+      .reduce((testo, etichetta) => testo.split(etichetta).join("<label>"), envelope);
+  }
+
+  /** Le righe che tradiscono la lingua, per poterle NOMINARE quando è rosso. */
+  const righeItaliane = (envelope: string): string[] =>
+    senzaEtichette(envelope).split("\n").filter((r) => ITALIANO.test(r));
+
+  /**
+   * Un task fatto apposta per accendere OGNI ramo dell'envelope: plan-first,
+   * priorità non scelta, un sottotask aperto, i cancelli della board. Testo e
+   * descrizione in inglese perché sono DATI, e il dato lo scrive una persona
+   * nella sua lingua: il cancello guarda le istruzioni, non il task.
+   */
+  async function envelopeDiKickoff(fanOut?: number): Promise<{ h: ReturnType<typeof harness>; kickoff: string }> {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, {
+      autoDispatch: true,
+      reviewChecks: [{ name: "types", cmd: "bun run typecheck" }],
+      ...(fanOut ? { dispatchFanOut: fanOut } : {}),
+    });
+    if (fanOut) h.svc.setGlobalCap({ auto: false, max: 5 });
+    const t = h.svc.create({
+      projectId: PID, status: "todo", text: "Rename the stale flag",
+      description: "The gate reads the old name.", planFirst: true,
+    });
+    h.svc.create({ projectId: PID, text: "Find every reader", parentTaskId: t.id });
+    await h.dispatcher.tick(PID);
+    await flush();
+    return { h, kickoff: h.turns[0]!.content };
+  }
+
+  it("il kickoff, con TUTTI i suoi rami accesi", async () => {
+    const { h, kickoff } = await envelopeDiKickoff();
+    // I rami che devono essere davvero nel testo: senza questa riga il cancello
+    // sotto passerebbe anche su un envelope a cui manca metà.
+    for (const ramo of ["PLAN FIRST", "AUTOMATIC PRIORITY", "open subtask(s)", "PRE-REVIEW CHECKS", "REVIEW EVIDENCE", "THE FIVE CODE GATES", "A VERSION BUMP IS ONE COMMAND", "Start now."]) {
+      expect(kickoff).toContain(ramo);
+    }
+    expect(righeItaliane(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("il kickoff di fan-out, che è un contratto diverso e quindi un testo diverso", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(2);
+    expect(kickoff).toContain("ATTEMPT 1 of 2");
+    expect(righeItaliane(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("il resume: l'unico testo davanti a un agente che riparte", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live" });
+    // Non si aspetta la promessa: il turno finto dell'harness si chiude a
+    // comando, quindi attenderla qui vorrebbe dire attendere per sempre.
+    void h.dispatcher.resume("t1", "also rename the docs");
+    await flush();
+
+    const testo = h.turns[0]!.content;
+    expect(testo).toContain("Human update on task");
+    expect(righeItaliane(testo)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  /**
+   * Il sollecito automatico dopo un turno finito senza consegna. Ha DUE forme, e
+   * la seconda (budget finito) si accende solo al tetto dei tentativi: il modo
+   * di raggiungerle è il turno vero che si chiude, non una chiamata diretta.
+   */
+  async function envelopeDiSollecito(retryCap: number): Promise<{ h: ReturnType<typeof harness>; testo: string }> {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: retryCap });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn();
+    await flush();
+    return { h, testo: h.turns[1]!.content };
+  }
+
+  it("il sollecito, in ENTRAMBE le forme: quella normale e quella col budget finito", async () => {
+    const normale = await envelopeDiSollecito(3);
+    expect(normale.testo).toContain("was interrupted");
+    expect(righeItaliane(normale.testo)).toEqual([]);
+    normale.h.dispatcher.shutdown();
+
+    const ultimo = await envelopeDiSollecito(2);
+    expect(ultimo.testo).toContain("LAST TURN");
+    expect(righeItaliane(ultimo.testo)).toEqual([]);
+    ultimo.h.dispatcher.shutdown();
+  });
+
+  it("e il cancello sa dire di no: una riga italiana la vede", () => {
+    // La controprova. Senza, «nessuna riga italiana» potrebbe voler dire
+    // «il filtro non guarda niente», e passerebbe su qualunque testo.
+    expect(righeItaliane("- Lavora SOLO questo task, in questa working directory.")).toHaveLength(1);
+    expect(righeItaliane("- Work ONLY this task, in this working directory.")).toEqual([]);
   });
 });
