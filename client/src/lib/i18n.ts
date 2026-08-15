@@ -723,6 +723,16 @@ const IT: Dict = {
   'account.linkedTo': 'Agganciato a {nome}, la persona che era già qui.',
   'account.offline': 'Il servizio degli account non risponde adesso. Il collegamento resta valido e nulla, qui, cambia.',
   'account.footnote': 'Collegare un account non crea una seconda persona: aggancia la tua identità remota a quella che questa installazione ha già. Non serve per installare, per il primo avvio, per usare l’app o per raggiungerla dalla tua rete.',
+  // ── Il runtime degli agenti: con quale MECCANICA gira un agente, che è una
+  //    domanda diversa da CHI risponde. Il numero sta nel testo perché è tutta
+  //    la ragione della scelta, ed è misurato, non stimato.
+  'runtime.label': 'Runtime degli agenti',
+  'runtime.hint': 'Vale dal prossimo avvio del server.',
+  'runtime.cliDefault': 'CLI (predefinito)',
+  'runtime.cli': 'CLI (un processo per sessione)',
+  'runtime.jcode': 'jcode (demone condiviso)',
+  'runtime.blurb': 'Una CLI per sessione costa circa 200 MB per agente: otto agenti sono quasi 2 GB di soli processi. Con jcode le sessioni vivono dentro un demone condiviso e ne costano meno di uno ciascuna, misurate su 24 sessioni insieme. Il sistema a CLI resta il predefinito e riprende esattamente come prima.',
+  'runtime.missing': 'Scelto, ma non ancora fra i provider: serve un riavvio del server, e l’eseguibile jcode dev’essere nel PATH.',
   // ── Il profilo: le tue statistiche d'uso, lette da ciò che è successo qui.
   'profile.stats.title': 'Le tue statistiche',
   'profile.stats.blurb': 'Contate su ciò che è successo davvero qui: sessioni, messaggi, task della board. Restano su questa macchina.',

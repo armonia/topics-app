@@ -73,6 +73,32 @@ export const DISCORD_DETAIL_LEVELS = ['minimal', 'activity', 'detailed'] as cons
 export type DiscordDetailLevel = (typeof DISCORD_DETAIL_LEVELS)[number];
 
 /**
+ * Con quale MECCANICA si esegue un agente. Non è «chi risponde» — quello è il
+ * provider, e resta scelto per topic e per task — è quanta macchina costa
+ * tenerne uno vivo.
+ *
+ *   • `cli`   — una CLI per sessione, in una PTY: `claude`, `codex`. È il
+ *               sistema storico e resta il default. Fedele fino all'ultimo
+ *               carattere, perché è letteralmente il programma che gira in un
+ *               terminale, ma è un processo Node INTERO per sessione.
+ *   • `jcode` — le sessioni passano da `jcode acp`, un adattatore sottile
+ *               davanti a un demone Rust condiviso.
+ *
+ * Il numero che separa i due gradini, misurato su questa macchina il
+ * 2026-08-15 e non stimato: un agente dispatchato costa ~206 MB marginali
+ * (bench/results/memory-latest.json), due `claude` vivi ne pesavano 1.580 in
+ * due. Ventiquattro sessioni ACP concorrenti su un solo peer jcode sono
+ * costate 0,58 MB l'una. È lo stesso lavoro con due ordini di grandezza di
+ * differenza, ed è tutta la ragione per cui questo interruttore esiste.
+ *
+ * `cli` è il default e ci resta: chi aggiorna non deve trovarsi il runtime
+ * cambiato sotto i piedi, e chi deve riprodurre un comportamento della CLI
+ * vera deve poterci tornare in un gesto.
+ */
+export const AGENT_RUNTIMES = ['cli', 'jcode'] as const;
+export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
+
+/**
  * L'attività come Discord la vuole in `SET_ACTIVITY.args.activity`.
  *
  * Sta qui e non nel servizio perché la card in Impostazioni ne disegna
