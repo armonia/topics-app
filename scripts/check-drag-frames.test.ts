@@ -122,6 +122,24 @@ describe("judge", () => {
     expect(o.blockers.join(" ")).toContain("calibration");
   });
 
+  it("a 60 Hz machine cannot be judged against a 60 FPS budget", () => {
+    // The real CI case, 2026-08-15, the first run that ever reached this gate:
+    // calibration 16.7 ms (a 60 Hz screen), p95 16.8 ms, red by 0.1 ms — one
+    // cadence tick. The absolute ceiling did not notice because 16.7 is not > 20.
+    // The budget is 16.7 ms, so on that machine the gate was asking the drag to
+    // beat the display's own idle rate: no code passes that.
+    const o = judge(with_({ calibration_gap_ms: 16.7, median: { p95_frame_ms: 16.8 } }), RECORDED);
+    expect(o.code).toBe(2);
+    expect(o.blockers.join(" ")).toContain("at-rest cadence");
+  });
+
+  it("and a machine WITH room still gets judged, or the gate protects nothing", () => {
+    // 8.3 ms at rest is the 120 Hz box the baseline came from: there the budget
+    // has two ticks of headroom and a heavy drag must still come out red.
+    const o = judge(with_({ calibration_gap_ms: 8.3, median: { p95_frame_ms: 25 } }), RECORDED);
+    expect(o.code).toBe(1);
+  });
+
   it("refuses a bench whose drop never landed, even with perfect frame times", () => {
     // Zero committed drops means the pointer waggled over a static board: the
     // best possible numbers, measured on no drag at all.
