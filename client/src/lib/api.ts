@@ -1345,6 +1345,11 @@ export const profileApi = {
   async stats(): Promise<{ stats: ProfileStats; name: string | null }> {
     return request<{ stats: ProfileStats; name: string | null }>('/profile/stats');
   },
+  /** Solo come si chiama chi usa l'app. Porta separata da `stats`, che per un
+   *  nome scandirebbe sessioni, messaggi e token dell'intera installazione. */
+  async owner(): Promise<{ name: string | null }> {
+    return request<{ name: string | null }>('/profile/owner');
+  },
   /** Stato del filo + l'anteprima di OGNI livello: la card le mostra tutte e
    *  tre, così la scelta si fa guardando il risultato invece di leggendo una
    *  descrizione. */

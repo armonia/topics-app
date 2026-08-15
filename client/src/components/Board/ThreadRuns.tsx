@@ -29,7 +29,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { foldsAway, groupServiceRuns, type ThreadComment } from '../../../../shared/task-comment-service';
+import { foldsAway, groupServiceRuns, groupStatusRuns, type ThreadComment } from '../../../../shared/task-comment-service';
 
 /** A thread row this component can render: whatever it takes to classify, plus a key. */
 export type ThreadRunsRow = ThreadComment & { id: string };
@@ -70,10 +70,19 @@ export function ServiceFold({ count, children }: { count: number; children: Reac
  * The drawer renders the agent's session steps between comments, and a fold that
  * swallowed those would hide the very speech this exists to surface.
  */
-export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, renderRow }: {
+export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, renderRow, renderStatusRun }: {
   comments: readonly T[];
   breaksRun?: (comment: T, index: number) => boolean;
   renderRow: (comment: T, index: number) => ReactNode;
+  /**
+   * The transitions of a stretch, drawn as ONE thing instead of one paragraph
+   * each. Status rows are the other half of the wall — 4406 of 9973 rows on the
+   * live database — and every one of them was a full-width line saying a card
+   * changed column. Given a renderer they collapse into a chip strip; without
+   * one they keep going through `renderRow`, so nothing here depends on a
+   * caller opting in.
+   */
+  renderStatusRun?: (comments: T[], startIndex: number) => ReactNode;
 }) {
   const runs = useMemo(() => {
     // `start` = the index of the run's first row in the ORIGINAL list, carried
@@ -86,10 +95,30 @@ export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, rende
     }
     return out;
   }, [comments, breaksRun]);
+  /**
+   * A run's children. Without `renderStatusRun` this is the row-per-comment it
+   * has always been; with it, adjacent transitions hand themselves to the strip
+   * renderer as a group. The cut rule is the SAME `breaksRun` the outer split
+   * uses, so a gap that holds the agent's session steps splits the strip too —
+   * the alternative is a chip strip that quietly spans over speech.
+   */
+  const bodyOf = (run: { comments: T[]; start: number }): ReactNode[] => {
+    if (!renderStatusRun) return run.comments.map((c, k) => renderRow(c, run.start + k));
+    const out: ReactNode[] = [];
+    let at = run.start;
+    for (const stretch of groupStatusRuns(run.comments, (c, i) => !!breaksRun?.(c, run.start + i))) {
+      if (stretch.status) out.push(
+        <div key={`status-${(stretch.comments[0] as ThreadRunsRow).id}`}>{renderStatusRun(stretch.comments, at)}</div>,
+      );
+      else for (const [k, c] of stretch.comments.entries()) out.push(renderRow(c, at + k));
+      at += stretch.comments.length;
+    }
+    return out;
+  };
   return (
     <>
       {runs.map((run) => {
-        const body = run.comments.map((c, k) => renderRow(c, run.start + k));
+        const body = bodyOf(run);
         // A lone service note is not a wall: folding it would cost a click to
         // read one line that was already one line.
         return foldsAway(run)

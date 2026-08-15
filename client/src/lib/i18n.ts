@@ -182,7 +182,21 @@ const IT: Dict = {
   'board.task.reuseBlockerTitle': "Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo",
   'board.task.blockedByText': 'Bloccato da: {text}',
   'board.task.blockedByUnknown': 'Bloccato da un altro task',
-  'board.task.openResultWorkspaceTitle': 'Apri il risultato come tab nel workspace del progetto',
+  // «Apri il task», non «apri il risultato»: i risultati di una scheda sono
+  // tanti e cambiano mentre l'agent lavora, quindi il gesto promuove il TASK
+  // nel workspace del progetto e si porta dietro quello che ha in quel momento.
+  'board.task.openInProject': 'Apri il task nel progetto',
+  'board.task.openInProjectTitle': 'Porta le tab di questo task nel workspace del progetto ({n})',
+  'board.task.openTabInProject': 'Apri nel progetto',
+  'board.task.openTabInProjectTitle': 'Sposta questa scheda nel workspace del progetto',
+  // Chi ha parlato. L'identità resta quella scritta sul disco; questi sono i
+  // NOMI che si leggono al suo posto (vedi lib/authorDisplay.ts).
+  'board.task.author.you': 'Tu',
+  'board.task.author.app': 'Topics',
+  'board.task.author.verifier': 'Verifica',
+  'board.task.author.agent': 'Agent',
+  'board.task.statusTrail': 'Passaggi di stato',
+  'board.task.statusTrailTitle': '{who} · {when}',
   'board.task.copyText': 'Copia il task',
   'board.task.copyTextTitle': 'Copia il task (titolo + descrizione) negli appunti',
   'board.task.copyTextDone': 'Task copiato',
@@ -1088,6 +1102,32 @@ const IT: Dict = {
   'sidebar.closeBrowser': 'Chiudi browser',
   'topic.cloudSession': 'Sessione cloud (OpenClaw)',
   'topic.openElsewhere': "Aperto in un'altra finestra",
+  // ── Condivisione. Il pannello era scritto a mano in inglese dentro un'app
+  //    che parla italiano: qui le sue parole entrano nel dizionario come tutte
+  //    le altre, e con loro il «copia il link» che prima viveva in un'icona a
+  //    parte nella testata del drawer.
+  'share.button': 'Condividi',
+  'share.sharedWith': 'Condivisa con {n}',
+  'share.title.task': 'Condividi questa scheda con un ospite',
+  'share.title.topic': 'Condividi questa chat con un ospite',
+  'share.object.task': 'questa scheda',
+  'share.object.topic': 'questa chat',
+  'share.copyLink': 'Copia il link',
+  'share.copyLinkDone': 'Link copiato',
+  'share.copyLinkTitle': 'Copia il link che riapre questa scheda nell’app',
+  'share.copyGuestLink': "Copia il link d'invito",
+  'share.linkToShare': 'Link da condividere',
+  'share.linkWarning': 'Chiunque abbia questo link può leggere {object}. Scade fra 7 giorni e puoi revocarlo quando vuoi. Il contenuto viaggia cifrato: chi lo trasporta non può leggerlo.',
+  'share.createOffNetwork': 'Crea un link per chi non è sulla tua rete',
+  'share.notConnected': 'non collegato',
+  'share.linkExpires': 'link · scade il {date}',
+  'share.linkOpened': ' · aperto {n}×',
+  'share.revokeLink': 'Revoca questo link',
+  'share.removeAccess': "Togli l'accesso a {name}",
+  'share.add': 'Aggiungi',
+  'share.nobodyYet': 'Ancora nessuno con cui condividere. Approva un dispositivo come ospite da Impostazioni → Account e comparirà qui.',
+  'share.alreadyAll': 'Già condivisa con tutti.',
+  'share.loadFailed': 'Non riesco a caricare la condivisione.',
 };
 
 
