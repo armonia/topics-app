@@ -1,0 +1,334 @@
+{
+  "measured_at": "2026-08-15T15:00:36.564Z",
+  "metric": "phys_footprint",
+  "platform": "darwin arm64",
+  "machine": "Mac14,6, 12 cores, 32 GB",
+  "tree": {
+    "_": "What every Topics row sums. The bridge is found by its socket path because it is detached and reparented to pid 1.",
+    "server": "bun server.ts on the bench port, and its children",
+    "bridge": "the pty-bridge and every `claude`/MCP server under it",
+    "shell": "Chromium (Playwright), the pane that renders the app"
+  },
+  "caveats": [
+    "The shell is Chromium, not the Tauri WKWebView the product ships: totals are Chromium totals, the slope is the product's slope.",
+    "No turn is ever sent: every CLI is measured AT ITS IDLE PROMPT, on both sides. These are resident costs, not mid-turn working sets.",
+    "The control does not include a terminal emulator, the same way jcode's does not.",
+    "An agent row is the CLI plus the server-side session, not an xterm pane per agent: the pane is a React subtree in the one renderer already counted, and driving the add menu N times would make the setup, not the measurement, the fragile part.",
+    "The agent rows are taken with the topics of the previous rows still open, which is constant across them and therefore cancels out of the per-agent slope."
+  ],
+  "ballast_mb_per_topic": 0,
+  "scenarios": [
+    {
+      "key": "idle",
+      "label": "Topics idle (server + shell, zero topics)",
+      "n": 0,
+      "metric": "phys_footprint",
+      "bytes": 218767880,
+      "mb": 208.6,
+      "processCount": 8,
+      "sampleBytes": [
+        218767880,
+        218767880,
+        218800648
+      ],
+      "roots": [
+        {
+          "kind": "server",
+          "pid": 47503
+        },
+        {
+          "kind": "bridge",
+          "pid": 47533
+        },
+        {
+          "kind": "shell",
+          "pid": 47540
+        }
+      ],
+      "witness": {
+        "panes": 0
+      }
+    },
+    {
+      "key": "topics-1",
+      "label": "Topics with 1 topic open",
+      "n": 1,
+      "metric": "phys_footprint",
+      "bytes": 260449016,
+      "mb": 248.4,
+      "processCount": 8,
+      "sampleBytes": [
+        260449016,
+        260449016,
+        260449016
+      ],
+      "roots": [
+        {
+          "kind": "server",
+          "pid": 47503
+        },
+        {
+          "kind": "bridge",
+          "pid": 47533
+        },
+        {
+          "kind": "shell",
+          "pid": 47540
+        }
+      ],
+      "witness": {
+        "panes": 1,
+        "ballast_mb_per_topic": 0
+      }
+    },
+    {
+      "key": "topics-5",
+      "label": "Topics with 5 topics open",
+      "n": 5,
+      "metric": "phys_footprint",
+      "bytes": 281666368,
+      "mb": 268.6,
+      "processCount": 8,
+      "sampleBytes": [
+        281666368,
+        281666368,
+        280896320
+      ],
+      "roots": [
+        {
+          "kind": "server",
+          "pid": 47503
+        },
+        {
+          "kind": "bridge",
+          "pid": 47533
+        },
+        {
+          "kind": "shell",
+          "pid": 47540
+        }
+      ],
+      "witness": {
+        "panes": 5,
+        "ballast_mb_per_topic": 0
+      }
+    },
+    {
+      "key": "topics-10",
+      "label": "Topics with 10 topics open",
+      "n": 10,
+      "metric": "phys_footprint",
+      "bytes": 255632168,
+      "mb": 243.8,
+      "processCount": 8,
+      "sampleBytes": [
+        255419176,
+        255697704,
+        255632168
+      ],
+      "roots": [
+        {
+          "kind": "server",
+          "pid": 47503
+        },
+        {
+          "kind": "bridge",
+          "pid": 47533
+        },
+        {
+          "kind": "shell",
+          "pid": 47540
+        }
+      ],
+      "witness": {
+        "panes": 10,
+        "ballast_mb_per_topic": 0
+      }
+    },
+    {
+      "key": "topics-25",
+      "label": "Topics with 25 topics open",
+      "n": 25,
+      "metric": "phys_footprint",
+      "bytes": 275882792,
+      "mb": 263.1,
+      "processCount": 8,
+      "sampleBytes": [
+        275899176,
+        275620648,
+        275882792
+      ],
+      "roots": [
+        {
+          "kind": "server",
+          "pid": 47503
+        },
+        {
+          "kind": "bridge",
+          "pid": 47533
+        },
+        {
+          "kind": "shell",
+          "pid": 47540
+        }
+      ],
+      "witness": {
+        "panes": 25,
+        "ballast_mb_per_topic": 0
+      }
+    },
+    {
+      "key": "agents-1",
+      "label": "Topics with 1 agent at their prompt",
+      "n": 1,
+      "metric": "phys_footprint",
+      "bytes": 518614512,
+      "mb": 494.6,
+      "processCount": 11,
+      "sampleBytes": [
+        519089648,
+        518614512,
+        518024688
+      ],
+      "roots": [
+        {
+          "kind": "server",
+          "pid": 47503
+        },
+        {
+          "kind": "bridge",
+          "pid": 47533
+        },
+        {
+          "kind": "shell",
+          "pid": 47540
+        }
+      ],
+      "witness": {
+        "agents_ready": 1,
+        "topics_open": 25
+      }
+    },
+    {
+      "key": "agents-4",
+      "label": "Topics with 4 agents at their prompt",
+      "n": 4,
+      "metric": "phys_footprint",
+      "bytes": 1208304536,
+      "mb": 1152.3,
+      "processCount": 17,
+      "sampleBytes": [
+        1208075112,
+        1209648000,
+        1208304536
+      ],
+      "roots": [
+        {
+          "kind": "server",
+          "pid": 47503
+        },
+        {
+          "kind": "bridge",
+          "pid": 47533
+        },
+        {
+          "kind": "shell",
+          "pid": 47540
+        }
+      ],
+      "witness": {
+        "agents_ready": 4,
+        "topics_open": 25
+      }
+    },
+    {
+      "key": "control-1",
+      "label": "1 bare `claude` at their prompt, no Topics",
+      "n": 1,
+      "metric": "phys_footprint",
+      "bytes": 225871072,
+      "mb": 215.4,
+      "processCount": 1,
+      "sampleBytes": [
+        225871072,
+        225871072,
+        225871072
+      ],
+      "roots": [
+        {
+          "kind": "claude",
+          "pid": 48784
+        }
+      ],
+      "witness": {
+        "host_pid": 48734
+      }
+    },
+    {
+      "key": "control-4",
+      "label": "4 bare `claude` at their prompt, no Topics",
+      "n": 4,
+      "metric": "phys_footprint",
+      "bytes": 868373208,
+      "mb": 828.1,
+      "processCount": 4,
+      "sampleBytes": [
+        868373208,
+        868373208,
+        868373208
+      ],
+      "roots": [
+        {
+          "kind": "claude",
+          "pid": 49028
+        },
+        {
+          "kind": "claude",
+          "pid": 49029
+        },
+        {
+          "kind": "claude",
+          "pid": 49030
+        },
+        {
+          "kind": "claude",
+          "pid": 49031
+        }
+      ],
+      "witness": {
+        "host_pid": 49002
+      }
+    }
+  ],
+  "marginal": {
+    "_": "The slope is the architecture; the total flatters whoever has the smaller shell.",
+    "shell_idle_mb": 208.6,
+    "first_topic_mb": 39.8,
+    "per_topic_mb": 0.3,
+    "per_topic_r2": 0.091,
+    "per_topic_steps": [
+      {
+        "from": 1,
+        "to": 5,
+        "perUnitBytes": 5304338,
+        "mb": 5.1
+      },
+      {
+        "from": 5,
+        "to": 10,
+        "perUnitBytes": -5206840,
+        "mb": -5
+      },
+      {
+        "from": 10,
+        "to": 25,
+        "perUnitBytes": 1350041.6,
+        "mb": 1.3
+      }
+    ],
+    "per_agent_topics_mb": 219.2,
+    "per_agent_bare_mb": 204.2,
+    "agent_overhead_mb": 15,
+    "agent_overhead_note": "Per-agent cost inside Topics minus the same agent bare. A value near zero, of either sign, is the finding: the Nth agent costs what the CLI costs, and the workspace around it is not paid again. A negative number is not a credit, it is that difference sitting inside the CLI's own run-to-run spread."
+  }
+}
