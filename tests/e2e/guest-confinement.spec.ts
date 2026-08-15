@@ -386,15 +386,23 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
     await expect(controllo, "la chat deve offrire lo STESSO controllo di una scheda").toBeVisible();
     await controllo.click();
 
+    // Il PANNELLO è portalato (da agosto 2026 passa dalla primitiva `Menu`:
+    // dentro la testata del drawer un `absolute` finiva ritagliato da un
+    // antenato `overflow-hidden` e si vedeva alto 41px). Quindi vive fuori dal
+    // dialogo, e da qui in giù si cerca nella pagina.
+    const pannello = page.getByTestId("share-panel");
+    await expect(pannello).toBeVisible({ timeout: 5_000 });
+
     // Il destinatario è la PERSONA: è ciò che la rubrica offre per un ospite
     // appaiato come «è di un'altra persona».
-    const destinatario = dialog.getByRole("button", { name: new RegExp(`^Persona ${nome}`) });
+    const destinatario = pannello.getByRole("button", { name: new RegExp(`^Persona ${nome}`) });
     await expect(destinatario).toBeVisible({ timeout: 5_000 });
     await destinatario.click();
 
     // Il pannello lo dice: è il segnale che la scrittura è andata a buon fine
-    // sul lato di chi condivide, prima di andare a guardare dall'altro.
-    await expect(controllo).toHaveText(/Shared with 1/, { timeout: 10_000 });
+    // sul lato di chi condivide, prima di andare a guardare dall'altro. Il
+    // testo è tradotto come il resto dell'app (l'inglese era scritto a mano).
+    await expect(controllo).toHaveText(/Condivisa con 1/, { timeout: 10_000 });
 
     // ── E ADESSO DA FUORI, che è l'unico posto da cui il confinamento si vede.
     const inv = await request.get(`${E2E_TUNNEL_BASE}/api/auth/shared`, { headers: daOspite(cookie) });

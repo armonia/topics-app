@@ -573,10 +573,19 @@ test.describe("Kanban board", () => {
     // L'uguaglianza è ESATTA perché `buildTaskLink` compone `serverHttpBase()
     // || window.location.origin` + `/task/<id>` senza query: sul web quel base
     // è l'origine della pagina, cioè `BASE`.
-    await drawer.getByTestId("task-copy-link").click();
+    // Il link non è più un'icona a catena nella testata: vive dentro il
+    // pannello di condivisione, che è l'unico posto dove si chiede un link.
+    await drawer.getByTestId("share-control").click();
+    await page.getByTestId("share-copy-link").click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
       .toBe(`${BASE}/task/${task.id}`);
+
+    // Il pannello di condivisione è aperto, e Escape chiude prima il popover in
+    // cima alla pila: è la regola dell'app, non un incidente. Si chiude lui, e
+    // solo allora la riga sotto misura quello che dice di misurare.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("share-panel")).toBeHidden({ timeout: 5000 });
 
     // Esc closes the drawer (not editing, no menu open → the drawer's own Esc).
     await page.keyboard.press("Escape");

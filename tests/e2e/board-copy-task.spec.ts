@@ -128,21 +128,27 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
 
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
-    const copia = drawer.getByTestId("task-copy-text");
-    await expect(copia).toBeVisible();
+    // Da agosto 2026 «Copia il task» non è più un'icona nella testata: sta nel
+    // menu ⋯, col suo nome scritto. La testata ne teneva sette senza parole, e
+    // questo è uno dei due gesti che nessuno fa MENTRE decide su una scheda.
+    await drawer.getByTestId("task-options-menu").click();
+    const copia = page.getByTestId("task-copy-text");
+    await expect(copia).toBeVisible({ timeout: 5000 });
     await beat(page, 1800);
 
     await copia.click();
     expect(await clipboard(page)).toBe(ATTESO);
+    await beat(page, 1500);
 
-    // La spunta è la sola cosa che l'utente vede: c'è, e poi se ne va da sola.
-    await expect(copia.locator("svg.text-emerald-400")).toBeVisible({ timeout: 2000 });
-    await beat(page, 1800);
-    await expect(copia.locator("svg.text-emerald-400")).toHaveCount(0, { timeout: 4000 });
-
-    // Il vicino «Copia link» non è stato mangiato: copia ancora un URL, non il testo.
-    await drawer.getByTestId("task-copy-link").click();
+    // E il LINK: non è più il gemello a catena qui accanto, è dentro il
+    // pannello di condivisione — un posto solo per «dammi il link».
+    await drawer.getByTestId("share-control").click();
+    const link = page.getByTestId("share-copy-link");
+    await expect(link).toBeVisible({ timeout: 5000 });
+    await link.click();
     expect(await clipboard(page)).toContain(`/task/${task.id}`);
+    // La spunta è la sola cosa che l'utente vede: c'è, e poi se ne va da sola.
+    await expect(link.locator("svg.text-green-500")).toBeVisible({ timeout: 2000 });
     await beat(page, 1500);
   });
 

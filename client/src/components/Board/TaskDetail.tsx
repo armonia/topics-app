@@ -4,7 +4,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -22,6 +22,7 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
 import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
+import { paneIdToContextId } from '../../state/taskBrowserLayout';
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
@@ -263,6 +264,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   const [sendingNotes, setSendingNotes] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
   const notesLoaded = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const fetchDiff = useCallback(() => {
     // Il bundle precedente NON si azzera mentre si ricarica: `bump` scatta a ogni
     // aggiornamento del task, e svuotare qui faceva sparire e riapparire il
@@ -331,12 +333,20 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
       : bundle?.code === 'not_dispatched' ? tr('board.task.changes.notDispatched')
       : bundle?.code === 'unreadable' ? tr('board.task.changes.unreadable')
       : tr('board.task.changes.empty');
+    // Niente da guardare: UNA riga spenta, non una maniglia che si apre sul
+    // vuoto. Resta però scritta — «la card non ha prodotto codice» e «non ho
+    // potuto guardare» sono due verdetti opposti, e su una consegna in review
+    // il silenzio li confonderebbe.
     return (
       <div className="shrink-0 border-b border-app-border px-3 py-2">
-        <div className="flex items-baseline gap-1.5">
-          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">{label}</span>
-          <span className="min-w-0 flex-1 text-[11px] text-app-text-secondary">{why}</span>
-        </div>
+        <span
+          data-testid="task-changes-empty"
+          className="inline-flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-muted"
+        >
+          <GitCompare className="h-3 w-3 shrink-0" />
+          <span className="shrink-0">{label}</span>
+          <span className="min-w-0 truncate text-app-text-faint">· {why}</span>
+        </span>
       </div>
     );
   }
@@ -344,59 +354,87 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   const from = bundle.source === 'landed-merge' ? tr('board.task.changes.fromMerge')
     : bundle.source === 'delivery-commit' ? tr('board.task.changes.fromDelivery')
     : null;
+  /**
+   * UN TASTINO, E IL DIFF IN UNA TENDINA.
+   *
+   * Era un accordion nel flusso del brief: aperto, un diff da trenta file
+   * spingeva sotto l'orizzonte tutto ciò che veniva dopo — la sessione, i
+   * bottoni della decisione — e per tornare a decidere bisognava richiuderlo.
+   * Un diff non è una sezione della scheda: è una cosa che si CONSULTA mentre
+   * si decide, e quindi va aperta sopra, non dentro.
+   *
+   * Il chip porta i numeri anche da chiuso: quanti file, quanto grosso, e se
+   * hai note in sospeso. Quelli sono la risposta alla domanda che si fa prima
+   * di aprire, e con la tendina chiusa restano l'unica traccia del lavoro
+   * scritto a mano.
+   */
   return (
     <div className="shrink-0 border-b border-app-border px-3 py-2">
-      <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading">
-        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {label} <span className="normal-case tracking-normal text-app-text-faint">· {tr(fileCount === 1 ? 'board.task.changes.files.one' : 'board.task.changes.files.many', { n: fileCount })}</span>
+      <button
+        ref={triggerRef}
+        onClick={() => setOpen((s) => !s)}
+        data-testid="task-changes-trigger"
+        title={tr('board.task.changes.openTitle')}
+        className="flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/10"
+      >
+        <GitCompare className="h-3 w-3 shrink-0" />
+        <span className="shrink-0">{label}</span>
+        <span className="shrink-0 text-app-text-faint">· {tr(fileCount === 1 ? 'board.task.changes.files.one' : 'board.task.changes.files.many', { n: fileCount })}</span>
         {/* Il totale sta in TESTA perché è la prima domanda di chi rivede
             («quanto è grosso?») e perché è l'unico numero completo: la lista si
             può troncare, questo no. */}
-        <span className="font-mono normal-case tracking-normal tabular-nums">
+        <span className="shrink-0 font-mono tabular-nums">
           <span className="text-emerald-400">+{totals.additions}</span> <span className="text-red-400">−{totals.deletions}</span>
         </span>
         {from && (
-          <span className="truncate rounded bg-white/5 px-1 text-[9px] normal-case tracking-normal text-app-text-faint">{from}</span>
+          <span className="min-w-0 truncate rounded bg-white/5 px-1 text-[9px] text-app-text-faint">{from}</span>
         )}
         {notes.length > 0 && (
-          <span className="ml-1 rounded bg-indigo-500/20 px-1 text-[9px] normal-case tracking-normal text-indigo-300">
+          <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300">
             {tr('board.task.changes.pending', { n: notes.length })}
           </span>
         )}
+        <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
       </button>
-      {open && (
-        <>
-          {/* Accordion puro: il `max-h-[42vh] overflow-y-auto` era uno scroll
-              dentro lo scroll che non c'era. Adesso scorre il brief. */}
-          <div className="mt-1.5">
-            <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} />
+      {/* `unmanagedFocus`: dentro c'è un diff con le sue maniglie per file e il
+          composer delle note — la navigazione a frecce di un menu di comandi
+          qui litigherebbe con lo scroll. */}
+      <Menu
+        open={open}
+        anchorRef={triggerRef}
+        onClose={() => setOpen(false)}
+        minWidth={520}
+        unmanagedFocus
+        testId="task-changes-panel"
+        ariaLabel={label}
+        className="w-[min(46rem,92vw)] max-h-[70vh] overflow-y-auto p-2"
+      >
+        <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} />
+        {notes.length > 0 && (
+          <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
+            <span className="min-w-0 flex-1 text-[11px] text-app-text-heading">
+              {notesError
+                ? <span className="text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
+                : tr(notes.length === 1 ? 'board.task.changes.notes.one' : 'board.task.changes.notes.many', { n: notes.length })}
+            </span>
+            <button
+              onClick={() => setNotes([])}
+              disabled={sendingNotes}
+              className="rounded px-2 py-0.5 text-[11px] text-app-text-secondary hover:text-app-text disabled:opacity-40"
+            >
+              {tr('board.task.changes.discard')}
+            </button>
+            <button
+              onClick={sendNotes}
+              disabled={sendingNotes}
+              className="flex items-center gap-1 rounded bg-indigo-500/25 px-2 py-0.5 text-[11px] text-indigo-100 hover:bg-indigo-500/40 disabled:opacity-40"
+            >
+              {sendingNotes ? <Spinner size="sm" tone="current" /> : <Send className="h-3 w-3" />}
+              {tr('board.task.changes.send')}
+            </button>
           </div>
-          {notes.length > 0 && (
-            <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
-              <span className="min-w-0 flex-1 text-[11px] text-app-text-heading">
-                {notesError
-                  ? <span className="text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
-                  : tr(notes.length === 1 ? 'board.task.changes.notes.one' : 'board.task.changes.notes.many', { n: notes.length })}
-              </span>
-              <button
-                onClick={() => setNotes([])}
-                disabled={sendingNotes}
-                className="rounded px-2 py-0.5 text-[11px] text-app-text-secondary hover:text-app-text disabled:opacity-40"
-              >
-                {tr('board.task.changes.discard')}
-              </button>
-              <button
-                onClick={sendNotes}
-                disabled={sendingNotes}
-                className="flex items-center gap-1 rounded bg-indigo-500/25 px-2 py-0.5 text-[11px] text-indigo-100 hover:bg-indigo-500/40 disabled:opacity-40"
-              >
-                {sendingNotes ? <Spinner size="sm" tone="current" /> : <Send className="h-3 w-3" />}
-                {tr('board.task.changes.send')}
-              </button>
-            </div>
-          )}
-        </>
-      )}
+        )}
+      </Menu>
     </div>
   );
 }
@@ -1263,6 +1301,21 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   const openInWorkspace = useCallback(() => { promoteToWorkspace(workspaceManifest); }, [promoteToWorkspace, workspaceManifest]);
 
+  /**
+   * UNA scheda sola nel workspace del progetto, dal suo tasto destro.
+   *
+   * Il gesto grande («apri il task») porta di là tutte le tab insieme, ed è
+   * giusto quando quello che vuoi è il task. Ma le tab di una card sono anche
+   * cinque, e spesso ne serve una: quella si chiede alla tab, non a un'icona
+   * nella testata che le prende tutte e non dice quali.
+   */
+  const openPaneInProject = useCallback((paneId: string) => {
+    const contextId = paneIdToContextId(paneId);
+    const tab = liveTaskTabs.find((t) => t.contextId === contextId);
+    if (!tab?.url) return;
+    promoteToWorkspace([{ url: tab.url, contextId: workspaceTwinContextId(tab.contextId) }]);
+  }, [liveTaskTabs, promoteToWorkspace]);
+
   // Chiude una pane del workspace passando dalla porta normale: `browser:request-close`
   // è la stessa richiesta che usa una pagina che fa `window.close()`, la raccoglie
   // la finestra che POSSIEDE quella pane (e nessun'altra), e passa per la chiusura
@@ -1622,7 +1675,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [renderThread, planComment, taskId]);
 
   // The single GroupLayout that IS the drawer body's tab system.
-  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface, threadInline: twoCol });
+  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface, threadInline: twoCol, openPaneInProject });
   // Apertura mirata. Va riprovata: al primo render i commenti (e quindi i media,
   // e quindi le pane) non sono ancora arrivati, perciò `focusPane` fallisce e
   // basta. Il ref si azzera solo quando la pane c'è davvero ed è stata attivata,
@@ -1647,6 +1700,438 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [task?.outputUrl]);
 
   const doneCount = children.filter((c) => c.status === 'done').length;
+
+  /**
+   * I TRE PEZZI DEL BRIEF, hoistati perché due layout li montano in due posti.
+   *
+   * In modo stretto stanno impilati dentro l'unica colonna, come sempre. In
+   * modo largo salgono in una FASCIA a tutta larghezza sopra le colonne: la
+   * consegna di una card è il suo titolo, e in una colonna da 22rem un titolo
+   * di due righe e mezza è la prima cosa che si perde — proprio mentre le due
+   * colonne esistono per farti vedere di più. Lì sopra la descrizione prende la
+   * sinistra e i sottotask la destra: sono le due letture che si fanno insieme,
+   * «cosa chiede» e «a che punto è».
+   *
+   * Definiti QUI e non nel JSX perché duplicarli sarebbe la solita coppia che
+   * diverge al primo ritocco (la board ne ha già pagate abbastanza).
+   */
+  const identityCard = (
+      <div className="border-b border-app-border px-3 py-3">
+        {task?.parentTaskId && onOpenTask && (
+          <button
+            onClick={() => onOpenTask(task.parentTaskId!)}
+            title={tr('board.task.openParentCardTitle')}
+            className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
+          >⤴ {tr('board.task.parentTask')}</button>
+        )}
+        {/* Project EYEBROW + PRIMARY STATE on one row — favicon + name on the
+            left, the dispatch chip aligned right (card's top-right slot). The
+            title below then gets the FULL width, no chip competing with it. */}
+        {task && (
+          <div className="mb-1 flex items-center gap-2">
+            <button
+              ref={projChipRef}
+              onClick={openProjMenu}
+              data-testid="task-project-chip"
+              title={tr('board.task.projectChipTitle', { label: projectLabel })}
+              className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-app-text-secondary hover:text-app-text"
+            >
+              <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+              <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
+            </button>
+            {/* Stessa precedenza della card: la ragione della coda batte il
+                chip di stato, e le due superfici restano in passo. */}
+            {task.queueReason ? (
+              <QueueReasonChip reason={task.queueReason} />
+            ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+              <DispatchChip state={task.dispatchState} error={task.dispatchError} />
+            ) : (!task.dispatchState && task.dispatchError) ? (
+              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
+            ) : null}
+          </div>
+        )}
+        <Menu
+          open={projMenuOpen}
+          anchorRef={projChipRef}
+          onClose={() => setProjMenuOpen(false)}
+          minWidth={230}
+          unmanagedFocus
+        >
+          <ProjectPickerBody
+            projects={projects}
+            selectedId={task?.projectId}
+            isDisabled={(p) => p.projectId === task?.projectId || !!moveBlocked}
+            onPick={doMove}
+            onCreate={doCreateProject}
+            busy={projBusy}
+            listLabel={tr('board.task.moveProjectTo')}
+            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+          />
+          <div className={POPOVER_DIVIDER} />
+          <button
+            role="menuitem" disabled={!currentProject}
+            onClick={doOpenProject}
+            title={currentProject ? tr('board.task.openProjectWindow', { name: currentProject.name }) : tr('board.task.projectUnresolvable')}
+            className={`${POPOVER_ITEM} disabled:opacity-40`}
+          ><ArrowUpRight className="h-3.5 w-3.5" /> {tr('board.task.openProject')}</button>
+        </Menu>
+        {/* Title — FULL width (the dispatch state moved up to the project
+            eyebrow row, so nothing competes with it here). */}
+        {editingTitle ? (
+          <textarea
+            autoFocus value={titleDraft} rows={1} ref={autoGrow}
+            onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
+            onBlur={saveTitle}
+            onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
+            className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-app-text outline-none"
+          />
+        ) : (
+          <p
+            onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
+            title={tr('board.task.editTitleTitle')}
+            className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
+          >{task?.text}</p>
+        )}
+        {/* Meta row — compact chips that wrap, card-style: priorità,
+            modello · ⏱ effort (UN chip, come la card), piano-prima,
+            blocked-by + reuse. Editable selectors keep their portaled Menus. */}
+        {task && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span
+              className="flex items-center gap-1 text-[11px] text-app-text-muted"
+              title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
+            ><Clock className="h-3 w-3 shrink-0" /> {fmtUpdatedAt(task.updatedAt)}</span>
+            <button
+              ref={prioBtnRef}
+              onClick={() => task && setPrioMenuOpen(true)}
+              data-testid="task-priority-chip"
+              title={task.priorityAuto
+                ? "Priorità automatica: la valuta l'agent appena inquadra il task"
+                : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
+              className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
+                !task.priorityAuto && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
+              {task.priorityAuto ? tr('board.task.priorityAuto') : PRIORITY_LABEL[task.priority] ?? 'Media'}
+              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
+            </button>
+            <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
+              {PRIORITY_ORDER.map((p) => (
+                <button
+                  key={p} role="option" aria-selected={p === task?.priority}
+                  disabled={busy}
+                  onClick={() => changePriority(p)}
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
+                  <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
+                  {p === task?.priority && !task?.priorityAuto && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+            </Menu>
+            {/* Etichette — la correzione a mano di un umano. Qui `invisibile`
+                si puo' scrivere (l'agente non puo': il server lo rifiuta), e
+                una volta scritta a mano la derivazione non la sovrascrive
+                piu' alla consegna successiva. */}
+            <button
+              ref={labelBtnRef}
+              onClick={() => setLabelMenuOpen(true)}
+              data-testid="task-labels-chip"
+              title={task.labels.some((l) => l.label === 'invisibile')
+                ? 'Invisibile: non tocca client/src. Con la barra verde la puo\' chiudere il conduttore.'
+                : task.labels.some((l) => l.label === 'visibile')
+                  ? 'Visibile: tocca una superficie che si vede. Resta in review finche\' non la guarda un umano.'
+                  : task.labels.some((l) => l.label === 'decisione')
+                    ? 'Decisione: un piano, una ricerca, un documento. La decide un umano, sempre.'
+                    : 'Nessuna etichetta di chiusura: la chiude un umano'}
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
+            >
+              <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
+              <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : tr('board.task.labelsChip')}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+            </button>
+            <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.whoCloses')}</p>
+              {CLOSER_LABELS.map((l) => (
+                <button
+                  key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
+                  disabled={busy} onClick={() => toggleLabel(l)}
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
+                >
+                  <span className="min-w-0 flex-1">{l}</span>
+                  {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.kind')}</p>
+              {KIND_LABELS.map((l) => (
+                <button
+                  key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
+                  disabled={busy} onClick={() => toggleLabel(l)}
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
+                >
+                  <span className="min-w-0 flex-1">{l}</span>
+                  {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+            </Menu>
+            <button
+              ref={modelBtnRef}
+              onClick={() => setModelMenuOpen(true)}
+              data-testid="task-model-chip"
+              title={(task.agentMs > 0 || task.agentTokens > 0)
+                ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · clicca per cambiare modello`
+                : "Modello dell'agent. Auto = il classificatore opus-first sceglie per task."}
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
+            >
+              <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
+              <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+            </button>
+            <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
+              <button
+                role="option" aria-selected={!task?.model} disabled={busy}
+                onClick={() => changeModel(null)}
+                className={`${POPOVER_ITEM} disabled:opacity-40`}
+              >
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+                <span className="min-w-0 flex-1">{tr('board.task.modelAutoOption')} <span className="text-app-text-muted">(opus-first)</span></span>
+                {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+              {models.map((m) => (
+                <button
+                  key={m} role="option" aria-selected={m === task?.model} disabled={busy}
+                  onClick={() => changeModel(m)}
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
+                >
+                  <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
+                  {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+            </Menu>
+            {/* «In attesa di…» sta IN RIGA, non dentro il ⋯: è uno stato che
+                cambia la lettura del task (non parte finché l'altro non
+                chiude), e uno stato dentro un menu è uno stato che nessuno
+                vede. Cliccarlo apre lo stesso picker della voce nel ⋯. */}
+            {blockedChip && (
+              <button
+                ref={blockerChipRef}
+                onClick={() => openBlockerMenu(blockerChipRef.current)}
+                data-testid="task-blocked-by-chip"
+                title={`${blockedChip.title} · clicca per cambiare il bloccante`}
+                className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
+              >
+                <Lock className="h-3 w-3 shrink-0" />
+                <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
+                <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
+              </button>
+            )}
+            {/* «Chi la lavora» sta in riga accanto al bloccante, e per lo
+                stesso motivo: su una card in corso senza topic né chip è lo
+                stato che decide se c'è da intervenire. Quando la tiene un
+                antenato il chip ci porta — la domanda successiva è sempre
+                «e chi sarebbe?». */}
+            {workChip && (workAncestorId && onOpenTask ? (
+              <button
+                onClick={() => onOpenTask(workAncestorId)}
+                data-testid="task-subtask-work-chip"
+                data-kind="parent-turn"
+                title={`${workChip.title}: clicca per aprire la sua scheda`}
+                className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
+              >
+                <UserRound className="h-3 w-3 shrink-0" />
+                <span className="max-w-[14rem] truncate">{workChip.label}</span>
+              </button>
+            ) : (
+              <span
+                data-testid="task-subtask-work-chip"
+                data-kind={workChip.kind}
+                title={workChip.title}
+                className={workChip.kind === 'unattended'
+                  ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300'
+                  : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted'}
+              >
+                {workChip.kind === 'unattended'
+                  ? <AlertTriangle className="h-3 w-3 shrink-0" />
+                  : <UserRound className="h-3 w-3 shrink-0" />}
+                <span className="max-w-[14rem] truncate">{workChip.label}</span>
+              </span>
+            ))}
+            {/* Plan-first / reuse-context vivono nel ⋯ header menu. Il PICKER
+                del bloccante resta qui — portaled, ancorato a chi l'ha
+                aperto (il chip qui sopra, o il ⋯ quando il chip non c'è). */}
+            <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
+              <button
+                role="option" aria-selected={!task.blockedByTaskId}
+                onClick={() => pickBlocker(null)}
+                className={POPOVER_ITEM}
+              >
+                <span className="min-w-0 flex-1">{tr('common.none')}</span>
+                {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+              <div className="max-h-52 overflow-y-auto">
+                {boardTasks === null ? (
+                  <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
+                ) : blockerCandidates.length === 0 ? (
+                  <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
+                ) : blockerCandidates.map((t) => (
+                  <button
+                    key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
+                    onClick={() => pickBlocker(t.id)}
+                    className={POPOVER_ITEM}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{t.text}</span>
+                    {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                  </button>
+                ))}
+              </div>
+            </Menu>
+          </div>
+        )}
+      </div>
+  );
+  const descCard = (
+    <>
+      {/* Descrizione — accordion coerente con Sottotask/Modifiche: stesso
+          container (px-3 py-2), stessa label (chevron + uppercase), corpo a
+          mt-1.5. Spazio sopra/sotto la label uguale (il py-2 del contenitore). */}
+      <div className="shrink-0 border-b border-app-border px-3 py-2">
+        {editingDesc ? (
+          <textarea
+            autoFocus value={descDraft} rows={1} ref={autoGrow}
+            onChange={(e) => { setDescDraft(e.target.value); autoGrow(e.currentTarget); }}
+            onBlur={saveDesc}
+            onKeyDown={cancelKey}
+            placeholder={tr('board.task.descPlaceholder')}
+            className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-app-text-heading outline-none"
+          />
+        ) : task?.description ? (
+          <>
+            {/* CHIUSO ≠ VUOTO. La scelta di chiudere è ricordata in
+                localStorage e vale per OGNI card: chiusa una volta, una
+                descrizione da 2.578 caratteri si legge come «non c'è una
+                descrizione utile» (il rilievo su `d4fcce17`). Il chevron non
+                è evidenza di contenuto, quindi da chiuso la maniglia porta
+                con sé la MISURA (quanto testo c'è) e la prima riga vera. */}
+            <button
+              onClick={toggleDescOpen}
+              className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
+            >
+              {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.descLabel')}
+            </button>
+            {/* La misura sta FUORI dal bottone di proposito: il nome
+                accessibile della maniglia resta «Descrizione» esatto, che è
+                come la cercano le spec e chi naviga a voce. Qui dentro
+                invece serve il numero, perché è il numero a dire che sotto
+                c'è un piano e non due righe. */}
+            {!descOpen && (
+              <p
+                onClick={toggleDescOpen}
+                title={tr('board.task.descExpandTitle')}
+                className="mt-1 cursor-pointer truncate text-xs leading-5 text-app-text-secondary hover:text-app-text-heading"
+                data-testid="task-desc-summary"
+              >
+                <span className="text-app-text-faint">{tr('board.task.descChars', { n: fmtCount(task.description.length, locale) })}</span>
+                {descSummary(task.description) && <> · {descSummary(task.description)}</>}
+              </p>
+            )}
+            {descOpen && (
+              <div
+                onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
+                title={tr('board.task.editDescTitle')}
+                className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
+              ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
+            )}
+          </>
+        ) : (
+          <button
+            onClick={() => { setDescDraft(''); setEditingDesc(true); }}
+            className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint hover:text-app-text-secondary"
+          >{tr('board.task.addDesc')}</button>
+        )}
+        {/* (L'anteprima stava QUI, sorella della descrizione ma fuori dal
+            suo ramo `descOpen`: chiudere la descrizione non la nascondeva.
+            Ora ha la sua sezione in cima al brief — «la consegna» è uno slot,
+            non un dettaglio della descrizione.) */}
+        {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
+            polimorfo — click sul nome lo apre come TAB nel workspace del
+            task, l'icona lo SCARICA. Rimpiazza l'idea di "output" a parte:
+            il risultato è tab + lista scaricabili. */}
+        {mediaPaths.length > 0 && (
+          <div className="mt-3" data-testid="task-downloads">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint">{tr('board.task.deliveredFiles')}</div>
+            <ul className="flex flex-col gap-1">
+              {mediaPaths.map((p) => {
+                const name = p.split('/').pop() || p;
+                return (
+                  <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-app-text-heading">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+                    <button
+                      type="button"
+                      onClick={() => browser.focusPane(mediaPaneIdFor(p))}
+                      title={tr('board.task.openAsTabTitle')}
+                      className="min-w-0 flex-1 truncate text-left hover:text-white"
+                    >{name}</button>
+                    <a
+                      href={getMediaUrl(p)}
+                      download={name}
+                      title={tr('board.task.downloadFileTitle')}
+                      className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-white"
+                    ><Download className="h-3.5 w-3.5" /></a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
+    </>
+  );
+  const subtasksCard = (
+    <>
+      {/* Subtask tree — collapsible; unlimited depth, lazy-expanded. The
+          agent's steps live here too: dots flip green as it checks them off.
+          Hidden entirely when there are no subtasks ("non mostrare se non ci
+          sono") — added on demand from the ⋯ menu (subtaskComposerOpen).
+          Accordion puro: il `max-h-[40%] overflow-y-auto` che stava qui era
+          il surrogato dello scroll mancante — un elenco di sottotask dentro
+          la sua finestrella, dentro un drawer che non scorreva. Adesso scorre
+          il brief. */}
+      {(children.length > 0 || subtaskComposerOpen) && (
+      <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-subtasks">
+        <button
+          onClick={toggleSubtasksOpen}
+          className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
+        >
+          {subtasksOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          {tr('board.task.subtasksLabel')}{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
+        </button>
+        {subtasksOpen && (
+          <div className="mt-1.5">
+            {children.map((c) => (
+              <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
+            ))}
+            <div className="relative mt-1">
+              <input
+                value={subDraft} disabled={addingSub}
+                autoFocus={subtaskComposerOpen && children.length === 0}
+                onChange={(e) => setSubDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+                placeholder={tr('board.task.addSubtaskPlaceholder')}
+                className="w-full rounded bg-white/5 px-2 py-1 text-xs text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
+              />
+              {addingSub && <Spinner size="sm" tone="current" className="absolute right-1.5 top-1.5 text-app-text-secondary" />}
+            </div>
+          </div>
+        )}
+      </div>
+      )}
+    </>
+  );
 
   return (
     <div
@@ -1922,6 +2407,39 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <Spinner size="md" tone="current" className="text-app-text-muted" />
         </div>
       ) : (
+      <div className="flex min-h-0 flex-1 flex-col">
+      {/* ── LA FASCIA DEL BRIEF, solo in modo largo ──────────────────────────
+          LA CONSEGNA È IL TITOLO, e in una colonna da 22rem un titolo di due
+          righe e mezza è la prima cosa che si perde — proprio mentre le due
+          colonne esistono per farti vedere di più. Qui sale a tutta larghezza,
+          sopra entrambe, così «di che task si parla» si legge in un colpo
+          d'occhio invece che a capo.
+
+          Sotto, affiancate: la DESCRIZIONE (cosa chiede) e i SOTTOTASK (a che
+          punto è). Sono le due letture che si fanno insieme, e impilate erano
+          due scroll di distanza. I sottotask prendono la destra solo quando
+          esistono: una colonna bordata e vuota è peggio di nessuna colonna, e
+          senza di loro la descrizione si prende tutto.
+
+          Il tetto (`max-h-[15rem]`) NON è il surrogato di uno scroll mancante —
+          la trappola che questo drawer ha già pagato una volta: ognuna delle
+          due metà possiede il proprio `overflow-y-auto`, quindi il tetto limita
+          quanto il brief ruba alle superfici di lavoro e niente si taglia.
+
+          `[&>div]:border-b-0`: i due blocchi portano il filetto che li separava
+          quando erano impilati. Affiancati, quel filetto disegnerebbe una riga
+          che si ferma a metà larghezza, sopra il bordo della fascia. */}
+      {twoCol && (
+        <div className="shrink-0 border-b border-app-border" data-testid="task-brief-header">
+          {identityCard}
+          <div className="flex max-h-[15rem] items-stretch">
+            <div className="min-w-0 flex-1 overflow-y-auto [&>div]:border-b-0">{descCard}</div>
+            {(children.length > 0 || subtaskComposerOpen) && (
+              <div className="w-[19rem] shrink-0 overflow-y-auto border-l border-app-border [&>div]:border-b-0">{subtasksCard}</div>
+            )}
+          </div>
+        </div>
+      )}
       <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
         {/* La colonna del BRIEF. In modo largo è la colonna stretta di sinistra
             (brief + sessione + composer) e il tiling si prende la destra; in modo
@@ -2002,376 +2520,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               )}
             </div>
           )}
-          <div className="border-b border-app-border px-3 py-3">
-            {task?.parentTaskId && onOpenTask && (
-              <button
-                onClick={() => onOpenTask(task.parentTaskId!)}
-                title={tr('board.task.openParentCardTitle')}
-                className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
-              >⤴ {tr('board.task.parentTask')}</button>
-            )}
-            {/* Project EYEBROW + PRIMARY STATE on one row — favicon + name on the
-                left, the dispatch chip aligned right (card's top-right slot). The
-                title below then gets the FULL width, no chip competing with it. */}
-            {task && (
-              <div className="mb-1 flex items-center gap-2">
-                <button
-                  ref={projChipRef}
-                  onClick={openProjMenu}
-                  data-testid="task-project-chip"
-                  title={tr('board.task.projectChipTitle', { label: projectLabel })}
-                  className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-app-text-secondary hover:text-app-text"
-                >
-                  <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
-                  <span className="min-w-0 truncate font-medium">{projectLabel}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
-                </button>
-                {/* Stessa precedenza della card: la ragione della coda batte il
-                    chip di stato, e le due superfici restano in passo. */}
-                {task.queueReason ? (
-                  <QueueReasonChip reason={task.queueReason} />
-                ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
-                  <DispatchChip state={task.dispatchState} error={task.dispatchError} />
-                ) : (!task.dispatchState && task.dispatchError) ? (
-                  <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
-                ) : null}
-              </div>
-            )}
-            <Menu
-              open={projMenuOpen}
-              anchorRef={projChipRef}
-              onClose={() => setProjMenuOpen(false)}
-              minWidth={230}
-              unmanagedFocus
-            >
-              <ProjectPickerBody
-                projects={projects}
-                selectedId={task?.projectId}
-                isDisabled={(p) => p.projectId === task?.projectId || !!moveBlocked}
-                onPick={doMove}
-                onCreate={doCreateProject}
-                busy={projBusy}
-                listLabel={tr('board.task.moveProjectTo')}
-                headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
-              />
-              <div className={POPOVER_DIVIDER} />
-              <button
-                role="menuitem" disabled={!currentProject}
-                onClick={doOpenProject}
-                title={currentProject ? tr('board.task.openProjectWindow', { name: currentProject.name }) : tr('board.task.projectUnresolvable')}
-                className={`${POPOVER_ITEM} disabled:opacity-40`}
-              ><ArrowUpRight className="h-3.5 w-3.5" /> {tr('board.task.openProject')}</button>
-            </Menu>
-            {/* Title — FULL width (the dispatch state moved up to the project
-                eyebrow row, so nothing competes with it here). */}
-            {editingTitle ? (
-              <textarea
-                autoFocus value={titleDraft} rows={1} ref={autoGrow}
-                onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
-                onBlur={saveTitle}
-                onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-                className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-app-text outline-none"
-              />
-            ) : (
-              <p
-                onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
-                title={tr('board.task.editTitleTitle')}
-                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
-              >{task?.text}</p>
-            )}
-            {/* Meta row — compact chips that wrap, card-style: priorità,
-                modello · ⏱ effort (UN chip, come la card), piano-prima,
-                blocked-by + reuse. Editable selectors keep their portaled Menus. */}
-            {task && (
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span
-                  className="flex items-center gap-1 text-[11px] text-app-text-muted"
-                  title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
-                ><Clock className="h-3 w-3 shrink-0" /> {fmtUpdatedAt(task.updatedAt)}</span>
-                <button
-                  ref={prioBtnRef}
-                  onClick={() => task && setPrioMenuOpen(true)}
-                  data-testid="task-priority-chip"
-                  title={task.priorityAuto
-                    ? "Priorità automatica: la valuta l'agent appena inquadra il task"
-                    : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
-                  className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
-                    !task.priorityAuto && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
-                  {task.priorityAuto ? tr('board.task.priorityAuto') : PRIORITY_LABEL[task.priority] ?? 'Media'}
-                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
-                </button>
-                <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
-                  {PRIORITY_ORDER.map((p) => (
-                    <button
-                      key={p} role="option" aria-selected={p === task?.priority}
-                      disabled={busy}
-                      onClick={() => changePriority(p)}
-                      className={`${POPOVER_ITEM} disabled:opacity-40`}
-                    >
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
-                      <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
-                      {p === task?.priority && !task?.priorityAuto && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                    </button>
-                  ))}
-                </Menu>
-                {/* Etichette — la correzione a mano di un umano. Qui `invisibile`
-                    si puo' scrivere (l'agente non puo': il server lo rifiuta), e
-                    una volta scritta a mano la derivazione non la sovrascrive
-                    piu' alla consegna successiva. */}
-                <button
-                  ref={labelBtnRef}
-                  onClick={() => setLabelMenuOpen(true)}
-                  data-testid="task-labels-chip"
-                  title={task.labels.some((l) => l.label === 'invisibile')
-                    ? 'Invisibile: non tocca client/src. Con la barra verde la puo\' chiudere il conduttore.'
-                    : task.labels.some((l) => l.label === 'visibile')
-                      ? 'Visibile: tocca una superficie che si vede. Resta in review finche\' non la guarda un umano.'
-                      : task.labels.some((l) => l.label === 'decisione')
-                        ? 'Decisione: un piano, una ricerca, un documento. La decide un umano, sempre.'
-                        : 'Nessuna etichetta di chiusura: la chiude un umano'}
-                  className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
-                >
-                  <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
-                  <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : tr('board.task.labelsChip')}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
-                </button>
-                <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.whoCloses')}</p>
-                  {CLOSER_LABELS.map((l) => (
-                    <button
-                      key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
-                      disabled={busy} onClick={() => toggleLabel(l)}
-                      className={`${POPOVER_ITEM} disabled:opacity-40`}
-                    >
-                      <span className="min-w-0 flex-1">{l}</span>
-                      {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                    </button>
-                  ))}
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.kind')}</p>
-                  {KIND_LABELS.map((l) => (
-                    <button
-                      key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
-                      disabled={busy} onClick={() => toggleLabel(l)}
-                      className={`${POPOVER_ITEM} disabled:opacity-40`}
-                    >
-                      <span className="min-w-0 flex-1">{l}</span>
-                      {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                    </button>
-                  ))}
-                </Menu>
-                <button
-                  ref={modelBtnRef}
-                  onClick={() => setModelMenuOpen(true)}
-                  data-testid="task-model-chip"
-                  title={(task.agentMs > 0 || task.agentTokens > 0)
-                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · clicca per cambiare modello`
-                    : "Modello dell'agent. Auto = il classificatore opus-first sceglie per task."}
-                  className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
-                >
-                  <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
-                  <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
-                </button>
-                <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
-                  <button
-                    role="option" aria-selected={!task?.model} disabled={busy}
-                    onClick={() => changeModel(null)}
-                    className={`${POPOVER_ITEM} disabled:opacity-40`}
-                  >
-                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
-                    <span className="min-w-0 flex-1">{tr('board.task.modelAutoOption')} <span className="text-app-text-muted">(opus-first)</span></span>
-                    {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                  </button>
-                  {models.map((m) => (
-                    <button
-                      key={m} role="option" aria-selected={m === task?.model} disabled={busy}
-                      onClick={() => changeModel(m)}
-                      className={`${POPOVER_ITEM} disabled:opacity-40`}
-                    >
-                      <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
-                      {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                    </button>
-                  ))}
-                </Menu>
-                {/* «In attesa di…» sta IN RIGA, non dentro il ⋯: è uno stato che
-                    cambia la lettura del task (non parte finché l'altro non
-                    chiude), e uno stato dentro un menu è uno stato che nessuno
-                    vede. Cliccarlo apre lo stesso picker della voce nel ⋯. */}
-                {blockedChip && (
-                  <button
-                    ref={blockerChipRef}
-                    onClick={() => openBlockerMenu(blockerChipRef.current)}
-                    data-testid="task-blocked-by-chip"
-                    title={`${blockedChip.title} · clicca per cambiare il bloccante`}
-                    className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
-                  >
-                    <Lock className="h-3 w-3 shrink-0" />
-                    <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
-                    <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
-                  </button>
-                )}
-                {/* «Chi la lavora» sta in riga accanto al bloccante, e per lo
-                    stesso motivo: su una card in corso senza topic né chip è lo
-                    stato che decide se c'è da intervenire. Quando la tiene un
-                    antenato il chip ci porta — la domanda successiva è sempre
-                    «e chi sarebbe?». */}
-                {workChip && (workAncestorId && onOpenTask ? (
-                  <button
-                    onClick={() => onOpenTask(workAncestorId)}
-                    data-testid="task-subtask-work-chip"
-                    data-kind="parent-turn"
-                    title={`${workChip.title}: clicca per aprire la sua scheda`}
-                    className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
-                  >
-                    <UserRound className="h-3 w-3 shrink-0" />
-                    <span className="max-w-[14rem] truncate">{workChip.label}</span>
-                  </button>
-                ) : (
-                  <span
-                    data-testid="task-subtask-work-chip"
-                    data-kind={workChip.kind}
-                    title={workChip.title}
-                    className={workChip.kind === 'unattended'
-                      ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300'
-                      : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted'}
-                  >
-                    {workChip.kind === 'unattended'
-                      ? <AlertTriangle className="h-3 w-3 shrink-0" />
-                      : <UserRound className="h-3 w-3 shrink-0" />}
-                    <span className="max-w-[14rem] truncate">{workChip.label}</span>
-                  </span>
-                ))}
-                {/* Plan-first / reuse-context vivono nel ⋯ header menu. Il PICKER
-                    del bloccante resta qui — portaled, ancorato a chi l'ha
-                    aperto (il chip qui sopra, o il ⋯ quando il chip non c'è). */}
-                <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
-                  <button
-                    role="option" aria-selected={!task.blockedByTaskId}
-                    onClick={() => pickBlocker(null)}
-                    className={POPOVER_ITEM}
-                  >
-                    <span className="min-w-0 flex-1">{tr('common.none')}</span>
-                    {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                  </button>
-                  <div className="max-h-52 overflow-y-auto">
-                    {boardTasks === null ? (
-                      <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
-                    ) : blockerCandidates.length === 0 ? (
-                      <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
-                    ) : blockerCandidates.map((t) => (
-                      <button
-                        key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
-                        onClick={() => pickBlocker(t.id)}
-                        className={POPOVER_ITEM}
-                      >
-                        <span className="min-w-0 flex-1 truncate">{t.text}</span>
-                        {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                      </button>
-                    ))}
-                  </div>
-                </Menu>
-              </div>
-            )}
-          </div>
-          {/* Descrizione — accordion coerente con Sottotask/Modifiche: stesso
-              container (px-3 py-2), stessa label (chevron + uppercase), corpo a
-              mt-1.5. Spazio sopra/sotto la label uguale (il py-2 del contenitore). */}
-          <div className="shrink-0 border-b border-app-border px-3 py-2">
-            {editingDesc ? (
-              <textarea
-                autoFocus value={descDraft} rows={1} ref={autoGrow}
-                onChange={(e) => { setDescDraft(e.target.value); autoGrow(e.currentTarget); }}
-                onBlur={saveDesc}
-                onKeyDown={cancelKey}
-                placeholder={tr('board.task.descPlaceholder')}
-                className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-app-text-heading outline-none"
-              />
-            ) : task?.description ? (
-              <>
-                {/* CHIUSO ≠ VUOTO. La scelta di chiudere è ricordata in
-                    localStorage e vale per OGNI card: chiusa una volta, una
-                    descrizione da 2.578 caratteri si legge come «non c'è una
-                    descrizione utile» (il rilievo su `d4fcce17`). Il chevron non
-                    è evidenza di contenuto, quindi da chiuso la maniglia porta
-                    con sé la MISURA (quanto testo c'è) e la prima riga vera. */}
-                <button
-                  onClick={toggleDescOpen}
-                  className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
-                >
-                  {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.descLabel')}
-                </button>
-                {/* La misura sta FUORI dal bottone di proposito: il nome
-                    accessibile della maniglia resta «Descrizione» esatto, che è
-                    come la cercano le spec e chi naviga a voce. Qui dentro
-                    invece serve il numero, perché è il numero a dire che sotto
-                    c'è un piano e non due righe. */}
-                {!descOpen && (
-                  <p
-                    onClick={toggleDescOpen}
-                    title={tr('board.task.descExpandTitle')}
-                    className="mt-1 cursor-pointer truncate text-xs leading-5 text-app-text-secondary hover:text-app-text-heading"
-                    data-testid="task-desc-summary"
-                  >
-                    <span className="text-app-text-faint">{tr('board.task.descChars', { n: fmtCount(task.description.length, locale) })}</span>
-                    {descSummary(task.description) && <> · {descSummary(task.description)}</>}
-                  </p>
-                )}
-                {descOpen && (
-                  <div
-                    onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
-                    title={tr('board.task.editDescTitle')}
-                    className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
-                  ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
-                )}
-              </>
-            ) : (
-              <button
-                onClick={() => { setDescDraft(''); setEditingDesc(true); }}
-                className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint hover:text-app-text-secondary"
-              >{tr('board.task.addDesc')}</button>
-            )}
-            {/* (L'anteprima stava QUI, sorella della descrizione ma fuori dal
-                suo ramo `descOpen`: chiudere la descrizione non la nascondeva.
-                Ora ha la sua sezione in cima al brief — «la consegna» è uno slot,
-                non un dettaglio della descrizione.) */}
-            {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
-                polimorfo — click sul nome lo apre come TAB nel workspace del
-                task, l'icona lo SCARICA. Rimpiazza l'idea di "output" a parte:
-                il risultato è tab + lista scaricabili. */}
-            {mediaPaths.length > 0 && (
-              <div className="mt-3" data-testid="task-downloads">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint">{tr('board.task.deliveredFiles')}</div>
-                <ul className="flex flex-col gap-1">
-                  {mediaPaths.map((p) => {
-                    const name = p.split('/').pop() || p;
-                    return (
-                      <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-app-text-heading">
-                        <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
-                        <button
-                          type="button"
-                          onClick={() => browser.focusPane(mediaPaneIdFor(p))}
-                          title={tr('board.task.openAsTabTitle')}
-                          className="min-w-0 flex-1 truncate text-left hover:text-white"
-                        >{name}</button>
-                        <a
-                          href={getMediaUrl(p)}
-                          download={name}
-                          title={tr('board.task.downloadFileTitle')}
-                          className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-white"
-                        ><Download className="h-3.5 w-3.5" /></a>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-          </div>
+          {!twoCol && identityCard}
+          {!twoCol && descCard}
           {/* Closed-tab tray — ONLY the soft-closed browser tabs live here under
               the description so a closed tab stays reopenable and previewable
               ("quando chiuso"). Live tabs (and the "+" to add one) belong to the
@@ -2404,43 +2554,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               })}
             </div>
           )}
-          {/* Subtask tree — collapsible; unlimited depth, lazy-expanded. The
-              agent's steps live here too: dots flip green as it checks them off.
-              Hidden entirely when there are no subtasks ("non mostrare se non ci
-              sono") — added on demand from the ⋯ menu (subtaskComposerOpen).
-              Accordion puro: il `max-h-[40%] overflow-y-auto` che stava qui era
-              il surrogato dello scroll mancante — un elenco di sottotask dentro
-              la sua finestrella, dentro un drawer che non scorreva. Adesso scorre
-              il brief. */}
-          {(children.length > 0 || subtaskComposerOpen) && (
-          <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-subtasks">
-            <button
-              onClick={toggleSubtasksOpen}
-              className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
-            >
-              {subtasksOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              {tr('board.task.subtasksLabel')}{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
-            </button>
-            {subtasksOpen && (
-              <div className="mt-1.5">
-                {children.map((c) => (
-                  <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
-                ))}
-                <div className="relative mt-1">
-                  <input
-                    value={subDraft} disabled={addingSub}
-                    autoFocus={subtaskComposerOpen && children.length === 0}
-                    onChange={(e) => setSubDraft(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-                    placeholder={tr('board.task.addSubtaskPlaceholder')}
-                    className="w-full rounded bg-white/5 px-2 py-1 text-xs text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
-                  />
-                  {addingSub && <Spinner size="sm" tone="current" className="absolute right-1.5 top-1.5 text-app-text-secondary" />}
-                </div>
-              </div>
-            )}
-          </div>
-          )}
+          {!twoCol && subtasksCard}
           {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
               chat composer area ("sopra la chat era fastidioso"). It renders
               NOTHING when there's no worktree / an empty diff (owns its own
@@ -2665,6 +2779,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
         )}
+      </div>
       </div>
       )}
     </div>
