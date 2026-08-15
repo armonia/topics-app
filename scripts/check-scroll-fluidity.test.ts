@@ -103,6 +103,24 @@ describe("judge", () => {
       expect(e.blockers[0]).toContain("calibrazione");
     });
 
+    it("macchina che disegna alla META' della cadenza della baseline", () => {
+      // Il caso vero della CI del 2026-08-15: il runner e' a 60 Hz (16,7 ms) e la
+      // baseline e' stata presa a 120 Hz (8,3 ms). Il tetto ASSOLUTO non se ne
+      // accorge (16,7 < 20) e il cancello finiva per bocciare `worst_gap 50ms`,
+      // che su quella cadenza sono tre frame, contro i 18 ms della baseline che
+      // sul Mac erano 2,2. Due macchine, non due versioni del prodotto.
+      const e = judge(patched({ calibration_gap_ms: 16.7, median: { worst_gap_ms: 50 } }), BASELINE);
+      expect(e.exitCode).toBe(2);
+      expect(e.blockers.join(" ")).toContain("cadenza");
+    });
+
+    it("una cadenza SOLO un po' diversa continua a essere giudicata", () => {
+      // Altrimenti il cancello si spegne da solo alla prima macchina un filo
+      // diversa, che e' il modo in cui un cancello smette di proteggere.
+      const e = judge(patched({ calibration_gap_ms: 11, median: { worst_gap_ms: 50 } }), BASELINE);
+      expect(e.exitCode).toBe(1);
+    });
+
     it("banco che non ha scorso niente", () => {
       // Il modo tipico in cui una misura smette di misurare senza dirlo: zero
       // lavoro da' sempre zero frame persi, cioe' verde per sempre.
