@@ -1887,7 +1887,7 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
 /// e `useTheme` riallinea classe e meta. Il materiale della vibrancy segue
 /// l'effectiveAppearance da sé, quindi il frost non regredisce.
 #[cfg(target_os = "macos")]
-fn apply_appearance(window: &tauri::WebviewWindow, dark: Option<bool>) {
+fn apply_appearance(window: &tauri::Window, dark: Option<bool>) {
     use crate::mac::*;
 
     let ptr = match window.ns_window() {
@@ -1947,7 +1947,18 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
         // no_abort: run_on_main_thread locks the window dispatcher — same
         // poisoned-mutex SIGABRT class (see no_abort doc).
         let _ = no_abort("set_theme", || {
-            for (label, win) in app.webview_windows() {
+            // `windows()`: l'appearance si pinna su una NSWindow, e la mappa
+            // filtrata perde proprio le finestre che hanno una pane browser
+            // aperta (vedi `reload_all_ui_windows`). Il risultato era che con
+            // una pane aperta il tema non arrivava più al cromo nativo: semafori
+            // e titlebar restavano sull'appearance vecchia sotto un contenuto
+            // già cambiato, e in modo «Sistema» il `setAppearance: nil` che
+            // toglie il pin non partiva mai — quindi la finestra restava
+            // inchiodata all'ultimo tema forzato e, siccome la WKWebView eredita
+            // l'effectiveAppearance dalla finestra, «Sistema» smetteva di
+            // seguire il Mac. Nessun errore da nessuna parte: `set_theme`
+            // tornava Ok.
+            for (label, win) in app.windows() {
                 if label != "main" && !label.starts_with("detach-") {
                     continue;
                 }
@@ -7625,19 +7636,30 @@ fn window_logical_geometry(win: &tauri::WebviewWindow) -> Option<((i32, i32), (u
 /// nothing else runs on the way out (CloseRequested hides to tray instead).
 fn save_main_window_geometry(app: &tauri::AppHandle) {
     use tauri::Manager;
-    for (label, win) in app.webview_windows() {
-        if label != "main" {
-            continue;
-        }
-        if win.is_minimized().unwrap_or(false) {
-            return; // a minimized frame is not a real position
-        }
-        if let (Some(path), Some(((lx, ly), (lw, lh)))) =
-            (win_size_file(app), window_logical_geometry(&win))
-        {
-            save_win_size_logical(&path, lw as f64, lh as f64, Some((lx, ly)));
-        }
-        return;
+    // `get_window("main")` e la geometria letta in linea, per la stessa ragione
+    // scritta in `recompose_main_window`: `window_logical_geometry` prende una
+    // `WebviewWindow`, e quella ricerca torna `None` appena ci sono pane browser
+    // aperte. Qui il ciclo su `webview_windows()` era la stessa trappola in
+    // un'altra forma — con una pane aperta la mappa non conteneva più "main",
+    // il ciclo non trovava niente e usciva muto. Effetto: l'ULTIMA posizione
+    // della finestra non veniva più salvata all'uscita, e siccome i salvataggi
+    // durante il movimento sono throttled in testa, l'ultimo spostamento di un
+    // gesto si perdeva.
+    let Some(win) = app.get_window("main") else { return };
+    if win.is_minimized().unwrap_or(false) {
+        return; // a minimized frame is not a real position
+    }
+    let (Ok(sf), Ok(pos), Ok(size)) = (win.scale_factor(), win.outer_position(), win.outer_size())
+    else { return };
+    let pos = pos.to_logical::<f64>(sf);
+    let size = size.to_logical::<f64>(sf);
+    if let Some(path) = win_size_file(app) {
+        save_win_size_logical(
+            &path,
+            size.width.round().max(0.0),
+            size.height.round().max(0.0),
+            Some((pos.x.round() as i32, pos.y.round() as i32)),
+        );
     }
 }
 
@@ -8108,7 +8130,13 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                 // (browser_open le parenta alla finestra ospite): keying off the
                 // event window è ciò che tiene corretto questo forward.
                 let mut dispatched = false;
-                for (label, w) in app.webview_windows() {
+                // `windows()`: questo ramo gira PROPRIO QUANDO una pane browser
+                // ha il fuoco, cioè esattamente quando la mappa filtrata non
+                // contiene la finestra dell'evento. Il confronto non combaciava
+                // mai, `dispatched` restava false e si finiva sempre nel
+                // fallback su "main": con un pop-out il chord digitato lì
+                // atterrava nella finestra principale.
+                for (label, w) in app.windows() {
                     if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
                         if let Some(wv) = app.get_webview(&label) {
                             let _ = wv.eval(&js);
@@ -8501,6 +8529,24 @@ async fn window_detach_space(
     // griglia. `ensure_window_visible` è una catena di chiamate al dispatcher
     // della finestra: va sul MAIN THREAD e dentro `no_abort`, come
     // `window_focus_label` (stessa classe di SIGABRT).
+    // ⚠️ QUESTA MAPPA È ANCORA QUELLA FILTRATA, ed è l'ultimo posto in cui la
+    // trappola morde (le altre sono state corrette: `reload_all_ui_windows`,
+    // `set_theme`, `save_main_window_geometry`, il forward dei chord,
+    // `purge_dead_space_labels`). Con una pane browser aperta nella
+    // finestra-gruppo, `find` non la trova e questo ramo «alzala invece di
+    // riaprirla» non scatta.
+    //
+    // Non è corretto qui perché non è uno swap: `ensure_window_visible` prende
+    // una `&WebviewWindow`, e ritiparla a `&Window` tira dentro anche
+    // `logical_monitors` e `window_logical_geometry` più una dozzina di
+    // chiamanti. Va fatto, ma come giro suo — e insieme ai due gemelli che
+    // hanno lo STESSO filtro: `get_webview_window` più sotto in questa funzione
+    // e in `window_close_label`.
+    //
+    // Il sintomo resta in gran parte coperto: il gesto «Sposta in una finestra»
+    // passa prima dalla presenza (SpaceGroups.tsx), che sa già dove vive il
+    // gruppo e alza la finestra senza arrivare qui. Questo ramo è la rete di
+    // sotto, e oggi è la rete che ha un buco.
     {
         use tauri::Manager;
         let existing = app
@@ -10164,6 +10210,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
+                // Qui `webview_windows()` va bene, ed è l'unico posto in cui lo
+                // è: si è dentro `.setup()`, prima che l'event loop parta e
+                // quindi prima che il frontend possa aver chiesto una sola pane
+                // browser (`browser_open` è un comando: nasce da un click). Con
+                // zero pane la mappa filtrata e quella completa coincidono.
+                // Altrove no — vedi `reload_all_ui_windows`.
                 for (_label, win) in app.webview_windows() {
                     apply_traffic_lights(&win, false);
                     // NOTE: masking the content view (round_window_content_corners) to
