@@ -30,6 +30,7 @@ import {
   resolveClaudeCodePermissionMode,
   resolveCodexApprovalMode,
   resolveClaudeCodeEnabled,
+  resolveAgentRuntime,
   type AppSettings,
 } from "../services/app-settings";
 
@@ -196,10 +197,19 @@ export function recomputeDefault(): boolean {
   const preferred = PROVIDER_PREFERENCE_ORDER.find(
     (name) => _providers.get(name)?.connected === true,
   );
+  // Scegliere il runtime `jcode` è già dire quale meccanica si vuole: se quel
+  // provider è registrato e connesso, viene PRIMA dell'ordine dei noti. Senza
+  // questa riga l'interruttore si accendeva a metà — jcode compariva nel
+  // picker, ma il default automatico restava `claude-code`, cioè esattamente i
+  // ~790 MB per sessione da cui si stava scappando.
+  const runtimePreferred =
+    resolveAgentRuntime() === "jcode" && _providers.get("jcode")?.connected === true
+      ? "jcode"
+      : undefined;
   const unknownConnected = [..._providers.entries()].find(
     ([name, p]) => p.connected === true && !PROVIDER_PREFERENCE_ORDER.includes(name),
   )?.[0];
-  const chosen = preferred ?? unknownConnected;
+  const chosen = runtimePreferred ?? preferred ?? unknownConnected;
   if (chosen) {
     _defaultName = chosen;
   } else {
@@ -444,13 +454,29 @@ export async function initProviders(): Promise<AIProvider[]> {
  * dichiarati che vincono a parità di nome. Una variabile malformata NON deve
  * impedire al server di partire — si logga quante voci si sono scartate e si va
  * avanti con quelle buone.
+ *
+ * Esportata per una ragione sola: qui dentro vive il CANCELLO del runtime, e
+ * l'alternativa per provarlo sarebbe far partire `initProviders` intero — cioè
+ * spawnare CLI vere per misurare una decisione che è una riga di filtro.
  */
-function resolveAcpAgents(): ReturnType<typeof mergeAcpAgents> {
+export function resolveAcpAgents(): ReturnType<typeof mergeAcpAgents> {
   const { agents, skipped } = parseAcpAgentsEnv(process.env.ACP_AGENTS);
   if (skipped > 0) {
     console.warn(`[Providers] ACP_AGENTS: ${skipped} voce/i illeggibile/i, ignorate`);
   }
-  return mergeAcpAgents(KNOWN_ACP_AGENTS, agents);
+  const merged = mergeAcpAgents(KNOWN_ACP_AGENTS, agents);
+  // Il cancello del runtime, e vale SOLO sulla riga che mettiamo noi in
+  // tabella. `jcode` è nei noti perché è installato su questa macchina, ma
+  // registrarlo comunque riempirebbe il picker di una voce che chi sta sul
+  // sistema CLI non ha chiesto — e, peggio, la renderebbe eleggibile come
+  // default automatico appena un'altra CLI risulta disconnessa.
+  //
+  // Chi lo dichiara a mano in `ACP_AGENTS` passa lo stesso: quella variabile è
+  // il modo esplicito di dire «voglio questo agente», e un interruttore di
+  // meccanica non deve sovrascrivere una richiesta nominale.
+  if (resolveAgentRuntime() === "jcode") return merged;
+  const declaredByHand = new Set(agents.map((a) => a.name));
+  return merged.filter((spec) => spec.name !== "jcode" || declaredByHand.has("jcode"));
 }
 
 async function detectClaudeCodeCli(): Promise<boolean> {

@@ -1275,6 +1275,10 @@ export interface AppBehaviorSettings {
   /** Quanto se ne vede: `minimal` | `activity` | `detailed`. `null` = il
    *  default del server, `activity`. */
   discordDetailLevel: DiscordDetailLevel | null;
+  /** Con quale meccanica gira un agente: `cli` (una CLI per sessione) o
+   *  `jcode` (sessioni ACP dentro un demone condiviso). `null` = il default
+   *  del server, `cli`. */
+  agentRuntime: AgentRuntime | null;
 }
 
 /**
@@ -1285,8 +1289,8 @@ export interface AppBehaviorSettings {
  * La superficie è in Impostazioni → Permessi.
  */
 export type { ToolGrant } from '../../../shared/types';
-import type { ToolGrant, DiscordDetailLevel } from '../../../shared/types';
-export type { DiscordDetailLevel } from '../../../shared/types';
+import type { ToolGrant, DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
+export type { DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
 
 export const toolGrantsApi = {
   async list(): Promise<ToolGrant[]> {

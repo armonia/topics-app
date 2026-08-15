@@ -22,13 +22,14 @@ import {
   resolveClaudeMaxTokens,
   resolveCodexApprovalMode,
   resolveClaudeCodeEnabled,
+  resolveAgentRuntime,
   settingClaudeEffort,
 } from "./app-settings";
 
 let tmpRoot: string;
 const ENV_KEYS = [
   "AI_PROVIDER", "CLAUDE_MODEL", "CLAUDE_MAX_TOKENS",
-  "CODEX_APPROVAL_MODE", "CLAUDE_CODE_ENABLED",
+  "CODEX_APPROVAL_MODE", "CLAUDE_CODE_ENABLED", "TOPICS_AGENT_RUNTIME",
 ] as const;
 const saved: Record<string, string | undefined> = {};
 
@@ -62,6 +63,7 @@ beforeEach(() => {
     aiProvider: null, claudeModel: null, claudeMaxTokens: null, claudeEffort: null,
     openaiModel: null, openaiMaxTokens: null, codexModel: null, codexReasoningEffort: null,
     claudeCodePermissionMode: null, codexApprovalMode: null, claudeCodeEnabled: null,
+    agentRuntime: null,
   });
 });
 
@@ -170,5 +172,53 @@ describe("la scelta del provider di default sopravvive a recomputeDefault", () =
     updateAppSettings({ aiProvider: "claude-code" });
     updateAppSettings({ aiProvider: null });
     expect(resolveAiProvider()).toBe("claude");
+  });
+});
+
+describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
+  // Perché questi test esistono: l'interruttore decide se una sessione costa
+  // ~200 MB (una CLI per sessione) o meno di uno (una sessione dentro un demone
+  // condiviso). Sbagliare il ripiego non è un dettaglio di stile — è mandare
+  // agenti su un runtime che nessuno ha chiesto.
+  test("mai toccato → `cli`, il sistema storico", () => {
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  test("scritto nelle settings, vale", () => {
+    updateAppSettings({ agentRuntime: "jcode" });
+    expect(resolveAgentRuntime()).toBe("jcode");
+  });
+
+  test("l'env porta la scelta su una macchina senza aprire la UI", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "jcode";
+    expect(resolveAgentRuntime()).toBe("jcode");
+  });
+
+  test("l'impostazione VINCE sull'env: chi ha scelto in Impostazioni ha scelto dopo", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "jcode";
+    updateAppSettings({ agentRuntime: "cli" });
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  test("azzerata, si torna a cedere all'env", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "jcode";
+    updateAppSettings({ agentRuntime: "jcode" });
+    updateAppSettings({ agentRuntime: null });
+    expect(resolveAgentRuntime()).toBe("jcode");
+  });
+
+  // Il verso in cui è giusto sbagliare. Un refuso NON deve promuovere nessuno a
+  // un runtime diverso da quello che c'è sempre stato.
+  test("un valore fuori scala cade su `cli`, non su `jcode`", () => {
+    updateAppSettings({ agentRuntime: "jcodee" });
+    expect(resolveAgentRuntime()).toBe("cli");
+    updateAppSettings({ agentRuntime: null });
+    process.env.TOPICS_AGENT_RUNTIME = "demone";
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  test("spazi e maiuscole non contano: è una riga scritta a mano, non un token", () => {
+    updateAppSettings({ agentRuntime: "  JCODE " });
+    expect(resolveAgentRuntime()).toBe("jcode");
   });
 });

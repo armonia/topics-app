@@ -25,6 +25,8 @@ import {
   type OutputLanguage,
   DISCORD_DETAIL_LEVELS,
   type DiscordDetailLevel,
+  AGENT_RUNTIMES,
+  type AgentRuntime,
 } from "../../shared/types";
 
 /** Config dei provider AI. Omonimo ma NON parente dell'`AppSettings` del
@@ -51,6 +53,11 @@ export interface AppSettings {
   /** Quanto di quello stato si vede (`DiscordDetailLevel`). NULL = il default
    *  del codice, `activity`. */
   discordDetailLevel: string | null;
+  /** Con quale meccanica si esegue un agente: `cli` (una CLI per sessione) o
+   *  `jcode` (sessioni ACP dentro un demone condiviso). NULL = mai toccato =
+   *  `cli`, il sistema storico. Vedi la migration `agent-runtime` per i numeri
+   *  che giustificano l'esistenza dell'interruttore. */
+  agentRuntime: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -68,6 +75,7 @@ const EMPTY: AppSettings = {
   outputLanguage: null,
   discordPresenceEnabled: null,
   discordDetailLevel: null,
+  agentRuntime: null,
 };
 
 interface Row {
@@ -85,6 +93,7 @@ interface Row {
   output_language: string | null;
   discord_presence_enabled: number | null;
   discord_detail_level: string | null;
+  agent_runtime: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -105,6 +114,7 @@ function rowToSettings(r: Row): AppSettings {
     discordPresenceEnabled:
       r.discord_presence_enabled == null ? null : r.discord_presence_enabled === 1,
     discordDetailLevel: r.discord_detail_level ?? null,
+    agentRuntime: r.agent_runtime ?? null,
   };
 }
 
@@ -122,7 +132,8 @@ export function getAppSettings(): AppSettings {
         `SELECT ai_provider, claude_model, claude_max_tokens, claude_effort,
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
-                output_language, discord_presence_enabled, discord_detail_level
+                output_language, discord_presence_enabled, discord_detail_level,
+                agent_runtime
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -149,6 +160,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   outputLanguage: "output_language",
   discordPresenceEnabled: "discord_presence_enabled",
   discordDetailLevel: "discord_detail_level",
+  agentRuntime: "agent_runtime",
 };
 
 /**
@@ -322,4 +334,30 @@ export function resolveDiscordDetailLevel(s = getAppSettings()): DiscordDetailLe
   return (DISCORD_DETAIL_LEVELS as readonly string[]).includes(raw)
     ? (raw as DiscordDetailLevel)
     : "activity";
+}
+
+/**
+ * Con quale meccanica si esegue un agente: `cli` o `jcode`.
+ *
+ * Ha un env di ripiego, al contrario dei due qui sopra, e la differenza è
+ * voluta: lingua e presence sono preferenze di PERSONA, questa è una scelta di
+ * MACCHINA. Un `TOPICS_AGENT_RUNTIME=jcode` nell'ambiente è esattamente ciò che
+ * serve per misurare le due meccaniche una contro l'altra (il bench lancia il
+ * server con il suo ambiente, non con il DB dell'utente) e per portare la
+ * scelta su una macchina piccola senza aprire la UI.
+ *
+ * L'impostazione VINCE sull'env: chi ha scelto in Impostazioni ha scelto dopo.
+ *
+ * Un valore fuori scala (riga a mano, DB di un'altra versione, env con un
+ * refuso) cade su `cli`. È il verso giusto in cui sbagliare: `cli` è il sistema
+ * che c'è sempre stato, mentre cadere su `jcode` manderebbe un agente su un
+ * runtime che chi ha scritto quel refuso non ha chiesto.
+ */
+export function resolveAgentRuntime(s = getAppSettings()): AgentRuntime {
+  const raw = (s.agentRuntime ?? process.env.TOPICS_AGENT_RUNTIME ?? "")
+    .trim()
+    .toLowerCase();
+  return (AGENT_RUNTIMES as readonly string[]).includes(raw)
+    ? (raw as AgentRuntime)
+    : "cli";
 }
