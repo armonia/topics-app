@@ -102,9 +102,12 @@ test.describe("Review portata dal sistema: scelte diverse da una consegna", () =
   test.beforeAll(async ({ request }) => {
     mkdirSync(REPO, { recursive: true });
     writeFileSync(`${REPO}/package.json`, JSON.stringify({ name: "e2e-nonconsegnata" }, null, 2));
-    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: REPO, stdio: "pipe" });
-    execFileSync("git", ["add", "-A"], { cwd: REPO, stdio: "pipe" });
-    execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: REPO, stdio: "pipe" });
+    // Identita' via `-c` e non dalla macchina: senza, `git commit` muore con
+    // «Please tell me who you are» su CI e mai in locale. Vedi la nota in
+    // `helpers/file-project.ts:initGitRepo`, che esiste per questo stesso motivo.
+    execFileSync("git", ["-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", "init", "-q", "-b", "main"], { cwd: REPO, stdio: "pipe" });
+    execFileSync("git", ["-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", "add", "-A"], { cwd: REPO, stdio: "pipe" });
+    execFileSync("git", ["-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"], { cwd: REPO, stdio: "pipe" });
 
     const proj = await request.post(`${API}/projects`, { data: { name: `e2e-nonconsegnata-${Date.now()}`, path: REPO } });
     expect(proj.ok()).toBe(true);

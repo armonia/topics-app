@@ -51,7 +51,14 @@ const T_BLOCCANTE = "Scegliere il fornitore";
 const T_BLOCCATA = "Pubblicare la scheda nuova";
 
 function git(cwd: string, args: string[]) {
-  execFileSync("git", args, { cwd, stdio: "pipe" });
+  // L'identita' passata con `-c` e non presa dalla macchina: senza, `git commit`
+  // muore con «Please tell me who you are» ovunque non ci sia una config globale,
+  // cioe' su CI e mai sul portatile di chi scrive la spec. E' lo stesso difetto
+  // che `helpers/file-project.ts:initGitRepo` documenta di aver gia' pagato, ed
+  // era ricopiato senza identita' in cinque spec. `commit.gpgsign=false` copre
+  // l'altro verso: chi firma i commit resta appeso su una passphrase che nessuno
+  // vede.
+  execFileSync("git", ["-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" });
 }
 
 interface WorktreeRow { id: string; status: string; absPath: string }
