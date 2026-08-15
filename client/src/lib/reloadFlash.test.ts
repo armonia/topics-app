@@ -105,6 +105,41 @@ describe("reloadFlash", () => {
     expect(uses.length).toBe(1);
   });
 
+  test("il reload enumera le WEBVIEW, non le finestre-webview", () => {
+    // LA RIGA CHE HA UCCISO ⌘R, e il modo esatto in cui può tornare.
+    //
+    // In tauri 2.11.3 `webview_windows()` tiene solo le finestre per cui
+    // `is_webview_window()` è vero, e quel predicato è
+    // `self.webviews().iter().all(|w| w.label() == self.label())`
+    // (tauri/src/lib.rs:588-602 + tauri/src/window/mod.rs:1160). Una pane del
+    // browser è una webview FIGLIA della finestra ospite (`window.add_child(…)`
+    // in `browser_open`): appena ne apri una, quella finestra ha due webview,
+    // il predicato diventa falso e la finestra sparisce dalla mappa — `main`
+    // compresa. `reload_all_ui_windows` girava a vuoto, tornava 0 e non
+    // falliva, quindi ⌘R, la voce Reload del menu e `app_reload_all` tacevano
+    // tutti e tre insieme, e SOLO con una pane aperta. Un difetto condizionato
+    // a uno stato che nessun test montava.
+    //
+    // Il gemello che ha sempre funzionato è `notify_app_shell_bundle_stale`,
+    // 400 righe sotto, con lo stesso salto sulle `browserpane-` ma su
+    // `app.webviews()`: è per questo che il toast «Build più recente pronta»
+    // compariva mentre il reload non partiva. Qui si pretende che le due righe
+    // restino la stessa riga.
+    // `codeOnlyLines` e non il sorgente grezzo: il commento QUI SOPRA nomina
+    // `webview_windows()` per spiegare perché non si usa, e una guardia che
+    // legge anche i commenti si fa smentire dalla propria spiegazione. È lo
+    // stesso motivo per cui il censimento dei reload passa di lì.
+    const rs = codeOnlyLines(readFileSync(LIB_RS, "utf8")).join("\n");
+    const corpo = rs.slice(rs.indexOf("fn reload_all_ui_windows("));
+    const ciclo = corpo.slice(0, corpo.indexOf("\n}\n"));
+    expect(ciclo).toContain("app.webviews()");
+    expect(ciclo).not.toContain("webview_windows()");
+    // E il salto sulle pane resta: senza, si ricaricherebbe sotto il naso
+    // dell'utente la pagina che sta guardando. Da quando l'enumerazione è
+    // quella giusta questa riga è portante — prima era codice morto.
+    expect(ciclo).toContain('starts_with("browserpane-")');
+  });
+
   test("ogni reload del guscio nativo è dichiarato, e uno solo è silenzioso", () => {
     // La versione precedente di questa guardia cercava `eval("…reload()…")`:
     // una FORMA. Quando il recupero-finestra ha spostato la chiamata dentro
