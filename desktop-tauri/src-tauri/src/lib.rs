@@ -8662,7 +8662,15 @@ fn space_window_label(space: &str) -> String {
 /// finestre aperte e rende il ramo "già aperta?" onesto.
 fn purge_dead_space_labels(app: &tauri::AppHandle) {
     use tauri::Manager;
-    let alive: std::collections::HashSet<String> = app.webview_windows().into_keys().collect();
+    // `windows()`, non `webview_windows()`: qui si chiede «quali finestre
+    // esistono», e la seconda risponde a una domanda diversa — «quali finestre
+    // hanno UNA sola webview» (vedi `reload_all_ui_windows` per il predicato).
+    // Una finestra-gruppo con una pane browser aperta ne ha due, quindi cadeva
+    // fuori da `alive` e questa spazzata la sfrattava da viva: il ramo «già
+    // aperta?» tornava a mentire e si apriva una SECONDA finestra sullo stesso
+    // gruppo. Cioè esattamente l'etichetta zombie che questa rete esiste per
+    // togliere, al contrario.
+    let alive: std::collections::HashSet<String> = app.windows().into_keys().collect();
     if let Ok(mut m) = SPACE_WINDOWS.lock() {
         m.retain(|label, _| alive.contains(label));
     }
@@ -8732,11 +8740,34 @@ const RELOAD_WITH_FLASH_JS: &str =
 fn reload_all_ui_windows(app: &tauri::AppHandle) -> usize {
     use tauri::Manager;
     let mut n = 0usize;
-    for (label, win) in app.webview_windows() {
+    // `webviews()`, NON `webview_windows()`, ed è la differenza fra ricaricare e
+    // non fare niente.
+    //
+    // In tauri 2.11.3 la mappa delle finestre-webview tiene solo quelle per cui
+    // `is_webview_window()` è vero, e quel predicato è
+    // `self.webviews().iter().all(|w| w.label() == self.label())`
+    // (tauri/src/lib.rs:588-602, tauri/src/window/mod.rs:1160). Una pane del
+    // browser è una webview FIGLIA della finestra ospite — `window.add_child(…)`
+    // in `browser_open` — quindi appena ne apri una quella finestra ha due
+    // webview, il predicato diventa falso e **la finestra sparisce dalla mappa**,
+    // `main` compresa. Il ciclo girava a vuoto, tornava 0 e non falliva: ⌘R, la
+    // voce Reload del menu e `app_reload_all` tacevano tutti e tre insieme, e
+    // SOLO con una pane aperta. È il «premo ⌘R e non succede nulla» che questa
+    // funzione era già stata scritta per risolvere una volta.
+    //
+    // La prova che è un errore e non una scelta sta 400 righe più sotto, in
+    // questo stesso file: `notify_app_shell_bundle_stale` fa lo stesso ciclo, con
+    // lo stesso salto sulle `browserpane-`, ma sulle webview — ed è il motivo per
+    // cui il toast «Build più recente pronta» continuava a comparire mentre il
+    // reload non partiva. Stesso intento, due collezioni, un esito solo giusto.
+    //
+    // E qui il salto sulle `browserpane-` diventa finalmente portante: prima era
+    // codice morto, perché in una mappa già filtrata una pane non compariva mai.
+    for (label, wv) in app.webviews() {
         // Le pane native del browser sono webview a sé: si saltano, o si
         // ricaricherebbe la pagina che l'utente sta guardando.
         if label.starts_with("browserpane-") { continue; }
-        if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
+        if wv.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
     }
     n
 }
@@ -9973,8 +10004,18 @@ pub fn run() {
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
                         // get_webview_window("main") can be None in this multi-webview app;
-                        // iterate webview_windows() (proven reliable) and match the label.
-                        for (label, win) in h.webview_windows() {
+                        // iterate the WINDOWS and match the label.
+                        //
+                        // «(proven reliable)» diceva questa riga di
+                        // `webview_windows()`, ed è la frase che ha propagato
+                        // l'errore in mezzo file: quella mappa tiene solo le
+                        // finestre con UNA sola webview, quindi con una pane
+                        // browser aperta è vuota proprio dove serve. Qui servono
+                        // API di FINESTRA (outer_size / outer_position /
+                        // scale_factor), quindi la collezione giusta è
+                        // `windows()`. Vedi `reload_all_ui_windows`, dove la
+                        // stessa confusione teneva muto ⌘R.
+                        for (label, win) in h.windows() {
                             if label != "main" { continue; }
                             if let (Ok(os), Ok(pos), Ok(sf)) =
                                 (win.outer_size(), win.outer_position(), win.scale_factor())
