@@ -580,7 +580,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 <span className="min-w-0 truncate font-medium">{projectLabel}</span>
               </>
             )}
-            <TaskIdChip id={task.id} />
+            {/* Il `#` NON sta più qui. Nell'eyebrow leggeva come una proprietà
+                del PROGETTO — «topics-app #» — mentre è l'identità di QUESTA
+                card, e chi lo copia lo copia per parlare del task. Adesso apre
+                il titolo, che è la cosa che nomina. */}
           </div>
           {/* The live chip's pulse dot already says "working": while it ticks,
               the 'al lavoro' state chip is redundant — one chip, not two. */}
@@ -682,6 +685,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             {PRIORITY_LABEL[task.priority] ?? task.priority}
           </span>
         )}
+        {/* IN LINEA, davanti al titolo: `align-middle` e non un blocco, così una
+            card dal titolo lungo non spreca una riga per un glifo da 14px e il
+            testo gli scorre attorno come farebbe con una parola. */}
+        <TaskIdChip id={task.id} className="mr-1 align-middle" />
         {task.text}
       </span>
       {/* Subtasks, straight under the title. In Review the checklist EXPANDS —
