@@ -154,7 +154,10 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     await expect(drawer.getByText(STEP, { exact: true })).toBeVisible({ timeout: 10000 });
     // Il drawer è DAVVERO quello dello step, non l'epica con un titolo simile:
     // il link copiabile è l'identità del task che ha sotto.
-    await drawer.getByTestId("task-copy-link").click();
+    // Il link non è più un'icona a catena nella testata: vive dentro il
+    // pannello di condivisione, che è l'unico posto dove si chiede un link.
+    await drawer.getByTestId("share-control").click();
+    await page.getByTestId("share-copy-link").click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
       .toBe(`${BASE}/task/${step.id}`);

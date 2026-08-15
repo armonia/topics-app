@@ -214,8 +214,13 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     const evento = drawer.getByTestId("task-status-event")
       .filter({ hasText: "ha fatto conflitto" });
     await expect(evento).toBeVisible({ timeout: 20000 });
-    await expect(evento).toContainText("system");     // non «user»: non l'ha mossa l'umano
     await expect(evento).toContainText("In Progress"); // la destinazione resta leggibile
+    // Chi l'ha mossa: da agosto 2026 il chip NON scrive il nome quando è stata
+    // l'app — un thread in cui ogni riga si firma «Topics» ha smesso di dire
+    // qualcosa. Il fatto che conta qui è che NON l'ha mossa l'umano, e si legge
+    // dal tooltip, che porta il nome E il ruolo grezzo scritto sul disco.
+    await expect(evento).toHaveAttribute("title", /Topics \(system\)/);
+    await expect(evento).not.toContainText("Topics");
     await beat(page, 2200);
 
     // E sul dato: l'evento è una transizione verso `in_progress` con la ragione

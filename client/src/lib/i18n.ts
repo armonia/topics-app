@@ -314,6 +314,7 @@ const IT: Dict = {
   'board.task.checks.hintLead': 'La strada normale è',
   'board.task.checks.hintTail': ": l'agent riparte con questo output. Approvare qui significa accettarlo rosso.",
   'board.task.changes': 'Modifiche',
+  'board.task.changes.openTitle': 'Apri il diff di questa scheda (si apre sopra, non spinge giù la decisione)',
   'board.task.changes.files.one': '{n} file',
   'board.task.changes.files.many': '{n} file',
   'board.task.changes.pending': '{n} in sospeso',

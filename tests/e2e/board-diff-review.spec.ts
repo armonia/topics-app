@@ -207,25 +207,31 @@ test.describe("Board · revisione del diff riga per riga", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // La sezione "Modifiche" esiste solo se il task ha un worktree con diff.
+    // Il chip "Modifiche" esiste solo se il task ha un worktree con diff.
+    // Da agosto 2026 il diff NON è più una sezione del brief: il chip apre una
+    // tendina PORTALATA (`task-changes-panel`), quindi da qui in giù si cerca
+    // nel pannello e non nel drawer — un diff da trenta file dentro il flusso
+    // spingeva sotto l'orizzonte i bottoni della decisione.
     const modifiche = drawer.getByRole("button", { name: /^Modifiche/ });
     await expect(modifiche).toBeVisible({ timeout: 15000 });
     await modifiche.click();
+    const pannello = page.getByTestId("task-changes-panel");
+    await expect(pannello).toBeVisible({ timeout: 10000 });
 
     // La riga aggiunta "sei" è la 6 del file NUOVO: l'aggancio deve dirlo.
     // (`TRE` è la 3; sono numeri del file, non indici nel patch.)
-    const commenta = drawer.getByRole("button", { name: "Commenta conta.txt:6", exact: true });
+    const commenta = pannello.getByRole("button", { name: "Commenta conta.txt:6", exact: true });
     await expect(commenta).toBeVisible({ timeout: 10000 });
     await commenta.click();
 
-    await drawer.getByPlaceholder("Cosa non va in questa riga…").fill("Questa riga non serve.");
-    await drawer.getByRole("button", { name: "Aggiungi" }).click();
+    await pannello.getByPlaceholder("Cosa non va in questa riga…").fill("Questa riga non serve.");
+    await pannello.getByRole("button", { name: "Aggiungi" }).click();
 
     // La nota resta in sospeso e si vede: nel diff e nella barra.
-    await expect(drawer.getByText("Questa riga non serve.")).toBeVisible();
-    await expect(drawer.getByText("1 commento sul diff, non ancora inviati")).toBeVisible();
+    await expect(pannello.getByText("Questa riga non serve.")).toBeVisible();
+    await expect(pannello.getByText("1 commento sul diff, non ancora inviati")).toBeVisible();
 
-    await drawer.getByRole("button", { name: "Invia all'agente" }).click();
+    await pannello.getByRole("button", { name: "Invia all'agente" }).click();
 
     // Un commento solo, con l'ancora esatta e il codice citato.
     await expect.poll(async () => {
@@ -248,7 +254,7 @@ test.describe("Board · revisione del diff riga per riga", () => {
     expect(body).toContain("Questa riga non serve.");
 
     // Spedito = niente più in sospeso: la barra sparisce e la bozza è vuota.
-    await expect(drawer.getByText("1 commento sul diff, non ancora inviati")).toBeHidden();
+    await expect(page.getByText("1 commento sul diff, non ancora inviati")).toBeHidden();
   });
 
   test("BOARD-DIFF-02: la bozza di revisione sopravvive a un reload", async ({ page }) => {
@@ -260,13 +266,15 @@ test.describe("Board · revisione del diff riga per riga", () => {
     const modifiche = drawer.getByRole("button", { name: /^Modifiche/ });
     await expect(modifiche).toBeVisible({ timeout: 15000 });
     await modifiche.click();
+    const pannello = page.getByTestId("task-changes-panel");
+    await expect(pannello).toBeVisible({ timeout: 10000 });
 
-    const commenta = drawer.getByRole("button", { name: "Commenta conta.txt:3", exact: true });
+    const commenta = pannello.getByRole("button", { name: "Commenta conta.txt:3", exact: true });
     await expect(commenta).toBeVisible({ timeout: 10000 });
     await commenta.click();
-    await drawer.getByPlaceholder("Cosa non va in questa riga…").fill("Perché maiuscolo?");
-    await drawer.getByRole("button", { name: "Aggiungi" }).click();
-    await expect(drawer.getByText("1 commento sul diff, non ancora inviati")).toBeVisible();
+    await pannello.getByPlaceholder("Cosa non va in questa riga…").fill("Perché maiuscolo?");
+    await pannello.getByRole("button", { name: "Aggiungi" }).click();
+    await expect(pannello.getByText("1 commento sul diff, non ancora inviati")).toBeVisible();
 
     // La bozza va sul server con un debounce: si aspetta che sia atterrata,
     // altrimenti il reload la corre contro e il test misura la corsa, non la
@@ -276,13 +284,14 @@ test.describe("Board · revisione del diff riga per riga", () => {
     await openProjectBoard(page);
     await page.getByTestId("kanban-column-todo").getByText("Revisione diff E2E").click();
 
-    const back = page.getByTestId("task-detail-drawer");
-    // Con note in sospeso la sezione si apre da sé: il lavoro non resta nascosto.
+    await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 15000 });
+    // Con note in sospeso la tendina si apre da sé: il lavoro non resta nascosto.
+    const back = page.getByTestId("task-changes-panel");
     await expect(back.getByText("Perché maiuscolo?")).toBeVisible({ timeout: 15000 });
     await expect(back.getByText("1 commento sul diff, non ancora inviati")).toBeVisible();
 
     // Pulizia: scartata, così il test seguente non eredita la bozza.
     await back.getByRole("button", { name: "Scarta" }).click();
-    await expect(back.getByText("1 commento sul diff, non ancora inviati")).toBeHidden();
+    await expect(page.getByText("1 commento sul diff, non ancora inviati")).toBeHidden();
   });
 });

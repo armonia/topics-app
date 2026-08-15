@@ -138,8 +138,12 @@ test.describe("Apri nel workspace", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    const openBtn = drawer.getByTestId("task-open-in-workspace");
-    await expect(openBtn).toBeVisible();
+    // Da agosto 2026 il gesto vive nel menu ⋯ e si chiama «Apri il task nel
+    // progetto»: non «apri il risultato», perché i risultati di una card sono
+    // tanti e cambiano mentre l'agent lavora.
+    await drawer.getByTestId("task-options-menu").click();
+    const openBtn = page.getByTestId("task-open-in-workspace");
+    await expect(openBtn).toBeVisible({ timeout: 5000 });
 
     // Capture the workspace-open events the button dispatches.
     await page.evaluate(() => {
@@ -212,7 +216,8 @@ test.describe("Apri nel workspace", () => {
         (window as unknown as { __wsOpen: unknown[] }).__wsOpen.push((e as CustomEvent).detail));
     });
 
-    await drawer.getByTestId("task-open-in-workspace").click();
+    await drawer.getByTestId("task-options-menu").click();
+    await page.getByTestId("task-open-in-workspace").click();
 
     // DUE navigate, uno per tab: il risultato non è più «Output» al singolare.
     await expect

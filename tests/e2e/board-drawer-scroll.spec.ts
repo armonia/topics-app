@@ -368,12 +368,28 @@ test.describe("Drawer del task — un solo scroll", () => {
 
     const drawer = page.getByTestId("task-detail-drawer");
 
-    // Modo stretto: nessuna seconda colonna, la sessione è una pane del gruppo.
+    // Modo stretto: nessuna seconda colonna, la sessione è una pane del gruppo,
+    // e nessuna fascia del brief — il titolo sta impilato dentro l'unica colonna.
     await expect(drawer.getByTestId("task-drawer-right")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-brief-header")).toHaveCount(0);
 
     await drawer.getByTitle(/Allarga il drawer/).click();
     const right = drawer.getByTestId("task-drawer-right");
     await expect(right).toBeVisible({ timeout: 5000 });
+
+    // LA CONSEGNA È IL TITOLO: in modo largo sale in una fascia SOPRA entrambe
+    // le colonne, a tutta larghezza. In una colonna da 22rem un titolo di due
+    // righe e mezza era la prima cosa che si perdeva, proprio mentre le due
+    // colonne esistono per farti vedere di più.
+    const header = drawer.getByTestId("task-brief-header");
+    await expect(header).toBeVisible({ timeout: 5000 });
+    const drawerW = (await drawer.boundingBox())!;
+    const headerBox = (await header.boundingBox())!;
+    expect(headerBox.width).toBeGreaterThanOrEqual(drawerW.width - 2);
+    // …e sta SOPRA le due colonne, non dentro una delle due.
+    expect(headerBox.y + headerBox.height).toBeLessThanOrEqual((await right.boundingBox())!.y + 1);
+    // Il tetto è quello che le impedisce di mangiarsi le superfici di lavoro.
+    expect(headerBox.height).toBeLessThanOrEqual(drawerW.height * 0.6);
 
     // Due colonne sorelle: sinistra stretta e non comprimibile, destra larga.
     const session = drawer.getByTestId("task-session-column");
