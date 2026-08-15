@@ -450,6 +450,13 @@ export const TopicItem = memo(function TopicItem({
             className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
             title={tr('topic.openElsewhere')}
             aria-label={tr('topic.openElsewhere')}
+            // Un segnale che non parla nessuna lingua, per chi deve TROVARE questo
+            // glifo. `sidebar.spec.ts` lo cercava per `aria-label`, cioe' su una
+            // frase tradotta: quella riga congelava il testo, perche' riscriverlo
+            // faceva rosso — e infatti sta nella tabella dei letterali bloccati in
+            // tests/e2e/CONVENTIONS.md. L'etichetta resta, ed e' giusto che resti:
+            // serve a chi usa uno screen reader. Ma non e' un identificatore.
+            data-elsewhere="true"
           >
             <AppWindow size={12} />
           </span>

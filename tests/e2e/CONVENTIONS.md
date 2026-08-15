@@ -78,7 +78,6 @@ picks one up knows what to change — seven left, one paid off:
 | `Sessione cloud (OpenClaw)` | `topic.cloudSession` | `cloud-session-project-open.spec.ts:90` |
 | `Chiudi {name}` / `Apri {name}` | `space.collapse`, `space.expand` | `sidebar-group-lifecycle.spec.ts:127` |
 | `Riavvia la sessione in-place (…)` | `terminal.reloadTitle` | `terminal-tab-reload.spec.ts:115,157` |
-| `Aperto in un'altra finestra` | `topic.openElsewhere` | `sidebar.spec.ts:807` |
 
 The cure, one spec at a time: give the element a signal that does not speak a
 language and assert on THAT. `CommandPalette.tsx` is the worked example. Its
