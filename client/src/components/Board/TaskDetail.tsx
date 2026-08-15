@@ -341,6 +341,10 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
       <div className="shrink-0 border-b border-app-border px-3 py-2">
         <span
           data-testid="task-changes-empty"
+          // Il motivo può essere più largo del chip: tagliato a vista, intero
+          // qui sotto. Un chip che tronca senza tooltip è un'informazione che
+          // esiste e non si può leggere.
+          title={`${label} · ${why}`}
           className="inline-flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-muted"
         >
           <GitCompare className="h-3 w-3 shrink-0" />
@@ -2175,7 +2179,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             l'identità costruita sotto. */}
         {/* Un solo posto per «il link»: l'icona a catena accanto non c'è più,
             la copia vive dentro il pannello di condivisione. */}
-        {task && <ShareControl resourceType="task" resourceId={task.id} deepLink={buildTaskLink(task.id)} />}
+        {task && <ShareControl resourceType="task" resourceId={task.id} deepLink={() => buildTaskLink(task.id)} />}
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
           <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
           {TASK_STATUSES.map((s) => (
@@ -2445,7 +2449,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             (brief + sessione + composer) e il tiling si prende la destra; in modo
             stretto è l'unica colonna e si prende tutto. */}
         <div className={`flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[22rem] shrink-0 border-r border-app-border' : 'flex-1'}`}>
-        <div className="min-h-0 flex-1 overflow-y-auto" data-testid="task-brief-scroll">
+        {/* IN MODO LARGO QUESTO SCROLL NON È PIÙ IL BRIEF, è quel che resta:
+            anteprima, tab chiuse, tentativi, il chip delle modifiche. Titolo,
+            descrizione e sottotask sono saliti nella fascia qui sopra, quindi
+            un `flex-1` gli darebbe metà colonna per tenerci tre righe — e la
+            metà che si mangia è la SESSIONE, che è l'altra cosa per cui la
+            colonna esiste. Prende quanto gli serve, con un tetto oltre il quale
+            scorre lui. In modo stretto resta il contenitore di scroll di
+            sempre: lì dentro c'è tutto il brief. */}
+        <div
+          className={twoCol ? 'max-h-[40%] shrink-0 overflow-y-auto' : 'min-h-0 flex-1 overflow-y-auto'}
+          data-testid="task-brief-scroll"
+        >
           {/* L'ANTEPRIMA È LA CONSEGNA, e sta in cima: è la cosa per cui il
               drawer si apre. Sezione sua, maniglia sua — prima viveva appesa
               alla descrizione ma fuori dal suo ramo aperto/chiuso, quindi

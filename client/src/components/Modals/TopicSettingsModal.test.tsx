@@ -34,7 +34,11 @@ describe('TopicShareAction', () => {
     // Lo STESSO controllo delle schede, non un secondo pannello che dice la
     // stessa cosa in un altro modo.
     expect(reso?.type).toBe(ShareControl);
-    expect(reso?.props).toEqual({ resourceType: 'topic', resourceId: 'topic-abc123' });
+    expect(reso?.props).toMatchObject({ resourceType: 'topic', resourceId: 'topic-abc123' });
+    // Il permalink arriva come FUNZIONE: comporlo legge `window.location`, e
+    // questo test gira senza DOM proprio per poter provare la guardia sulle
+    // bozze senza montare niente.
+    expect(typeof (reso?.props as { deepLink?: unknown }).deepLink).toBe('function');
   });
 
   test('una BOZZA non lo offre: la concessione atterrerebbe su un id che sta per essere buttato', () => {
@@ -47,6 +51,6 @@ describe('TopicShareAction', () => {
     const reso = TopicShareAction({ topicId: 'drafty-1' });
 
     expect(reso).not.toBeNull();
-    expect(reso?.props).toEqual({ resourceType: 'topic', resourceId: 'drafty-1' });
+    expect(reso?.props).toMatchObject({ resourceType: 'topic', resourceId: 'drafty-1' });
   });
 });
