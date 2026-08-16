@@ -54,6 +54,28 @@ export const DEFAULT_CLIENT_ID = "1467514747988611174";
 
 /** L'immagine grande della card. Un URL diretto: i client recenti lo
  *  risolvono senza dover caricare un art-asset nel Developer Portal. */
+/**
+ * L'immagine grande della presence.
+ *
+ * PERCHE' NELL'ANTEPRIMA SI VEDE UNA «T» E NON L'ICONA, ed e' la domanda che
+ * arriva ogni volta: questo URL non c'entra. Discord scarica un `large_image`
+ * esterno solo per le applicazioni che hanno gia' almeno un Rich Presence
+ * ASSET caricato sul portale sviluppatori; senza, ignora il campo e ripiega
+ * sull'iniziale del nome dell'applicazione — la «T» di Topics.
+ *
+ * Verificato che l'URL non sia il problema: risponde 200 e serve un PNG
+ * 128x128 valido (5.351 byte), anche se il repo e' privato — `raw.githubusercontent`
+ * su `main` e' leggibile perche' la reference lo e'.
+ *
+ * QUINDI IL PASSO MANCANTE NON E' CODICE. Va aperto
+ * https://discord.com/developers/applications, scelta l'applicazione con
+ * `DEFAULT_CLIENT_ID` qui sopra, e caricata l'icona in Rich Presence → Art
+ * Assets. Da quel momento questo URL viene onorato; in alternativa si mette la
+ * CHIAVE dell'asset caricato al posto dell'URL (Discord accetta entrambi, e la
+ * chiave e' piu' robusta perche' non dipende da una fetch verso GitHub).
+ *
+ * Si sovrascrive con `DISCORD_PRESENCE_IMAGE` senza ricompilare.
+ */
 export const DEFAULT_LARGE_IMAGE =
   "https://raw.githubusercontent.com/armonia/topics-app/main/desktop-tauri/src-tauri/icons/128x128.png";
 
