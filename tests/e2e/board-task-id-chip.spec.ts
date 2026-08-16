@@ -131,16 +131,27 @@ async function measureChip(page: Page, taskId: string): Promise<ChipGeometry> {
 
   return chip.evaluate((el, probe) => {
     const r = el.getBoundingClientRect();
-    // La casa del segno e' il TITOLO: dal 16/08 sta in linea davanti al nome
-    // del task, non piu' nell'eyebrow del progetto (dove leggeva come una
-    // proprieta' del progetto, «topics-app #»). Quindi il contenitore e' il
-    // genitore diretto, e il riferimento verticale e' la PRIMA RIGA di quel
-    // titolo: un titolo lungo va a capo, e il centro del blocco scenderebbe
-    // sotto il glifo misurando l'andare a capo invece dell'allineamento.
-    const rowEl = el.parentElement!;
+    // La casa del segno e' il TITOLO: dal 16/08 sta davanti al nome del task,
+    // non piu' nell'eyebrow del progetto (dove leggeva come una proprieta' del
+    // progetto, «topics-app #»). La riga e' un flex con due figli — il gruppo
+    // dei segni e il nome — e il riferimento verticale e' il RETTANGOLO DELLA
+    // PRIMA RIGA DI TESTO, preso con un Range: non l'altezza del blocco, che su
+    // un titolo che va a capo scende sotto il glifo e farebbe misurare l'andare
+    // a capo invece dell'allineamento.
+    const gruppo = el.parentElement!;
+    const rowEl = gruppo.parentElement!;
     const rr = rowEl.getBoundingClientRect();
-    const lh = parseFloat(getComputedStyle(rowEl).lineHeight) || rr.height;
-    const firstLineCy = rr.top + Math.min(lh, rr.height) / 2;
+    const nome = rowEl.lastElementChild as HTMLElement;
+    const testo = [...nome.childNodes].find(
+      (n) => n.nodeType === 3 && (n.textContent ?? '').trim().length > 0,
+    ) as Text | undefined;
+    let firstLineCy = rr.top + rr.height / 2;
+    if (testo) {
+      const rg = document.createRange();
+      rg.selectNodeContents(testo);
+      const first = rg.getClientRects()[0];
+      if (first) firstLineCy = first.y + first.height / 2;
+    }
     const cx = r.x + r.width / 2;
     const cy = r.y + r.height / 2;
     const reaches = (dx: number, dy: number) =>
@@ -227,11 +238,14 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     expect(g.chip.y + g.chip.h).toBeLessThanOrEqual(g.row.bottom + 0.5);
     expect(g.chip.x).toBeGreaterThanOrEqual(g.row.left - 0.5);
     expect(g.chip.x + g.chip.w).toBeLessThanOrEqual(g.row.right + 0.5);
-    // Allineamento verticale con la PRIMA RIGA del titolo, che e' il testo
-    // accanto a cui il segno si legge. Due pixel: `align-middle` allinea alla
-    // meta' della x-height, non al centro geometrico della riga, quindi un
-    // pixel di scarto e' il comportamento corretto e non un difetto.
-    expect(Math.abs(g.chip.cy - g.row.cy)).toBeLessThanOrEqual(2);
+    // ALLINEATO CON IL TESTO ACCANTO, e mezzo pixel di tolleranza perche' non
+    // c'e' nessun numero tarato da difendere: i segni stanno in un gruppo alto
+    // esattamente una riga di titolo e ci si centrano dentro, quindi i due
+    // centri coincidono per costruzione. Misurato prima e dopo il 16/08: era
+    // 1,81px di scarto con `align-middle` inline, e nessuno dei sette valori di
+    // `vertical-align` provati scendeva sotto 1,3 — perche' il chip e' piu' alto
+    // della riga di testo e quindi e' LUI a definirla. Adesso: 0,1.
+    expect(Math.abs(g.chip.cy - g.row.cy)).toBeLessThanOrEqual(0.5);
   });
 
   test("IDCHIP-02: col mouse l'area sensibile resta quella del glifo", async ({ page }) => {
