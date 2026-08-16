@@ -316,6 +316,17 @@ jobs:
               echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET"
             } >> "$GITHUB_ENV"
           else
+            # `::warning::` e non un `echo`, ed e' tutta la differenza fra un
+            # problema noto e un problema invisibile. Il cablaggio della
+            # notarizzazione e' completo da quando esiste questo passo: mancano
+            # solo i tre valori, che stanno nell'account sviluppatore Apple e
+            # non li puo' recuperare nessun automatismo. Finche' mancano, ogni
+            # build macOS esce firmata ma NON notarizzata, e con una release
+            # ogni pochi minuti l'utente paga l'attrito di Gatekeeper a
+            # ripetizione — in silenzio, perche' una riga di log in fondo a un
+            # job verde non la legge nessuno. Un avviso invece compare nel
+            # riepilogo della run.
+            echo "::warning title=macOS non notarizzata::Mancano APPLE_ID, APPLE_PASSWORD (app-specific) e/o APPLE_TEAM_ID. La build esce FIRMATA ma NON NOTARIZZATA: Gatekeeper avvisa a ogni aggiornamento. Il cablaggio c'e' gia': aggiungere i tre secret e' l'unico passo mancante."
             echo "Notarizzazione non configurata: firma sì, notarizzazione no."
           fi
 
