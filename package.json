@@ -93,7 +93,7 @@
     "test:ui": "npx playwright test --ui",
     "test:evidence": "E2E_EVIDENCE=1 npx playwright test",
     "test:report": "npx playwright show-report test-results/html-report",
-    "test:unit": "bun run scripts/slot.ts test:unit -- 'bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./client/src ./server/ ./shared ./relay ./tests/unit ./tests/integration ./scripts'",
+    "test:unit": "bun run scripts/slot.ts test:unit -- 'bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./client/src ./server/ ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli'",
     "test:heavy": "TOPICS_HEAVY_TESTS=1 bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./server/browser-dom-cobrowse.test.ts ./server/browser-focused-field.test.ts ./server/browser-session-handoff.heavy.test.ts ./server/browser-site-data.heavy.test.ts",
     "evidence:handoff": "bun run scripts/handoff-evidence.ts",
     "lint": "bun run scripts/slot.ts lint -- '(cd client && bun run lint) && ./client/node_modules/.bin/eslint --config client/eslint.config.js relay'",
