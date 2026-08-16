@@ -229,7 +229,10 @@ long you wait; the slope does not**, which is why the slope is the answer.
 **Empty, before anything is open.** Topics.app is 164 MB on disk against 1.3 GB
 (Cursor) and 1.5 GB (VS Code) — `du -sh` on the bundles. A Topics server on an
 empty database starts at 91 MB of RAM, measured on a clean git worktree with its
-own `DATA_DIR`, so nothing from the running install could leak into it.
+own `DATA_DIR`, so nothing from the running install could leak into it. That is
+the **server process alone**; the memory table above reports 208.6 MB for the
+whole idle tree (8 processes, shell included), which is the number to compare
+against an IDE.
 
 | | 1 project | 2 | 3 | per extra project |
 | --- | --- | --- | --- | --- |

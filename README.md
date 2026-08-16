@@ -65,7 +65,7 @@ A session is an array of messages, not a process:
 | 64 | ✓ | | ~4 s |
 | **200** | ✓ | **162 MB** | **5.6 s** |
 
-At equal counts a CLI session costs ~432 MB against 2.3 MB native: **188x**.
+At equal counts a CLI session costs 432 MB against 2.3 MB native: **190x**.
 
 An IDE gives you one project per window, and the next window costs nearly as
 much as the first. Same three repositories, same machine:

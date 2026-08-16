@@ -1,37 +1,41 @@
 {
-  "schema": "bench-session-memory-v1",
-  "measured_at": "2026-08-16T13:36:06.536Z",
-  "base": "https://127.0.0.1:39430",
-  "model": "claude-sonnet-4-6",
-  "metric": "RSS del server + RSS di tutte le CLI vive, prima e dopo N sessioni",
-  "caveats": [
-    "RSS e non phys_footprint: `memory.ts` usa il secondo, quindi i totali NON sono confrontabili con quel file. Qui interessa il DELTA, che è la stessa grandezza in entrambe le colonne.",
-    "Le due strade pagano in posti diversi: il nativo dentro il server, la CLI in processi separati. Sommare solo uno dei due darebbe torto a una delle due in modo grottesco.",
-    "Il turno è banale: si misura il costo RESIDENTE di una sessione, non il picco di lavoro.",
-    "Chiama il modello vero su entrambe le strade: questo run è costato soldi."
-  ],
-  "rows": [
-    {
-      "label": "native",
-      "provider": "topics",
-      "sessions": 3,
-      "addedMb": 6.765625,
-      "perSessionMb": 2.2552083333333335,
-      "cliProcesses": {
-        "before": 3,
-        "after": 3
-      }
-    },
-    {
-      "label": "cli",
-      "provider": "claude-code",
-      "sessions": 3,
-      "addedMb": 1297.1875,
-      "perSessionMb": 432.3958333333333,
-      "cliProcesses": {
-        "before": 3,
-        "after": 6
-      }
-    }
-  ]
+ "schema": "bench-session-memory-v1",
+ "measured_at": "2026-08-16T13:36:06.536Z",
+ "base": "https://127.0.0.1:39430",
+ "model": "claude-sonnet-4-6",
+ "metric": "RSS del server + RSS di tutte le CLI vive, prima e dopo N sessioni",
+ "caveats": [
+  "RSS e non phys_footprint: `memory.ts` usa il secondo, quindi i totali NON sono confrontabili con quel file. Qui interessa il DELTA, che è la stessa grandezza in entrambe le colonne.",
+  "Le due strade pagano in posti diversi: il nativo dentro il server, la CLI in processi separati. Sommare solo uno dei due darebbe torto a una delle due in modo grottesco.",
+  "Il turno è banale: si misura il costo RESIDENTE di una sessione, non il picco di lavoro.",
+  "Chiama il modello vero su entrambe le strade: questo run è costato soldi."
+ ],
+ "rows": [
+  {
+   "label": "native",
+   "provider": "topics",
+   "sessions": 3,
+   "addedMb": 6.765625,
+   "perSessionMb": 2.2552083333333335,
+   "cliProcesses": {
+    "before": 3,
+    "after": 3
+   }
+  },
+  {
+   "label": "cli",
+   "provider": "claude-code",
+   "sessions": 3,
+   "addedMb": 1297.1875,
+   "perSessionMb": 432.3958333333333,
+   "cliProcesses": {
+    "before": 3,
+    "after": 6
+   }
+  }
+ ],
+ "rapporto": {
+  "valore": "191,7x sui valori pieni (432,3958 / 2,2552). Arrotondando prima di dividere (432,4 / 2,3) esce 188.",
+  "cosa_citare": "~190x. Citare 188 o 192 significa dare tre cifre significative a una misura che non le ha: le due strade pagano in posti diversi e il turno è banale."
+ }
 }
