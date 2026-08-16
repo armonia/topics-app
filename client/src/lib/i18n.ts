@@ -126,11 +126,11 @@ const IT: Dict = {
   //    belongs in this table too, as a second key pair: the de-duplicator can
   //    only subtract words the table knows.
   'board.action.land': 'Landa su main',
-  'board.action.land.title': "Accetta il task e fondi il suo ramo su main (locale, nessun push). L'esito arriva nel thread.",
+  'board.action.land.title': "Accetta il task e fondi il suo ramo su main LOCALE: nessun push, quindi nessuna release. Da main il lavoro esce agli utenti solo quando qualcuno preme «Pubblica». L'esito arriva nel thread.",
   // Stessa azione su una card che NESSUN agent ha consegnato: il ramo c'è, ma
   // nessuno ha detto che è finito. La parola cambia perché la promessa cambia.
   'board.action.land.anyway': 'Landa comunque',
-  'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Locale, nessun push.",
+  'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Main LOCALE: nessun push, e quindi nessuna release finche' non pubblichi.",
   'board.action.accept': 'Approva',
   // `{land}` is the `land` label taken from this same table: naming the other
   // button by copying its text by hand is how two words drift apart again.
@@ -421,6 +421,14 @@ const IT: Dict = {
   'board.settings.sec.when': 'Quando parte',
   'board.settings.sec.delivery': 'Alla consegna',
   'board.publish.toPublish': 'Su main, non ancora pubblicato',
+  // COSA SUCCEDE DOPO IL PUSH, detto PRIMA del clic.
+  // Su questo repo il push su main non e' un salvataggio: fa scattare la CI, e
+  // se e' verde l'auto-bump costruisce gli installer e li manda all'auto-updater
+  // di CHIUNQUE abbia Topics aperta, in un quarto d'ora. Chi preme «Pubblica»
+  // sta prendendo una decisione di pubblicazione, e finora nessuna schermata
+  // gliela nominava: diceva solo quali commit sarebbero usciti.
+  'board.publish.consequence': 'Il push fa uscire una release: CI verde, poi gli installer arrivano a tutti (~15 min).',
+  'board.publish.consequenceTitle': 'main e\' spedito: auto-bump della patch, build degli installer e auto-updater. Il cancello e\' la CI, non un\'approvazione.',
   'board.publish.nothing': 'Niente da pubblicare. Tutto è già sul remoto.',
   'board.publish.diffTitle': 'Diff che verrà pubblicato',
   'board.publish.loadingDiff': 'Carico il diff…',

@@ -216,6 +216,27 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
           )}
           {/* GRADINO 2 — su main, ma non ancora fuori. */}
           <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+          {/* COSA SUCCEDE DOPO IL PUSH, detto PRIMA del clic e non in un
+              tooltip: su questo repo main e' spedito, quindi «Pubblica» non e'
+              un salvataggio — fa uscire una release che arriva all'auto-updater
+              di chiunque abbia Topics aperta. Chi preme sta decidendo una
+              pubblicazione, e nessuna schermata gliela nominava: diceva solo
+              quali commit sarebbero usciti.
+              Compare solo quando c'e' qualcosa da pubblicare: su una lista
+              vuota sarebbe un avviso su un gesto che nessuno sta per fare. */}
+          {pending.length > 0 && (
+            <p
+              data-testid="publish-consequence"
+              title={tr('board.publish.consequenceTitle')}
+              /* amber-300/80 su tema chiaro dava 1,24:1 misurato sui pixel:
+                 un avviso che non si legge non e' un avviso. Stessa taratura
+                 dei segnali della status bar (amber-800 chiaro / amber-400
+                 scuro, 6,04 e 11,52), che l'ha gia' pagata una volta. */
+              className="px-3 pb-1 text-[11px] leading-snug text-amber-800 dark:text-amber-400"
+            >
+              {tr('board.publish.consequence')}
+            </p>
+          )}
           <div className="p-1 pt-0">
             {pending.length === 0 ? (
               <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{tr('board.publish.nothing')}</div>
