@@ -23,6 +23,8 @@
 
 import { getAccessToken } from "./auth";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
+import { decide, DEFAULT_AUTONOMY } from "./permissions";
+import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
 
@@ -67,6 +69,8 @@ export interface AgentTurnOptions {
   toolContext: ToolContext;
   /** La conversazione finora. Viene ESTESA in place: è la memoria della sessione. */
   history: Message[];
+  /** Cosa l'agente può fare su questa macchina. Vedi `permissions.ts`. */
+  autonomy?: AutonomyLevel;
   signal?: AbortSignal;
 }
 
@@ -298,7 +302,14 @@ export async function runAgentTurn(
 
     const results: Block[] = [];
     for (const t of toolUses) {
-      const out = await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext);
+      // Il permesso si valuta PRIMA di eseguire, e un rifiuto è un risultato di
+      // tool come un altro: l'agente lo legge, capisce perché, e cambia strada.
+      // Farlo fallire con un'eccezione gli farebbe sparire il turno sotto i
+      // piedi per una regola che poteva semplicemente rispettare.
+      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
+      const out = verdict.allow
+        ? await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext)
+        : { content: verdict.reason, isError: true };
       handler.onToolResult(t.id!, out.content, out.isError);
       results.push({
         type: "tool_result",
