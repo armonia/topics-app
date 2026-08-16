@@ -42,8 +42,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // 250 MB: meta' della quota dell'org, cosi' resta spazio per gli altri
-            // repo (quadra ne vuole ~1 MB per run di UAT, [cliente] una manciata).
+            // 250 MB: meta' della quota dell'org, cosi' resta spazio per gli
+            // altri repo, che insieme stanno sotto la decina di MB per run.
             const CAP_BYTES = 250 * 1024 * 1024;
             const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
               ...context.repo, per_page: 100,
