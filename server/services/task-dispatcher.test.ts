@@ -13,7 +13,7 @@ import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-di
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
 
 // Lo schema di `tasks` arriva da TASKS_DDL: è la catena delle migration, e una
@@ -3295,5 +3295,86 @@ describe("l'envelope non parla italiano", () => {
     // «il filtro non guarda niente», e passerebbe su qualunque testo.
     expect(righeItaliane("- Lavora SOLO questo task, in questa working directory.")).toHaveLength(1);
     expect(righeItaliane("- Work ONLY this task, in this working directory.")).toEqual([]);
+  });
+});
+
+/**
+ * PERCHÉ LA CODA È FERMA, detto dove qualcuno lo legge.
+ *
+ * Il pavimento di risorse (RAM/disco sotto la soglia) blocca ogni claim, ed è
+ * giusto: sotto quella riga la macchina va in swap. Il problema era che non lo
+ * diceva a NESSUNO — il chip sulla card scrive «in coda», il commento accanto
+ * rimanda «il perché sta nel log del server», e nel log non finiva niente. Il
+ * messaggio composto da `dispatchResourceBlock`, numeri compresi, moriva in un
+ * `return`.
+ *
+ * Una coda ferma senza motivo visibile da nessuna parte è indistinguibile da un
+ * dispatcher rotto: ci ho perso mezz'ora a cercare un bug che non esisteva,
+ * escludendo a mano auto_dispatch, capacità, task pesanti, id del board e
+ * project store — mentre la risposta era «8,7 GB liberi, ne servono 12».
+ */
+/**
+ * L'interruttore dell'auto-dispatch vive in `app_settings` (una riga per
+ * MACCHINA) dalla migration del 2026-08-16, non piu' sulla riga `'*'` di
+ * `board_settings`. Scriverlo nel posto vecchio non accende piu' niente e il
+ * tick esce al primo controllo, muto.
+ */
+function accendiDispatch(db: Database): void {
+  db.run(APP_SETTINGS_DDL);
+  db.run("UPDATE app_settings SET auto_dispatch = 1 WHERE id = 1");
+}
+
+describe("il pavimento delle risorse si spiega", () => {
+  it("dice il motivo UNA volta, non a ogni tick", async () => {
+    const righe: string[] = [];
+    let bloccato = true;
+    // I GB CAMBIANO A OGNI LETTURA, ed è il motivo per cui la prima versione
+    // di questo fix non deduplicava niente: confrontava il testo intero, e il
+    // testo intero è sempre diverso. Provato sul server vero — tre righe in
+    // trenta secondi, identiche nel senso e diverse nei decimali.
+    let gb = 8.7;
+    const h = harness({
+      log: (m: string) => righe.push(m),
+      resourceBlock: () => (bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+    });
+    accendiDispatch(h.db);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(PID);
+
+    const blocchi = righe.filter((r) => r.includes("coda ferma"));
+    expect(blocchi.length).toBe(1);
+    // Il motivo c'è per intero, numeri compresi: senza, la riga non aiuta più
+    // del chip che c'era già.
+    expect(blocchi[0]).toContain("GB disponibili");
+    expect(blocchi[0]).toContain("pavimento");
+    // E nessun agente è partito: il pavimento fa il suo lavoro.
+    expect(h.topicsCreated).toHaveLength(0);
+  });
+
+  it("dice anche quando riparte, o l'ultima riga resterebbe un allarme per sempre", async () => {
+    const righe: string[] = [];
+    let bloccato = true;
+    const h = harness({
+      log: (m: string) => righe.push(m),
+      resourceBlock: () => (bloccato ? "Disco quasi pieno: 2 GB liberi." : null),
+    });
+    accendiDispatch(h.db);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    expect(righe.filter((r) => r.includes("coda ferma"))).toHaveLength(1);
+
+    bloccato = false;
+    await h.dispatcher.tick(PID);
+    expect(righe.filter((r) => r.includes("coda ripartita"))).toHaveLength(1);
+
+    // E un secondo blocco DOPO il rientro si dice di nuovo: è un episodio
+    // nuovo, non la ripetizione del vecchio.
+    bloccato = true;
+    await h.dispatcher.tick(PID);
+    expect(righe.filter((r) => r.includes("coda ferma"))).toHaveLength(2);
   });
 });

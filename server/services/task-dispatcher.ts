@@ -726,8 +726,34 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * comunque. Da quando il tetto si può togliere, senza questo la coda si
    * fermerebbe solo a disco pieno — cioè quando il DB non scrive più.
    */
+  /** L'ultimo motivo di blocco già annunciato, per non ripeterlo a ogni tick. */
+  let lastAdmissionBlock: string | null = null;
   function admissionBlock(): string | null {
-    try { return deps.resourceBlock?.() ?? null; } catch { return null; }
+    try {
+      const reason = deps.resourceBlock?.() ?? null;
+      // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
+      // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
+      // del server» — solo che nel log non ci finiva niente: il messaggio
+      // composto qui (RAM o disco sotto il pavimento, con i numeri) moriva in
+      // un `return`. Una coda ferma senza motivo visibile in nessun posto è
+      // indistinguibile da un dispatcher rotto, e ci ho perso mezz'ora a
+      // cercare un bug che non c'era.
+      //
+      // Una volta per EPISODIO, non per tick: il pavimento si rilegge ogni 10
+      // secondi e ripetere la stessa riga allagherebbe il log proprio mentre la
+      // macchina è in difficoltà. Quando rientra, si dice anche quello — senza,
+      // l'ultima riga del log resterebbe un allarme per sempre.
+      //
+      // Si confronta il TIPO di blocco, non il testo: il messaggio porta dentro
+      // i GB liberi, che cambiano a ogni lettura, quindi un confronto per
+      // stringa non dedupica niente — provato sul server vero, tre righe
+      // identiche nel senso e diverse nei decimali in trenta secondi.
+      const kind = reason ? reason.split(":")[0]! : null;
+      if (kind && kind !== lastAdmissionBlock) log(`coda ferma — ${reason}`);
+      else if (!reason && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
+      lastAdmissionBlock = kind;
+      return reason;
+    } catch { return null; }
   }
   /**
    * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
