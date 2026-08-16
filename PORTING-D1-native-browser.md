@@ -1,5 +1,17 @@
 # D1 — Browser pane nativo nello shell Tauri (ricerca completa)
 
+> **ESITO (2026-08-16): la raccomandazione qui sotto NON e' stata seguita, e il
+> problema e' risolto lo stesso.** Il browser pane e' spedito da mesi sui webview
+> DI SISTEMA — WKWebView su macOS (`desktop-tauri/src-tauri/src/lib.rs`), WebView2
+> su Windows (`browser_win.rs`), WebKitGTK su Linux (`browser_linux.rs`), con
+> l'eval condiviso in `browser_eval.rs`. Nessuna riga di CEF e' stata spedita.
+>
+> Questo documento resta come RICERCA, non come piano: lo spike era vero, il gate
+> era verde davvero, e serve ancora a dire perche' la strada costosa era
+> percorribile — che e' cio' che rende difendibile aver preso quella economica
+> (niente framework da 432 MB per ogni utente). Chi cerca dove sta il lavoro
+> guardi il codice sopra, non i capitoli qui sotto.
+
 > Esito del workflow multi-agente `native-browser-pane-tauri` (11 agenti, 5 fasi:
 > research → contract → design → verify avversariale → sintesi). 2026-06-25.
 > Vincolo utente: **"deve essere nativo non finto"** — niente screencast/pixel streammati.
