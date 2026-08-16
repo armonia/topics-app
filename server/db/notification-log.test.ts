@@ -26,6 +26,7 @@ import {
   countUnseenNotifications,
   listNotifications,
   markNotificationsSeen,
+  markTargetNotificationsSeen,
   recordNotification,
 } from "./notification-log";
 import { configureNotificationRegistry, recordAndAnnounce, __resetNotificationRegistry } from "../notification-registry";
@@ -184,5 +185,73 @@ describe("recordAndAnnounce — il cancello degli archiviati", () => {
     recordAndAnnounce({ kind: "task-review", title: "T", dedupeKey: "task-review:t9" });
     expect(calls).toBe(1);
     __resetNotificationRegistry();
+  });
+});
+
+/**
+ * LEGGERE LA COSA E' AVERLA VISTA.
+ *
+ * Segnalato: «assicuriamoci che le notifiche siano effettivamente sincronizzate
+ * con lo stato della notifica della sidebar».
+ *
+ * Aprire una chat azzerava il suo non-letto nella sidebar e lasciava accesa la
+ * campanella in alto: due contatori sullo stesso fatto che dicevano cose
+ * diverse. Il peggiore dei due era quello che restava acceso, perche' nessun
+ * gesto naturale lo spegneva - solo aprire il pannello della cronologia, che e'
+ * un posto in cui non si passa mai apposta. Un contatore che non si azzera da
+ * se' smette di essere guardato, e da li' in poi non segnala piu' niente.
+ */
+describe("markTargetNotificationsSeen — leggere una chat spegne la sua campanella", () => {
+  function notifica(targetId: string, titolo: string) {
+    return recordNotification({
+      kind: "chat-message", title: titolo, body: "",
+      targetKind: "topic", targetId,
+      dedupeKey: `${targetId}:${titolo}`,
+    });
+  }
+
+  test("segna viste TUTTE le notifiche di quella chat", () => {
+    wipe();
+    notifica("t1", "primo");
+    notifica("t1", "secondo");
+    expect(countUnseenNotifications()).toBe(2);
+
+    expect(markTargetNotificationsSeen("topic", "t1")).toBe(2);
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("NON tocca le notifiche delle altre chat", () => {
+    // E' il caso che rende la sincronia sicura invece che comoda: leggere una
+    // conversazione non puo' cancellare l'avviso di un'altra, o il contatore
+    // diventa una decorazione.
+    wipe();
+    notifica("t1", "mia");
+    notifica("t2", "di un altro");
+
+    expect(markTargetNotificationsSeen("topic", "t1")).toBe(1);
+    expect(countUnseenNotifications()).toBe(1);
+    expect(listNotifications().find((r) => r.seenAt === null)?.targetId).toBe("t2");
+  });
+
+  test("torna ZERO quando non c'e' niente da segnare", () => {
+    // Il chiamante lo usa per NON mandare un broadcast: un `notification:seen`
+    // che non cambia niente sveglia ogni client connesso, gli fa validare il
+    // frame e ri-renderizzare. La rotta della lettura evita gia' lo stesso
+    // costo sul non-letto, e sarebbe strano reintrodurlo nella riga accanto.
+    wipe();
+    notifica("t1", "una");
+    expect(markTargetNotificationsSeen("topic", "t1")).toBe(1);
+    expect(markTargetNotificationsSeen("topic", "t1"), "gia' viste").toBe(0);
+    expect(markTargetNotificationsSeen("topic", "mai-vista"), "bersaglio sconosciuto").toBe(0);
+  });
+
+  test("un bersaglio senza id non segna niente invece di segnare tutto", () => {
+    // `group_key` nullo vuol dire «non raggruppabile». Trattarlo come un jolly
+    // cancellerebbe l'intera cronologia al primo id vuoto: il tipo di errore
+    // che si scopre quando la campanella non si accende piu'.
+    wipe();
+    notifica("t1", "una");
+    expect(markTargetNotificationsSeen("topic", "")).toBe(0);
+    expect(countUnseenNotifications()).toBe(1);
   });
 });

@@ -17,6 +17,7 @@ import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
+import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -1655,6 +1656,24 @@ export function createTopicsRouter(
         unread[params.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
         saveUnread(unread);
         broadcastToAll({ type: "unread:updated", topicId: params.id, unreadCount: 0 });
+        // E LA CAMPANELLA SI SPEGNE CON LEI.
+        //
+        // Fino a qui la lettura azzerava il non-letto nella sidebar e lasciava
+        // acceso il contatore delle notifiche: due numeri sullo stesso fatto che
+        // dicevano cose diverse. Il peggiore dei due era quello che restava
+        // acceso, perche' nessun gesto naturale lo spegneva - solo aprire il
+        // pannello della cronologia, che e' un posto in cui non si passa mai
+        // apposta. Segnalato: «assicuriamoci che le notifiche siano
+        // sincronizzate con lo stato della notifica della sidebar».
+        //
+        // Il broadcast parte SOLO se qualcosa e' cambiato davvero: questa rotta
+        // e' gia' silenziosa sul no-op per la stessa ragione (un
+        // `unread:updated{0}` inutile sveglia ogni client connesso), e sarebbe
+        // strano che la riga sotto reintroducesse il costo appena evitato.
+        const viste = markTargetNotificationsSeen("topic", params.id);
+        if (viste > 0) {
+          broadcastToAll({ type: "notification:seen", unseen: countUnseenNotifications() });
+        }
         return json({ ok: true });
       }
     }
