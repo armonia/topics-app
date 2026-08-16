@@ -536,6 +536,9 @@ const IT: Dict = {
   'board.card.yourMessagesMany': "{n} tuoi messaggi nel thread (esclusa l'AI)",
   'board.card.notLandedTitle': 'Il lavoro consegnato ({commit}{branch}) NON risulta su main. Apri il task per landarlo prima che il branch venga potato.',
   'board.card.notLandedBranch': ' su {branch}',
+  // QUANTO LAVORO C'E' DENTRO UNA CONSEGNA, detto dove si decide.
+  'board.card.deliveryFiles': '{n} file',
+  'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
   'board.card.checksRed': 'checks rossi',
   'board.card.checksRedTitle': 'Checks pre-review ROSSI: {commands}',
   'board.card.checksRedUnknown': 'un comando è fallito',

@@ -3,7 +3,7 @@ import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, FileDiff, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -516,6 +516,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Solo il ROSSO va sulla card: un verde è la norma e riempirebbe la colonna di
   // spunte che nessuno legge, mentre il rosso è la ragione per non aprire il task.
   const checksRed = task.checksState === 'fail';
+  // Un solo predicato per il chip e per la riga che lo contiene: due copie
+  // dello stesso «questo chip c'è» sono precisamente il modo in cui la riga
+  // finisce per non montarsi mentre il chip crede di esserci.
+  // Il numero, non un booleano: dentro il chip serve il VALORE, e un flag
+  // separato costringerebbe a un `!` che dice al compilatore «fidati» proprio
+  // dove il dato può mancare. `null` = niente chip, e la riga sotto lo sa.
+  const deliveryStat = task.status === 'review' && task.deliveryFilesChanged != null
+    ? task.deliveryFilesChanged
+    : null;
+  // «Chiude il direttore»: oggi si monta solo con almeno un'etichetta, quindi
+  // `task.labels.length` nell'OR lo copre PER CASO. Il giorno che `whoCloses`
+  // rispondesse `conductor` senza etichette, quel chip sparirebbe in silenzio.
+  // Dichiararlo qui costa una riga e toglie una dipendenza fortunata.
+  const conductorCloses = task.status === 'review'
+    && whoCloses(task.labels.map((l) => l.label), task.checksState) === 'conductor';
   // Solo in Review: lì la domanda è "cosa guardo?", e la risposta cambia se
   // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
   // drawer la conserva comunque). La regola sta in `lib/board.ts` come le altre
@@ -536,7 +551,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // ma aspetta lo stesso. Le due frasi non condividono una parola: vedi il
   // blocco «i due versi dell'attesa» in lib/board.ts.
   const waitingOnThis = waitingOnThisChip(task);
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered || task.labels.length);
+  // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
+  // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
+  // chip che non si monta MAI, con il dato giusto nel DB, giusto nella rotta e
+  // giusto in mano al client. È successo con `deliveryStat` (16/08) ed è
+  // costato tre giri di debug, perché ogni misura diceva che tutto funzionava.
+  // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
+  // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
+  // un'ora di indagine.
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered || deliveryStat !== null || conductorCloses || task.labels.length);
 
   return (
     <div
@@ -852,6 +875,39 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               // e nel tooltip, colonna che non si allarga mai).
             ><AlertTriangle className="h-3 w-3 shrink-0" /> <span className="truncate">{tr('board.task.notOnMain')}{notLandedBranch ? ` · ${notLandedBranch}` : ''}</span></span>
           )}
+          {/* QUANTO LAVORO C'È DENTRO, sulla card e non dietro un clic.
+              La colonna review chiedeva «Approva» senza dire cosa si stesse
+              approvando: nessun file, nessuna riga, nessun esito. Il diff
+              esisteva solo aprendo il drawer, cioè una card alla volta - e una
+              colonna che si legge solo aprendola non è un cruscotto, è un
+              elenco di titoli.
+              Solo in review: nelle altre colonne non c'è ancora una consegna da
+              pesare. `null` (non misurato) non disegna niente, perché uno zero
+              direbbe «non ha prodotto niente», che è un'altra affermazione. */}
+          {/* `!= null` (due uguali, di proposito): copre null E undefined con lo
+              stesso confronto. Un `!== null` secco lasciava passare l'undefined
+              di un payload che quel campo non lo porta - ed e' costato un giro
+              di debug, perche' il dato era giusto nel DB e giusto nel feed. */}
+          {deliveryStat !== null && (
+            <span
+              data-testid="card-delivery-stat"
+              title={tr('board.card.deliveryStatTitle', {
+                files: deliveryStat,
+                add: task.deliveryInsertions ?? 0,
+                del: task.deliveryDeletions ?? 0,
+                commit: task.deliveryCommit?.slice(0, 8) ?? '?',
+              })}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
+            >
+              <FileDiff className="h-3 w-3 shrink-0" />
+              {tr('board.card.deliveryFiles', { n: deliveryStat })}
+              {/* I due numeri con i loro colori: il verde e il rosso qui non
+                  sono uno stato ma un VERSO, ed è l'unica cosa che distingue
+                  una consegna che aggiunge da una che cancella. */}
+              <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
+              <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
+            </span>
+          )}
           {checksRed && (
             <span
               title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
@@ -871,7 +927,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {/* La CONSEGUENZA, detta dove si decide: una card invisibile con la
               barra verde per intero non aspetta Attilio. Solo in review — nelle
               altre colonne non c'è ancora niente da chiudere. */}
-          {task.status === 'review' && whoCloses(task.labels.map((l) => l.label), task.checksState) === 'conductor' && (
+          {conductorCloses && (
             <span
               data-testid="card-conductor-closes"
               title={tr('board.card.conductorClosesTitle')}

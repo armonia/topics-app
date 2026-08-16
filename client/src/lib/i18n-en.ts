@@ -384,6 +384,8 @@ const EN = {
   'board.card.yourMessagesMany': '{n} messages of yours in the thread (AI excluded)',
   'board.card.notLandedTitle': 'The delivered work ({commit}{branch}) is NOT on main. Open the task and land it before the branch gets pruned.',
   'board.card.notLandedBranch': ' on {branch}',
+  'board.card.deliveryFiles': '{n} files',
+  'board.card.deliveryStatTitle': '{files} files, +{add} -{del} lines in commit {commit}. This is what approving would let in.',
   'board.card.checksRed': 'checks red',
   'board.card.checksRedTitle': 'Pre-review checks RED: {commands}',
   'board.card.checksRedUnknown': 'a command failed',
