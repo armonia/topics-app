@@ -50,6 +50,7 @@
 
 import os from "node:os";
 import { statfsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import type { Database } from "bun:sqlite";
 import { fleetLoadSync } from "../lib/fleet-usage";
 import { machineCores } from "../lib/machine-cores";
@@ -136,9 +137,96 @@ export function freeDiskGB(path: string): number | null {
 }
 
 /**
+ * IL PAVIMENTO SULLA MEMORIA, accanto a quello sul disco e per la stessa
+ * ragione: da quando il tetto sugli agenti si può togliere, «nessun limite»
+ * deve comunque voler dire «finché la macchina regge».
+ *
+ * PERCHÉ SERVE, misurato. `bun run scripts/bench/memory.ts --agents 2,4,8` su
+ * questo host: 2 agenti fermi al prompt 704,9 MB, 4 → 1239,2 MB, 8 → 2145,5 MB,
+ * cioè una pendenza di **240 MB per agente** (la CLI nuda ne fa 203,6, Topics
+ * aggiunge 34,5). Venti task in coda proiettano ~5,0 GB fermi al prompt e ~7,6
+ * GB al lavoro. Non è un'ipotesi: il 2026-08-16, con la coda che dispacciava,
+ * questa macchina aveva 5,7 GB di swap su 7 occupati. In swap il rallentamento
+ * non è degli agenti, è di tutto — la persona che sta usando il computer
+ * compresa.
+ *
+ * DODICI GB, e il numero viene dalla rampa e non da un pollice alzato: è quanto
+ * serve per far lavorare cinque agenti veri (320-420 MB l'uno misurati con una
+ * conversazione dentro, non fermi al prompt) lasciando ~10 GB a chi sta usando
+ * il Mac. Sotto quella riga il prossimo agente non trova RAM: la prende in
+ * prestito dal disco, ed è la prestazione di tutto a pagarla.
+ *
+ * LIBERI + INATTIVI, non `memory_pressure` e non `os.freemem()`. Le pagine
+ * INATTIVE sono memoria che il kernel riprende senza swappare, quindi contarle
+ * è corretto e ometterle direbbe «finita» su una macchina sana: qui, nella
+ * stessa lettura, i liberi erano 2,65 GB e gli inattivi 9,69. La percentuale di
+ * `memory_pressure` è l'altra trappola, ed è nel task che ha aperto questo
+ * lavoro: dava 48% mentre di liberi ce n'erano 1,9 GB, cioè un numero che non
+ * dice quanti agenti ci stanno.
+ */
+export const DISPATCH_MEM_FLOOR_GB = 12;
+
+/**
+ * Memoria REALMENTE disponibile (libera + inattiva reclamabile), in GB.
+ * `null` quando non si riesce a misurare, con la stessa regola del disco: «non
+ * lo so» non è «zero», o un errore di lettura fermerebbe la coda per sempre.
+ *
+ * `vm_stat` e non `os.freemem()`: su macOS la seconda riporta quasi nulla di
+ * libero perché il kernel tiene le pagine reclamabili come cache, e userebbe
+ * questo pavimento per bloccare il dispatch su un Mac da 32 GB in perfetta
+ * salute. È lo stesso motivo per cui il commento in testa a questo file dice
+ * che `os.freemem()` va ignorata.
+ *
+ * Fuori da macOS la sonda non c'è e la risposta è `null`: su Linux le stesse
+ * pagine si leggono da `/proc/meminfo` con nomi diversi, e inventare una
+ * conversione non verificata sarebbe peggio che dire «non lo so» — con `null`
+ * il pavimento si limita a non mordere, che è il verso giusto in cui sbagliare.
+ */
+export function availableMemGB(
+  run: () => string | null = () => {
+    try {
+      if (process.platform !== "darwin") return null;
+      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
+    } catch {
+      return null;
+    }
+  },
+): number | null {
+  const out = run();
+  if (!out) return null;
+  const pageSize = Number(out.match(/page size of (\d+) bytes/)?.[1] ?? 0);
+  const pages = (nome: string): number =>
+    Number(out.match(new RegExp(`Pages ${nome}:\\s+(\\d+)`))?.[1] ?? NaN);
+  const free = pages("free");
+  const speculative = pages("speculative");
+  const inactive = pages("inactive");
+  // Una sola delle tre illeggibile e il totale sarebbe una sottostima
+  // silenziosa, cioè un pavimento che morde quando non deve: meglio «non lo so».
+  if (!pageSize || !Number.isFinite(free) || !Number.isFinite(speculative) || !Number.isFinite(inactive)) return null;
+  return ((free + speculative + inactive) * pageSize) / 1e9;
+}
+
+/**
+ * Il pavimento come predicato puro: prende i GB disponibili e risponde sì/no.
+ * Separato dalla sonda apposta — è la forma che il task chiedeva, la stessa di
+ * `machineTooLoaded`, e permette di provarlo nei DUE versi senza riempire la
+ * RAM di una macchina vera.
+ */
+export function memoryTooTight(availableGB: number | null): boolean {
+  if (availableGB == null || !Number.isFinite(availableGB)) return false;
+  return availableGB < DISPATCH_MEM_FLOOR_GB;
+}
+
+/**
  * Perché NON si può ammettere un altro agente adesso, o `null` se si può.
  * La frase finisce sulla card, quindi dice il numero: «non c'è posto» senza il
  * dato è esattamente la coda invisibile che il chip `queued` esiste per evitare.
+ *
+ * DUE PAVIMENTI, disco e memoria, e si guardano in quest'ordine perché un disco
+ * pieno rompe (le scritture SQLite falliscono, e il guasto non si riassorbe
+ * quando il carico cala) mentre la RAM finita degrada. Il primo che morde
+ * scrive la frase: due frasi insieme su una card sono rumore, e la seconda si
+ * legge appena la prima è rientrata.
  */
 export function dispatchResourceBlock(
   worktreesPath: string,
@@ -147,12 +235,23 @@ export function dispatchResourceBlock(
    *  cioè non si proverebbe, e la frase che finisce sulla card non l'avrebbe mai
    *  letta nessuno prima di un incidente. */
   readFreeGB: (p: string) => number | null = freeDiskGB,
+  /** Idem per la memoria: il caso che conta è «RAM quasi finita», e provarlo
+   *  per davvero vorrebbe dire mandare in swap la macchina di chi sviluppa. */
+  readAvailMemGB: () => number | null = availableMemGB,
 ): string | null {
   const free = readFreeGB(worktreesPath);
-  if (free == null || free >= DISPATCH_DISK_FLOOR_GB) return null;
-  return `Disco quasi pieno: ${free.toFixed(1)} GB liberi, sotto il pavimento di ${DISPATCH_DISK_FLOOR_GB} GB. ` +
-    `Ogni agente apre una worktree (~0,9 GB), e un disco pieno fa fallire le scritture del DB. ` +
-    `Riprendo appena si libera spazio: niente è andato perso.`;
+  if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
+    return `Disco quasi pieno: ${free.toFixed(1)} GB liberi, sotto il pavimento di ${DISPATCH_DISK_FLOOR_GB} GB. ` +
+      `Ogni agente apre una worktree (~0,9 GB), e un disco pieno fa fallire le scritture del DB. ` +
+      `Riprendo appena si libera spazio: niente è andato perso.`;
+  }
+  const mem = (() => { try { return readAvailMemGB(); } catch { return null; } })();
+  if (memoryTooTight(mem)) {
+    return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${DISPATCH_MEM_FLOOR_GB} GB. ` +
+      `Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro, e sotto questa riga la macchina va in swap. ` +
+      `Riprendo appena si libera memoria: niente è andato perso.`;
+  }
+  return null;
 }
 
 /**
