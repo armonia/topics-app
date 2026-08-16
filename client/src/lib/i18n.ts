@@ -88,6 +88,15 @@ const IT: Dict = {
   'board.task.awaitingYouTitle': "Il turno è vivo ma aspetta te: apri la sessione dell'agente per rispondere",
   'board.task.loadingDiff': 'carico il diff…',
   'board.task.diffUnreadable': 'Diff non leggibile.',
+  // IL THREAD VUOTO DICE COSA SUCCEDERA', non che e' vuoto.
+  // «Nessun commento» constata un'assenza che si vede gia' da sola: la riga
+  // sotto a un task senza thread e' l'unico posto in cui dire dove arriveranno
+  // la consegna e le domande, e a chi. Cambia col posto in cui la card sta,
+  // perche' un task in coda e uno in backlog aspettano cose diverse.
+  'board.task.emptyTodo': "In coda: quando parte, l'agente scrive qui cosa fa, cosa chiede, e la consegna alla fine.",
+  'board.task.emptyBacklog': 'In backlog: nessuno lo prendera\' finche\' non lo sposti in «Da fare». Qui compariranno il lavoro dell\'agente e le sue domande.',
+  'board.task.emptyProgress': "In lavorazione: l'agente scrive qui mentre lavora, e qui chiede quando non puo' decidere da solo.",
+  'board.task.emptyDone': 'Chiuso senza che nessuno abbia scritto niente.',
   'board.task.noComments': 'Nessun commento.',
   'board.task.moveTo': 'Sposta in…',
   'board.task.options': 'Opzioni task',

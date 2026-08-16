@@ -27,6 +27,7 @@ import { paneIdToContextId } from '../../state/taskBrowserLayout';
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
+import { emptyThreadKey } from './emptyThread';
 import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
@@ -1642,7 +1643,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     );
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-        {threadComments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">{tr('board.task.noComments')}</p>}
+        {/* IL VUOTO DICE COSA SUCCEDERA', non che e' vuoto. «Nessun commento»
+            constatava un'assenza che si vede gia' da sola; questa riga e'
+            l'unico posto in cui dire DOVE arriveranno la consegna e le domande
+            dell'agente, e a chi tocca la mossa. Cambia con lo stato, perche' un
+            task in coda e uno in backlog aspettano cose diverse: il secondo
+            aspetta te. */}
+        {threadComments.length === 0 && !task.assignedTopicId && (
+          <p data-testid="task-thread-empty" className="text-xs text-app-text-muted">
+            {tr(emptyThreadKey(task.status))}
+          </p>
+        )}
         <ThreadRuns comments={threadComments} breaksRun={threadBreaksRun} renderRow={row} renderStatusRun={statusRun} />
         {task.assignedTopicId && (
           <SessionSlice
