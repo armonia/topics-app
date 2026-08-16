@@ -68,12 +68,13 @@ for the next one. Measured here, opening the same three repositories:
 | VS Code | **+261 MB** |
 | **Topics** | **+0.07 MB** |
 
-Topics runs at 619–745 MB *in total* while holding **22 projects and 993
+Topics runs at 520–745 MB *in total* while holding **22 projects and ~1000
 topics** — three more topics moved the server by 0.2 MB. A project is a row, not
 a window, so the fourth repository is where this stops being about taste.
 
-The slopes come from two independent series per app; absolute footprints move
-with how long you let indexing settle, the slope does not.
+The slopes come from two independent series per app. Absolute footprints drift
+(they depend on how long indexing settles, and on what the app has been doing);
+the slope is what stays put.
 
 How each number was taken, the runs that contradicted an earlier claim, and what
 none of this proves: **[`bench/README.md`](bench/README.md)**.
