@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { isDesktop } from '@/lib/shell';
@@ -61,6 +62,16 @@ export function VersionPopover({
   // runs after this one.
   useEffect(() => { anchorRef.current = anchorEl; });
   const { available, status, check, download, install } = useUpdater();
+  // «AUTO» VUOL DIRE CHE NON DEVI FARE NIENTE, e allora non si chiede niente.
+  //
+  // Col flag `topics-dev.json` acceso le finestre si ricaricano DA SOLE a ogni
+  // build (`startDevBundleReload`): l'aggiornamento arriva senza gesti. Il
+  // pannello pero' continuava a mostrare «nuova versione disponibile» con il
+  // suo bottone «Scarica», cioe' chiedeva di fare a mano una cosa che stava
+  // gia' succedendo. Segnalato: «mi esce una nuova versione disponibile anche
+  // se sono in modalita' automatica».
+  const { status: sistema } = useSystemStatus(true, 60000);
+  const autoUpdate = !!sistema?.server?.devReload;
   const { updateAvailable: swUpdate } = useServiceWorkerUpdate();
 
   // Close on outside pointer / Escape via the shared contract. The component is
@@ -141,6 +152,7 @@ export function VersionPopover({
           error={status.error}
           newVersion={status.version}
           swUpdate={swUpdate}
+          autoUpdate={autoUpdate}
           onCheck={check}
           onDownload={download}
           onInstall={install}
@@ -152,7 +164,7 @@ export function VersionPopover({
 }
 
 function UpdateBox({
-  available, state, progress, error, newVersion, swUpdate, onCheck, onDownload, onInstall,
+  available, state, progress, error, newVersion, swUpdate, autoUpdate, onCheck, onDownload, onInstall,
 }: {
   available: boolean;
   state: 'idle' | 'checking' | 'update-available' | 'downloading' | 'ready' | 'error';
@@ -160,6 +172,8 @@ function UpdateBox({
   error?: string;
   newVersion?: string;
   swUpdate: boolean;
+  /** Le finestre si ricaricano da sole: non c'e' niente da chiedere all'utente. */
+  autoUpdate: boolean;
   onCheck: () => void;
   onDownload: () => void;
   onInstall: () => void;
@@ -183,6 +197,17 @@ function UpdateBox({
     return <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><RefreshCw size={12} className="animate-spin" /> {tr('version.checking')}</div>;
   }
   if (state === 'update-available') {
+    // In automatico si DICE che sta arrivando, non si chiede di scaricarla: il
+    // bottone «Scarica» accanto a un aggiornamento che si installa da solo fa
+    // credere che senza quel clic non succeda niente.
+    if (autoUpdate) {
+      return (
+        <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+          <RefreshCw size={12} />
+          {tr('version.autoArriving', { v: newVersion ? ` v${newVersion}` : '' })}
+        </div>
+      );
+    }
     return (
       <div className="space-y-1.5">
         <div className="text-[11px] text-app-text">{tr('version.available', { v: newVersion ? ` v${newVersion}` : '' })}</div>
