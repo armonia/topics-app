@@ -215,6 +215,12 @@ export interface PostLandInput {
   branchAfter: BranchStatus;
   /** Non-junk uncommitted paths still in the worktree AFTER the land. */
   dirtAfter: string[];
+  /**
+   * La sonda ha potuto leggere l'albero? `false` = `git status` non ha risposto,
+   * e allora `dirtAfter` vuoto non significa «pulito» ma «non lo so». Qui si
+   * distrugge: non sapere vale quanto sporco.
+   */
+  dirtReadable?: boolean;
 }
 
 /**
@@ -249,6 +255,9 @@ export function decidePostLandReap(input: PostLandInput): WorktreeReapDecision {
   // Nessun esito del land può autorizzare a toccarla. (Stava dopo il controllo
   // su conflict/skipped, che restituiva comunque `keep`: lì l'ordine non si
   // vedeva, qui sì, perché adesso quel ramo può liberare la cartella.)
+  if (input.dirtReadable === false) {
+    return { action: "keep", reason: "stato dell'albero illeggibile dopo il land (git status non ha risposto)" };
+  }
   if (input.dirtAfter.length > 0) {
     return { action: "keep", reason: `modifiche non committate dopo il land (${input.dirtAfter.length} file)` };
   }
@@ -296,8 +305,17 @@ export interface WorktreeGcDeps {
   isBusy: (taskId: string) => boolean;
   /** Whether the worktree directory still exists on disk. */
   diskPresent: (absPath: string) => boolean;
-  /** Non-junk uncommitted paths (worktreeRealDirt). Only meaningful when disk present. */
-  realDirt: (absPath: string) => Promise<string[]>;
+  /**
+   * Non-junk uncommitted paths, PIU' il fatto di aver potuto guardare
+   * (`worktreeDirtProbe`). Ha senso solo a cartella presente.
+   *
+   * `ok: false` — `git status` uscito non-zero, o esploso — NON vale «pulito»:
+   * qui si decide se cancellare, e una cartella su cui non si e' potuto leggere
+   * niente va trattata come se contenesse lavoro. Prima la sonda restituiva un
+   * array vuoto in entrambi i casi e un singhiozzo di git (index.lock, volume
+   * che non risponde) SBLOCCAVA il reap invece di fermarlo.
+   */
+  realDirt: (absPath: string) => Promise<{ ok: boolean; paths: string[] }>;
   /**
    * The branch's state relative to main, read from the project repo (so it's
    * correct even after the worktree dir was removed): `gone` (branch deleted),
@@ -577,14 +595,21 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // A removed worktree dir can hold no uncommitted work; only inspect the
       // tree for dirt when it actually exists.
       const present = deps.diskPresent(wt.absPath);
-      const dirt = present ? await deps.realDirt(wt.absPath).catch(() => [] as string[]) : [];
+      // Cartella assente = niente lavoro non committato, ed e' un fatto letto,
+      // non un default. Cartella presente ma sonda muta (`ok: false`, incluso il
+      // reject) = SPORCA: chi non ha potuto guardare non ha il diritto di
+      // distruggere.
+      const probe = present
+        ? await deps.realDirt(wt.absPath).catch(() => ({ ok: false, paths: [] as string[] }))
+        : { ok: true, paths: [] as string[] };
+      const dirt = probe.paths;
       const taskStatus = taskId ? (t as { status: TaskStatus }).status : null;
       const taskArchived = taskId ? (t as { archived: boolean }).archived : false;
 
       const decision = decideWorktreeReap({
         taskStatus,
         taskArchived,
-        hasRealDirt: dirt.length > 0,
+        hasRealDirt: !probe.ok || dirt.length > 0,
         mergedIntoMain: branch === "merged",
         branchGone: branch === "gone",
         autoMergeEnabled: deps.autoMergeEnabled(wt.projectId),
@@ -642,13 +667,14 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
 
         // VERIFY BEFORE DESTROY. Re-read the repo — the land's own verdict is
         // not evidence (see `decidePostLandReap`).
-        const [branchAfter, dirtAfter] = await Promise.all([
+        const [branchAfter, probeAfter] = await Promise.all([
           deps.branchStatus(wt).catch(() => "unmerged" as BranchStatus),
           deps.diskPresent(wt.absPath)
-            ? deps.realDirt(wt.absPath).catch(() => [] as string[])
-            : Promise.resolve([] as string[]),
+            ? deps.realDirt(wt.absPath).catch(() => ({ ok: false, paths: [] as string[] }))
+            : Promise.resolve({ ok: true, paths: [] as string[] }),
         ]);
-        const post = decidePostLandReap({ outcome, branchAfter, dirtAfter });
+        const dirtAfter = probeAfter.paths;
+        const post = decidePostLandReap({ outcome, branchAfter, dirtAfter, dirtReadable: probeAfter.ok });
         // Il land non è passato (quasi sempre: il cancello di `03ca44c3` rifiuta
         // un branch che porta commit di un'altra sessione), ma l'albero è pulito
         // e il branch c'è. I commit restano dove sono; la cartella no.

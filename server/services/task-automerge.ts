@@ -976,22 +976,57 @@ export type TaskAutoMerge = ReturnType<typeof createTaskAutoMerge>;
 const WORKTREE_JUNK = [/^\.topics-daemon\//, /^graphify-out\//, /^\.claude-task-summary\.md$/];
 
 /**
+ * Come `worktreeRealDirt`, ma dice anche SE ha potuto guardare.
+ *
+ * `worktreeRealDirt` collassa due fatti diversi nella stessa risposta: «l'albero
+ * è pulito» e «non sono riuscito a chiederlo». Per il cancello della review va
+ * bene fallire aperto — un singhiozzo di git non deve bloccare una consegna. Per
+ * il GC no: lì la stessa risposta vuota diventa il permesso di CANCELLARE una
+ * cartella che, per quel che ne sappiamo, contiene l'unica copia di un lavoro.
+ * Un `git status` che esce non-zero (repo bloccato da un index.lock, filesystem
+ * che non risponde, cartella smontata a metà) apriva il reap invece di fermarlo.
+ *
+ * Chi distrugge usa questa e tratta `ok: false` come sporco; chi solo consiglia
+ * continua a usare `worktreeRealDirt`.
+ */
+export async function worktreeDirtProbe(
+  path: string,
+  runGit: (cwd: string, args: string[]) => Promise<GitRunResult> = defaultRunGit,
+): Promise<{ ok: boolean; paths: string[] }> {
+  let st: GitRunResult;
+  try {
+    st = await runGit(path, ["status", "--porcelain"]);
+  } catch {
+    return { ok: false, paths: [] };
+  }
+  if (st.code !== 0) return { ok: false, paths: [] };
+  return { ok: true, paths: parseDirtLines(st.stdout) };
+}
+
+function parseDirtLines(stdout: string): string[] {
+  return stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3).replace(/^"|"$/g, ""))
+    .filter((p) => !WORKTREE_JUNK.some((rx) => rx.test(p)));
+}
+
+/**
  * Paths with REAL uncommitted changes in `path` (tracked modifications plus
  * non-junk untracked files). Empty array = the worktree's work is fully
  * committed (or the status call failed — the caller must not hard-fail on a
  * git hiccup). Used as the structural review gate: an agent that "delivers"
  * with work still sitting uncommitted in its worktree gets a 409 coaching it
  * to commit first — the failure mode prompts alone never fixed.
+ *
+ * FALLISCE APERTO di proposito, ed e' il motivo per cui chi CANCELLA non deve
+ * usarla: per quello c'e' `worktreeDirtProbe`, che distingue «pulito» da «non
+ * ho potuto guardare».
  */
 export async function worktreeRealDirt(
   path: string,
   runGit: (cwd: string, args: string[]) => Promise<GitRunResult> = defaultRunGit,
 ): Promise<string[]> {
-  const st = await runGit(path, ["status", "--porcelain"]);
-  if (st.code !== 0) return [];
-  return st.stdout
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3).replace(/^"|"$/g, ""))
-    .filter((p) => !WORKTREE_JUNK.some((rx) => rx.test(p)));
+  const probe = await worktreeDirtProbe(path, runGit);
+  return probe.paths;
 }

@@ -31,7 +31,7 @@ import { createTaskService, type TaskService } from "./tasks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { branchStatusFromRepo, commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { worktreeRealDirt } from "./task-automerge";
+import { worktreeDirtProbe } from "./task-automerge";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
 
@@ -136,7 +136,7 @@ describe("una card in review che viene landata", () => {
       },
       isBusy: () => false,
       diskPresent: (p) => existsSync(p),
-      realDirt: (p) => worktreeRealDirt(p),
+      realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
       autoMergeEnabled: () => true,
       tryLand: async () => "skipped",

@@ -21,7 +21,7 @@ import { mkdtempSync, writeFileSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { sweepWorktrees, type GcWorktree, type TaskStatus, type WorktreeGcDeps } from "./worktree-gc";
-import { worktreeRealDirt } from "./task-automerge";
+import { worktreeDirtProbe } from "./task-automerge";
 import { branchStatusFromRepo } from "./branch-status";
 
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
@@ -67,7 +67,7 @@ describe("free-checkout su git vero", () => {
       resolveTask: (id) => ({ taskId: `task-${id}`, status: statuses.get(id) ?? "done", archived: false }),
       isBusy: () => false,
       diskPresent: (p) => existsSync(p),
-      realDirt: (p) => worktreeRealDirt(p),
+      realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
       autoMergeEnabled: () => true,
       // Il cancello di `03ca44c3`: il branch porta commit non della card.
