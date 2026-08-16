@@ -99,12 +99,33 @@ const total = (rows: Row[]) => rows.reduce((s, r) => s + r.footprintMB, 0);
 const appPid = Number(sh(`pgrep -f 'Topics.app/Contents/MacOS/app' | head -1`) || 0);
 const appRows = appPid ? rowsFor(responsiblePids(appPid)) : [];
 
-// ── Il SERVER: il processo Bun, i bridge staccati, e ogni CLI che guidano.
-//    Non sono figli dell'app: vivono per conto loro e la barra li conta a parte.
+// ── Il SERVER: il processo Bun e i bridge staccati. Non sono figli dell'app:
+//    vivono per conto loro e la barra li conta a parte.
 const serverPids = sh(`pgrep -f 'topics-app/server.ts'`).split("\n").filter(Boolean).map(Number);
 const bridgePids = sh(`pgrep -f 'pty-bridge|ai-bridge'`).split("\n").filter(Boolean).map(Number);
-const cliPids = sh(`pgrep -f 'claude|codex|jcode acp'`).split("\n").filter(Boolean).map(Number);
 const serverRows = rowsFor([...new Set([...serverPids, ...bridgePids])]);
+
+/**
+ * Gli AGENTI, e solo quelli.
+ *
+ * La prima versione cercava `claude|codex|jcode` nella riga di comando e
+ * pescava 988 MB di roba che non è di Topics: i server MCP personali di Jarvis
+ * vivono sotto `~/.claude/jarvis/`, sono `node` e `python`, e stavano lì da tre
+ * giorni. Attribuirli a Topics era il modo perfetto per andare a caccia del
+ * grasso nel posto sbagliato — cioè esattamente ciò che questo strumento deve
+ * impedire.
+ *
+ * Una CLI agente di Topics si riconosce per come Topics la lancia:
+ * `--output-format stream-json` (claude-code), `codex ... --json`, o
+ * `jcode acp`. Nessun percorso sotto `jarvis/` o `mcp-servers/`, che sono
+ * strumenti dell'utente e non sessioni della board.
+ */
+const agentPattern = "claude.*--output-format|codex.*--json|jcode acp";
+const cliPids = sh(`pgrep -f '${agentPattern}'`).split("\n").filter(Boolean).map(Number)
+  .filter((pid) => {
+    const cmd = sh(`ps -o command= -p ${pid} 2>/dev/null`);
+    return !/jarvis|mcp-servers/.test(cmd);
+  });
 const cliRows = rowsFor([...new Set(cliPids)]);
 
 if (JSON_OUT) {
