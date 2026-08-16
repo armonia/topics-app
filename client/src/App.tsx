@@ -396,7 +396,7 @@ function App() {
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
   // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<'devices' | 'notifications' | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<'profile' | 'devices' | 'notifications' | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
@@ -1617,7 +1617,7 @@ function App() {
         // La stessa stanza a cui portava la voce «account» del menu «Topics»,
         // che adesso non c'è più: Impostazioni → Account e dispositivi. Il
         // cassetto si chiude, come per ogni cosa che si apre da qui.
-        onOpenProfile={() => { setSettingsSection('devices'); setShowSettings(true); setShowTopicsMenu(false); }}
+        onOpenProfile={() => { setSettingsSection('profile'); setShowSettings(true); setShowTopicsMenu(false); }}
       />
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
