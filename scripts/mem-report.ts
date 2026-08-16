@@ -99,11 +99,52 @@ const total = (rows: Row[]) => rows.reduce((s, r) => s + r.footprintMB, 0);
 const appPid = Number(sh(`pgrep -f 'Topics.app/Contents/MacOS/app' | head -1`) || 0);
 const appRows = appPid ? rowsFor(responsiblePids(appPid)) : [];
 
-// ── Il SERVER: il processo Bun e i bridge staccati. Non sono figli dell'app:
-//    vivono per conto loro e la barra li conta a parte.
-const serverPids = sh(`pgrep -f 'topics-app/server.ts'`).split("\n").filter(Boolean).map(Number);
-const bridgePids = sh(`pgrep -f 'pty-bridge|ai-bridge'`).split("\n").filter(Boolean).map(Number);
-const serverRows = rowsFor([...new Set([...serverPids, ...bridgePids])]);
+/**
+ * Il SERVER e i suoi sidecar. Non sono figli dell'app: la barra li conta a
+ * parte, e questo è il loro conto.
+ *
+ * NON basta cercare `pty-bridge` fra i processi, ed è il secondo difetto che
+ * questo strumento ha avuto. I sidecar sono spawnati DETACHED: sopravvivono al
+ * server che li ha creati e restano reparentati a pid 1. Su questa macchina ne
+ * ho trovati di orfani vecchi di un giorno, appartenenti a server morti — più
+ * un `fswatch` di un altro repo — e il totale usciva 252 MB contro i 154 che
+ * l'API riporta. Un numero che non coincide con quello della barra non serve a
+ * spiegarla: serve solo a litigarci.
+ *
+ * Si chiede quindi al SERVER, che è l'unico a sapere quali sidecar sono suoi
+ * (li riconosce dal path del socket, unico per istanza: vedi `fleet-usage.ts`).
+ * Se non risponde si ripiega sulla scansione, dicendo che è una stima.
+ */
+async function serverSide(): Promise<{ rows: Row[]; fromApi: boolean; apiTotalMB?: number }> {
+  const ports = process.env.TOPICS_STATUS_PORT
+    ? [Number(process.env.TOPICS_STATUS_PORT)]
+    : [3333, Number(process.env.PORT) || 0].filter(Boolean);
+  for (const port of ports) {
+    try {
+      const res = await fetch(`https://127.0.0.1:${port}/api/system/status`, {
+        ...({ tls: { rejectUnauthorized: false } } as unknown as RequestInit),
+        signal: AbortSignal.timeout(4000),
+      });
+      const body = (await res.json()) as any;
+      const fleet = body?.server?.fleet;
+      if (!fleet?.roots) continue;
+      const pids = fleet.roots.map((r: any) => r.pid as number);
+      // I discendenti contano: un root con `processCount` > 1 tiene sotto di sé
+      // le CLI e i server MCP di quella sessione.
+      const all = new Set<number>(pids);
+      for (const p of pids) {
+        for (const kid of sh(`pgrep -P ${p} 2>/dev/null`).split("\n").filter(Boolean)) all.add(Number(kid));
+      }
+      return { rows: rowsFor([...all]), fromApi: true, apiTotalMB: fleet.memoryMB };
+    } catch { /* server non in ascolto su questa porta */ }
+  }
+  const scanned = sh(`pgrep -f 'topics-app/server.ts'`).split("\n").filter(Boolean).map(Number);
+  const bridges = sh(`pgrep -f 'server/pty-bridge.mjs|ai-bridge'`).split("\n").filter(Boolean).map(Number);
+  return { rows: rowsFor([...new Set([...scanned, ...bridges])]), fromApi: false };
+}
+
+const server = await serverSide();
+const serverRows = server.rows;
 
 /**
  * Gli AGENTI, e solo quelli.
@@ -150,7 +191,15 @@ if (JSON_OUT) {
 
   console.log("\nMemoria di Topics — metrica: phys_footprint (come Monitoraggio Attività)");
   section("DISPOSITIVO (app + i suoi WebView)", appRows);
-  section("SERVER (Bun + bridge)", serverRows);
+  section(`SERVER (Bun + sidecar)${server.fromApi ? "" : " [stima: server non raggiungibile]"}`, serverRows);
+  if (server.fromApi && server.apiTotalMB != null) {
+    // Il controllo incrociato: se il mio conto e quello del server divergono,
+    // uno dei due sbaglia e va detto invece di scegliere il piu' comodo.
+    const mio = Math.round(total(serverRows));
+    if (Math.abs(mio - server.apiTotalMB) > 20) {
+      console.log(`  ! il server ne dichiara ${server.apiTotalMB} MB: differenza di ${Math.abs(mio - server.apiTotalMB)} MB da capire`);
+    }
+  }
   section("AGENTI (CLI vive)", cliRows);
   console.log(
     `\nTOTALE Topics su questa macchina: ${(total(appRows) + total(serverRows) + total(cliRows)).toFixed(0)} MB\n`,
