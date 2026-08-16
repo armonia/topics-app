@@ -1,7 +1,7 @@
 {
   "name": "topics-app",
   "version": "2.2.158",
-  "description": "Desktop workspace for Claude Code and other CLI coding agents. Organize sessions into topics, each with its own project context, terminal and browser.",
+  "description": "Desktop home for coding agents \u2014 Claude Code, Codex and friends \u2014 each session in its own topic with its project, terminal and browser. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
   "repository": {
