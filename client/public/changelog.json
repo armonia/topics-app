@@ -1,5 +1,72 @@
 [
   {
+    "version": "2.2.157",
+    "date": "2026-08-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una coda ferma senza motivo e' indistinguibile da un dispatcher rotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il freno era tarato su agenti che non esistono piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Profile» era la sezione `devices`: due domande diverse, una voce sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sulla macchina di oggi la differenza non e' quanto ci mette: e' se parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fermare una board sola: prima l'unica leva era spegnere tutto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro task, due partono: il tetto descrive ancora le CLI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un task vuoto diceva «Nessun commento»: adesso dice a chi tocca la mossa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La notarizzazione mancante smette di essere silenziosa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La «T» al posto dell'icona non e' questo URL, ed e' scritto dove qualcuno la cerchera'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Con chi sto lavorando» non aveva risposta: la presence dell'organizzazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i report playwright durano tre giorni, non sette",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.156",
     "date": "2026-08-16",
     "sections": {
