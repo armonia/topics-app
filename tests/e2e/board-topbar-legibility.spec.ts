@@ -473,6 +473,80 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.screenshot({ path: join(SHOTS, "impostazioni-sezioni.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
   });
 
+  test("TOPBAR-11: chi sta per pubblicare legge che la release esce a tutti", async ({ page }) => {
+    // Su questo repo main e' spedito: il push fa scattare la CI e, se e' verde,
+    // gli installer arrivano all'auto-updater di chiunque abbia Topics aperta.
+    // Il pannello elencava i commit e offriva «Pubblica» senza dirlo: chi
+    // premeva decideva una pubblicazione che nessuna schermata nominava.
+    await stubProbes(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Il gradino «da pubblicare» legge questa rotta: senza un progetto avanti
+    // la riga non deve comparire, quindi per vederla serve dichiararne uno.
+    await page.route((url) => url.pathname.endsWith("/all-boards/publish-status"), (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          projects: [{
+            projectId: "topics-app", name: "topics-app", branch: "main", ahead: 3,
+            commits: [{ hash: "abc1234", subject: "cancello CI prima della release", author: "jarvis", when: "2h fa" }],
+          }],
+        }),
+      }));
+
+    await page.getByTestId("delivery-badge").click();
+    const riga = page.getByTestId("publish-consequence");
+    await expect(riga).toBeVisible();
+    // Nomina CHI la riceve: «pubblica il ramo» sarebbe vero e inutile.
+    await expect(riga).toContainText(/tutti/i);
+
+    // E sta SOPRA il bottone: una conseguenza scritta sotto il gesto si legge
+    // dopo averlo fatto.
+    const yRiga = (await riga.boundingBox())!.y;
+    const yBottone = (await page.getByRole("button", { name: "Pubblica" }).first().boundingBox())!.y;
+    expect(yRiga).toBeLessThan(yBottone);
+
+    // E deve essere LEGGIBILE: un avviso ambra su fondo chiaro e' esattamente
+    // il posto dove il contrasto se ne va, e un avviso che non si legge non e'
+    // un avviso. Misurato contro il colore davvero dipinto dietro (un antenato
+    // con sfondo cambia il risultato), non contro quello del foglio di stile.
+    const contrasto = await riga.evaluate((el) => {
+      // I colori dell'app sono in oklch: una regex sui numeri li legge come se
+      // fossero rgb e restituisce un contrasto inventato (la prima stesura di
+      // questo caso diceva 11.7 su un ambra chiaro dipinto su bianco, e
+      // passava). L'unico modo onesto e' farli dipingere al browser e rileggere
+      // i pixel: spazio colore, alpha e composizione li fa chi li disegna.
+      const dipingi = (colore: string, sotto?: string) => {
+        const c = document.createElement("canvas"); c.width = c.height = 1;
+        const g = c.getContext("2d")!;
+        if (sotto) { g.fillStyle = sotto; g.fillRect(0, 0, 1, 1); }
+        g.fillStyle = colore; g.fillRect(0, 0, 1, 1);
+        const d = g.getImageData(0, 0, 1, 1).data;
+        return [d[0], d[1], d[2]];
+      };
+      const canale = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      const lum = (p: number[]) =>
+        0.2126 * canale(p[0] / 255) + 0.7152 * canale(p[1] / 255) + 0.0722 * canale(p[2] / 255);
+      // Lo sfondo e' quello davvero dipinto dietro: un antenato con background
+      // cambia il risultato, quindi si risale finche' non se ne trova uno opaco.
+      let sfondo = "rgb(255,255,255)";
+      for (let n: Element | null = el; n; n = n.parentElement) {
+        const c = getComputedStyle(n).backgroundColor;
+        if (c && c !== "transparent" && !c.startsWith("rgba(0, 0, 0, 0)")) { sfondo = c; break; }
+      }
+      const bg = dipingi(sfondo);
+      const fg = dipingi(getComputedStyle(el).color, sfondo);
+      const l = [lum(fg), lum(bg)].sort((x, y) => y - x);
+      return { rapporto: (l[0] + 0.05) / (l[1] + 0.05), fg, bg };
+    });
+    expect(contrasto.rapporto, "l'avviso di pubblicazione deve reggere WCAG AA su testo piccolo").toBeGreaterThanOrEqual(4.5);
+
+    await page.screenshot({ path: join(SHOTS, "pubblica-conseguenza.png"), clip: { x: 0, y: 0, width: 1440, height: 460 } });
+  });
+
   test("TOPBAR-10: il freno di QUESTA board sta nelle sue impostazioni, non fra le globali", async ({ page }) => {
     // Il pannello ha due leve che si somigliano e non sono la stessa cosa:
     // l'auto-dispatch GLOBALE (vale per tutte) e la pausa di questa board. Se
