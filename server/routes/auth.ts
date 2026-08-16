@@ -1016,10 +1016,17 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // le scritture rifiutano — ed è la stessa regola su entrambe le rotte.
           if (viva === null) return json({ members: [] });
           if (!viva) return json({ error: "unknown_org" }, 404);
+          // `last_seen`: l'ultima volta che questa persona si e' fatta viva, sul
+          // dispositivo piu' recente. `devices` dice quante macchine ha, che e'
+          // una proprieta' dell'anagrafica; questo dice se c'e' ADESSO, che e'
+          // l'unica cosa che serve a chi guarda per sapere con chi sta
+          // lavorando. Senza, «tre dispositivi» descrive uguale chi e' online e
+          // chi non apre l'app da marzo.
           const righe = db.query(`
             SELECT p.id, p.display_name AS name, p.email, m.role, m.joined_at,
                    m.revoked_at, m.local_blocked_at,
                    (SELECT COUNT(*) FROM devices d WHERE d.person_id = p.id AND d.revoked_at IS NULL) AS devices,
+                   (SELECT MAX(d.last_seen_at) FROM devices d WHERE d.person_id = p.id AND d.revoked_at IS NULL) AS last_seen,
                    (p.id IN (SELECT person_id FROM installation_owners)) AS owner
               FROM org_members m JOIN people p ON p.id = m.person_id
              WHERE m.org_id = ? AND p.revoked_at IS NULL
@@ -1028,6 +1035,12 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             members: righe.map((r) => ({
               id: r.id, name: r.name, email: r.email, role: r.role,
               devices: Number(r.devices), owner: !!r.owner,
+              // Millisecondi o null: la soglia dell'«online» la decide chi
+              // disegna, non questa rotta. Un server che dichiarasse «online:
+              // true» congelerebbe qui una finestra temporale che il client non
+              // puo' piu' cambiare, e due schermate con due soglie diverse
+              // direbbero due verita' sullo stesso membro.
+              lastSeenAt: r.last_seen === null || r.last_seen === undefined ? null : Number(r.last_seen),
               // Le DUE revoche restano distinte anche qui: una l'ha decisa il
               // piano di controllo, l'altra tu — e solo la seconda sopravvive
               // al prossimo aggiornamento.
