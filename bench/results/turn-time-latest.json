@@ -1,0 +1,28 @@
+{
+  "schema": "bench-turn-time-v1",
+  "measured_at": "2026-08-16T12:53:20.723Z",
+  "model": "claude-haiku-4-5-20251001",
+  "turns": 4,
+  "prompt": "Rispondi con la sola parola PONG.",
+  "caveats": [
+    "Chiama il modello VERO su entrambe le strade: questo run è costato soldi.",
+    "Il tempo TOTALE è dominato dal modello, che è lo stesso per entrambe: differenze grandi lì sono sospette, non vittorie.",
+    "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è la verità per una chat che continua.",
+    "La CLI tiene la sessione calda dopo il primo turno: confrontare solo il primo le darebbe torto in modo sleale."
+  ],
+  "rows": [
+    {
+      "label": "native",
+      "firstStartMs": 678.5494580000001,
+      "firstTotalMs": 692.1660410000001,
+      "medianStartMs": 805.1729169999999,
+      "medianTotalMs": 805.2716250000003,
+      "n": 4
+    }
+  ],
+  "cli_not_measured": {
+    "why": "La CLI non e' stata misurata: istanziata a mano fuori dal server resta appesa oltre 10 minuti senza emettere token. Il difetto e' del mio harness, non suo (dentro Topics funziona), e pubblicare un numero da un harness rotto sarebbe peggio che non pubblicarlo.",
+    "what_to_do": "Misurarla dal server vero: POST /api/chat con provider=claude-code su un topic con progetto, la stessa strada che usa la board.",
+    "what_we_know_anyway": "Il costo che la CLI paga e SEMPRE nostro nel confronto e' lo SPAWN: ~206 MB e il boot di un processo Node per sessione (bench/results/memory-latest.json). Il runtime nativo non lo paga affatto. Questo dice dove sta la differenza, non quanto vale in millisecondi."
+  }
+}
