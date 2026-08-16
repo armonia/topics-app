@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.118",
+    "date": "2026-08-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a per-project agent cap that commands nothing must not exist",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.108",
     "date": "2026-08-12",
     "sections": {
