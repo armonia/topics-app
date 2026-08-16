@@ -1,8 +1,13 @@
 {
   "schema": "bench-turn-time-v2",
-  "measured_at": "2026-08-16T13:10:51.602Z",
-  "base": "https://127.0.0.1:39421",
-  "model": "(default del provider)",
+  "measured_at": "2026-08-16T13:22:25.263Z",
+  "base": "https://127.0.0.1:39422",
+  "model_requested": "claude-sonnet-4-6",
+  "model_effective": {
+    "topics": "claude-sonnet-4-6",
+    "claude-code": "claude-sonnet-4-6"
+  },
+  "same_model": true,
   "load": "work",
   "turns": 3,
   "prompt": "Nel file bench.txt: leggilo, sostituisci il suo contenuto con la parola FATTO, poi rileggilo per confermare. Usa gli strumenti, poi fermati.",
@@ -19,19 +24,19 @@
   "rows": [
     {
       "label": "native",
-      "firstStartMs": 8191.745709,
-      "firstTotalMs": 8544.359084,
-      "medianStartMs": 9394.230541,
-      "medianTotalMs": 9415.124082999999,
+      "firstStartMs": 8562.428,
+      "firstTotalMs": 8772.50125,
+      "medianStartMs": 10000.343,
+      "medianTotalMs": 10122.492624999999,
       "ok": 3,
       "attempted": 3
     },
     {
       "label": "cli",
-      "firstStartMs": 4199.384417000001,
-      "firstTotalMs": 11391.736625000001,
-      "medianStartMs": 10338.578249999999,
-      "medianTotalMs": 10545.574500000002,
+      "firstStartMs": 4720.390833000001,
+      "firstTotalMs": 11171.627083000003,
+      "medianStartMs": 11059.096584000006,
+      "medianTotalMs": 11174.943209000005,
       "ok": 3,
       "attempted": 3
     }
