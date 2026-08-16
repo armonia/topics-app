@@ -265,3 +265,7 @@ artifacts/
 # I termini personali che il cancello `no-personal-data-tracked` cerca. Non
 # tracciato: committarlo pubblicherebbe proprio cio che deve restare fuori.
 .personal-terms
+
+# radici usa-e-getta dei test che hanno bisogno di un percorso NON nascosto
+# (vedi tasks.test.ts: la deduzione della cartella progetti scarta le dot-dir)
+tmp-tasks-router-*/
