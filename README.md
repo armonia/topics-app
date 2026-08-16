@@ -10,11 +10,7 @@ Agents run inside Topics instead of one process each, so
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 [![Platforms](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-lightgrey?style=for-the-badge)](https://github.com/armonia/topics-app/releases/latest)
 
-<!-- SEGNAPOSTO: questi due sono gli screenshot della landing e mostrano dati
-     FINTI (acme-api, acme-web). Vanno rifatti sulla installazione vera, con
-     progetti veri, prima di considerare il README finito. Serve il permesso
-     Registrazione Schermo, che deve concedere l'utente. -->
-![Topics with three agents working in parallel](landing/public/img/organize.webp)
+![Topics: three topics, an agent answering](landing/public/img/readme-topics.png)
 
 ## What it does
 
@@ -24,7 +20,7 @@ Agents run inside Topics instead of one process each, so
 - **Hand work to a board.** Describe a task, an agent picks it up in its own worktree.
 - **Your agents, your keys.** Uses the `claude-code` and `codex` CLIs you already pay for.
 
-![Kanban board with agents picking up tasks](landing/public/img/act-board.webp)
+![The board: describe a task, an agent picks it up](landing/public/img/readme-board.png)
 
 ## Install
 
