@@ -50,16 +50,21 @@ The difference is what a session *costs*, measured on the same machine
 
 | | CLI (one process per agent) | Native runtime |
 |---|---|---|
-| Memory per session | ~432 MB | **0.3–2.3 MB** |
-| 64 sessions at once | not attempted | **4.1 s**, 64/64 completed |
+| Memory per session | ~432 MB | **0.6–0.8 MB** |
+| 64 sessions at once | not attempted | **3.4 s**, 64/64 answered |
 
-The marginal cost stays flat from 8 to 64 concurrent sessions, and between 32
-and 64 the wall-clock time no longer grows: the network dominates, not the
-machine. The 64-session run was measured on the native runtime only — the CLI
-was not put through the same load, so read that row as "this is what the native
-runtime does", not as a race it won. Raw numbers, and what each benchmark does
-*not* prove, are in [`bench/results/`](bench/results/); `scripts/bench/` re-runs
-them.
+The marginal cost stays flat from 8 to 64 concurrent sessions, and the
+wall-clock time grows far slower than the session count: the network dominates,
+not the machine. Two honest caveats. The 64-session run was measured on the
+native runtime only — the CLI was not put through the same load, so read that
+row as "this is what the native runtime does", not as a race it won. And the
+first turn on a cold server costs ~11 MB (code paths running for the first
+time), which is warm-up, not the price of a session. Raw numbers, both runs and
+what each does *not* prove, are in [`bench/results/`](bench/results/):
+
+```bash
+scripts/bench/native-concurrency.sh --base https://127.0.0.1:39470 --scale 8,32,64
+```
 
 Concurrency is still capped by a **CPU** policy (roughly `cores / 3`), not by
 memory: an agent that compiles burns real cores even when its session is just an

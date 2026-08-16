@@ -26,6 +26,32 @@
     { "n": 32, "wallSeconds": 4.27, "ok": 32, "mbPerSession": 0.75 },
     { "n": 64, "wallSeconds": 4.14, "ok": 64, "mbPerSession": 0.34 }
   ],
+  "replica": {
+    "why": [
+      "La prima serie e' stata presa con uno script usa-e-getta, porta e pid",
+      "cablati a mano. Rifatta con `scripts/bench/native-concurrency.sh` su un",
+      "SECONDO server isolato (porta 39471, DATA_DIR e TOPICS_HOME diversi) per",
+      "sapere se i numeri erano dello strumento o del runtime. Qui 'answered'",
+      "guarda il CONTENUTO della risposta, non il solo [DONE]."
+    ],
+    "measured_at": "2026-08-16T18:27:47+02:00",
+    "runs": [
+      { "n": 1,  "wallSeconds": 1.61, "answered": 1,  "mbPerSession": 11.16 },
+      { "n": 4,  "wallSeconds": 1.90, "answered": 4,  "mbPerSession": 1.77 },
+      { "n": 16, "wallSeconds": 2.57, "answered": 16, "mbPerSession": 1.46 },
+      { "n": 8,  "wallSeconds": 2.23, "answered": 8,  "mbPerSession": 0.80 },
+      { "n": 32, "wallSeconds": 2.98, "answered": 32, "mbPerSession": 0.75 },
+      { "n": 64, "wallSeconds": 3.38, "answered": 64, "mbPerSession": 0.59 }
+    ],
+    "cosa_conferma": "64/64 a 0,59 MB per sessione su un server mai usato prima: la piattezza del costo marginale non era un artefatto del primo setup.",
+    "cosa_corregge": [
+      "L'11,16 MB di N=1 e' il RISCALDAMENTO del server, non il prezzo di una",
+      "sessione: e' il primo turno che tocca codice mai eseguito. Sulla stessa",
+      "serie, N=8 subito dopo costa 0,80. Un N=1 su server freddo non e' una",
+      "misura del costo marginale, ed e' il motivo per cui la scala parte da 8",
+      "quando la domanda e' quella."
+    ]
+  },
   "conclusioni": {
     "costo_marginale": "0,3-0,8 MB per sessione, PIATTO da 8 a 64: nessuna crescita superlineare",
     "scalabilita": "64 turni concorrenti in 4,14s, tutti con risposta corretta; da 32 a 64 il wall non peggiora (la rete domina, non la macchina)",
