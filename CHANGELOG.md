@@ -2,6 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.157 — 2026-08-16
+
+### Sotto il cofano
+- Una coda ferma senza motivo e' indistinguibile da un dispatcher rotto
+- Il freno era tarato su agenti che non esistono piu'
+- «Profile» era la sezione `devices`: due domande diverse, una voce sola
+- Sulla macchina di oggi la differenza non e' quanto ci mette: e' se parte
+- Fermare una board sola: prima l'unica leva era spegnere tutto
+- Quattro task, due partono: il tetto descrive ancora le CLI
+- Un task vuoto diceva «Nessun commento»: adesso dice a chi tocca la mossa
+- La notarizzazione mancante smette di essere silenziosa
+- La «T» al posto dell'icona non e' questo URL, ed e' scritto dove qualcuno la cerchera'
+- «Con chi sto lavorando» non aveva risposta: la presence dell'organizzazione
+- i report playwright durano tre giorni, non sette
+
 ## 2.2.156 — 2026-08-16
 
 ### Sotto il cofano
