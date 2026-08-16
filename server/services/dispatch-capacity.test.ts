@@ -414,3 +414,59 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
     expect(cap.recommended).toBe(structuralDispatchCapacity());
   });
 });
+
+/**
+ * IL PAVIMENTO DEVE SAPERE COSA COSTA UN AGENTE.
+ *
+ * Tutta la taratura a 12 GB misura una CLI: 240 MB fermi, 320-420 al lavoro,
+ * cinque agenti veri più il margine per chi sta usando il Mac. Col runtime
+ * nativo un agente costa 2,3 MB — dieci ne costano meno di UNO con la CLI — e
+ * tenere lo stesso margine ferma la coda su una macchina che sta benissimo.
+ *
+ * Non è teoria: il 2026-08-16 il dispatch era bloccato con 8,7 GB liberi
+ * mentre gli agenti che doveva lanciare ne avrebbero chiesti venti di megabyte.
+ */
+describe("il pavimento della memoria segue il runtime", () => {
+  const disco = () => 500; // disco largo: qui si guarda solo la RAM
+  const ram = (gb: number) => () => gb;
+
+  test("con le CLI: 8,7 GB non bastano, ed è giusto", () => {
+    const r = dispatchResourceBlock("/tmp", disco, ram(8.7), true);
+    expect(r).toBeTruthy();
+    expect(r).toContain("pavimento di 12 GB");
+    expect(r).toContain("240 MB");
+  });
+
+  test("col runtime nativo: gli stessi 8,7 GB sono abbondanti", () => {
+    // LA RIGA CHE CONTA: stessa macchina, stessa lettura, coda che riparte.
+    expect(dispatchResourceBlock("/tmp", disco, ram(8.7), false)).toBeNull();
+  });
+
+  test("il pavimento nativo esiste comunque: sotto 2 GB si ferma anche lui", () => {
+    // Non è zero: il server tiene le conversazioni in memoria e i tool leggono
+    // file. Una macchina già in swap non deve peggiorare comunque.
+    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false);
+    expect(r).toBeTruthy();
+    expect(r).toContain("pavimento di 2 GB");
+    // E il messaggio dice il costo GIUSTO: citare i 240 MB della CLI qui
+    // manderebbe a cercare la causa nel posto sbagliato.
+    expect(r).not.toContain("240 MB");
+    expect(r).toContain("2,3 MB");
+  });
+
+  test("il disco viene prima della RAM, su entrambi i runtime", () => {
+    // Un disco pieno rompe (SQLite smette di scrivere) mentre la RAM degrada:
+    // l'ordine non cambia col runtime.
+    for (const processi of [true, false]) {
+      const r = dispatchResourceBlock("/tmp", () => 1, ram(0.5), processi);
+      expect(r).toContain("Disco quasi pieno");
+    }
+  });
+
+  test("una misura assente non ferma la coda, con nessuno dei due pavimenti", () => {
+    // «Non lo so» non è «zero»: un errore di lettura fermerebbe tutto per
+    // sempre. Vale identico sulle due strade.
+    expect(dispatchResourceBlock("/tmp", () => null, () => null, true)).toBeNull();
+    expect(dispatchResourceBlock("/tmp", () => null, () => null, false)).toBeNull();
+  });
+});
