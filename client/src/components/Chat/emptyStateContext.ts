@@ -16,13 +16,29 @@ import type { Topic } from '../../types';
  * motivo `mcpPolicy` compare solo quando RESTRINGE: e' una limitazione, e le
  * limitazioni vanno dette; la larghezza normale no.
  */
-export function contextBits(topic: Topic, t: (k: string, v?: Record<string, string | number>) => string): string[] {
+export function contextBits(
+  topic: Topic,
+  t: (k: string, v?: Record<string, string | number>) => string,
+  /** Il modello che la chat userebbe ADESSO, quando il topic non ne impone uno.
+   *  Facoltativo: senza, la riga si comporta come prima. */
+  modelEffettivo?: string | null,
+): string[] {
   const bits: string[] = [];
   if (topic.projectPath) {
     const nome = topic.projectPath.split('/').filter(Boolean).pop();
     if (nome) bits.push(t('chat.empty.project', { name: nome }));
   }
-  if (topic.model) bits.push(t('chat.empty.model', { model: topic.model }));
+  // IL MODELLO VERO, non solo quello scritto sul topic.
+  //
+  // `topic.model` e' l'OVERRIDE: se non lo tocchi resta vuoto e la riga taceva,
+  // mentre la barra sotto al composer mostrava benissimo `claude-opus-5`. Due
+  // superfici a un centimetro di distanza che dicevano due cose diverse sulla
+  // stessa chat, e quella muta era proprio quella che si legge PRIMA di
+  // scrivere. `modelEffettivo` e' il ripiego, risolto dal chiamante con la
+  // stessa `resolveEffectiveProvider` della barra: una fonte sola, o un giorno
+  // divergono di nuovo.
+  const modello = topic.model || modelEffettivo;
+  if (modello) bits.push(t('chat.empty.model', { model: modello }));
   if (topic.effort) bits.push(t('chat.empty.effort', { effort: topic.effort }));
   if (topic.provider) bits.push(t('chat.empty.provider', { provider: topic.provider }));
   if (topic.autonomyLevel === 'ask') bits.push(t('chat.empty.autonomyAsk'));
