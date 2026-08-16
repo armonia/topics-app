@@ -34,6 +34,7 @@ import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
+import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
@@ -1503,7 +1504,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // un tetto astratto. Senza dispatcher (host degradato) vale 0.
       let running = 0;
       try { running = dispatcher?.busyCount() ?? 0; } catch { /* best-effort */ }
-      return json(computeDispatchCapacity(running));
+      return json(computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli"));
     }
 
     // GET /api/all-boards/publish-status — per-project "commits not yet pushed"

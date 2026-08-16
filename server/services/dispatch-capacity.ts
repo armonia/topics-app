@@ -192,6 +192,32 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
 export const DISPATCH_MEM_FLOOR_NATIVE_GB = 2;
 
 /**
+ * Quanta RAM prenotare per UN agente quando decidi quanti posti ha la macchina.
+ *
+ * Sono i due prezzi di ammissione, e la differenza fra loro è il motivo per cui
+ * questo parametro esiste invece di essere il 3 scritto a mano che c'era prima.
+ *
+ * `CLI` — 3 GB: un processo Node per sessione (240 MB fermo, 320-420 al lavoro)
+ * più il margine di sistema che gli sta intorno. È il numero che ha sempre
+ * governato `byMem`, e per le CLI resta giusto.
+ *
+ * `NATIVE` — 0,25 GB: una sessione nativa è un array di messaggi dentro il
+ * server già acceso, misurata **2,3 MB** marginali contro i 432 della CLI sulla
+ * stessa macchina (`bench/results/session-memory.json`, 2026-08-16). Un quarto
+ * di giga è più di cento volte il costo misurato: non stima la sessione, tiene
+ * il margine perché il server intorno fa anche altro (i turni tengono la
+ * conversazione, i tool leggono file). Prezzare a 2,3 MB darebbe posti
+ * illimitati su qualunque macchina, e il tetto smetterebbe di essere un tetto.
+ *
+ * PERCHÉ CONTA. Il pavimento (`dispatchResourceBlock`) sa già distinguere i due
+ * runtime; il TETTO no, e si vedeva: quattro task nativi su questa macchina
+ * partivano a scaglioni di due perché `byMem` prenotava 3 GB a testa per
+ * sessioni che ne chiedono due di megabyte.
+ */
+export const GB_PER_AGENT_CLI = 3;
+export const GB_PER_AGENT_NATIVE = 0.25;
+
+/**
  * Memoria REALMENTE disponibile (libera + inattiva reclamabile), in GB.
  * `null` quando non si riesce a misurare, con la stessa regola del disco: «non
  * lo so» non è «zero», o un errore di lettura fermerebbe la coda per sempre.
@@ -312,13 +338,14 @@ export function dispatchResourceBlock(
  * Il pavimento di `byCores` è 2, quindi in `auto` questo numero non vale mai 1:
  * il caso «da solo» resta riservato a chi ha scelto un tetto fisso di 1 a mano.
  */
-export function structuralDispatchCapacity(): number {
+export function structuralDispatchCapacity(agentsAreProcesses = true): number {
   const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
   // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
   const byCores = clamp(Math.round(cores / 3), 2, 6);
-  // ~3 GB/agent incl. OS headroom — only binding on small-RAM machines.
-  const byMem = Math.max(1, Math.floor(totalMemGB / 3));
+  // Il prezzo di ammissione dipende dal runtime (vedi `GB_PER_AGENT_*`): 3 GB
+  // per una CLI, 0,25 per una sessione nativa. Vincola solo le macchine piccole.
+  const byMem = Math.max(1, Math.floor(totalMemGB / (agentsAreProcesses ? GB_PER_AGENT_CLI : GB_PER_AGENT_NATIVE)));
   return clamp(Math.min(byCores, byMem), 1, MAX_AUTO_CAP);
 }
 
@@ -408,6 +435,7 @@ function loadAverageSlots(cores: number, load1: number): number {
 export function computeDispatchCapacity(
   running = 0,
   probe: () => { coreUnits: number; cores: number } | null = fleetLoadSync,
+  agentsAreProcesses = true,
 ): DispatchCapacity {
   const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
@@ -418,8 +446,8 @@ export function computeDispatchCapacity(
 
   // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
   const byCores = clamp(Math.round(cores / 3), 2, 6);
-  // ~3 GB/agent incl. OS headroom — only binding on small-RAM machines.
-  const byMem = Math.max(1, Math.floor(totalMemGB / 3));
+  // Il prezzo di ammissione dipende dal runtime (vedi `GB_PER_AGENT_*`).
+  const byMem = Math.max(1, Math.floor(totalMemGB / (agentsAreProcesses ? GB_PER_AGENT_CLI : GB_PER_AGENT_NATIVE)));
   const structural = Math.min(byCores, byMem);
   // Il freno vivo: la CPU che la flotta si sta già mangiando, non quella della
   // macchina intera (vedi la nota in testa al file).

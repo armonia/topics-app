@@ -1141,7 +1141,7 @@ const taskDispatcher = createTaskDispatcher({
   // Carico vivo per la modalità notturna. Stessa fonte del tetto "Auto", così
   // le due decisioni non possono divergere leggendo due misure diverse.
   capacity: () => {
-    const c = computeDispatchCapacity(turniInVolo());
+    const c = computeDispatchCapacity(turniInVolo(), undefined, resolveAgentRuntime() === "cli");
     return { load1: c.load1, cores: c.cores, reason: c.reason };
   },
   // Il carico che è NOSTRO, per il freno dei task pesanti. Non è un'altra
