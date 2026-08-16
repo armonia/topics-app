@@ -211,6 +211,14 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
       status: "todo",
       priority: 2,
     });
+    // La TERZA ha un titolo che va a capo per forza: serve a IDCHIP-05, che
+    // misura DOVE ricomincia la seconda riga.
+    await apiCreateTask(request, {
+      text: "Un titolo lungo abbastanza da andare a capo dentro la colonna della board, "
+        + "perche' e' esattamente li' che si vedeva il difetto dell'incolonnamento",
+      status: "todo",
+      priority: 2,
+    });
   });
 
   test.afterAll(async ({ request }) => {
@@ -285,6 +293,41 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     expect(copied).toBe(taskId);
     // Il click sul segno non apre la card: `stopPropagation` regge.
     await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
+  });
+
+  test("IDCHIP-05: un titolo lungo va a capo AL BORDO, non sotto il cancelletto", async ({ page }) => {
+    // Segnalato: «il titolo non va piu' a capo bene, ma e' incolonnato a
+    // partire dal cancelletto».
+    //
+    // I segni e il nome erano due colonne flex: i centri coincidevano per
+    // costruzione (parte buona, tenuta) ma il titolo diventava una COLONNA
+    // larga quanto lo spazio rimasto, quindi andava a capo sotto se stesso e
+    // la card leggeva come un paragrafo rientrato.
+    //
+    // Si misura la GEOMETRIA e non l'aspetto: la seconda riga di testo deve
+    // cominciare alla stessa x della prima, cioe' al bordo del testo della
+    // card. Un VLM o un'occhiata non distinguono 11px da 35px con sicurezza;
+    // due rettangoli si'.
+    const card = page.locator(`[data-task-card="${createdTasks[2]}"]`).first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    const righe = await card.evaluate((el) => {
+      const chip = el.querySelector('[data-testid="task-id-chip"]');
+      const riga = chip?.closest("span")?.parentElement;
+      if (!riga) return null;
+      const box = el.getBoundingClientRect();
+      return [...riga.getClientRects()].map((r) => +(r.left - box.left).toFixed(1));
+    });
+
+    expect(righe, "il titolo dev'essere misurabile").not.toBeNull();
+    expect(righe!.length, "questo titolo deve andare a capo, o il caso non misura niente")
+      .toBeGreaterThan(1);
+    // Tutte le righe partono dallo stesso bordo: nessun rientro.
+    for (const x of righe!.slice(1)) {
+      expect(Math.abs(x - righe![0]),
+        `una riga parte da x=${x} mentre la prima e' a x=${righe![0]}: il titolo e' rientrato`,
+      ).toBeLessThanOrEqual(0.5);
+    }
   });
 
   test("IDCHIP-04: schermata della riga per la consegna", async ({ page }, testInfo) => {
