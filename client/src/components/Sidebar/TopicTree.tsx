@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes 
 import { useT } from '../../hooks/useT';
 import { boardIdForPath } from '../../lib/board';
 import { ShareControl } from '../Share/ShareControl';
+import { MODAL_OVERLAY } from '../../lib/modalStyles';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
 import {
@@ -2035,7 +2036,12 @@ export function TopicTree({
       {progettoDaCondividere && (
         <div
           data-testid="project-share-panel"
-          className="fixed inset-0 z-[10000] flex items-start justify-center bg-black/40 pt-24"
+          // `MODAL_OVERLAY` e non il numero a mano: il piano dei modali e'
+          // legato per TIPO a `Z_MODAL` (lib/modalStyles.ts), cosi' cambiare la
+          // costante fa smettere di compilare le stringhe che non la seguono.
+          // Un `z-[10000]` scritto qui divergerebbe in silenzio - ed e' quello
+          // che il cancello `overlay-z-plane` ha preso.
+          className={`${MODAL_OVERLAY} !items-start pt-24`}
           onClick={() => setProgettoDaCondividere(null)}
         >
           <div

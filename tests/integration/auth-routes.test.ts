@@ -365,7 +365,12 @@ describe("rotte auth · condivisione", () => {
 
   test("un tipo di risorsa che non ha una riga vera è rifiutato", async () => {
     const { router, idOspite } = await scena();
-    for (const tipo of ["space", "pane", "project", "terminal"]) {
+    // `project` e' USCITO da questa lista con 20260816230500: ha la sua tabella
+    // (migration 016) con id stabile, quindi una concessione ha una riga a cui
+    // appendersi. La regola non e' cambiata, e' cambiato il fatto - gli altri
+    // restano fuori per la ragione di sempre: uno spazio e una tab vivono in un
+    // blob di ui_state, un terminale e' un processo.
+    for (const tipo of ["space", "pane", "terminal"]) {
       const r = await chiama(router, "/api/auth/shares", "POST", {
         body: { resourceType: tipo, resourceId: "x", deviceId: idOspite },
       });
