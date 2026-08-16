@@ -10,6 +10,7 @@ import { createHistoryRouter } from "./history";
 import { leanMessagesForWire } from "../../shared/lean-tool-call";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
+import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
 import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
@@ -1918,7 +1919,15 @@ export function createTopicsRouter(
     // /api/context-upload moved to server/routes/media.ts (with the other uploads).
 
     // --- Test: Seed message (for E2E tests — inserts a message directly into DB) ---
+    //
+    // Dietro lo STESSO cancello delle altre rotte di test (`e2eRoutesEnabled`,
+    // TOPICS_E2E=1): era l'unica superficie di test registrata anche in
+    // produzione, e scriveva righe `messages` arbitrarie senza guard — finding
+    // F57 dell'audit del 19/06. Su un server normale ora è 404, come se non
+    // esistesse: un endpoint di test spento deve essere indistinguibile da un
+    // endpoint che non c'è, altrimenti dice comunque che c'è qualcosa lì.
     if (method === "POST" && pathname === "/api/test/seed-message") {
+      if (!e2eRoutesEnabled()) return null;
       const body = await readJSON(req);
       if (!body?.sessionKey || !body?.role) {
         return json({ error: "sessionKey and role required" }, 400);
