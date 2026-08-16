@@ -46,6 +46,37 @@ interface FlagWindow {
   breaks: string;
 }
 
+/**
+ * LA VERSIONE IN CUI `--bare` DIVENTA IL DEFAULT DI `-p`, quando si sapra'.
+ *
+ * Il rischio, verbatim dai docs di Anthropic e dall'aiuto della CLI 2.1.233:
+ *   «--bare is the recommended mode for scripted and SDK calls, and will
+ *    become the default for -p in a future release.»
+ *   «--bare ... Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper
+ *    (OAuth and keychain are never read).»
+ * Topics esegue la chat strutturata con `claude --print` (`args.ts:299` e
+ * `:392`): il giorno in cui quel default cambia, quel ramo smette di leggere
+ * l'abbonamento e pretende una API key. Misurato sul database dal 1 al 15
+ * agosto, quei turni a listino valgono fra 1.150 e 14.000 $ al mese contro i
+ * 200 di Max 20x.
+ *
+ * PERCHE' UN NUMERO VUOTO E NON UNA DIFESA. Oggi `--bare` e' opt-in: senza `-p`
+ * risponde «Input must be provided ... when using --print», cioe' implica
+ * `--print` invece di sostituirlo, e non esiste una data. Costruire adesso una
+ * difesa contro un cambio che non ha una forma nota vorrebbe dire indovinare —
+ * e le porte gia' provate sono chiuse: `apiKeyHelper` con un token di
+ * sottoscrizione dentro bare torna `401 API key is invalid`, `CLAUDE_CODE_SIMPLE=0`
+ * non lo spegne, `--no-bare` non esiste nel binario.
+ *
+ * Quello che si puo' fare oggi e' non farsi trovare impreparati: quando si
+ * scoprira' la versione, si scrive qui, e da quel momento ogni CLI che la
+ * raggiunge lo DICE nel diagnose invece di far morire i turni con un 401 che
+ * nessuno collega all'aggiornamento. E' la stessa forma di `removedIn`, che in
+ * questo file esiste proprio perche' «sparire da --help non e' sparire
+ * davvero»: si lascia vuoto finche' non lo si e' verificato.
+ */
+export const BARE_DEFAULT_IN: string | null = null;
+
 export const CRITICAL_CLAUDE_FLAGS: readonly FlagWindow[] = [
   {
     flag: "--permission-prompt-tool",
@@ -106,6 +137,15 @@ export function checkClaudeCliCompat(version: string | null | undefined): Claude
       missingFlags.push(f.flag);
       notes.push(`${f.flag} è stata tolta nella ${f.removedIn}. Senza: ${f.breaks}`);
     }
+  }
+
+  // La sentinella su `--bare`: muta finche' nessuno ha scritto la versione.
+  const bare = parseSemver(BARE_DEFAULT_IN);
+  if (bare && compareSemver(parsed, bare) >= 0) {
+    notes.push(
+      `dalla ${BARE_DEFAULT_IN} \`--print\` implica \`--bare\`, che legge SOLO ANTHROPIC_API_KEY ` +
+      `o apiKeyHelper: l'abbonamento non viene piu' letto e i turni della chat si pagano a listino`,
+    );
   }
 
   if (belowMinimum && notes.length === 0) {
