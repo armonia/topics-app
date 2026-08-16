@@ -46,6 +46,7 @@
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",
     "check:any-budget": "bun run scripts/check-any-budget.ts",
+    "check:ref-callbacks": "bun run scripts/check-ref-callbacks.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
     "check:ui-language": "bun run scripts/check-ui-language.ts",
