@@ -1,6 +1,8 @@
 import type { Topic } from '../../types';
 import { useT } from '../../hooks/useT';
 import { contextBits } from './emptyStateContext';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { resolveEffectiveProvider } from '../../lib/effortTiers';
 
 /**
  * Il vuoto di una chat: il nome, l'invito, quattro spunte da cui partire.
@@ -63,7 +65,24 @@ export function ChatEmptyState({
   const starters = topic.projectPath ? PROJECT_STARTERS : PLAIN_STARTERS;
   const showStarters = paneHeight >= H_WITH_STARTERS;
   const showHints = paneHeight >= H_WITH_HINTS;
-  const bits = contextBits(topic, t);
+  // L'ABBONAMENTO ALLO SNAPSHOT STA QUI, e non in `ChatPane`, di proposito.
+  //
+  // ChatPane evita di abbonarsi apposta: si ridisegnerebbe a ogni push, e la
+  // fast mode ne manda uno a ogni inizio e fine turno. Questo componente pero'
+  // esiste SOLO quando la chat e' vuota, cioe' quando di turni non ce n'e'
+  // nessuno: lo stesso abbonamento, qui, non paga quel prezzo.
+  //
+  // Serve perche' `topic.model` e' l'override e resta vuoto se non lo tocchi,
+  // mentre la barra sotto al composer mostrava gia' `claude-opus-5`: due
+  // superfici a un centimetro l'una dall'altra che dicevano due cose diverse
+  // sulla stessa chat, e quella muta era quella che si legge PRIMA di scrivere.
+  const { snapshot } = useProvidersSnapshot();
+  const effettivo = resolveEffectiveProvider(
+    snapshot?.providers ?? [],
+    topic.provider && topic.model ? { provider: topic.provider, model: topic.model } : null,
+    topic.provider ?? undefined,
+  );
+  const bits = contextBits(topic, t, effettivo?.model ?? null);
 
   return (
     <div

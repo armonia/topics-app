@@ -109,4 +109,30 @@ describe("il contesto di una chat vuota", () => {
       "chat.empty.mcpBridge",
     ]);
   });
+
+  it("il modello EFFETTIVO compare anche senza override sul topic", () => {
+    // `topic.model` e' l'override: se non lo tocchi resta vuoto e la riga
+    // taceva sul modello, mentre la barra sotto al composer mostrava
+    // benissimo `claude-opus-5`. Due superfici a un centimetro di distanza
+    // che dicevano due cose diverse sulla stessa chat - visto a schermo in
+    // tests/e2e/chat-empty-context.spec.ts, non dedotto.
+    const bits = contextBits(topic(), t, "claude-opus-5");
+    expect(bits.join(" ")).toContain("claude-opus-5");
+  });
+
+  it("l'override del topic VINCE sul modello effettivo", () => {
+    // Chi ha scelto esplicitamente deve leggere la propria scelta: il ripiego
+    // serve a riempire un silenzio, non a coprire una decisione.
+    const bits = contextBits(topic({ model: "sonnet" }), t, "claude-opus-5");
+    expect(bits.join(" ")).toContain("sonnet");
+    expect(bits.join(" ")).not.toContain("claude-opus-5");
+  });
+
+  it("senza modello effettivo la riga si comporta come prima", () => {
+    // Il parametro e' facoltativo: su un'installazione che non risponde con lo
+    // snapshot dei provider, il silenzio resta silenzio invece di diventare un
+    // "undefined" stampato.
+    const bits = contextBits(topic(), t, null);
+    expect(bits).toEqual([]);
+  });
 });
