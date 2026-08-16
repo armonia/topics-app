@@ -14,6 +14,7 @@
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
 import { useState } from 'react';
+import { PauseCircle } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
@@ -63,6 +64,31 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       </SettingsSection>
 
       <SettingsSection label={tr('board.settings.sec.agent')}>
+      {/* IL FRENO DI QUESTA BOARD, e sta nella sezione «di questa board» e non
+          in quella globale di proposito: sono due leve diverse, e metterle
+          vicine senza dirlo sarebbe il «due nomi per la stessa cosa» che questo
+          pannello evita altrove.
+          Puo' solo FERMARE: col globale spento, toglierla dalla pausa non fa
+          partire niente — e il `title` lo dice, perche' una leva che a volte
+          non fa niente deve spiegare quando. */}
+      <label
+        className="flex cursor-pointer items-center justify-between gap-3"
+        title={tr('board.settings.pausedTitle')}
+      >
+        <span className="flex items-center gap-1.5">
+          <PauseCircle className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.paused')}
+        </span>
+        <input
+          type="checkbox"
+          data-testid="board-dispatch-paused"
+          checked={!!s.dispatchPaused}
+          onChange={(e) => patch({ dispatchPaused: e.target.checked })}
+          className="h-3.5 w-3.5 shrink-0 accent-amber-500"
+        />
+      </label>
+      {s.dispatchPaused && (
+        <p className="text-[11px] text-amber-300/80">{tr('board.settings.pausedActive')}</p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
