@@ -6,7 +6,7 @@
   "strumento_validato": "mem-report.ts contro vmmap di Apple: 202,6M vs 203 MB e 63,6M vs 64 MB sugli stessi pid. Non è una stima nostra.",
   "composizione": {
     "DISPOSITIVO_451_MB": {
-      "WebContent": "292-448 MB osservati (8 campioni su 3 minuti), picco storico 660",
+      "WebContent": "257-448 MB su venti campioni in ~70 minuti (picco storico 660). NON è un numero singolo: oscilla di suo, e chi lo cita deve dire su quanti campioni.",
       "guscio app (Tauri)": "65 MB",
       "WebKit.GPU": "33 MB — processo di SISTEMA, lo avrebbe qualunque app con una WebView",
       "WebKit.Networking": "20 MB — idem",
@@ -20,24 +20,29 @@
     "AGENTI": "0 MB — col runtime nativo non esistono processi agente"
   },
   "la_scoperta_che_conta": {
-    "titolo": "Il WebContent tiene ~280 MB, e la divisione fra «viva» e «compressa» non è una proprietà stabile",
-    "misura": "Sedici campioni su ~35 minuti: dirty 122-250 MB, compressa/swapped 54-143 MB. Ma il TOTALE resta 257-308 MB, cioè molto più fermo delle due voci prese da sole.",
+    "titolo": "Il WebContent oscilla fra ~260 e ~450 MB, e la divisione fra «viva» e «compressa» non è una proprietà dell'app",
+    "misura": "Venti campioni in ~70 minuti: dirty 40-250 MB, compressa/swapped 54-296 MB, totale 257-344 (con letture di phys_footprint fino a 448 nei momenti di lavoro).",
     "la_cosa_utile": [
       "Le due colonne si scambiano il contenuto di continuo: il kernel comprime e",
-      "decomprime le stesse pagine mentre l'app lavora. Quindi «quanto è compresso»",
-      "NON è una caratteristica dell'app, è dove si trova il kernel in quel",
-      "momento. La grandezza che descrive Topics è la SOMMA — ~280 MB per una",
-      "WebView che tiene l'intera UI — e quella è ferma.",
-      "Questo chiude anche la domanda originale: nessuna perdita in corso, perché",
-      "un totale che non cresce su mezz'ora non è una perdita."
+      "decomprime le stesse pagine mentre l'app lavora — in un campione dirty era",
+      "39,8 MB con 296 compressi, dodici secondi dopo 130,8 con 213. Quindi",
+      "«quanto è memoria viva» non descrive Topics, descrive dove si trova il",
+      "kernel in quell'istante.",
+      "Nemmeno la SOMMA è ferma: varia col lavoro dell'app. Ciò che si può dire",
+      "onestamente è che sta in una banda e non la sfonda — nessuna crescita",
+      "monotona su settanta minuti, cioè nessuna perdita in corso.",
+      "Il prezzo di base resta quello di una WebView che tiene l'intera UI, ed è",
+      "il pezzo che il task 91006de1 chiede di scomporre."
     ],
-    "due_correzioni_a_me_stesso": [
-      "Prima ho scritto «l'80% è compressa, non è memoria viva» da UNO scatto",
-      "(dirty 55,6 · compressa 239,5). Poi «dirty 182-250, il 22%» da dieci",
-      "campioni. Sedici campioni dicono 122-250 e il 29%, e soprattutto dicono",
-      "che inseguire quel rapporto era la domanda sbagliata: oscilla per conto",
-      "suo. Due errori di fila sulla stessa riga, entrambi da campioni troppo",
-      "pochi su un processo che respira."
+    "tre_correzioni_a_me_stesso": [
+      "Questa riga l'ho sbagliata TRE volte, sempre con la stessa dinamica:",
+      "  1. «l'80% è compressa»          — da UNO scatto",
+      "  2. «22%, dirty 182-250»         — da dieci campioni",
+      "  3. «totale FERMO a 257-308»     — da sedici campioni",
+      "Ogni volta più campioni, ogni volta ancora sbagliato, perché il problema",
+      "non era la numerosità: era pretendere un valore stabile da una grandezza",
+      "che stabile non è. La forma onesta di questo dato è una BANDA con il",
+      "numero di campioni accanto, non una cifra."
     ]
   },
   "due_ipotesi_refutate": [
@@ -58,7 +63,7 @@
     "osservato": "Sul codice reale con os.totalmem() sostituito: una macchina da 8 GB / 8 core dà 2 posti con la CLI e 4 col nativo. Il default (nessun parametro) dà lo stesso 2 della versione pre-fix: nessuna regressione.",
     "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
   },
-  "conclusione": "Niente da tagliare nel server: 67-68 MB dirty stabili su cinque campioni, il resto è binario mappato. Nella UI il WebContent sta su ~280 MB di footprint FERMO (16 campioni, 257-308): non è una perdita, ed è il prezzo di una WebView che tiene l'intera interfaccia. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU.",
+  "conclusione": "Niente da tagliare nel server: 67-68 MB dirty stabili su cinque campioni, il resto è binario mappato. Il WebContent oscilla fra ~260 e ~450 MB senza crescere in modo monotono su settanta minuti: non è una perdita, è il costo variabile di una WebView che tiene l'intera UI. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto; il vincolo residuo sui 4 posti è una politica sulla CPU.",
   "il_confronto_che_manca": {
     "cosa": "CLI contro nativo a PARITÀ di sessioni oltre N=3.",
     "numero_onesto": "188x — 432,4 MB contro 2,3 MB, entrambi a N=3, stesso file, stesso modello, stesso turno banale (session-memory.json).",
@@ -74,16 +79,17 @@
     ]
   },
   "metodo_una_nota_amara": [
-    "Quattro numeri di questo file sono stati pubblicati sbagliati prima di essere",
-    "corretti, sempre per lo stesso motivo: TROPPO POCHI CAMPIONI su un processo",
-    "che respira.",
-    "  · WebContent «197-244 MB»  → 292-448 su dieci campioni",
-    "  · «l'80% è compressa»      → 22% su dieci campioni...",
-    "  · ...poi «22%, dirty 182-250» → 29%, dirty 122-250 su SEDICI campioni",
-    "  · server «58,9 MB dirty»   → 67-68 stabile su cinque campioni",
-    "Il terzo errore è il più istruttivo: avevo già corretto quella riga una volta,",
-    "con dieci campioni, e non bastavano ancora. La lezione non è «campiona di",
-    "più», è che dirty/compressa NON è una grandezza stabile — il kernel sposta",
-    "pagine fra le due di continuo. La cosa ferma è la SOMMA, e va misurata quella."
+    "Cinque numeri di questo file sono stati pubblicati sbagliati prima di essere",
+    "corretti. La stessa riga sul WebContent è stata sbagliata TRE volte, con",
+    "campioni crescenti ogni volta:",
+    "  · «197-244 MB»               → 292-448 su dieci campioni",
+    "  · «l'80% è compressa»        → 22% su dieci campioni...",
+    "  · ...«22%, dirty 182-250»    → 29%, dirty 122-250 su sedici...",
+    "  · ...«totale fermo 257-308»  → 257-344 su venti campioni",
+    "  · server «58,9 MB dirty»     → 67-68 stabile su cinque campioni",
+    "La lezione non è «campiona di più»: è che alcune grandezze NON hanno un",
+    "valore, hanno una banda. Il server ce l'ha un valore (67-68, fermo). Il",
+    "WebContent no, e ogni volta che ho provato a dargliene uno mi sono",
+    "sbagliato. Chi cita questi numeri scriva la banda e i campioni."
   ]
 }
