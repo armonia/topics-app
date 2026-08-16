@@ -1,15 +1,21 @@
 # Privacy
 
-Topics is **local-first**. Your conversations, topics, and project context are stored on your own machine and are not sent to Armonia.
+Topics is **local-first**. Your conversations, topics and project context live on your own machine. Armonia sees them only if you turn on the paid relay and use ours, which routes traffic from outside your network through our infrastructure.
 
 ## What Topics stores, and where
 
 - Conversations, topics, settings, and related data are stored locally under your app data directory (`APP_DATA_DIR`, default `~/.openclaw`).
-- Nothing is uploaded to any Armonia-operated server.
+- The app does not upload them anywhere on its own.
 
-## Telemetry
+## Analytics
 
-Topics contains **no analytics and no telemetry**. We do not collect usage statistics, crash reports, or any data about you.
+The app does not collect usage statistics or crash reports.
+
+## The relay, if you subscribe
+
+Reaching Topics from outside your own network is a paid feature, and it works by routing traffic through a relay. If you use the one Armonia operates, that traffic passes through our infrastructure; `TOPICS_RELAY_URL` lets you point at your own instead. Billing goes through Stripe, which receives what it needs to charge you.
+
+Everything local keeps working with the relay off, or with the subscription expired, or with our servers down: the licence is verified offline against a signed token, and an unreadable or expired token falls back to the full free plan.
 
 ## Network connections
 
