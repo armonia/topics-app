@@ -24,6 +24,7 @@
 import { getAccessToken } from "./auth";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
+import { applyPromptCache } from "../prompt-cache";
 import { needsCompaction, compact, windowFor } from "./compaction";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import type { AutonomyLevel } from "../../../shared/types";
@@ -116,6 +117,27 @@ async function streamOnce(
   };
   const tools = opts.tools ?? CODING_TOOLS;
   if (tools.length > 0) body.tools = tools;
+
+  // I BREAKPOINT DI CACHE, e qui pesano più che altrove. Un turno d'agente non
+  // è una chiamata: sono N giri che rimandano OGNI VOLTA gli schemi dei tool, il
+  // preambolo di sistema e tutta la conversazione fin lì. Senza marcare i
+  // confini si ripaga quel prefisso a prezzo pieno a ogni giro invece di 0,1x —
+  // su un agente che ne fa venti, è il grosso del conto.
+  //
+  // La funzione è la stessa che usa `claude.ts` (`prompt-cache.ts`) e non una
+  // copia: i confini del prefisso Anthropic (`tools → system → messages`) sono
+  // gli stessi per chiunque parli con quella API, e averne due versioni
+  // significherebbe scoprire un domani che una delle due ha smesso di cachearlo.
+  //
+  // PRIMA SI PULISCE, ed è la differenza fra noi e `claude.ts`. Là la
+  // conversazione si ricostruisce a ogni chiamata, quindi marcare l'ultimo
+  // messaggio è un'operazione sola. Qui la storia è la STESSA e cresce a ogni
+  // giro: il marker del giro precedente resta dov'è, ne arriva uno nuovo, e al
+  // quinto giro l'API rifiuta tutto con «A maximum of 4 blocks with
+  // cache_control may be provided. Found 5». Un turno che muore al quinto giro
+  // per un'ottimizzazione di costo: il modo peggiore di risparmiare.
+  stripMessageCacheMarks(opts.history);
+  applyPromptCache(body as never);
 
   const res = await fetch(API_URL, {
     method: "POST",
@@ -223,6 +245,24 @@ async function streamOnce(
 
 function currentText(blocks: Block[]): string {
   return blocks.filter((b) => b?.type === "text").map((b) => b.text ?? "").join("");
+}
+
+/**
+ * Toglie i breakpoint di cache lasciati dai giri precedenti.
+ *
+ * Ne resta uno solo, quello che `applyPromptCache` rimetterà sull'ultimo
+ * messaggio: il prefisso cachato è comunque tutto ciò che viene prima, quindi
+ * non si perde niente in risparmio e si resta sotto il tetto di quattro.
+ */
+function stripMessageCacheMarks(messages: Message[]): void {
+  for (const m of messages) {
+    if (typeof m.content === "string") continue;
+    for (const b of m.content) {
+      if (b && typeof b === "object" && "cache_control" in b) {
+        delete (b as Record<string, unknown>).cache_control;
+      }
+    }
+  }
 }
 
 /**
