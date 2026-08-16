@@ -1543,7 +1543,24 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     // di chi stava sul checkout condiviso ha una punta che non è della card, e
     // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
     // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
-    return deliveryPointer(repoPath, wt.branchName).catch(() => null);
+    const ref = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
+    if (!ref) return null;
+    // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
+    //
+    // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
+    // diff esisteva solo dietro l'apertura del drawer, una card alla volta.
+    // Calcolarlo nel feed sarebbe stato tre comandi git per card a ogni push
+    // WebSocket; calcolarlo alla consegna è una volta sola, quando il fatto
+    // accade. `worktreeDiffStat` misura dal PADRE del commit più vecchio SUO,
+    // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
+    // chi stava parcheggiato sul checkout condiviso.
+    //
+    // Best-effort come tutto il resto di questa funzione: se git inciampa la
+    // consegna passa lo stesso, senza misura (NULL, che non è zero).
+    const stat = await worktreeDiffStat(wt.absPath, { branch: wt.branchName }).catch(() => null);
+    return stat
+      ? { ...ref, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
+      : ref;
   },
   // Dove far girare i checks pre-review: la cartella del worktree del task e il
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i

@@ -198,7 +198,11 @@ export interface TasksRouterOpts {
    * ha avuto risposta: si lascia stare quel che c'è). `commit: null` ⇒ verificato,
    * la card non ha prodotto codice — che è un'informazione, e va registrata.
    */
-  taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string | null } | null>;
+  taskDeliveryRef?: (taskId: string) => Promise<{
+    branch: string; commit: string | null;
+    /** L'entità del lavoro consegnato, quando git ha saputo dirla. */
+    filesChanged?: number; insertions?: number; deletions?: number;
+  } | null>;
   /**
    * Dove girano i checks pre-review: la cartella del worktree del task e il commit
    * su cui sta in quel momento. `null` ⇒ nessun worktree di branch (task in-place),
@@ -624,7 +628,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     try {
       const ref = await opts.taskDeliveryRef(task.id);
       if (!ref) return task; // in-place task: nothing to compare against main
-      svc.recordDelivery({ taskId: task.id, branch: ref.branch, commit: ref.commit });
+      svc.recordDelivery({
+        taskId: task.id, branch: ref.branch, commit: ref.commit,
+        // `undefined` ⇒ NULL in colonna, cioè «non misurato»: sulla card è un
+        // silenzio, non uno zero che direbbe «non ha prodotto niente».
+        stat: ref.filesChanged === undefined ? null : {
+          filesChanged: ref.filesChanged,
+          insertions: ref.insertions ?? 0,
+          deletions: ref.deletions ?? 0,
+        },
+      });
       await deriveDeliveryLabels(task.id);
       // Return the REFRESHED row so the response and the broadcast already carry
       // the snapshot — otherwise the board only learns about it on a refetch.
@@ -1754,7 +1767,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           try {
             const ref = await opts.taskDeliveryRef(taskId);
             if (ref) {
-              svc.recordDelivery({ taskId, branch: ref.branch, commit: ref.commit });
+              svc.recordDelivery({
+                taskId, branch: ref.branch, commit: ref.commit,
+                stat: ref.filesChanged === undefined ? null : {
+                  filesChanged: ref.filesChanged,
+                  insertions: ref.insertions ?? 0,
+                  deletions: ref.deletions ?? 0,
+                },
+              });
               task = svc.get(taskId, { projectId })?.task ?? task;
             }
           } catch { /* la scelta vale anche senza fotografia */ }

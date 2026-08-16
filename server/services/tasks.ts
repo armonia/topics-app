@@ -267,6 +267,9 @@ export interface Task {
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
   deliveryCommit: string | null;
+  deliveryFilesChanged: number | null;
+  deliveryInsertions: number | null;
+  deliveryDeletions: number | null;
   /** Landing audit verdict: is the delivered content actually on main?
    *  null = never audited (pre-audit task, or no delivery recorded). */
   landingState: "landed" | "unlanded" | "unverifiable" | null;
@@ -918,7 +921,13 @@ export interface TaskService {
    * the landing audit can hold onto. Re-recorded on every new delivery (a
    * reject→resume→review round trip delivers a new tip).
    */
-  recordDelivery(args: { taskId: string; branch: string | null; commit: string | null }): void;
+  recordDelivery(args: {
+    taskId: string; branch: string | null; commit: string | null;
+    /** QUANTO lavoro c'è dentro. Facoltativo: assente ⇒ NULL, cioè «non
+     *  misurato», che non è zero. Zero direbbe «misurato, non ha prodotto
+     *  niente», ed è una frase che va detta solo quando è vera. */
+    stat?: { filesChanged: number; insertions: number; deletions: number } | null;
+  }): void;
   /** Esito dei checks pre-review sul task (evidenza per il reviewer). */
   recordChecks(args: {
     taskId: string;
@@ -1809,6 +1818,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       queueReason: queueReasonOf(r, b),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
+      // L'ENTITÀ DEL LAVORO, sulla card e non dietro un clic: la colonna review
+      // chiedeva «Approva» senza dire cosa si stesse approvando.
+      deliveryFilesChanged: r.delivery_files_changed ?? null,
+      deliveryInsertions: r.delivery_insertions ?? null,
+      deliveryDeletions: r.delivery_deletions ?? null,
       landingState: r.landing_state ?? null,
       landingCheckedAt: r.landing_checked_at ?? null,
       checksState: r.checks_state ?? null,
@@ -4040,14 +4054,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    recordDelivery({ taskId, branch, commit }): void {
+    recordDelivery({ taskId, branch, commit, stat }): void {
       // A new delivery invalidates any previous verdict: re-audit from scratch
       // rather than leave a stale "landed" on top of fresh, unlanded commits.
       // La TESTIMONIANZA cade con lui: era su un'altra consegna.
+      //
+      // E CADE ANCHE LA MISURA. Il conteggio di file e righe descrive UNA
+      // consegna: lasciarlo su una consegna nuova non misurata farebbe leggere
+      // sulla card i numeri del lavoro di prima, che è peggio del non saperlo.
+      // Per questo `stat` assente scrive NULL invece di lasciare il valore
+      // vecchio: un dato che non si aggiorna insieme al suo soggetto mente.
       db.prepare(
         "UPDATE tasks SET delivery_branch = ?, delivery_commit = ?, landing_state = NULL, " +
-        "landing_checked_at = NULL, landing_witnessed = 0 WHERE id = ?",
-      ).run(branch || null, commit || null, taskId);
+        "landing_checked_at = NULL, landing_witnessed = 0, " +
+        "delivery_files_changed = ?, delivery_insertions = ?, delivery_deletions = ? WHERE id = ?",
+      ).run(
+        branch || null, commit || null,
+        stat?.filesChanged ?? null, stat?.insertions ?? null, stat?.deletions ?? null,
+        taskId,
+      );
     },
 
     listLandingAuditCandidates() {

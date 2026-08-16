@@ -36,6 +36,9 @@ import {
   seedProjectPane,
 } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { join } from "node:path";
+
+const SHOTS = "test-results/review-column";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -70,7 +73,10 @@ type Req = import("@playwright/test").APIRequestContext;
 async function seedDoneTask(
   request: Req,
   text: string,
-  landing: { branch?: string | null; commit?: string | null; state: "landed" | "unlanded" },
+  landing: {
+    branch?: string | null; commit?: string | null; state: "landed" | "unlanded";
+    filesChanged?: number; insertions?: number; deletions?: number;
+  },
 ): Promise<string> {
   // Il servizio rifiuta per contratto un task che NASCE done ("cannot create a
   // task already done"): si nasce in backlog e ci si sposta, come farebbe la
@@ -89,7 +95,10 @@ async function seedDoneTask(
   expect(moved.ok(), `move to done: ${moved.status()} ${await moved.text()}`).toBe(true);
 
   const seeded = await request.post(`${BASE}/api/test/tasks/${task.id}/landing`, {
-    data: { branch: landing.branch ?? null, commit: landing.commit ?? null, state: landing.state },
+    data: {
+      branch: landing.branch ?? null, commit: landing.commit ?? null, state: landing.state,
+      filesChanged: landing.filesChanged, insertions: landing.insertions, deletions: landing.deletions,
+    },
   });
   // Un 404 qui significa route di test non armata: va detto SUBITO, non fra
   // dieci secondi travestito da chip mancante.
@@ -188,6 +197,87 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await resetPaneStore(page.request, []);
     await resetProjectPanes(page.request, PROJECT_PATH);
     await seedProjectPane(page.request, PROJECT_PATH);
+  });
+
+  test("LANDING-00: in review la card dice QUANTO lavoro si sta approvando", async ({ page }) => {
+    // Misurato sulla board vera il 16/08: cinque card in review, e su tutte e
+    // cinque il pulsante «Approva» senza un solo dato su cosa entrerebbe. Il
+    // diff esisteva, ma solo aprendo il drawer - una card alla volta. Una
+    // colonna che si legge solo aprendola non e' un cruscotto, e' un elenco
+    // di titoli.
+    const text = `Consegna misurata ${Date.now()}`;
+    const res = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text, status: "backlog" },
+    });
+    expect(res.ok()).toBe(true);
+    const task = (await res.json()) as { id: string };
+    createdTasks.push(task.id);
+    await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+    const seeded = await page.request.post(`${BASE}/api/test/tasks/${task.id}/landing`, {
+      data: {
+        branch: "topics/misurata", commit: "a".repeat(40), state: "unlanded",
+        filesChanged: 7, insertions: 120, deletions: 30,
+      },
+    });
+    expect(seeded.ok(), `seed landing: ${seeded.status()}`).toBe(true);
+    // Il dato DEVE arrivare nel feed della lista, non solo nel dettaglio: la
+    // card della colonna si disegna da lì. Verificarlo qui separa «il server
+    // non lo manda» da «la UI non lo disegna», che sono due bug diversi.
+    const feed = await (await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks`)).json() as
+      { tasks: Array<{ id: string; deliveryFilesChanged: number | null }> };
+    const dalFeed = feed.tasks.find((t) => t.id === task.id);
+    expect(dalFeed?.deliveryFilesChanged, "la lista deve portare la misura").toBe(7);
+
+    // REVIEW e' la quarta colonna: a 1280px sta fuori dallo schermo e il primo
+    // giro di questo caso e' fallito misurando una colonna mai disegnata, non
+    // un chip mancante. La finestra larga e' parte della prova.
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    const chip = card.getByTestId("card-delivery-stat");
+    // La colonna REVIEW e' l'ultima e sul banco resta mezza fuori: `toBeVisible`
+    // guarda il viewport, quindi senza portarla sotto gli occhi il caso
+    // fallirebbe su un chip che ESISTE. Costato due giri di debug, con il dato
+    // giusto nel DB, nel feed e perfino in mano al client.
+    await chip.scrollIntoViewIfNeeded();
+    // I numeri sulla CARD, non nel `title`: su touch l'hover non esiste, e una
+    // colonna che si legge di fretta non si legge col mouse fermo sopra.
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText("7 file");
+    await expect(chip).toContainText("+120");
+    await expect(chip).toContainText("-30");
+    await card.screenshot({ path: join(SHOTS, "review-quanto-lavoro.png") });
+  });
+
+  test("LANDING-00b: senza misura la card non inventa uno zero", async ({ page }) => {
+    // `null` e' «non misurato», zero sarebbe «misurato, non ha prodotto
+    // niente»: due frasi diverse, e la seconda su una card senza worktree
+    // sarebbe falsa. Un chip «0 file +0 -0» su ogni card e' rumore che si
+    // impara a saltare, e il giorno che il numero conta non lo legge nessuno.
+    const text = `Consegna non misurata ${Date.now()}`;
+    const res = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text, status: "backlog" },
+    });
+    const task = (await res.json()) as { id: string };
+    createdTasks.push(task.id);
+    await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+    await page.request.post(`${BASE}/api/test/tasks/${task.id}/landing`, {
+      data: { branch: "topics/muta", commit: "b".repeat(40), state: "unlanded" },
+    });
+
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.getByTestId("card-delivery-stat")).toHaveCount(0);
   });
 
   test("LANDING-01: la card in Done dichiara «non su main» e nomina il ramo", async ({ page }) => {

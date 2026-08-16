@@ -333,7 +333,11 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     const seedLanding = /^\/api\/test\/tasks\/([^/]+)\/landing$/.exec(pathname);
     if (method === "POST" && seedLanding) {
       const body = (await req.json().catch(() => null)) as
-        | { branch?: string | null; commit?: string | null; state?: string | null }
+        | {
+            branch?: string | null; commit?: string | null; state?: string | null;
+            /** L'entita' della consegna, per le spec che misurano il chip. */
+            filesChanged?: number; insertions?: number; deletions?: number;
+          }
         | null;
       const taskId = decodeURIComponent(seedLanding[1]);
       const state = body?.state ?? null;
@@ -346,7 +350,16 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         // precedente (una consegna nuova invalida un vecchio "landed"), quindi
         // lo stato va scritto DOPO — altrimenti si semina un `landing_state`
         // nullo e la spec misura il caso sbagliato.
-        svc.recordDelivery({ taskId, branch: body?.branch ?? null, commit: body?.commit ?? null });
+        svc.recordDelivery({
+          taskId, branch: body?.branch ?? null, commit: body?.commit ?? null,
+          // Assente ⇒ null, come in produzione: una spec che non chiede la
+          // misura deve vedere una card senza chip, non una con degli zeri.
+          stat: body?.filesChanged === undefined ? null : {
+            filesChanged: body.filesChanged,
+            insertions: body.insertions ?? 0,
+            deletions: body.deletions ?? 0,
+          },
+        });
         if (state) svc.recordLandingState({ taskId, state, checkedAt: new Date().toISOString() });
         return json({ ok: true, task: svc.get(taskId)?.task ?? null });
       } catch (e) {

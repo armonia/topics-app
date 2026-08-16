@@ -442,6 +442,13 @@ export interface BoardTask {
   deliveryBranch: string | null;
   /** Tip of that branch at review-time — the durable handle the audit checks. */
   deliveryCommit: string | null;
+  /** QUANTO lavoro c'è dentro la consegna. `null` = non misurato (git muto o
+   *  card senza worktree), che è diverso da zero: zero direbbe «misurato, non
+   *  ha prodotto niente». Serve alla colonna review, che chiedeva «Approva»
+   *  senza dire cosa si stesse approvando. */
+  deliveryFilesChanged: number | null;
+  deliveryInsertions: number | null;
+  deliveryDeletions: number | null;
   /** Landing audit verdict: is the delivered work actually on main?
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
   landingState: "landed" | "unlanded" | "unverifiable" | null;
