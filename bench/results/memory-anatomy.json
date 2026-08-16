@@ -14,7 +14,7 @@
       "SafariPlatformSupport": "16 MB — idem"
     },
     "SERVER_154_MB": {
-      "bun principale": "117-152 MB, di cui solo ~59 MB DIRTY: il resto è il binario bun (57 MB su disco) mappato, più __TEXT/__LINKEDIT condivisi",
+      "bun principale": "117-152 MB di footprint, di cui 59-95 MB DIRTY (cinque campioni consecutivi: 67-68 MB, stabile) e ~58 MB compressi. Il resto è il binario bun (57 MB su disco) mappato in __TEXT, più __LINKEDIT: pagine condivise, non heap.",
       "pty-bridge (node)": "18-21 MB",
       "ai-bridge (bun)": "17 MB"
     },
@@ -22,16 +22,24 @@
   },
 
   "la_scoperta_che_conta": {
-    "titolo": "Il footprint del WebContent è per l'80% memoria GIÀ COMPRESSA, non memoria viva",
-    "misura": "dirty 55,6 MB · swapped/compressa 239,5 MB · footprint 296 MB",
-    "cosa_significa": [
-      "La colonna «Memoria» somma le pagine compresse, che macOS ha già tolto di",
-      "mezzo e restituisce sotto pressione. Un `notifyutil -p org.WebKit.lowMemory`",
-      "ha portato il processo da 365 a 182 MB in quattro secondi, e la serie",
-      "temporale mostra un DENTE DI SEGA (197 → 244 → 202, e più tardi 448 → 292)",
-      "che scende da solo senza che nessuno intervenga.",
-      "Quindi: non c'è una perdita da inseguire, e non serve forzare la pressione",
-      "dall'app — WebKit lo fa già."
+    "titolo": "Il WebContent tiene ~215 MB di memoria VIVA, e sotto pressione ne restituisce metà",
+    "misura": "Dieci campioni su tre minuti: dirty 182-250 MB (mediana 215), compressa/swapped 54-88 MB (mediana 59). La quota compressa è il 22% del totale.",
+    "una_correzione_a_me_stesso": [
+      "Un primo scatto aveva dato dirty 55,6 e compressa 239,5, e ne avevo",
+      "concluso «l'80% è compressa, non è memoria viva». Falso: era il momento",
+      "subito dopo una pressione, non il regime. In regime il rapporto è",
+      "rovesciato. La lezione è la solita di questo studio — una fotografia di",
+      "un processo che respira non è una misura, e questa è la seconda volta",
+      "che me ne accorgo qui (la prima: il range 197-244, in realtà 292-448)."
+    ],
+    "cosa_resta_vero": [
+      "Il footprint OSCILLA e scende da solo: 448 → 292 MB in venti secondi,",
+      "senza che nessuno intervenga. Un `notifyutil -p org.WebKit.lowMemory` lo",
+      "porta da 365 a 182 in quattro secondi, quindi metà di quella memoria è",
+      "cache che WebKit cede quando serve.",
+      "Ma non è «quasi tutta compressa»: ~215 MB sono davvero residenti, ed è il",
+      "prezzo di una WebView che tiene l'intera UI di Topics. Il task 91006de1",
+      "sul board chiede proprio di dare un nome a quella parte."
     ]
   },
 
@@ -55,7 +63,7 @@
     "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
   },
 
-  "conclusione": "Niente da tagliare né nel server (59 MB dirty) né nella UI (la memoria alta è compressa e transitoria). L'unico difetto vero era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU, non sulla memoria.",
+  "conclusione": "Niente da tagliare nel server: 67 MB dirty stabili, il resto è binario mappato. Nella UI ~215 MB sono memoria viva e circa altrettanti sono cache che WebKit cede da sola sotto pressione — quindi non c'è una perdita, ma c'è una parte residente che nessuno ha ancora scomposto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU, non sulla memoria.",
 
   "il_confronto_che_manca": {
     "cosa": "CLI contro nativo a PARITÀ di sessioni oltre N=3.",
@@ -70,5 +78,16 @@
       "e un refresh ne RUOTA il token, rompendo il login dell'utente. Il buco",
       "resta dichiarato invece di essere colmato con un numero che sembra."
     ]
-  }
+  },
+
+  "metodo_una_nota_amara": [
+    "Tre numeri di questo file sono stati pubblicati sbagliati prima di essere",
+    "corretti, e sempre per lo stesso motivo: una LETTURA SOLA di un processo",
+    "che respira, scambiata per una misura.",
+    "  · WebContent «197-244 MB» → dieci campioni dicono 292-448",
+    "  · «l'80% è compressa»     → in regime è il 22%",
+    "  · server «58,9 MB dirty»  → cinque campioni dicono 67-68",
+    "Nessuno dei tre cambia la conclusione, ma tutti e tre erano verificabili in",
+    "un minuto. Su questa roba: campionare almeno cinque volte, sempre."
+  ]
 }
