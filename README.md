@@ -45,27 +45,34 @@ wrote (`~/.claude/.credentials.json` or `~/.jcode/auth.json`) — you still log 
 with `claude` → `/login`; Topics only reads that file. Set the runtime back to
 `cli` in Settings if you prefer a process per agent.
 
-The difference is what a session *costs*, measured on the same machine
-(12 cores / 34 GB, macOS), same model, same trivial turn, **same session
-count** on both sides:
+The difference is what a session *costs*. Measured on the same machine
+(12 cores / 34 GB, macOS), same model, same trivial turn, **same session count**
+on both sides:
 
-| | CLI (one process per agent) | Native runtime |
+| | CLI — one process per agent | Native runtime |
 |---|---|---|
-| Memory per session (3 sessions) | ~432 MB | **2.3 MB** |
+| **Memory per session** (3 sessions) | ~432 MB | **2.3 MB** — about **188x** less |
 
-Pushing only the native runtime further, memory per session **falls** as the
-count rises — the fixed cost spreads. Across five independent servers: 0.7–2.7 MB
-at 8 concurrent sessions, 0.8–1.0 at 32, and 0.25–0.9 at 64, where 64 real turns
-finish in 3.9–4.7 s. Don't read those against the 432 MB above: that column was
-measured at 3 sessions, and pairing them would claim a ratio this benchmark
-never measured. At equal count the honest figure is **~188x**.
+Pushed further, the native runtime gets *cheaper per session* as the count
+rises: the fixed cost of a turn spreads. Five runs across independent servers:
 
-The wall-clock time grows far slower than the session count — the network
-dominates, not the machine. Two more caveats. The CLI was never put through the
-64-session run at all, so there is no "who wins under load" answer here. And the
-first turn on a cold server costs ~11 MB (code paths running for the first
-time), which is warm-up, not the price of a session. Raw numbers, every run and
-what each does *not* prove, are in [`bench/results/`](bench/results/):
+| Concurrent sessions | Memory per session | Wall clock |
+|---|---|---|
+| 8 | 0.7–2.7 MB | ~2 s |
+| 32 | 0.8–1.0 MB | ~2.9 s |
+| 64 | 0.25–0.9 MB | 3.9–4.7 s |
+
+Time grows far slower than the session count, because the network dominates, not
+the machine.
+
+**Three things this does not prove.** The 188x is the only honest cross-runtime
+number: it compares equal session counts. Do not pair the 432 MB with the 64-way
+figures — the CLI was never put through that run, so there is no "who wins under
+load" answer here. And the first turn on a cold server costs ~11 MB, which is
+warm-up, not the price of a session.
+
+Every run, and what each one fails to show, is in
+[`bench/results/`](bench/results/). To reproduce:
 
 ```bash
 # An ISOLATED server: pointing this at your dev server creates real topics in
@@ -92,23 +99,56 @@ array in RAM, and half the machine is deliberately left to the person using it.
 
 ## Configuration
 
-Topics reads configuration from environment variables (or a `.env` file). Copy `.env.example` to `.env` and set what you need:
+**You don't need any of this to start.** Provider, model and API keys are in
+**Settings**, and what you set there always wins over the environment. The
+variables below exist for headless runs, CI and containers — places without a
+window to click in.
+
+Copy `.env.example` to `.env` if you need them.
 
 | Variable | Description | Default |
-|----------|-------------|---------|
+|---|---|---|
 | `PORT` | Local server port | `3333` |
-| `AI_PROVIDER` | Pins one provider: `claude-code`, `codex`, `claude`, `openai` or `openclaw`. Leave it unset. Unset is not a ranking: the default is decided by your keys (`ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else `GATEWAY_URL` → `openclaw`, else `claude`), and it stays the default for as long as it is connected. The subscription-first order `claude-code` → `codex` → `claude` → `openai` → `openclaw` only picks the REPLACEMENT once the current default goes offline, so with a key set the CLIs above it never get a turn. A pin beats connectivity, so a pinned provider that is offline stays the target and its chats never answer | first key set, else `claude` |
-| `GATEWAY_TOKEN` | OpenClaw gateway token (required when `AI_PROVIDER=openclaw`) | — |
-| `GATEWAY_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789` |
-| `ANTHROPIC_API_KEY` | Anthropic API key (required when `AI_PROVIDER=claude`) | — |
-| `CLAUDE_MODEL` | Model id for the `claude` provider | — |
-| `OPENAI_API_KEY` | OpenAI API key (required when `AI_PROVIDER=openai`) | — |
-| `OPENAI_MODEL` | Model id for the `openai` provider | — |
-| `ELEVENLABS_API_KEY` | ElevenLabs key — text-to-speech, and Scribe v2 dictation/speech-to-text (optional) | — |
-| `STT_PROVIDER` | Speech-to-text engine: `auto` tries ElevenLabs Scribe v2 → OpenAI `gpt-transcribe` → Deepgram Nova-3 → Groq Whisper turbo → local whisper.cpp, using whichever keys you have. Pin one (`openai`) or set an order (`openai,local`) | `auto` |
-| `STT_LANGUAGE` | ISO-639-1 dictation language; unset means the model auto-detects | auto |
-| `MOONDREAM_API_KEY` | Moondream key — enables browser vision grounding (optional) | — |
 | `APP_DATA_DIR` | Where conversations and app data are stored | `~/.openclaw` |
+| `ANTHROPIC_API_KEY` | Anthropic API key — only for the direct `claude` provider, not for the CLI or the native runtime | — |
+| `OPENAI_API_KEY` | OpenAI API key — only for the direct `openai` provider | — |
+| `ELEVENLABS_API_KEY` | Text-to-speech and Scribe v2 dictation | — |
+| `MOONDREAM_API_KEY` | Browser vision grounding | — |
+
+<details>
+<summary>Advanced: provider pinning, models, gateway, dictation</summary>
+
+Every row here has a **Settings** equivalent that overrides it. Reach for these
+only when there is no UI to reach for.
+
+| Variable | Description | Default |
+|---|---|---|
+| `AI_PROVIDER` | Pins one provider (see below) | auto |
+| `CLAUDE_MODEL` | Model id for the `claude` provider | — |
+| `OPENAI_MODEL` | Model id for the `openai` provider | — |
+| `GATEWAY_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789` |
+| `GATEWAY_TOKEN` | OpenClaw gateway token (required with `AI_PROVIDER=openclaw`) | — |
+| `STT_PROVIDER` | Dictation engine: `auto`, one name (`openai`), or an order (`openai,local`) | `auto` |
+| `STT_LANGUAGE` | ISO-639-1 dictation language | auto-detect |
+
+**How the default provider is picked when `AI_PROVIDER` is unset.** Your keys
+decide: `ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else
+`GATEWAY_URL` → `openclaw`, else `claude`. That choice stays for as long as it
+is connected.
+
+The subscription-first order `claude-code` → `codex` → `claude` → `openai` →
+`openclaw` only picks the **replacement** once the current default goes offline
+— so with an API key set, the CLIs above it never get a turn.
+
+**Pinning beats connectivity.** A pinned provider that is offline stays the
+target, and its chats never answer. That is deliberate: a pin is an instruction,
+not a preference.
+
+`STT_PROVIDER=auto` tries ElevenLabs Scribe v2 → OpenAI `gpt-transcribe` →
+Deepgram Nova-3 → Groq Whisper turbo → local whisper.cpp, using whichever keys
+you have.
+
+</details>
 
 You bring your own keys. Topics stores everything locally — see [PRIVACY.md](PRIVACY.md).
 
