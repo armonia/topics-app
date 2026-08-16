@@ -215,6 +215,38 @@ Raw runs: [`results/native-concurrency.json`](results/native-concurrency.json).
 Where the memory of the app itself goes, plus two saving hypotheses that
 measurement demolished: [`results/memory-anatomy.json`](results/memory-anatomy.json).
 
+## What a second project costs (Cursor, VS Code, Topics)
+
+Measured 2026-08-16 on this machine (12 cores / 34 GB, macOS), opening the same
+three repositories in each app, one after the other, waiting ~50 s after each
+open for indexing to settle. `phys_footprint` summed over every process the app
+owns — the same metric as Activity Monitor, and the same one `mem-report.ts`
+uses, validated against `vmmap` (203 vs 202.6 MB on the same pid).
+
+| | 1 project | 2 projects | 3 projects | processes at 3 | slope |
+| --- | --- | --- | --- | --- | --- |
+| Cursor | 1356 MB | 2373 MB | 3434 MB | 30 | +1039 MB |
+| VS Code | 431 MB | 731 MB | 953 MB | 17 | +261 MB |
+| Topics | — | — | 619 MB | 8 | +0.07 MB |
+
+Cursor keeps almost nothing shared: extrapolating its own slope backwards leaves
+a base of ~295 MB, so each window is close to a full copy of the app. VS Code
+shares more, but still pays ~261 MB per window.
+
+Topics is not run the same way, and that is the point rather than a trick: it
+never had "one project open". The 619 MB is the whole app as it runs here with
+**22 projects and 993 topics** in its database. The slope was measured
+separately — creating three new topics moved the server from 113.0 to 113.2 MB,
+i.e. ~0.07 MB each.
+
+**What this comparison is not.** It is not a feature comparison, and an IDE with
+a project open does things Topics does not (language servers, indexing, type
+analysis). It measures one thing only, the one the products disagree about:
+whether the second project costs like the first. A fair reading is "Cursor buys
+you an IDE per project and charges an IDE per project", not "Cursor is bloated".
+
+Re-run it yourself: `scripts/bench/ide-footprint.sh` prints the same table.
+
 ## Where each number comes from
 
 Four harnesses measure, and each one has a lever that makes it go visibly wrong.

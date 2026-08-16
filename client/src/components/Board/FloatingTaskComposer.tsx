@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Mic, Send, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
-import { useDictation } from '../../hooks/useDictation';
-import { useTalkGesture } from '../../hooks/useTalkGesture';
 import { insertAtCaret } from '../../lib/insertAtCaret';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal, type TaskStatus } from '../../lib/board';
@@ -16,6 +14,7 @@ import { StatusIcon } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { useT } from '../../hooks/useT';
+import { DictationButton } from '../Shared/DictationButton';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -215,12 +214,6 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     });
   }, []);
   const dictationError = useCallback((m: string) => toast.error(m), [toast]);
-  const dictation = useDictation({ onText: insertDictated, onError: dictationError });
-  const talk = useTalkGesture({
-    start: dictation.start,
-    stop: dictation.stop,
-    enabled: dictation.isSupported && !dictation.isTranscribing,
-  });
 
   // Task composer hotkey listener (Cmd+Shift+;)
   useEffect(() => {
@@ -639,32 +632,14 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               scelgono come nascerà il task, questi due riempiono il campo e lo
               chiudono. Nascosto del tutto se non c'è un motore di trascrizione,
               perché un tasto che non può funzionare è peggio di uno assente. */}
-          {dictation.isSupported && (
-            <button
-              type="button"
-              {...talk.handlers}
-              data-testid="task-composer-dictation"
-              data-listening={dictation.isListening ? 'true' : 'false'}
-              disabled={dictation.isTranscribing}
-              title={dictation.isTranscribing
-                ? tr('board.composer.dictationTranscribing')
-                : dictation.isListening
-                  ? tr('board.composer.dictationStop')
-                  : tr('board.composer.dictateTitle', { model: dictation.modelLabel ? ` · ${dictation.modelLabel}` : '' })}
-              aria-label={tr(dictation.isListening ? 'board.composer.dictationStop' : 'board.composer.dictate')}
-              // `touch-none` toglie il gesto al browser: senza, tenere premuto
-              // su un telefono fa partire lo scroll e il gesto muore a metà.
-              className={`shrink-0 touch-none select-none rounded-lg p-1.5 transition-colors disabled:opacity-40 ${
-                dictation.isListening
-                  ? 'bg-red-500 text-white animate-pulse'
-                  : talk.pressing
-                    ? 'bg-app-hover text-app-text'
-                    : 'text-app-text-tertiary hover:bg-app-hover hover:text-app-text'
-              }`}
-            >
-              {dictation.isTranscribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
-            </button>
-          )}
+          {/* Lo STESSO bottone del thread di un task e della chat: estratto in
+              `Shared/DictationButton` perche' tre copie divergono, e sono gia'
+              divergite una volta (il thread non ce l'aveva affatto). */}
+          <DictationButton
+            testId="task-composer-dictation"
+            onText={insertDictated}
+            onError={dictationError}
+          />
           <button
             onClick={submit} disabled={!text.trim() || submitting}
             title={tr(todo ? 'board.composer.sendTodoTitle' : 'board.composer.sendBacklogTitle')}

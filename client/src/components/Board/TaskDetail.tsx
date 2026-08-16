@@ -27,6 +27,7 @@ import { paneIdToContextId } from '../../state/taskBrowserLayout';
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
+import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
 import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
@@ -2746,6 +2747,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 title={tr('board.task.attachFileTitle')}
                 className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 disabled:opacity-40"
               >{uploading ? <Spinner size="md" tone="current" /> : <Paperclip className="h-4 w-4" />}</button>
+              {/* IL MICROFONO ANCHE QUI. C'era sul composer della chat e su
+                  quello della board, non sul thread di un task - che ha
+                  graffetta e incolla, quindi non e' un campo minore: e' un
+                  campo pieno a cui mancava una cosa sola. Chi detta un task e
+                  poi vuole rispondere all'agente trovava il gesto sparito.
+                  Componente condiviso e non una seconda stesura: porta con se'
+                  il gesto tieni-premuto, i due stati distinti e `touch-none`,
+                  che una copia perde uno alla volta. */}
+              <DictationButton
+                testId="task-thread-dictation"
+                onText={(t) => setDraft((prev) => (prev ? `${prev} ${t}` : t))}
+                onError={setError}
+              />
               <textarea
                 ref={commentRef}
                 value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
