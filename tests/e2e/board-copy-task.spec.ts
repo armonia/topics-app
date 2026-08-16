@@ -145,6 +145,21 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
     await drawer.getByTestId("share-control").click();
     const link = page.getByTestId("share-copy-link");
     await expect(link).toBeVisible({ timeout: 5000 });
+
+    // IL PANNELLO NON DEVE ESSERE RITAGLIATO. Share non era rotta, era tagliata:
+    // un `absolute` dentro una testata `overflow-hidden`, quindi si vedeva alta
+    // 41px (ffca1289). `toBeVisible` da solo NON lo prende - un elemento alto
+    // 41px con dentro tre voci e' visibile per Playwright ed e' inservibile per
+    // una persona. Serve misurare l'altezza VERA e il ritaglio del contenitore.
+    const pannello = page.getByTestId("share-panel");
+    const box = await pannello.boundingBox();
+    expect(box, "il pannello di condivisione deve avere una geometria").not.toBeNull();
+    expect(box!.height, "un pannello alto 41px e' il difetto originale").toBeGreaterThan(80);
+    // E dev'essere DENTRO la finestra: un pannello che esce dal bordo e' tagliato
+    // dallo schermo invece che da un overflow, con lo stesso esito per chi guarda.
+    const vp = page.viewportSize()!;
+    expect(box!.y + box!.height, "il pannello deve stare dentro la finestra").toBeLessThanOrEqual(vp.height + 1);
+    expect(box!.x, "…e non sbordare a sinistra").toBeGreaterThanOrEqual(-1);
     await link.click();
     expect(await clipboard(page)).toContain(`/task/${task.id}`);
     // La spunta è la sola cosa che l'utente vede: c'è, e poi se ne va da sola.
