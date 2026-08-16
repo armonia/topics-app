@@ -57,6 +57,24 @@ At three sessions each — the only equal-count comparison run — a CLI session
 costs ~432 MB against 2.3 MB native, about **188x**. Doubling the sessions adds
 half a second, because the network dominates and not the machine.
 
+### One window per project is the expensive part
+
+An IDE gives you one project per window and charges you a full copy for the
+next. Measured on the same machine, opening the same three repositories:
+
+| | 1 project | 2 projects | 3 projects | each extra project |
+|---|---|---|---|---|
+| Cursor | 1356 MB | 2373 MB | 3434 MB | **+1039 MB** |
+| VS Code | 431 MB | 731 MB | 953 MB | **+261 MB** |
+| **Topics** | | | **619 MB** | **+0.07 MB** |
+
+That Topics column is not a typo and not a projection: those 619 MB are the app
+as it runs here, holding **22 projects and 993 topics**, and three more topics
+moved the server by 0.2 MB total. A project is a row, not a window.
+
+So the fourth repository is where it stops being about taste: on a 16 GB laptop
+Cursor is already asking for 4.5 GB before your build starts.
+
 How each number was taken, the runs that contradicted an earlier claim, and what
 this does *not* prove: **[`bench/README.md`](bench/README.md)**.
 
