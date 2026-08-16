@@ -4,7 +4,6 @@
   "domanda": "I ~450-630 MB che si vedono nella status bar: di cosa sono fatti, e c'è qualcosa da tagliare?",
   "metrica": "phys_footprint via proc_pid_rusage (la colonna «Memoria» di Monitoraggio Attività), scomposto con vmmap --summary",
   "strumento_validato": "mem-report.ts contro vmmap di Apple: 202,6M vs 203 MB e 63,6M vs 64 MB sugli stessi pid. Non è una stima nostra.",
-
   "composizione": {
     "DISPOSITIVO_451_MB": {
       "WebContent": "292-448 MB osservati (8 campioni su 3 minuti), picco storico 660",
@@ -20,29 +19,27 @@
     },
     "AGENTI": "0 MB — col runtime nativo non esistono processi agente"
   },
-
   "la_scoperta_che_conta": {
-    "titolo": "Il WebContent tiene ~215 MB di memoria VIVA, e sotto pressione ne restituisce metà",
-    "misura": "Dieci campioni su tre minuti: dirty 182-250 MB (mediana 215), compressa/swapped 54-88 MB (mediana 59). La quota compressa è il 22% del totale.",
-    "una_correzione_a_me_stesso": [
-      "Un primo scatto aveva dato dirty 55,6 e compressa 239,5, e ne avevo",
-      "concluso «l'80% è compressa, non è memoria viva». Falso: era il momento",
-      "subito dopo una pressione, non il regime. In regime il rapporto è",
-      "rovesciato. La lezione è la solita di questo studio — una fotografia di",
-      "un processo che respira non è una misura, e questa è la seconda volta",
-      "che me ne accorgo qui (la prima: il range 197-244, in realtà 292-448)."
+    "titolo": "Il WebContent tiene ~280 MB, e la divisione fra «viva» e «compressa» non è una proprietà stabile",
+    "misura": "Sedici campioni su ~35 minuti: dirty 122-250 MB, compressa/swapped 54-143 MB. Ma il TOTALE resta 257-308 MB, cioè molto più fermo delle due voci prese da sole.",
+    "la_cosa_utile": [
+      "Le due colonne si scambiano il contenuto di continuo: il kernel comprime e",
+      "decomprime le stesse pagine mentre l'app lavora. Quindi «quanto è compresso»",
+      "NON è una caratteristica dell'app, è dove si trova il kernel in quel",
+      "momento. La grandezza che descrive Topics è la SOMMA — ~280 MB per una",
+      "WebView che tiene l'intera UI — e quella è ferma.",
+      "Questo chiude anche la domanda originale: nessuna perdita in corso, perché",
+      "un totale che non cresce su mezz'ora non è una perdita."
     ],
-    "cosa_resta_vero": [
-      "Il footprint OSCILLA e scende da solo: 448 → 292 MB in venti secondi,",
-      "senza che nessuno intervenga. Un `notifyutil -p org.WebKit.lowMemory` lo",
-      "porta da 365 a 182 in quattro secondi, quindi metà di quella memoria è",
-      "cache che WebKit cede quando serve.",
-      "Ma non è «quasi tutta compressa»: ~215 MB sono davvero residenti, ed è il",
-      "prezzo di una WebView che tiene l'intera UI di Topics. Il task 91006de1",
-      "sul board chiede proprio di dare un nome a quella parte."
+    "due_correzioni_a_me_stesso": [
+      "Prima ho scritto «l'80% è compressa, non è memoria viva» da UNO scatto",
+      "(dirty 55,6 · compressa 239,5). Poi «dirty 182-250, il 22%» da dieci",
+      "campioni. Sedici campioni dicono 122-250 e il 29%, e soprattutto dicono",
+      "che inseguire quel rapporto era la domanda sbagliata: oscilla per conto",
+      "suo. Due errori di fila sulla stessa riga, entrambi da campioni troppo",
+      "pochi su un processo che respira."
     ]
   },
-
   "due_ipotesi_refutate": [
     {
       "ipotesi": "I 214 MB di WebKit Malloc sono i 222 MB di `tool_calls` che la UI carica caricando thread interi (HISTORY_FETCH_ALL = 0).",
@@ -55,16 +52,13 @@
       "perche_importa": "Era il mio consiglio numero uno. Sarebbe stato codice nel guscio Rust per un lavoro che il sistema fa gratis."
     }
   ],
-
   "cosa_e_stato_davvero_corretto": {
     "commit": "a485db99",
     "difetto": "`byMem` divideva la RAM per 3 GB — il prezzo di un processo Node — anche col runtime nativo, dove una sessione costa 2,3 MB. Il pavimento sapeva distinguere i due runtime, il tetto no.",
     "osservato": "Sul codice reale con os.totalmem() sostituito: una macchina da 8 GB / 8 core dà 2 posti con la CLI e 4 col nativo. Il default (nessun parametro) dà lo stesso 2 della versione pre-fix: nessuna regressione.",
     "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
   },
-
-  "conclusione": "Niente da tagliare nel server: 67 MB dirty stabili, il resto è binario mappato. Nella UI ~215 MB sono memoria viva e circa altrettanti sono cache che WebKit cede da sola sotto pressione — quindi non c'è una perdita, ma c'è una parte residente che nessuno ha ancora scomposto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU, non sulla memoria.",
-
+  "conclusione": "Niente da tagliare nel server: 67-68 MB dirty stabili su cinque campioni, il resto è binario mappato. Nella UI il WebContent sta su ~280 MB di footprint FERMO (16 campioni, 257-308): non è una perdita, ed è il prezzo di una WebView che tiene l'intera interfaccia. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU.",
   "il_confronto_che_manca": {
     "cosa": "CLI contro nativo a PARITÀ di sessioni oltre N=3.",
     "numero_onesto": "188x — 432,4 MB contro 2,3 MB, entrambi a N=3, stesso file, stesso modello, stesso turno banale (session-memory.json).",
@@ -79,15 +73,17 @@
       "resta dichiarato invece di essere colmato con un numero che sembra."
     ]
   },
-
   "metodo_una_nota_amara": [
-    "Tre numeri di questo file sono stati pubblicati sbagliati prima di essere",
-    "corretti, e sempre per lo stesso motivo: una LETTURA SOLA di un processo",
-    "che respira, scambiata per una misura.",
-    "  · WebContent «197-244 MB» → dieci campioni dicono 292-448",
-    "  · «l'80% è compressa»     → in regime è il 22%",
-    "  · server «58,9 MB dirty»  → cinque campioni dicono 67-68",
-    "Nessuno dei tre cambia la conclusione, ma tutti e tre erano verificabili in",
-    "un minuto. Su questa roba: campionare almeno cinque volte, sempre."
+    "Quattro numeri di questo file sono stati pubblicati sbagliati prima di essere",
+    "corretti, sempre per lo stesso motivo: TROPPO POCHI CAMPIONI su un processo",
+    "che respira.",
+    "  · WebContent «197-244 MB»  → 292-448 su dieci campioni",
+    "  · «l'80% è compressa»      → 22% su dieci campioni...",
+    "  · ...poi «22%, dirty 182-250» → 29%, dirty 122-250 su SEDICI campioni",
+    "  · server «58,9 MB dirty»   → 67-68 stabile su cinque campioni",
+    "Il terzo errore è il più istruttivo: avevo già corretto quella riga una volta,",
+    "con dieci campioni, e non bastavano ancora. La lezione non è «campiona di",
+    "più», è che dirty/compressa NON è una grandezza stabile — il kernel sposta",
+    "pagine fra le due di continuo. La cosa ferma è la SOMMA, e va misurata quella."
   ]
 }
