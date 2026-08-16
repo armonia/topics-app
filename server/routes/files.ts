@@ -20,6 +20,7 @@ import { IgnoreSet } from "../lib/gitignore";
 // il watcher doveva importare una ROUTE — chiudendo il ciclo
 // file-watcher → git-watcher → routes/files → file-watcher.
 import { readGitStatusCache, writeGitStatusCache, invalidateGitCache } from "../lib/git-status-cache";
+import { gitEnvFor } from "../lib/git-identity";
 
 // Conservative git ref/remote name validation (mirrors worktrees.ts BASE_REF_REGEX)
 const GIT_REF_MAX = 200;
@@ -943,7 +944,15 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             if (failed.length > 0) return json({ ok: false, error: "Failed to stage some files", failed }, 400);
           }
         }
-        const proc = Bun.spawn(["git", "commit", "-m", body.message], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        // `env` con l'identità di ripiego: `git commit` si rifiuta di partire quando la
+        // macchina non sa chi firma («empty ident name … not allowed», exit 128), e senza
+        // questo il commit dal pannello Git moriva ovunque manchi un `~/.gitconfig` — un
+        // runner di CI, un container, un servizio con l'ambiente ripulito. `gitEnvFor` è
+        // RIPIEGO, non sostituzione: dove l'identità c'è, il commit resta firmato da chi ha
+        // premuto il tasto. Il land (`services/task-automerge.ts`) lo faceva già dal 15/08;
+        // questo endpoint no, ed è il motivo per cui FILE-17 era rosso nella nightly.
+        const env = await gitEnvFor(resolvedDir);
+        const proc = Bun.spawn(["git", "commit", "-m", body.message], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", env });
         await proc.exited;
         const stdout = await new Response(proc.stdout).text();
         const stderr = await new Response(proc.stderr).text();
