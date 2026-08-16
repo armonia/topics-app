@@ -1,0 +1,39 @@
+{
+  "schema": "bench-turn-time-v2",
+  "measured_at": "2026-08-16T13:11:03.827Z",
+  "base": "https://127.0.0.1:39421",
+  "model": "(default del provider)",
+  "load": "ping",
+  "turns": 3,
+  "prompt": "Rispondi con la sola parola PONG.",
+  "how": "POST /api/chat sul server vero, con `provider` scelto per turno: la stessa rotta di una chat e della board. L'unica differenza fra le righe è chi serve il turno.",
+  "caveats": [
+    "Chiama il modello VERO su entrambe le strade: questo run è costato soldi.",
+    "Il TOTALE è dominato dal modello, uguale per entrambi: differenze grandi lì sono sospette, non vittorie.",
+    "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è quella di una chat che continua.",
+    "La CLI paga lo spawn una volta sola e poi tiene la sessione calda: confrontare solo il primo turno le darebbe torto in modo sleale.",
+    "Il modello di default può differire fra i due provider: passare --model per fissarlo se il confronto deve essere stretto.",
+    "CARICO `work`: l'AVVIO non è confrontabile fra le due strade. Il primo token leggibile arriva quando l'agente PARLA, e i due agenti parlano in momenti diversi — la CLI premette una frase prima di usare gli strumenti, il runtime nativo va dritto al primo tool e parla dopo. Su questo carico si legga il TOTALE, che è la stessa domanda per entrambi: quando è finito il lavoro.",
+    "CARICO `work`: il vantaggio si comprime (~1,2x contro i ~2,8x di `ping`), ed è atteso — il tempo del modello e dei tool è lo stesso per entrambi, quindi il costo della strada pesa in proporzione meno. È il numero onesto per un task vero."
+  ],
+  "rows": [
+    {
+      "label": "native",
+      "firstStartMs": 1197.7352090000002,
+      "firstTotalMs": 1207.256292,
+      "medianStartMs": 1388.232125,
+      "medianTotalMs": 1406.8370410000002,
+      "ok": 3,
+      "attempted": 3
+    },
+    {
+      "label": "cli",
+      "firstStartMs": 4299.504584,
+      "firstTotalMs": 4404.446791999999,
+      "medianStartMs": 1968.4202920000007,
+      "medianTotalMs": 2074.857,
+      "ok": 3,
+      "attempted": 3
+    }
+  ]
+}

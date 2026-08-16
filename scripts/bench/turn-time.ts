@@ -26,6 +26,15 @@
  * per un agente DISPACCIATO (nasce, lavora, muore); la mediana dei successivi è
  * la verità per una chat che continua.
  *
+ * DUE CARICHI, e il secondo è quello che la board fa davvero.
+ *
+ *   ping     una domanda banale, zero tool. Isola la STRADA: quanto costa
+ *            arrivare al modello e tornare indietro.
+ *   work     leggi un file, modificalo, rileggilo. È il turno di un agente
+ *            vero, dove il tool loop gira davvero. Su questo carico il tempo
+ *            del modello cresce e il vantaggio della strada si comprime:
+ *            misurare solo `ping` racconterebbe il caso più favorevole.
+ *
  * COSTA SOLDI VERI su entrambe le strade. Non gira dentro `bun run bench`.
  *
  * USAGE
@@ -33,7 +42,8 @@
  *   bun run scripts/bench/turn-time.ts --base ... --turns 4 --only native
  */
 
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 const args = process.argv.slice(2);
@@ -43,8 +53,25 @@ const BASE = flag("base", "https://127.0.0.1:3333")!.replace(/\/$/, "");
 const TURNS = Number(flag("turns", "3"));
 const MODEL = flag("model");
 const ONLY = flag("only");
-/** Banale di proposito: si misura la STRADA, non il ragionamento. */
-const PROMPT = "Rispondi con la sola parola PONG.";
+const LOAD = flag("load", "ping")!;
+
+/**
+ * I due carichi. `ping` è banale di proposito (si misura la strada, non il
+ * ragionamento); `work` fa lavorare il tool loop come in un task vero.
+ */
+const PROMPTS: Record<string, string> = {
+  ping: "Rispondi con la sola parola PONG.",
+  work:
+    "Nel file bench.txt: leggilo, sostituisci il suo contenuto con la parola FATTO, " +
+    "poi rileggilo per confermare. Usa gli strumenti, poi fermati.",
+};
+const PROMPT = PROMPTS[LOAD] ?? PROMPTS.ping!;
+
+/**
+ * La directory su cui il carico `work` lavora. Creata qui e buttata alla fine:
+ * un bench che sporca un progetto vero è un bench che si smette di lanciare.
+ */
+const WORKDIR = LOAD === "work" ? mkdtempSync(join(tmpdir(), "bench-work-")) : undefined;
 
 /** Il server usa un certificato self-signed su loopback. */
 const tls = { tls: { rejectUnauthorized: false } } as unknown as RequestInit;
@@ -62,10 +89,19 @@ async function api(path: string, init?: RequestInit): Promise<any> {
   try { return JSON.parse(text); } catch { return text; }
 }
 
-/** Una topic nuova per ogni strada: le sessioni non si mescolano. */
-async function freshTopic(name: string): Promise<string> {
+/**
+ * Una topic nuova per ogni strada: le sessioni non si mescolano.
+ *
+ * Col carico `work` serve anche un PROGETTO: senza, il runtime nativo non
+ * offre i tool di file (è la sua regola: nessuna workspace, nessuno strumento)
+ * e si misurerebbe una chat invece di un agente. La CLI lo userebbe come cwd.
+ */
+async function freshTopic(name: string, projectPath?: string): Promise<string> {
   const t = await api("/api/topics", { method: "POST", body: JSON.stringify({ name }) });
   if (!t?.sessionKey) throw new Error(`topic non creata: ${JSON.stringify(t).slice(0, 200)}`);
+  if (projectPath) {
+    await api(`/api/topics/${t.id}`, { method: "PATCH", body: JSON.stringify({ projectPath }) });
+  }
   return t.sessionKey;
 }
 
@@ -102,9 +138,15 @@ async function oneTurn(sessionKey: string, provider: string): Promise<Sample> {
 }
 
 async function measure(provider: string): Promise<Sample[]> {
-  const key = await freshTopic(`bench ${provider} ${Date.now()}`);
+  const key = await freshTopic(`bench ${provider} ${Date.now()}`, WORKDIR);
   const out: Sample[] = [];
-  for (let i = 0; i < TURNS; i++) out.push(await oneTurn(key, provider));
+  for (let i = 0; i < TURNS; i++) {
+    // Il file torna al punto di partenza prima di ogni turno: altrimenti dal
+    // secondo giro l'agente lo trova già a posto e non fa il lavoro che stiamo
+    // cronometrando.
+    if (LOAD === "work" && WORKDIR) writeFileSync(join(WORKDIR, "bench.txt"), "prima\n");
+    out.push(await oneTurn(key, provider));
+  }
   return out;
 }
 
@@ -136,12 +178,26 @@ for (const p of ["topics", "claude-code"]) {
   catch (err) { console.log(`${label.padEnd(12)} non misurato — ${err instanceof Error ? err.message : String(err)}`); }
 }
 
-const outPath = join(import.meta.dir, "..", "..", "bench", "results", "turn-time-latest.json");
+// Un file PER CARICO: `ping` e `work` rispondono a due domande diverse, e
+// scriverli sullo stesso nome significa che l'ultimo run cancella l'altra
+// metà della storia — che è esattamente come si perde il numero che serviva.
+const outPath = join(import.meta.dir, "..", "..", "bench", "results", `turn-time-${LOAD}.json`);
+
+// UN RUN FALLITO NON CANCELLA UNA MISURA BUONA, e questa riga esiste perché è
+// già successo: un `--base` sbagliato ha scritto una tabella vuota sopra il
+// confronto appena pubblicato. Un bench che perde il dato quando la connessione
+// cade è un bench di cui non ci si fida.
+if (rows.length === 0) {
+  console.log(`\nnessuna riga misurata: ${outPath} lasciato com'era.\n`);
+  process.exit(1);
+}
+
 writeFileSync(outPath, JSON.stringify({
   schema: "bench-turn-time-v2",
   measured_at: new Date().toISOString(),
   base: BASE,
   model: MODEL ?? "(default del provider)",
+  load: LOAD,
   turns: TURNS,
   prompt: PROMPT,
   how: "POST /api/chat sul server vero, con `provider` scelto per turno: la stessa rotta di una chat e della board. L'unica differenza fra le righe è chi serve il turno.",
@@ -151,7 +207,10 @@ writeFileSync(outPath, JSON.stringify({
     "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è quella di una chat che continua.",
     "La CLI paga lo spawn una volta sola e poi tiene la sessione calda: confrontare solo il primo turno le darebbe torto in modo sleale.",
     "Il modello di default può differire fra i due provider: passare --model per fissarlo se il confronto deve essere stretto.",
+    "CARICO `work`: l'AVVIO non è confrontabile fra le due strade. Il primo token leggibile arriva quando l'agente PARLA, e i due agenti parlano in momenti diversi — la CLI premette una frase prima di usare gli strumenti, il runtime nativo va dritto al primo tool e parla dopo. Su questo carico si legga il TOTALE, che è la stessa domanda per entrambi: quando è finito il lavoro.",
+    "CARICO `work`: il vantaggio si comprime (~1,2x contro i ~2,8x di `ping`), ed è atteso — il tempo del modello e dei tool è lo stesso per entrambi, quindi il costo della strada pesa in proporzione meno. È il numero onesto per un task vero.",
   ],
   rows,
 }, null, 2));
 console.log(`\nscritto ${outPath}\n`);
+if (WORKDIR) { try { rmSync(WORKDIR, { recursive: true, force: true }); } catch { /* scratch */ } }
