@@ -24,6 +24,7 @@
 import { getAccessToken } from "./auth";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
+import { needsCompaction, compact, windowFor } from "./compaction";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
@@ -277,6 +278,25 @@ export async function runAgentTurn(
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
       return { turnEnd: { end: "cancelled", cause: "user" }, text: finalText, usage: total };
+    }
+
+    // Si compatta PRIMA di chiedere, non dopo aver ricevuto un 400: a quel
+    // punto il turno è già morto e il lavoro fatto fin qui è perso. Il
+    // controllo costa una scansione della storia, cioè niente rispetto al giro
+    // di rete che segue.
+    if (needsCompaction(opts.history, windowFor(opts.model))) {
+      const c = compact(opts.history);
+      if (c.after < c.before) {
+        // Si sostituisce IN PLACE perché `history` è la memoria della sessione
+        // e il chiamante tiene lo stesso array: assegnargliene uno nuovo
+        // lascerebbe la sessione con la versione pesante.
+        opts.history.length = 0;
+        opts.history.push(...c.messages);
+        console.log(
+          `[native] contesto compattato: ~${c.before} → ~${c.after} token stimati`,
+        );
+        handler.onCompaction?.({ trigger: "auto", preTokens: c.before, postTokens: c.after });
+      }
     }
 
     const round = await streamOnce(token, opts, handler);
