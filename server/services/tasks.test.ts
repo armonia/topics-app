@@ -2792,9 +2792,15 @@ describe("il costo di una lista non cresce con le righe", () => {
    * (massimo 5.140 byte, 470 KB sul feed); i `checks` sono l'altra metà del
    * grasso (217 KB). Nessuno dei due viaggia nella proiezione magra.
    *
-   * Il tetto è 1.600 e non 700 perché 700 sta SOTTO IL PAVIMENTO: un task con
-   * ogni campo a null pesa già 1.458 byte, che sono i nomi delle 63 chiavi e i
-   * loro `null`. Restano poi due campi che non sono grasso ma contenuto —
+   * Il tetto è 1.700 e non 700 perché 700 sta SOTTO IL PAVIMENTO: un task con
+   * ogni campo a null pesa già ~1.500 byte, che sono i nomi delle chiavi e i
+   * loro `null`. Il tetto è salito da 1.600 il 16/08, quando le tre colonne
+   * dell'entità della consegna (`deliveryFilesChanged`/`Insertions`/`Deletions`,
+   * migration 20260816174500) hanno aggiunto ~53 byte per task: misurato 1.653.
+   * Alzarlo è legittimo SOLO perché il pavimento è cresciuto per una ragione
+   * dichiarata — tre campi che la card in review disegna — e non perché il
+   * payload si è ingrassato di nascosto. La controprova sotto, che è la parte
+   * che non si ricalibra, resta identica. Restano poi due campi che non sono grasso ma contenuto —
    * l'anteprima (263 byte, ed è ciò che la card disegna) e `queueReason`
    * (242 byte, la frase che dice perché la card non parte). Sotto i 700 non ci
    * si arriva accorciando: ci si arriva togliendo chiavi, che è un altro
@@ -2805,14 +2811,14 @@ describe("il costo di una lista non cresce con le righe", () => {
    * dei check, e quella condizione va rossa il giorno in cui uno dei due torna,
    * qualunque soglia si scriva sopra.
    */
-  test("proiezione magra: sotto i 1600 byte per task, con descrizioni da 2500 caratteri", () => {
+  test("proiezione magra: sotto i 1700 byte per task, con descrizioni da 2500 caratteri", () => {
     const db = freshDb();
     const s = svc(db);
     seed(db, { description: "d".repeat(2500) });
     const magra = s.list({ scope: "all", rootsOnly: true });
     expect(magra.length).toBe(300);
     const testo = JSON.stringify({ tasks: magra });
-    expect(testo.length / magra.length).toBeLessThan(1600);
+    expect(testo.length / magra.length).toBeLessThan(1700);
     // Strutturale: i due pesi che questo cambio toglie non sono nel payload.
     expect(testo).not.toContain("d".repeat(300));  // la descrizione intera
     expect(testo).not.toContain("x".repeat(300));  // la coda dei check
@@ -3021,7 +3027,14 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          reopened_at = ?, reopened_by = 'il-reviewer', reopened_actor = 'human',
          landing_witnessed = 1, wait_streak = 2, wait_reason = 'aspetto il gate',
          wait_since = ?, preview_retired_at = ?, preview_retired_reason = 'sostituita',
-         interrupt_claimed_at = ?
+         interrupt_claimed_at = ?,
+         -- L'entita' della consegna (migration 20260816174500). Il cancello
+         -- sotto ha preso questa dimenticanza da solo, che e' il motivo per cui
+         -- esiste: senza, lista e dettaglio avrebbero potuto divergere sui tre
+         -- campi nuovi senza che nessuno se ne accorgesse.
+         -- (Niente backtick nei commenti SQL: questo DDL vive in un template
+         -- literal e un backtick apre un'interpolazione JS. Seconda volta oggi.)
+         delivery_files_changed = 7, delivery_insertions = 120, delivery_deletions = 30
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
