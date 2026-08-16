@@ -1,0 +1,28 @@
+{
+  "schema": "bench-concurrency-v1",
+  "measured_at": "2026-08-16T14:30:39.451Z",
+  "base": "https://127.0.0.1:39460",
+  "model": "claude-sonnet-4-6",
+  "tasks": 4,
+  "what": "N task messi in coda INSIEME su N board; si cronometra quando l'ULTIMO ha finito. È la domanda della kanban: «ho N cose da fare, quando sono pronte?»",
+  "perTaskSeconds": [
+    10,
+    10,
+    36.1,
+    36.1
+  ],
+  "allReadySeconds": 36.1,
+  "completed": 4,
+  "caveats": [
+    "NON è la media dei singoli: quella nasconde l'effetto: un agente che aspetta uno slot ha una media bellissima e una coda lunghissima.",
+    "Il tempo include la finestra di grace del dispatcher (~6s) e il polling (1s).",
+    "Il tetto di concorrenza è per MACCHINA: N board non lo aggirano, servono solo a tenere i file separati.",
+    "Chiama il modello vero N volte per strada: questo run è costato soldi."
+  ],
+  "finding": {
+    "what_happened": "Due task su quattro partono subito (10,0 s) e due aspettano (36,1 s). Non e' la memoria: il pavimento non ha bloccato nulla (zero righe 'coda ferma').",
+    "why": "E' il TETTO DI CONCORRENZA: `computeDispatchCapacity` raccomanda 2-3 slot, ridotto per carico (load 7,2 su 12 core). E la capacita' strutturale conta ~3 GB per agente — di nuovo il costo di una CLI, non i 2,3 MB di una sessione nativa.",
+    "so_what": "Il vantaggio del runtime nativo sulla CONCORRENZA e' oggi limitato da una taratura che descrive le CLI, esattamente come lo era il pavimento di memoria prima del fix di oggi. La differenza: quel freno l'ho corretto perche' era una soglia con un numero dentro, questo e' una politica (core, carico, quota di flotta) e riscriverla e' un lavoro a se'.",
+    "not_a_regression": "Il tetto esiste per una ragione buona e non l'ho toccato: con le CLI protegge la macchina. Va ripensato per gli agenti che non sono processi, non tolto."
+  }
+}
