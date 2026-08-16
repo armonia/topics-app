@@ -10,7 +10,7 @@ Agents run inside Topics instead of one process each, so
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 [![Platforms](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-lightgrey?style=for-the-badge)](https://github.com/armonia/topics-app/releases/latest)
 
-![Topics: three topics, an agent answering](landing/public/img/readme-topics.png)
+![Topics: three topics, an agent answering](landing/public/img/readme-topics.jpg)
 
 ## What it does
 
@@ -20,7 +20,7 @@ Agents run inside Topics instead of one process each, so
 - **Hand work to a board.** Describe a task, an agent picks it up in its own worktree.
 - **Your agents, your keys.** Uses the `claude-code` and `codex` CLIs you already pay for.
 
-![The board: describe a task, an agent picks it up](landing/public/img/readme-board.png)
+![The board: two agents working, one task waiting for review](landing/public/img/readme-board.jpg)
 
 ## Install
 
