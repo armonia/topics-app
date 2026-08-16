@@ -78,34 +78,40 @@ export type DiscordDetailLevel = (typeof DISCORD_DETAIL_LEVELS)[number];
  * tenerne uno vivo.
  *
  *   • `cli`   — una CLI per sessione, in una PTY: `claude`, `codex`. È il
- *               sistema storico e resta il default. Fedele fino all'ultimo
- *               carattere, perché è letteralmente il programma che gira in un
- *               terminale, ma è un processo Node INTERO per sessione.
+ *               sistema storico. Fedele fino all'ultimo carattere, perché è
+ *               letteralmente il programma che gira in un terminale, ma è un
+ *               processo Node INTERO per sessione.
  *   • `jcode` — le sessioni passano da `jcode acp`, un adattatore sottile
- *               davanti a un demone Rust condiviso.
+ *               davanti a un demone Rust condiviso. Sempre un binario di
+ *               TERZI: la sua riga di comando, i suoi metodi, il suo catalogo
+ *               di modelli, che possono cambiare sotto di noi.
+ *   • `topics`— il runtime DI CASA: nessun processo, nessun binario esterno.
+ *               Topics parla direttamente col modello e tiene la sessione in
+ *               memoria propria (`server/providers/native/`).
  *
- * Il numero che separa i due gradini, misurato su questa macchina il
+ * Il numero che separa i gradini, misurato su questa macchina il
  * 2026-08-15 e non stimato: un agente dispatchato costa ~206 MB marginali
  * (bench/results/memory-latest.json), due `claude` vivi ne pesavano 1.580 in
  * due. Ventiquattro sessioni ACP concorrenti su un solo peer jcode sono
  * costate 0,58 MB l'una. È lo stesso lavoro con due ordini di grandezza di
  * differenza, ed è tutta la ragione per cui questo interruttore esiste.
  *
- * `jcode` è il DEFAULT dal 2026-08-16. Il verso è stato scelto guardando cosa
- * si paga a lasciarlo com'era: il costo della CLI non è una preferenza di
- * stile, è una macchina che fa pageout con otto agenti in volo. Un default che
- * bisogna sapere di dover cambiare è un default sbagliato — chi apre Topics
- * senza aver letto niente merita il gradino buono.
+ * `topics` è il DEFAULT dal 2026-08-16, e ha lo stesso vantaggio di memoria di
+ * `jcode` senza la sua dipendenza: una sessione è un array di messaggi dentro
+ * il server che è già acceso. Il costo della CLI non è una preferenza di stile,
+ * è una macchina che fa pageout con otto agenti in volo; e un default che
+ * bisogna sapere di dover cambiare è un default sbagliato.
  *
- * Chi vuole la CLI vera (riprodurre un comportamento, un dubbio sull'ACP) ci
- * torna in un gesto: è la stessa riga in Impostazioni, nell'altro verso.
+ * `jcode` resta per confronto e per chi lo ha già configurato. Chi vuole la CLI
+ * vera (riprodurre un comportamento, un dubbio sul runtime nuovo) ci torna in
+ * un gesto: è la stessa riga in Impostazioni.
  *
  * IL RIPIEGO NON È QUESTA COSTANTE. Un valore illeggibile cade su `cli` (vedi
  * `resolveAgentRuntime`): sono due domande diverse — cosa vuole chi non ha
  * scelto, e cosa si fa quando la scelta è incomprensibile. La prima merita il
  * gradino buono, la seconda il sistema che c'è sempre stato.
  */
-export const AGENT_RUNTIMES = ['cli', 'jcode'] as const;
+export const AGENT_RUNTIMES = ['cli', 'jcode', 'topics'] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
 /**
@@ -114,7 +120,7 @@ export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
  * cosa: erano due `?? 'cli'` a mano in due file, e il modo in cui una UI mente
  * è esattamente questo, un ripiego aggiornato da una parte sola.
  */
-export const DEFAULT_AGENT_RUNTIME: AgentRuntime = 'jcode';
+export const DEFAULT_AGENT_RUNTIME: AgentRuntime = 'topics';
 
 /**
  * L'attività come Discord la vuole in `SET_ACTIVITY.args.activity`.
