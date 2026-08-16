@@ -39,6 +39,9 @@ Topics checks GitHub Releases for new versions. Use **menu → Check for Updates
 
 ## Running agents without the CLI
 
+**200 agent sessions, answering at once, in 162 MB of RAM.** Measured, not
+estimated — see the numbers below.
+
 By default Topics runs agents **inside its own server** instead of spawning one
 `claude`/`codex` process per session. It reuses the credentials the CLI already
 wrote (`~/.claude/.credentials.json` or `~/.jcode/auth.json`) — you still log in
@@ -54,16 +57,21 @@ on both sides:
 | **Memory per session** (3 sessions) | ~432 MB | **2.3 MB** — about **188x** less |
 
 Pushed further, the native runtime gets *cheaper per session* as the count
-rises: the fixed cost of a turn spreads. Five runs across independent servers:
+rises: the fixed cost of a turn spreads. Runs across independent servers, every
+turn checked for a real answer:
 
-| Concurrent sessions | Memory per session | Wall clock |
-|---|---|---|
-| 8 | 0.7–2.7 MB | ~2 s |
-| 32 | 0.8–1.0 MB | ~2.9 s |
-| 64 | 0.25–0.9 MB | 3.9–4.7 s |
+| Concurrent sessions | Answered | Memory per session | Whole server | Wall clock |
+|---|---|---|---|---|
+| 8 | 8/8 | 0.7–2.7 MB | | ~2 s |
+| 32 | 32/32 | 0.8–1.0 MB | | ~2.9 s |
+| 64 | 64/64 | 0.25–0.9 MB | | 3.9–4.7 s |
+| **100** | **100/100** | 0.87 MB | 101 → **135 MB** | **5.1 s** |
+| **200** | **200/200** | 0.71 MB | → **162 MB** | **5.6 s** |
 
 Time grows far slower than the session count, because the network dominates, not
-the machine.
+the machine. For scale: 200 CLI processes at the measured 432 MB each would be
+~86 GB — an arithmetic projection, not a run. It is also why that comparison was
+never attempted.
 
 **Three things this does not prove.** The 188x is the only honest cross-runtime
 number: it compares equal session counts. Do not pair the 432 MB with the 64-way
