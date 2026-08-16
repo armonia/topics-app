@@ -1,10 +1,15 @@
 {
   "schema": "bench-turn-time-v2",
-  "measured_at": "2026-08-16T13:11:03.827Z",
-  "base": "https://127.0.0.1:39421",
-  "model": "(default del provider)",
+  "measured_at": "2026-08-16T13:21:27.545Z",
+  "base": "https://127.0.0.1:39422",
+  "model_requested": "claude-sonnet-4-6",
+  "model_effective": {
+    "topics": "claude-sonnet-4-6",
+    "claude-code": "claude-sonnet-4-6"
+  },
+  "same_model": true,
   "load": "ping",
-  "turns": 3,
+  "turns": 4,
   "prompt": "Rispondi con la sola parola PONG.",
   "how": "POST /api/chat sul server vero, con `provider` scelto per turno: la stessa rotta di una chat e della board. L'unica differenza fra le righe è chi serve il turno.",
   "caveats": [
@@ -19,21 +24,21 @@
   "rows": [
     {
       "label": "native",
-      "firstStartMs": 1197.7352090000002,
-      "firstTotalMs": 1207.256292,
-      "medianStartMs": 1388.232125,
-      "medianTotalMs": 1406.8370410000002,
-      "ok": 3,
-      "attempted": 3
+      "firstStartMs": 1244.411459,
+      "firstTotalMs": 1244.5048339999998,
+      "medianStartMs": 1301.5352919999996,
+      "medianTotalMs": 1301.545583,
+      "ok": 4,
+      "attempted": 4
     },
     {
       "label": "cli",
-      "firstStartMs": 4299.504584,
-      "firstTotalMs": 4404.446791999999,
-      "medianStartMs": 1968.4202920000007,
-      "medianTotalMs": 2074.857,
-      "ok": 3,
-      "attempted": 3
+      "firstStartMs": 4136.92975,
+      "firstTotalMs": 4305.2035000000005,
+      "medianStartMs": 2019.836374999999,
+      "medianTotalMs": 2166.435125,
+      "ok": 4,
+      "attempted": 4
     }
   ]
 }

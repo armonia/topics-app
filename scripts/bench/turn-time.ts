@@ -90,6 +90,29 @@ async function api(path: string, init?: RequestInit): Promise<any> {
 }
 
 /**
+ * Il modello che ogni provider userebbe ADESSO, chiesto allo snapshot.
+ *
+ * ESISTE PERCHÉ IL BENCH HA GIÀ MENTITO UNA VOLTA. Senza `--model` i due
+ * provider prendono il PROPRIO default, e su questa macchina erano
+ * `claude-opus-5[1m]` per la CLI e `claude-sonnet-4-6` per il nativo: il primo
+ * confronto pubblicato metteva Opus contro Sonnet e chiamava «differenza di
+ * strada» una differenza di modello.
+ *
+ * Peggio: passare `--model` non basta. La rotta SCARTA un override che il
+ * provider non offre (`chat.ts`, «Dropping stale model override») e lo fa in
+ * silenzio verso il chiamante — quindi un `--model haiku` sembrava applicato e
+ * lasciava la CLI su Opus. L'unico modo di saperlo è chiedere PRIMA quali
+ * modelli offre ciascuno.
+ */
+async function defaultModels(): Promise<Record<string, { model?: string; models: string[] }>> {
+  const snap = await api("/api/providers/snapshot");
+  const rows: any[] = Array.isArray(snap) ? snap : (snap?.providers ?? []);
+  const out: Record<string, { model?: string; models: string[] }> = {};
+  for (const p of rows) out[p.name] = { model: p.defaultModel, models: p.models ?? [] };
+  return out;
+}
+
+/**
  * Una topic nuova per ogni strada: le sessioni non si mescolano.
  *
  * Col carico `work` serve anche un PROGETTO: senza, il runtime nativo non
@@ -170,6 +193,28 @@ function report(label: string, xs: Sample[]) {
 
 console.log(`\nserver ${BASE}, ${TURNS} turni per strada${MODEL ? `, modello ${MODEL}` : ""}\nprompt «${PROMPT}»\n`);
 
+// IL CANCELLO: si guarda cosa userebbe ciascuno PRIMA di cronometrare.
+const snap = await defaultModels();
+const effective: Record<string, string> = {};
+for (const p of ["topics", "claude-code"]) {
+  const info = snap[p];
+  if (!info) continue;
+  // Un override che il provider non offre viene scartato dalla rotta in
+  // silenzio: qui si sa in anticipo, e si dice quale modello girerà davvero.
+  const applied = MODEL && info.models.length > 0 && !info.models.includes(MODEL) ? undefined : MODEL;
+  effective[p] = applied ?? info.model ?? "(sconosciuto)";
+  if (MODEL && !applied) {
+    console.log(`  ! ${p}: «${MODEL}» non è fra i suoi modelli — userà ${effective[p]}`);
+  }
+}
+const models = [...new Set(Object.values(effective))];
+if (models.length > 1) {
+  console.log(`\n  ATTENZIONE: le due strade girerebbero su modelli DIVERSI (${Object.entries(effective).map(([k, v]) => `${k}=${v}`).join(", ")}).`);
+  console.log(`  Questo non è un confronto di strade: è un confronto di modelli. Passare --model con uno che offrano entrambi.\n`);
+} else {
+  console.log(`  modello effettivo su entrambe le strade: ${models[0]}\n`);
+}
+
 const rows: unknown[] = [];
 for (const p of ["topics", "claude-code"]) {
   if (ONLY && ONLY !== p && !(ONLY === "native" && p === "topics") && !(ONLY === "cli" && p === "claude-code")) continue;
@@ -196,7 +241,9 @@ writeFileSync(outPath, JSON.stringify({
   schema: "bench-turn-time-v2",
   measured_at: new Date().toISOString(),
   base: BASE,
-  model: MODEL ?? "(default del provider)",
+  model_requested: MODEL ?? null,
+  model_effective: effective,
+  same_model: models.length === 1,
   load: LOAD,
   turns: TURNS,
   prompt: PROMPT,
