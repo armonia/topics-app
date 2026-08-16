@@ -56,5 +56,5 @@ Convenzione: ogni gruppo chiude con `cargo check` verde in `desktop-tauri/src-ta
 
 ## Phase 3 — Chiusura
 - [x] 3.1 Commit (pathspec esplicito, messaggio convenzionale, no trailer).
-- [ ] 3.2 Bump versione lockstep (`tauri.conf.json` + `Cargo.toml` + root `package.json`)
+- [x] 3.2 Bump versione lockstep (`tauri.conf.json` + `Cargo.toml` + root `package.json`)
   quando si decide di rilasciare; tag `tauri-vX.Y.Z` fuori scope di questo change.
