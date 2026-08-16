@@ -37,6 +37,34 @@ Topics checks GitHub Releases for new versions. Use **menu → Check for Updates
 - **Context visualization** — see how much context each session is using
 - **Bring your own agent & keys** — drives the `claude-code` and `codex` CLIs already installed on your machine (covered by your subscription, no API bill), or talks to the Anthropic (`claude`) and OpenAI (`openai`) APIs with your own keys, or relays through an optional `openclaw` gateway
 
+## Running agents without the CLI
+
+By default Topics runs agents **inside its own server** instead of spawning one
+`claude`/`codex` process per session. It reuses the credentials the CLI already
+wrote (`~/.claude/.credentials.json` or `~/.jcode/auth.json`) — you still log in
+with `claude` → `/login`; Topics only reads that file. Set the runtime back to
+`cli` in Settings if you prefer a process per agent.
+
+The difference is what a session *costs*, measured on the same machine
+(12 cores / 34 GB, macOS) with real turns, same model on both sides:
+
+| | CLI (one process per agent) | Native runtime |
+|---|---|---|
+| Memory per session | ~432 MB | **0.3–2.3 MB** |
+| 64 sessions at once | not attempted | **4.1 s**, 64/64 completed |
+
+The marginal cost stays flat from 8 to 64 concurrent sessions, and between 32
+and 64 the wall-clock time no longer grows: the network dominates, not the
+machine. The 64-session run was measured on the native runtime only — the CLI
+was not put through the same load, so read that row as "this is what the native
+runtime does", not as a race it won. Raw numbers, and what each benchmark does
+*not* prove, are in [`bench/results/`](bench/results/); `scripts/bench/` re-runs
+them.
+
+Concurrency is still capped by a **CPU** policy (roughly `cores / 3`), not by
+memory: an agent that compiles burns real cores even when its session is just an
+array in RAM, and half the machine is deliberately left to the person using it.
+
 ## Configuration
 
 Topics reads configuration from environment variables (or a `.env` file). Copy `.env.example` to `.env` and set what you need:
