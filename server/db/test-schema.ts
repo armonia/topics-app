@@ -70,15 +70,6 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   dispatch_deferred_until TEXT,
   delivery_branch TEXT,
   delivery_commit TEXT,
-  -- L'entita' della consegna (migration 20260816174500): NULL = non misurato,
-  -- che non e' zero. Sta nello stub perche' recordDelivery la scrive sempre,
-  -- quindi senza queste colonne ogni test che consegna esplode su
-  -- "no such column" invece di dire cosa non va.
-  -- (Niente backtick qui dentro: questo DDL vive in un template literal, e un
-  -- backtick in un commento SQL apre un'interpolazione JS. Costato un giro.)
-  delivery_files_changed INTEGER,
-  delivery_insertions INTEGER,
-  delivery_deletions INTEGER,
   landing_state TEXT,
   landing_checked_at TEXT,
   checks_state TEXT,
@@ -100,7 +91,21 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   wait_since TEXT,
   preview_retired_at TEXT,
   preview_retired_reason TEXT,
-  interrupt_claimed_at TEXT
+  interrupt_claimed_at TEXT,
+  -- L'entita' della consegna (migration 20260816174500): NULL = non misurato,
+  -- che non e' zero. Sta nello stub perche' recordDelivery la scrive sempre,
+  -- quindi senza queste colonne ogni test che consegna esplode su
+  -- "no such column" invece di dire cosa non va.
+  -- IN FONDO, non accanto alle altre colonne delivery_*: l'ordine di questo DDL
+  -- deve essere quello di APPLICAZIONE delle migration (lo verifica
+  -- test-schema.test.ts), e queste tre sono le ultime arrivate. Raggrupparle per
+  -- affinita' di nome le metteva a meta' tabella, cioe' in un ordine che la
+  -- produzione non ha.
+  -- (Niente backtick qui dentro: questo DDL vive in un template literal, e un
+  -- backtick in un commento SQL apre un'interpolazione JS. Costato un giro.)
+  delivery_files_changed INTEGER,
+  delivery_insertions INTEGER,
+  delivery_deletions INTEGER
 )`;
 
 /**
