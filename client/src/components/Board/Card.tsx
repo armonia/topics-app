@@ -25,7 +25,7 @@ import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, taskCopyText } from './format';
+import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
@@ -536,6 +536,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const deliveryStat = task.status === 'review' && task.deliveryFilesChanged != null
     ? task.deliveryFilesChanged
     : null;
+  // DA QUANTO ASPETTA UNA RISPOSTA. La data di aggiornamento in review era
+  // nascosta apposta - e faceva bene, perche' `updatedAt` si muove a ogni
+  // commento e diceva «ora» su una card ferma da giorni. Questo invece e'
+  // l'istante in cui la card e' ENTRATA in review, quindi risponde davvero.
+  // Muto sotto l'ora: una richiesta appena arrivata non sta aspettando.
+  const attesa = task.status === 'review' ? fmtAttesa(task.reviewAt) : null;
   // «Chiude il direttore»: oggi si monta solo con almeno un'etichetta, quindi
   // `task.labels.length` nell'OR lo copre PER CASO. Il giorno che `whoCloses`
   // rispondesse `conductor` senza etichette, quel chip sparirebbe in silenzio.
@@ -570,7 +576,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || conductorCloses || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || task.labels.length);
 
   return (
     <div
@@ -899,6 +905,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               stesso confronto. Un `!== null` secco lasciava passare l'undefined
               di un payload che quel campo non lo porta - ed e' costato un giro
               di debug, perche' il dato era giusto nel DB e giusto nel feed. */}
+          {attesa && (
+            <span
+              data-testid="card-review-age"
+              title={tr('board.card.reviewAgeTitle', {
+                when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '',
+              })}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
+          )}
           {deliveryStat !== null && (
             <span
               data-testid="card-delivery-stat"

@@ -1,0 +1,20 @@
+-- DA QUANTO UNA CARD ASPETTA IN REVIEW.
+--
+-- La colonna review chiede «Approva» e non dice da quanto quella richiesta è
+-- lì. `updated_at` non risponde: si muove a ogni commento, a ogni etichetta, a
+-- ogni ri-audit dell'atterraggio — una card ferma da tre giorni su cui qualcuno
+-- ha scritto una riga dice «ora», identica a una appena arrivata.
+--
+-- Senza questo, una card che marcisce in review è indistinguibile da una
+-- fresca, ed è precisamente la cosa che una colonna di revisione deve rendere
+-- ovvia: la review non è un magazzino.
+--
+-- SI TIMBRA A OGNI INGRESSO, non solo al primo: una card respinta e
+-- riconsegnata comincia ad aspettare di nuovo da capo, e mostrare l'attesa
+-- della volta scorsa sarebbe una misura vera di una domanda sbagliata.
+--
+-- NULL per le card già in review adesso: non si può inventare un istante
+-- passato che nessuno ha registrato. `updated_at` come ripiego sarebbe proprio
+-- il numero sbagliato di cui sopra, scritto una volta per tutte nel dato
+-- invece che al volo. Si popolano da sé al prossimo passaggio.
+ALTER TABLE tasks ADD COLUMN review_at TEXT;

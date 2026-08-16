@@ -285,6 +285,40 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await card.screenshot({ path: join(SHOTS, "review-check-verdi.png") });
   });
 
+  test("LANDING-00d: la card dice da QUANTO aspetta una risposta", async ({ page }) => {
+    // La data di aggiornamento in review era nascosta apposta, e faceva bene:
+    // `updatedAt` si muove a ogni commento, quindi diceva «ora» su una card
+    // ferma da giorni. `review_at` e' l'istante dell'INGRESSO, e risponde alla
+    // domanda vera.
+    const text = `Attesa lunga ${Date.now()}`;
+    const res = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text, status: "backlog" },
+    });
+    const task = (await res.json()) as { id: string };
+    createdTasks.push(task.id);
+    await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+    // Indietro nel tempo di tre giorni: il chip tace sotto l'ora, quindi una
+    // card appena creata non lo mostrerebbe - e un test che aspetta un'ora
+    // vera non e' un test.
+    const treGiorniFa = new Date(Date.now() - 3 * 24 * 3600_000).toISOString();
+    const t = await page.request.post(`${BASE}/api/test/tasks/${task.id}/review-at`, {
+      data: { at: treGiorniFa },
+    });
+    expect(t.ok(), `seed review-at: ${t.status()}`).toBe(true);
+
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    const chip = card.getByTestId("card-review-age");
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText("3g");
+    await card.screenshot({ path: join(SHOTS, "review-attesa.png") });
+  });
+
   test("LANDING-00b: senza misura la card non inventa uno zero", async ({ page }) => {
     // `null` e' «non misurato», zero sarebbe «misurato, non ha prodotto
     // niente»: due frasi diverse, e la seconda su una card senza worktree

@@ -114,3 +114,64 @@ describe("l'entità della consegna arriva alla card", () => {
     expect(dallaLista.deliveryInsertions).toBe(10);
   });
 });
+
+describe("da quando la card aspetta una risposta", () => {
+  it("entrare in review timbra l'istante", () => {
+    const { svc, id } = conTask();
+    expect(svc.get(id)!.task.reviewAt, "una card nuova non aspetta nessuno").toBeNull();
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    expect(svc.get(id)!.task.reviewAt).toBeTruthy();
+  });
+
+  it("il timbro si RINNOVA a ogni ingresso, non solo al primo", () => {
+    // Una card respinta e riconsegnata ricomincia ad aspettare da capo.
+    // Mostrare l'attesa della volta scorsa sarebbe una misura vera di una
+    // domanda sbagliata: «da quanto aspetta QUESTA richiesta».
+    const { svc, id } = conTask();
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    const primo = svc.get(id)!.task.reviewAt!;
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "todo" } });
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    const secondo = svc.get(id)!.task.reviewAt!;
+    expect(secondo >= primo, "il secondo ingresso non puo' essere anteriore al primo").toBe(true);
+  });
+
+  it("ri-scrivere «review» su una card GIA' in review non azzera l'attesa", () => {
+    // E' il caso che la guardia `current !== "review"` esiste per coprire, e
+    // l'unico in cui si vede: un PATCH che rimanda lo stesso stato (un
+    // salvataggio dal drawer, un client che rimanda tutto il task, un retry)
+    // non e' un nuovo ingresso. Senza la guardia il chip tornerebbe a «ora»
+    // ogni volta che qualcuno tocca la card, cioe' il difetto di `updatedAt`
+    // ricostruito da capo.
+    //
+    // Il primo test che avevo scritto NON copriva questo: cambiava la
+    // priorita', dove `patch.status` e' undefined e la guardia non entra
+    // nemmeno in gioco. Il sabotaggio restava verde.
+    const { svc, id } = conTask();
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    const primo = svc.get(id)!.task.reviewAt!;
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review", priority: 1 } });
+    expect(svc.get(id)!.task.reviewAt, "stesso stato = stessa attesa").toBe(primo);
+  });
+
+  it("restare in review non ri-timbra: l'attesa non si azzera da sola", () => {
+    // Il caso che rende il dato onesto. Se un commento o un'etichetta
+    // rinnovassero l'istante, il chip direbbe «ora» su una card ferma da
+    // giorni - cioe' esattamente il difetto di `updatedAt` da cui si parte.
+    const { svc, id } = conTask();
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    const primo = svc.get(id)!.task.reviewAt!;
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { priority: 1 } });
+    expect(svc.get(id)!.task.reviewAt, "una modifica qualsiasi non e' un nuovo ingresso").toBe(primo);
+  });
+
+  it("la LISTA lo porta, non solo il dettaglio", () => {
+    // La card della colonna si disegna dal feed della lista: se il campo
+    // vivesse solo in `get`, il chip non comparirebbe mai dove serve.
+    const { svc, id } = conTask();
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    const dallaLista = svc.list({ scope: "project", projectId: "p" }).find((t) => t.id === id)!;
+    expect(dallaLista.reviewAt).toBeTruthy();
+  });
+});
+
