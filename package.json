@@ -1,7 +1,7 @@
 {
   "name": "topics-app",
   "version": "2.2.158",
-  "description": "Desktop home for coding agents \u2014 Claude Code, Codex and friends \u2014 each session in its own topic with its project, terminal and browser. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
+  "description": "Desktop home for coding agents — Claude Code, Codex and friends — each session in its own topic with its project, terminal and browser. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
   "repository": {
@@ -103,7 +103,8 @@
     "tag:scenarios": "bun --bun spec-flow/scripts/tag-scenarios.ts",
     "uat": "bun --bun spec-flow/scripts/generate-uat.ts",
     "build:site": "bun run changelog && cd client && bun install --frozen-lockfile && bun run build:landing && cd ../landing && bun install --frozen-lockfile && bun run build",
-    "dev:site": "cd landing && bun run dev"
+    "dev:site": "cd landing && bun run dev",
+    "check:history-clean": "bun run scripts/scrub-history.ts --check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",
