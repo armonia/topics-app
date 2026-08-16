@@ -51,7 +51,7 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { classifyTurnError, isAcpStopReason, type TurnEndInfo } from "./stop-reason";
 import { getTopicWorkspaceForSession } from "./claude-code";
-import { JsonRpcPeer } from "./acp/jsonrpc";
+import { JsonRpcPeer, JsonRpcRemoteError, RPC_METHOD_NOT_FOUND } from "./acp/jsonrpc";
 import {
   newTranslateState,
   translateSessionUpdate,
@@ -100,6 +100,13 @@ const PROMPT_TIMEOUT_MS = 30 * 60 * 1000;
 
 const KILL_GRACE_MS = 3_000;
 
+/**
+ * Quanto si aspetta un `session/set_model`. È una richiesta di CONFIGURAZIONE,
+ * non un turno: se l'agente non risponde in fretta, il turno parte comunque sul
+ * modello che c'è. Aspettare a lungo qui bloccherebbe il lavoro per una leva.
+ */
+const SET_MODEL_TIMEOUT_MS = 10_000;
+
 const ENV_ALLOWLIST = new Set([
   "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
   "NODE_ENV", "TZ", "USER", "SHELL", "TMPDIR",
@@ -127,6 +134,16 @@ interface AcpSessionState {
   /** Qualcuno ha chiesto lo stop: il `cancelled` che tornerà è nostro. */
   aborting?: "user" | "watchdog";
   promptInFlight: boolean;
+  /**
+   * L'ultimo modello che abbiamo CHIESTO all'agente per questa sessione.
+   *
+   * Serve a non rifare la stessa richiesta a ogni turno: la sessione ACP vive
+   * dentro un demone condiviso e il modello, una volta impostato, ci resta.
+   * `null` = non l'abbiamo mai toccato, quindi vale quello scelto dall'agente.
+   */
+  model: string | null;
+  /** L'ultimo effort di ragionamento che abbiamo chiesto per questa sessione. */
+  effort: string | null;
 }
 
 // ============ Provider ============
@@ -153,6 +170,31 @@ export class AcpProvider implements AIProvider {
   private agentCapabilities: Record<string, unknown> = {};
   private stopped = false;
   private binaryMissingLogged = false;
+  /**
+   * Questo agente non conosce `session/set_model`: si è già provato una volta e
+   * ha risposto «metodo sconosciuto». È una proprietà dell'AGENTE e non del
+   * turno, quindi la si ricorda invece di ripetere la domanda (e l'avviso) a
+   * ogni singolo prompt.
+   */
+  private setModelUnsupported = false;
+  /**
+   * I modelli annunciati dall'agente, presi dai `configOptions` di
+   * `session/new`. Vive sul PROVIDER e non sulla sessione: è una proprietà
+   * dell'agente, e il selettore la chiede senza avere una sessione in mano.
+   */
+  private knownModels: string[] = [];
+  /**
+   * Il modello su cui l'agente dice di girare ADESSO. Alimenta `defaultModel()`,
+   * cioè il badge del contesto: si tiene aggiornato da ciò che l'agente rimanda,
+   * mai da ciò che gli abbiamo chiesto.
+   */
+  private activeModel: string | null = null;
+  /**
+   * L'agente non sa cambiare l'effort di ragionamento, o l'ha rifiutato in modo
+   * definitivo. Stessa logica di `setModelUnsupported`: è una proprietà
+   * dell'agente, non del turno.
+   */
+  private setEffortUnsupported = false;
   /**
    * L'agente ha risposto con una versione di protocollo che non sappiamo
    * parlare. Non è uno stato transitorio da riprovare: finché il binario resta
@@ -413,8 +455,100 @@ export class AcpProvider implements AIProvider {
     })) ?? {};
     const id = typeof res.sessionId === "string" ? res.sessionId : "";
     if (!id) throw new Error("ACP_NO_SESSION_ID");
+    this.absorbConfigOptions(res);
     this.rememberSession(sessionKey, id, cwd);
     return this.registerSession(sessionKey, id, cwd);
+  }
+
+  /**
+   * Prende dai `configOptions` di una risposta ciò che l'agente dice di sé.
+   *
+   * Oggi serve per una cosa sola — l'elenco dei modelli, che senza questo il
+   * selettore non avrebbe mai (vedi `listModels`) — ma la forma è quella:
+   * l'agente si DESCRIVE, e noi leggiamo invece di indovinare. Silenziosa e
+   * senza effetti se la risposta non ha quel campo: `session/new` non è
+   * obbligata ad averlo, e un agente che non lo manda non è un agente rotto.
+   */
+  private absorbConfigOptions(res: Record<string, unknown> | undefined): void {
+    const opts = res?.configOptions;
+    if (!Array.isArray(opts)) return;
+    const model = opts.find(
+      (o): o is Record<string, unknown> =>
+        !!o && typeof o === "object" && (o as Record<string, unknown>).id === "model",
+    );
+    const list = model?.options;
+    if (!Array.isArray(list)) return;
+    const names = list
+      .map((o) => (o && typeof o === "object" ? (o as Record<string, unknown>).value : null))
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (names.length > 0) this.knownModels = names;
+    const cur = this.currentModelFrom(res);
+    if (cur) this.activeModel = cur;
+  }
+
+  /**
+   * Porta la sessione sull'effort di ragionamento chiesto per questo topic.
+   *
+   * Perché è separato dal modello. L'effort è la leva più CARA che Topics ha:
+   * sullo stesso lavoro `medium` ha misurato 61,1k token e `xhigh` 108,8k. La
+   * board lo sceglie per task esattamente come il modello, e su claude-code
+   * finisce nei flag di spawn — quindi ignorarlo qui vorrebbe dire che
+   * dispacciare su jcode fa saltare il freno del costo senza dirlo.
+   *
+   * Perché il valore non arriva da `sendChat`. L'effort non è nelle opzioni del
+   * turno: vive sulla riga del topic (migrazione 033) e ogni provider se lo va
+   * a leggere. Si fa lo stesso, con la stessa lettura stretta di claude-code.
+   *
+   * Degrada come il modello, e qui il ripiego è più probabile: `set_reasoning_effort`
+   * vale solo per i modelli che espongono il thinking di Anthropic, quindi il
+   * rifiuto è NORMALE su tutti gli altri e non deve sporcare il log a ogni
+   * turno né fermare niente.
+   */
+  private async applyEffort(
+    peer: JsonRpcPeer,
+    state: AcpSessionState,
+    sessionKey: string,
+  ): Promise<void> {
+    if (this.setEffortUnsupported) return;
+    const effort = readTopicEffort(sessionKey);
+    if (!effort || effort === state.effort) return;
+    try {
+      await withTimeout(
+        peer.request("session/set_reasoning_effort", {
+          sessionId: state.acpSessionId,
+          effort,
+        }),
+        SET_MODEL_TIMEOUT_MS,
+        "ACP_SET_EFFORT_TIMEOUT",
+      );
+      state.effort = effort;
+    } catch (err) {
+      if (isMethodNotFound(err)) {
+        this.setEffortUnsupported = true;
+        console.warn(
+          `[ACP:${this.name}] non sa cambiare l'effort (session/set_reasoning_effort assente): ` +
+          `i turni girano sull'effort scelto dall'agente`,
+        );
+        return;
+      }
+      // Rifiuto del VALORE: succede per i modelli che non espongono il
+      // thinking, ed è normale. Si segna comunque come applicato per non
+      // ripetere la richiesta (e l'avviso) a ogni turno della sessione.
+      state.effort = effort;
+      console.warn(`[ACP:${this.name}] effort "${effort}" non applicato: ${errText(err)}`);
+    }
+  }
+
+  /** Il modello che l'agente dichiara ATTIVO in una risposta con `configOptions`. */
+  private currentModelFrom(res: Record<string, unknown> | undefined): string | null {
+    const opts = res?.configOptions;
+    if (!Array.isArray(opts)) return null;
+    const model = opts.find(
+      (o): o is Record<string, unknown> =>
+        !!o && typeof o === "object" && (o as Record<string, unknown>).id === "model",
+    );
+    const cur = model?.currentValue;
+    return typeof cur === "string" && cur ? cur : null;
   }
 
   private registerSession(sessionKey: string, acpSessionId: string, cwd: string | null): AcpSessionState {
@@ -424,10 +558,72 @@ export class AcpProvider implements AIProvider {
       translate: newTranslateState(),
       fullText: "",
       promptInFlight: false,
+      model: null,
+      effort: null,
     };
     this.sessions.set(sessionKey, state);
     this.bySessionId.set(acpSessionId, sessionKey);
     return state;
+  }
+
+  /**
+   * Porta la sessione sul modello CHIESTO da chi apre il turno.
+   *
+   * Perché esiste. Su Topics il modello non è una preferenza globale: la board
+   * lo sceglie PER TASK (`task.model`, o il classificatore automatico), ed è
+   * una leva di costo — lo stesso lavoro su un modello grosso e su uno piccolo
+   * non costa uguale. Il provider ACP però riceveva `_options` e lo buttava
+   * via: ogni sessione girava sul modello di default dell'agente, in silenzio.
+   * Su una board dispacciata significa che «questo task su haiku» non veniva
+   * onorato e nessuno se ne accorgeva, perché il turno riesce lo stesso.
+   *
+   * Perché così. ACP v1 non standardizza il cambio di modello, quindi non lo si
+   * dà per scontato: si chiede `session/set_model` e si accetta che l'agente
+   * non lo conosca (`-32601`). In quel caso si degrada in modo esplicito — un
+   * avviso una volta sola per agente — invece di fingere che sia andata.
+   *
+   * Perché non fallisce il turno. Un modello non applicato è un turno che gira
+   * su un altro modello: peggio del previsto, ma è lavoro fatto. Farlo morire
+   * qui trasformerebbe una degradazione in un guasto.
+   */
+  private async applyModel(
+    peer: JsonRpcPeer,
+    state: AcpSessionState,
+    model: string | undefined,
+  ): Promise<void> {
+    if (!model || model === state.model) return;
+    if (this.setModelUnsupported) return;
+    try {
+      const res = await withTimeout(
+        peer.request<Record<string, unknown>>("session/set_model", {
+          sessionId: state.acpSessionId,
+          model,
+        }),
+        SET_MODEL_TIMEOUT_MS,
+        "ACP_SET_MODEL_TIMEOUT",
+      );
+      // La risposta rimanda i `configOptions` aggiornati: si legge da lì invece
+      // di dare per buono ciò che abbiamo chiesto. Un agente che accetta la
+      // chiamata ma tiene un altro modello (nome normalizzato, alias, fallback)
+      // deve risultare per quello che HA, non per quello che gli è stato detto.
+      this.absorbConfigOptions(res);
+      state.model = this.currentModelFrom(res) ?? model;
+    } catch (err) {
+      // Metodo assente = questo agente non sa cambiare modello. È una proprietà
+      // dell'agente, non di questo turno: si smette di chiederglielo.
+      if (isMethodNotFound(err)) {
+        this.setModelUnsupported = true;
+        console.warn(
+          `[ACP:${this.name}] non sa cambiare modello (session/set_model assente): ` +
+          `i turni girano sul modello scelto dall'agente, la scelta per task non si applica`,
+        );
+        return;
+      }
+      // Modello rifiutato (nome sconosciuto, non disponibile su questo account):
+      // vale per QUESTO nome, non per il metodo — un altro task con un altro
+      // modello deve poter riprovare.
+      console.warn(`[ACP:${this.name}] modello "${model}" non applicato: ${errText(err)}`);
+    }
   }
 
   private canLoadSession(): boolean {
@@ -533,12 +729,17 @@ export class AcpProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    _options?: { model?: string; history?: ChatMessage[] },
+    options?: { model?: string; history?: ChatMessage[] },
   ): Promise<{ runId?: string }> {
     let state: AcpSessionState | undefined;
     try {
       const peer = await this.ensureConnection();
       state = await this.ensureSession(peer, sessionKey);
+      // Il modello si applica PRIMA del prompt: dopo sarebbe il turno
+      // successivo, e chi ha scelto «questo task su haiku» avrebbe pagato
+      // comunque il modello grosso su questo.
+      await this.applyModel(peer, state, options?.model);
+      await this.applyEffort(peer, state, sessionKey);
       state.handler = handler;
       state.fullText = "";
       state.aborting = undefined;
@@ -591,7 +792,7 @@ export class AcpProvider implements AIProvider {
    * servizio (titoli, digest): mandarle nella sessione della chat le farebbe
    * entrare nel contesto del turno vero.
    */
-  async complete(messages: ChatMessage[], _options?: { model?: string }): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
     const peer = await this.ensureConnection();
     const cwd = this.config.defaultWorkspace || process.env.HOME || "/tmp";
     const res = (await peer.request<Record<string, unknown>>("session/new", {
@@ -600,9 +801,14 @@ export class AcpProvider implements AIProvider {
     })) ?? {};
     const sessionId = typeof res.sessionId === "string" ? res.sessionId : "";
     if (!sessionId) throw new Error("ACP_NO_SESSION_ID");
+    this.absorbConfigOptions(res);
 
     const key = `__complete__:${sessionId}`;
     const state = this.registerSession(key, sessionId, cwd);
+    // Vale anche qui, e qui il risparmio è il punto: titoli e digest sono il
+    // lavoro che si vuole mandare sul modello PICCOLO. Ignorare la richiesta
+    // significava pagarli sul modello di default dell'agente.
+    await this.applyModel(peer, state, options?.model);
     let text = "";
     state.handler = {
       onTextDelta: (chunk) => { text += chunk; },
@@ -669,12 +875,37 @@ export class AcpProvider implements AIProvider {
   }
 
   /**
-   * ACP v1 non ha un metodo per elencare i modelli: la scelta la fa l'agente,
-   * eventualmente via `session/set_mode`. Meglio una lista vuota (il selettore
-   * non mostra niente) che una lista inventata.
+   * I modelli che l'agente dice di avere.
+   *
+   * ACP v1 non ha un metodo per elencarli, ed era il motivo per cui qui si
+   * tornava una lista vuota: meglio niente che una lista inventata. Ma non
+   * inventarli non vuol dire non SAPERLI — `session/new` risponde con i suoi
+   * `configOptions`, e lì dentro c'è l'opzione `model` con l'elenco completo
+   * (jcode ne annuncia 105). Quella lista arriva dall'agente, non da noi.
+   *
+   * Resta vuota finché non si è aperta almeno una sessione: senza aver mai
+   * parlato con l'agente non abbiamo niente di suo da riportare, e riempirla di
+   * ipotesi sarebbe di nuovo inventare. Il selettore la ripesca al giro dopo —
+   * lo snapshot dei provider si ricalcola.
    */
   async listModels(): Promise<string[]> {
-    return [];
+    return [...this.knownModels];
+  }
+
+  /**
+   * Su quale modello gira davvero questo agente, se l'ha detto.
+   *
+   * Non è cosmetica: il badge del contesto e il conto dei token partono da qui
+   * (`routes/context.ts`, `routes/chat.ts`), e senza una risposta la UI tira a
+   * indovinare — mostra il primo della lista, che è un modello qualunque. Su
+   * jcode il primo della lista e quello attivo sono cose diverse, quindi la
+   * finestra dichiarata sarebbe quella di un altro modello.
+   *
+   * `null` finché l'agente non l'ha detto: è la risposta onesta, e chi la
+   * riceve sa già come trattarla.
+   */
+  defaultModel(): string | null {
+    return this.activeModel;
   }
 }
 
@@ -706,4 +937,37 @@ function withTimeout<T>(promise: Promise<T>, ms: number, marker: string): Promis
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err ?? "errore sconosciuto");
+}
+
+/**
+ * L'effort di ragionamento scelto per il topic di questa sessione, se c'è.
+ *
+ * Lettura stretta sulla riga, come fa `claude-code` per gli stessi override
+ * (migrazione 033): passare da `getTopicBySessionKey` creerebbe un import
+ * circolare con utils.ts. Best-effort per costruzione — senza board, senza
+ * riga o con la tabella assente la risposta è `null`, cioè «l'agente tenga il
+ * suo», e un turno non deve mai morire per una preferenza.
+ */
+function readTopicEffort(sessionKey: string): string | null {
+  try {
+    const row = getDatabase()
+      .prepare("SELECT effort FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { effort?: string | null } | undefined;
+    const raw = (row?.effort ?? "").trim();
+    return raw ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * L'agente ha detto «questo metodo non ce l'ho» (JSON-RPC -32601)?
+ *
+ * Si guarda il CODICE e non il testo: il messaggio lo scrive l'agente e cambia
+ * da implementazione a implementazione, mentre -32601 è nello standard. Serve a
+ * distinguere «non so fare questa cosa» (proprietà permanente dell'agente, si
+ * smette di chiedere) da «questa volta è andata male» (si riproverà).
+ */
+function isMethodNotFound(err: unknown): boolean {
+  return err instanceof JsonRpcRemoteError && err.code === RPC_METHOD_NOT_FOUND;
 }
