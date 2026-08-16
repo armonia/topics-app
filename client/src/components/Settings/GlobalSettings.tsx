@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Bell, Cpu, CreditCard, Palette, UserRound } from 'lucide-react';
+import { X, Bell, Cpu, CreditCard, Palette, UserRound, MonitorSmartphone } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
@@ -50,7 +50,7 @@ interface GlobalSettingsProps {
 // vuoto — un pannello vuoto per default non merita un posto fisso nel menu —
 // mentre il controllo che si cerca pensando «permessi», il livello di autonomia,
 // è per-chat e sta nel composer.
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices' | 'plan';
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'profile' | 'devices' | 'plan';
 
 // L'id resta `devices` — è la chiave interna a cui punta il deep-link della
 // riga d'identità nella sidebar (`onOpenDevices` in App.tsx). L'ETICHETTA no:
@@ -69,7 +69,14 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
-  { id: 'devices', label: 'Profile', icon: UserRound },
+  // CHI SEI e CHE FERRI HAI sono due domande, e per un anno sono state una
+  // voce sola: la sezione si chiamava `devices` e l'etichetta diceva
+  // «Profile». Chi cercava i dispositivi apriva il profilo, chi cercava il
+  // profilo apriva i dispositivi, e dentro trovavano entrambi cinque schede.
+  // Il nome interno e quello mostrato che non coincidono non sono un dettaglio
+  // di stile: sono la prova che la voce risponde a due domande.
+  { id: 'profile', label: 'Profile', icon: UserRound },
+  { id: 'devices', label: 'Devices', icon: MonitorSmartphone },
   { id: 'plan', label: 'Plan', icon: CreditCard },
 ];
 
@@ -202,14 +209,12 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             )}
             {section === 'providers' && <AIProvidersSection />}
             {section === 'plan' && <PlanSection />}
-            {section === 'devices' && (
-              // Chi sei viene PRIMA di che ferri hai: i dispositivi fanno capo
-              // a una persona, e leggere l'elenco senza sapere di chi sono è
-              // leggere una lista di oggetti.
+            {section === 'profile' && (
+              // CHI SEI: l'identità dentro e fuori questa macchina.
               <div className="space-y-6">
                 {/* Le statistiche aprono la scheda perché sono l'unica cosa
                     che c'è SEMPRE: l'account può non essere configurato, le
-                    persone possono essere una sola, i dispositivi zero. */}
+                    persone possono essere una sola. */}
                 <ProfileStatsSection />
                 {/* Lo stato pubblicato fuori viene subito dopo le misure che
                     pubblica: è la stessa materia, vista da chi non è qui. */}
@@ -220,10 +225,25 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                     degli account non si disegna affatto: in quel caso questa
                     schermata resta esattamente com'era. */}
                 <AccountSection />
+                {/* I GRUPPI stanno qui e non sotto «Devices», ed è il pezzo che
+                    prima non si trovava: `IdentitySection` gestisce già le
+                    organizzazioni per intero — elenco da `/api/auth/orgs`,
+                    selettore quando sono più di uno, membri, creazione — ma
+                    viveva in fondo a una scheda che si chiamava «Profile» e
+                    conteneva i dispositivi. «Non vedo più le organizzazioni»
+                    non voleva dire che mancassero: voleva dire che erano la
+                    quarta cosa dentro la voce sbagliata. */}
                 <IdentitySection />
                 {/* I profili vengono DOPO l'elenco delle persone: quello dice chi
                     c'è, questo dice chi sono. */}
                 <FriendsSection />
+              </div>
+            )}
+            {section === 'devices' && (
+              // CHE FERRI HAI: una domanda di sicurezza, non di identità —
+              // «quali macchine possono entrare, e come gliela tolgo». Da sola
+              // in una voce sua si legge; quinta sotto «Profile» si scorreva.
+              <div className="space-y-6">
                 <DevicesSection />
               </div>
             )}
