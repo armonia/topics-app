@@ -673,25 +673,57 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       {/* Title — full width; the priority rides INLINE before the text (only
           when hand-set and non-default), so urgency reads in the same glance
           as the title instead of down in a chip row. */}
-      <span className="block break-words leading-snug">
-        {showPriority && (
-          <span
-            title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
-            className={`mr-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-middle text-xs md:text-[10px] ${
-              task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
-            {PRIORITY_LABEL[task.priority] ?? task.priority}
-          </span>
-        )}
-        {/* IN LINEA, davanti al titolo: `align-middle` e non un blocco, così una
-            card dal titolo lungo non spreca una riga per un glifo da 14px e il
-            testo gli scorre attorno come farebbe con una parola. */}
-        <TaskIdChip id={task.id} className="mr-1 align-middle" />
-        {task.text}
+      {/* I SEGNI E IL NOME, allineati PER COSTRUZIONE e non con un numero tarato.
+          ═══════════════════════════════════════════════════════════════════
+          Erano inline dentro il titolo con `align-middle`, e misurati stavano
+          1,8px sotto il testo. Il motivo non e' l'allineamento: il chip e' alto
+          18px su una riga di testo da 17, quindi e' LUI a definire la riga e il
+          testo gli si muove attorno — nessun `vertical-align` converge, perche'
+          spostare il chip sposta anche il riferimento (provati sette valori,
+          tutti fra 1,3 e 2,3px).
+          Qui i segni stanno in un gruppo alto ESATTAMENTE una riga di titolo
+          (`h-[1.375em]` = `leading-snug`) e ci si centrano dentro; il titolo
+          accanto ha la stessa altezza di riga e parte dallo stesso bordo, quindi
+          i due centri coincidono senza che nessuno li tari. Il prezzo e' che un
+          titolo lungo va a capo SOTTO se stesso invece che sotto i segni — che
+          e' anche il motivo per cui i segni restano leggibili come un gruppo.
+          UNA distanza sola (`gap-1.5`): prima erano 6px dopo la priorita' e 4px
+          dopo il `#`, due misure per la stessa cosa nella stessa riga. */}
+      <span className="flex items-start gap-1.5">
+        <span className="flex h-[1.375em] shrink-0 items-center gap-1.5">
+          {showPriority && (
+            <span
+              title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[10px] ${
+                task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
+              {PRIORITY_LABEL[task.priority] ?? task.priority}
+            </span>
+          )}
+          <TaskIdChip id={task.id} />
+        </span>
+        <span className="min-w-0 flex-1 break-words leading-snug">{task.text}</span>
       </span>
-      {/* Subtasks, straight under the title. In Review the checklist EXPANDS —
+      {/* Description preview — plain text, clamped (the full markdown lives in
+          the drawer). The update time closes the body — but on a REVIEW card the
+          review block below owns the tail, and prints the date itself after the
+          agent's last word, so it must not be printed here as well.
+          The gate used to be `!isAgentReview`, which is narrower than the block
+          it defers to: the block renders on every review card, so a review card
+          with no agent bound to it (a delivery nobody dispatched) printed the
+          same date TWICE, one line under the other.
+          `descriptionPreview` è ciò che la lista manda (240 caratteri: il
+          riquadro ne mostra due righe); `description` è la ricaduta per un
+          server più vecchio del client, che l'anteprima non la calcola. */}
+      {descriptionText && (
+        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
+      )}
+      {/* La checklist sta SOTTO LA DESCRIZIONE, non fra il titolo e lei.
+          Sopra spezzava in due la cosa che si legge per prima — il nome del
+          task e cosa chiede — con un elenco di passi che si guarda dopo aver
+          capito di cosa si parla. In Review la checklist EXPANDS —
           the human is judging a delivery and the steps are the evidence: max 5
           rows, the rest behind "Vedi tutti" (opens the drawer tree). The other
           columns keep the compact done/total chip. */}
@@ -747,20 +779,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
-      {/* Description preview — plain text, clamped (the full markdown lives in
-          the drawer). The update time closes the body — but on a REVIEW card the
-          review block below owns the tail, and prints the date itself after the
-          agent's last word, so it must not be printed here as well.
-          The gate used to be `!isAgentReview`, which is narrower than the block
-          it defers to: the block renders on every review card, so a review card
-          with no agent bound to it (a delivery nobody dispatched) printed the
-          same date TWICE, one line under the other.
-          `descriptionPreview` è ciò che la lista manda (240 caratteri: il
-          riquadro ne mostra due righe); `description` è la ricaduta per un
-          server più vecchio del client, che l'anteprima non la calcola. */}
-      {descriptionText && (
-        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
-      )}
       {task.status !== 'review' && (
         <div
           className="mt-1 text-xs md:text-[10px] text-app-text-muted"
