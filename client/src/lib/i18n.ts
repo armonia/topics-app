@@ -1123,6 +1123,9 @@ const IT: Dict = {
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
   'statusBar.lastCodeUpdateAgo': ' Ultimo aggiornamento codice: {t} fa.',
   'statusBar.lastCodeUpdate': 'Ultimo aggiornamento codice: {t} fa',
+  // Il nome dello stato, per chi non vede l'icona: da quando il badge e' solo
+  // un glifo, questa e' la sua unica voce per uno screen reader.
+  'statusBar.autoUpdate': 'Auto-aggiornamento attivo',
   'statusBar.autoUpdateTitle': 'Auto-aggiornamento attivo: le finestre si ricaricano da sole ai nuovi build, senza popup. (Spegni rimuovendo topics-dev.json dallo STATE_DIR e riavviando il server.)',
   'statusBar.restartApp': "Riavvia l'app",
   'statusBar.updateAvailable': 'Aggiornamento disponibile',
@@ -1145,6 +1148,7 @@ const IT: Dict = {
   'version.swReady': 'Aggiornamento pronto, ricarica',
   'version.webUpToDate': 'Sei sulla versione web più recente.',
   'version.checking': 'Controllo aggiornamenti…',
+  'version.autoArriving': 'Arriva da se\'{v}: le finestre si ricaricano quando e\' pronta.',
   'version.available': 'Disponibile{v}.',
   'version.download': 'Scarica aggiornamento',
   'version.downloading': 'Download… {pct}',

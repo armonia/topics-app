@@ -732,11 +732,20 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               isDev (the amber `dev` already implies live reload). */}
           {!isDev && status?.server?.devReload && (
             <span
-              className={`flex items-center gap-0.5 px-1 rounded bg-emerald-500/15 ${SEGNALE_OK} font-medium text-[10px] leading-tight`}
+              data-testid="auto-update-badge"
+              // SOLO L'ICONA, senza la parola. La riga di stato e' l'unico posto
+              // dell'app dove sette informazioni si contendono ~200px, e «auto»
+              // era l'unica scritta accanto a un glifo che dice gia' la stessa
+              // cosa. Il senso pieno resta nel `title`, che e' dove sta il senso
+              // pieno di ogni altro pezzo di questa barra.
+              //
+              // `aria-label` perche' togliere la parola la toglie anche a chi
+              // legge con lo schermo spento: l'icona da sola sarebbe muta.
+              aria-label={tr('statusBar.autoUpdate')}
+              className={`flex items-center px-1 rounded bg-emerald-500/15 ${SEGNALE_OK} font-medium text-[10px] leading-tight`}
               title={tr('statusBar.autoUpdateTitle')}
             >
               <RefreshCw size={9} />
-              auto
             </span>
           )}
           {/* Relative "X fa" = last local update. Shown in dev (HMR-tracked) and
