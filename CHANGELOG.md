@@ -2,6 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.158 — 2026-08-16
+
+### Correzioni
+- **knip** · dichiara mem-report.ts, la CI su main era rossa
+
+### Sotto il cofano
+- I 450 MB della barra: ora si puo' chiedere di cosa sono fatti
+- la pulizia degli artifact sta dove si consumano
+- Mille megabyte attribuiti a Topics erano i server MCP di Jarvis
+- sonda temporanea per la quota artifact
+- via la sonda della quota, ha risposto
+- Contavo i sidecar di server gia' morti, e il totale non tornava con la barra
+- I 2,2 GB di WebContent erano di Mail: Topics ne ha uno, e adesso si puo' chiedere
+- scrivi dove sta davvero la quota — nei repo privati
+- questa purga e' igiene, il rimedio alla quota sta altrove
+- Dire che pubblicare spedisce, prima del clic
+- Il tetto prenotava 3 GB per sessioni che ne costano 2,3 di megabyte
+
 ## 2.2.157 — 2026-08-16
 
 ### Sotto il cofano

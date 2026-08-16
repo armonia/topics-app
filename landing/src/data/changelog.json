@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.158",
+    "date": "2026-08-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "dichiara mem-report.ts, la CI su main era rossa",
+          "scope": "knip"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.118",
     "date": "2026-08-13",
     "sections": {

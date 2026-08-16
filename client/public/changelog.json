@@ -1,5 +1,83 @@
 [
   {
+    "version": "2.2.158",
+    "date": "2026-08-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "dichiara mem-report.ts, la CI su main era rossa",
+          "en": "",
+          "scope": "knip",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I 450 MB della barra: ora si puo' chiedere di cosa sono fatti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la pulizia degli artifact sta dove si consumano",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Mille megabyte attribuiti a Topics erano i server MCP di Jarvis",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "sonda temporanea per la quota artifact",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "via la sonda della quota, ha risposto",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Contavo i sidecar di server gia' morti, e il totale non tornava con la barra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I 2,2 GB di WebContent erano di Mail: Topics ne ha uno, e adesso si puo' chiedere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "scrivi dove sta davvero la quota — nei repo privati",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "questa purga e' igiene, il rimedio alla quota sta altrove",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Dire che pubblicare spedisce, prima del clic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto prenotava 3 GB per sessioni che ne costano 2,3 di megabyte",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.157",
     "date": "2026-08-16",
     "sections": {
