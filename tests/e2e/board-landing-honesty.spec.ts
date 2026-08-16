@@ -254,6 +254,37 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await card.screenshot({ path: join(SHOTS, "review-quanto-lavoro.png") });
   });
 
+  test("LANDING-00c: i check verdi si DICONO, non si deducono dal silenzio", async ({ page }) => {
+    // Prima esisteva solo il chip rosso: una card senza chip poteva voler dire
+    // «controlli passati» oppure «nessuno li ha mai fatti girare». Due
+    // situazioni opposte davanti allo stesso gesto, e il silenzio non diceva
+    // quale delle due si stava guardando.
+    const text = `Check verdi ${Date.now()}`;
+    const res = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text, status: "backlog" },
+    });
+    const task = (await res.json()) as { id: string };
+    createdTasks.push(task.id);
+    await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+    const seeded = await page.request.post(`${BASE}/api/test/tasks/${task.id}/checks`, {
+      data: { state: "pass" },
+    });
+    expect(seeded.ok(), `seed checks: ${seeded.status()}`).toBe(true);
+
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.getByTestId("card-checks-green")).toBeVisible();
+    // E il rosso NON c'e': un chip che dicesse entrambe le cose non sarebbe un
+    // esito, sarebbe una decorazione.
+    await expect(card.getByTestId("card-checks-running")).toHaveCount(0);
+    await card.screenshot({ path: join(SHOTS, "review-check-verdi.png") });
+  });
+
   test("LANDING-00b: senza misura la card non inventa uno zero", async ({ page }) => {
     // `null` e' «non misurato», zero sarebbe «misurato, non ha prodotto
     // niente»: due frasi diverse, e la seconda su una card senza worktree
