@@ -67,13 +67,20 @@ each does *not* prove, are in [`bench/results/`](bench/results/):
 # An ISOLATED server: pointing this at your dev server creates real topics in
 # your real database. Credentials must be in place BEFORE it starts — the test
 # server sandboxes HOME, and one started without them answers every turn with
-# "Not logged in" while still looking healthy.
+# "Not logged in" while still looking healthy. The script's preflight catches
+# that before it spends 64 turns on it.
 export DATA_DIR=/tmp/bench-conc BUN_PORT=39480
-mkdir -p "$DATA_DIR/.home/.jcode" && cp ~/.jcode/auth.json "$DATA_DIR/.home/.jcode/"
+mkdir -p "$DATA_DIR/.home/.claude"
+cp ~/.claude/.credentials.json "$DATA_DIR/.home/.claude/"   # or ~/.jcode/auth.json → .home/.jcode/
 TOPICS_HOME="$DATA_DIR/.topics-home" ./scripts/start-test-server.sh &
 
 scripts/bench/native-concurrency.sh --base https://127.0.0.1:39480 --scale 8,32,64
 ```
+
+> Copying a live `~/.claude/.credentials.json` whose access token has **expired**
+> makes the test server refresh it — and the refresh token *rotates*, which
+> breaks your real `claude` login. Use a credential that is still valid, or
+> expect to run `/login` again.
 
 Concurrency is still capped by a **CPU** policy (roughly `cores / 3`), not by
 memory: an agent that compiles burns real cores even when its session is just an
