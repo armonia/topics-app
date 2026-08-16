@@ -1,17 +1,12 @@
 [
   {
-    "version": "2.2.155",
+    "version": "2.2.156",
     "date": "2026-08-16",
     "sections": {
       "new": [],
       "fixes": [],
       "perf": [],
       "internal": [
-        {
-          "it": "La soglia del chip misurava quale font ha la macchina, non se il layout e' allineato",
-          "en": "",
-          "scope": null
-        },
         {
           "it": "Il runtime che costa meno diventa quello di chi non sceglie",
           "en": "",
@@ -69,6 +64,178 @@
         },
         {
           "it": "Un blip dell'API undici secondi dopo l'ultimo upload buttava via una release intera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il changelog lo rigenera la release, non la buona volonta'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due documenti di porting vendevano un cantiere che non esiste",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La copia canonica del protocollo diceva il falso su se stessa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "acp.ts sotto la soglia: tre pezzi fuori, e la release riparte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un agente che lavora senza nessuna CLI in mezzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il GC non vedeva 12 GB dei 27, e non erano dipendenze",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archiviare una change ne cambia il percorso, e tre voci di debito puntavano al vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ratchet sugli any guardava sei file su 282, e gli altri 370 non li vedeva nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Topics smette di aver bisogno di un programma altrui per pensare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un agente che esegue da solo deve sapere cosa non gli e' permesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno zero che nessuno aveva scelto: l'auto-dispatch lascia board_settings",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno lungo non muore piu' contro la finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il trattino lungo nella descrizione di un tool, e il cricchetto che scende a 369",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "diciannove colonne, zero righe, e nessun modo di sapere perche' una card rimbalza",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "L'agente nativo impara i mestieri che Topics aveva gia'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del dedupe contava l'anteprima nella sidebar e la chiamava «duplicato»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CROSS-04 e CROSS-06: due rossi cronici della nightly, nessuno dei due del prodotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il risparmio che uccideva il turno al quinto giro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attesa dentro CROSS-04 e' un evento, non un ritardo: check:sleeps aveva ragione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il crash della raffica ha finalmente un cancello: misura la causa, non l'effetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un test della CLI nato fuori da ogni cancello, e vm_stat che nessuno aveva dichiarato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tempo di un turno era di qualcun altro, e adesso meta' e' nostro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La risposta a «sono piu' veloci?»: 2,8x al primo turno, 1,6x a regime",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due tipi diversi con lo stesso nome: il messaggio del protocollo diventa AgentMessage",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La sentinella su --bare: un numero vuoto oggi, un avviso il giorno che serve",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il 2,8x era il caso piu' facile: su un task vero e' 1,2x",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chat vuota diceva solo il suo nome: adesso dice come rispondera'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il benchmark confrontava Opus contro Sonnet e lo chiamava «differenza di strada»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del runtime di default misurava il DB della macchina, non la regola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "432 MB contro 2,3: il numero che avevo pubblicato era di un processo che moriva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del default misurava le credenziali del runner, e HOME non veniva letta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.155",
+    "date": "2026-08-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La soglia del chip misurava quale font ha la macchina, non se il layout e' allineato",
           "en": "",
           "scope": null
         }

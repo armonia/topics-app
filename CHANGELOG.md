@@ -2,10 +2,9 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.155 — 2026-08-16
+## 2.2.156 — 2026-08-16
 
 ### Sotto il cofano
-- La soglia del chip misurava quale font ha la macchina, non se il layout e' allineato
 - Il runtime che costa meno diventa quello di chi non sceglie
 - Il modello scelto per il task non arrivava all'agente ACP
 - La CI decide cosa arriva all'auto-updater, e non piu' la sola compilazione
@@ -18,6 +17,42 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La CLI parlava in chiaro a un server che accende TLS da solo
 - Cinque change finite che stavano ancora in changes/
 - Un blip dell'API undici secondi dopo l'ultimo upload buttava via una release intera
+- Il changelog lo rigenera la release, non la buona volonta'
+- Due documenti di porting vendevano un cantiere che non esiste
+- La copia canonica del protocollo diceva il falso su se stessa
+- acp.ts sotto la soglia: tre pezzi fuori, e la release riparte
+- Un agente che lavora senza nessuna CLI in mezzo
+- Il GC non vedeva 12 GB dei 27, e non erano dipendenze
+- Archiviare una change ne cambia il percorso, e tre voci di debito puntavano al vecchio
+- Il ratchet sugli any guardava sei file su 282, e gli altri 370 non li vedeva nessuno
+- Topics smette di aver bisogno di un programma altrui per pensare
+- Un agente che esegue da solo deve sapere cosa non gli e' permesso
+- Uno zero che nessuno aveva scelto: l'auto-dispatch lascia board_settings
+- Un turno lungo non muore piu' contro la finestra
+- Il trattino lungo nella descrizione di un tool, e il cricchetto che scende a 369
+- diciannove colonne, zero righe, e nessun modo di sapere perche' una card rimbalza
+- L'agente nativo impara i mestieri che Topics aveva gia'
+- Il test del dedupe contava l'anteprima nella sidebar e la chiamava «duplicato»
+- CROSS-04 e CROSS-06: due rossi cronici della nightly, nessuno dei due del prodotto
+- Il risparmio che uccideva il turno al quinto giro
+- L'attesa dentro CROSS-04 e' un evento, non un ritardo: check:sleeps aveva ragione
+- Il crash della raffica ha finalmente un cancello: misura la causa, non l'effetto
+- Un test della CLI nato fuori da ogni cancello, e vm_stat che nessuno aveva dichiarato
+- Il tempo di un turno era di qualcun altro, e adesso meta' e' nostro
+- La risposta a «sono piu' veloci?»: 2,8x al primo turno, 1,6x a regime
+- Due tipi diversi con lo stesso nome: il messaggio del protocollo diventa AgentMessage
+- La sentinella su --bare: un numero vuoto oggi, un avviso il giorno che serve
+- Il 2,8x era il caso piu' facile: su un task vero e' 1,2x
+- Una chat vuota diceva solo il suo nome: adesso dice come rispondera'
+- Il benchmark confrontava Opus contro Sonnet e lo chiamava «differenza di strada»
+- Il test del runtime di default misurava il DB della macchina, non la regola
+- 432 MB contro 2,3: il numero che avevo pubblicato era di un processo che moriva
+- Il test del default misurava le credenziali del runner, e HOME non veniva letta
+
+## 2.2.155 — 2026-08-16
+
+### Sotto il cofano
+- La soglia del chip misurava quale font ha la macchina, non se il layout e' allineato
 
 ## 2.2.154 — 2026-08-16
 
