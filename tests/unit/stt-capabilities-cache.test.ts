@@ -33,7 +33,7 @@ function serve(stato: number, corpo?: unknown) {
       status: stato,
       headers: { "content-type": "application/json" },
     });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 const CAPACE = { available: true, provider: "elevenlabs", model: "scribe_v2", providers: [], language: null };
@@ -67,7 +67,7 @@ describe("la sonda STT non si porta dietro un no", () => {
 
   it("anche una rete giù si dimentica", async () => {
     chiamate = 0;
-    globalThis.fetch = (async () => { chiamate += 1; throw new Error("offline"); }) as typeof fetch;
+    globalThis.fetch = (async () => { chiamate += 1; throw new Error("offline"); }) as unknown as typeof fetch;
     expect((await fetchSttCapabilities()).available).toBe(false);
     serve(200, CAPACE);
     expect((await fetchSttCapabilities()).available).toBe(true);

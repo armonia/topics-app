@@ -729,8 +729,26 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           e' anche il motivo per cui i segni restano leggibili come un gruppo.
           UNA distanza sola (`gap-1.5`): prima erano 6px dopo la priorita' e 4px
           dopo il `#`, due misure per la stessa cosa nella stessa riga. */}
-      <span className="flex items-start gap-1.5">
-        <span className="flex h-[1.375em] shrink-0 items-center gap-1.5">
+      {/* IL TITOLO RIEMPIE LA RIGA, e va a capo SOTTO I SEGNI.
+          ═══════════════════════════════════════════════════════════════════
+          La stesura precedente metteva i segni e il nome in due colonne flex:
+          i centri coincidevano per costruzione (nessun numero tarato, ed e'
+          la parte da tenere) ma il titolo diventava una COLONNA larga quanto
+          lo spazio rimasto, quindi andava a capo incolonnato sotto se stesso.
+          Su un titolo lungo la card leggeva come un paragrafo rientrato:
+          «il titolo non va piu' a capo bene, ma e' incolonnato a partire dal
+          cancelletto».
+          Ora e' UNA riga di testo con i segni dentro (`inline-flex`), quindi
+          la seconda riga parte dal bordo della card come qualunque testo che
+          va a capo. L'allineamento verticale resta per costruzione: il gruppo
+          dei segni e' alto esattamente una riga di titolo (`h-[1.375em]` =
+          `leading-snug`) e si centra dentro di essa, cioe' la stessa
+          aritmetica di prima applicata a un riquadro in linea invece che a
+          una colonna.
+          UNA distanza sola (`gap-1.5`): prima erano 6px dopo la priorita' e
+          4px dopo il `#`, due misure per la stessa cosa nella stessa riga. */}
+      <span className="block break-words leading-snug">
+        <span className="mr-1.5 inline-flex h-[1.375em] shrink-0 items-center gap-1.5 align-text-bottom">
           {showPriority && (
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
@@ -744,7 +762,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           )}
           <TaskIdChip id={task.id} />
         </span>
-        <span className="min-w-0 flex-1 break-words leading-snug">{task.text}</span>
+        {task.text}
       </span>
       {/* Description preview — plain text, clamped (the full markdown lives in
           the drawer). The update time closes the body — but on a REVIEW card the
