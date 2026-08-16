@@ -40,7 +40,10 @@ function freshDb(): Database {
     -- ramo dei check del kickoff non era raggiungibile da qui, cioe' proprio
     -- le righe che nessun test leggeva.
     review_checks TEXT,
-    max_agents_auto INTEGER, dispatch_fanout INTEGER
+    max_agents_auto INTEGER, dispatch_fanout INTEGER,
+    -- Il freno di QUESTA board (migration 20260816142059): senza la colonna il
+    -- ramo che la legge non e' raggiungibile da qui.
+    dispatch_paused INTEGER NOT NULL DEFAULT 0
   )`);
   // I tentativi in parallelo: servono al fan-out, che è l'unico posto in cui
   // DUE sessioni vive convivono sullo stesso task.
@@ -3376,5 +3379,82 @@ describe("il pavimento delle risorse si spiega", () => {
     bloccato = true;
     await h.dispatcher.tick(PID);
     expect(righe.filter((r) => r.includes("coda ferma"))).toHaveLength(2);
+  });
+});
+
+/**
+ * FERMARE UNA BOARD LASCIANDO GIRARE LE ALTRE.
+ *
+ * Prima l'unica leva su una board che faceva danni era spegnere l'interruttore
+ * GLOBALE — e con quello spento si fermano anche le board che stavano lavorando
+ * bene. L'unico freno per progetto era `nightMode`, che e' condizionale e si
+ * spegne da solo a un orario: non e' «ferma questa».
+ *
+ * I due versi sono entrambi qui di proposito. Un freno che ferma sempre non e'
+ * un freno, e' il dispatch spento; e un freno che puo' ACCENDERE quando il
+ * globale e' spento sarebbe un secondo interruttore che contraddice il primo.
+ */
+describe("dispatchPaused: il freno di una board sola", () => {
+  it("in pausa: questa board non dispaccia", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchPaused: true });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(0);
+    expect(h.task("t1")?.status).toBe("todo");
+  });
+
+  it("NON in pausa: dispaccia come sempre", async () => {
+    // Il caso che tiene onesto l'altro: senza, «in pausa non parte» sarebbe
+    // verde anche con il dispatch rotto del tutto.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchPaused: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+  });
+
+  it("puo' solo FERMARE: col globale spento, non-in-pausa non accende niente", async () => {
+    // Il verso che rende i due interruttori compatibili invece che rivali.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: false, dispatchPaused: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(0);
+  });
+
+  it("una board in pausa non ferma le ALTRE", async () => {
+    // E' tutto il motivo per cui questa colonna esiste.
+    const h = harness();
+    const ALTRA = "altra-board-xyz";
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchPaused: true });
+    h.svc.updateBoardSettings(ALTRA, { dispatchPaused: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    // `seedTask` semina sempre su PID: la card dell'altra board si sposta a
+    // mano, che e' anche l'unico modo di avere DUE board nello stesso caso.
+    seedTask(h.db, { id: "t2", status: "todo" });
+    h.db.run("UPDATE tasks SET project_id = ? WHERE id = 't2'", [ALTRA]);
+
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(ALTRA);
+    await flush();
+
+    // Ne parte UNO: quello della board non in pausa.
+    expect(h.turns.length).toBe(1);
+    expect(h.task("t1")?.status).toBe("todo");
+    expect(h.task("t2")?.status).not.toBe("todo");
   });
 });

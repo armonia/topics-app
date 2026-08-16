@@ -473,6 +473,39 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.screenshot({ path: join(SHOTS, "impostazioni-sezioni.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
   });
 
+  test("TOPBAR-10: il freno di QUESTA board sta nelle sue impostazioni, non fra le globali", async ({ page }) => {
+    // Il pannello ha due leve che si somigliano e non sono la stessa cosa:
+    // l'auto-dispatch GLOBALE (vale per tutte) e la pausa di questa board. Se
+    // finissero nella stessa sezione, la seconda si leggerebbe come un doppione
+    // della prima — che e' il difetto che questo pannello evita di proposito
+    // tenendo la sezione «Vale per tutte le board» separata dal resto.
+    await stubProbes(page, { running: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    await page.getByTitle("Impostazioni auto-dispatch").click();
+
+    const pannello = page.getByTestId("board-settings-panel");
+    await expect(pannello).toBeVisible();
+    const pausa = page.getByTestId("board-dispatch-paused");
+    await expect(pausa).toBeVisible();
+
+    // Nasce NON in pausa: nessuna board si mette in pausa da sola.
+    await expect(pausa).not.toBeChecked();
+
+    // E sta sotto «Come lavora l'agente», non sotto le globali: si misura la
+    // POSIZIONE, perche' e' la posizione a dire di chi e' la leva.
+    const globali = pannello.getByText("Vale per tutte le board", { exact: true });
+    const agente = pannello.getByText("Come lavora l'agente", { exact: true });
+    const yGlobali = (await globali.boundingBox())!.y;
+    const yAgente = (await agente.boundingBox())!.y;
+    const yPausa = (await pausa.boundingBox())!.y;
+    expect(yPausa).toBeGreaterThan(yGlobali);
+    expect(yPausa).toBeGreaterThan(yAgente);
+
+    await page.screenshot({ path: join(SHOTS, "board-pausa.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
+  });
+
   test("TOPBAR-07: audit di layout alle tre larghezze (niente overflow, niente sovrapposizioni)", async ({ page }) => {
     await stubProbes(page);
     await page.setViewportSize({ width: 1440, height: 900 });

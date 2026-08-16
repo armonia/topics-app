@@ -372,6 +372,12 @@ const IT: Dict = {
   // tooltip su un telefono non esiste. Il tetto di agent in parallelo ora si
   // vede e si cambia in questo stesso pannello.
   'board.settings.dispatchOnTitle': 'Interruttore globale, vale per tutte le board.',
+  // IL FRENO DI QUESTA BOARD, accanto a quello globale ma in un'altra sezione:
+  // sono due leve diverse e il testo lo deve dire, o si ricade nel «due nomi
+  // per la stessa cosa» che questo pannello evita di proposito.
+  'board.settings.paused': 'Metti in pausa questa board',
+  'board.settings.pausedTitle': "Ferma il dispatch di QUESTA board e lascia girare le altre. L'interruttore globale qui sopra vale per tutte: se e' spento, non parte niente comunque.",
+  'board.settings.pausedActive': 'In pausa: i task di questa board restano in coda. Le altre board continuano.',
   'board.settings.effort': 'Effort',
   'board.settings.model': 'Modello',
   'board.settings.modelTitle': 'Auto: un classificatore sceglie il modello per ogni task. Un modello fisso forza OGNI dispatch di questa board su quel modello (un task con modello esplicito vince comunque).',

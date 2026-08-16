@@ -2618,6 +2618,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { settings = deps.svc.getBoardSettings(projectId); }
     catch (err) { log(`getBoardSettings failed for ${projectId}`, err); return; }
     if (!settings.autoDispatch) return;
+    // IL FRENO DI QUESTA BOARD, e viene dopo il globale di proposito: puo' solo
+    // FERMARE. Il dispatch parte se il globale e' acceso E questa board non e'
+    // in pausa; una board non in pausa con il globale spento non parte lo
+    // stesso. Due interruttori che possono entrambi accendere si contraddicono,
+    // e chi guarda non sa quale dei due sta leggendo.
+    //
+    // Senza questo, l'unica leva su una board che fa danni era spegnere TUTTO —
+    // e con tutto spento si fermano anche le board che stavano lavorando bene.
+    // A differenza di `nightMode` qui non c'e' niente di condizionale e niente
+    // che si spenga da solo: e' una scelta secca, e resta finche' qualcuno non
+    // la toglie.
+    if (settings.dispatchPaused) return;
 
     // Modalità notturna: la coda si dispaccia solo mentre la macchina è libera,
     // e il turno si SPEGNE da solo all'orario di fine.

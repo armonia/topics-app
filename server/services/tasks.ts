@@ -4215,6 +4215,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         requireApprovalForDone: r ? !!r.require_approval_for_done : false,
         requireReviewBeforeDone: r ? !!r.require_review_before_done : false,
         reviewChecks: parseReviewChecks(r?.review_checks),
+        // Assente o illeggibile = NON in pausa: e' il verso giusto in cui
+        // sbagliare, perche' l'errore opposto fermerebbe in silenzio una coda
+        // che nessuno ha chiesto di fermare.
+        dispatchPaused: r ? !!r.dispatch_paused : false,
         nightMode: r ? !!r.night_mode : false,
         nightModeUntil: r?.night_mode_until ?? "",
         nightModeStartedAt: r?.night_mode_started_at ?? null,
@@ -4269,6 +4273,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Accendere la modalità notturna STAMPA l'istante: senza, «fino alle
       // 10:00» non si sa se sia stamattina o domani mattina. Spegnendola si
       // cancella, così un riaccendere non eredita una scadenza vecchia.
+      if (patch.dispatchPaused !== undefined) {
+        sets.push("dispatch_paused = ?"); params.push(patch.dispatchPaused ? 1 : 0);
+      }
       if (patch.nightMode !== undefined) {
         sets.push("night_mode = ?"); params.push(patch.nightMode ? 1 : 0);
         sets.push("night_mode_started_at = ?"); params.push(patch.nightMode ? now() : null);
