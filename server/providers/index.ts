@@ -88,6 +88,12 @@ export function createProvider(config: ProviderConfig): AIProvider {
       const { AcpProvider } = require("./acp");
       return new AcpProvider(config);
     }
+    case "native": {
+      // Il runtime di casa: nessun processo da spawnare, la sessione vive
+      // dentro questo server. Si registra col nome `topics`.
+      const { NativeProvider } = require("./native/provider");
+      return new NativeProvider(config);
+    }
     default:
       throw new Error(`Unknown provider type: ${(config as any).type}`);
   }
@@ -210,10 +216,15 @@ export function recomputeDefault(): boolean {
   // quindi questa riga non scatta e si cade nell'ordine dei noti: chi aggiorna e
   // non ha jcode installato NON resta senza default, si ritrova `claude-code`
   // esattamente come prima. Il default nuovo è un'offerta, non un requisito.
+  //
+  // Il nome del runtime e il nome del provider non coincidono per il nativo:
+  // il runtime si chiama `topics` e il provider pure, ma la mappa esplicita
+  // evita che il giorno che divergono qualcuno lo scopra da un default che non
+  // scatta più senza dire niente.
+  const RUNTIME_PROVIDER: Record<string, string> = { jcode: "jcode", topics: "topics" };
+  const wanted = RUNTIME_PROVIDER[resolveAgentRuntime()];
   const runtimePreferred =
-    resolveAgentRuntime() === "jcode" && _providers.get("jcode")?.connected === true
-      ? "jcode"
-      : undefined;
+    wanted && _providers.get(wanted)?.connected === true ? wanted : undefined;
   const unknownConnected = [..._providers.entries()].find(
     ([name, p]) => p.connected === true && !PROVIDER_PREFERENCE_ORDER.includes(name),
   )?.[0];
@@ -395,6 +406,31 @@ export async function initProviders(): Promise<AIProvider[]> {
       started.push(p);
     } catch (err: any) {
       console.warn(`[Providers] Failed to init codex: ${err.message}`);
+    }
+  }
+
+  // Il runtime NATIVO. Si registra quando su questa macchina c'è una
+  // credenziale Claude, cioè quando può davvero servire un turno: un provider
+  // che non può rispondere riempirebbe il picker di una voce morta, come per
+  // gli agenti ACP senza eseguibile.
+  //
+  // Non spawna niente e non apre connessioni: registrarlo costa un oggetto in
+  // memoria, quindi non c'è un cancello d'ambiente da attraversare. Diventa il
+  // DEFAULT solo se il runtime lo chiede (vedi `recomputeDefault`).
+  if (!_providers.has("topics")) {
+    try {
+      const { hasCredentials } = require("./native/auth");
+      if (hasCredentials()) {
+        const p = createProvider({
+          type: "native",
+          defaultWorkspace: process.env.TOPICS_WORKSPACE || undefined,
+        });
+        p.start();
+        _providers.set(p.name, p);
+        started.push(p);
+      }
+    } catch (err: any) {
+      console.warn(`[Providers] Failed to init native runtime: ${err?.message ?? err}`);
     }
   }
 

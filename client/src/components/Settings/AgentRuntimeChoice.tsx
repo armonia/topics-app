@@ -10,7 +10,8 @@ import { SettingSelect } from './SettingSelect';
  * Sta in cima alla scheda e non dentro una card perché non appartiene a nessun
  * provider: governa la meccanica con cui tutte le righe qui sotto vengono
  * eseguite. `cli` è una CLI per sessione in una PTY; `jcode` manda le sessioni
- * dentro un demone condiviso via ACP, ed è il default dal 2026-08-16.
+ * dentro un demone condiviso via ACP; `topics` è il runtime nativo — nessun
+ * programma esterno, la sessione vive dentro il server — ed è il default.
  *
  * Il numero è nel testo, e ci sta per un motivo: è tutta la ragione per cui
  * l'interruttore esiste, ed è misurato su questa macchina, non stimato. Senza
@@ -41,15 +42,16 @@ export function AgentRuntimeChoice({
         hint={t('runtime.hint')}
         value={settings.agentRuntime}
         disabled={saving}
-        autoLabel={t('runtime.jcodeDefault')}
+        autoLabel={t('runtime.topicsDefault')}
         onChange={(v) => { void onSave({ agentRuntime: v as AgentRuntime | null }).catch(() => { /* l'errore lo mostra la scheda */ }); }}
         options={[
+          { value: 'topics', label: t('runtime.topics') },
           { value: 'cli', label: t('runtime.cli') },
           { value: 'jcode', label: t('runtime.jcode') },
         ]}
       />
       <p className="text-[11px] text-app-text-muted break-words">{t('runtime.blurb')}</p>
-      {chosen === 'jcode' && !registered && (
+      {(chosen === 'jcode' || chosen === 'topics') && !registered && (
         <div className="mt-1.5 flex items-center gap-2 text-[11px] text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
           <AlertCircle size={12} className="flex-shrink-0" />
           {/* Due frasi, perché sono due situazioni diverse e dirle uguali

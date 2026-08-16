@@ -39,19 +39,30 @@ afterAll(() => {
 const names = (): string[] => resolveAcpAgents().map((a) => a.name);
 
 describe("il cancello del runtime sugli agenti ACP", () => {
-  // Il default, invertito il 2026-08-16: chi non ha scelto ottiene il runtime
-  // che costa due ordini di grandezza in meno, senza dover sapere che esiste
-  // un interruttore da cercare.
-  test("nessuna scelta (il default): jcode entra, insieme agli altri agenti", () => {
+  // Il default è `topics`, il runtime di casa: nessun binario esterno. Quindi
+  // jcode NON entra da solo — è un agente di terzi, e ci si va apposta.
+  //
+  // Il cancello ha cambiato natura due volte in un giorno, e vale la pena
+  // dirlo: prima escludeva jcode perché il default era `cli`, poi lo includeva
+  // perché il default era jcode, ora lo esclude di nuovo perché il default è
+  // roba nostra. La regola sotto è però sempre la stessa, ed è quella che
+  // conta: in tabella entra solo l'agente che qualcuno ha chiesto.
+  test("nessuna scelta (il default `topics`): jcode NON entra, gli altri sì", () => {
+    expect(names()).not.toContain("jcode");
+    expect(names()).toContain("gemini");
+  });
+
+  test("runtime `jcode` chiesto a mano: allora entra", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "jcode";
     expect(names()).toContain("jcode");
     expect(names()).toContain("gemini");
   });
 
-  // Il cancello non è sparito, ha cambiato verso: ora si chiude su richiesta
-  // esplicita. Chi ha chiesto `cli` sta dicendo «una CLI per sessione», e
-  // lasciargli il provider ACP nel picker lo renderebbe eleggibile come default
-  // automatico appena una CLI risulta disconnessa — cioè proprio ciò che ha
-  // appena escluso.
+  // Chi ha chiesto `cli` sta dicendo «una CLI per sessione», e lasciargli il
+  // provider ACP nel picker lo renderebbe eleggibile come default automatico
+  // appena una CLI risulta disconnessa — cioè proprio ciò che ha appena
+  // escluso. Stesso esito del default, ragione diversa: qui è una richiesta,
+  // là è l'assenza di una richiesta.
   test("runtime `cli` chiesto a mano: jcode NON entra, gli altri agenti sì", () => {
     process.env.TOPICS_AGENT_RUNTIME = "cli";
     expect(names()).not.toContain("jcode");
@@ -99,12 +110,13 @@ describe("il cancello del runtime sugli agenti ACP", () => {
     process.env.DATA_DIR = join(tmpRoot, "data");
     try {
       initDatabase(tmpRoot);
-      // Database vergine, nessuna riga: vale il default nuovo.
-      expect(names()).toContain("jcode");
-      // E la riga salvata dalla UI chiude il cancello, che è il ramo che conta:
-      // la scelta deve arrivare fin qui passando dalla colonna vera.
-      updateAppSettings({ agentRuntime: "cli" });
+      // Database vergine, nessuna riga: vale il default (`topics`), e jcode
+      // resta fuori.
       expect(names()).not.toContain("jcode");
+      // La riga salvata dalla UI apre il cancello, che è il ramo che conta: la
+      // scelta deve arrivare fin qui passando dalla colonna vera.
+      updateAppSettings({ agentRuntime: "jcode" });
+      expect(names()).toContain("jcode");
     } finally {
       try { closeDatabase(); } catch { /* già chiuso */ }
       if (savedDataDir === undefined) delete process.env.DATA_DIR;

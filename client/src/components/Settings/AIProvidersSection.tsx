@@ -204,7 +204,10 @@ export function AIProvidersSection() {
           <AgentRuntimeChoice
             settings={settings}
             saving={saving}
-            registered={entries.some((e) => e.name === 'jcode')}
+            // Il provider da cercare dipende dal runtime SCELTO: chiedere
+            // sempre di jcode diceva «non c'è» a chi sta sul runtime nativo, e
+            // viceversa. Il default (riga assente) è `topics`.
+            registered={entries.some((e) => e.name === (settings.agentRuntime ?? 'topics'))}
             onSave={save}
           />
         )}
