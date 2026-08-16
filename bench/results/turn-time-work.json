@@ -1,0 +1,39 @@
+{
+  "schema": "bench-turn-time-v2",
+  "measured_at": "2026-08-16T13:10:51.602Z",
+  "base": "https://127.0.0.1:39421",
+  "model": "(default del provider)",
+  "load": "work",
+  "turns": 3,
+  "prompt": "Nel file bench.txt: leggilo, sostituisci il suo contenuto con la parola FATTO, poi rileggilo per confermare. Usa gli strumenti, poi fermati.",
+  "how": "POST /api/chat sul server vero, con `provider` scelto per turno: la stessa rotta di una chat e della board. L'unica differenza fra le righe è chi serve il turno.",
+  "caveats": [
+    "Chiama il modello VERO su entrambe le strade: questo run è costato soldi.",
+    "Il TOTALE è dominato dal modello, uguale per entrambi: differenze grandi lì sono sospette, non vittorie.",
+    "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è quella di una chat che continua.",
+    "La CLI paga lo spawn una volta sola e poi tiene la sessione calda: confrontare solo il primo turno le darebbe torto in modo sleale.",
+    "Il modello di default può differire fra i due provider: passare --model per fissarlo se il confronto deve essere stretto.",
+    "CARICO `work`: l'AVVIO non è confrontabile fra le due strade. Il primo token leggibile arriva quando l'agente PARLA, e i due agenti parlano in momenti diversi — la CLI premette una frase prima di usare gli strumenti, il runtime nativo va dritto al primo tool e parla dopo. Su questo carico si legga il TOTALE, che è la stessa domanda per entrambi: quando è finito il lavoro.",
+    "CARICO `work`: il vantaggio si comprime (~1,2x contro i ~2,8x di `ping`), ed è atteso — il tempo del modello e dei tool è lo stesso per entrambi, quindi il costo della strada pesa in proporzione meno. È il numero onesto per un task vero."
+  ],
+  "rows": [
+    {
+      "label": "native",
+      "firstStartMs": 8191.745709,
+      "firstTotalMs": 8544.359084,
+      "medianStartMs": 9394.230541,
+      "medianTotalMs": 9415.124082999999,
+      "ok": 3,
+      "attempted": 3
+    },
+    {
+      "label": "cli",
+      "firstStartMs": 4199.384417000001,
+      "firstTotalMs": 11391.736625000001,
+      "medianStartMs": 10338.578249999999,
+      "medianTotalMs": 10545.574500000002,
+      "ok": 3,
+      "attempted": 3
+    }
+  ]
+}
