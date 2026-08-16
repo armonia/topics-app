@@ -17,6 +17,11 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
+import { hermetic } from "./fixtures/hermetic";
+
+// Il confine fra questo file e il precedente: senza, questa spec eredita
+// cio' che i test prima di lei hanno lasciato nel DB condiviso.
+hermetic(test);
 
 const SHOTS = "test-results/settings";
 
