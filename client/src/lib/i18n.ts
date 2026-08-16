@@ -1110,6 +1110,14 @@ const IT: Dict = {
   'statusBar.restartApp': "Riavvia l'app",
   'statusBar.updateAvailable': 'Aggiornamento disponibile',
   'statusBar.reload': 'Ricarica',
+  // LA PRESENCE DELL'ORGANIZZAZIONE nella riga dell'identita'. «Chi altro c'e'»
+  // era una domanda senza risposta: la barra diceva solo chi sei tu e quanti
+  // ferri hai. Compare solo quando c'e' davvero qualcun altro visto di recente,
+  // perche' «0 online» e' rumore che si impara a saltare.
+  'statusBar.orgPresence': '{n} della tua organizzazione {verbo} online',
+  'statusBar.orgPresenceOne': 'e',
+  'statusBar.orgPresenceMany': 'sono',
+  'statusBar.orgPresenceTitle': 'Membri della tua organizzazione visti negli ultimi cinque minuti',
   'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
   // ── Popover della versione e aggiornamenti.
   'version.builtAt': 'Compilato',
