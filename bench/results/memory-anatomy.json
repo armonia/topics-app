@@ -55,5 +55,20 @@
     "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
   },
 
-  "conclusione": "Niente da tagliare né nel server (59 MB dirty) né nella UI (la memoria alta è compressa e transitoria). L'unico difetto vero era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU, non sulla memoria."
+  "conclusione": "Niente da tagliare né nel server (59 MB dirty) né nella UI (la memoria alta è compressa e transitoria). L'unico difetto vero era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU, non sulla memoria.",
+
+  "il_confronto_che_manca": {
+    "cosa": "CLI contro nativo a PARITÀ di sessioni oltre N=3.",
+    "numero_onesto": "188x — 432,4 MB contro 2,3 MB, entrambi a N=3, stesso file, stesso modello, stesso turno banale (session-memory.json).",
+    "perche_non_di_piu": [
+      "Il nativo è stato spinto fino a 64 sessioni, la CLI no. Accostare i",
+      "0,25-0,9 MB del nativo a N=64 con i 432 MB della CLI a N=3 darebbe",
+      "un rapporto fino a 1730x che nessuna misura ha prodotto: è lo stesso",
+      "errore del «2,8x» di inizio serie, che confrontava Opus con Sonnet.",
+      "Per farlo davvero serve un server di prova con credenziali CLI valide:",
+      "`~/.claude/.credentials.json` su questa macchina è scaduto da 45 giorni",
+      "e un refresh ne RUOTA il token, rompendo il login dell'utente. Il buco",
+      "resta dichiarato invece di essere colmato con un numero che sembra."
+    ]
+  }
 }

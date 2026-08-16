@@ -46,22 +46,25 @@ with `claude` → `/login`; Topics only reads that file. Set the runtime back to
 `cli` in Settings if you prefer a process per agent.
 
 The difference is what a session *costs*, measured on the same machine
-(12 cores / 34 GB, macOS) with real turns, same model on both sides:
+(12 cores / 34 GB, macOS), same model, same trivial turn, **same session
+count** on both sides:
 
 | | CLI (one process per agent) | Native runtime |
 |---|---|---|
-| Memory per session | ~432 MB | **0.25–0.9 MB** |
-| 64 sessions at once | not attempted | **4.1–4.7 s**, 64/64 answered |
+| Memory per session (3 sessions) | ~432 MB | **2.3 MB** |
 
-The marginal cost stays flat from 8 to 64 concurrent sessions, and the
-wall-clock time grows far slower than the session count: the network dominates,
-not the machine. Those ranges come from four runs across three independent
-servers — a single run looks tighter than the thing really is. Two honest
-caveats. The 64-session row was measured on the native runtime only, so read it
-as "this is what the native runtime does", not as a race it won. And the first
-turn on a cold server costs ~11 MB (code paths running for the first time),
-which is warm-up, not the price of a session. Raw numbers, every run and what
-each does *not* prove, are in [`bench/results/`](bench/results/):
+Pushing only the native runtime further, memory per session stays flat and even
+drops — 0.25–0.9 MB across four runs at 8 to 64 concurrent sessions, with 64
+real turns finishing in 4.1–4.7 s. Don't read those against the 432 MB above:
+that column was measured at 3 sessions, and pairing them would claim a ratio
+this benchmark never measured. At equal count the honest figure is **~188x**.
+
+The wall-clock time grows far slower than the session count — the network
+dominates, not the machine. Two more caveats. The CLI was never put through the
+64-session run at all, so there is no "who wins under load" answer here. And the
+first turn on a cold server costs ~11 MB (code paths running for the first
+time), which is warm-up, not the price of a session. Raw numbers, every run and
+what each does *not* prove, are in [`bench/results/`](bench/results/):
 
 ```bash
 # An ISOLATED server: pointing this at your dev server creates real topics in
