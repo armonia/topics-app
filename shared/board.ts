@@ -1307,6 +1307,20 @@ export interface BoardSettings {
    * si ferma a `nightModeUntil`. La accende una PERSONA — il senso è «vado
    * via», e nessuna euristica lo sa. Default spento.
    */
+  /**
+   * Questa board e' in pausa: il tick la salta, le altre continuano.
+   *
+   * Puo' solo FERMARE, ed e' l'unico verso che regge: il dispatch parte se
+   * l'interruttore globale e' acceso E questa board non e' in pausa. Una board
+   * «non in pausa» con il globale spento non dispaccia niente. Due interruttori
+   * che possono entrambi ACCENDERE si contraddicono, e chi guarda non sa quale
+   * dei due sta leggendo.
+   *
+   * Diverso da `nightMode`, che e' condizionale (aspetta che la macchina sia
+   * scarica) e si spegne da solo a un orario. Questo e' una scelta secca e
+   * resta finche' qualcuno non la toglie.
+   */
+  dispatchPaused: boolean;
   nightMode: boolean;
   /** Quando smettere, `HH:MM` locale. Vuoto ⇒ nessuna fine (sconsigliato: un
    *  turno che non sa finire resta armato il giorno dopo). */
