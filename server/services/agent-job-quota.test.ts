@@ -45,6 +45,10 @@ function dbFresco(): Database {
   db.run(`CREATE TABLE task_attempts (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, idx INTEGER NOT NULL, topic_id TEXT
   )`);
+  // migration 20260816112635: l'interruttore GLOBALE dell'auto-dispatch vive in
+  // `app_settings`, non piu' sulla riga '*' di `board_settings`.
+  db.run(`CREATE TABLE IF NOT EXISTS app_settings (id INTEGER PRIMARY KEY CHECK (id = 1), auto_dispatch INTEGER)`);
+  db.run(`INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0)`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, max_agents INTEGER, max_agents_auto INTEGER
   )`);

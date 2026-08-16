@@ -39,7 +39,9 @@ function freshDb(): Database {
   )`);
   db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   // L'interruttore acceso: la riga '*' È l'interruttore globale.
-  db.run("INSERT INTO board_settings (project_id, auto_dispatch) VALUES ('*', 1)");
+  // L'interruttore globale sta in `app_settings` dalla migration 20260816112635:
+  // sulla riga '*' di board_settings la colonna non esiste piu'.
+  db.run("UPDATE app_settings SET auto_dispatch = 1");
   return db;
 }
 
