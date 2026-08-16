@@ -45,6 +45,10 @@ function freshDb(): Database {
   // See the note in tasks.queue-reason.test.ts: `readGlobalCap` SELECTs
   // `max_agents_auto`, so leaving it out of this DDL arms a "no such column"
   // throw for the first test here that touches the machine-wide cap.
+  // migration 20260816112635: l'interruttore GLOBALE dell'auto-dispatch vive in
+  // `app_settings`, non piu' sulla riga '*' di `board_settings`.
+  db.run(`CREATE TABLE IF NOT EXISTS app_settings (id INTEGER PRIMARY KEY CHECK (id = 1), auto_dispatch INTEGER)`);
+  db.run(`INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0)`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
     max_agents INTEGER DEFAULT 3, max_agents_auto INTEGER, dispatch_retry_cap INTEGER
@@ -65,7 +69,9 @@ function freshDb(): Database {
     rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
     reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
   )`);
-  db.run("INSERT INTO board_settings (project_id, auto_dispatch) VALUES ('*', 1)");
+  // L'interruttore globale sta in `app_settings` dalla migration 20260816112635:
+  // sulla riga '*' di board_settings la colonna non esiste piu'.
+  db.run("UPDATE app_settings SET auto_dispatch = 1");
   return db;
 }
 

@@ -1185,8 +1185,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // The global start switch (row '*'). Closure helper — never `this` — so the
   // methods survive being destructured off the service.
   const readGlobalDispatch = (): boolean => {
-    const r = db.query("SELECT auto_dispatch FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
-    return r ? !!r.auto_dispatch : false;
+    // `app_settings` e non piu' la riga '*' di `board_settings`: e' una
+    // preferenza di MACCHINA, e stava in una tabella per progetto solo per
+    // ragioni storiche. Finche' e' stata li', lo zero di default sulle righe
+    // per-progetto ha avuto l'aria di una scelta e ha prodotto due diagnosi
+    // sbagliate (11/08 e 15/08). Vedi la migration
+    // 20260816112635-board-settings-drop-dead-auto-dispatch.
+    // Best-effort come ogni altra lettura di preferenza in questo file: un DB
+    // senza `app_settings` (gli schemi minimi dei test, un host a meta'
+    // migrazione) vale «spento», non un'eccezione. Il verso conta: l'errore
+    // opposto sarebbe far esplodere il tick del dispatcher su una tabella
+    // mancante, cioe' fermare tutto per una preferenza.
+    try {
+      const r = db.query("SELECT auto_dispatch FROM app_settings LIMIT 1").get() as { auto_dispatch?: number | null } | undefined;
+      return r ? !!r.auto_dispatch : false;
+    } catch {
+      return false;
+    }
   };
 
   // C'è un task pesante con un agente vivo ADESSO? Closure e non `this`, come
@@ -4149,10 +4164,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     setGlobalAutoDispatch(on: boolean): boolean {
-      db.prepare(
-        "INSERT INTO board_settings (project_id, auto_dispatch, max_agents) VALUES (?, ?, 2) " +
-        "ON CONFLICT(project_id) DO UPDATE SET auto_dispatch = excluded.auto_dispatch",
-      ).run(GLOBAL_SETTINGS_KEY, on ? 1 : 0);
+      try { db.prepare("UPDATE app_settings SET auto_dispatch = ?").run(on ? 1 : 0); } catch { /* schema minimo: vedi readGlobalDispatch */ }
+      // Il tetto globale continua a vivere sulla riga '*': la si semina qui col
+      // 2 esplicito, come prima, o accendere l'interruttore lo lascerebbe al
+      // default 5 della colonna legacy.
+      db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(GLOBAL_SETTINGS_KEY);
       return readGlobalDispatch();
     },
 
@@ -4219,13 +4235,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // key, where it must land on the same global default as
       // `setGlobalAutoDispatch` instead of the legacy column default of 5.
       db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(projectId);
-      // autoDispatch is the GLOBAL switch: route it to the '*' row so flipping
-      // it from any board (or the global board) flips it everywhere.
+      // autoDispatch e' l'interruttore GLOBALE: si scrive in `app_settings`, cosi'
+      // ribaltarlo da una board qualsiasi (o dalla board globale) lo ribalta
+      // ovunque. Prima finiva sulla riga riservata '*' di questa stessa tabella,
+      // ed e' quella convivenza che rendeva credibile lo zero delle altre righe.
       if (patch.autoDispatch !== undefined) {
-        db.prepare(
-          "INSERT INTO board_settings (project_id, auto_dispatch, max_agents) VALUES (?, ?, 2) " +
-          "ON CONFLICT(project_id) DO UPDATE SET auto_dispatch = excluded.auto_dispatch",
-        ).run(GLOBAL_SETTINGS_KEY, patch.autoDispatch ? 1 : 0);
+        try { db.prepare("UPDATE app_settings SET auto_dispatch = ?").run(patch.autoDispatch ? 1 : 0); } catch { /* schema minimo: vedi readGlobalDispatch */ }
+        // La riga '*' si materializza lo stesso, e non e' un residuo: e' dove
+        // vive il TETTO globale, e nasce col 2 esplicito. Senza, accendere
+        // l'interruttore lascerebbe il tetto al default della colonna legacy
+        // (5), cioe' un ON alzerebbe di sua iniziativa il numero di agenti che
+        // la macchina si prende. L'auto-dispatch ha traslocato, il tetto no.
+        db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(GLOBAL_SETTINGS_KEY);
       }
       const sets: string[] = [];
       const params: any[] = [];
