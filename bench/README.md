@@ -226,6 +226,11 @@ Two independent series per app: once by hand with ~50 s of settling, once with
 `scripts/bench/ide-footprint.sh` at 90 s. **The absolute numbers move with how
 long you wait; the slope does not**, which is why the slope is the answer.
 
+**Empty, before anything is open.** Topics.app is 164 MB on disk against 1.3 GB
+(Cursor) and 1.5 GB (VS Code) — `du -sh` on the bundles. A Topics server on an
+empty database starts at 91 MB of RAM, measured on a clean git worktree with its
+own `DATA_DIR`, so nothing from the running install could leak into it.
+
 | | 1 project | 2 | 3 | per extra project |
 | --- | --- | --- | --- | --- |
 | Cursor (50 s) | 1356 | 2373 | 3434 MB | +1039 MB |
