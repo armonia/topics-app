@@ -269,3 +269,4 @@ artifacts/
 # radici usa-e-getta dei test che hanno bisogno di un percorso NON nascosto
 # (vedi tasks.test.ts: la deduzione della cartella progetti scarta le dot-dir)
 tmp-tasks-router-*/
+.topics-claims.md
