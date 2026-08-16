@@ -17,8 +17,21 @@ describe("presenza dell'organizzazione", () => {
     // rendere il numero una decorazione.
     const membri = [{ id: "io", lastSeenAt: fa(1000) }];
     expect(presentiOra(membri, "io", ADESSO)).toBe(0);
-    // …e senza sapere chi sei, quello stesso membro conta.
-    expect(presentiOra(membri, null, ADESSO)).toBe(1);
+  });
+
+  it("NON SAPERE chi sei non è «non sei nessuno»: zero, non te stesso", () => {
+    // Questo caso, nella prima stesura, asseriva l'OPPOSTO: «senza sapere chi
+    // sei, quello stesso membro conta → 1». Era il bug scritto come se fosse
+    // una decisione, e per questo il test lo difendeva invece di prenderlo.
+    //
+    // Visto a schermo (tests/e2e/org-presence.spec.ts) il difetto è ovvio: chi
+    // è da solo legge «1» accanto all'icona delle persone, cioè se stesso
+    // presentato come «chi ALTRO c'è». E non è un caso di confine: l'identità
+    // arriva da `/api/people`, una fetch SEPARATA da quella dei membri, quindi
+    // `io === null` è lo stato normale per un istante a ogni avvio — e quello
+    // definitivo se la rubrica fallisce, cosa che il chiamante ingoia apposta.
+    const membri = [{ id: "io", lastSeenAt: fa(1000) }, { id: "a", lastSeenAt: fa(1000) }];
+    expect(presentiOra(membri, null, ADESSO)).toBe(0);
   });
 
   it("conta chi è stato visto dentro la soglia, non chi esiste", () => {
@@ -31,8 +44,8 @@ describe("presenza dell'organizzazione", () => {
   });
 
   it("il bordo della soglia: dentro conta, fuori no", () => {
-    expect(presentiOra([{ id: "a", lastSeenAt: fa(PRESENZA_MS - 1) }], null, ADESSO)).toBe(1);
-    expect(presentiOra([{ id: "a", lastSeenAt: fa(PRESENZA_MS) }], null, ADESSO)).toBe(0);
+    expect(presentiOra([{ id: "a", lastSeenAt: fa(PRESENZA_MS - 1) }], "io", ADESSO)).toBe(1);
+    expect(presentiOra([{ id: "a", lastSeenAt: fa(PRESENZA_MS) }], "io", ADESSO)).toBe(0);
   });
 
   it("un orologio avanti non nasconde chi c'è", () => {
@@ -40,15 +53,15 @@ describe("presenza dell'organizzazione", () => {
     // futuro conta come presente: il verso opposto nasconderebbe qualcuno che
     // c'è davvero, ed è l'errore peggiore per una riga che esiste per dire
     // «non sei solo».
-    expect(presentiOra([{ id: "a", lastSeenAt: ADESSO + 30_000 }], null, ADESSO)).toBe(1);
+    expect(presentiOra([{ id: "a", lastSeenAt: ADESSO + 30_000 }], "io", ADESSO)).toBe(1);
   });
 
   it("valori assurdi non diventano presenze", () => {
     // `NaN` da un JSON malformato non deve contare: `NaN < soglia` è false, ma
     // la guardia è esplicita perché è il tipo di cosa che cambia con un
     // refactor e nessuno se ne accorge.
-    expect(presentiOra([{ id: "a", lastSeenAt: Number.NaN }], null, ADESSO)).toBe(0);
-    expect(presentiOra([], null, ADESSO)).toBe(0);
+    expect(presentiOra([{ id: "a", lastSeenAt: Number.NaN }], "io", ADESSO)).toBe(0);
+    expect(presentiOra([], "io", ADESSO)).toBe(0);
   });
 
   it("la soglia si può cambiare da fuori: è del client, non del server", () => {
@@ -56,7 +69,7 @@ describe("presenza dell'organizzazione", () => {
     // «online», due schermate con due soglie direbbero due verità sullo stesso
     // membro.
     const m = [{ id: "a", lastSeenAt: fa(30_000) }];
-    expect(presentiOra(m, null, ADESSO, 10_000)).toBe(0);
-    expect(presentiOra(m, null, ADESSO, 60_000)).toBe(1);
+    expect(presentiOra(m, "io", ADESSO, 10_000)).toBe(0);
+    expect(presentiOra(m, "io", ADESSO, 60_000)).toBe(1);
   });
 });

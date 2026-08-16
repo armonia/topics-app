@@ -33,6 +33,18 @@ export function presentiOra(
   adesso: number,
   sogliaMs: number = PRESENZA_MS,
 ): number {
+  // NON SAPERE CHI SEI NON E' «SEI NESSUNO».
+  //
+  // Con `io` a null il filtro `m.id !== io` non esclude piu' niente, e chi e'
+  // da solo si vede contare 1: se stesso, presentato come «chi altro c'e'». Il
+  // caso non e' teorico — l'identita' arriva da `/api/people`, una fetch
+  // separata da quella dei membri, e finche' non risponde (o se fallisce, che
+  // il chiamante ingoia di proposito) `io` E' null mentre i membri ci sono gia'.
+  //
+  // Zero, quindi, e la riga non compare: «non lo so» si dice tacendo, non
+  // sparando un numero che nel caso piu' comune - una persona sola - e' anche
+  // quello sbagliato.
+  if (io === null) return 0;
   return membri.filter(
     (m) =>
       m.id !== io &&

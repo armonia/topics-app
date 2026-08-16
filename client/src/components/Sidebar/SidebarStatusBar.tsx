@@ -890,9 +890,16 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       const rm = await fetch(`/api/auth/orgs/${encodeURIComponent(mia.id)}/members`, { credentials: 'same-origin' });
       if (!rm.ok) return;
       const { members } = await rm.json() as { members: MembroPresenza[] };
-      setColleghi(presentiOra(members ?? [], io?.id ?? null, Date.now()));
+      // DUE fonti per la stessa domanda «chi sono io», e serve la seconda: la
+      // rubrica (`/api/people`, dietro `usePersonaCorrente`) e' una fetch a
+      // parte che puo' non aver ancora risposto, o fallire in silenzio. La
+      // sessione porta gia' `personId` ed e' la stessa persona, risolta dal
+      // server da `devices.person_id`. Senza il ripiego, chi e' da solo si
+      // vedeva contare 1 - se stesso - nella riga che dice «chi ALTRO c'e'».
+      const mioId = io?.id ?? (session.status === 'paired' ? session.personId ?? null : null);
+      setColleghi(presentiOra(members ?? [], mioId, Date.now()));
     } catch { /* idem: nessun numero e' meglio di un numero inventato */ }
-  }, [io?.id]);
+  }, [io?.id, session]);
 
   // Il conteggio si prende DOPO il primo paint, non durante. Questa riga sta in
   // fondo alla sidebar e il suo numero non serve a nessuno nel primo frame:
