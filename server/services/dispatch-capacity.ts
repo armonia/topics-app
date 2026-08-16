@@ -167,6 +167,31 @@ export function freeDiskGB(path: string): number | null {
 export const DISPATCH_MEM_FLOOR_GB = 12;
 
 /**
+ * Il pavimento quando gli agenti NON sono processi: il runtime nativo.
+ *
+ * Tutta la rampa qui sopra misura una cosa sola — il costo di una CLI. 240 MB
+ * fermi, 320-420 al lavoro, e dodici GB di margine perché cinque agenti veri
+ * ci stiano dentro senza mandare in swap la macchina di chi la sta usando.
+ *
+ * Col runtime nativo quel conto non descrive più niente. Una sessione è un
+ * array di messaggi dentro il server che è già acceso: misurati 2,3 MB
+ * marginali per sessione, contro 432 della CLI sulla stessa macchina
+ * (`bench/results/session-memory.json`, 2026-08-16). Dieci agenti nativi
+ * costano meno di UN agente CLI.
+ *
+ * Tenere 12 GB per roba che ne chiede 23 di megabyte non è prudenza: è una coda
+ * ferma su una macchina che sta benissimo, ed è successo — il dispatch bloccato
+ * con 8,7 GB liberi mentre gli agenti che doveva lanciare ne avrebbero chiesti
+ * venti di megabyte.
+ *
+ * DUE GB E NON ZERO. Il pavimento resta, perché il server fa anche altro: i
+ * turni tengono la conversazione in memoria, i tool leggono file, e una
+ * macchina già in swap non deve peggiorare comunque. Ma è il margine di
+ * un'applicazione che lavora, non di N processi Node.
+ */
+export const DISPATCH_MEM_FLOOR_NATIVE_GB = 2;
+
+/**
  * Memoria REALMENTE disponibile (libera + inattiva reclamabile), in GB.
  * `null` quando non si riesce a misurare, con la stessa regola del disco: «non
  * lo so» non è «zero», o un errore di lettura fermerebbe la coda per sempre.
@@ -212,9 +237,9 @@ export function availableMemGB(
  * `machineTooLoaded`, e permette di provarlo nei DUE versi senza riempire la
  * RAM di una macchina vera.
  */
-export function memoryTooTight(availableGB: number | null): boolean {
+export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_MEM_FLOOR_GB): boolean {
   if (availableGB == null || !Number.isFinite(availableGB)) return false;
-  return availableGB < DISPATCH_MEM_FLOOR_GB;
+  return availableGB < floorGB;
 }
 
 /**
@@ -238,6 +263,15 @@ export function dispatchResourceBlock(
   /** Idem per la memoria: il caso che conta è «RAM quasi finita», e provarlo
    *  per davvero vorrebbe dire mandare in swap la macchina di chi sviluppa. */
   readAvailMemGB: () => number | null = availableMemGB,
+  /**
+   * Gli agenti di questa macchina sono PROCESSI o no?
+   *
+   * È la domanda che decide il pavimento, e prima non veniva fatta: si teneva
+   * il margine di cinque CLI anche quando gli agenti costano 2,3 MB l'uno. Il
+   * chiamante lo sa (legge `agent_runtime`), qui si riceve e basta — questo
+   * file misura la macchina, non decide le politiche.
+   */
+  agentsAreProcesses = true,
 ): string | null {
   const free = readFreeGB(worktreesPath);
   if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
@@ -246,9 +280,13 @@ export function dispatchResourceBlock(
       `Riprendo appena si libera spazio: niente è andato perso.`;
   }
   const mem = (() => { try { return readAvailMemGB(); } catch { return null; } })();
-  if (memoryTooTight(mem)) {
-    return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${DISPATCH_MEM_FLOOR_GB} GB. ` +
-      `Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro, e sotto questa riga la macchina va in swap. ` +
+  const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
+  if (memoryTooTight(mem, floor)) {
+    const costo = agentsAreProcesses
+      ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
+      : "Anche col runtime nativo (~2,3 MB per sessione) qui non c'è margine nemmeno per il server";
+    return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${floor} GB. ` +
+      `${costo}, e sotto questa riga la macchina va in swap. ` +
       `Riprendo appena si libera memoria: niente è andato perso.`;
   }
   return null;

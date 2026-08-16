@@ -124,6 +124,7 @@ import {
   resolveOutputLanguage,
   resolveDiscordPresenceEnabled,
   resolveDiscordDetailLevel,
+  resolveAgentRuntime,
 } from "./server/services/app-settings";
 import { createProfileRouter } from "./server/routes/profile";
 import { startDiscordPresence } from "./server/services/discord-presence";
@@ -1095,7 +1096,23 @@ const taskDispatcher = createTaskDispatcher({
   // worktree. Serve da quando il tetto sugli agenti si può togliere: senza,
   // «nessun limite» vuol dire che la coda si ferma a disco pieno, cioè quando
   // le scritture del DB cominciano a fallire.
-  resourceBlock: () => dispatchResourceBlock(ctx.worktreeManager.worktreesDir()),
+  // Il pavimento di RAM dipende da COSA costa un agente, e questa è l'unica
+  // riga che lo sa: `cli` significa un processo Node per sessione (240-420 MB,
+  // margine 12 GB), il runtime nativo significa un array di messaggi dentro
+  // questo stesso server (2,3 MB misurati, margine 2 GB). Tenere il margine
+  // delle CLI per agenti che non sono processi ferma la coda su una macchina
+  // che sta benissimo — osservato il 2026-08-16 con 8,7 GB liberi.
+  //
+  // Si rilegge a ogni tick invece di fissarlo al boot: chi cambia runtime in
+  // Impostazioni si aspetta che valga da subito, e questa lettura costa una
+  // riga di SQLite già in cache.
+  resourceBlock: () =>
+    dispatchResourceBlock(
+      ctx.worktreeManager.worktreesDir(),
+      undefined,
+      undefined,
+      resolveAgentRuntime() === "cli",
+    ),
   createWorktree: async (projectStoreId) => {
     // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
     // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
