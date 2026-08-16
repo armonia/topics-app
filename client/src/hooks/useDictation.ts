@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchSttCapabilities,
+  forgetSttCapabilities,
   transcribeAudio,
   pickRecorderMimeType,
   extForMime,
@@ -68,8 +69,18 @@ export function useDictation(opts: {
 
   useEffect(() => {
     let alive = true;
-    void fetchSttCapabilities().then(caps => { if (alive) setCapabilities(caps); });
-    return () => { alive = false; };
+    const chiedi = () => { void fetchSttCapabilities().then(caps => { if (alive) setCapabilities(caps); }); };
+    chiedi();
+    // L'ACCOPPIAMENTO CAMBIA LA RISPOSTA. `/api/stt/capabilities` sta dietro
+    // l'identita': su un dispositivo appena arrivato in rete risponde `401`
+    // finche' non e' dentro. Senza questo ascolto il microfono resterebbe
+    // invisibile fino a un ricarico della pagina - la sonda si dimentica il
+    // «no» (vedi `fetchSttCapabilities`), ma qualcuno deve pur richiederla, e
+    // aspettare un tentativo naturale qui vuol dire aspettare che l'utente
+    // riapra un pannello.
+    const riprova = () => { forgetSttCapabilities(); chiedi(); };
+    window.addEventListener('topics:auth-pair-resolved', riprova);
+    return () => { alive = false; window.removeEventListener('topics:auth-pair-resolved', riprova); };
   }, []);
 
   const engine: DictationEngine =
