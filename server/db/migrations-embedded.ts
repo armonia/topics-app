@@ -114,6 +114,7 @@ import m20260814101500_task_interrupt_claim from "./migrations/20260814101500-ta
 import m20260815012042_push_subscription_auth_device from "./migrations/20260815012042-push-subscription-auth-device.sql" with { type: "text" };
 import m20260815013610_task_comments_author_kind_index from "./migrations/20260815013610-task-comments-author-kind-index.sql" with { type: "text" };
 import m20260815233953_agent_runtime from "./migrations/20260815233953-agent-runtime.sql" with { type: "text" };
+import m20260816112635_board_settings_drop_dead_auto_dispatch from "./migrations/20260816112635-board-settings-drop-dead-auto-dispatch.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -232,4 +233,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260815012042, name: "20260815012042-push-subscription-auth-device.sql", sql: m20260815012042_push_subscription_auth_device },
   { version: 20260815013610, name: "20260815013610-task-comments-author-kind-index.sql", sql: m20260815013610_task_comments_author_kind_index },
   { version: 20260815233953, name: "20260815233953-agent-runtime.sql", sql: m20260815233953_agent_runtime },
+  { version: 20260816112635, name: "20260816112635-board-settings-drop-dead-auto-dispatch.sql", sql: m20260816112635_board_settings_drop_dead_auto_dispatch },
 ];

@@ -135,8 +135,28 @@ export const TERMINAL_SESSIONS_DDL = `CREATE TABLE IF NOT EXISTS terminal_sessio
  * `IF NOT EXISTS`, quindi si esegue dopo la `topics` vera dell'harness senza
  * sovrascriverla (e senza obbligare chi non ce l'ha a inventarsela).
  */
+/**
+ * `app_settings` — le preferenze di MACCHINA, una riga sola.
+ *
+ * Sta fra gli stub e non fra le tabelle vere perche' qui serve solo che esista:
+ * dal 2026-08-16 ci vive `auto_dispatch`, l'interruttore globale che prima
+ * stava sulla riga riservata '*' di `board_settings` (migration
+ * 20260816112635). `readGlobalDispatch` la interroga a ogni lettura delle
+ * impostazioni di board, quindi senza questa riga non falliva un test: ne
+ * fallivano centocinquanta, tutti con «no such table».
+ *
+ * La riga viene anche INSERITA: una tabella vuota fa leggere «spento» invece
+ * dello stato vero, ed e' una differenza che si nota solo in un test su cento.
+ */
+export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  auto_dispatch INTEGER
+);
+INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
+
 export const TASKS_FK_STUBS_DDL = `CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY);
+${APP_SETTINGS_DDL}
 ${TERMINAL_SESSIONS_DDL}`;
 
 /** `task_labels` — identica alla 097, meno i commenti. */
