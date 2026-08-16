@@ -1,0 +1,59 @@
+{
+  "schema": "topics-memory-anatomy-v1",
+  "measured_at": "2026-08-16T18:46:00+02:00",
+  "domanda": "I ~450-630 MB che si vedono nella status bar: di cosa sono fatti, e c'è qualcosa da tagliare?",
+  "metrica": "phys_footprint via proc_pid_rusage (la colonna «Memoria» di Monitoraggio Attività), scomposto con vmmap --summary",
+  "strumento_validato": "mem-report.ts contro vmmap di Apple: 202,6M vs 203 MB e 63,6M vs 64 MB sugli stessi pid. Non è una stima nostra.",
+
+  "composizione": {
+    "DISPOSITIVO_451_MB": {
+      "WebContent": "292-448 MB osservati (8 campioni su 3 minuti), picco storico 660",
+      "guscio app (Tauri)": "65 MB",
+      "WebKit.GPU": "33 MB — processo di SISTEMA, lo avrebbe qualunque app con una WebView",
+      "WebKit.Networking": "20 MB — idem",
+      "SafariPlatformSupport": "16 MB — idem"
+    },
+    "SERVER_154_MB": {
+      "bun principale": "117-152 MB, di cui solo ~59 MB DIRTY: il resto è il binario bun (57 MB su disco) mappato, più __TEXT/__LINKEDIT condivisi",
+      "pty-bridge (node)": "18-21 MB",
+      "ai-bridge (bun)": "17 MB"
+    },
+    "AGENTI": "0 MB — col runtime nativo non esistono processi agente"
+  },
+
+  "la_scoperta_che_conta": {
+    "titolo": "Il footprint del WebContent è per l'80% memoria GIÀ COMPRESSA, non memoria viva",
+    "misura": "dirty 55,6 MB · swapped/compressa 239,5 MB · footprint 296 MB",
+    "cosa_significa": [
+      "La colonna «Memoria» somma le pagine compresse, che macOS ha già tolto di",
+      "mezzo e restituisce sotto pressione. Un `notifyutil -p org.WebKit.lowMemory`",
+      "ha portato il processo da 365 a 182 MB in quattro secondi, e la serie",
+      "temporale mostra un DENTE DI SEGA (197 → 244 → 202, e più tardi 448 → 292)",
+      "che scende da solo senza che nessuno intervenga.",
+      "Quindi: non c'è una perdita da inseguire, e non serve forzare la pressione",
+      "dall'app — WebKit lo fa già."
+    ]
+  },
+
+  "due_ipotesi_refutate": [
+    {
+      "ipotesi": "I 214 MB di WebKit Malloc sono i 222 MB di `tool_calls` che la UI carica caricando thread interi (HISTORY_FETCH_ALL = 0).",
+      "come_e_caduta": "La sonda `client/src/lib/devHeapProbe.ts`, armata sull'app viva, dice 150 sessioni ma 344 messaggi totali per 1,4 MB. Il thread più grosso servito da /api/history pesa 4,3 MB, non 214. E un ⌘R che azzera lo stato React lascia il footprint dov'era.",
+      "perche_importa": "Avrei tagliato le tool_calls dalla history senza che cambiasse nulla. La sonda esiste proprio perché indovinare qui era già costato due fix sbagliati."
+    },
+    {
+      "ipotesi": "Mandare la WebView in pressione quando la finestra è nascosta vale ~180 MB.",
+      "come_e_caduta": "Vale davvero 180 MB, ma WebKit li rilascia già da sé: misurato 244 → 202 MB senza alcun intervento.",
+      "perche_importa": "Era il mio consiglio numero uno. Sarebbe stato codice nel guscio Rust per un lavoro che il sistema fa gratis."
+    }
+  ],
+
+  "cosa_e_stato_davvero_corretto": {
+    "commit": "a485db99",
+    "difetto": "`byMem` divideva la RAM per 3 GB — il prezzo di un processo Node — anche col runtime nativo, dove una sessione costa 2,3 MB. Il pavimento sapeva distinguere i due runtime, il tetto no.",
+    "osservato": "Sul codice reale con os.totalmem() sostituito: una macchina da 8 GB / 8 core dà 2 posti con la CLI e 4 col nativo. Il default (nessun parametro) dà lo stesso 2 della versione pre-fix: nessuna regressione.",
+    "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
+  },
+
+  "conclusione": "Niente da tagliare né nel server (59 MB dirty) né nella UI (la memoria alta è compressa e transitoria). L'unico difetto vero era nel dimensionamento della concorrenza, ed è corretto. Il vincolo residuo sui 4 posti è una politica sulla CPU, non sulla memoria."
+}

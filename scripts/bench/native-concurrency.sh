@@ -79,8 +79,13 @@ if ! answered "$WORK/preflight.txt"; then
   sed -e 's/^/    /' "$WORK/preflight.txt" | tail -3 >&2
   echo >&2
   echo "Se dice «Not logged in»: il server e' partito senza credenziali nella sua" >&2
-  echo "HOME sandboxata. Copiale e RIAVVIALO — copiarle a server acceso non basta:" >&2
-  echo "  mkdir -p \"\$DATA_DIR/.home/.jcode\" && cp ~/.jcode/auth.json \"\$DATA_DIR/.home/.jcode/\"" >&2
+  echo "HOME sandboxata. Copiale e RIAVVIALO — copiarle a server acceso non basta," >&2
+  echo "il provider le legge all'avvio:" >&2
+  echo "  mkdir -p \"\$DATA_DIR/.home/.claude\"" >&2
+  echo "  cp ~/.claude/.credentials.json \"\$DATA_DIR/.home/.claude/\"   # oppure ~/.jcode/auth.json in .home/.jcode/" >&2
+  echo >&2
+  echo "ATTENZIONE: se quell'access token e' SCADUTO il server lo rinnova, e il" >&2
+  echo "refresh token RUOTA — il tuo login \`claude\` si rompe. Usane uno valido." >&2
   exit 1
 fi
 
