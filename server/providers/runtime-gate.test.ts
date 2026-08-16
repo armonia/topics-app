@@ -39,16 +39,22 @@ afterAll(() => {
 const names = (): string[] => resolveAcpAgents().map((a) => a.name);
 
 describe("il cancello del runtime sugli agenti ACP", () => {
-  // Il default. Senza questo, chi aggiorna si troverebbe un provider nuovo
-  // registrato senza averlo chiesto.
-  test("runtime `cli` (il default): jcode NON entra, gli altri agenti sì", () => {
-    expect(names()).not.toContain("jcode");
+  // Il default, invertito il 2026-08-16: chi non ha scelto ottiene il runtime
+  // che costa due ordini di grandezza in meno, senza dover sapere che esiste
+  // un interruttore da cercare.
+  test("nessuna scelta (il default): jcode entra, insieme agli altri agenti", () => {
+    expect(names()).toContain("jcode");
     expect(names()).toContain("gemini");
   });
 
-  test("runtime `jcode`: entra, ed è l'unica differenza", () => {
-    process.env.TOPICS_AGENT_RUNTIME = "jcode";
-    expect(names()).toContain("jcode");
+  // Il cancello non è sparito, ha cambiato verso: ora si chiude su richiesta
+  // esplicita. Chi ha chiesto `cli` sta dicendo «una CLI per sessione», e
+  // lasciargli il provider ACP nel picker lo renderebbe eleggibile come default
+  // automatico appena una CLI risulta disconnessa — cioè proprio ciò che ha
+  // appena escluso.
+  test("runtime `cli` chiesto a mano: jcode NON entra, gli altri agenti sì", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
+    expect(names()).not.toContain("jcode");
     expect(names()).toContain("gemini");
   });
 
@@ -57,6 +63,7 @@ describe("il cancello del runtime sugli agenti ACP", () => {
   // annullare una richiesta nominale — chi scrive quella variabile sta dicendo
   // «questo lo voglio», e vale anche se punta a un binario suo.
   test("dichiarato a mano in ACP_AGENTS, passa anche col runtime `cli`", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
     process.env.ACP_AGENTS = JSON.stringify([
       { name: "jcode", command: "/opt/jcode/bin/jcode", args: ["acp"] },
     ]);
@@ -68,6 +75,7 @@ describe("il cancello del runtime sugli agenti ACP", () => {
   });
 
   test("un `ACP_AGENTS` che parla d'altro non riapre il cancello", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
     process.env.ACP_AGENTS = JSON.stringify([{ name: "goose", command: "goose", args: ["acp"] }]);
     expect(names()).toContain("goose");
     expect(names()).not.toContain("jcode");
@@ -91,9 +99,12 @@ describe("il cancello del runtime sugli agenti ACP", () => {
     process.env.DATA_DIR = join(tmpRoot, "data");
     try {
       initDatabase(tmpRoot);
-      expect(names()).not.toContain("jcode");
-      updateAppSettings({ agentRuntime: "jcode" });
+      // Database vergine, nessuna riga: vale il default nuovo.
       expect(names()).toContain("jcode");
+      // E la riga salvata dalla UI chiude il cancello, che è il ramo che conta:
+      // la scelta deve arrivare fin qui passando dalla colonna vera.
+      updateAppSettings({ agentRuntime: "cli" });
+      expect(names()).not.toContain("jcode");
     } finally {
       try { closeDatabase(); } catch { /* già chiuso */ }
       if (savedDataDir === undefined) delete process.env.DATA_DIR;

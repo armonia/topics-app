@@ -34,6 +34,7 @@
  */
 
 import { spawn, type ChildProcess } from "child_process";
+import { existsSync } from "fs";
 import type {
   AcpProviderConfig,
   AIProvider,
@@ -227,7 +228,16 @@ export class AcpProvider implements AIProvider {
 
   private resolveBinary(): string | null {
     const cmd = this.config.command;
-    if (cmd.includes("/")) return cmd;
+    // Un percorso (`/opt/jcode/bin/jcode`, `./agente`) si prende per buono solo
+    // se il file c'è DAVVERO. Prima bastava che contenesse una barra: il
+    // provider si dichiarava `connected`, entrava nella graduatoria del default
+    // e la prima chat moriva su `ACP_BINARY_NOT_FOUND` — un guasto che si vede
+    // solo quando qualcuno prova a parlarci, cioè nel momento peggiore.
+    //
+    // Il caso non è teorico: `ACP_AGENTS` esiste apposta per puntare a un
+    // binario in un posto suo, e un percorso vecchio dopo un aggiornamento è il
+    // modo normale in cui quella riga smette di essere vera.
+    if (cmd.includes("/")) return existsSync(cmd) ? cmd : null;
     return Bun.which(cmd) ?? null;
   }
 

@@ -728,11 +728,12 @@ const IT: Dict = {
   //    la ragione della scelta, ed è misurato, non stimato.
   'runtime.label': 'Runtime degli agenti',
   'runtime.hint': 'Vale dal prossimo avvio del server.',
-  'runtime.cliDefault': 'CLI (predefinito)',
+  'runtime.jcodeDefault': 'jcode (predefinito)',
   'runtime.cli': 'CLI (un processo per sessione)',
   'runtime.jcode': 'jcode (demone condiviso)',
-  'runtime.blurb': 'Una CLI per sessione costa circa 200 MB per agente: otto agenti sono quasi 2 GB di soli processi. Con jcode le sessioni vivono dentro un demone condiviso e ne costano meno di uno ciascuna, misurate su 24 sessioni insieme. Il sistema a CLI resta il predefinito e riprende esattamente come prima.',
+  'runtime.blurb': 'Una CLI per sessione costa circa 200 MB per agente: otto agenti sono quasi 2 GB di soli processi. Con jcode le sessioni vivono dentro un demone condiviso e ne costano meno di uno ciascuna, misurate su 24 sessioni insieme. È il predefinito; se jcode non è installato gli agenti restano sulla CLI come prima.',
   'runtime.missing': 'Scelto, ma non ancora fra i provider: serve un riavvio del server, e l’eseguibile jcode dev’essere nel PATH.',
+  'runtime.defaultUnavailable': 'jcode è il predefinito, ma su questa macchina non è installato: gli agenti girano sulla CLI, come prima. Per il demone condiviso serve l’eseguibile jcode nel PATH.',
   // ── Il profilo: le tue statistiche d'uso, lette da ciò che è successo qui.
   'profile.stats.title': 'Le tue statistiche',
   'profile.stats.blurb': 'Contate su ciò che è successo davvero qui: sessioni, messaggi, task della board. Restano su questa macchina.',
