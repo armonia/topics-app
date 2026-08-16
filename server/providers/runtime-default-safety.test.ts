@@ -26,6 +26,7 @@ import {
   listProviders,
 } from "./index";
 import { resolveAcpAgents } from "./index";
+import { getDatabase } from "../db";
 
 const ENV = ["AI_PROVIDER", "ACP_AGENTS", "TOPICS_AGENT_RUNTIME"] as const;
 const saved: Record<string, string | undefined> = {};
@@ -62,6 +63,13 @@ function clearRegistry() {
 describe("il default `jcode` su una macchina che non ha jcode", () => {
   beforeEach(() => {
     for (const k of ENV) delete process.env[k];
+    // La riga del DB va azzerata come le variabili, e per lo stesso motivo:
+    // `resolveAgentRuntime` legge PRIMA `app_settings.agent_runtime` e solo
+    // dopo l'ambiente, quindi un DB che porta gia' una scelta fa misurare a
+    // questi casi lo stato del database invece della regola. Verde a casa,
+    // rosso sul runner, sullo stesso codice — e' lo stesso difetto del test
+    // che misurava il TMPDIR di chi lo lanciava (9ac70958).
+    try { getDatabase().prepare("UPDATE app_settings SET agent_runtime = NULL").run(); } catch { /* schema minimo */ }
     clearRegistry();
   });
   afterEach(() => {
@@ -135,6 +143,13 @@ describe("il default `jcode` su una macchina che non ha jcode", () => {
 describe("il runtime di casa nel registro", () => {
   beforeEach(() => {
     for (const k of ENV) delete process.env[k];
+    // La riga del DB va azzerata come le variabili, e per lo stesso motivo:
+    // `resolveAgentRuntime` legge PRIMA `app_settings.agent_runtime` e solo
+    // dopo l'ambiente, quindi un DB che porta gia' una scelta fa misurare a
+    // questi casi lo stato del database invece della regola. Verde a casa,
+    // rosso sul runner, sullo stesso codice — e' lo stesso difetto del test
+    // che misurava il TMPDIR di chi lo lanciava (9ac70958).
+    try { getDatabase().prepare("UPDATE app_settings SET agent_runtime = NULL").run(); } catch { /* schema minimo */ }
     clearRegistry();
   });
   afterEach(() => {
