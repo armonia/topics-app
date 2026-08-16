@@ -158,6 +158,10 @@ jobs:
           # entrambi — con 370 di budget un file ratchettato potrebbe
           # riprendersi dieci `any` senza che il totale se ne accorga.
           bun run check:any-budget
+          # La forma che ha rotto la pane della chat il 16/08 (React #185):
+          # callback ref inline + setState. Il crash non si riproduce in una
+          # spec — dipende dal carico — ma la sua CAUSA si legge nel JSX.
+          bun run check:ref-callbacks
           bun run check:nul
           bun run check:deadcode
           bun run check:eslint-disable
