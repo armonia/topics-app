@@ -44,19 +44,17 @@ const UTILITY_ICONS: Record<string, LucideIcon> = {
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
  *  stessa rotazione, così «si apre» si legge uguale ovunque.
  *
- *  `floating`: quando la tessera è un quadrato e mostra la sola icona, il
- *  chevron esce dal flusso e si appoggia al bordo sinistro, così non pesa nel
- *  centraggio (`pinned-tile-lead` in `index.css`, che è anche dove sta scritto
- *  fin dove c'è spazio per farlo). */
-function ExpandChevron({ expanded, floating }: { expanded: boolean; floating?: boolean }) {
+ *  Lo SLOT (larghezza fissa) e l'uscita dal flusso sulle tessere quadrate
+ *  (`pinned-tile-lead`) stanno sul wrapper, non qui: sono decisioni di LAYOUT
+ *  della riga, e tenerle sul glifo faceva sì che il nome partisse da una x
+ *  diversa a seconda che la tessera fosse espandibile o no. */
+function ExpandChevron({ expanded }: { expanded: boolean }) {
   return (
     <ChevronRight
       size={12}
       aria-hidden="true"
       data-testid="pinned-expand-hint"
-      className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${
-        floating ? 'pinned-tile-lead' : ''
-      } ${expanded ? 'rotate-90' : ''}`}
+      className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
     />
   );
 }
@@ -448,7 +446,22 @@ export function PinnedTile({
           «Senza ripetere il titolo se non c'entra» voleva dire proprio questo:
           se non ci sta. In una riga larga ci sta, troncato, e allora c'è — la
           soglia la misura la container query qui sotto. */}
-      {expandable && <ExpandChevron expanded={expanded} floating={hasRealIcon} />}
+      {/* IL CHEVRON NON SPOSTA IL NOME.
+          Misurato nel DOM sulle tessere vere: quelle con il chevron avevano il
+          testo a x=42, tutte le altre a x=36. Sei pixel su una colonna di righe
+          identiche, cioè il tipo di scarto che si vede senza riuscire a
+          nominarlo - segnalato come «assicuriamoci che le icone degli accordion
+          siano tutte correttamente allineate».
+          Larghezza FISSA anche da vuoto: se lo spazio comparisse solo per le
+          tessere espandibili, il nome ballerebbe fra una riga e l'altra, che è
+          lo stesso difetto al contrario. */}
+      <span
+        data-testid="pinned-chevron-slot"
+        aria-hidden={!expandable || undefined}
+        className={`flex w-3 flex-shrink-0 items-center justify-center ${hasRealIcon ? 'pinned-tile-lead' : ''}`}
+      >
+        {expandable && <ExpandChevron expanded={expanded} />}
+      </span>
 
       <span className="relative flex flex-shrink-0 items-center justify-center">
         {hasRealIcon

@@ -85,6 +85,68 @@ async function boxOf(page: Page, name: string) {
 }
 
 test.describe("Sidebar — tessere fissate", () => {
+  test("TILE-ALLINEA: il chevron non sposta il nome di sei pixel", async ({ page, request }) => {
+    // Misurato nel DOM sulle tessere vere: quelle con il chevron avevano il
+    // testo a x=42, tutte le altre a x=36. Sei pixel su una colonna di righe
+    // identiche, cioe' il tipo di scarto che si vede senza riuscire a
+    // nominarlo. Segnalato come «assicuriamoci che le icone degli accordion
+    // siano tutte correttamente allineate con la giusta spaziatura vicino al
+    // testo».
+    //
+    // Perche' un test e non un'occhiata: il difetto e' GEOMETRIA, e un VLM o un
+    // occhio distratto lo perdono. Sei pixel non si vedono, si misurano.
+    const a = await createTopic(request, `E2E-Allinea-A-${Date.now()}`);
+    const b = await createTopic(request, `E2E-Allinea-B-${Date.now()}`);
+    created.push(a.id, b.id);
+    await setPins(page, [a.id, b.id], [[a.id], [b.id]]);
+    await gotoSidebar(page);
+
+    const misura = async (nome: string) => {
+      const tile = tileNamed(page, nome);
+      await expect(tile).toBeVisible({ timeout: 10000 });
+      return tile.evaluate((el) => {
+        const testo = [...el.querySelectorAll("span")]
+          .find((s) => s.textContent?.trim() && !s.querySelector("svg"));
+        if (!testo) return null;
+        // Relativa alla TESSERA, non alla finestra: due tessere su righe
+        // diverse hanno x assolute diverse per costruzione.
+        return +(testo.getBoundingClientRect().left - el.getBoundingClientRect().left).toFixed(1);
+      });
+    };
+
+    const xa = await misura(a.name);
+    const xb = await misura(b.name);
+    expect(xa, "la prima tessera deve avere un testo misurabile").not.toBeNull();
+    expect(xb).not.toBeNull();
+    // Lo SLOT del chevron c'e' sempre, quindi due tessere della stessa forma
+    // partono dalla stessa x, con o senza chevron dentro.
+    expect(Math.abs(xa! - xb!), "il nome parte dalla stessa colonna").toBeLessThanOrEqual(0.5);
+
+    // LA GARANZIA VERA: lo slot esiste ANCHE senza chevron, e ha una larghezza.
+    //
+    // Due topic fissati non sono mai espandibili (`renderExpanded` torna null
+    // per loro), quindi il confronto qui sopra da solo non distingue il codice
+    // corretto da quello rotto: entrambe le tessere passerebbero. La prova che
+    // regge e' che lo SPAZIO del chevron ci sia comunque — perche' e' quello
+    // che fa partire dalla stessa x una tessera espandibile e una no.
+    //
+    // Falsificato togliendo lo slot (chevron nel flusso, com'era prima): il
+    // riquadro sparisce e questa riga diventa rossa.
+    for (const nome of [a.name, b.name]) {
+      const slot = await tileNamed(page, nome).evaluate((el) => {
+        // Il testid, non `[aria-hidden]`: dentro una tessera ce ne sono altri
+        // (il glifo, il segnaposto dell'icona in volo) e il selettore generico
+        // ne pescava uno che c'e' comunque — il sabotaggio restava verde.
+        const s = el.querySelector('[data-testid="pinned-chevron-slot"]');
+        return s ? +s.getBoundingClientRect().width.toFixed(1) : null;
+      });
+      expect(slot, `lo slot del chevron manca su "${nome}": senza, il nome di una
+        tessera espandibile parte 6px piu' a destra delle vicine`).not.toBeNull();
+      expect(slot!).toBeGreaterThan(0);
+    }
+  });
+
+
   test.afterAll(async ({ request }) => {
     for (const id of created) await deleteTopic(request, id).catch(() => {});
     created.length = 0;
