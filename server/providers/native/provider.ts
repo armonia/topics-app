@@ -26,8 +26,9 @@
 import { runAgentTurn, type Message } from "./agent-loop";
 import { CODING_TOOLS } from "./tools";
 import { levelFor } from "./permissions";
+import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
-import { getTopicWorkspaceForSession } from "../claude-code";
+import { getTopicWorkspaceForSession, topicsAppBaseUrl } from "../claude-code";
 import type {
   AIProvider,
   ChatMessage,
@@ -128,6 +129,39 @@ export class NativeProvider implements AIProvider {
     this.sessions.clear();
   }
 
+  /**
+   * Il contesto per i mestieri di Topics, o `null` se questa sessione non ne
+   * ha diritto.
+   *
+   * Il PROFILO segue la stessa regola delle CLI (`writeMcpConfigForSession`):
+   * un agente dispacciato con `mcp_policy = 'bridge-only'` prende il set
+   * ridotto, perche' gli schemi dei tool viaggiano nel contesto di OGNI
+   * chiamata e per un agente che lavora un task solo sono una tassa in token.
+   * Regola duplicata? No: la stessa domanda, la stessa risposta, presa dalla
+   * stessa colonna. Riscriverla diversamente sarebbe il modo di farle divergere.
+   */
+  private topicsContext(sessionKey: string): TopicsToolContext | null {
+    try {
+      const { getDatabase } = require("../../db");
+      const row = getDatabase()
+        .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+        .get(sessionKey) as { mcp_policy?: string | null } | undefined;
+      // Nessuna riga = nessuna topic: e' il caso di `complete` e dei test, dove
+      // i mestieri di Topics non c'entrano niente.
+      if (!row) return null;
+      return {
+        baseUrl: topicsAppBaseUrl(),
+        sessionKey,
+        gatewayToken: process.env.GATEWAY_TOKEN,
+        profile: row.mcp_policy === "bridge-only" ? "dispatch" : undefined,
+      };
+    } catch {
+      // Senza database si resta un agente che sa programmare e basta: meglio
+      // meno strumenti che un turno che non parte.
+      return null;
+    }
+  }
+
   /** Vedi `resolveTurnAlive`: si parla solo per le proprie sessioni. */
   ownsSession(sessionKey: string): boolean {
     return this.sessions.has(sessionKey);
@@ -194,6 +228,14 @@ export class NativeProvider implements AIProvider {
       // il progetto, e indovinare significa toccare file a caso. Resta una
       // chat, che è la cosa onesta da essere.
       const workspace = session.workspace;
+      // I due elenchi si UNISCONO: un agente che sa programmare ma non sa
+      // muovere la card che sta lavorando e' meta' agente, ed e' esattamente
+      // com'era prima di questa riga.
+      const topics = this.topicsContext(sessionKey);
+      const tools = [
+        ...(workspace ? CODING_TOOLS : []),
+        ...(topics ? topicsToolSpecs(topics.profile) : []),
+      ];
       const out = await runAgentTurn(
         {
           model: session.model ?? this.config.model ?? DEFAULT_MODEL,
@@ -201,8 +243,9 @@ export class NativeProvider implements AIProvider {
             ? options?.systemPrompt
             : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),
           history: session.history,
-          tools: workspace ? CODING_TOOLS : [],
+          tools,
           toolContext: { workspace: workspace ?? "" },
+          topics: topics ?? undefined,
           // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
           // sulla sessione: chi lo cambia in chat si aspetta che valga dal
           // messaggio dopo, non dalla prossima chat.

@@ -601,7 +601,7 @@ const TOOLS = [
   },
 ];
 
-interface ParsedArgs {
+export interface ParsedArgs {
   baseUrl: string;
   sessionKey: string;
   gatewayToken?: string;
@@ -1876,7 +1876,15 @@ export async function callApprovalPrompt(
  * instead). The underlying call* functions still take an explicit fetchImpl
  * for direct unit testing — the registry just relies on their default.
  */
-const TOOL_HANDLERS: Record<
+/**
+ * I mestieri di Topics, per nome.
+ *
+ * Esportata perché il RUNTIME NATIVO la usa in-process: quel runtime non
+ * spawna questo file come processo MCP (è tutto il suo punto), ma i tool sono
+ * gli stessi e riscriverli sarebbe due implementazioni che divergono al primo
+ * bugfix. Vedi `providers/native/topics-tools.ts`.
+ */
+export const TOOL_HANDLERS: Record<
   string,
   (args: ParsedArgs, toolArgs: Record<string, unknown>, ctx?: ToolCallContext) => Promise<string>
 > = {
