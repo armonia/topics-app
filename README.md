@@ -53,11 +53,12 @@ count** on both sides:
 |---|---|---|
 | Memory per session (3 sessions) | ~432 MB | **2.3 MB** |
 
-Pushing only the native runtime further, memory per session stays flat and even
-drops — 0.25–0.9 MB across four runs at 8 to 64 concurrent sessions, with 64
-real turns finishing in 4.1–4.7 s. Don't read those against the 432 MB above:
-that column was measured at 3 sessions, and pairing them would claim a ratio
-this benchmark never measured. At equal count the honest figure is **~188x**.
+Pushing only the native runtime further, memory per session **falls** as the
+count rises — the fixed cost spreads. Across five independent servers: 0.7–2.7 MB
+at 8 concurrent sessions, 0.8–1.0 at 32, and 0.25–0.9 at 64, where 64 real turns
+finish in 3.9–4.7 s. Don't read those against the 432 MB above: that column was
+measured at 3 sessions, and pairing them would claim a ratio this benchmark
+never measured. At equal count the honest figure is **~188x**.
 
 The wall-clock time grows far slower than the session count — the network
 dominates, not the machine. Two more caveats. The CLI was never put through the

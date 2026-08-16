@@ -74,9 +74,25 @@
     "preflight_provato": "Su un server avviato senza credenziali lo script ora si ferma in 1,5 s con la spiegazione, invece di bruciare 104 turni e stampare una tabella sana con zero risposte dentro.",
     "tre_server_indipendenti": "39470 / 39471 / 39480, DATA_DIR e TOPICS_HOME distinti: N=64 dà 4,14 · 3,38 · 4,72 · 4,57 s e 0,34 · 0,59 · 0,25 · 0,88 MB per sessione. La banda per sessione è più larga di quanto suggerisse una serie sola — 0,25-0,88 — e questo è il motivo per cui vale la pena replicare."
   },
+  "sintesi_per_N": {
+    "come_leggerla": [
+      "Cinque server indipendenti (39470/39471/39480/39491, DATA_DIR e",
+      "TOPICS_HOME distinti), stesso modello, stesso turno. Il costo per",
+      "sessione CALA al crescere di N: il costo fisso del turno si spalma.",
+      "Citare una banda unica «8-64» sarebbe sbagliato — a N=8 si arriva a",
+      "2,72 MB, cioè dieci volte il minimo di N=64."
+    ],
+    "N8":  { "serie": [0.74, 0.80, 2.72, 1.70, 1.38], "banda": "0,74-2,72 MB" },
+    "N16": { "serie": [0.82, 1.46], "banda": "0,82-1,46 MB" },
+    "N32": { "serie": [0.75, 0.75, 0.93, 1.02], "banda": "0,75-1,02 MB" },
+    "N64": { "serie": [0.34, 0.59, 0.25, 0.88, 0.29], "banda": "0,25-0,88 MB" },
+    "wall_a_N64": "3,94 · 4,14 · 4,57 · 4,72 s — quattro misure su server diversi",
+    "risposte_verificate": "Ogni turno controllato nel CONTENUTO, non sul solo [DONE]. Nessun fallimento nelle serie con credenziali a posto."
+  },
+
   "conclusioni": {
-    "costo_marginale": "0,25-0,9 MB per sessione a N=64, su quattro serie e tre server indipendenti. Resta PIATTO da 8 a 64: nessuna crescita superlineare, ma la dispersione fra serie è reale e una serie sola la nascondeva.",
-    "scalabilita": "64 turni concorrenti in 4,1-4,7s, tutti con risposta verificata nel contenuto; il wall cresce molto meno del numero di sessioni (la rete domina, non la macchina)",
+    "costo_marginale": "NON è piatto: CALA al crescere di N (0,74-2,72 MB a N=8, 0,25-0,88 a N=64) perché il costo fisso di un turno si spalma su più sessioni. Nessuna crescita superlineare, che era la domanda vera; ma «piatto da 8 a 64», come avevo scritto prima, è smentito dalla sintesi per N qui sopra.",
+    "scalabilita": "64 turni concorrenti in 3,9-4,7s su quattro server diversi, tutti con risposta verificata nel contenuto; il wall cresce molto meno del numero di sessioni (la rete domina, non la macchina)",
     "server_rss": "da 89 MB a 155 MB per 127 turni: +66 MB in totale",
     "implicazione": "il tetto di 4 posti su questa macchina è una politica sui core, non un limite fisico: il runtime nativo regge un ordine di grandezza in più"
   }
