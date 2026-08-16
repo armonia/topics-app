@@ -24,18 +24,47 @@ const UNAVAILABLE: SttCapabilities = { available: false, provider: null, model: 
  * Una sonda per sessione, non una per pannello: ogni ChatPane monta la dettatura,
  * e senza questa memoria aprire dieci topic significava dieci richieste identiche
  * a un endpoint che risponde con la stessa riga di configurazione.
+ *
+ * SI RICORDA SOLO IL SI'. Un «no» viene dimenticato, e non è pignoleria:
+ * `/api/stt/capabilities` sta dietro l'identità, quindi su un dispositivo
+ * appena arrivato in rete risponde `401 device not paired` finché
+ * l'accoppiamento non è concluso. Con la vecchia memoria quel 401 diventava la
+ * risposta DEFINITIVA della sessione: `isSupported` restava falso, il bottone
+ * del microfono non si disegnava affatto, e non c'era nessun gesto capace di
+ * farlo tornare — solo un ricarico della pagina. È «in locale non funziona il
+ * microfono», e la parte che lo rendeva difficile da credere è che il server
+ * trascriveva benissimo (misurato: `POST /api/stt` risponde in 5,2s con
+ * whisper.cpp).
+ *
+ * Ricordare il sì e dimenticare il no costa, al massimo, una fetch in più per
+ * pannello mentre il dispositivo non è ancora dentro; il contrario costa la
+ * funzione, in silenzio, fino al prossimo ricarico.
  */
 let capabilitiesPromise: Promise<SttCapabilities> | null = null;
 
 export function fetchSttCapabilities(): Promise<SttCapabilities> {
   if (!capabilitiesPromise) {
     capabilitiesPromise = fetch('/api/stt/capabilities', { credentials: 'same-origin' })
-      .then(r => (r.ok ? r.json() as Promise<SttCapabilities> : UNAVAILABLE))
-      // Server vecchio (404) o irraggiungibile: «non disponibile» è la risposta
-      // giusta, e il chiamante ha già la sua strada di ripiego.
-      .catch(() => UNAVAILABLE);
+      .then(r => {
+        if (r.ok) return r.json() as Promise<SttCapabilities>;
+        // Server vecchio (404), non ancora appaiati (401), server che riparte
+        // (5xx): «non disponibile» è la risposta giusta ADESSO, non per sempre.
+        capabilitiesPromise = null;
+        return UNAVAILABLE;
+      })
+      .catch(() => {
+        // Rete giù mentre la pagina si monta: idem, si riproverà.
+        capabilitiesPromise = null;
+        return UNAVAILABLE;
+      });
   }
   return capabilitiesPromise;
+}
+
+/** Dimentica la sonda: la usa chi SA che qualcosa è cambiato (l'accoppiamento
+ *  è andato a buon fine), invece di aspettare un tentativo naturale. */
+export function forgetSttCapabilities(): void {
+  capabilitiesPromise = null;
 }
 
 export class SttRequestError extends Error {
