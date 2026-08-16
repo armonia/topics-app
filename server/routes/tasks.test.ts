@@ -771,9 +771,20 @@ describe("board router (human, project-scoped)", () => {
   test("un progetto creato per nome nasce nella CARTELLA DEI PROGETTI, non nel workspace", async () => {
     const { mkdtempSync, mkdirSync, existsSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const ws = mkdtempSync(join(tmpdir(), "tasks-router-ws-"));
-    const home = mkdtempSync(join(tmpdir(), "tasks-router-home-"));
+    const { join, resolve } = await import("node:path");
+    // NON `tmpdir()` per la home finta, e non e' un dettaglio di igiene: la
+    // regola che si sta verificando SCARTA le cartelle nascoste (un progetto
+    // creato a mano non nasce in una dot-dir, ed e' cosi' che `~/.topics/
+    // worktrees` non vince la conta). Con un `TMPDIR` dentro una dot-dir —
+    // `~/.jcode/scratch` su questa macchina, ma vale per ogni runner che lo
+    // sposti — l'intera home finta finiva scartata e il test falliva
+    // denunciando il codice giusto. La radice sta accanto al repo, dove nessun
+    // segmento inizia per punto, cosi' la deduzione misura se stessa e non
+    // l'ambiente.
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tasks-router-ws-"));
+    const visibleRoot = mkdtempSync(join(resolve(import.meta.dir, "../.."), "tmp-tasks-router-"));
+    const ws = tmpRoot;
+    const home = visibleRoot;
     const projects = join(home, "Projects");
     mkdirSync(join(projects, "alpha"), { recursive: true });
     mkdirSync(join(projects, "beta"), { recursive: true });
