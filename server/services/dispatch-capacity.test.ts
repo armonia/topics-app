@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 
 function dbConImpostazioni(): Database {
@@ -153,12 +153,23 @@ describe("il tetto disattivato", () => {
  * path sbagliato, cioè causerebbe un guasto peggiore di quello che previene.
  */
 describe("il pavimento sulle risorse", () => {
+  /**
+   * Memoria fissata, e non e' pigrizia: questi casi giudicano il DISCO, e
+   * `dispatchResourceBlock` legge di sua iniziativa anche la RAM della macchina
+   * che esegue la suite. Lasciandola vera, il verde di «con spazio non blocca»
+   * dipenderebbe da quanti Chrome sono aperti mentre gira il test — misurato il
+   * 2026-08-16: 12,09 GB disponibili contro un pavimento di 12, cioe' a un
+   * decimo dal rosso. E' lo stesso difetto gia' pagato in tasks.test.ts, dove
+   * un test misurava il TMPDIR di chi lo lanciava.
+   */
+  const memoriaLarga = () => DISPATCH_MEM_FLOOR_GB + 8;
+
   test("con spazio non blocca", () => {
-    expect(dispatchResourceBlock("/")).toBeNull();
+    expect(dispatchResourceBlock("/", freeDiskGB, memoriaLarga)).toBeNull();
   });
 
   test("un path che non si legge NON blocca: non sapere non è sapere di no", () => {
-    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero")).toBeNull();
+    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero", freeDiskGB, memoriaLarga)).toBeNull();
     expect(freeDiskGB("/percorso/che/non/esiste/davvero")).toBeNull();
   });
 
@@ -175,7 +186,7 @@ describe("il pavimento sulle risorse", () => {
   test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
     // Misura iniettata: il caso che conta è il disco quasi pieno, e aspettarlo
     // sul serio vorrebbe dire non provarlo mai.
-    const msg = dispatchResourceBlock("/qualunque", () => 3.5);
+    const msg = dispatchResourceBlock("/qualunque", () => 3.5, memoriaLarga);
     expect(msg).not.toBeNull();
     expect(msg!).toContain("3.5 GB liberi");
     expect(msg!).toContain(String(DISPATCH_DISK_FLOOR_GB));
@@ -185,12 +196,111 @@ describe("il pavimento sulle risorse", () => {
   });
 
   test("un solo GB sopra il pavimento non blocca: la soglia è una soglia", () => {
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1)).toBeNull();
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB)).toBeNull();
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1)).not.toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1, memoriaLarga)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB, memoriaLarga)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1, memoriaLarga)).not.toBeNull();
   });
 });
 
+/**
+ * IL PAVIMENTO SULLA MEMORIA.
+ *
+ * Provato nei DUE versi di proposito: un pavimento che scatta sempre non è una
+ * guardia, è il dispatch spento, e sarebbe verde in un test che controlla solo
+ * «blocca quando la RAM è finita». Il caso che tiene onesto questo file è
+ * l'altro — con memoria in abbondanza NON deve mordere.
+ *
+ * La sonda è iniettata ovunque: leggerla dalla macchina vera renderebbe
+ * l'asserzione dipendente da cosa gira mentre la suite passa, che è esattamente
+ * il difetto già pagato altrove in questo repo.
+ */
+describe("il pavimento sulla memoria", () => {
+  // Disco largo: qui si giudica solo la RAM, e con un disco pieno la prima
+  // frase vincerebbe sempre nascondendo la seconda.
+  const discoLargo = () => 999;
+
+  test("con memoria in abbondanza NON blocca", () => {
+    expect(dispatchResourceBlock("/qualunque", discoLargo, () => DISPATCH_MEM_FLOOR_GB + 8)).toBeNull();
+  });
+
+  test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
+    const msg = dispatchResourceBlock("/qualunque", discoLargo, () => 2.1);
+    expect(msg).not.toBeNull();
+    expect(msg!).toContain("2.1 GB disponibili");
+    expect(msg!).toContain(String(DISPATCH_MEM_FLOOR_GB));
+    expect(msg!).toContain("Riprendo");
+  });
+
+  test("la soglia è una soglia, e il verso è «sotto blocca»", () => {
+    expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB + 0.1)).toBe(false);
+    expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB)).toBe(false);
+    expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB - 0.1)).toBe(true);
+  });
+
+  test("non sapere non è sapere di no: sonda muta = via libera", () => {
+    // Stessa regola del disco. Su Linux e Windows la sonda non c'è affatto, e
+    // un `null` trattato come «zero GB» spegnerebbe il dispatch su ogni host
+    // che non sia un Mac.
+    expect(memoryTooTight(null)).toBe(false);
+    expect(memoryTooTight(Number.NaN)).toBe(false);
+    expect(dispatchResourceBlock("/qualunque", discoLargo, () => null)).toBeNull();
+  });
+
+  test("una sonda che esplode non ferma la coda", () => {
+    expect(
+      dispatchResourceBlock("/qualunque", discoLargo, () => { throw new Error("vm_stat non c'è"); }),
+    ).toBeNull();
+  });
+
+  test("il disco vince sulla memoria: una frase sola per card", () => {
+    // Entrambi sotto: due frasi insieme sono rumore, e il disco va per primo
+    // perché un disco pieno ROMPE (scritture SQLite) mentre la RAM degrada.
+    const msg = dispatchResourceBlock("/qualunque", () => 1, () => 1);
+    expect(msg!).toContain("Disco quasi pieno");
+    expect(msg!).not.toContain("Memoria quasi finita");
+  });
+
+  test("legge vm_stat davvero: pagine libere + speculative + inattive", () => {
+    // Un vm_stat finto ma nella forma vera, cosi' l'unita' e' verificata senza
+    // dipendere da quanta RAM ha la macchina che esegue la suite.
+    // 65536 pagine da 16384 byte = 1,073 GB per ciascuna delle tre voci.
+    const finto = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                65536.",
+      "Pages active:                             700000.",
+      "Pages inactive:                            65536.",
+      "Pages speculative:                         65536.",
+      "Pages throttled:                               0.",
+    ].join("\n");
+    const gb = availableMemGB(() => finto);
+    expect(gb).not.toBeNull();
+    // 3 x 65536 x 16384 / 1e9 = 3,221 GB. Un errore di unita' (pagine contate
+    // come byte) darebbe 0,0002 e il pavimento morderebbe SEMPRE.
+    expect(gb!).toBeCloseTo(3.221, 2);
+  });
+
+  test("le pagine ATTIVE non contano: sono in uso, non disponibili", () => {
+    // La riga `Pages active` del campione sopra vale 700000 pagine, cioe' 11,5
+    // GB: se finisse nel totale il pavimento non morderebbe mai su una macchina
+    // piena, che e' precisamente il caso per cui esiste.
+    const conAttive = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                65536.",
+      "Pages active:                             700000.",
+      "Pages inactive:                            65536.",
+      "Pages speculative:                         65536.",
+    ].join("\n");
+    expect(availableMemGB(() => conAttive)!).toBeLessThan(4);
+  });
+
+  test("un output illeggibile vale «non lo so», non una sottostima", () => {
+    // Una voce mancante e il totale sarebbe piu' basso del vero, cioe' un
+    // pavimento che morde quando non deve: peggio del non sapere.
+    expect(availableMemGB(() => "roba che non e' vm_stat")).toBeNull();
+    expect(availableMemGB(() => "Pages free: 100.\nPages inactive: 50.")).toBeNull(); // manca page size
+    expect(availableMemGB(() => null)).toBeNull();
+  });
+});
 
 describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", () => {
   // 12 core = il Mac su cui il difetto è stato misurato: quota 6 core-unità.
