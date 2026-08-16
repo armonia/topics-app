@@ -26,6 +26,7 @@ import {
   DISCORD_DETAIL_LEVELS,
   type DiscordDetailLevel,
   AGENT_RUNTIMES,
+  DEFAULT_AGENT_RUNTIME,
   type AgentRuntime,
 } from "../../shared/types";
 
@@ -348,15 +349,30 @@ export function resolveDiscordDetailLevel(s = getAppSettings()): DiscordDetailLe
  *
  * L'impostazione VINCE sull'env: chi ha scelto in Impostazioni ha scelto dopo.
  *
- * Un valore fuori scala (riga a mano, DB di un'altra versione, env con un
- * refuso) cade su `cli`. È il verso giusto in cui sbagliare: `cli` è il sistema
- * che c'è sempre stato, mentre cadere su `jcode` manderebbe un agente su un
- * runtime che chi ha scritto quel refuso non ha chiesto.
+ * DUE DOMANDE, DUE RISPOSTE DIVERSE, ed è il punto delicato di questa funzione.
+ *
+ *   • Nessuno ha scelto (colonna vuota, env assente) → `DEFAULT_AGENT_RUNTIME`,
+ *     cioè `jcode`. È il caso della stragrande maggioranza: chi non ha aperto
+ *     Impostazioni non sta chiedendo il sistema vecchio, semplicemente non ha
+ *     un'opinione, e su una macchina che fa pageout con otto agenti la risposta
+ *     giusta a «non ho un'opinione» è il gradino che costa due ordini di
+ *     grandezza in meno.
+ *
+ *   • Qualcuno ha scritto qualcosa che non capiamo (riga a mano, DB di un'altra
+ *     versione, env con un refuso) → `cli`, sempre. Qui c'è UNA VOLONTÀ, e non
+ *     si riesce a leggerla: promuovere un refuso al runtime nuovo significa
+ *     mandare agenti veri su una meccanica che nessuno ha chiesto. Sul dubbio
+ *     si torna al sistema che c'è sempre stato.
+ *
+ * Sembra un'incoerenza (due ripieghi opposti nella stessa funzione) ed è invece
+ * la differenza fra «scegli tu» e «ho scritto male»: la prima è una delega, la
+ * seconda un errore, e a un errore non si risponde alzando la posta.
  */
 export function resolveAgentRuntime(s = getAppSettings()): AgentRuntime {
-  const raw = (s.agentRuntime ?? process.env.TOPICS_AGENT_RUNTIME ?? "")
-    .trim()
-    .toLowerCase();
+  const written = s.agentRuntime ?? process.env.TOPICS_AGENT_RUNTIME ?? null;
+  // Nessuno ha scritto niente: è una delega, non un errore.
+  if (written === null || written.trim() === "") return DEFAULT_AGENT_RUNTIME;
+  const raw = written.trim().toLowerCase();
   return (AGENT_RUNTIMES as readonly string[]).includes(raw)
     ? (raw as AgentRuntime)
     : "cli";

@@ -197,11 +197,19 @@ export function recomputeDefault(): boolean {
   const preferred = PROVIDER_PREFERENCE_ORDER.find(
     (name) => _providers.get(name)?.connected === true,
   );
-  // Scegliere il runtime `jcode` è già dire quale meccanica si vuole: se quel
-  // provider è registrato e connesso, viene PRIMA dell'ordine dei noti. Senza
-  // questa riga l'interruttore si accendeva a metà — jcode compariva nel
-  // picker, ma il default automatico restava `claude-code`, cioè esattamente i
-  // ~790 MB per sessione da cui si stava scappando.
+  // Il runtime `jcode` (oggi il default: vedi DEFAULT_AGENT_RUNTIME) è già una
+  // risposta alla domanda «con quale meccanica»: se quel provider è registrato
+  // ed è connesso, viene PRIMA dell'ordine dei noti. Senza questa riga
+  // l'interruttore si accende a metà — jcode nel picker, ma il default
+  // automatico ancora `claude-code`, cioè i ~790 MB per sessione da cui si sta
+  // scappando.
+  //
+  // È ANCHE LA RETE, ed è il motivo per cui la condizione guarda `connected` e
+  // non solo il nome. Su una macchina senza `jcode` nel PATH il provider non si
+  // registra nemmeno (il ciclo qui sopra salta gli agenti ACP senza eseguibile),
+  // quindi questa riga non scatta e si cade nell'ordine dei noti: chi aggiorna e
+  // non ha jcode installato NON resta senza default, si ritrova `claude-code`
+  // esattamente come prima. Il default nuovo è un'offerta, non un requisito.
   const runtimePreferred =
     resolveAgentRuntime() === "jcode" && _providers.get("jcode")?.connected === true
       ? "jcode"
@@ -466,10 +474,12 @@ export function resolveAcpAgents(): ReturnType<typeof mergeAcpAgents> {
   }
   const merged = mergeAcpAgents(KNOWN_ACP_AGENTS, agents);
   // Il cancello del runtime, e vale SOLO sulla riga che mettiamo noi in
-  // tabella. `jcode` è nei noti perché è installato su questa macchina, ma
-  // registrarlo comunque riempirebbe il picker di una voce che chi sta sul
-  // sistema CLI non ha chiesto — e, peggio, la renderebbe eleggibile come
-  // default automatico appena un'altra CLI risulta disconnessa.
+  // tabella. Dal 2026-08-16 il verso è invertito: `jcode` è il runtime di chi
+  // non ha scelto, quindi il cancello è aperto quasi sempre e si CHIUDE solo
+  // per chi ha chiesto `cli` esplicitamente. Chi l'ha chiesto sta dicendo
+  // «voglio una CLI per sessione», e trovarsi comunque il provider ACP nel
+  // picker — eleggibile come default appena una CLI risulta disconnessa —
+  // sarebbe esattamente la cosa che ha appena escluso.
   //
   // Chi lo dichiara a mano in `ACP_AGENTS` passa lo stesso: quella variabile è
   // il modo esplicito di dire «voglio questo agente», e un interruttore di

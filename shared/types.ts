@@ -91,12 +91,30 @@ export type DiscordDetailLevel = (typeof DISCORD_DETAIL_LEVELS)[number];
  * costate 0,58 MB l'una. È lo stesso lavoro con due ordini di grandezza di
  * differenza, ed è tutta la ragione per cui questo interruttore esiste.
  *
- * `cli` è il default e ci resta: chi aggiorna non deve trovarsi il runtime
- * cambiato sotto i piedi, e chi deve riprodurre un comportamento della CLI
- * vera deve poterci tornare in un gesto.
+ * `jcode` è il DEFAULT dal 2026-08-16. Il verso è stato scelto guardando cosa
+ * si paga a lasciarlo com'era: il costo della CLI non è una preferenza di
+ * stile, è una macchina che fa pageout con otto agenti in volo. Un default che
+ * bisogna sapere di dover cambiare è un default sbagliato — chi apre Topics
+ * senza aver letto niente merita il gradino buono.
+ *
+ * Chi vuole la CLI vera (riprodurre un comportamento, un dubbio sull'ACP) ci
+ * torna in un gesto: è la stessa riga in Impostazioni, nell'altro verso.
+ *
+ * IL RIPIEGO NON È QUESTA COSTANTE. Un valore illeggibile cade su `cli` (vedi
+ * `resolveAgentRuntime`): sono due domande diverse — cosa vuole chi non ha
+ * scelto, e cosa si fa quando la scelta è incomprensibile. La prima merita il
+ * gradino buono, la seconda il sistema che c'è sempre stato.
  */
 export const AGENT_RUNTIMES = ['cli', 'jcode'] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
+
+/**
+ * Il runtime di chi non ha scelto. Sta qui, in una costante sola, perché il
+ * server (`resolveAgentRuntime`) e la scheda Impostazioni devono dire la STESSA
+ * cosa: erano due `?? 'cli'` a mano in due file, e il modo in cui una UI mente
+ * è esattamente questo, un ripiego aggiornato da una parte sola.
+ */
+export const DEFAULT_AGENT_RUNTIME: AgentRuntime = 'jcode';
 
 /**
  * L'attività come Discord la vuole in `SET_ACTIVITY.args.activity`.
