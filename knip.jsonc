@@ -191,6 +191,7 @@
         "server/**/*.test.ts",
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
         "relay/*.test.ts",     // idem, via `./relay` in `test:unit`
+        "cli/**/*.test.ts",    // idem, via `./cli` in `test:unit`
         "tests/**/*.{test,spec}.ts"
       ],
       "project": [
@@ -256,7 +257,10 @@
   // sotto Bun; sta qui accanto a `git`, `cp`, `lsof` e `ps`, che le altre spec
   // spawnano per la stessa ragione. È preinstallato sia su macOS sia sull'immagine
   // ubuntu-latest che esegue il job `e2e`.
-  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg"],
+  // `vm_stat` e' la sonda della memoria disponibile del pavimento sul dispatch
+  // (server/services/dispatch-capacity.ts): esiste solo su macOS e li' e' di
+  // sistema, quindi non e' una dipendenza da dichiarare da nessuna parte.
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la
