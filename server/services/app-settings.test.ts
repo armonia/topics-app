@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSyn
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase, closeDatabase } from "../db";
+import { DEFAULT_AGENT_RUNTIME } from "../../shared/types";
 import {
   getAppSettings,
   updateAppSettings,
@@ -182,10 +183,19 @@ describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
   // agenti su un runtime che nessuno ha chiesto.
   //
   // I DUE RIPIEGHI SONO OPPOSTI ED È VOLUTO: chi non ha scelto prende il
-  // gradino buono (`jcode`), chi ha scritto un refuso torna al sistema storico
-  // (`cli`). I due test qui sotto sono la coppia che tiene ferma la differenza.
-  test("mai toccato → `jcode`: chi non ha scelto non sta chiedendo il sistema vecchio", () => {
-    expect(resolveAgentRuntime()).toBe("jcode");
+  // gradino buono, chi ha scritto un refuso torna al sistema storico (`cli`).
+  // I due test qui sotto sono la coppia che tiene ferma la differenza.
+  //
+  // Il gradino buono si legge da `DEFAULT_AGENT_RUNTIME` invece che da una
+  // stringa a mano, ed è una lezione di stamattina: questo test è nato dicendo
+  // `cli`, è passato a `jcode`, e ora è `topics`. Ogni volta la costante era
+  // già stata cambiata e il test no — cioè il test falliva per essere vecchio,
+  // non per aver trovato qualcosa. Quello che deve restare fermo è la REGOLA
+  // («chi non sceglie prende il default»), non quale sia il default oggi.
+  test("mai toccato → il default: chi non ha scelto non sta chiedendo il sistema vecchio", () => {
+    expect(resolveAgentRuntime()).toBe(DEFAULT_AGENT_RUNTIME);
+    // E il default non è mai `cli`: quello è il RIPIEGO, un'altra cosa.
+    expect(DEFAULT_AGENT_RUNTIME).not.toBe("cli");
   });
 
   test("scritto `cli` a mano, resta `cli`: è una scelta, non un'assenza di scelta", () => {
@@ -236,10 +246,10 @@ describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
   // quindi vale la delega e non il ripiego.
   test("stringa vuota o soli spazi = nessuno ha scelto, non un refuso", () => {
     updateAppSettings({ agentRuntime: "   " });
-    expect(resolveAgentRuntime()).toBe("jcode");
+    expect(resolveAgentRuntime()).toBe(DEFAULT_AGENT_RUNTIME);
     updateAppSettings({ agentRuntime: null });
     process.env.TOPICS_AGENT_RUNTIME = "";
-    expect(resolveAgentRuntime()).toBe("jcode");
+    expect(resolveAgentRuntime()).toBe(DEFAULT_AGENT_RUNTIME);
   });
 
   test("spazi e maiuscole non contano: è una riga scritta a mano, non un token", () => {
