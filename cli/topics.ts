@@ -62,12 +62,65 @@ function readDaemonState(): DaemonState | null {
   return null;
 }
 
+/**
+ * Lo schema con cui parlare al server locale.
+ *
+ * Il server accende TLS da solo quando trova i certificati
+ * (`server.ts`: `useTls = !NO_TLS && certs/fullchain.pem && certs/key.pem`), e
+ * i certificati ci sono dal 3 luglio. La CLI invece aveva `http://` scritto a
+ * mano in tre punti: contro un'installazione reale ogni comando moriva sul
+ * primo fetch, e la CLI non funzionava e basta. Non era una preferenza da
+ * configurare — era la stessa domanda a cui il server risponde da solo.
+ *
+ * Si prova HTTPS e si ricade su HTTP, invece di leggere i certificati: la CLI
+ * gira anche da un binario compilato altrove, dove la cartella `certs/` del
+ * server non esiste. Chi vuole forzare la mano ha `TOPICS_SCHEME`.
+ */
+export function localBase(port: number, scheme: "https" | "http"): string {
+  return `${scheme}://127.0.0.1:${port}`;
+}
+
+/**
+ * `rejectUnauthorized: false` e' ristretto al loopback e a un certificato che
+ * il server genera per se stesso: e' lo stesso `curl -k` che gia' usano gli
+ * script del repo. Fuori da 127.0.0.1 sarebbe un MITM aperto — non generalizzare.
+ */
+function localFetchInit(init: RequestInit): RequestInit {
+  return { ...init, tls: { rejectUnauthorized: false } } as RequestInit;
+}
+
+/**
+ * Un fetch che non sa in anticipo se il server locale parla TLS: prova HTTPS,
+ * e SOLO su un errore di trasporto (server che chiude, connessione rifiutata)
+ * riprova in chiaro. Un 4xx/5xx e' una risposta: quello non si ritenta, perche'
+ * lo schema era giusto.
+ */
+export async function fetchLocal(
+  port: number,
+  path: string,
+  init: RequestInit,
+  doFetch: typeof fetch = fetch,
+): Promise<Response> {
+  const forced = process.env.TOPICS_SCHEME;
+  const order: Array<"https" | "http"> =
+    forced === "http" ? ["http"] : forced === "https" ? ["https"] : ["https", "http"];
+  let lastErr: unknown;
+  for (const scheme of order) {
+    try {
+      return await doFetch(`${localBase(port, scheme)}${path}`, localFetchInit(init));
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 async function daemonRequest(
   state: DaemonState,
   path: string,
   method: "GET" | "POST" = "GET",
 ): Promise<{ status: number; body: unknown }> {
-  const res = await fetch(`http://127.0.0.1:${state.port}${path}`, {
+  const res = await fetchLocal(state.port, path, {
     method,
     headers: { authorization: `Bearer ${state.token}` },
     signal: AbortSignal.timeout(3000),
@@ -87,7 +140,6 @@ async function apiRequest<T>(
   // + (optionally) GATEWAY_TOKEN for /api/agent/*. We use the daemon's
   // port if known, else PORT env, else 3333.
   const port = state?.port ?? Number(process.env.PORT || "3333");
-  const url = `http://127.0.0.1:${port}${path}`;
   const headers: Record<string, string> = { "content-type": "application/json" };
   const init: RequestInit = {
     method,
@@ -95,7 +147,7 @@ async function apiRequest<T>(
     signal: AbortSignal.timeout(3000),
   };
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(url, init);
+  const res = await fetchLocal(port, path, init);
   let parsed: T | null = null;
   try { parsed = (await res.json()) as T; } catch {}
   return { status: res.status, body: parsed };
@@ -117,6 +169,7 @@ Commands:
 Env:
   TOPICS_HOME            Override ~/.topics (state files + logs)
   PORT                   Default API port when state file is absent (3333)
+  TOPICS_SCHEME          Force "https" or "http" (default: try https, fall back)
 `;
 }
 
@@ -162,7 +215,9 @@ async function cmdAuth(sub: string) {
     return;
   }
   if (sub === "login") {
-    const url = process.env.TOPICS_DASHBOARD_URL || "http://localhost:3333";
+    // Stessa ragione degli altri due: la dashboard locale sta su TLS. Aprire
+    // http:// spediva l'utente su una porta che non risponde in chiaro.
+    const url = process.env.TOPICS_DASHBOARD_URL || "https://localhost:3333";
     console.log(`opening ${url}`);
     // TOPICS_NO_OPEN lets tests (and headless callers) exercise the command
     // without hijacking the user's default browser with a real tab.
@@ -280,7 +335,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(`error: ${err?.message ?? err}`);
-  process.exit(1);
-});
+// Solo quando questo file E' il programma. Da quando espone `fetchLocal` e
+// `localBase` e' anche un modulo importabile (dal suo test, per cominciare), e
+// senza questa guardia bastava importarlo per far partire la CLI: con argv del
+// test runner finiva su `unknown command` e `process.exit(2)`.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`error: ${err?.message ?? err}`);
+    process.exit(1);
+  });
+}
