@@ -153,6 +153,11 @@ jobs:
       - name: Static guard rails (any in 6 ratcheted files / NUL / dead code / eslint-disable / test skip / long dash / bloat / UI language / E2E sleeps)
         run: |
           bun run check:any
+          # Il fratello del ratchet: quello difende lo ZERO sui sei file gia'
+          # puliti, questo impedisce agli altri 276 di crescere. Servono
+          # entrambi — con 370 di budget un file ratchettato potrebbe
+          # riprendersi dieci `any` senza che il totale se ne accorga.
+          bun run check:any-budget
           bun run check:nul
           bun run check:deadcode
           bun run check:eslint-disable
