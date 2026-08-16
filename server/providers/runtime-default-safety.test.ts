@@ -95,6 +95,7 @@ describe("il default `jcode` su una macchina che non ha jcode", () => {
   // questo passaggio il default nuovo sarebbe una riga in Impostazioni che non
   // sposta un agente.
   test("jcode registrato e connesso → è lui il default", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "jcode";
     registerProvider({ type: "claude-code" });
     registerProvider(acpPresent("jcode"));
     recomputeDefault();
@@ -122,6 +123,61 @@ describe("il default `jcode` su una macchina che non ha jcode", () => {
   });
 });
 
+/**
+ * Il runtime di casa nella graduatoria del default.
+ *
+ * `topics` non è un agente esterno: non ha un binario da trovare nel PATH, e la
+ * sua unica condizione è che su questa macchina ci sia una credenziale. Le
+ * domande da tenere ferme sono le stesse degli altri, però, perché il default
+ * ora è lui: chi non può servire un turno non deve diventare il default, e una
+ * scelta esplicita deve continuare a vincere.
+ */
+describe("il runtime di casa nel registro", () => {
+  beforeEach(() => {
+    for (const k of ENV) delete process.env[k];
+    clearRegistry();
+  });
+  afterEach(() => {
+    clearRegistry();
+    for (const k of ENV) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  test("registrato e connesso, col runtime di default è LUI il default", () => {
+    registerProvider({ type: "claude-code" });
+    registerProvider({ type: "native" });
+    recomputeDefault();
+    // Nessuna variabile: vale `DEFAULT_AGENT_RUNTIME`, che è `topics`.
+    expect(getDefaultProviderName()).toBe("topics");
+  });
+
+  test("si registra col nome `topics`, non `native`", () => {
+    // Il nome lo legge chi sceglie un provider: `native` non dice niente.
+    const p = registerProvider({ type: "native" });
+    expect(p.name).toBe("topics");
+  });
+
+  // La rete, identica a quella di jcode: chi ha chiesto la CLI non deve
+  // ritrovarsi il runtime nuovo come default automatico.
+  test("chi ha chiesto `cli` NON finisce sul runtime di casa", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
+    registerProvider({ type: "claude-code" });
+    registerProvider({ type: "native" });
+    recomputeDefault();
+    expect(getDefaultProviderName()).toBe("claude-code");
+  });
+
+  test("una scelta esplicita di provider vince anche su di lui", () => {
+    process.env.AI_PROVIDER = "claude-code";
+    registerProvider({ type: "claude-code" });
+    registerProvider({ type: "native" });
+    recomputeDefault();
+    expect(getDefaultProviderName()).toBe("claude-code");
+  });
+});
+
 describe("il cancello e il PATH sono due filtri diversi", () => {
   beforeEach(() => {
     for (const k of ENV) delete process.env[k];
@@ -133,13 +189,14 @@ describe("il cancello e il PATH sono due filtri diversi", () => {
     }
   });
 
-  // Sfumatura che vale la pena fissare: col default nuovo `resolveAcpAgents`
-  // propone jcode SEMPRE, anche dove il binario non esiste. Non è un bug ed è
-  // voluto che stia così — la tabella dice «questo agente esiste e si lancia
-  // così», mentre il controllo sul PATH è del registro (`Bun.which` in
-  // `initProviders`). Tenere le due cose separate è ciò che permette a
-  // `ACP_AGENTS` di puntare a un binario in un posto suo.
-  test("la tabella propone jcode a prescindere dal PATH: a filtrare è il registro", () => {
+  // Sfumatura che vale la pena fissare: quando il runtime jcode è CHIESTO, la
+  // tabella lo propone a prescindere dal PATH, anche dove il binario non
+  // esiste. Non è un bug ed è voluto che stia così — la tabella dice «questo
+  // agente esiste e si lancia così», mentre il controllo sul PATH è del
+  // registro (`Bun.which` in `initProviders`). Tenere le due cose separate è
+  // ciò che permette a `ACP_AGENTS` di puntare a un binario in un posto suo.
+  test("chiesto jcode, la tabella lo propone a prescindere dal PATH: a filtrare è il registro", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "jcode";
     expect(resolveAcpAgents().map((a) => a.name)).toContain("jcode");
   });
 

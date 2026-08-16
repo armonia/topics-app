@@ -663,13 +663,25 @@ export interface AcpProviderConfig extends AcpAgentSpec {
   defaultWorkspace?: string;
 }
 
+/**
+ * Il runtime NATIVO: nessun processo esterno, la sessione vive dentro il
+ * server. Vedi `server/providers/native/provider.ts` per il perche'.
+ */
+export interface NativeProviderConfig {
+  type: "native";
+  /** Radice usata quando una sessione non ha un progetto suo. */
+  defaultWorkspace?: string;
+  model?: string;
+}
+
 export type ProviderConfig =
   | OpenClawProviderConfig
   | ClaudeProviderConfig
   | ClaudeCodeProviderConfig
   | CodexProviderConfig
   | OpenAIProviderConfig
-  | AcpProviderConfig;
+  | AcpProviderConfig
+  | NativeProviderConfig;
 
 /**
  * Il nome sotto cui un config si registra. Per tutti i provider storici è il
@@ -677,6 +689,9 @@ export type ProviderConfig =
  * lo stesso `type`.
  */
 export function providerNameForConfig(config: ProviderConfig): string {
+  // Il runtime nativo si chiama `topics` e non `native`: il nome lo legge chi
+  // sceglie un provider nel picker, e «native» non dice niente a nessuno.
+  if (config.type === "native") return "topics";
   return config.type === "acp" ? config.name : config.type;
 }
 
