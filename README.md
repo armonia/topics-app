@@ -59,8 +59,11 @@ half a second, because the network dominates and not the machine.
 
 ### One window per project is the expensive part
 
-An IDE gives you one project per window, and charges you close to a full copy
-for the next one. Measured here, opening the same three repositories:
+Empty, Topics is **164 MB on disk** and its server starts at **~91 MB of RAM**.
+Cursor and VS Code are 1.3 GB and 1.5 GB on disk before you open anything.
+
+Then an IDE gives you one project per window, and charges you close to a full
+copy for the next one. Measured here, opening the same three repositories:
 
 | | each extra project |
 |---|---|
@@ -68,7 +71,7 @@ for the next one. Measured here, opening the same three repositories:
 | VS Code | **+261 MB** |
 | **Topics** | **+0.07 MB** |
 
-Topics runs at 520–745 MB *in total* while holding **22 projects and ~1000
+Topics runs at 440–745 MB *in total* while holding **22 projects and ~1000
 topics** — three more topics moved the server by 0.2 MB. A project is a row, not
 a window, so the fourth repository is where this stops being about taste.
 
