@@ -161,8 +161,14 @@ function parseAnyFormat(raw: unknown): OAuthCredentials | null {
  * Scrittura atomica (tmp + rename) e permessi 0600: un file di credenziali
  * scritto a metà da un crash è un utente sloggato, e leggibile dal resto del
  * sistema è peggio ancora.
+ *
+ * Esportata per una ragione sola: è il codice che tocca i file di credenziali
+ * VERI dell'utente, e il ramo che lo esegue (token scaduto) non gira quasi mai
+ * — su una macchina con un token fresco resta silenzioso per otto ore, e il
+ * giorno che sbaglia lascia sloggata la CLI. Provarlo su file finti è l'unico
+ * modo di sapere che funziona prima che serva.
  */
-function writeCredentials(path: string, next: OAuthCredentials): void {
+export function writeCredentials(path: string, next: OAuthCredentials): void {
   let doc: Record<string, any> = {};
   try { doc = JSON.parse(readFileSync(path, "utf-8")); } catch { /* si riscrive da zero */ }
 

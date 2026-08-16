@@ -143,6 +143,51 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     }
   }, 180_000);
 
+  /**
+   * IL PREZZO DI UN AGENTE, che è la cosa che questo runtime rischiava di
+   * sbagliare in silenzio. Un turno d'agente sono N giri che rimandano ogni
+   * volta gli schemi dei tool, il preambolo e tutta la conversazione: senza i
+   * breakpoint di cache si ripaga quel prefisso a prezzo pieno ogni giro.
+   *
+   * QUELLO CHE SI PUÒ MISURARE QUI, e va detto perché la prima versione di
+   * questo test chiedeva la cosa sbagliata. Anthropic non cachea un prefisso
+   * sotto una soglia minima (2048 token su haiku): con sei schemi di tool
+   * (~813 token) e un preambolo corto, la cache NON scatta — e non è un
+   * difetto, è la soglia che fa il suo lavoro. Pretendere `cacheRead > 0`
+   * significava misurare il modello invece del nostro codice.
+   *
+   * Quello che è NOSTRO, e che un bug vero ha già rotto una volta: i marker non
+   * devono ACCUMULARSI. Il loop riusa la stessa storia a ogni giro, quindi il
+   * breakpoint del giro precedente resta dov'è; al quinto giro l'API rifiuta
+   * tutto con «A maximum of 4 blocks with cache_control may be provided». Un
+   * turno che muore al quinto giro per un'ottimizzazione di costo.
+   */
+  test("i breakpoint di cache non si accumulano: un turno lungo non viene rifiutato", async () => {
+    const f = join(ws, "cache-probe.txt");
+    writeFileSync(f, "uno\n");
+    const rec = recorder();
+    const history: Message[] = [{
+      role: "user",
+      content:
+        "Fai questi passi UNO ALLA VOLTA, ognuno con una chiamata separata: " +
+        "1) leggi cache-probe.txt; 2) scrivici DUE; 3) rileggilo; 4) scrivici TRE; " +
+        "5) rileggilo; 6) scrivici QUATTRO. Poi fermati.",
+    }];
+
+    await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws } },
+      rec.handler,
+    );
+
+    // LA PROVA: nessun errore. Con i marker che si accumulano, il turno moriva
+    // con un 400 dell'API intorno al quinto giro — quindi servono abbastanza
+    // giri da superarlo.
+    expect(rec.errors).toEqual([]);
+    expect(rec.tools.length).toBeGreaterThanOrEqual(5);
+    // E il lavoro è arrivato in fondo davvero.
+    expect(readFileSync(f, "utf-8")).toContain("QUATTRO");
+  }, 180_000);
+
   test("più sessioni insieme, un solo processo: nessuna CLI viva", async () => {
     // Il guadagno di memoria, verificato per come si manifesta: tre turni
     // concorrenti non lasciano tre processi in giro, perché non ce n'è
