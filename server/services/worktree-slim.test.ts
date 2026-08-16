@@ -35,6 +35,17 @@ describe("isSlimmableDirName — primo cancello", () => {
     }
   });
 
+  // 12 GB su 27 il 16/08, quasi tutti sotto quadra dove la UAT gira con video e
+  // trace accesi. Il GC ci passava sopra senza vederli.
+  test("gli artefatti di Playwright passano, `videos` no", () => {
+    expect(isSlimmableDirName("test-results", never)).toBe(true);
+    expect(isSlimmableDirName("playwright-report", never)).toBe(true);
+    // Fuori apposta: il nome non dice di chi e', e una cartella di video puo'
+    // essere l'unica copia di qualcosa. Pesa, e si lascia stare lo stesso.
+    expect(isSlimmableDirName("videos", never)).toBe(false);
+    expect(isSlimmableDirName("videos", always)).toBe(false);
+  });
+
   test("`target` passa solo con il CACHEDIR.TAG di cargo", () => {
     expect(isSlimmableDirName("target", never)).toBe(false);
     expect(isSlimmableDirName("target", (f) => f === "CACHEDIR.TAG")).toBe(true);
