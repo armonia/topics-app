@@ -42,7 +42,7 @@ CREATE TABLE grants_nuova (
   resource_id TEXT NOT NULL,
   level TEXT NOT NULL CHECK (level IN ('read', 'deny')),
   granted_at INTEGER NOT NULL,
-  granted_by TEXT,
+  granted_by_person_id TEXT REFERENCES people(id) ON DELETE SET NULL,
   via_type TEXT,
   via_id TEXT,
   UNIQUE (subject_type, subject_id, resource_type, resource_id)
@@ -50,7 +50,7 @@ CREATE TABLE grants_nuova (
 
 INSERT INTO grants_nuova
   SELECT id, subject_type, subject_id, resource_type, resource_id,
-         level, granted_at, granted_by, via_type, via_id
+         level, granted_at, granted_by_person_id, via_type, via_id
     FROM grants;
 
 DROP TABLE grants;
