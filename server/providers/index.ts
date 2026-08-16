@@ -555,3 +555,42 @@ export function initProvider(config?: ProviderConfig): AIProvider {
   initProviders().catch((err) => console.warn(`[Providers] Deferred init failed: ${err?.message ?? err}`));
   return getDefaultProvider();
 }
+
+/**
+ * «Il turno di questa sessione è ancora vivo?» — chiesto al provider GIUSTO.
+ *
+ * Tre risposte e non due: `true` vivo, `false` morto, `null` non lo so. La
+ * distinzione è tutto il senso della funzione, perché il dispatcher seppellisce
+ * un turno solo sul `false` — l'ignoranza non deve leggersi come morte, e un
+ * turno sepolto per sbaglio è lavoro vero buttato (fix 1790f859).
+ *
+ * Perché esiste. La sonda in `server.ts` chiedeva sempre a `claude-code`, che
+ * per le sessioni ALTRUI guarda una mappa dove non le ha mai messe e risponde
+ * `false`: «l'ho guardato ed è morto», che è una bugia — la verità è «non è roba
+ * mia». Finché ogni agente dispacciato era claude-code il ramo non si vedeva;
+ * col runtime `jcode` di default ogni sessione dispacciata è di un altro
+ * provider, quindi il caso passa da impossibile a normale.
+ *
+ * Come si sceglie a chi chiedere: si guarda CHI possiede quella sessione. Un
+ * provider che non riconosce la sessione o che non ha la sonda risponde `null`,
+ * ed è la risposta onesta: nessuno viene sepolto sull'ignoranza di nessuno.
+ */
+export function resolveTurnAlive(sessionKey: string): boolean | null {
+  for (const [, p] of _providers) {
+    const probe = p as unknown as {
+      ownsSession?: (sk: string) => boolean;
+      isTurnProcessAlive?: (sk: string) => boolean;
+    };
+    if (typeof probe.isTurnProcessAlive !== "function") continue;
+    // Chi non sa dire se la sessione è sua non può parlare per lei: la vecchia
+    // sonda faceva esattamente questo e rispondeva «morto» per tutti.
+    if (typeof probe.ownsSession !== "function") continue;
+    try {
+      if (!probe.ownsSession(sessionKey)) continue;
+      return probe.isTurnProcessAlive(sessionKey);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}

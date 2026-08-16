@@ -783,6 +783,28 @@ export class AcpProvider implements AIProvider {
     this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
   }
 
+  /**
+   * Questa sessione è nostra?
+   *
+   * Serve a `resolveTurnAlive`: la domanda «il turno è vivo?» va fatta al
+   * provider che quella sessione la sta servendo, e chiunque altro deve dire
+   * «non lo so» invece di tirare a indovinare. Senza questo cancello un
+   * provider ACP risponderebbe sulla salute del PROPRIO processo anche per una
+   * sessione di claude-code — e viceversa, che è il bug da cui questa funzione
+   * nasce.
+   */
+  ownsSession(sessionKey: string): boolean {
+    return this.sessions.has(sessionKey);
+  }
+
+  /**
+   * Il processo che serve questa sessione è vivo?
+   *
+   * Il `sessionKey` non si guarda ed è corretto così: in ACP le sessioni
+   * vivono TUTTE dentro lo stesso figlio (è il senso del demone condiviso), e
+   * la salute del figlio è la salute di tutte. A filtrare per proprietà ci
+   * pensa `ownsSession`, che il chiamante interroga prima.
+   */
   isTurnProcessAlive(_sessionKey: string): boolean {
     return !!this.child && this.child.exitCode === null && !this.child.killed;
   }
