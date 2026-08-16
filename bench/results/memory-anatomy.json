@@ -13,7 +13,7 @@
       "SafariPlatformSupport": "16 MB — idem"
     },
     "SERVER_154_MB": {
-      "bun principale": "36-95 MB DIRTY a seconda dell'ANZIANITÀ del processo: 36-47 su un server appena avviato (uptime 1 minuto), 67-68 stabile su uno in regime da ~45 minuti. Il footprint totale sta fra 117 e 152 MB. Il resto è il binario bun (57 MB su disco) mappato in __TEXT più __LINKEDIT: pagine condivise, non heap. In nessuna lettura cresce senza fermarsi.",
+      "bun principale": "36-73 MB DIRTY, oscillanti: 28 letture in una serata. Il footprint totale sta fra 117 e 152 MB. NON dipende dall'uptime, come avevo scritto: due serie a un minuto di vita danno 36-47 e 66-70, e un processo con 35 minuti passa da 73,2 a 46,1 in SEI secondi. Il resto è il binario bun (57 MB su disco) mappato in __TEXT più __LINKEDIT: pagine condivise, non heap. In nessuna serie cresce senza fermarsi, ed è l'unica cosa che serviva sapere.",
       "pty-bridge (node)": "18-21 MB",
       "ai-bridge (bun)": "17 MB"
     },
@@ -63,7 +63,7 @@
     "osservato": "Sul codice reale con os.totalmem() sostituito: una macchina da 8 GB / 8 core dà 2 posti con la CLI e 4 col nativo. Il default (nessun parametro) dà lo stesso 2 della versione pre-fix: nessuna regressione.",
     "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
   },
-  "conclusione": "Niente da tagliare nel server: 36-68 MB dirty a seconda dell'uptime (36 appena avviato, 67-68 in regime), il resto è binario mappato, e in nessuna lettura cresce senza fermarsi. Il WebContent oscilla fra ~260 e ~450 MB senza crescita monotona su settanta minuti: non è una perdita, è il costo variabile di una WebView che tiene l'intera UI. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto; il vincolo residuo sui 4 posti è una politica sulla CPU.",
+  "conclusione": "Niente da tagliare nel server: 36-73 MB dirty oscillanti, il resto è binario mappato, e in nessuna serie cresce senza fermarsi. Il WebContent oscilla fra ~260 e ~450 MB senza crescita monotona su settanta minuti: non è una perdita, è il costo variabile di una WebView che tiene l'intera UI. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto; il vincolo residuo sui 4 posti è una politica sulla CPU.",
   "il_confronto_che_manca": {
     "cosa": "CLI contro nativo a PARITÀ di sessioni oltre N=3.",
     "numero_onesto": "188x — 432,4 MB contro 2,3 MB, entrambi a N=3, stesso file, stesso modello, stesso turno banale (session-memory.json).",
@@ -79,18 +79,21 @@
     ]
   },
   "metodo_una_nota_amara": [
-    "Cinque numeri di questo file sono stati pubblicati sbagliati prima di essere",
-    "corretti. La stessa riga sul WebContent è stata sbagliata TRE volte, con",
-    "campioni crescenti ogni volta:",
-    "  · «197-244 MB»               → 292-448 su dieci campioni",
-    "  · «l'80% è compressa»        → 22% su dieci campioni...",
-    "  · ...«22%, dirty 182-250»    → 29%, dirty 122-250 su sedici...",
-    "  · ...«totale fermo 257-308»  → 257-344 su venti campioni",
-    "  · server «58,9 MB dirty»     → 67-68 stabile su cinque campioni",
-    "La lezione non è «campiona di più»: è che alcune grandezze NON hanno un",
-    "valore, hanno una banda. Il server ce l'ha un valore (67-68, fermo). Il",
-    "WebContent no, e ogni volta che ho provato a dargliene uno mi sono",
-    "sbagliato. Chi cita questi numeri scriva la banda e i campioni.",
-    "Poscritto: anche il «67-68 fermo» del server valeva solo per un processo in regime. Riavviato, parte da 36 e sale. Nessuno di questi numeri è una costante: sono tutti bande, e la variabile qui è l'uptime."
+    "Sei numeri di questo file sono stati pubblicati sbagliati prima di essere",
+    "corretti. Non per distrazione: per una convinzione sbagliata, cioè che la",
+    "memoria di un processo vivo abbia un VALORE.",
+    "  · WebContent «197-244 MB»    → 292-448 su dieci campioni",
+    "  · «l'80% è compressa»        → 22% su dieci...",
+    "  · ...«22%, dirty 182-250»    → 29%, 122-250 su sedici...",
+    "  · ...«totale fermo 257-308»  → 257-344 su venti",
+    "  · server «58,9 MB dirty»     → 67-68 su cinque campioni...",
+    "  · ...«36-68 secondo l'uptime» → 36-73 e l'uptime NON lo spiega:",
+    "    due serie a un minuto di vita danno 36-47 e 66-70, e un processo",
+    "    con 35 minuti scende da 73,2 a 46,1 in sei secondi.",
+    "Ogni correzione ha aggiunto campioni, e ogni volta il numero cambiava",
+    "ancora. La forma giusta del dato non è una cifra e nemmeno una banda con",
+    "una spiegazione: è una banda, il numero di campioni, e la sola domanda a",
+    "cui serve rispondere — CRESCE SENZA FERMARSI? No. Il resto è rumore che",
+    "somiglia a un segnale."
   ]
 }
