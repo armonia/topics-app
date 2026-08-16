@@ -102,7 +102,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
@@ -1170,13 +1170,17 @@ const taskDispatcher = createTaskDispatcher({
   // Liveness net: is the agent CHILD of this session still there? Same probe the
   // stream watchdog uses to tell a thinking-but-mute turn from a dead one (it
   // covers direct AND broker mode — the daemon's `exit` frame flips pp.alive).
-  // A provider without the probe answers null = "can't tell", and the dispatcher
-  // never buries a turn on ignorance.
-  isTurnAlive: (sessionKey) => {
-    const p = tryGetProvider("claude-code") as unknown as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
-    if (typeof p?.isTurnProcessAlive !== "function") return null;
-    try { return p.isTurnProcessAlive(sessionKey); } catch { return null; }
-  },
+  // A provider that doesn't own the session answers null = "can't tell", and the
+  // dispatcher never buries a turn on ignorance.
+  //
+  // Si chiede al provider che POSSIEDE la sessione, non sempre a claude-code.
+  // Chiedere a lui di una sessione altrui otteneva `false` — «l'ho guardato ed
+  // è morto» invece di «non è roba mia» — e sul `false` il dispatcher
+  // seppellisce dopo due sweep. Finché ogni agente dispacciato era claude-code
+  // i due casi coincidevano; col runtime `jcode` di default ogni sessione
+  // dispacciata è di un altro provider, quindi la confusione passa da
+  // impossibile a sistematica. Vedi `resolveTurnAlive`.
+  isTurnAlive: (sessionKey) => resolveTurnAlive(sessionKey),
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live
