@@ -210,6 +210,42 @@ test.describe("Kanban board", () => {
     await expect(page.getByTestId("kanban-column-todo").getByText(text)).toBeVisible({ timeout: 10000 });
   });
 
+  test("BOARD-03b: il thread vuoto dice cosa succedera', e cambia con lo stato", async ({ page }) => {
+    // «Nessun commento» constatava un'assenza che si vede gia' da sola. La riga
+    // sotto a un task senza thread e' l'unico posto in cui dire DOVE arriveranno
+    // la consegna e le domande dell'agente, e a chi tocca la mossa.
+    //
+    // Le DUE colonne servono entrambe, ed e' il punto della card: un task in
+    // coda aspetta la macchina, uno in backlog aspetta TE. Una riga sola per
+    // tutti gli stati sarebbe di nuovo una constatazione, solo piu' lunga.
+    // Il lavoro originale (780ac282) aveva i test sul catalogo delle stringhe:
+    // dicevano che le frasi esistono, non che qualcuno le legge.
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const inCoda = `Coda vuota ${Date.now()}`;
+    const inBacklog = `Backlog vuoto ${Date.now()}`;
+    await apiCreateTask(page.request, { text: inCoda, status: "todo" });
+    await apiCreateTask(page.request, { text: inBacklog, status: "backlog" });
+
+    await page.getByTestId("kanban-column-todo").getByText(inCoda).click({ timeout: 10000 });
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+    const vuoto = page.getByTestId("task-thread-empty");
+    await expect(vuoto).toBeVisible({ timeout: 10000 });
+    await expect(vuoto, "in coda: aspetta la macchina").toContainText(/in coda/i);
+    const testoCoda = await vuoto.innerText();
+
+    await page.keyboard.press("Escape");
+    await page.getByTestId("kanban-column-backlog").getByText(inBacklog).click({ timeout: 10000 });
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+    await expect(vuoto).toBeVisible({ timeout: 10000 });
+    // In backlog la mossa e' TUA: se questa frase fosse uguale a quella di
+    // sopra, la riga sarebbe tornata una constatazione con piu' parole.
+    await expect(vuoto, "in backlog: aspetta te").toContainText(/backlog/i);
+    expect(await vuoto.innerText()).not.toBe(testoCoda);
+  });
+
   test("BOARD-04: agent-surface create lands in Backlog (intake, not the run-queue)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-03" });
     await page.goto("/");
