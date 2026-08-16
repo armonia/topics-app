@@ -180,7 +180,16 @@ describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
   // ~200 MB (una CLI per sessione) o meno di uno (una sessione dentro un demone
   // condiviso). Sbagliare il ripiego non è un dettaglio di stile — è mandare
   // agenti su un runtime che nessuno ha chiesto.
-  test("mai toccato → `cli`, il sistema storico", () => {
+  //
+  // I DUE RIPIEGHI SONO OPPOSTI ED È VOLUTO: chi non ha scelto prende il
+  // gradino buono (`jcode`), chi ha scritto un refuso torna al sistema storico
+  // (`cli`). I due test qui sotto sono la coppia che tiene ferma la differenza.
+  test("mai toccato → `jcode`: chi non ha scelto non sta chiedendo il sistema vecchio", () => {
+    expect(resolveAgentRuntime()).toBe("jcode");
+  });
+
+  test("scritto `cli` a mano, resta `cli`: è una scelta, non un'assenza di scelta", () => {
+    updateAppSettings({ agentRuntime: "cli" });
     expect(resolveAgentRuntime()).toBe("cli");
   });
 
@@ -189,26 +198,31 @@ describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
     expect(resolveAgentRuntime()).toBe("jcode");
   });
 
+  // L'env serve a misurare le due meccaniche una contro l'altra, e ora la prova
+  // che conta è l'altro verso: col default su `jcode`, `TOPICS_AGENT_RUNTIME`
+  // deve saper riportare un bench sulla CLI vera senza toccare il DB.
   test("l'env porta la scelta su una macchina senza aprire la UI", () => {
-    process.env.TOPICS_AGENT_RUNTIME = "jcode";
-    expect(resolveAgentRuntime()).toBe("jcode");
-  });
-
-  test("l'impostazione VINCE sull'env: chi ha scelto in Impostazioni ha scelto dopo", () => {
-    process.env.TOPICS_AGENT_RUNTIME = "jcode";
-    updateAppSettings({ agentRuntime: "cli" });
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
     expect(resolveAgentRuntime()).toBe("cli");
   });
 
-  test("azzerata, si torna a cedere all'env", () => {
-    process.env.TOPICS_AGENT_RUNTIME = "jcode";
+  test("l'impostazione VINCE sull'env: chi ha scelto in Impostazioni ha scelto dopo", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
     updateAppSettings({ agentRuntime: "jcode" });
-    updateAppSettings({ agentRuntime: null });
     expect(resolveAgentRuntime()).toBe("jcode");
   });
 
-  // Il verso in cui è giusto sbagliare. Un refuso NON deve promuovere nessuno a
-  // un runtime diverso da quello che c'è sempre stato.
+  test("azzerata, si torna a cedere all'env", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
+    updateAppSettings({ agentRuntime: "jcode" });
+    updateAppSettings({ agentRuntime: null });
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  // Il verso in cui è giusto sbagliare, e ora è l'unico posto in cui `cli` è un
+  // RIPIEGO invece che una scelta. Vale a maggior ragione col default invertito:
+  // dietro un refuso c'è una volontà che non si riesce a leggere, e a una
+  // volontà illeggibile non si risponde alzando la posta.
   test("un valore fuori scala cade su `cli`, non su `jcode`", () => {
     updateAppSettings({ agentRuntime: "jcodee" });
     expect(resolveAgentRuntime()).toBe("cli");
@@ -217,8 +231,19 @@ describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
     expect(resolveAgentRuntime()).toBe("cli");
   });
 
-  test("spazi e maiuscole non contano: è una riga scritta a mano, non un token", () => {
-    updateAppSettings({ agentRuntime: "  JCODE " });
+  // Una stringa vuota non è un refuso: è una colonna azzerata male, una env
+  // esportata a vuoto (`TOPICS_AGENT_RUNTIME=`). Nessuno ha espresso niente,
+  // quindi vale la delega e non il ripiego.
+  test("stringa vuota o soli spazi = nessuno ha scelto, non un refuso", () => {
+    updateAppSettings({ agentRuntime: "   " });
     expect(resolveAgentRuntime()).toBe("jcode");
+    updateAppSettings({ agentRuntime: null });
+    process.env.TOPICS_AGENT_RUNTIME = "";
+    expect(resolveAgentRuntime()).toBe("jcode");
+  });
+
+  test("spazi e maiuscole non contano: è una riga scritta a mano, non un token", () => {
+    updateAppSettings({ agentRuntime: "  CLI " });
+    expect(resolveAgentRuntime()).toBe("cli");
   });
 });

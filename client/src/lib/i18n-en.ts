@@ -572,11 +572,12 @@ const EN = {
   //    it is the whole reason for the choice, and it is measured, not guessed.
   'runtime.label': 'Agent runtime',
   'runtime.hint': 'Applies from the next server start.',
-  'runtime.cliDefault': 'CLI (default)',
+  'runtime.jcodeDefault': 'jcode (default)',
   'runtime.cli': 'CLI (one process per session)',
   'runtime.jcode': 'jcode (shared daemon)',
-  'runtime.blurb': 'One CLI per session costs about 200 MB per agent: eight agents are nearly 2 GB of processes alone. With jcode the sessions live inside a shared daemon and cost less than one megabyte each, measured across 24 sessions at once. The CLI system stays the default and picks up exactly as before.',
+  'runtime.blurb': 'One CLI per session costs about 200 MB per agent: eight agents are nearly 2 GB of processes alone. With jcode the sessions live inside a shared daemon and cost less than one megabyte each, measured across 24 sessions at once. It is the default; if jcode is not installed the agents stay on the CLI, exactly as before.',
   'runtime.missing': 'Chosen, but not among the providers yet: the server needs a restart, and the jcode executable must be on the PATH.',
+  'runtime.defaultUnavailable': 'jcode is the default, but it is not installed on this machine: agents run on the CLI, exactly as before. The shared daemon needs the jcode executable on the PATH.',
   // ── The profile: your usage stats, counted from what actually happened here.
   'profile.stats.title': 'Your stats',
   'profile.stats.blurb': 'Counted from what actually happened here: sessions, messages, board tasks. They stay on this machine.',
