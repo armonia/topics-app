@@ -829,6 +829,40 @@ describe("rotte auth · i membri dell'organizzazione", () => {
     expect(nuovo.devices).toBe(0);
   });
 
+  test("un membro dice quando si è fatto vivo l'ultima volta, non solo quanti ferri ha", async () => {
+    // «Tre dispositivi» descrive uguale chi è online adesso e chi non apre
+    // l'app da marzo. `lastSeenAt` è l'unica cosa che serve a chi guarda per
+    // sapere con chi sta lavorando, ed è il dato su cui si costruisce la
+    // presence dell'organizzazione.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const io = (db.query("SELECT person_id AS id FROM installation_owners").get() as { id: string }).id;
+
+    type M = { id: string; devices: number; lastSeenAt: number | null };
+    const leggi = async () => ((await (await chiama(router, `/api/auth/orgs/${org}/members`))!.json()) as { members: M[] })
+      .members.find((x) => x.id === io)!;
+
+    // Senza dispositivi vivi non si è visti: `null`, non zero. Zero sarebbe una
+    // data — il 1970 — e ordinando per «ultimo visto» finirebbe in fondo
+    // insieme a chi c'è stato davvero e molto tempo fa.
+    expect((await leggi()).lastSeenAt).toBeNull();
+
+    const quando = Date.now() - 60_000;
+    db.query(
+      "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role, person_id) VALUES (?, ?, ?, ?, ?, ?, NULL, 'member', ?)",
+    ).run("dev-presenza", "Mac", "hash", quando, quando, "127.0.0.1", io);
+
+    const dopo = await leggi();
+    expect(dopo.devices).toBe(1);
+    expect(dopo.lastSeenAt).toBe(quando);
+
+    // Un dispositivo REVOCATO non tiene viva la presence: chi ha tolto la
+    // fiducia a tutte le sue macchine non è «online da allora».
+    db.query("UPDATE devices SET revoked_at = ? WHERE id = 'dev-presenza'").run(Date.now());
+    expect((await leggi()).lastSeenAt).toBeNull();
+  });
+
   test("il proprietario compare per primo, e non si può togliere", async () => {
     const db = db084();
     const router = createAuthRouter(creaCtx(db).ctx);

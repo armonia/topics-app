@@ -908,6 +908,10 @@ const EN = {
   'statusBar.restartApp': 'Restart the app',
   'statusBar.updateAvailable': 'Update available',
   'statusBar.reload': 'Reload',
+  'statusBar.orgPresence': '{n} from your organization {verbo} online',
+  'statusBar.orgPresenceOne': 'is',
+  'statusBar.orgPresenceMany': 'are',
+  'statusBar.orgPresenceTitle': 'Members of your organization seen in the last five minutes',
   'statusBar.devicesTitle': 'Open the list of authorised devices',
   // ── Version and updates popover.
   'version.builtAt': 'Built',

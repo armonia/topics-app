@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Server } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Server, Users } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { usePersonaCorrente } from '@/hooks/usePersonaCorrente';
 import { etichettaIdentita } from './identityLabel';
+import { presentiOra, type MembroPresenza } from './orgPresence';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
@@ -848,6 +849,8 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
   const tr = useT();
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
   const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
+  /** Quanti ALTRI della tua organizzazione sono online adesso. Vedi `orgPresence.ts`. */
+  const [colleghi, setColleghi] = useState<number>(0);
   useEffect(() => subscribeSession(setSession), []);
   const io = usePersonaCorrente();
   const chi = etichettaIdentita(io, session);
@@ -869,6 +872,28 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
     } catch { /* transitorio: la riga resta senza conteggio invece di mentire */ }
   }, []);
 
+  /**
+   * Chi altro c'e' della tua organizzazione. Due chiamate perche' i membri
+   * stanno per gruppo: prima quale gruppo, poi chi c'e' dentro.
+   *
+   * Best-effort come il conteggio dei dispositivi: su un'installazione senza
+   * servizio degli account queste rotte non rispondono, e la riga resta senza
+   * la parte dei colleghi invece di mostrare uno zero che non significa niente.
+   */
+  const caricaColleghi = useCallback(async () => {
+    try {
+      const ro = await fetch('/api/auth/orgs', { credentials: 'same-origin' });
+      if (!ro.ok) return;
+      const { orgs } = await ro.json() as { orgs: Array<{ id: string; installation?: boolean }> };
+      const mia = orgs.find((o) => o.installation) ?? orgs[0];
+      if (!mia) return;
+      const rm = await fetch(`/api/auth/orgs/${encodeURIComponent(mia.id)}/members`, { credentials: 'same-origin' });
+      if (!rm.ok) return;
+      const { members } = await rm.json() as { members: MembroPresenza[] };
+      setColleghi(presentiOra(members ?? [], io?.id ?? null, Date.now()));
+    } catch { /* idem: nessun numero e' meglio di un numero inventato */ }
+  }, [io?.id]);
+
   // Il conteggio si prende DOPO il primo paint, non durante. Questa riga sta in
   // fondo alla sidebar e il suo numero non serve a nessuno nel primo frame:
   // farlo partire dentro l'effetto significherebbe una scrittura di stato
@@ -878,14 +903,22 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
   useEffect(() => {
     const chiedi = () => { void caricaAltri(); };
     const primo = setTimeout(chiedi, 0);
+    // I colleghi si ricontano ogni minuto: la soglia e' cinque, e un numero che
+    // si aggiorna solo al montaggio direbbe «c'e' Marco» mezz'ora dopo che se
+    // n'e' andato.
+    const colleghiOra = () => { void caricaColleghi(); };
+    const primoColleghi = setTimeout(colleghiOra, 0);
+    const ogniMinuto = setInterval(colleghiOra, 60_000);
     window.addEventListener('topics:auth-pair-resolved', chiedi);
     window.addEventListener('topics:auth-device-revoked', chiedi);
     return () => {
       clearTimeout(primo);
+      clearTimeout(primoColleghi);
+      clearInterval(ogniMinuto);
       window.removeEventListener('topics:auth-pair-resolved', chiedi);
       window.removeEventListener('topics:auth-device-revoked', chiedi);
     };
-  }, [caricaAltri]);
+  }, [caricaAltri, caricaColleghi]);
 
   if (session.status !== 'paired') return null;
   const locale = session.as === 'loopback';
@@ -935,8 +968,24 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
           <span className="truncate">{chi.dettaglio}</span>
         </span>
       )}
+      {/* CHI ALTRO C'E', della tua organizzazione. Compare solo quando c'e'
+          davvero qualcuno: «0 online» e' rumore che si impara a saltare, e una
+          riga che dice sempre qualcosa smette di essere guardata.
+          Prima del conteggio dei ferri perche' risponde a una domanda piu'
+          grande — «con chi sto lavorando» batte «quante macchine ho» — e con
+          `flex-shrink-0` perche' e' l'ultima cosa da troncare. */}
+      {colleghi > 0 && (
+        <span
+          data-testid="org-presence"
+          className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted"
+          title={tr('statusBar.orgPresenceTitle')}
+        >
+          <Users size={10} className="flex-shrink-0" />
+          {colleghi}
+        </span>
+      )}
       {altri && altri.totali > 0 && (
-        <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">
+        <span className={`${colleghi > 0 ? 'ml-1' : 'ml-auto'} flex flex-shrink-0 items-center gap-1 text-app-text-muted`}>
           {altri.connessi > 0 && <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_OK}`} />}
           {altri.connessi > 0 ? `${altri.connessi}/${altri.totali}` : `${altri.totali}`}
         </span>
