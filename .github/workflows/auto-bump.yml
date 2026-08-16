@@ -83,6 +83,19 @@ jobs:
         id: bump
         run: echo "version=$(bash scripts/bump-version.sh patch)" >> "$GITHUB_OUTPUT"
 
+      # Il changelog e' GENERATO dalla storia di git (scripts/gen-changelog.mjs),
+      # quindi la versione appena bumpata puo' averlo solo DOPO il bump e prima
+      # del commit. Girava a mano: il commit del 12/08 prometteva «non e' piu'
+      # un passo che qualcuno deve ricordarsi» e non lo aggancio' a niente —
+      # tre giorni dopo era indietro di 37 versioni, ed e' il changelog che
+      # l'utente legge dentro l'app e sulla landing.
+      #
+      # Non blocca la release: un changelog che non si rigenera e' un difetto,
+      # fermare la spedizione per quello sarebbe peggio del difetto.
+      - name: Regenerate the changelog for this version
+        continue-on-error: true
+        run: node scripts/gen-changelog.mjs
+
       - name: Commit the bump back to main
         id: push
         env:
