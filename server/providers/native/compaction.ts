@@ -27,7 +27,7 @@
  * inventa niente. Se un domani servisse il riassunto, questo file è il posto.
  */
 
-import type { Block, Message } from "./agent-loop";
+import type { Block, AgentMessage } from "./agent-loop";
 
 /**
  * Quanto della finestra si può usare prima di intervenire.
@@ -53,7 +53,7 @@ const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo
  * sbaglia in eccesso sul codice, che è il verso giusto: si compatta un po'
  * prima del necessario invece di scoprire il tetto sbattendoci contro.
  */
-export function estimateTokens(messages: Message[]): number {
+export function estimateTokens(messages: AgentMessage[]): number {
   let chars = 0;
   for (const m of messages) {
     if (typeof m.content === "string") { chars += m.content.length; continue; }
@@ -67,7 +67,7 @@ export function estimateTokens(messages: Message[]): number {
 }
 
 /** La conversazione ha bisogno di essere compattata? */
-export function needsCompaction(messages: Message[], windowTokens: number): boolean {
+export function needsCompaction(messages: AgentMessage[], windowTokens: number): boolean {
   return estimateTokens(messages) > windowTokens * COMPACT_AT;
 }
 
@@ -80,8 +80,8 @@ export function needsCompaction(messages: Message[], windowTokens: number): bool
  * messaggi recenti, e allora il tetto arriverà lo stesso).
  */
 export function compact(
-  messages: Message[],
-): { messages: Message[]; before: number; after: number } {
+  messages: AgentMessage[],
+): { messages: AgentMessage[]; before: number; after: number } {
   const before = estimateTokens(messages);
   if (messages.length <= KEEP_RECENT + 1) {
     // Troppo corta per potarla senza perdere l'essenziale: meglio lasciarla e

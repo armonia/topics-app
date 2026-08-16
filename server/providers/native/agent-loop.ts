@@ -59,7 +59,7 @@ export interface Block {
   thinking?: string;
 }
 
-export interface Message {
+export interface AgentMessage {
   role: "user" | "assistant";
   content: string | Block[];
 }
@@ -71,7 +71,7 @@ export interface AgentTurnOptions {
   tools?: ToolSpec[];
   toolContext: ToolContext;
   /** La conversazione finora. Viene ESTESA in place: è la memoria della sessione. */
-  history: Message[];
+  history: AgentMessage[];
   /** Cosa l'agente può fare su questa macchina. Vedi `permissions.ts`. */
   autonomy?: AutonomyLevel;
   /**
@@ -254,7 +254,7 @@ function currentText(blocks: Block[]): string {
  * messaggio: il prefisso cachato è comunque tutto ciò che viene prima, quindi
  * non si perde niente in risparmio e si resta sotto il tetto di quattro.
  */
-function stripMessageCacheMarks(messages: Message[]): void {
+function stripMessageCacheMarks(messages: AgentMessage[]): void {
   for (const m of messages) {
     if (typeof m.content === "string") continue;
     for (const b of m.content) {

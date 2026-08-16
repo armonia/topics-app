@@ -23,7 +23,7 @@
  * quando il turno costa un processo intero, e qui costa un array.
  */
 
-import { runAgentTurn, type Message } from "./agent-loop";
+import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import { CODING_TOOLS } from "./tools";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
@@ -70,7 +70,7 @@ const MODELS = [
 ];
 
 interface NativeSession {
-  history: Message[];
+  history: AgentMessage[];
   /** `null` = questa topic non ha un progetto: niente tool di file. */
   workspace: string | null;
   abort?: AbortController;
@@ -288,7 +288,7 @@ export class NativeProvider implements AIProvider {
    * vero — stesso patto degli altri provider.
    */
   async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
-    const history: Message[] = messages.map((m) => ({
+    const history: AgentMessage[] = messages.map((m) => ({
       role: m.role === "assistant" ? "assistant" : "user",
       content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
     }));
