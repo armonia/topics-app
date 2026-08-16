@@ -39,67 +39,26 @@ confirm — never silently.
 
 ## Running agents without the CLI
 
-**200 agent sessions, answering at once, in 162 MB of RAM.** Measured, not
-estimated — see the numbers below.
-
 By default Topics runs agents **inside its own server** instead of spawning one
 `claude`/`codex` process per session. It reuses the credentials the CLI already
-wrote (`~/.claude/.credentials.json` or `~/.jcode/auth.json`) — you still log in
-with `claude` → `/login`; Topics only reads that file. Set the runtime back to
-`cli` in Settings if you prefer a process per agent.
+wrote — you still log in with `claude` → `/login`, Topics only reads that file.
+Switch back to one process per agent in Settings.
 
-The difference is what a session *costs*. Measured on the same machine
-(12 cores / 34 GB, macOS), same model, same trivial turn, **same session count**
-on both sides:
+A session stops being a process and becomes an array of messages, so it stops
+costing like one:
 
-| | CLI — one process per agent | Native runtime |
-|---|---|---|
-| **Memory per session** (3 sessions) | ~432 MB | **2.3 MB** — about **188x** less |
+| Concurrent sessions | All answered | Whole server | Wall clock |
+|---|---|---|---|
+| 8 | ✓ | | ~2 s |
+| 64 | ✓ | | ~4 s |
+| **200** | ✓ | **162 MB** | **5.6 s** |
 
-Pushed further, the native runtime gets *cheaper per session* as the count
-rises: the fixed cost of a turn spreads. Runs across independent servers, every
-turn checked for a real answer:
+At three sessions each — the only equal-count comparison run — a CLI session
+costs ~432 MB against 2.3 MB native, about **188x**. Doubling the sessions adds
+half a second, because the network dominates and not the machine.
 
-| Concurrent sessions | Answered | Memory per session | Whole server | Wall clock |
-|---|---|---|---|---|
-| 8 | 8/8 | 0.7–2.7 MB | | ~2 s |
-| 32 | 32/32 | 0.8–1.0 MB | | ~2.9 s |
-| 64 | 64/64 | 0.25–0.9 MB | | 3.9–4.7 s |
-| **100** | **100/100** | 0.87 MB | 101 → **135 MB** | **5.1 s** |
-| **200** | **200/200** | 0.71 MB | → **162 MB** | **5.6 s** |
-
-Time grows far slower than the session count, because the network dominates, not
-the machine. For scale: 200 CLI processes at the measured 432 MB each would be
-~86 GB — an arithmetic projection, not a run. It is also why that comparison was
-never attempted.
-
-**Three things this does not prove.** The 188x is the only honest cross-runtime
-number: it compares equal session counts. Do not pair the 432 MB with the 64-way
-figures — the CLI was never put through that run, so there is no "who wins under
-load" answer here. And the first turn on a cold server costs ~11 MB, which is
-warm-up, not the price of a session.
-
-Every run, and what each one fails to show, is in
-[`bench/results/`](bench/results/). To reproduce:
-
-```bash
-# An ISOLATED server: pointing this at your dev server creates real topics in
-# your real database. Credentials must be in place BEFORE it starts — the test
-# server sandboxes HOME, and one started without them answers every turn with
-# "Not logged in" while still looking healthy. The script's preflight catches
-# that before it spends 64 turns on it.
-export DATA_DIR=/tmp/bench-conc BUN_PORT=39480
-mkdir -p "$DATA_DIR/.home/.claude"
-cp ~/.claude/.credentials.json "$DATA_DIR/.home/.claude/"   # or ~/.jcode/auth.json → .home/.jcode/
-TOPICS_HOME="$DATA_DIR/.topics-home" ./scripts/start-test-server.sh &
-
-scripts/bench/native-concurrency.sh --base https://127.0.0.1:39480 --scale 8,32,64
-```
-
-> Copying a live `~/.claude/.credentials.json` whose access token has **expired**
-> makes the test server refresh it — and the refresh token *rotates*, which
-> breaks your real `claude` login. Use a credential that is still valid, or
-> expect to run `/login` again.
+How each number was taken, the runs that contradicted an earlier claim, and what
+this does *not* prove: **[`bench/README.md`](bench/README.md)**.
 
 Concurrency is still capped by a **CPU** policy (roughly `cores / 3`), not by
 memory: an agent that compiles burns real cores even when its session is just an

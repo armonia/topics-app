@@ -367,6 +367,25 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // POST /api/test/tasks/:taskId/review-at {at} — l'istante d'INGRESSO in
+    // review, spostato indietro nel tempo.
+    //
+    // Il chip dell'attesa tace sotto l'ora, quindi una card appena creata non
+    // lo mostra: una spec che volesse vederlo dovrebbe aspettare un'ora vera.
+    // Questa porta sposta l'orologio del dato, non quello della macchina.
+    const seedReviewAt = pathname.match(/^\/api\/test\/tasks\/([^/]+)\/review-at$/);
+    if (method === "POST" && seedReviewAt) {
+      const body = (await req.json().catch(() => null)) as { at?: string } | null;
+      const at = typeof body?.at === "string" ? body.at : null;
+      if (!at || !Number.isFinite(Date.parse(at))) return json({ error: "at must be an ISO date" }, 400);
+      try {
+        db.prepare("UPDATE tasks SET review_at = ? WHERE id = ?").run(at, decodeURIComponent(seedReviewAt[1]!));
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
     // POST /api/test/tasks/:taskId/checks {state} — l'ESITO DEI CONTROLLI.
     //
     // Stessa ragione delle altre porte di test: farli girare per davvero

@@ -267,6 +267,7 @@ export interface Task {
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
   deliveryCommit: string | null;
+  reviewAt: string | null;
   deliveryFilesChanged: number | null;
   deliveryInsertions: number | null;
   deliveryDeletions: number | null;
@@ -1818,6 +1819,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       queueReason: queueReasonOf(r, b),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
+      // Da quando aspetta una risposta umana (migration 20260816214500).
+      reviewAt: r.review_at ?? null,
       // L'ENTITÀ DEL LAVORO, sulla card e non dietro un clic: la colonna review
       // chiedeva «Approva» senza dire cosa si stesse approvando.
       deliveryFilesChanged: r.delivery_files_changed ?? null,
@@ -2847,6 +2850,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           put("wait_since", null);
         }
       }
+      // DA QUANDO ASPETTA UNA RISPOSTA. `updated_at` non lo dice: si muove a
+      // ogni commento, etichetta, ri-audit dell'atterraggio, quindi una card
+      // ferma da tre giorni su cui qualcuno ha scritto una riga sembra appena
+      // arrivata. Il timbro sta QUI accanto all'azzeramento dell'attesa perche'
+      // e' la stessa transizione vista dall'altro lato: la card smette di
+      // aspettare la macchina e comincia ad aspettare una persona.
+      //
+      // A OGNI ingresso, non solo al primo: una card respinta e riconsegnata
+      // ricomincia ad aspettare da capo, e mostrare l'attesa precedente sarebbe
+      // una misura vera di una domanda sbagliata.
+      if (patch.status === "review" && current !== "review") put("review_at", now());
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
@@ -3639,10 +3653,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // è arrivato all'umano, non sta più aspettando niente. Questa porta è a
         // SQL grezzo e non passa da lì, quindi la riga va ripetuta o la serie
         // sopravviverebbe alla consegna.
+        // `review_at` per la stessa ragione della serie d'attesa, ed e' lo
+        // stesso avvertimento: questa porta non passa da `update()`, quindi
+        // senza la riga qui la card arriverebbe in review senza sapere da
+        // quando ci sta - e la colonna direbbe «ora» per sempre.
         "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, " +
-          "wait_streak = 0, wait_reason = NULL, wait_since = NULL, " +
+          "wait_streak = 0, wait_reason = NULL, wait_since = NULL, review_at = ?, " +
           "delivered_by = 'system', delivered_reason = ?, updated_at = ? WHERE id = ?",
-      ).run(cause ?? null, ts, taskId);
+      ).run(ts, cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
       markReopened(taskId, row.status, "review", "system", "dispatcher");
       // Open the pending review approval so the review decision flow works, just
@@ -3717,8 +3735,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = ?, " +
           "dispatch_deferred_until = NULL, wait_streak = 0, wait_reason = NULL, wait_since = NULL, " +
+          "review_at = ?, " +
           "delivered_by = 'system', delivered_reason = 'parked_children', updated_at = ? WHERE id = ?",
-      ).run(question, ts, taskId);
+      ).run(question, ts, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", by ?? "dispatcher");
       markReopened(taskId, row.status, "review", "system", by ?? "dispatcher");
       // L'approvazione pendente serve al flusso di review: la risposta rapida

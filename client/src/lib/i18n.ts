@@ -537,6 +537,10 @@ const IT: Dict = {
   'board.card.notLandedTitle': 'Il lavoro consegnato ({commit}{branch}) NON risulta su main. Apri il task per landarlo prima che il branch venga potato.',
   'board.card.notLandedBranch': ' su {branch}',
   // QUANTO LAVORO C'E' DENTRO UNA CONSEGNA, detto dove si decide.
+  // DA QUANTO aspetta: una card che marcisce in review deve essere
+  // distinguibile da una appena arrivata.
+  'board.card.reviewAge': 'in attesa da {t}',
+  'board.card.reviewAgeTitle': 'E\' in review dal {when}, e nessuno ha ancora deciso.',
   'board.card.deliveryFiles': '{n} file',
   'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
   // Il VERDE si dice: senza, una card senza chip poteva voler dire «passati»

@@ -105,7 +105,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- backtick in un commento SQL apre un'interpolazione JS. Costato un giro.)
   delivery_files_changed INTEGER,
   delivery_insertions INTEGER,
-  delivery_deletions INTEGER
+  delivery_deletions INTEGER,
+  -- 20260816214500: da quando la card aspetta una risposta umana.
+  review_at TEXT
 )`;
 
 /**

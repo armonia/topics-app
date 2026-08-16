@@ -158,6 +158,63 @@ Axes this suite names on purpose and does not have a number for. A gap that is w
 
 <!-- /BENCH:TABLE -->
 
+## The native runtime: what a session costs when it stops being a process
+
+The headline in the root README — 200 sessions answering at once in 162 MB —
+comes from here. `bun run bench` does not collect it: it needs real turns against
+a real model, so it costs money and runs on demand.
+
+| N | answered | MB per session | server footprint | wall |
+| --- | --- | --- | --- | --- |
+| 8 | 8/8 | 0.7–2.7 | | ~2 s |
+| 32 | 32/32 | 0.8–1.0 | | ~2.9 s |
+| 64 | 64/64 | 0.25–0.9 | | 3.9–4.7 s |
+| 100 | 100/100 | 0.87 | 101 → 135 MB | 5.1 s |
+| 200 | 200/200 | 0.71 | → 162 MB | 5.6 s |
+
+Per-session cost FALLS as N rises: the fixed cost of a turn spreads. Quoting one
+band for the whole range would be wrong — at N=8 it reaches 2.7 MB, ten times the
+best figure at N=64.
+
+**The only honest cross-runtime number is 188x**, at three sessions each: ~432 MB
+for a CLI session against 2.3 MB native, same machine, same model, same trivial
+turn. Do not pair the 432 MB with the 64-way figures: the CLI was never put
+through that run. For scale, 200 CLI processes at 432 MB would be ~86 GB — an
+arithmetic projection, not a measurement, and the reason that comparison was
+never attempted.
+
+Two more limits. The first turn on a cold server costs ~11 MB (code paths running
+for the first time): warm-up, not the price of a session. And the turn is trivial
+("count to 20"), so this measures a session that ANSWERS, not an agent working a
+real repository.
+
+```bash
+# An ISOLATED server: pointing this at your dev server creates real topics in
+# your real database. Credentials must be in place BEFORE it starts — the test
+# server sandboxes HOME, and one started without them answers every turn with
+# "Not logged in" while still looking healthy. The script's preflight catches
+# that before it spends 64 turns on it.
+export DATA_DIR=/tmp/bench-conc BUN_PORT=39480
+mkdir -p "$DATA_DIR/.home/.claude"
+cp ~/.claude/.credentials.json "$DATA_DIR/.home/.claude/"   # or ~/.jcode/auth.json → .home/.jcode/
+TOPICS_HOME="$DATA_DIR/.topics-home" ./scripts/start-test-server.sh &
+
+scripts/bench/native-concurrency.sh --base https://127.0.0.1:39480 --scale 8,32,64
+```
+
+> Copying a `~/.claude/.credentials.json` whose access token has **expired** makes
+> the test server refresh it — and the refresh token *rotates*, which breaks your
+> real `claude` login. Use one that is still valid, or expect to run `/login`
+> again.
+
+`answered` means the reply CONTAINS the answer. Counting `[DONE]` instead marked
+four turns as successful while every one of them said "Not logged in": the stream
+closes cleanly on an auth failure, so the only honest check is the content.
+
+Raw runs: [`results/native-concurrency.json`](results/native-concurrency.json).
+Where the memory of the app itself goes, plus two saving hypotheses that
+measurement demolished: [`results/memory-anatomy.json`](results/memory-anatomy.json).
+
 ## Where each number comes from
 
 Four harnesses measure, and each one has a lever that makes it go visibly wrong.

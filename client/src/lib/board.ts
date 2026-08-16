@@ -442,6 +442,9 @@ export interface BoardTask {
   deliveryBranch: string | null;
   /** Tip of that branch at review-time — the durable handle the audit checks. */
   deliveryCommit: string | null;
+  /** Da quando la card aspetta una risposta umana. `null` = mai passata di qui
+   *  dopo la migration: non si inventa un istante che nessuno ha registrato. */
+  reviewAt: string | null;
   /** QUANTO lavoro c'è dentro la consegna. `null` = non misurato (git muto o
    *  card senza worktree), che è diverso da zero: zero direbbe «misurato, non
    *  ha prodotto niente». Serve alla colonna review, che chiedeva «Approva»
