@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
+import { boardIdForPath } from '../../lib/board';
+import { ShareControl } from '../Share/ShareControl';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -433,6 +435,12 @@ export function TopicTree({
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean; muted: boolean } | null>(null);
+  // IL PROGETTO CHE SI STA CONDIVIDENDO. Da 20260816230500 un progetto e' una
+  // risorsa condivisibile: condividerlo apre i suoi task senza scrivere una
+  // riga per ciascuno. Il pannello e' lo STESSO di un task e di una chat -
+  // `ShareControl` e' generico sul tipo di risorsa - perche' «con chi e'
+  // condiviso» dev'essere una domanda sola con una risposta sola.
+  const [progettoDaCondividere, setProgettoDaCondividere] = useState<{ id: string; nome: string } | null>(null);
   /** Menu della tessera fissata di un terminale o di un browser: quei tipi non
    *  hanno un menu di riga proprio, e senza questo una volta fissati non si
    *  potrebbero più togliere dai Fissati da nessuna parte. */
@@ -1945,6 +1953,23 @@ export function TopicTree({
               <span>{tr('sidebar.markAllRead')}</span>
             </button>
           )}
+          {/* CONDIVIDI IL PROGETTO: una riga sola, e i suoi task la ereditano
+              in lettura. `boardIdForPath` e' byte-identica al server, quindi
+              l'id qui e' lo stesso su cui il server scrive la concessione. */}
+          <button
+            data-testid="project-share"
+            onClick={() => {
+              setProgettoDaCondividere({
+                id: boardIdForPath(projectContextMenu.projectPath),
+                nome: projectContextMenu.projectName,
+              });
+              setProjectContextMenu(null);
+            }}
+            className={POPOVER_ITEM}
+          >
+            <Share2 size={14} />
+            <span>{tr('sidebar.shareProject')}</span>
+          </button>
           {onTogglePin && (
             <button
               onClick={() => {
@@ -1998,6 +2023,31 @@ export function TopicTree({
             </button>
           )}
         </ContextMenuPortal>
+      )}
+
+      {/* IL PANNELLO DI CONDIVISIONE DI UN PROGETTO.
+          Lo STESSO componente di un task e di una chat: «con chi e' condiviso»
+          dev'essere una domanda sola con una risposta sola, e un secondo
+          pannello scritto qui divergerebbe dal primo alla prima modifica.
+          Nessun `deepLink`: un progetto non ha ancora un indirizzo suo da
+          aprire, e un bottone «copia il link» che copia il nulla e' peggio di
+          un bottone assente. */}
+      {progettoDaCondividere && (
+        <div
+          data-testid="project-share-panel"
+          className="fixed inset-0 z-[10000] flex items-start justify-center bg-black/40 pt-24"
+          onClick={() => setProgettoDaCondividere(null)}
+        >
+          <div
+            className="w-[360px] rounded-lg border border-app-border bg-app-bg p-3 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-2 truncate text-[12px] font-medium text-app-text-heading">
+              {progettoDaCondividere.nome}
+            </p>
+            <ShareControl resourceType="project" resourceId={progettoDaCondividere.id} />
+          </div>
+        </div>
       )}
     </div>
   );

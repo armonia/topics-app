@@ -24,7 +24,7 @@ import { POPOVER_DIVIDER, POPOVER_ITEM } from '../../lib/popoverStyles';
  * provenienza che esiste: nessuna concessione è derivata da un contenitore
  * (vedi `GrantRow` in server/lib/grants-query.ts).
  */
-type ResourceType = 'task' | 'topic';
+type ResourceType = 'task' | 'topic' | 'project';
 
 /** Un destinatario possibile: un dispositivo ospite, una persona, un team.
  *  Arriva da `/api/auth/subjects` — che è una RUBRICA, non l'elenco dei
@@ -66,12 +66,17 @@ const ETICHETTA: Record<Subject['subjectType'], string> = {
 const CHIAVE_TITOLO: Record<ResourceType, string> = {
   task: 'share.title.task',
   topic: 'share.title.topic',
+  // `Record` e non un indice parziale: aggiungere un tipo di risorsa e
+  // dimenticare il titolo qui e' un errore di compilazione, non una schermata
+  // con una chiave grezza al posto della frase.
+  project: 'share.title.project',
 };
 
 /** Cosa vedrà chi apre il link, detto per la risorsa giusta. */
 const CHIAVE_OGGETTO: Record<ResourceType, string> = {
   task: 'share.object.task',
   topic: 'share.object.topic',
+  project: 'share.object.project',
 };
 
 export function ShareControl({ resourceType, resourceId, deepLink }: {

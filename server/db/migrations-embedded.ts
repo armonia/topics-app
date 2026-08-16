@@ -118,6 +118,7 @@ import m20260816112635_board_settings_drop_dead_auto_dispatch from "./migrations
 import m20260816142059_board_dispatch_paused from "./migrations/20260816142059-board-dispatch-paused.sql" with { type: "text" };
 import m20260816174500_task_delivery_diffstat from "./migrations/20260816174500-task-delivery-diffstat.sql" with { type: "text" };
 import m20260816214500_task_review_at from "./migrations/20260816214500-task-review-at.sql" with { type: "text" };
+import m20260816230500_grants_project from "./migrations/20260816230500-grants-project.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -240,4 +241,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260816142059, name: "20260816142059-board-dispatch-paused.sql", sql: m20260816142059_board_dispatch_paused },
   { version: 20260816174500, name: "20260816174500-task-delivery-diffstat.sql", sql: m20260816174500_task_delivery_diffstat },
   { version: 20260816214500, name: "20260816214500-task-review-at.sql", sql: m20260816214500_task_review_at },
+  { version: 20260816230500, name: "20260816230500-grants-project.sql", sql: m20260816230500_grants_project },
 ];

@@ -1185,6 +1185,11 @@ const IT: Dict = {
   //    parte nella testata del drawer.
   'share.button': 'Condividi',
   'share.sharedWith': 'Condivisa con {n}',
+  // Condividere un PROGETTO apre i suoi task: una riga sola, non una per
+  // ciascuno (migration 20260816230500).
+  'share.title.project': 'Condividi il progetto',
+  'share.object.project': 'i task di questo progetto',
+  'sidebar.shareProject': 'Condividi progetto',
   'share.title.task': 'Condividi questa scheda con un ospite',
   'share.title.topic': 'Condividi questa chat con un ospite',
   'share.object.task': 'questa scheda',
