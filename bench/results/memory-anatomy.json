@@ -6,14 +6,14 @@
   "strumento_validato": "mem-report.ts contro vmmap di Apple: 202,6M vs 203 MB e 63,6M vs 64 MB sugli stessi pid. Non è una stima nostra.",
   "composizione": {
     "DISPOSITIVO_451_MB": {
-      "WebContent": "257-448 MB su venti campioni in ~70 minuti (picco storico 660). NON è un numero singolo: oscilla di suo, e chi lo cita deve dire su quanti campioni.",
+      "WebContent": "210-448 MB su ~25 letture in due sessioni di misura (picco storico 660). NON e' un numero singolo: oscilla di suo, e ogni nuova serie ha allargato la banda invece di confermarla.",
       "guscio app (Tauri)": "65 MB",
       "WebKit.GPU": "33 MB — processo di SISTEMA, lo avrebbe qualunque app con una WebView",
       "WebKit.Networking": "20 MB — idem",
       "SafariPlatformSupport": "16 MB — idem"
     },
     "SERVER_154_MB": {
-      "bun principale": "36-73 MB DIRTY, oscillanti: 28 letture in una serata. Il footprint totale sta fra 117 e 152 MB. NON dipende dall'uptime, come avevo scritto: due serie a un minuto di vita danno 36-47 e 66-70, e un processo con 35 minuti passa da 73,2 a 46,1 in SEI secondi. Il resto è il binario bun (57 MB su disco) mappato in __TEXT più __LINKEDIT: pagine condivise, non heap. In nessuna serie cresce senza fermarsi, ed è l'unica cosa che serviva sapere.",
+      "bun principale": "36-78 MB DIRTY, oscillanti, su ~35 letture in una serata. Il footprint totale sta fra 113 e 152 MB. NON dipende dall'uptime: due serie a un minuto di vita danno 36-47 e 66-70, e un processo con 35 minuti passa da 73,2 a 46,1 in sei secondi. Il resto e' il binario bun (57 MB su disco) mappato in __TEXT piu' __LINKEDIT: pagine condivise, non heap. In nessuna serie cresce senza fermarsi.",
       "pty-bridge (node)": "18-21 MB",
       "ai-bridge (bun)": "17 MB"
     },
@@ -94,6 +94,7 @@
     "ancora. La forma giusta del dato non è una cifra e nemmeno una banda con",
     "una spiegazione: è una banda, il numero di campioni, e la sola domanda a",
     "cui serve rispondere — CRESCE SENZA FERMARSI? No. Il resto è rumore che",
-    "somiglia a un segnale."
+    "somiglia a un segnale.",
+    "Post-scriptum del giorno dopo: rimisurando, ENTRAMBE le bande pubblicate qui sono risultate strette. Il server e' arrivato a 78 (dichiarato max 73), il WebContent e' sceso a 210 (dichiarato min 257). Non e' un errore nuovo, e' la stessa proprieta' vista da un'altra angolazione: una banda misurata e' un LIMITE INFERIORE alla variabilita' vera, non il suo confine. Chi cita questi numeri scriva «almeno cosi' larga»."
   ]
 }
