@@ -13,7 +13,7 @@
       "SafariPlatformSupport": "16 MB — idem"
     },
     "SERVER_154_MB": {
-      "bun principale": "117-152 MB di footprint, di cui 59-95 MB DIRTY (cinque campioni consecutivi: 67-68 MB, stabile) e ~58 MB compressi. Il resto è il binario bun (57 MB su disco) mappato in __TEXT, più __LINKEDIT: pagine condivise, non heap.",
+      "bun principale": "36-95 MB DIRTY a seconda dell'ANZIANITÀ del processo: 36-47 su un server appena avviato (uptime 1 minuto), 67-68 stabile su uno in regime da ~45 minuti. Il footprint totale sta fra 117 e 152 MB. Il resto è il binario bun (57 MB su disco) mappato in __TEXT più __LINKEDIT: pagine condivise, non heap. In nessuna lettura cresce senza fermarsi.",
       "pty-bridge (node)": "18-21 MB",
       "ai-bridge (bun)": "17 MB"
     },
@@ -63,7 +63,7 @@
     "osservato": "Sul codice reale con os.totalmem() sostituito: una macchina da 8 GB / 8 core dà 2 posti con la CLI e 4 col nativo. Il default (nessun parametro) dà lo stesso 2 della versione pre-fix: nessuna regressione.",
     "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
   },
-  "conclusione": "Niente da tagliare nel server: 67-68 MB dirty stabili su cinque campioni, il resto è binario mappato. Il WebContent oscilla fra ~260 e ~450 MB senza crescere in modo monotono su settanta minuti: non è una perdita, è il costo variabile di una WebView che tiene l'intera UI. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto; il vincolo residuo sui 4 posti è una politica sulla CPU.",
+  "conclusione": "Niente da tagliare nel server: 36-68 MB dirty a seconda dell'uptime (36 appena avviato, 67-68 in regime), il resto è binario mappato, e in nessuna lettura cresce senza fermarsi. Il WebContent oscilla fra ~260 e ~450 MB senza crescita monotona su settanta minuti: non è una perdita, è il costo variabile di una WebView che tiene l'intera UI. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto; il vincolo residuo sui 4 posti è una politica sulla CPU.",
   "il_confronto_che_manca": {
     "cosa": "CLI contro nativo a PARITÀ di sessioni oltre N=3.",
     "numero_onesto": "188x — 432,4 MB contro 2,3 MB, entrambi a N=3, stesso file, stesso modello, stesso turno banale (session-memory.json).",
@@ -90,6 +90,7 @@
     "La lezione non è «campiona di più»: è che alcune grandezze NON hanno un",
     "valore, hanno una banda. Il server ce l'ha un valore (67-68, fermo). Il",
     "WebContent no, e ogni volta che ho provato a dargliene uno mi sono",
-    "sbagliato. Chi cita questi numeri scriva la banda e i campioni."
+    "sbagliato. Chi cita questi numeri scriva la banda e i campioni.",
+    "Poscritto: anche il «67-68 fermo» del server valeva solo per un processo in regime. Riavviato, parte da 36 e sale. Nessuno di questi numeri è una costante: sono tutti bande, e la variabile qui è l'uptime."
   ]
 }
