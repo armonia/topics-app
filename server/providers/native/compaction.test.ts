@@ -12,11 +12,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { estimateTokens, needsCompaction, compact, windowFor } from "./compaction";
-import type { Message } from "./agent-loop";
+import type { AgentMessage } from "./agent-loop";
 
 /** Una conversazione lunga come quella di un agente che ha lavorato sul serio. */
-function longHistory(rounds: number, resultSize = 4000): Message[] {
-  const msgs: Message[] = [{ role: "user", content: "Sistema il bug nel parser." }];
+function longHistory(rounds: number, resultSize = 4000): AgentMessage[] {
+  const msgs: AgentMessage[] = [{ role: "user", content: "Sistema il bug nel parser." }];
   for (let i = 0; i < rounds; i++) {
     msgs.push({
       role: "assistant",
