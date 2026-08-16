@@ -1,0 +1,30 @@
+{
+  "schema": "bench-task-dispatch-v1",
+  "measured_at": "2026-08-16T14:26:57.280736+00:00",
+  "what": "Dalla creazione del task in `todo` sulla board al file scritto su disco dall'agente. È il tempo che una persona aspetta guardando la kanban, non il tempo di una chat.",
+  "model": "claude-sonnet-4-6",
+  "machine_ram_available_gb": 8.6,
+  "rows": [
+    {
+      "runtime": "topics (nativo)",
+      "samples_ms": [
+        12130,
+        10065
+      ],
+      "median_ms": 11097,
+      "note": "Il dispatch parte e conclude. Nessun processo agente: la sessione vive nel server."
+    },
+    {
+      "runtime": "cli",
+      "samples_ms": null,
+      "median_ms": null,
+      "note": "NON PARTITO: con 8,6 GB liberi il pavimento di 12 GB blocca ogni claim, ed è la taratura giusta per agenti che costano 240-420 MB l'uno. Due task in coda per 6 minuti, zero agenti lanciati."
+    }
+  ],
+  "the_point": "Su questa macchina, adesso, la differenza non è 'quanto ci mette' ma 'parte o no'. Col runtime nativo la board lavora; con le CLI aspetta che si liberino ~3,4 GB. Il confronto dei millisecondi su un task dispacciato resta da fare su una macchina più libera.",
+  "caveats": [
+    "Un solo task per volta: il costo della concorrenza (dove il nativo dovrebbe staccare di più) non è misurato qui.",
+    "Il tempo include la finestra di grace del dispatcher (~6s) e il polling del bench (2s): il lavoro dell'agente è meno del totale.",
+    "Chiama il modello vero: questo run è costato soldi."
+  ]
+}
