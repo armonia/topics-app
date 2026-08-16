@@ -79,4 +79,9 @@ jobs:
         with:
           name: playwright-report-nightly-shard-${{ matrix.shard }}
           path: test-results/html-report
-          retention-days: 7
+          # 3, non 7: la quota artifact e' dell'ORG (500 MB sul piano free), non del repo,
+          # e questi report pesano fino a 20 MB l'uno. Con sette giorni di storico topics-app
+          # da solo arrivava a 600 MB e saturava la quota di TUTTI: il 16/08 gli upload della
+          # UAT di quadra sono morti con "Artifact storage quota has been hit". Un report di
+          # un rosso si guarda entro il giorno; tre giorni sono gia' larghi.
+          retention-days: 3
