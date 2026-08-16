@@ -102,7 +102,7 @@ export const CODING_TOOLS: ToolSpec[] = [
   {
     name: "edit_file",
     description:
-      "Replace an exact string in a file. `old` must appear EXACTLY ONCE — if it appears zero times or many, the edit fails and nothing is written, so include enough surrounding context to make it unique. This is the safe way to change part of a file you have read.",
+      "Replace an exact string in a file. `old` must appear EXACTLY ONCE. If it appears zero times or many, the edit fails and nothing is written, so include enough surrounding context to make it unique. This is the safe way to change part of a file you have read.",
     input_schema: {
       type: "object",
       properties: {
