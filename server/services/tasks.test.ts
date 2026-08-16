@@ -3034,7 +3034,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- campi nuovi senza che nessuno se ne accorgesse.
          -- (Niente backtick nei commenti SQL: questo DDL vive in un template
          -- literal e un backtick apre un'interpolazione JS. Seconda volta oggi.)
-         delivery_files_changed = 7, delivery_insertions = 120, delivery_deletions = 30
+         delivery_files_changed = 7, delivery_insertions = 120, delivery_deletions = 30,
+         -- 20260816214500: da quando la card aspetta una risposta umana.
+         review_at = ?
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
@@ -3044,7 +3046,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
         `🎯${"d".repeat(400)}`,
         TS, TS, TS, TS, TS, bloccante.id, "2020-01-01T00:00:00.000Z",
         TS, TS, JSON.stringify([{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "ok" }]),
-        TS, TS, TS, TS, t.id,
+        TS, TS, TS, TS, TS, t.id,
       ],
     );
     return { id: t.id, altri: [padre.id, passo.id, bloccante.id, inCoda.id, dipendente.id] };

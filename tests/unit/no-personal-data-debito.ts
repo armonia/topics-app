@@ -22,7 +22,11 @@
  */
 export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "CHANGELOG.md",
-  "PORTING-PLAN.md",
+  // Spostato in docs/archive/ il 16/08 (9ef747e7): il debito segue il FILE, non
+  // la sua vecchia posizione. Un path stantio qui e' un file che nessuno
+  // sorveglia piu' e un'esenzione che copre il nulla - e il cancello prende
+  // entrambe le cose, ed e' cosi' che questa riga e' stata corretta.
+  "docs/archive/PORTING-PLAN.md",
   "client/public/changelog.json",
   "client/src/App.tsx",
   "client/src/components/Board/Card.tsx",

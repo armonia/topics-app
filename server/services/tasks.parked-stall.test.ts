@@ -40,7 +40,15 @@ function freshDb(): Database {
     landing_witnessed INTEGER NOT NULL DEFAULT 0,
     delivered_by TEXT, delivered_reason TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT,
-    model TEXT, created_by_topic_id TEXT
+    model TEXT, created_by_topic_id TEXT,
+    -- Le colonne del 16/08, in fondo come le mette ALTER TABLE in produzione:
+    -- l'entita' della consegna (20260816174500) e da quando la card aspetta
+    -- una risposta umana (20260816214500). Questo DDL e' una copia a mano e
+    -- non lo stub condiviso, quindi ogni migration nuova va ripetuta QUI o
+    -- ogni test del file muore su "no such column" - che e' precisamente cio'
+    -- che e' successo aggiungendo review_at.
+    delivery_files_changed INTEGER, delivery_insertions INTEGER, delivery_deletions INTEGER,
+    review_at TEXT
   )`);
   // See the note in tasks.queue-reason.test.ts: `readGlobalCap` SELECTs
   // `max_agents_auto`, so leaving it out of this DDL arms a "no such column"
