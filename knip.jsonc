@@ -87,6 +87,10 @@
         // (o da un cron) e non la importa nessuno tranne il suo test.
         "scripts/stalled-parents.ts!",
         "scripts/effort-variance.ts!",
+        // `bun run scripts/mem-report.ts [--json]` — dove stanno i megabyte che
+        // la status bar riassume in due numeri: si lancia a mano quando uno dei
+        // due sembra alto, legge e basta, nessuno lo importa.
+        "scripts/mem-report.ts!",
         // Il banco del freno del dispatch: `bun run scripts/dispatch-brake-bench.ts
         // [--warmup=60] [--json=<path>]`. Carica la macchina due volte (carico
         // altrui fuori dal nostro albero di processi, carico nostro dentro) e
