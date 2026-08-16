@@ -25,6 +25,7 @@
 
 import { runAgentTurn, type Message } from "./agent-loop";
 import { CODING_TOOLS } from "./tools";
+import { levelFor } from "./permissions";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
 import { getTopicWorkspaceForSession } from "../claude-code";
 import type {
@@ -202,6 +203,10 @@ export class NativeProvider implements AIProvider {
           history: session.history,
           tools: workspace ? CODING_TOOLS : [],
           toolContext: { workspace: workspace ?? "" },
+          // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
+          // sulla sessione: chi lo cambia in chat si aspetta che valga dal
+          // messaggio dopo, non dalla prossima chat.
+          autonomy: levelFor(readTopicAutonomy(sessionKey)),
           signal: abort.signal,
         },
         handler,
@@ -309,5 +314,27 @@ export class NativeProvider implements AIProvider {
         lastError: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+}
+
+/**
+ * Il livello di autonomia scritto sul topic di questa sessione.
+ *
+ * Lettura stretta sulla riga, come fa `claude-code` per gli stessi override:
+ * passare da `getTopicBySessionKey` creerebbe un import circolare con utils.ts.
+ *
+ * Un errore qui NON deve alzare i permessi: si torna `null`, che `levelFor`
+ * traduce nel default (`auto-apply`). Il verso giusto in cui sbagliare è verso
+ * il basso — una tabella assente non può diventare un lasciapassare.
+ */
+function readTopicAutonomy(sessionKey: string): string | null {
+  try {
+    const { getDatabase } = require("../../db");
+    const row = getDatabase()
+      .prepare("SELECT autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { autonomy_level?: string | null } | undefined;
+    return row?.autonomy_level ?? null;
+  } catch {
+    return null;
   }
 }
