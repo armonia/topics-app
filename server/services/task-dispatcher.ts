@@ -1487,6 +1487,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   ): Promise<void> {
     const runId = beginRun(taskId, "");
     let worktreeId: string | undefined;
+    // LO STORICO DEL TENTATIVO. `task_attempts` esisteva con diciannove colonne
+    // e ZERO righe: la scriveva solo il fan-out, e il dispatch normale — cioe'
+    // la quasi totalita' dei lanci — non lasciava traccia. Il costo si e' visto
+    // quando e' servito capire perche' il 40% delle uscite dalla review torna
+    // indietro: senza storico dei tentativi non c'e' modo di sapere perche' una
+    // card ha rimbalzato quattro volte, e ogni vista costruita su questa tabella
+    // mostrava zero sembrando che andasse tutto bene.
+    //
+    // Best-effort in ogni punto, e non e' pigrizia: lo storico e' una TRACCIA,
+    // e una traccia che fa fallire il lavoro che sta tracciando e' peggio di
+    // nessuna traccia. Se la scrittura esplode, il dispatch prosegue.
+    let attemptId: string | null = null;
+    const attemptStore = deps.attempts;
     try {
       let task = deps.svc.get(taskId)?.task;
       if (!task) return;
@@ -1598,6 +1611,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           });
       bindRunSession(taskId, runId, sessionKey);
 
+      // Il tentativo nasce QUI e non prima: adesso ci sono il topic, il ramo e
+      // il modello davvero scelto (il classificatore ha gia' parlato), cioe' le
+      // cose per cui questa riga esiste. Crearla in cima vorrebbe dire una riga
+      // con tre colonne su cinque vuote per ogni lancio che si ferma prima —
+      // e i lanci che si fermano prima sono un fatto normale (peso scoperto
+      // tardi, capacita' finita).
+      //
+      // `idx` e' il numero del tentativo cosi' come lo legge un umano, e si
+      // ricava dalle RIGHE gia' scritte, non da `dispatchAttempts`: quel
+      // contatore e' gia' stato incrementato dal claim quando si arriva qui, e
+      // usarlo farebbe nascere il primo tentativo col numero 2. Contare le
+      // righe risponde alla domanda giusta — «quanti ne ho gia' registrati» —
+      // ed e' anche l'unica fonte che resta coerente se una scrittura salta.
+      if (attemptStore) {
+        try {
+          let gia = 0;
+          try { gia = attemptStore.list(taskId).length; } catch { /* prima riga */ }
+          const a = attemptStore.create({
+            taskId,
+            idx: gia + 1,
+            model: chosenModel ?? null,
+          });
+          attemptId = a.id;
+          let branch: string | null = null;
+          try { branch = worktreeId ? (deps.worktreeBranch?.(worktreeId) ?? null) : null; } catch { /* etichetta, non un requisito */ }
+          attemptStore.bind(a.id, { topicId, worktreeId: worktreeId ?? null, branch });
+        } catch (err) { log(`storico: tentativo non registrato per ${taskId}`, err); }
+      }
+
       // Point the claim at the REAL topic (claim bound a placeholder) and flip
       // the chip to working. assigned_topic_id is the "apri tab" deep-link target.
       deps.svc.bindTopic({ taskId, topicId });
@@ -1632,6 +1674,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
+      // La fotografia dell'esito, con lo stesso significato che ha nel fan-out:
+      // com'e' finito QUESTO turno, non come sta il disco adesso. `cancelled`
+      // dal timeout non e' `delivered`: e' il caso che ha aperto tutto questo —
+      // due card tagliate a 1.800.0xx ms tonde sembravano pronte e non lo erano.
+      if (attemptId && attemptStore) {
+        try {
+          const stats = worktreeId && deps.attemptStats ? await deps.attemptStats(worktreeId).catch(() => null) : null;
+          const usage = sessionKey ? sessionUsage(sessionKey) : null;
+          attemptStore.finish(attemptId, {
+            // `undefined` vale `end_turn`, ed e' la stessa convenzione di
+            // `onTurnEnd` dieci righe sopra: chi non sa com'e' finito il turno
+            // sceglie l'ipotesi benevola, «l'agente ha finito». Leggerlo come
+            // fallimento marchierebbe come falliti i turni sani di ogni host
+            // che non riporta lo stop reason.
+            state: !turnEnd || turnEnd.end === "end_turn" ? "delivered" : "failed",
+            commit: stats?.commit ?? null,
+            filesChanged: stats?.filesChanged ?? null,
+            insertions: stats?.insertions ?? null,
+            deletions: stats?.deletions ?? null,
+            summary: lastAgentWords(sessionKey),
+            // Il motivo per cui il turno e' finito, quando non e' finito da se':
+            // 'cancelled' col timeout, l'errore classificato altrimenti. E'
+            // l'unica colonna che distingue «ha consegnato» da «e' scaduto».
+            error: turnEnd && turnEnd.end !== "end_turn" ? (turnEnd.detail || turnEnd.end) : null,
+            agentMs: Date.now() - t0,
+            agentTokens: usage && usage0 ? Math.max(0, usage.billableTokens - usage0.billableTokens) : 0,
+          });
+        } catch (err) { log(`storico: esito del tentativo non salvato per ${taskId}`, err); }
+      }
       // The worktree holds the agent's work: keep it when the task advanced to
       // review/done (it's the deliverable), delete it when the attempt was
       // discarded (requeued/parked) so retries don't orphan a worktree each time.
@@ -1639,6 +1710,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (worktreeId && (after === "todo" || after === "backlog")) await cleanupWorktree(worktreeId, { preserveWork: true });
     } catch (err) {
       log(`launch failed for task ${taskId}`, err);
+      // Il setup e' esploso (worktree/topic/bind): se il tentativo era gia'
+      // nato, si chiude come fallito invece di restare `running` per sempre —
+      // una riga eternamente in corso e' peggio di nessuna riga, perche'
+      // `runningCount` la conta e il fan-out gate ci crede.
+      if (attemptId && attemptStore) {
+        try { attemptStore.finish(attemptId, { state: "failed", error: err instanceof Error ? err.message : String(err) }); }
+        catch { /* la traccia non fa fallire il recupero */ }
+      }
       // Setup threw (worktree/topic/bind). Park if attempts are exhausted, else
       // requeue — mirror onTurnEnd so a flaky setup can't strand a task in todo.
       try {
