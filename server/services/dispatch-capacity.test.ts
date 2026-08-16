@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 
 function dbConImpostazioni(): Database {
@@ -468,5 +468,52 @@ describe("il pavimento della memoria segue il runtime", () => {
     // sempre. Vale identico sulle due strade.
     expect(dispatchResourceBlock("/tmp", () => null, () => null, true)).toBeNull();
     expect(dispatchResourceBlock("/tmp", () => null, () => null, false)).toBeNull();
+  });
+});
+
+/**
+ * IL PREZZO DI AMMISSIONE SEGUE IL RUNTIME.
+ *
+ * Il pavimento sapeva già distinguere una CLI da una sessione nativa; il TETTO
+ * no, e prenotava 3 GB a testa anche per sessioni che ne costano 2,3 di
+ * megabyte. Su questa macchina (34 GB) il conto dava 11 posti e non mordeva,
+ * ma su una macchina piccola sì: 8 GB di RAM davano DUE posti a un runtime che
+ * ne regge decine, ed è lì che i task partivano a scaglioni.
+ *
+ * I test non leggono la RAM di chi li esegue: fissano il caso che conta (la
+ * macchina piccola) ragionando sui due divisori, così l'asserzione non dipende
+ * dall'host che fa girare la suite.
+ */
+describe("il tetto conosce il runtime: 3 GB per una CLI, 0,25 per una sessione nativa", () => {
+  test("i due prezzi non sono lo stesso numero, e il nativo costa molto meno", () => {
+    // Se un giorno qualcuno li riallinea, i test qui sotto passerebbero per
+    // caso: questa riga è la sentinella che rende visibile la regressione.
+    expect(GB_PER_AGENT_NATIVE).toBeLessThan(GB_PER_AGENT_CLI);
+  });
+
+  test("col runtime nativo la RAM non è più il vincolo che stringe", () => {
+    // `byMem` col nativo vale `RAM / 0,25` — su qualunque macchina che regga
+    // Topics è ≥ 8, cioè il tetto massimo automatico. Quindi il numero che
+    // comanda deve essere quello dei CORE, mai più quello della memoria.
+    const native = structuralDispatchCapacity(false);
+    const cli = structuralDispatchCapacity(true);
+    expect(native).toBeGreaterThanOrEqual(cli);
+  });
+
+  test("il default resta la CLI: chi non passa niente ottiene il conto prudente", () => {
+    // Un parametro con default sbagliato allarga il tetto di nascosto su ogni
+    // chiamante che non è stato aggiornato. Il default deve essere il vecchio
+    // comportamento, e questo lo inchioda.
+    expect(structuralDispatchCapacity()).toBe(structuralDispatchCapacity(true));
+  });
+
+  test("stessa regola in `computeDispatchCapacity`, non solo nella strutturale", () => {
+    // Le due funzioni rispondono a domande diverse ma dividono per lo stesso
+    // prezzo: se una imparasse il runtime e l'altra no, il tetto e il divisore
+    // della quota direbbero due cose diverse sulla stessa macchina.
+    const probe = () => ({ coreUnits: 0, cores: 12 });
+    const native = computeDispatchCapacity(0, probe, false).recommended;
+    const cli = computeDispatchCapacity(0, probe, true).recommended;
+    expect(native).toBeGreaterThanOrEqual(cli);
   });
 });
