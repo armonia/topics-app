@@ -248,6 +248,22 @@ const IT: Dict = {
   'board.task.modelAutoOption': 'Auto',
   // La riga di ritorno in cima alla chat di una sessione di board: da dove si
   //    LAVORA a dove si DECIDE. Il verso opposto della board.
+  // IL CONTESTO DI UNA CHAT VUOTA. Un topic porta addosso scelte che decidono
+  // come rispondera' — modello, effort, autonomia, file di contesto, MCP — e
+  // fino al 16/08 nel vuoto non se ne vedeva nessuna: si leggeva il nome e si
+  // scriveva al buio. Sono le stesse etichette che la card di board usa per le
+  // stesse cose, di proposito: due nomi diversi per la stessa scelta sono il
+  // modo in cui una UI comincia a mentire.
+  'chat.empty.contextTitle': 'Come risponde questa chat',
+  'chat.empty.model': 'modello {model}',
+  'chat.empty.effort': 'effort {effort}',
+  'chat.empty.provider': 'via {provider}',
+  'chat.empty.autonomyAsk': 'chiede prima di agire',
+  'chat.empty.autonomyAutoApply': 'applica da sé',
+  'chat.empty.autonomyYolo': 'agisce senza chiedere',
+  'chat.empty.contextFiles': '{n} file di contesto',
+  'chat.empty.mcpBridge': 'solo gli strumenti di Topics',
+  'chat.empty.project': 'nel progetto {name}',
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
