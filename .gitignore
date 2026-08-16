@@ -270,3 +270,4 @@ artifacts/
 # (vedi tasks.test.ts: la deduzione della cartella progetti scarta le dot-dir)
 tmp-tasks-router-*/
 .topics-claims.md
+.scrub-map.txt
