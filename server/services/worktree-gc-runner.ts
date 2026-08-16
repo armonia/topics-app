@@ -24,7 +24,7 @@ import { existsSync, statSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus, type WorktreeGcSummary } from "./worktree-gc";
-import { worktreeRealDirt } from "./task-automerge";
+import { worktreeDirtProbe } from "./task-automerge";
 import { branchStatusFromRepo } from "./branch-status";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
@@ -220,7 +220,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       },
       isBusy: (taskId) => deps.isInFlight(taskId),
       diskPresent: (absPath) => existsSync(absPath),
-      realDirt: (absPath) => worktreeRealDirt(absPath),
+      realDirt: (absPath) => worktreeDirtProbe(absPath),
       branchStatus: (w) => {
         const repoPath = deps.projectStore.get(w.projectId)?.path;
         if (!repoPath) return Promise.resolve("gone" as const);
