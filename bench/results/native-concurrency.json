@@ -1,0 +1,35 @@
+{
+  "schema": "bench-native-concurrency-v1",
+  "measured_at": "2026-08-16T17:51:00+02:00",
+  "host": { "cores": 12, "totalMemGB": 34.4, "os": "macOS" },
+  "setup": {
+    "server": "isolato, BUN_PORT=39470 + DATA_DIR=/tmp/bench-mem-39470 + TOPICS_HOME dedicato",
+    "provider": "topics (runtime nativo)",
+    "model": "claude-sonnet-4-6",
+    "turno": "«Conta da 1 a 20, solo i numeri» — un turno vero, non un ping",
+    "metrica": "RSS del processo bun del server prima/dopo la raffica"
+  },
+  "note_metodo": [
+    "Il conteggio 'ok' guarda [DONE], che arriva ANCHE su una risposta d'errore:",
+    "i 4 turni claude-code sono passati per ok pur dicendo 'Not logged in'. La",
+    "verifica vera è il contenuto — 127 file su 131 contengono la risposta.",
+    "Il confronto con la CLI NON è stato possibile: nella home sandboxata del",
+    "server di prova la CLI non ha credenziali. Che il runtime nativo lì funzioni",
+    "e la CLI no è di per sé una differenza, ma non è un tempo confrontabile."
+  ],
+  "runs": [
+    { "n": 1,  "wallSeconds": 1.51, "ok": 1,  "mbPerSession": -0.31 },
+    { "n": 2,  "wallSeconds": 1.71, "ok": 2,  "mbPerSession": 0.81 },
+    { "n": 4,  "wallSeconds": 1.53, "ok": 4,  "mbPerSession": 2.10 },
+    { "n": 8,  "wallSeconds": 1.96, "ok": 8,  "mbPerSession": 0.74 },
+    { "n": 16, "wallSeconds": 3.61, "ok": 16, "mbPerSession": 0.82 },
+    { "n": 32, "wallSeconds": 4.27, "ok": 32, "mbPerSession": 0.75 },
+    { "n": 64, "wallSeconds": 4.14, "ok": 64, "mbPerSession": 0.34 }
+  ],
+  "conclusioni": {
+    "costo_marginale": "0,3-0,8 MB per sessione, PIATTO da 8 a 64: nessuna crescita superlineare",
+    "scalabilita": "64 turni concorrenti in 4,14s, tutti con risposta corretta; da 32 a 64 il wall non peggiora (la rete domina, non la macchina)",
+    "server_rss": "da 89 MB a 155 MB per 127 turni: +66 MB in totale",
+    "implicazione": "il tetto di 4 posti su questa macchina è una politica sui core, non un limite fisico: il runtime nativo regge un ordine di grandezza in più"
+  }
+}
