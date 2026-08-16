@@ -42,13 +42,23 @@ fi
 # Footprint totale di un'app, in MB. `vmmap` parla in K/M/G: si normalizza qui,
 # perche' sommare "1.2G" e "340M" come numeri darebbe 341.
 #
-# I PID si prendono dal BUNDLE, non dal nome. `pgrep -f "Visual Studio Code"`
-# pesca anche i processi di Cursor — che e' un fork di VS Code e ha «Code» nei
-# suoi path — e il conto usciva 1368 MB per un VS Code chiuso. Il path del
-# bundle e' l'unica cosa che distingue due app che condividono il codice.
+# QUALI PROCESSI SONO DELL'APP: due trappole opposte, entrambe pagate.
+#
+# `pgrep -f "Visual Studio Code"` pesca anche i processi di CURSOR, che e' un
+# fork di VS Code e ha «Code» nei suoi path: il conto dava 1368 MB per un VS
+# Code chiuso.
+#
+# Ma filtrare sul solo path del bundle sbaglia al contrario: gli helper si
+# RINOMINANO («Cursor Helper: shared-process») e perdono il path, quindi ne
+# sparivano sei su tredici e il totale usciva quasi dimezzato — 1889 MB contro
+# i 3434 misurati a mano sugli stessi tre progetti.
+#
+# Si prende l'unione: chi ha il path del bundle, PIU' chi si chiama «<App>
+# Helper», che e' la convenzione di ogni app Electron/Chromium. `sort -u`
+# perche' un processo che soddisfa entrambi i criteri va contato una volta.
 footprint_mb() {
-  local bundle="/Applications/$1.app" pids tot=0 n=0 f v
-  pids=$(pgrep -f "^$bundle/" 2>/dev/null | tr '\n' ' ')
+  local app="$1" bundle="/Applications/$1.app" pids tot=0 n=0 f v
+  pids=$( { pgrep -f "^$bundle/" 2>/dev/null; pgrep -f "^$app Helper" 2>/dev/null; } | sort -un | tr '\n' ' ')
   [ -z "$pids" ] && { echo "0 0"; return; }
   for p in $pids; do
     f=$(vmmap --summary "$p" 2>/dev/null | awk '/^Physical footprint:/{print $3}')

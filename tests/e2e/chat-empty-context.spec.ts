@@ -61,17 +61,29 @@ test.describe("la chat vuota dice come risponderà", () => {
     // «via claude»: la scelta fatta, non un default stampato per riempire.
     await expect(riga).toContainText(/claude/i);
 
-    // E IL MODELLO VERO. Il topic non ne impone uno, quindi `topic.model` e'
-    // vuoto e la riga taceva - mentre la barra sotto al composer mostrava gia'
-    // `claude-opus-5`. Due superfici a un centimetro l'una dall'altra che
-    // dicevano due cose diverse sulla stessa chat, e quella muta era proprio
-    // quella che si legge PRIMA di scrivere. Qui si verifica che ora
-    // concordino: si legge il modello dal `data-model` del picker, cioe' dalla
-    // superficie che gia' lo sapeva, invece di scriverne uno atteso a mano.
-    const modelloBarra = await page.locator("[data-model]").first().getAttribute("data-model");
-    expect(modelloBarra, "la barra deve dichiarare un modello").toBeTruthy();
-    await expect(riga, "la riga del vuoto dice lo stesso modello della barra")
-      .toContainText(String(modelloBarra).split("[")[0]);
+    // E IL MODELLO VERO, quando c'e' un provider da cui dedurlo.
+    //
+    // Il topic non impone un modello, quindi `topic.model` e' vuoto e la riga
+    // taceva - mentre la barra sotto al composer mostrava gia' `claude-opus-5`.
+    // Due superfici a un centimetro l'una dall'altra che dicevano due cose
+    // diverse sulla stessa chat, e quella muta era quella che si legge PRIMA di
+    // scrivere. Si confronta col `data-model` del picker, cioe' con la
+    // superficie che gia' lo sapeva, invece di attendersi un nome scritto a
+    // mano che domani cambia.
+    //
+    // CONDIZIONATO, e non per comodita': su un runner senza chiavi NESSUN
+    // provider e' pronto, `resolveEffectiveProvider` torna null e la barra non
+    // ha un modello da dichiarare - giustamente. Preteso incondizionatamente,
+    // questo caso era rosso nella nightly (run 31970135356) mentre in locale
+    // passava: misurava la configurazione della macchina, non il prodotto.
+    const picker = page.locator("[data-model]").first();
+    if (await picker.count()) {
+      const modelloBarra = await picker.getAttribute("data-model");
+      if (modelloBarra) {
+        await expect(riga, "la riga del vuoto dice lo stesso modello della barra")
+          .toContainText(String(modelloBarra).split("[")[0]);
+      }
+    }
     await page.screenshot({ path: join(SHOTS, "chat-vuota-contesto.png") });
   });
 

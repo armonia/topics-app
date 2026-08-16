@@ -59,24 +59,15 @@ half a second, because the network dominates and not the machine.
 
 ### One window per project is the expensive part
 
-An IDE gives you one project per window and charges you a full copy for the
-next. Measured on the same machine, opening the same three repositories:
+An IDE gives you one project per window, and charges you close to a full copy
+for the next one. Topics gives you one row in a database.
 
-| | 1 project | 2 projects | 3 projects | each extra project |
-|---|---|---|---|---|
-| Cursor | 1356 MB | 2373 MB | 3434 MB | **+1039 MB** |
-| VS Code | 431 MB | 731 MB | 953 MB | **+261 MB** |
-| **Topics** | | | **619 MB** | **+0.07 MB** |
+Those 619 MB are the app as it runs here, holding **22 projects and 993 topics**
+— and three more topics moved the server by 0.2 MB in total.
 
-That Topics column is not a typo and not a projection: those 619 MB are the app
-as it runs here, holding **22 projects and 993 topics**, and three more topics
-moved the server by 0.2 MB total. A project is a row, not a window.
-
-So the fourth repository is where it stops being about taste: on a 16 GB laptop
-Cursor is already asking for 4.5 GB before your build starts.
-
-How each number was taken, the runs that contradicted an earlier claim, and what
-this does *not* prove: **[`bench/README.md`](bench/README.md)**.
+How each number was taken, how Cursor and VS Code compare per project, the runs
+that contradicted an earlier claim, and what none of this proves:
+**[`bench/README.md`](bench/README.md)**.
 
 Concurrency is still capped by a **CPU** policy (roughly `cores / 3`), not by
 memory: an agent that compiles burns real cores even when its session is just an
