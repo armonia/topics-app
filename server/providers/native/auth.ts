@@ -70,7 +70,13 @@ export interface OAuthCredentials {
 
 /** Dove cerchiamo le credenziali, in ordine di preferenza. */
 function credentialPaths(): string[] {
-  const home = homedir();
+  // `HOME` PRIMA di `homedir()`, e non e' un dettaglio da test: su macOS
+  // `os.homedir()` legge la home dal database degli utenti e IGNORA `HOME`,
+  // quindi un processo che gira con una home diversa da quella dell'utente di
+  // login (un servizio, un container, un runner) cercherebbe le credenziali
+  // dove non stanno. E' anche l'unico modo di provare i due esiti opposti di
+  // `connected` senza dipendere dalla macchina che esegue i test.
+  const home = process.env.HOME || homedir();
   return [
     join(home, ".claude", ".credentials.json"),
     join(home, ".jcode", "auth.json"),

@@ -27,6 +27,9 @@ import {
 } from "./index";
 import { resolveAcpAgents } from "./index";
 import { getDatabase } from "../db";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const ENV = ["AI_PROVIDER", "ACP_AGENTS", "TOPICS_AGENT_RUNTIME"] as const;
 const saved: Record<string, string | undefined> = {};
@@ -161,11 +164,62 @@ describe("il runtime di casa nel registro", () => {
   });
 
   test("registrato e connesso, col runtime di default è LUI il default", () => {
-    registerProvider({ type: "claude-code" });
-    registerProvider({ type: "native" });
-    recomputeDefault();
-    // Nessuna variabile: vale `DEFAULT_AGENT_RUNTIME`, che è `topics`.
-    expect(getDefaultProviderName()).toBe("topics");
+    // CONNESSO va COSTRUITO, non sperato. `NativeProvider.connected` e' vero
+    // solo se su questa macchina c'e' una credenziale (`~/.claude/.credentials.json`
+    // o `~/.jcode/auth.json`), e su un runner di CI non c'e': il provider si
+    // registra ma non risulta connesso, `recomputeDefault` cade sull'ordine dei
+    // noti e il default esce `claude-code`. Il test era verde a casa e rosso in
+    // CI perche' misurava le CREDENZIALI di chi lo eseguiva, non la regola.
+    //
+    // Una home finta con dentro una credenziale rende il caso quello che dice
+    // di essere: «il provider c'e' ED e' connesso, quindi vince lui».
+    const home = mkdtempSync(join(tmpdir(), "runtime-default-home-"));
+    const homeVero = process.env.HOME;
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "sk-ant-oat01-finto",
+          refreshToken: "sk-ant-ort01-finto",
+          expiresAt: Date.now() + 3_600_000,
+        },
+      }),
+    );
+    process.env.HOME = home;
+    try {
+      registerProvider({ type: "claude-code" });
+      registerProvider({ type: "native" });
+      recomputeDefault();
+      // Nessuna variabile: vale `DEFAULT_AGENT_RUNTIME`, che è `topics`.
+      expect(getDefaultProviderName()).toBe("topics");
+    } finally {
+      if (homeVero === undefined) delete process.env.HOME;
+      else process.env.HOME = homeVero;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("SENZA credenziale il default resta `claude-code`: e' la rete, non un difetto", () => {
+    // L'altra meta' della stessa regola, ed e' quella che rendeva accettabile
+    // il cambio di default: chi aggiorna e non ha una credenziale per il
+    // runtime di casa NON resta senza agenti, si ritrova quello di prima.
+    // Questo caso e' anche la ragione per cui il test qui sopra deve costruirsi
+    // la credenziale invece di ereditarla: sono due esiti opposti dello stesso
+    // codice, e senza controllare l'ambiente se ne misura uno a caso.
+    const home = mkdtempSync(join(tmpdir(), "runtime-default-nohome-"));
+    const homeVero = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      registerProvider({ type: "claude-code" });
+      registerProvider({ type: "native" });
+      recomputeDefault();
+      expect(getDefaultProviderName()).toBe("claude-code");
+    } finally {
+      if (homeVero === undefined) delete process.env.HOME;
+      else process.env.HOME = homeVero;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("si registra col nome `topics`, non `native`", () => {
