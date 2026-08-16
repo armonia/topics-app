@@ -25,6 +25,7 @@ import { getAccessToken } from "./auth";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { needsCompaction, compact, windowFor } from "./compaction";
+import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
@@ -72,6 +73,11 @@ export interface AgentTurnOptions {
   history: Message[];
   /** Cosa l'agente può fare su questa macchina. Vedi `permissions.ts`. */
   autonomy?: AutonomyLevel;
+  /**
+   * I mestieri di Topics (card, browser, agenti). Assente = l'agente sa solo
+   * programmare: è il caso di `complete` e dei test, non quello di una chat.
+   */
+  topics?: TopicsToolContext;
   signal?: AbortSignal;
 }
 
@@ -327,9 +333,16 @@ export async function runAgentTurn(
       // Farlo fallire con un'eccezione gli farebbe sparire il turno sotto i
       // piedi per una regola che poteva semplicemente rispettare.
       const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
-      const out = verdict.allow
-        ? await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext)
-        : { content: verdict.reason, isError: true };
+      // Due famiglie di tool, un solo giro. I mestieri di Topics passano dai
+      // loro handler (`topics-tools.ts`), quelli di macchina dai nostri: la
+      // distinzione è sul NOME e non su un prefisso, perché e' la tabella MCP
+      // a decidere quali nomi esistono, non una convenzione che va tenuta
+      // allineata a mano.
+      const out = !verdict.allow
+        ? { content: verdict.reason, isError: true }
+        : opts.topics && isTopicsTool(t.name!)
+          ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics)
+          : await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext);
       handler.onToolResult(t.id!, out.content, out.isError);
       results.push({
         type: "tool_result",

@@ -275,7 +275,7 @@ export function buildSafeEnv(): Record<string, string> {
 const MCP_CONFIG_DIR = join(tmpdir(), "topics-mcp");
 const MCP_SERVER_SCRIPT = join(import.meta.dir, "..", "mcp", "topics-mcp-server.ts");
 
-function topicsAppBaseUrl(): string {
+export function topicsAppBaseUrl(): string {
   const port = process.env.PORT || "3333";
   // The MCP subprocess always runs on the same host as topics-app (spawned
   // by the same Bun process), so localhost is sufficient and avoids
