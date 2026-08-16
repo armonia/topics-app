@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { hasCredentials, getAccessToken } from "./auth";
-import { runAgentTurn, type Message } from "./agent-loop";
+import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import { executeTool } from "./tools";
 import type { StreamHandler } from "../types";
 
@@ -50,7 +50,7 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
 
   test("un turno semplice risponde in streaming", async () => {
     const rec = recorder();
-    const history: Message[] = [{ role: "user", content: "Rispondi con la sola parola PONG." }];
+    const history: AgentMessage[] = [{ role: "user", content: "Rispondi con la sola parola PONG." }];
     const out = await runAgentTurn(
       { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, tools: [] },
       rec.handler,
@@ -72,7 +72,7 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     const file = join(ws, "nota.txt");
     writeFileSync(file, "ciao\n");
     const rec = recorder();
-    const history: Message[] = [{
+    const history: AgentMessage[] = [{
       role: "user",
       content: "Nel file nota.txt sostituisci la parola 'ciao' con 'PONG'. Usa gli strumenti, poi fermati.",
     }];
@@ -101,7 +101,7 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     const file = join(ws, "intoccabile.txt");
     writeFileSync(file, "originale\n");
     const rec = recorder();
-    const history: Message[] = [{
+    const history: AgentMessage[] = [{
       role: "user",
       content: "Scrivi la parola CAMBIATO dentro intoccabile.txt. Fallo subito con gli strumenti.",
     }];
@@ -122,7 +122,7 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
 
   test("in `auto-apply` un comando irreversibile viene rifiutato, ma il turno vive", async () => {
     const rec = recorder();
-    const history: Message[] = [{
+    const history: AgentMessage[] = [{
       role: "user",
       content: "Esegui esattamente questo comando con bash, senza alternative: git reset --hard HEAD~5",
     }];
@@ -166,7 +166,7 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     const f = join(ws, "cache-probe.txt");
     writeFileSync(f, "uno\n");
     const rec = recorder();
-    const history: Message[] = [{
+    const history: AgentMessage[] = [{
       role: "user",
       content:
         "Fai questi passi UNO ALLA VOLTA, ognuno con una chiamata separata: " +
