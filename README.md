@@ -1,51 +1,47 @@
 # Topics
 
-> A desktop home for the coding agents you already run — Claude Code, Codex and
-> friends — with every session in its own topic: its project, its terminal, its
-> browser.
+> A desktop home for the coding agents you already run. Every session gets its
+> own topic, with its project, its terminal and its browser.
 >
-> Agents run **inside Topics**, not as one process each: **200 sessions
-> answering at once fit in 162 MB of RAM** ([measured](#running-agents-without-the-cli)).
-> An open, agent-first alternative to Cursor & co. — instead of wrapping an
-> editor around a model, Topics is a home for the agents themselves.
+> Agents run inside Topics instead of one process each. **200 sessions answering
+> at once fit in 162 MB of RAM** ([measured](#running-agents-without-the-cli)).
 
 <!-- Optional: drop a screenshot or short GIF here once available -->
 <!-- ![Topics screenshot](docs/screenshot.png) -->
 
 ## Download
 
-Grab the latest build for your platform from the **[latest release](https://github.com/armonia/topics-app/releases/latest)**:
+From the **[latest release](https://github.com/armonia/topics-app/releases/latest)**:
 
 | Platform | File |
 |---|---|
 | **macOS** (Apple Silicon + Intel) | `.dmg` |
 | **Windows** | `.exe` (also `.msi`) |
-| **Linux** | `.deb` · `.rpm` — no AppImage: the build carries a compiled Bun sidecar that `linuxdeploy` cannot package |
+| **Linux** | `.deb` · `.rpm` — no AppImage, the build carries a compiled Bun sidecar that `linuxdeploy` cannot package |
 
-> **macOS first launch.** Builds are not notarized yet, so macOS refuses the
-> first launch. The Control-click → Open bypass no longer works since Sequoia:
-> go to **System Settings → Privacy & Security → Open Anyway**, authenticate,
-> then **Open**. Once only. Windows SmartScreen may ask you to confirm.
+> **macOS first launch.** Builds are not notarized, so macOS refuses to open
+> them. Control-click → Open stopped working in Sequoia; use **System Settings →
+> Privacy & Security → Open Anyway**. Once only. Windows SmartScreen may ask you
+> to confirm.
 
-Topics checks GitHub Releases for updates and installs them on restart once you
-confirm — never silently.
+Updates come from GitHub Releases and install on restart, after you confirm.
 
 ## What it does
 
-- **Topics, not tabs** — group agent sessions by project or context, each with its own file explorer, Git changes, terminal and browser
-- **See every agent at once** — state, context used, and a notification when one finishes or needs you
-- **Agents without the process tax** — sessions live inside the server, so a hundred of them cost less than one CLI
-- **Your agent, your keys** — drives the `claude-code` and `codex` CLIs you already have (covered by your subscription, no API bill), or the Anthropic and OpenAI APIs with your own keys
+- Group agent sessions by project or context. Each topic has its own file explorer, Git changes, terminal and browser.
+- See what every agent is doing, how much context it has left, and get told when one finishes or gets stuck.
+- Sessions live inside the server, so a hundred of them cost less than one CLI process.
+- Drives the `claude-code` and `codex` CLIs you already have, covered by your subscription. Or the Anthropic and OpenAI APIs with your own keys.
 
 ## Running agents without the CLI
 
-By default Topics runs agents **inside its own server** instead of spawning one
-`claude`/`codex` process per session. It reuses the credentials the CLI already
-wrote — you still log in with `claude` → `/login`, Topics only reads that file.
-Switch back to one process per agent in Settings.
+Topics runs agents inside its own server rather than spawning a `claude` or
+`codex` process per session. It reads the credentials the CLI already wrote, so
+you still log in with `claude` → `/login`. Settings has a switch back to one
+process per agent.
 
-A session stops being a process and becomes an array of messages, so it stops
-costing like one:
+A session becomes an array of messages instead of a process, and stops costing
+like one:
 
 | Concurrent sessions | All answered | Whole server | Wall clock |
 |---|---|---|---|
@@ -53,17 +49,17 @@ costing like one:
 | 64 | ✓ | | ~4 s |
 | **200** | ✓ | **162 MB** | **5.6 s** |
 
-At three sessions each — the only equal-count comparison run — a CLI session
-costs ~432 MB against 2.3 MB native, about **188x**. Doubling the sessions adds
-half a second, because the network dominates and not the machine.
+At three sessions each, the only equal-count comparison I ran, a CLI session
+costs ~432 MB against 2.3 MB native: 188x. Doubling the sessions adds half a
+second, because the wait is the network.
 
 ### One window per project is the expensive part
 
-Empty, Topics is **164 MB on disk** and its server starts at **~91 MB of RAM**.
-Cursor and VS Code are 1.3 GB and 1.5 GB on disk before you open anything.
+Empty, Topics is 164 MB on disk and its server starts at ~91 MB of RAM. Cursor
+and VS Code are 1.3 GB and 1.5 GB on disk before you open anything.
 
-Then an IDE gives you one project per window, and charges you close to a full
-copy for the next one. Measured here, opening the same three repositories:
+Then an IDE gives you one project per window, and the next window costs almost
+as much as the first. Same three repositories, same machine:
 
 | | each extra project |
 |---|---|
@@ -71,20 +67,19 @@ copy for the next one. Measured here, opening the same three repositories:
 | VS Code | **+261 MB** |
 | **Topics** | **+0.07 MB** |
 
-Topics runs at 440–745 MB *in total* while holding **22 projects and ~1000
-topics** — three more topics moved the server by 0.2 MB. A project is a row, not
-a window, so the fourth repository is where this stops being about taste.
+Topics sits at 440–745 MB in total while holding 22 projects and ~1000 topics.
+Three more topics moved the server by 0.2 MB. A project is a row, not a window,
+which is why the fourth repository is where this stops being a matter of taste.
 
-The slopes come from two independent series per app. Absolute footprints drift
-(they depend on how long indexing settles, and on what the app has been doing);
-the slope is what stays put.
+I quote the slope and not the footprint because the footprint drifts with how
+long indexing has been running, and the slope doesn't.
 
-How each number was taken, the runs that contradicted an earlier claim, and what
-none of this proves: **[`bench/README.md`](bench/README.md)**.
+Method, the runs that contradicted my earlier claims, and what none of this
+proves: **[`bench/README.md`](bench/README.md)**.
 
-Concurrency is still capped by a **CPU** policy (roughly `cores / 3`), not by
-memory: an agent that compiles burns real cores even when its session is just an
-array in RAM, and half the machine is deliberately left to the person using it.
+The cap on concurrent agents is a CPU policy, roughly `cores / 3`, not a memory
+one. An agent that compiles burns real cores even when its session is just an
+array in RAM, and half the machine stays with the person using it.
 
 ## Configuration
 
