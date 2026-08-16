@@ -1420,6 +1420,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // detto PRIMA, e l'unica cosa che un agente legge davvero e' questo
         // envelope (CLAUDE.md non esiste nelle worktree).
         "- THE REPO IS PUBLIC: NEVER write into a tracked file the first name, surname, email or username of a real person — not in comments either, not even to say who asked for something. You name the ROLE ('whoever uses the app', 'the reviewer') and you cite the card id, which is private. There is a gate that checks it (`tests/unit/no-personal-data-tracked.test.ts`) and it stops the delivery. Paths too: no `/Users/<name>/...` in a tracked file.",
+        // Regola 2 e 5 di docs/board-protocol.md. Il documento si presenta come
+        // copia canonica e afferma che l'envelope "porta gia' queste regole":
+        // non le portava, e sono le due che riguardano l'agente (le altre sei
+        // parlano al server o alla UI). Chi mantiene il dispatcher trovava meta'
+        // foto — un documento che dice il falso su se stesso costa piu' di un
+        // documento assente, perche' lo si crede.
+        "- DELIVERY INCLUDES THE LAST MILE. Installer, hooks, migrations, test deploy: they are part of the delivery, not of a 'somebody will do X later'. The reviewer must be able to SEE the finished result, not a half piece to complete by hand.",
+        "- NEVER act on the HUMAN'S ENVIRONMENT without an explicit ok: relaunching the app, deploying to prod, using credentials — you ask first, in the thread, and you stop. Credentials are NEVER written in the clear (thread, files, commits): if you need one, you stop and you ask.",
         "- VISIBLE PLAN: if the work has more than one step, create your steps as subtasks right away — " +
           `create_task(text=<step>, parent_task_id="${task.id}") for each — and mark EVERY step done as soon as you complete it: update_task(task_id=<step id>, status="done") (allowed on YOUR steps). They are your checklist on the board: the human watches the progress live.`,
         "- Before you hand off to review ALL your steps must be done (a task with open subtasks cannot be approved). Future work outside this scope → a top-level task with NO parent (it stays in backlog for the human).",
