@@ -50,20 +50,29 @@ The difference is what a session *costs*, measured on the same machine
 
 | | CLI (one process per agent) | Native runtime |
 |---|---|---|
-| Memory per session | ~432 MB | **0.6–0.8 MB** |
-| 64 sessions at once | not attempted | **3.4 s**, 64/64 answered |
+| Memory per session | ~432 MB | **0.25–0.9 MB** |
+| 64 sessions at once | not attempted | **4.1–4.7 s**, 64/64 answered |
 
 The marginal cost stays flat from 8 to 64 concurrent sessions, and the
 wall-clock time grows far slower than the session count: the network dominates,
-not the machine. Two honest caveats. The 64-session run was measured on the
-native runtime only — the CLI was not put through the same load, so read that
-row as "this is what the native runtime does", not as a race it won. And the
-first turn on a cold server costs ~11 MB (code paths running for the first
-time), which is warm-up, not the price of a session. Raw numbers, both runs and
-what each does *not* prove, are in [`bench/results/`](bench/results/):
+not the machine. Those ranges come from four runs across three independent
+servers — a single run looks tighter than the thing really is. Two honest
+caveats. The 64-session row was measured on the native runtime only, so read it
+as "this is what the native runtime does", not as a race it won. And the first
+turn on a cold server costs ~11 MB (code paths running for the first time),
+which is warm-up, not the price of a session. Raw numbers, every run and what
+each does *not* prove, are in [`bench/results/`](bench/results/):
 
 ```bash
-scripts/bench/native-concurrency.sh --base https://127.0.0.1:39470 --scale 8,32,64
+# An ISOLATED server: pointing this at your dev server creates real topics in
+# your real database. Credentials must be in place BEFORE it starts — the test
+# server sandboxes HOME, and one started without them answers every turn with
+# "Not logged in" while still looking healthy.
+export DATA_DIR=/tmp/bench-conc BUN_PORT=39480
+mkdir -p "$DATA_DIR/.home/.jcode" && cp ~/.jcode/auth.json "$DATA_DIR/.home/.jcode/"
+TOPICS_HOME="$DATA_DIR/.topics-home" ./scripts/start-test-server.sh &
+
+scripts/bench/native-concurrency.sh --base https://127.0.0.1:39480 --scale 8,32,64
 ```
 
 Concurrency is still capped by a **CPU** policy (roughly `cores / 3`), not by

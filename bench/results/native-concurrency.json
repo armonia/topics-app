@@ -52,9 +52,31 @@
       "quando la domanda e' quella."
     ]
   },
+  "terza_replica": {
+    "why": [
+      "Eseguito il comando ESATTO stampato nel README, per sapere se un lettore",
+      "che lo copia ottiene questi numeri. La prima volta NO: 0 risposte su 104.",
+      "Il server era partito prima che copiassi le credenziali nella sua HOME",
+      "sandboxata, e un server cosi' non fallisce in modo rumoroso — risponde",
+      "«Not logged in» a ogni turno chiudendo lo stream regolarmente, con wall e",
+      "memoria dall'aria plausibile. Copiarle a server acceso non basta: il",
+      "provider le ha gia' lette all'avvio.",
+      "Da qui il `preflight` nello script: un turno di prova prima di spenderne N."
+    ],
+    "measured_at": "2026-08-16T18:40:23+02:00",
+    "runs": [
+      { "n": 8,  "wallSeconds": 2.28, "answered": 8,  "mbPerSession": 2.72 },
+      { "n": 32, "wallSeconds": 2.52, "answered": 32, "mbPerSession": 0.93 },
+      { "n": 64, "wallSeconds": 4.72, "answered": 64, "mbPerSession": 0.25 },
+      { "n": 8,  "wallSeconds": 1.76, "answered": 8,  "mbPerSession": 1.70 },
+      { "n": 64, "wallSeconds": 4.57, "answered": 64, "mbPerSession": 0.88 }
+    ],
+    "preflight_provato": "Su un server avviato senza credenziali lo script ora si ferma in 1,5 s con la spiegazione, invece di bruciare 104 turni e stampare una tabella sana con zero risposte dentro.",
+    "tre_server_indipendenti": "39470 / 39471 / 39480, DATA_DIR e TOPICS_HOME distinti: N=64 dà 4,14 · 3,38 · 4,72 · 4,57 s e 0,34 · 0,59 · 0,25 · 0,88 MB per sessione. La banda per sessione è più larga di quanto suggerisse una serie sola — 0,25-0,88 — e questo è il motivo per cui vale la pena replicare."
+  },
   "conclusioni": {
-    "costo_marginale": "0,3-0,8 MB per sessione, PIATTO da 8 a 64: nessuna crescita superlineare",
-    "scalabilita": "64 turni concorrenti in 4,14s, tutti con risposta corretta; da 32 a 64 il wall non peggiora (la rete domina, non la macchina)",
+    "costo_marginale": "0,25-0,9 MB per sessione a N=64, su quattro serie e tre server indipendenti. Resta PIATTO da 8 a 64: nessuna crescita superlineare, ma la dispersione fra serie è reale e una serie sola la nascondeva.",
+    "scalabilita": "64 turni concorrenti in 4,1-4,7s, tutti con risposta verificata nel contenuto; il wall cresce molto meno del numero di sessioni (la rete domina, non la macchina)",
     "server_rss": "da 89 MB a 155 MB per 127 turni: +66 MB in totale",
     "implicazione": "il tetto di 4 posti su questa macchina è una politica sui core, non un limite fisico: il runtime nativo regge un ordine di grandezza in più"
   }
