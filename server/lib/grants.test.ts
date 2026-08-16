@@ -7,16 +7,25 @@ import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
 
 describe("grants · tipi di risorsa", () => {
   it("solo cio' che ha una riga vera a cui appendere un permesso", () => {
-    expect(RESOURCE_TYPES).toEqual(["task", "topic"]);
+    expect(RESOURCE_TYPES).toEqual(["task", "topic", "project"]);
     expect(isResourceType("task")).toBe(true);
     expect(isResourceType("topic")).toBe(true);
+    // `project` è entrato con 20260816230500. La regola non è cambiata, è
+    // cambiato il fatto: `projects` È una tabella vera (migration 016) con id
+    // stabile, quindi una concessione ha una riga a cui appendersi. Ciò che
+    // resta fuori è fuori per la stessa ragione di prima.
+    expect(isResourceType("project")).toBe(true);
   });
 
   it("Spazi e tab NON sono risorse: vivono in un blob, non in una riga", () => {
     // Non è una dimenticanza da colmare aggiungendo una stringa: senza una riga
     // e una FK, una concessione punterebbe a un id che il server non sa
     // verificare né cancellare in cascata.
-    for (const v of ["space", "pane", "tab", "project", "terminal", "browser", ""]) {
+    //
+    // `project` è uscito da questa lista quando ha smesso di essere vero per
+    // lui: ha la sua tabella. Gli altri no — uno spazio e una tab vivono dentro
+    // un blob di ui_state, e un terminale o un browser sono processi, non righe.
+    for (const v of ["space", "pane", "tab", "terminal", "browser", ""]) {
       expect(isResourceType(v)).toBe(false);
     }
   });

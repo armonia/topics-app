@@ -959,6 +959,9 @@ const EN = {
   // ── Sharing.
   'share.button': 'Share',
   'share.sharedWith': 'Shared with {n}',
+  'share.title.project': 'Share the project',
+  'share.object.project': 'the tasks in this project',
+  'sidebar.shareProject': 'Share project',
   'share.title.task': 'Share this card with a guest',
   'share.title.topic': 'Share this chat with a guest',
   'share.object.task': 'this card',
