@@ -54,6 +54,8 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
       "card-delivery-stat": "deliveryStat",
       "card-not-landed": "notLanded",
       "card-conductor-closes": "conductorCloses",
+      "card-checks-green": "checksGreen",
+      "card-checks-running": "checksRunning",
     };
 
     const mancanti = trovati

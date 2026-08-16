@@ -516,6 +516,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Solo il ROSSO va sulla card: un verde è la norma e riempirebbe la colonna di
   // spunte che nessuno legge, mentre il rosso è la ragione per non aprire il task.
   const checksRed = task.checksState === 'fail';
+  // IL VERDE SI DICE, non si deduce dall'assenza del rosso.
+  //
+  // Prima esisteva solo `checksRed`: una card senza chip poteva voler dire
+  // «controlli passati» oppure «nessuno li ha mai fatti girare», e sono due
+  // situazioni opposte davanti allo stesso gesto. Chi approva deve sapere quale
+  // delle due sta guardando, e il silenzio non lo dice.
+  //
+  // Solo in review: altrove non c'e' ancora niente da approvare, e un chip su
+  // ogni card in coda sarebbe rumore.
+  const checksGreen = task.status === 'review' && task.checksState === 'pass';
+  const checksRunning = task.status === 'review' && task.checksState === 'running';
   // Un solo predicato per il chip e per la riga che lo contiene: due copie
   // dello stesso «questo chip c'è» sono precisamente il modo in cui la riga
   // finisce per non montarsi mentre il chip crede di esserci.
@@ -559,7 +570,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered || deliveryStat !== null || conductorCloses || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || conductorCloses || task.labels.length);
 
   return (
     <div
@@ -907,6 +918,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
               <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
             </span>
+          )}
+          {checksGreen && (
+            <span
+              data-testid="card-checks-green"
+              title={tr('board.card.checksGreenTitle')}
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-emerald-300"
+            ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.checksGreen')}</span>
+          )}
+          {checksRunning && (
+            <span
+              data-testid="card-checks-running"
+              title={tr('board.card.checksRunningTitle')}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksRunning')}</span>
           )}
           {checksRed && (
             <span

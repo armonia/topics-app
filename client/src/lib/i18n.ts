@@ -539,6 +539,12 @@ const IT: Dict = {
   // QUANTO LAVORO C'E' DENTRO UNA CONSEGNA, detto dove si decide.
   'board.card.deliveryFiles': '{n} file',
   'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
+  // Il VERDE si dice: senza, una card senza chip poteva voler dire «passati»
+  // oppure «mai eseguiti», due situazioni opposte davanti allo stesso gesto.
+  'board.card.checksGreen': 'check verdi',
+  'board.card.checksGreenTitle': 'I controlli sono passati su questa consegna. Approvare non aspetta altro.',
+  'board.card.checksRunning': 'check in corso',
+  'board.card.checksRunningTitle': 'I controlli stanno girando: l\'esito non c\'e\' ancora. Approvare adesso vuol dire non aspettarlo.',
   'board.card.checksRed': 'checks rossi',
   'board.card.checksRedTitle': 'Checks pre-review ROSSI: {commands}',
   'board.card.checksRedUnknown': 'un comando è fallito',

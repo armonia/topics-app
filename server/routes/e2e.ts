@@ -367,6 +367,31 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // POST /api/test/tasks/:taskId/checks {state} — l'ESITO DEI CONTROLLI.
+    //
+    // Stessa ragione delle altre porte di test: farli girare per davvero
+    // vorrebbe dire un repo, dei comandi e dei secondi, quando la spec misura
+    // solo se la card DICE l'esito. Il verdetto vero ha la sua strada in
+    // `POST /tasks/:id/checks` di tasks.ts, che questa non tocca.
+    const seedChecks = pathname.match(/^\/api\/test\/tasks\/([^/]+)\/checks$/);
+    if (method === "POST" && seedChecks) {
+      const body = (await req.json().catch(() => null)) as { state?: string } | null;
+      const state = body?.state ?? null;
+      if (state !== "running" && state !== "pass" && state !== "fail") {
+        return json({ error: "state must be running | pass | fail" }, 400);
+      }
+      try {
+        const svc = createTaskService(db);
+        const t = svc.recordChecks({
+          taskId: decodeURIComponent(seedChecks[1]!), state,
+          commit: null, runs: null,
+        });
+        return json({ ok: true, task: t });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
     // POST /api/test/tasks/:taskId/system-delivery {cause?, reason?} — la card
     // che arriva in review SENZA che nessuno l'abbia consegnata.
     //
