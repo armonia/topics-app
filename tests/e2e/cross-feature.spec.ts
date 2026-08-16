@@ -350,11 +350,27 @@ test.describe("Cross-Feature Interactions", () => {
         let campione: number[] = [];
         await expect(async () => {
           await scroller.evaluate((el, f) => { el.scrollTop = el.scrollHeight * f; }, fraction);
-          // Un fotogramma di respiro: Virtuoso monta le righe della zona nuova
-          // in un effetto, e leggere il DOM nello stesso tick campiona la
-          // finestra di PRIMA dello scroll. Senza questa attesa il retry
-          // continuava a misurare il proprio ritardo invece della lista.
-          await page.waitForTimeout(150);
+          // Si aspetta che la finestra CAMBI, non un tempo. Virtuoso monta le
+          // righe della zona nuova in un effetto, quindi leggere il DOM nello
+          // stesso tick dello scroll campiona la finestra di PRIMA, e il retry
+          // finisce per misurare il proprio ritardo invece della lista.
+          //
+          // Un `waitForTimeout` qui sarebbe il sonno che `check:sleeps` vieta,
+          // e per la ragione giusta: su un runner lento non basterebbe, su uno
+          // veloce sarebbe sprecato. La condizione e' «il primo indice montato
+          // non e' piu' quello di prima»: e' l'evento vero, scade dentro il
+          // tentativo, e a rimettere lo scroll ci pensa il retry esterno.
+          const primaDi = (await collectVisibleIndices())[0] ?? -1;
+          await page
+            .waitForFunction(
+              (prec) => {
+                const el = document.querySelector("[data-item-index]");
+                return !!el && Number(el.getAttribute("data-item-index")) !== prec;
+              },
+              primaDi,
+              { timeout: 3_000, polling: "raf" },
+            )
+            .catch(() => { /* gia' nella zona giusta, o ci pensa il retry */ });
           const idx = await collectVisibleIndices();
           expect(idx.some(matches)).toBe(true);
           campione = idx;
