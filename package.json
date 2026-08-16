@@ -45,6 +45,7 @@
     "test:cli": "bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} tests/integration/cli-topics.test.ts",
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",
+    "check:any-budget": "bun run scripts/check-any-budget.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
     "check:ui-language": "bun run scripts/check-ui-language.ts",
