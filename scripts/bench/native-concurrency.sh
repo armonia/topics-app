@@ -60,6 +60,30 @@ rss_kb() { ps -o rss= -p "$1" | tr -d ' '; }
 PROMPT="Conta da 1 a 20, solo i numeri separati da spazio."
 answered() { grep -q '20' "$1" && ! grep -q 'Not logged in' "$1"; }
 
+# UN TURNO DI PROVA PRIMA DI SPENDERE. Il server di test sandboxa `HOME`: se le
+# credenziali non c'erano al suo AVVIO, ogni turno risponde «Not logged in» e lo
+# fa in fretta — 104 turni buttati con una tabella dall'aria sanissima, wall
+# plausibile e memoria plausibile, solo con zero risposte. Copiarle DOPO non
+# basta: il provider le ha gia' lette. Meglio fallire ora, che e' gratis.
+probe_topic=$(curl -sk -X POST "$BASE/api/topics" -H 'content-type: application/json' \
+  -d '{"name":"bench preflight"}' | python3 -c "import json,sys;print(json.load(sys.stdin)['sessionKey'])" 2>/dev/null)
+if [ -z "${probe_topic:-}" ]; then
+  echo "il server non crea topic: e' vivo su $BASE?" >&2
+  exit 1
+fi
+curl -sk -X POST "$BASE/api/chat" -H 'content-type: application/json' \
+  -d "{\"sessionKey\":\"$probe_topic\",\"provider\":\"topics\",\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\"}],\"contextMode\":\"full\"}" \
+  > "$WORK/preflight.txt" 2>&1
+if ! answered "$WORK/preflight.txt"; then
+  echo "il turno di prova non ha risposto:" >&2
+  sed -e 's/^/    /' "$WORK/preflight.txt" | tail -3 >&2
+  echo >&2
+  echo "Se dice «Not logged in»: il server e' partito senza credenziali nella sua" >&2
+  echo "HOME sandboxata. Copiale e RIAVVIALO — copiarle a server acceso non basta:" >&2
+  echo "  mkdir -p \"\$DATA_DIR/.home/.jcode\" && cp ~/.jcode/auth.json \"\$DATA_DIR/.home/.jcode/\"" >&2
+  exit 1
+fi
+
 echo
 echo "server $BASE (pid $PID), modello $MODEL"
 echo
