@@ -81,14 +81,44 @@ The cap on concurrent agents is a CPU policy, roughly `cores / 3`, not a memory
 one. An agent that compiles burns real cores even when its session is just an
 array in RAM, and half the machine stays with the person using it.
 
+## Your machine, your server
+
+Topics runs a small server on your computer. That is where topics, messages and
+project state live, and it is why the app works with the network unplugged.
+
+The server listens on your local network, not just on localhost, so you can open
+Topics from your phone on the same Wi-Fi. A new device shows a six-character
+code, your computer shows the matching request, you approve it once. Approval is
+per device and you can revoke it. The machine Topics runs on is always trusted,
+so you cannot lock yourself out of your own computer.
+
+Reaching Topics from **outside** your network is a different problem: it needs a
+relay, and a relay is a machine somebody has to run and pay for. That part is
+the subscription.
+
+| | |
+|---|---|
+| **Free, forever, no account** | The whole app on your machine and your home network: unlimited topics and projects, your own agents and keys. |
+| **Paid** | Reachability from outside your network, and seats for other people in your group. |
+
+Two things worth knowing about how that is built. The licence is checked
+**offline** with a signed token, so a billing outage can never downgrade the
+machine in front of you. And a missing, expired or malformed token falls back to
+the full free plan rather than to a locked app.
+
+Don't put Topics directly on the public internet. If you use Tailscale or a
+tunnel, put your own authentication in front of it. Vulnerabilities:
+[SECURITY.md](SECURITY.md).
+
 ## Configuration
 
-**You don't need any of this to start.** Provider, model and API keys are in
-**Settings**, and what you set there always wins over the environment. The
-variables below exist for headless runs, CI and containers — places without a
-window to click in.
+Nothing to configure to start: provider, model and API keys are in **Settings**,
+and what you set there wins over the environment.
 
-Copy `.env.example` to `.env` if you need them.
+<details>
+<summary>Environment variables, for headless runs, CI and containers</summary>
+
+Copy `.env.example` to `.env`.
 
 | Variable | Description | Default |
 |---|---|---|
@@ -98,12 +128,9 @@ Copy `.env.example` to `.env` if you need them.
 | `OPENAI_API_KEY` | OpenAI API key — only for the direct `openai` provider | — |
 | `ELEVENLABS_API_KEY` | Text-to-speech and Scribe v2 dictation | — |
 | `MOONDREAM_API_KEY` | Browser vision grounding | — |
+| `SERVER_HOST` | Set to `127.0.0.1` to keep the server on this machine only | all interfaces |
 
-<details>
-<summary>Advanced: provider pinning, models, gateway, dictation</summary>
-
-Every row here has a **Settings** equivalent that overrides it. Reach for these
-only when there is no UI to reach for.
+Every row below has a Settings equivalent that overrides it.
 
 | Variable | Description | Default |
 |---|---|---|
@@ -121,8 +148,8 @@ decide: `ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, el
 is connected.
 
 The subscription-first order `claude-code` → `codex` → `claude` → `openai` →
-`openclaw` only picks the **replacement** once the current default goes offline
-— so with an API key set, the CLIs above it never get a turn.
+`openclaw` only picks the **replacement** once the current default goes offline,
+so with an API key set, the CLIs above it never get a turn.
 
 **Pinning beats connectivity.** A pinned provider that is offline stays the
 target, and its chats never answer. That is deliberate: a pin is an instruction,
@@ -174,16 +201,6 @@ Official installers are built by CI from `tauri-vX.Y.Z` tags
 in v2.0.0 and lives on the `electron-archive` branch.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
-
-## Security
-
-Topics runs a **local server** and by default listens on **every network interface** — not just localhost. That is what lets you open it from your phone on the same Wi-Fi.
-
-**Other devices must be authorized once.** Open Topics from the new device: it shows a six-character code, your computer shows the matching request, you approve it. Authorization is per device and revocable. The machine Topics runs on is trusted by transport, so you can never lock yourself out of your own computer.
-
-Authentication says who may use Topics — it does not make an untrusted network safe. Run it on a network you trust, and to restrict the server to your own machine set `SERVER_HOST=127.0.0.1`.
-
-**Do not expose Topics to the public internet.** If you use remote-access tooling (Tailscale, Cloudflare Tunnel, etc.), put your own authentication in front of it. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Legal
 
