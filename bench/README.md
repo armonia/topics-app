@@ -217,35 +217,48 @@ measurement demolished: [`results/memory-anatomy.json`](results/memory-anatomy.j
 
 ## What a second project costs (Cursor, VS Code, Topics)
 
-Measured 2026-08-16 on this machine (12 cores / 34 GB, macOS), opening the same
-three repositories in each app, one after the other, waiting ~50 s after each
-open for indexing to settle. `phys_footprint` summed over every process the app
-owns — the same metric as Activity Monitor, and the same one `mem-report.ts`
-uses, validated against `vmmap` (203 vs 202.6 MB on the same pid).
+Measured 2026-08-16 on this machine (12 cores / 32 GB, macOS 26.2), opening the
+same three repositories in each app, in the same order. `phys_footprint` summed
+over every process the app owns — the metric Activity Monitor shows, and the one
+`mem-report.ts` uses, validated against `vmmap` (203 vs 202.6 MB on one pid).
 
-| | 1 project | 2 projects | 3 projects | processes at 3 | slope |
-| --- | --- | --- | --- | --- | --- |
-| Cursor | 1356 MB | 2373 MB | 3434 MB | 30 | +1039 MB |
-| VS Code | 431 MB | 731 MB | 953 MB | 17 | +261 MB |
-| Topics | — | — | 619 MB | 8 | +0.07 MB |
+Two independent series per app: once by hand with ~50 s of settling, once with
+`scripts/bench/ide-footprint.sh` at 90 s. **The absolute numbers move with how
+long you wait; the slope does not**, which is why the slope is the answer.
 
-Cursor keeps almost nothing shared: extrapolating its own slope backwards leaves
-a base of ~295 MB, so each window is close to a full copy of the app. VS Code
-shares more, but still pays ~261 MB per window.
+| | 1 project | 2 | 3 | per extra project |
+| --- | --- | --- | --- | --- |
+| Cursor (50 s) | 1356 | 2373 | 3434 MB | +1039 MB |
+| Cursor (90 s) | 1610 | 2496 | 3388 MB | +889 MB |
+| VS Code (50 s) | 431 | 731 | 953 MB | +261 MB |
+| VS Code (90 s) | 801 | 1018 | 1326 MB | +262 MB |
+| Topics | — | — | 619–745 MB | **+0.07 MB** |
 
-Topics is not run the same way, and that is the point rather than a trick: it
-never had "one project open". The 619 MB is the whole app as it runs here with
-**22 projects and 993 topics** in its database. The slope was measured
-separately — creating three new topics moved the server from 113.0 to 113.2 MB,
-i.e. ~0.07 MB each.
+VS Code repeats its slope to within 1 MB across the two series. Cursor's lands
+between +889 and +1039 — a window is close to a whole second copy of the app;
+extrapolating its slope backwards leaves a shared base of only ~300 MB.
 
-**What this comparison is not.** It is not a feature comparison, and an IDE with
-a project open does things Topics does not (language servers, indexing, type
-analysis). It measures one thing only, the one the products disagree about:
-whether the second project costs like the first. A fair reading is "Cursor buys
-you an IDE per project and charges an IDE per project", not "Cursor is bloated".
+Topics never had "one project open", and that asymmetry is the finding rather
+than a trick. Its 619–745 MB is the whole app as it runs here with **22 projects
+and 993 topics** in the database. The slope was measured separately: creating
+three topics moved the server from 113.0 to 113.2 MB, ~0.07 MB each.
 
-Re-run it yourself: `scripts/bench/ide-footprint.sh` prints the same table.
+**What this is not.** Not a feature comparison. An IDE with a project open runs
+language servers, indexes, and type-checks; Topics does none of that and would
+lose a different benchmark. This measures one axis only — whether the second
+project costs like the first — because that is the axis the products disagree
+about. Fair reading: "an IDE buys you an IDE per project, and charges one".
+
+Re-run it: `scripts/bench/ide-footprint.sh ~/p1 ~/p2 ~/p3` (add `--apps "Zed"`
+for others, `--settle 90` to match the second series). It quits each app first,
+so nothing left open from a previous run leaks into the base.
+
+Two traps it now avoids, both paid for in wrong numbers. `pgrep -f "Visual
+Studio Code"` also matches **Cursor**, a VS Code fork whose paths contain
+"Code" — that read 1368 MB for a VS Code that was closed. Filtering on the
+bundle path alone fails the other way: helpers rename themselves ("Cursor
+Helper: shared-process") and lose the path, dropping six processes of thirteen
+and nearly halving the total.
 
 ## Where each number comes from
 
