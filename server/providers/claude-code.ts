@@ -2211,6 +2211,20 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   /**
+   * Questa sessione è nostra? (vedi `resolveTurnAlive`)
+   *
+   * Distingue «l'ho guardato ed è morto» da «non è roba mia», che
+   * `isTurnProcessAlive` da solo NON sa fare: una sessione mai vista e una
+   * sessione il cui figlio è morto danno la stessa risposta, `false`. Finché
+   * ogni agente dispacciato era claude-code i due casi coincidevano; con un
+   * altro runtime di default no, e il secondo caso letto come il primo fa
+   * seppellire al dispatcher turni vivi di un altro provider.
+   */
+  ownsSession(sessionKey: string): boolean {
+    return this.processes.has(sessionKey);
+  }
+
+  /**
    * C'è un turno IN VOLO in questa sessione, secondo il BROKER?
    *
    * La domanda che il setaccio di boot faceva alla persona sbagliata. Fino a
