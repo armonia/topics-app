@@ -1,4 +1,4 @@
-name: Purga artifact (quota dell'org)
+name: Purga artifact (igiene del repo)
 
 # La quota artifact di Actions e' dell'ORGANIZZAZIONE — 500 MB sul piano free —
 # non del repo, e l'API per cancellarli e' invece per-repo: il purge va messo dove
@@ -7,12 +7,13 @@ name: Purga artifact (quota dell'org)
 #
 # ATTENZIONE a una cosa che non e' scritta da nessuna parte nella UI: solo i repo
 # PRIVATI consumano quota. topics-app e' pubblico, quindi i suoi report — per
-# quanto grossi — sono gratis, e questa purga qui e' igiene (retention, rumore),
-# NON il rimedio alla quota. Se un giorno gli upload tornano a fallire con
-# "Artifact storage quota has been hit", il colpevole e' per forza un repo privato:
-# il 16/08 erano tdh (148 artifact), zenda (8) e moonstone-circle (5), tutti
-# SCADUTI da tempo — GitHub marca `expired` e smette di servirne il contenuto, ma
-# non li cancella e continuano a occupare quota finche' qualcuno non li rimuove.
+# quanto grossi — sono gratis, e questa purga qui e' IGIENE (meno rumore, meno
+# storico inutile), NON il rimedio alla quota.
+#
+# Se gli upload tornano a fallire con "Artifact storage quota has been hit", qui
+# non c'e' niente da guardare: il colpevole e' un repo PRIVATO. Il rimedio sta in
+# quadra, `scripts/purge-org-artifacts.sh`, che li copre tutti in un colpo (un
+# workflow non potrebbe: il suo GITHUB_TOKEN vede solo il proprio repo).
 #
 # Due cose diverse, entrambe necessarie:
 #  - gli SCADUTI: GitHub marca `expired` (il contenuto non si scarica piu') ma non
