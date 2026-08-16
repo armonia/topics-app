@@ -15,8 +15,14 @@
 import { describe, test, expect } from 'bun:test';
 import { attemptStat, descSummary, fmtCount, taskCopyText } from './format';
 import { formatAttemptStat } from '../../../../shared/task-attempt';
-import { t } from '../../lib/i18n';
+import { t, ensureLocaleLoaded } from '../../lib/i18n';
 import type { TaskAttempt } from '../../lib/board';
+
+// L'inglese vive in un chunk suo (`i18n-en.ts`, split del 15/08) e `t()` è
+// sincrona: senza attendere il catalogo questi casi leggono il fallback italiano
+// e falliscono per un motivo che non è quello che vogliono misurare.
+await ensureLocaleLoaded('en');
+
 
 const it = (key: string, vars?: Record<string, string | number>) => t(key, 'it', vars);
 const en = (key: string, vars?: Record<string, string | number>) => t(key, 'en', vars);
