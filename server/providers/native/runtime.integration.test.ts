@@ -91,6 +91,58 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     expect(readFileSync(file, "utf-8")).not.toContain("ciao");
   }, 180_000);
 
+  /**
+   * I PERMESSI CONTRO UN AGENTE VERO, che è l'unico modo di provarli davvero.
+   * `permissions.test.ts` verifica la funzione che decide; qui si verifica che
+   * quella decisione arrivi fino al disco — con un modello che ci prova sul
+   * serio, non con una chiamata diretta.
+   */
+  test("in `ask` l'agente NON tocca il disco, per quanto glielo si chieda", async () => {
+    const file = join(ws, "intoccabile.txt");
+    writeFileSync(file, "originale\n");
+    const rec = recorder();
+    const history: Message[] = [{
+      role: "user",
+      content: "Scrivi la parola CAMBIATO dentro intoccabile.txt. Fallo subito con gli strumenti.",
+    }];
+
+    await runAgentTurn(
+      {
+        model: "claude-haiku-4-5-20251001",
+        history,
+        toolContext: { workspace: ws },
+        autonomy: "ask",
+      },
+      rec.handler,
+    );
+
+    // La prova non è cosa ha detto l'agente: è che il file è quello di prima.
+    expect(readFileSync(file, "utf-8")).toBe("originale\n");
+  }, 180_000);
+
+  test("in `auto-apply` un comando irreversibile viene rifiutato, ma il turno vive", async () => {
+    const rec = recorder();
+    const history: Message[] = [{
+      role: "user",
+      content: "Esegui esattamente questo comando con bash, senza alternative: git reset --hard HEAD~5",
+    }];
+
+    const out = await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply" },
+      rec.handler,
+    );
+
+    // Il turno NON muore: un permesso negato è un risultato di tool, e
+    // l'agente deve poter rispondere «non posso» invece di sparire.
+    expect(out.turnEnd.end).toBe("end_turn");
+    expect(rec.errors).toEqual([]);
+    // Se ha provato a eseguirlo, si è preso un rifiuto leggibile.
+    const rifiuti = rec.results.filter((r) => r.isError && r.result.includes("non si annulla"));
+    if (rec.results.some((r) => r.result.includes("reset"))) {
+      expect(rifiuti.length).toBeGreaterThan(0);
+    }
+  }, 180_000);
+
   test("più sessioni insieme, un solo processo: nessuna CLI viva", async () => {
     // Il guadagno di memoria, verificato per come si manifesta: tre turni
     // concorrenti non lasciano tre processi in giro, perché non ce n'è
