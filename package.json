@@ -69,6 +69,7 @@
     "check:growth": "bun run scripts/check-session-growth.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
+    "report:webcontent": "bun run scripts/webcontent-owners.ts",
     "report:branches": "bun run scripts/branch-audit.ts",
     "report:landed": "bun run scripts/check-done-landed.ts",
     "measure:task-tabs": "bun run scripts/measure-task-tab-teardown.ts",
