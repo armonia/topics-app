@@ -1,8 +1,13 @@
 # Topics
 
-> A desktop workspace for [Claude Code](https://claude.com/claude-code) and other CLI coding agents — organize your sessions into focused topics, each with its own project context, terminal, and browser.
+> A desktop home for the coding agents you already run — Claude Code, Codex and
+> friends — with every session in its own topic: its project, its terminal, its
+> browser.
 >
-> An open, **agent-first** alternative to Cursor, Windsurf & co.: instead of wrapping an editor around a model, Topics is a home for the terminal AI agents you already run.
+> Agents run **inside Topics**, not as one process each: **200 sessions
+> answering at once fit in 162 MB of RAM** ([measured](#running-agents-without-the-cli)).
+> An open, agent-first alternative to Cursor & co. — instead of wrapping an
+> editor around a model, Topics is a home for the agents themselves.
 
 <!-- Optional: drop a screenshot or short GIF here once available -->
 <!-- ![Topics screenshot](docs/screenshot.png) -->
@@ -12,30 +17,25 @@
 Grab the latest build for your platform from the **[latest release](https://github.com/armonia/topics-app/releases/latest)**:
 
 | Platform | File |
-|----------|------|
-| **macOS** (Universal: Apple Silicon + Intel) | `.dmg` |
-| **Windows** | `.exe` installer (also `.msi` on the Tauri channel) |
-| **Linux** | `.deb` · `.rpm` |
+|---|---|
+| **macOS** (Apple Silicon + Intel) | `.dmg` |
+| **Windows** | `.exe` (also `.msi`) |
+| **Linux** | `.deb` · `.rpm` — no AppImage: the build carries a compiled Bun sidecar that `linuxdeploy` cannot package |
 
-All builds and their checksums live on the [Releases](https://github.com/armonia/topics-app/releases) page.
+> **macOS first launch.** Builds are not notarized yet, so macOS refuses the
+> first launch. The Control-click → Open bypass no longer works since Sequoia:
+> go to **System Settings → Privacy & Security → Open Anyway**, authenticate,
+> then **Open**. Once only. Windows SmartScreen may ask you to confirm.
 
-There is no `.AppImage`: the Linux build carries a compiled Bun sidecar that AppImage's `linuxdeploy` step cannot package, so CI builds `deb,rpm` only.
-
-> **v2 = Tauri.** Starting with **v2.0.0** the desktop app ships as a [Tauri](https://tauri.app) shell (`desktop-tauri/`), released from `tauri-vX.Y.Z` tags (release names "Topics (Tauri) …"). The older **Electron** shell was **archived in v2.0.0** — its source is preserved on the `electron-archive` branch and can be restored from there if ever needed. The legacy Electron installers (`v*` tags) remain downloadable on the Releases page but are no longer built or updated.
-
-> **macOS first launch.** Builds are not notarized yet, so macOS refuses the first launch with *"Apple could not verify Topics is free of malware"*. Since macOS Sequoia the Control-click → Open bypass **no longer works** — the path that does is: **System Settings → Privacy & Security →** scroll to **Security → Open Anyway →** authenticate → **Open** in the dialog that follows. You only do this once. Windows SmartScreen may ask you to confirm.
-
-## Auto-update
-
-Topics checks GitHub Releases for new versions. Use **menu → Check for Updates**: the app downloads the update once you confirm, then installs it on restart. Updates are never applied silently.
+Topics checks GitHub Releases for updates and installs them on restart once you
+confirm — never silently.
 
 ## What it does
 
-- **Topic-based organization** — group your Claude Code / agent sessions by project or context, in tabs
-- **Project integration** — file explorer, Git changes, an embedded terminal (run your agent here) and browser per topic
-- **Agent monitoring** — see every session's state and get notified when an agent finishes or needs you
-- **Context visualization** — see how much context each session is using
-- **Bring your own agent & keys** — drives the `claude-code` and `codex` CLIs already installed on your machine (covered by your subscription, no API bill), or talks to the Anthropic (`claude`) and OpenAI (`openai`) APIs with your own keys, or relays through an optional `openclaw` gateway
+- **Topics, not tabs** — group agent sessions by project or context, each with its own file explorer, Git changes, terminal and browser
+- **See every agent at once** — state, context used, and a notification when one finishes or needs you
+- **Agents without the process tax** — sessions live inside the server, so a hundred of them cost less than one CLI
+- **Your agent, your keys** — drives the `claude-code` and `codex` CLIs you already have (covered by your subscription, no API bill), or the Anthropic and OpenAI APIs with your own keys
 
 ## Running agents without the CLI
 
@@ -177,7 +177,7 @@ cp .env.example .env   # then edit
 bun run start          # http://localhost:3333
 ```
 
-### Desktop shell — Tauri (primary, v2)
+### Desktop shell (Tauri)
 
 Requires the [Rust toolchain](https://rustup.rs/). Build the client first (above) — Tauri
 embeds `public/` as its `frontendDist` at compile time:
@@ -194,17 +194,8 @@ cd desktop-tauri && cargo tauri build
 ```
 
 Official installers are built by CI from `tauri-vX.Y.Z` tags
-(`.github/workflows/tauri-release.yml`).
-
-### Desktop shell — Electron (archived)
-
-The Electron shell was **archived in v2.0.0** and its source (`electron-app/`) removed from
-`main`. It is fully recoverable on the `electron-archive` branch:
-
-```bash
-git checkout electron-archive -- electron-app   # restore the source, or
-git switch electron-archive                     # check out the whole pre-removal state
-```
+(`.github/workflows/tauri-release.yml`). The pre-v2 Electron shell was archived
+in v2.0.0 and lives on the `electron-archive` branch.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
 
