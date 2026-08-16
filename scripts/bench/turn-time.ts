@@ -1,221 +1,156 @@
 #!/usr/bin/env bun
 /**
- * QUANTO CI METTE UN TURNO, con la CLI e senza.
+ * QUANTO CI METTE UN TURNO, misurato DAL SERVER VERO.
  *
- * PERCHÉ QUESTO BENCH NON C'ERA, ed è la premessa che rende leggibile il
- * numero. `ai-latency.ts` misura l'overhead che Topics aggiunge sulla strada
- * verso una CLI, con un modello sintetico e a costo zero: risponde a «quanto
- * pesa il nostro tubo», non a «quanto aspetto io». `memory.ts` misura la RAM.
- * Il tempo di un turno VERO — quello che una persona percepisce — non lo
- * misurava nessuno, perché finché Topics guidava solo CLI quel tempo era di
- * qualcun altro.
+ * PERCHÉ QUESTA È LA SECONDA VERSIONE. La prima istanziava i provider a mano in
+ * questo processo: il runtime nativo rispondeva (non ha niente da spawnare),
+ * `claude-code` restava appeso oltre dieci minuti senza emettere un token. Il
+ * difetto era dell'harness, non della CLI — dentro Topics funziona benissimo —
+ * e una tabella con una riga sola non è un confronto.
  *
- * Ora una parte è nostra: il runtime nativo (`providers/native/`) parla
- * direttamente col modello. Quindi la domanda «i task sono più veloci?» ha
- * finalmente una risposta misurabile, ed è questo file.
+ * Qui si chiede al SERVER, sulla strada che usano davvero una chat e la board:
+ * `POST /api/chat` con `provider` scelto per turno. Stessa rotta, stesso
+ * contesto, stesso streaming SSE. L'unica differenza fra le due righe è chi
+ * serve il turno, che è esattamente la variabile in esame.
  *
- * COSA SI CONFRONTA. Lo STESSO lavoro, sullo stesso modello, su due strade:
+ * COSA SI MISURA, e perché due numeri e non uno.
  *
- *   cli      il provider `claude-code`: spawna la CLI, parla su stdio
- *   native   il runtime di casa: chiama l'API e gira il tool loop in proprio
+ *   avvio    dalla richiesta al PRIMO token leggibile. È dove una CLI paga lo
+ *            spawn di un processo Node e il suo boot, mentre il nativo paga la
+ *            sola latenza di rete. È ciò che una persona sente come reattività.
+ *   totale   fino a `[DONE]`. Qui domina il MODELLO, che è lo stesso per
+ *            entrambi: differenze grandi qui sarebbero sospette, non vittorie.
  *
- * DUE TEMPI, e vanno tenuti separati perché rispondono a due domande diverse.
+ * IL PRIMO TURNO SI RIPORTA SEPARATO, per non barare al contrario: la CLI paga
+ * lo spawn UNA volta e poi tiene la sessione calda. Il primo turno è la verità
+ * per un agente DISPACCIATO (nasce, lavora, muore); la mediana dei successivi è
+ * la verità per una chat che continua.
  *
- *   avvio    dal momento in cui si chiede il turno al PRIMO token leggibile.
- *            È dove la CLI paga lo spawn di un processo Node e il suo boot,
- *            mentre il nativo paga solo la latenza di rete. È anche il tempo
- *            che una persona sente come «reattività».
- *   totale   fino alla fine del turno. Qui domina il MODELLO, che è lo stesso
- *            per entrambi: differenze grandi qui sarebbero sospette, non
- *            vittorie.
- *
- * L'ONESTÀ DEL CONFRONTO, scritta prima dei numeri. La CLI paga lo spawn UNA
- * VOLTA per sessione e poi la tiene calda: un bench che misura solo il primo
- * turno le dà torto in modo sleale. Quindi si misurano N turni di fila sulla
- * STESSA sessione e si riportano il primo e la mediana dei successivi
- * separatamente — il primo turno è la verità per un agente dispacciato (che
- * nasce, lavora e muore), la mediana è la verità per una chat che continua.
- *
- * COSTA SOLDI VERI. Chiama il modello, su entrambe le strade. È il motivo per
- * cui non gira dentro `bun run bench` e va invocato a mano.
+ * COSTA SOLDI VERI su entrambe le strade. Non gira dentro `bun run bench`.
  *
  * USAGE
- *   bun run scripts/bench/turn-time.ts                    haiku, 3 turni per strada
- *   bun run scripts/bench/turn-time.ts --turns 5
- *   bun run scripts/bench/turn-time.ts --only native
- *   bun run scripts/bench/turn-time.ts --model claude-sonnet-4-6
+ *   bun run scripts/bench/turn-time.ts --base https://127.0.0.1:39420
+ *   bun run scripts/bench/turn-time.ts --base ... --turns 4 --only native
  */
 
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs";
-import { tmpdir } from "os";
+import { writeFileSync } from "fs";
 import { join } from "path";
 
 const args = process.argv.slice(2);
-const flag = (name: string, def?: string): string | undefined => {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 ? args[i + 1] : def;
-};
+const flag = (n: string, d?: string) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d; };
 
+const BASE = flag("base", "https://127.0.0.1:3333")!.replace(/\/$/, "");
 const TURNS = Number(flag("turns", "3"));
-const MODEL = flag("model", "claude-haiku-4-5-20251001")!;
+const MODEL = flag("model");
 const ONLY = flag("only");
-/** Il prompt: banale di proposito. Si misura la STRADA, non il ragionamento. */
+/** Banale di proposito: si misura la STRADA, non il ragionamento. */
 const PROMPT = "Rispondi con la sola parola PONG.";
+
+/** Il server usa un certificato self-signed su loopback. */
+const tls = { tls: { rejectUnauthorized: false } } as unknown as RequestInit;
 
 interface Sample { startMs: number; totalMs: number; ok: boolean; note?: string }
 
 function stats(xs: number[]) {
-  if (xs.length === 0) return { median: NaN, min: NaN, max: NaN };
-  const s = [...xs].sort((a, b) => a - b);
-  return {
-    median: s[Math.floor(s.length / 2)]!,
-    min: s[0]!,
-    max: s[s.length - 1]!,
-  };
+  const s = [...xs].filter(Number.isFinite).sort((a, b) => a - b);
+  return s.length ? { median: s[Math.floor(s.length / 2)]!, min: s[0]!, max: s[s.length - 1]! } : { median: NaN, min: NaN, max: NaN };
 }
 
-/** Il runtime nativo, chiamato come lo chiama il provider. */
-async function measureNative(): Promise<Sample[]> {
-  const { runAgentTurn } = await import("../../server/providers/native/agent-loop");
-  const ws = mkdtempSync(join(tmpdir(), "bench-turn-"));
-  const out: Sample[] = [];
-  // UNA sessione per tutti i turni: è il confronto giusto con una CLI calda.
-  const history: any[] = [];
-  try {
-    for (let i = 0; i < TURNS; i++) {
-      history.push({ role: "user", content: PROMPT });
-      const t0 = performance.now();
-      let first = 0;
-      const r = await runAgentTurn(
-        { model: MODEL, history, tools: [], toolContext: { workspace: ws } },
-        {
-          onTextDelta: () => { if (!first) first = performance.now(); },
-          onToolStart: () => {},
-          onToolResult: () => {},
-          onDone: () => {},
-          onError: () => {},
-        },
-      );
-      const t1 = performance.now();
-      out.push({
-        startMs: first ? first - t0 : NaN,
-        totalMs: t1 - t0,
-        ok: r.turnEnd.end === "end_turn",
-      });
-    }
-  } finally {
-    try { rmSync(ws, { recursive: true, force: true }); } catch { /* scratch */ }
-  }
-  return out;
+async function api(path: string, init?: RequestInit): Promise<any> {
+  const r = await fetch(`${BASE}${path}`, { ...tls, ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+/** Una topic nuova per ogni strada: le sessioni non si mescolano. */
+async function freshTopic(name: string): Promise<string> {
+  const t = await api("/api/topics", { method: "POST", body: JSON.stringify({ name }) });
+  if (!t?.sessionKey) throw new Error(`topic non creata: ${JSON.stringify(t).slice(0, 200)}`);
+  return t.sessionKey;
 }
 
 /**
- * La CLI, misurata come la usa Topics: il provider `claude-code` sulla stessa
- * sessione, non un `claude --print` a mano — quello misurerebbe un programma
- * che Topics non esegue.
+ * Un turno sulla rotta vera, cronometrando il primo byte di testo.
+ *
+ * Si legge lo stream mentre arriva invece di aspettare la fine: il PRIMO token
+ * è metà della misura, e `await res.text()` lo perderebbe.
  */
-async function measureCli(): Promise<Sample[]> {
-  const { initDatabase, closeDatabase } = await import("../../server/db");
-  const root = mkdtempSync(join(tmpdir(), "bench-cli-"));
-  mkdirSync(join(root, "server", "db", "migrations"), { recursive: true });
-  // Le migration vere: il provider legge il DB per gli override per-topic.
-  const { readdirSync, readFileSync } = await import("fs");
-  const real = join(import.meta.dir, "..", "..", "server", "db", "migrations");
-  for (const f of readdirSync(real)) {
-    if (f.endsWith(".sql")) writeFileSync(join(root, "server", "db", "migrations", f), readFileSync(join(real, f), "utf-8"));
+async function oneTurn(sessionKey: string, provider: string): Promise<Sample> {
+  const t0 = performance.now();
+  let first = 0;
+  const res = await fetch(`${BASE}/api/chat`, {
+    ...tls,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionKey, provider, messages: [{ role: "user", content: PROMPT }], contextMode: "full", dispatched: true, ...(MODEL ? { model: MODEL } : {}) }),
+  });
+  if (!res.ok || !res.body) {
+    return { startMs: NaN, totalMs: performance.now() - t0, ok: false, note: `HTTP ${res.status}` };
   }
-  const savedData = process.env.DATA_DIR;
-  process.env.DATA_DIR = join(root, "data");
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let sawText = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = dec.decode(value, { stream: true });
+    // Il primo `delta.content` con del testo dentro: i frame di apertura non
+    // sono un token leggibile, e contarli darebbe un avvio più bello del vero.
+    if (!sawText && /"content":"[^"]/.test(chunk)) { first = performance.now(); sawText = true; }
+  }
+  return { startMs: first ? first - t0 : NaN, totalMs: performance.now() - t0, ok: sawText };
+}
 
+async function measure(provider: string): Promise<Sample[]> {
+  const key = await freshTopic(`bench ${provider} ${Date.now()}`);
   const out: Sample[] = [];
-  try {
-    initDatabase(root);
-    // Una topic VERA: il provider registra la sessione con una foreign key
-    // sulla riga, e senza il turno muore su un errore di schema invece che
-    // misurare qualcosa. È lo stato in cui una sessione esiste davvero.
-    const { getDatabase } = await import("../../server/db");
-    const now = new Date().toISOString();
-    getDatabase()
-      .prepare("INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-      .run("bench-topic", "bench", "bench", "bench:turn", now, now);
-    const { ClaudeCodeProvider } = await import("../../server/providers/claude-code");
-    const p = new ClaudeCodeProvider({ type: "claude-code", model: MODEL } as any);
-    p.start();
-    const key = "bench:turn";
-    try {
-      for (let i = 0; i < TURNS; i++) {
-        const t0 = performance.now();
-        let first = 0;
-        let errored: string | undefined;
-        await new Promise<void>((resolve) => {
-          void p.sendChat(key, PROMPT, {
-            onTextDelta: () => { if (!first) first = performance.now(); },
-            onToolStart: () => {},
-            onToolResult: () => {},
-            onDone: () => resolve(),
-            onError: (e: string) => { errored = e; resolve(); },
-          } as any, { model: MODEL }).catch((e: unknown) => { errored = String(e); resolve(); });
-        });
-        const t1 = performance.now();
-        out.push({
-          startMs: first ? first - t0 : NaN,
-          totalMs: t1 - t0,
-          ok: !errored,
-          note: errored?.slice(0, 80),
-        });
-      }
-    } finally {
-      try { p.stop(); } catch { /* già fermo */ }
-    }
-  } finally {
-    try { closeDatabase(); } catch { /* già chiusa */ }
-    if (savedData === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = savedData;
-    try { rmSync(root, { recursive: true, force: true }); } catch { /* scratch */ }
-  }
+  for (let i = 0; i < TURNS; i++) out.push(await oneTurn(key, provider));
   return out;
 }
 
 function report(label: string, xs: Sample[]) {
   const ok = xs.filter((s) => s.ok);
   if (ok.length === 0) {
-    console.log(`${label.padEnd(8)} nessun turno riuscito${xs[0]?.note ? ` — ${xs[0].note}` : ""}`);
+    console.log(`${label.padEnd(12)} nessun turno riuscito${xs[0]?.note ? ` — ${xs[0].note}` : ""}`);
     return null;
   }
-  const firstTurn = ok[0]!;
+  const f = ok[0]!;
   const rest = ok.slice(1);
-  const s = stats(rest.map((x) => x.startMs).filter(Number.isFinite));
+  const s = stats(rest.map((x) => x.startMs));
   const t = stats(rest.map((x) => x.totalMs));
   console.log(
-    `${label.padEnd(8)} 1° turno: avvio ${firstTurn.startMs.toFixed(0).padStart(5)} ms  totale ${firstTurn.totalMs.toFixed(0).padStart(5)} ms` +
-    (rest.length ? `   |  poi (mediana di ${rest.length}): avvio ${s.median.toFixed(0).padStart(5)} ms  totale ${t.median.toFixed(0).padStart(5)} ms` : ""),
+    `${label.padEnd(12)} 1°: avvio ${f.startMs.toFixed(0).padStart(6)} ms  totale ${f.totalMs.toFixed(0).padStart(6)} ms` +
+    (rest.length ? `   |  poi (mediana ${rest.length}): avvio ${s.median.toFixed(0).padStart(6)} ms  totale ${t.median.toFixed(0).padStart(6)} ms` : "") +
+    `   [${ok.length}/${xs.length} ok]`,
   );
-  return { label, firstStartMs: firstTurn.startMs, firstTotalMs: firstTurn.totalMs, medianStartMs: s.median, medianTotalMs: t.median, n: ok.length };
+  return { label, firstStartMs: f.startMs, firstTotalMs: f.totalMs, medianStartMs: s.median, medianTotalMs: t.median, ok: ok.length, attempted: xs.length };
 }
+
+console.log(`\nserver ${BASE}, ${TURNS} turni per strada${MODEL ? `, modello ${MODEL}` : ""}\nprompt «${PROMPT}»\n`);
 
 const rows: unknown[] = [];
-console.log(`\nmodello ${MODEL}, ${TURNS} turni per strada, prompt «${PROMPT}»\n`);
-
-if (ONLY !== "cli") {
-  const r = report("native", await measureNative());
-  if (r) rows.push(r);
-}
-if (ONLY !== "native") {
-  const r = report("cli", await measureCli());
-  if (r) rows.push(r);
+for (const p of ["topics", "claude-code"]) {
+  if (ONLY && ONLY !== p && !(ONLY === "native" && p === "topics") && !(ONLY === "cli" && p === "claude-code")) continue;
+  const label = p === "topics" ? "native" : "cli";
+  try { const r = report(label, await measure(p)); if (r) rows.push(r); }
+  catch (err) { console.log(`${label.padEnd(12)} non misurato — ${err instanceof Error ? err.message : String(err)}`); }
 }
 
 const outPath = join(import.meta.dir, "..", "..", "bench", "results", "turn-time-latest.json");
 writeFileSync(outPath, JSON.stringify({
-  schema: "bench-turn-time-v1",
+  schema: "bench-turn-time-v2",
   measured_at: new Date().toISOString(),
-  model: MODEL,
+  base: BASE,
+  model: MODEL ?? "(default del provider)",
   turns: TURNS,
   prompt: PROMPT,
+  how: "POST /api/chat sul server vero, con `provider` scelto per turno: la stessa rotta di una chat e della board. L'unica differenza fra le righe è chi serve il turno.",
   caveats: [
     "Chiama il modello VERO su entrambe le strade: questo run è costato soldi.",
-    "Il tempo TOTALE è dominato dal modello, che è lo stesso per entrambe: differenze grandi lì sono sospette, non vittorie.",
-    "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è la verità per una chat che continua.",
-    "La CLI tiene la sessione calda dopo il primo turno: confrontare solo il primo le darebbe torto in modo sleale.",
+    "Il TOTALE è dominato dal modello, uguale per entrambi: differenze grandi lì sono sospette, non vittorie.",
+    "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è quella di una chat che continua.",
+    "La CLI paga lo spawn una volta sola e poi tiene la sessione calda: confrontare solo il primo turno le darebbe torto in modo sleale.",
+    "Il modello di default può differire fra i due provider: passare --model per fissarlo se il confronto deve essere stretto.",
   ],
   rows,
 }, null, 2));

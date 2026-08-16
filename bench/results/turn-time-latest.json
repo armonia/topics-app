@@ -1,28 +1,36 @@
 {
-  "schema": "bench-turn-time-v1",
-  "measured_at": "2026-08-16T12:53:20.723Z",
-  "model": "claude-haiku-4-5-20251001",
+  "schema": "bench-turn-time-v2",
+  "measured_at": "2026-08-16T13:00:10.072Z",
+  "base": "https://127.0.0.1:39420",
+  "model": "(default del provider)",
   "turns": 4,
   "prompt": "Rispondi con la sola parola PONG.",
+  "how": "POST /api/chat sul server vero, con `provider` scelto per turno: la stessa rotta di una chat e della board. L'unica differenza fra le righe è chi serve il turno.",
   "caveats": [
     "Chiama il modello VERO su entrambe le strade: questo run è costato soldi.",
-    "Il tempo TOTALE è dominato dal modello, che è lo stesso per entrambe: differenze grandi lì sono sospette, non vittorie.",
-    "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è la verità per una chat che continua.",
-    "La CLI tiene la sessione calda dopo il primo turno: confrontare solo il primo le darebbe torto in modo sleale."
+    "Il TOTALE è dominato dal modello, uguale per entrambi: differenze grandi lì sono sospette, non vittorie.",
+    "Il 1° turno è la verità per un agente dispacciato (nasce, lavora, muore); la mediana dei successivi è quella di una chat che continua.",
+    "La CLI paga lo spawn una volta sola e poi tiene la sessione calda: confrontare solo il primo turno le darebbe torto in modo sleale.",
+    "Il modello di default può differire fra i due provider: passare --model per fissarlo se il confronto deve essere stretto."
   ],
   "rows": [
     {
       "label": "native",
-      "firstStartMs": 678.5494580000001,
-      "firstTotalMs": 692.1660410000001,
-      "medianStartMs": 805.1729169999999,
-      "medianTotalMs": 805.2716250000003,
-      "n": 4
+      "firstStartMs": 1358.96875,
+      "firstTotalMs": 1405.022,
+      "medianStartMs": 1237.3922079999998,
+      "medianTotalMs": 1237.4006249999998,
+      "ok": 4,
+      "attempted": 4
+    },
+    {
+      "label": "cli",
+      "firstStartMs": 3845.7976659999995,
+      "firstTotalMs": 3978.302541,
+      "medianStartMs": 2021.2509170000012,
+      "medianTotalMs": 2183.9650420000016,
+      "ok": 4,
+      "attempted": 4
     }
-  ],
-  "cli_not_measured": {
-    "why": "La CLI non e' stata misurata: istanziata a mano fuori dal server resta appesa oltre 10 minuti senza emettere token. Il difetto e' del mio harness, non suo (dentro Topics funziona), e pubblicare un numero da un harness rotto sarebbe peggio che non pubblicarlo.",
-    "what_to_do": "Misurarla dal server vero: POST /api/chat con provider=claude-code su un topic con progetto, la stessa strada che usa la board.",
-    "what_we_know_anyway": "Il costo che la CLI paga e SEMPRE nostro nel confronto e' lo SPAWN: ~206 MB e il boot di un processo Node per sessione (bench/results/memory-latest.json). Il runtime nativo non lo paga affatto. Questo dice dove sta la differenza, non quanto vale in millisecondi."
-  }
+  ]
 }
