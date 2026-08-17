@@ -449,6 +449,16 @@ export interface AppContext {
   resolveTopicCwd: (topic: import("./types").Topic | null | undefined) => string | null;
   getMimeType: (filepath: string) => string;
   isPathAllowed: (filepath: string) => boolean;
+  /**
+   * La FORMA di un'immagine sul disco, o `null` quando non si riesce a leggerla
+   * (formato ignoto, file illeggibile). Serve al cancello dell'anteprima: una
+   * immagine piu' alta che larga occupa la card e spinge giu' il testo che
+   * quella card deve far leggere.
+   *
+   * `null` non e' «troppo alta»: chi non sa misurare lascia passare, o un
+   * difetto di sonda bloccherebbe consegne buone.
+   */
+  imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number } | null;
   findNewMediaFiles: (sinceMs: number) => Promise<string[]>;
   updateLastMessageWithMedia: (sessionKey: string, mediaPaths: string[]) => void;
   atomicWriteJSON: (filepath: string, data: object) => void;

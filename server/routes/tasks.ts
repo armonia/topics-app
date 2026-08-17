@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus, PREVIEW_CARD_MAX_RATIO } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -1267,9 +1267,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!filterMedia([raw])?.length) {
       return { ok: false, reason: "path fuori dalle cartelle consentite (~/.topics/media, ~/.openclaw/media, workspace)" };
     }
-    return isPreviewablePath(raw)
-      ? { ok: true, value: raw }
-      : { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
+    if (!isPreviewablePath(raw)) {
+      return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
+    }
+    // TERZO CANCELLO: LA FORMA.
+    //
+    // Un'immagine piu' alta che larga occupa la card e spinge giu' il testo che
+    // quella card deve far leggere. Il tetto e' `PREVIEW_CARD_MAX_RATIO`, LO
+    // STESSO numero che usa la promozione automatica dal thread
+    // (`tooTallForCard` in services/tasks.ts): due numeri diversi per la stessa
+    // immagine, a seconda della porta da cui entra, erano un odore.
+    //
+    // Mancava, e si vedeva: misurato il 17/08 su una card vera, un'anteprima
+    // 255x397 (rapporto 1,56) alta 330px su una card di 798.
+    //
+    // I video non si misurano da qui e restano fuori dal cancello, come nella
+    // promozione automatica. `null` = non si e' potuto leggere, e non e'
+    // «troppo alta»: chi non sa misurare lascia passare.
+    const shape = typeof ctx.imageShapeOf === "function" ? ctx.imageShapeOf(raw) : null;
+    if (shape && shape.ratio > PREVIEW_CARD_MAX_RATIO) {
+      return {
+        ok: false,
+        reason: `immagine troppo ALTA per una card: ${shape.width}x${shape.height} ha rapporto `
+          + `${shape.ratio.toFixed(2)}, il massimo e' ${PREVIEW_CARD_MAX_RATIO}. `
+          + `Ritagliala o affiancane i pezzi: su una card occuperebbe piu' spazio del testo da leggere.`,
+      };
+    }
+    return { ok: true, value: raw };
   }
 
   /**

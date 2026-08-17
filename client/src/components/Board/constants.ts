@@ -206,3 +206,16 @@ export const mediaPaneIdFor = (path: string): string => `media:${path}`;
  * della chat (`ChatInput.tsx` + `ProviderModelPicker.tsx`).
  */
 export const CHIP_LABEL = 'truncate @max-[28rem]:hidden';
+
+/**
+ * Da quanti caratteri in su il riassunto di una card in review si RIPIEGA.
+ *
+ * 620 sono circa dieci righe nella colonna della board (~62 caratteri per riga
+ * a 13px in una colonna da 300px). Sotto quella misura il pieghevole sarebbe
+ * attrito senza guadagno: due righe non nascondono niente a nessuno.
+ *
+ * Si guarda il TESTO e non l'altezza resa: misurare l'altezza dopo il render
+ * vorrebbe dire far saltare la card di un fotogramma, e su una colonna di otto
+ * card il salto si vede.
+ */
+export const COMMENTO_PIEGA_CHARS = 620;

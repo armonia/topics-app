@@ -32,6 +32,7 @@ import { validateOutbound } from "../shared/ws-outbound";
 import { releaseHumanHold } from "./lib/human-hold";
 import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
+import { imageShape } from "./services/image-shape";
 
 /**
  * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
@@ -2268,6 +2269,8 @@ export function createAppContext(baseDir: string): AppContext {
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveSafePath, resolveProjectPath, resolveTopicCwd, getMimeType, isPathAllowed,
+    // La FORMA di un'immagine, per il cancello dell'anteprima: vedi `acceptPreview`.
+    imageShapeOf: imageShape,
     findNewMediaFiles, updateLastMessageWithMedia, atomicWriteJSON, logRequest,
     searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,
