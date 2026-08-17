@@ -1,7 +1,7 @@
 {
   "schema": "bench-ai-latency-v1",
   "bench": "ai-latency",
-  "measured_at": "2026-08-17T13:37:58.575Z",
+  "measured_at": "2026-08-17T14:55:06.272Z",
   "mode": "injected",
   "platform": "darwin arm64",
   "machine": "Apple M2 Max, 12 cores, darwin 25.2.0",
@@ -36,17 +36,17 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
-        1.1,
-        0.9,
-        1.2,
-        0.4,
-        0.8,
+        0.3,
+        0.6,
         0.7,
-        23.7
+        0.5,
+        0.3,
+        0.6,
+        0.3
       ],
-      "medianMs": 0.9,
-      "minMs": 0.4,
-      "maxMs": 23.7
+      "medianMs": 0.5,
+      "minMs": 0.3,
+      "maxMs": 0.7
     },
     "wireToAccepted": {
       "label": "request leaves the client -> the turn exists",
@@ -55,17 +55,17 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
-        56.9,
-        20.5,
-        16.2,
-        14.4,
-        209.2,
-        25.6,
-        114.6
+        10.1,
+        11.1,
+        9.9,
+        16.8,
+        77.2,
+        24.3,
+        25.1
       ],
-      "medianMs": 25.6,
-      "minMs": 14.4,
-      "maxMs": 209.2
+      "medianMs": 16.8,
+      "minMs": 9.9,
+      "maxMs": 77.2
     },
     "firstTokenToInk": {
       "label": "first provider event -> first token readable",
@@ -74,17 +74,17 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
-        14.8,
-        212.3,
-        101.1,
-        31.7,
-        75.9,
-        127.4,
-        80.9
+        178.7,
+        79.9,
+        202.4,
+        28.9,
+        19.8,
+        13.2,
+        18.8
       ],
-      "medianMs": 80.9,
-      "minMs": 14.8,
-      "maxMs": 212.3
+      "medianMs": 28.9,
+      "minMs": 13.2,
+      "maxMs": 202.4
     },
     "midStreamTokenToInk": {
       "label": "mid-stream event -> that token readable",
@@ -93,17 +93,17 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
-        188.8,
-        86,
-        98.2,
-        47.1,
-        24.3,
-        199.9,
-        139.6
+        155.3,
+        31,
+        114.8,
+        160.9,
+        104.2,
+        154,
+        97.7
       ],
-      "medianMs": 98.2,
-      "minMs": 24.3,
-      "maxMs": 199.9
+      "medianMs": 114.8,
+      "minMs": 31,
+      "maxMs": 160.9
     },
     "acceptedToFirstProviderEvent": {
       "label": "accepted -> first provider event",
@@ -114,9 +114,9 @@
     }
   },
   "request_body_chars": {
-    "median": 1368,
+    "median": 1403,
     "min": 599,
-    "max": 2172,
+    "max": 2207,
     "budget": 65536,
     "what": "size of the POST /api/chat body in UTF-16 code units. The whole transcript used to travel on every turn; today it is a BOUNDED tail, so within one run it still grows message by message and then stops. The invariant is the ceiling (REQUEST_TAIL_BUDGET_CHARS in client/src/hooks/chatRequestPayload.ts), not a constant."
   },
