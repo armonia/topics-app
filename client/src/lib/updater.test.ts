@@ -60,7 +60,7 @@ describe("in automatico non si annuncia un aggiornamento che arriva da solo", ()
   });
 
   test("nemmeno lo scaricamento in corso: è un lavoro che non hai chiesto", () => {
-    expect(shouldShowUpdaterToast({ state: "downloading", percent: 40 }, auto)).toBe(false);
+    expect(shouldShowUpdaterToast({ state: "downloading", progress: 40 }, auto)).toBe(false);
   });
 
   test("«pronto» invece PASSA: lì il gesto serve davvero", () => {
