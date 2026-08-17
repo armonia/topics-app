@@ -197,6 +197,131 @@ describe('selectCardComments', () => {
     const agent = comment('claude', 'rifatta');
     expect(selectCardComments([request, hold, agent])?.humanContext).toBe(request);
   });
+
+  /**
+   * DUE DIFETTI MISURATI IL 17/08 SULLA BOARD VIVA, uno per card.
+   *
+   * Le fixture sono i payload VERI di `GET /api/boards/:id/tasks`, non forme
+   * inventate: e' l'unico modo perche' il test parli della cosa che si e' vista
+   * sullo schermo.
+   */
+  describe('le due card che mostravano la riga sbagliata', () => {
+    /** La domanda di sistema, esattamente come `askParkedChildren` la scrive. */
+    const domandaParcheggiati = () => comment(
+      'system',
+      '```question\nFermo su 2 sottotask che non lavorera nessuno («Costruisce UIMockup», «Verifica TypeScript»): '
+        + 'uno step lo muove solo l\'agente di questa card dentro il proprio turno, e con un sottotask aperto questo '
+        + 'task non si puo\' chiudere. Li rimetto in coda, o archivio cio\' che non serve piu\'?\n'
+        + '- Rimetti in coda i sottotask\n- Archivia i sottotask\n```',
+    );
+
+    test('63bcc31b: la domanda sui sottotask, con i sottotask ormai TUTTI chiusi, non e\' piu\' la parola', () => {
+      // La card mostrava il markdown grezzo della domanda morta — recinto e
+      // elenco delle due opzioni — al posto della consegna. `Card.tsx` smette
+      // di parsarla (nessun bottone), quindi cadeva nel ramo «testo semplice».
+      const domanda = domandaParcheggiati();
+      const landing = comment('system', 'Non e\' su main: `04e90f7a` (topics/divine-rooster) — landa il ramo prima che venga potato.');
+      const risolta = { subtaskCount: 3, subtaskDoneCount: 3 };
+      const got = selectCardComments([domanda, landing], risolta);
+      expect(got?.latest).not.toBe(domanda);
+      expect(got?.latest.content).not.toContain('```question');
+
+      // ...e finche' i sottotask sono davvero fermi la domanda RESTA in cima:
+      // e' l'unica cosa che tiene ferma la card, e spegnerla sarebbe il difetto
+      // opposto, molto peggiore.
+      const viva = selectCardComments([domandaParcheggiati(), landing], { subtaskCount: 3, subtaskDoneCount: 1 });
+      expect(viva?.latest.content).toContain('```question');
+      // Senza numeri non si spegne niente: l'asimmetria va sempre in quel verso.
+      expect(selectCardComments([domandaParcheggiati(), landing])?.latest.content).toContain('```question');
+    });
+
+    test('5cf58e29: senza consegna, la card spiega PERCHE\' e\' li\' invece di ripetermi la mia frase', () => {
+      // L'agent ha bruciato due turni su errori del provider: `delivered_by =
+      // 'system'`, nessuna parola sua. L'ultima riga non-contorno era la mia
+      // richiesta di un'ora prima, e la card la ristampava in cima — letta li'
+      // sembrava un'istruzione del sistema («devi rimetterlo in progress»).
+      const richiesta = comment('user', '**Messa in progress = via libera.** Ho sciolto i tre bivi con quello che il repo aveva gia\' deciso.');
+      const perche = comment(
+        'system',
+        "L'agent ha lavorato 2 turni ma non ha spostato il task in review da solo. L'ho portato io in review: "
+          + 'valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).',
+      );
+      const got = selectCardComments([richiesta, perche], { deliveredBy: 'system' });
+      expect(got?.latest).toBe(perche);
+      // E la mia richiesta non sparisce: sale a contesto, sopra, dov'e' vera.
+      expect(got?.humanContext).toBe(richiesta);
+    });
+
+    test('ma quando l\'agent ha consegnato, il riassunto resta il protagonista', () => {
+      // Il motivo per cui `contorno` esiste: la nota del sistema arriva SEMPRE
+      // dopo la consegna, e li' deve continuare a cedere il passo.
+      const richiesta = comment('user', 'rifai la testata');
+      const consegna = comment('claude', 'Rifatta: ora la griglia regge a 320px.');
+      const nota = comment('system', 'Worktree e branch ripuliti.');
+      const got = selectCardComments([richiesta, consegna, nota]);
+      expect(got?.latest).toBe(consegna);
+      expect(got?.humanContext).toBe(richiesta);
+    });
+
+    test('ho scritto io per ultimo davvero: nessuna nota da promuovere, resto io', () => {
+      const vecchia = comment('user', 'primo giro di note');
+      const risposta = comment('claude', 'prima risposta');
+      const adesso = comment('user', 'rifai, il gate e\' rosso');
+      const got = selectCardComments([vecchia, risposta, adesso], { deliveredBy: 'system' });
+      expect(got?.latest).toBe(adesso);
+      expect(got?.humanContext).toBeNull();
+    });
+
+    test('una transizione di stato non e\' la spiegazione: non viene promossa', () => {
+      // `kind: 'status'` e' storia, non parola. Promuoverlo metterebbe in cima
+      // alla card la stringa «in_progress→review».
+      const richiesta = comment('user', 'fai la pagina pubblica');
+      const mossa = comment('dispatcher', 'in_progress→review', 'status');
+      const got = selectCardComments([richiesta, mossa], { deliveredBy: 'system' });
+      expect(got?.latest).toBe(richiesta);
+      expect(got?.humanContext).toBeNull();
+    });
+
+    test('l\'EVIDENZA non e\' una spiegazione: uno screenshot non risponde a niente', () => {
+      // La differenza che questo ramo deve tenere: `kind: 'comment'` firmato
+      // system e' il dispatcher che dice PERCHE' la card e' in review;
+      // `review-note` e' l'anteprima che la macchina attacca a ogni ingresso.
+      // La prima si promuove, la seconda no — altrimenti una card la cui unica
+      // novita' e' un'immagine sembrerebbe avere gia' una risposta.
+      const richiesta = comment('user', 'rifai l\'header');
+      const evidenza = comment('system', 'Anteprima viva pronta: http://127.0.0.1:5173', 'review-note');
+      const got = selectCardComments([richiesta, evidenza], { deliveredBy: 'system' });
+      expect(got?.latest).toBe(richiesta);
+      expect(got?.humanContext).toBeNull();
+    });
+
+    test('anche una nota di servizio resta fuori: la coda non spiega la review', () => {
+      // `kind: 'service'` e' la contabilita' del dispatcher («In attesa di uno
+      // slot»): non e' il motivo per cui sto guardando questa card.
+      const richiesta = comment('user', 'fai la pagina pubblica');
+      const coda = comment('system', 'In attesa di uno slot: il tetto di concorrenza e\' pieno.', 'service');
+      expect(selectCardComments([richiesta, coda], { deliveredBy: 'system' })?.latest).toBe(richiesta);
+    });
+
+    /**
+     * IL VERSO OPPOSTO, ed e' quello che si rompe per primo.
+     *
+     * Due thread IDENTICI sullo schermo, significato opposto: «ultimo commento
+     * firmato `user`, poi una nota di sistema» e' una CONSEGNA fatta a mano
+     * scavalcata dalla notifica (il difetto tolto il 17/08 al mattino), oppure
+     * una richiesta a cui nessuno ha risposto (il difetto tolto la sera). A
+     * distinguerli non e' il thread: e' `deliveredBy` sulla riga.
+     */
+    test('chi consegna a MANO non viene scavalcato dalla notifica di sistema', () => {
+      const consegna = comment('user', 'Ecco cosa ho fatto e come si verifica.');
+      const notifica = comment('system', 'Worktree e branch ripuliti.');
+      // Consegna vera (nessun `deliveredBy: 'system'`): resta lei in cima.
+      expect(selectCardComments([consegna, notifica])?.latest).toBe(consegna);
+      expect(selectCardComments([consegna, notifica], { deliveredBy: 'agent' })?.latest).toBe(consegna);
+      // Stesse identiche righe, ma nessuno ha consegnato: allora la nota SPIEGA.
+      expect(selectCardComments([consegna, notifica], { deliveredBy: 'system' })?.latest).toBe(notifica);
+    });
+  });
 });
 
 /**
@@ -217,8 +342,10 @@ function row(patch: Partial<CardThreadRow> = {}): CardThreadRow {
   return {
     status: 'review',
     assignedTopicId: 'topic-1',
+    deliveredBy: null,
     deliveredReason: null,
     subtaskCount: 0,
+    subtaskDoneCount: 0,
     recentComments: [],
     ...patch,
   };
