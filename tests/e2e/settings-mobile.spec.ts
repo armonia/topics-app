@@ -96,7 +96,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 /** Le cinque schede del pannello, nell'ordine in cui la nav le elenca. */
-const SCHEDE = ["Appearance", "Notifications", "AI Providers", "Profile", "Plan"];
+const SCHEDE = ["Aspetto", "Notifiche", "Provider AI", "Profilo", "Piano"];
 
 test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", async ({ page }) => {
   await apriImpostazioni(page);
@@ -161,7 +161,7 @@ test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", asy
     expect(tap, `«${scheda}» — bersagli sotto i 44px: ${JSON.stringify(tap)}`).toEqual([]);
     expect(audit.overflowX?.present, `«${scheda}» — scorrimento orizzontale`).toBe(false);
   }
-  await page.getByTestId("settings-panel").getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByTestId("settings-panel").getByRole("button", { name: "Aspetto", exact: true }).click();
 
   // Le due schermate della consegna: STESSA scheda, due larghezze. Solo sotto
   // `E2E_EVIDENCE=1`, come le clip — nella passata veloce la suite non paga i

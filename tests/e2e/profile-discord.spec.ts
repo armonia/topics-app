@@ -78,7 +78,7 @@ test.describe("Profile — statistiche vere e stato Discord", () => {
 
     await page.goto("/");
     await settingsPage.openSettings();
-    await page.locator('nav button:has-text("Profile")').click();
+    await page.locator('nav button:has-text("Profilo")').click();
 
     // ── LE STATISTICHE ──────────────────────────────────────────────────────
     const stats = page.getByTestId("profile-stats");

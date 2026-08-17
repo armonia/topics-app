@@ -360,7 +360,7 @@ test.describe.serial("Pannello di permesso", () => {
     // scheda «AI Providers». Un pannello che di default è vuoto non merita un
     // posto fisso in navigazione — ma deve restare raggiungibile, ed è
     // esattamente ciò che questo test difende.
-    await settings.getByRole("button", { name: "AI Providers" }).click();
+    await settings.getByRole("button", { name: "Provider AI" }).click();
 
     const row = settings.locator(`[data-testid="tool-grant-${TOOL}"]`);
     await expect(row).toBeVisible({ timeout: 5_000 });

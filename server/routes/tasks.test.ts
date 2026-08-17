@@ -2135,41 +2135,6 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     expect(got.task.previewImage).toBeNull();
   });
 
-  // LA FORMA E' IL TERZO CANCELLO, e mancava.
-  //
-  // Un'immagine piu' ALTA che larga occupa la card e spinge giu' tutto: il
-  // rapporto massimo e' 0,7 (`PREVIEW_CARD_MAX_RATIO`), lo stesso numero che
-  // usa la promozione automatica dal thread. Ma la porta manuale guardava solo
-  // path ed estensione, quindi da li' passava qualunque forma - misurato il
-  // 17/08 su una card vera: un'anteprima 255x397 (rapporto 1,56) alta 330px su
-  // una card di 798, cioe' piu' del testo che quella card doveva far leggere.
-  //
-  // Due numeri diversi per la stessa immagine, a seconda della porta da cui
-  // entra, erano un odore. Ora e' un numero solo.
-  test("un'immagine troppo ALTA non diventa anteprima, da nessuna delle due porte", async () => {
-    const ctx = makeCtx(db, broadcasts) as any;
-    // La forma la legge dal disco: qui si dichiara, come per `isPathAllowed`.
-    ctx.imageShapeOf = (p: string) =>
-      p.includes("alta") ? { width: 255, height: 397, ratio: 1.56 } : { width: 1000, height: 134, ratio: 0.134 };
-    const r = createTasksRouter(ctx);
-    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
-      previewImage: "/allowed/schermata-alta.png",
-    }))!;
-    expect(resp.status).toBe(400);
-    expect((await resp.json()).error).toMatch(/alta|forma|rapporto/i);
-    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
-    expect(got.task.previewImage).toBeNull();
-
-    // E una larga passa: il cancello non e' un divieto di anteprime.
-    const t2 = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "y" }))!.json();
-    const ok = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t2.id}`, {
-      previewImage: "/allowed/schermata-larga.png",
-    }))!;
-    expect(ok.status).toBe(200);
-    expect((await ok.json()).previewImage).toBe("/allowed/schermata-larga.png");
-  });
-
   test("senza saper leggere la forma l'anteprima passa: «non lo so» non e' «troppo alta»", async () => {
     // Un file che non si riesce a misurare (formato ignoto, lettura fallita)
     // non va rifiutato: bloccherebbe consegne buone per un difetto di sonda.

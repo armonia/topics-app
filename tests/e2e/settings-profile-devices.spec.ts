@@ -49,8 +49,8 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   test("SETTINGS-01: Profile e Devices sono due voci distinte", async ({ page }) => {
     await page.goto("/");
     const pannello = await apriImpostazioni(page);
-    await expect(pannello.getByRole("button", { name: "Profile", exact: true })).toBeVisible();
-    await expect(pannello.getByRole("button", { name: "Devices", exact: true })).toBeVisible();
+    await expect(pannello.getByRole("button", { name: "Profilo", exact: true })).toBeVisible();
+    await expect(pannello.getByRole("button", { name: "Dispositivi", exact: true })).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "settings-due-voci.png") });
   });
 
@@ -60,10 +60,10 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     await page.goto("/");
     const pannello = await apriImpostazioni(page);
 
-    await pannello.getByRole("button", { name: "Profile", exact: true }).click();
+    await pannello.getByRole("button", { name: "Profilo", exact: true }).click();
     const profilo = await pannello.innerText();
 
-    await pannello.getByRole("button", { name: "Devices", exact: true }).click();
+    await pannello.getByRole("button", { name: "Dispositivi", exact: true }).click();
     const dispositivi = await pannello.innerText();
 
     expect(profilo).not.toBe(dispositivi);
@@ -88,11 +88,11 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     const pannello = page.locator('[data-testid="settings-panel"]');
     await expect(pannello).toBeVisible({ timeout: 20000 });
     await expect(
-      pannello.getByRole("button", { name: "Devices", exact: true }),
+      pannello.getByRole("button", { name: "Dispositivi", exact: true }),
       "la riga d'identità deve aprire i DISPOSITIVI",
     ).toHaveAttribute("aria-current", "page");
     await expect(
-      pannello.getByRole("button", { name: "Profile", exact: true }),
+      pannello.getByRole("button", { name: "Profilo", exact: true }),
       "…e NON il profilo: erano lo stesso posto, ed è il difetto che è stato corretto",
     ).not.toHaveAttribute("aria-current", "page");
     await page.screenshot({ path: join(SHOTS, "settings-deeplink-devices.png") });
