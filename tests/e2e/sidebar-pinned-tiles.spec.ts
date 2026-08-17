@@ -147,6 +147,89 @@ test.describe("Sidebar — tessere fissate", () => {
   });
 
 
+  test("TILE-CENTRO: il trigger non sposta cio' che e' centrato", async ({ page, request }) => {
+    // Segnalato: «quelle pinnate, icona o testo, devono essere ben centrate e
+    // il trigger non dovrebbe partecipare al peso per farlo centrato. Magari
+    // potremmo replicare il peso del trigger sulla destra, cosi' da mantenere
+    // spaziature, ingombri e allineamenti corretti».
+    //
+    // In forma STRETTA la tessera centra il suo contenuto. Ma nel flusso, di
+    // fianco al contenuto, ci sono anche lo slot del chevron a sinistra e lo
+    // slot del «+» a destra: ognuno che pesi in modo diverso dall'altro sposta
+    // il centro di meta' della propria larghezza. Il difetto non si vede su una
+    // tessera sola, si vede in COLONNA — tessere con e senza «+» mettono
+    // l'icona in due x diverse, e la fila sembra storta senza saper dire dove.
+    //
+    // Si misura il CENTRO del contenuto contro il CENTRO della tessera: e' la
+    // sola formulazione che non dipende da quanti ornamenti ci sono attorno.
+    const a = await createTopic(request, `E2E-Centro-A-${Date.now()}`);
+    const b = await createTopic(request, `E2E-Centro-B-${Date.now()}`);
+    const c = await createTopic(request, `E2E-Centro-C-${Date.now()}`);
+    created.push(a.id, b.id, c.id);
+    // Tre su UNA riga: e' cosi' che la tessera diventa stretta abbastanza da
+    // passare in forma quadrata, che e' la forma in cui il centraggio esiste.
+    await setPins(page, [a.id, b.id, c.id], [[a.id, b.id, c.id]]);
+    await gotoSidebar(page);
+
+    // L'INCHIOSTRO, non le scatole. Misurare i box dei figli non distingue il
+    // centrato dal non centrato: il nome e' `flex-1`, quindi la sua SCATOLA
+    // riempie la riga in tutti e due i casi e lascia sempre la stessa aria ai
+    // lati. Cio' che si sposta e' il TESTO dentro quella scatola, ed e' quello
+    // che si vede. Si prende con un `Range`, che da' il rettangolo dei glifi
+    // davvero disegnati. Verificato togliendo il centraggio: la misura sui box
+    // restava verde, questa diventa rossa.
+    const scarti = await tiles(page).evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        const pezzi: Array<{ left: number; right: number }> = [];
+        // Il testo vero, RITAGLIATO dalla scatola che lo contiene: il nome e'
+        // `truncate`, quindi il rettangolo del Range e' quello del testo
+        // intero, anche la parte che l'ellissi nasconde. Senza il ritaglio si
+        // misurerebbe inchiostro che nessuno vede.
+        const nodi = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = nodi.nextNode(); n; n = nodi.nextNode()) {
+          if (!n.textContent?.trim()) continue;
+          const rg = document.createRange();
+          rg.selectNodeContents(n);
+          const b = rg.getBoundingClientRect();
+          const clip = (n.parentElement as HTMLElement).getBoundingClientRect();
+          const left = Math.max(b.left, clip.left);
+          const right = Math.min(b.right, clip.right);
+          if (right > left) pezzi.push({ left, right } as DOMRect);
+        }
+        // Le icone: hanno una dimensione propria, la loro scatola E' inchiostro.
+        // Il chevron no, sta fuori dal flusso per scelta.
+        for (const g of el.querySelectorAll('img, svg:not([data-testid="pinned-expand-hint"])')) {
+          const b = g.getBoundingClientRect();
+          if (b.width > 0) pezzi.push(b);
+        }
+        if (!pezzi.length) return null;
+        const sinistra = Math.min(...pezzi.map((b) => b.left)) - r.left;
+        const destra = r.right - Math.max(...pezzi.map((b) => b.right));
+        return {
+          nome: el.getAttribute("aria-label") ?? "?",
+          larghezza: +r.width.toFixed(1),
+          sinistra: +sinistra.toFixed(2),
+          destra: +destra.toFixed(2),
+          // Positivo = l'inchiostro pende a destra.
+          scarto: +((sinistra - destra) / 2).toFixed(2),
+        };
+      }).filter(Boolean),
+    );
+
+    // Solo le tessere davvero STRETTE: sopra la soglia della container query
+    // la tessera e' una riga e parte da sinistra, che e' voluto.
+    type Scarto = { nome: string; larghezza: number; sinistra: number; destra: number; scarto: number };
+    const strette = (scarti as Scarto[]).filter((s) => s.larghezza < 104);
+    expect(strette.length, `nessuna tessera stretta da misurare: ${JSON.stringify(scarti)}`).toBeGreaterThan(0);
+    for (const s of strette) {
+      expect(
+        Math.abs(s.scarto),
+        `"${s.nome}" (larga ${s.larghezza}) ha ${s.sinistra}px a sinistra e ${s.destra}px a destra: il contenuto e' fuori centro di ${s.scarto}px`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+  });
+
   test.afterAll(async ({ request }) => {
     for (const id of created) await deleteTopic(request, id).catch(() => {});
     created.length = 0;

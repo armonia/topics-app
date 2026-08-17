@@ -455,10 +455,22 @@ export function PinnedTile({
           Larghezza FISSA anche da vuoto: se lo spazio comparisse solo per le
           tessere espandibili, il nome ballerebbe fra una riga e l'altra, che è
           lo stesso difetto al contrario. */}
+      {/* MA UNO SLOT VUOTO NON DEVE PESARE DOVE IL CONTENUTO È CENTRATO.
+          Sotto i 104px il contenitore passa a `justify-center`: lì non c'è più
+          una colonna da cui far partire i nomi, c'è un centro. Uno slot vuoto
+          di 12px più 8 di gap continuava a spingere tutto a destra — misurato
+          su una tessera larga 77: 28px di aria a sinistra contro 8 a destra,
+          il contenuto fuori centro di 10px. Segnalato: «quelle pinnate, icona
+          o testo, devono essere ben centrate e il trigger non dovrebbe
+          partecipare al peso per farlo centrato».
+          Sparisce solo da VUOTO: con un chevron dentro resta, e a centrarsi è
+          il gruppo intero — che è ciò che si vede. */}
       <span
         data-testid="pinned-chevron-slot"
         aria-hidden={!expandable || undefined}
-        className={`flex w-3 flex-shrink-0 items-center justify-center ${hasRealIcon ? 'pinned-tile-lead' : ''}`}
+        className={`w-3 flex-shrink-0 items-center justify-center ${
+          expandable ? 'flex' : 'hidden @min-[104px]/tile:flex'
+        } ${hasRealIcon ? 'pinned-tile-lead' : ''}`}
       >
         {expandable && <ExpandChevron expanded={expanded} />}
       </span>
