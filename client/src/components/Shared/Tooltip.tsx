@@ -98,6 +98,15 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
         ref={wrapRef}
         // `contents`: il wrapper non deve esistere per il layout, altrimenti
         // un tooltip su un figlio flex ne cambia la disposizione.
+        //
+        // ATTENZIONE A CHI MISURA I FIGLI. Per il layout questo span non c'è,
+        // ma nel DOM sì, e ha `offsetWidth` ZERO. Un contenitore che decide
+        // qualcosa scorrendo `element.children` (per esempio: quanti chip
+        // stanno in una riga) qui vede una fila di elementi larghi nulla e
+        // conclude che ci stanno tutti. È già successo con la barra dei filtri
+        // della board: i chip in eccesso finivano oltre il bordo invece che
+        // dentro il menu. Chi misura deve selezionare i FIGLI VERI (per
+        // testid o classe), non `children`.
         className="contents"
         onMouseEnter={apri}
         onMouseLeave={chiudi}
