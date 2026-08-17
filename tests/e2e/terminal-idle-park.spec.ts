@@ -16,6 +16,27 @@ import { join } from "path";
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
+/**
+ * IL TERMINALE HA BISOGNO DI PIU' DEI 30 SECONDI DI DEFAULT.
+ *
+ * Non e' generosita': e' una misura. Questi casi aprono una PTY vera, aspettano
+ * il ponte WebSocket e poi che xterm.js dipinga - da soli fanno 19 secondi, cioe'
+ * gia' due terzi del tetto. Dentro uno shard, con un solo worker e la macchina
+ * carica, arrivano a 36-42 e sforano.
+ *
+ * Misurato il 17/08 su TRE corse complete della suite: i test del terminale
+ * cadevano in tutte e tre (`TERM-01`, `TERM-02`, `TERM-04`, reconnect,
+ * idle-park), ma bersagli DIVERSI ogni volta e tutti verdi rieseguiti da soli.
+ * Un rosso che cambia bersaglio non e' una regressione: e' un tetto troppo
+ * stretto per il lavoro che c'e' dentro.
+ *
+ * 75 secondi, non un numero rotondo a caso: il peggiore misurato e' 42s sotto
+ * carico, e questo lascia il margine per una macchina piu' lenta senza
+ * trasformare un test appeso in cinque minuti di attesa. Se un giorno un caso
+ * qui dentro impiega davvero 75 secondi, il problema non e' il tetto.
+ */
+test.describe.configure({ timeout: 75_000 });
+
 
 /**
  * Il parcheggio delle sessioni ferme, dai due lati.
