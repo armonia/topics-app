@@ -390,6 +390,7 @@ const IT: Dict = {
   'settings.section.plan': 'Piano',
   // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
+  'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
   'board.card.systemNote': 'Nota di sistema',
   'board.card.commentMore': 'Mostra tutto',
   'board.card.commentLess': 'Mostra meno',

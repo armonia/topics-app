@@ -638,7 +638,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         ) : (
           // Perché non c'è: senza questa riga il tooltip di un progetto sparito
           // sembra solo un tooltip a cui manca un pezzo.
-          <div className="text-[10px] text-app-text-faint">Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.</div>
+          <div className="text-[10px] text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
         )}
         {c && <div className="text-[10px] text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
       </div>
