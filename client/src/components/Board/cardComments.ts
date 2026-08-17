@@ -112,7 +112,23 @@ export type CardThreadRow = Pick<BoardTask, 'status' | 'assignedTopicId' | 'deli
  * ed è per questo che il server attacca `recentComments` solo a quella colonna.
  */
 export function showsCardThread(task: CardThreadRow): boolean {
-  return task.status === 'review'
+  if (task.status !== 'review') return false;
+  // SE IL SERVER LI HA GIA' MANDATI, L'UNICA DOMANDA E' «c'e' qualcosa da
+  // leggere?». Prima si pretendeva una sessione agente, e per le card senza
+  // — chi lavora dal terminale, chi consegna a mano, chi porta in review
+  // scrivendo cos'ha fatto — il thread arrivava fino al browser e finiva in
+  // nessun pixel. Misurato sulla board vera il 17/08: 22 card in review, 22
+  // con `recentComments` nella risposta, ZERO che li disegnavano. Segnalato
+  // due volte: «sembrano solo i task spostati, ma una volta in review dovrei
+  // vedere aggiornamenti, no?».
+  //
+  // `[]` (nessun commento) resta un no: un riquadro vuoto e' peggio del
+  // silenzio.
+  if (task.recentComments?.length) return true;
+  // Il server NON li ha ancora mandati (`undefined` = non lo so ancora): allora
+  // vale la vecchia domanda, perche' qui si sta decidendo se CHIEDERLI, e
+  // chiederli per ogni card senza thread sarebbe una richiesta a vuoto.
+  return task.recentComments === undefined
     && (!!task.assignedTopicId || task.deliveredReason === 'parked_children');
 }
 
