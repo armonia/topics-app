@@ -138,18 +138,24 @@ test.describe("Una nota su una card in review non la rigetta", () => {
     const card = page.locator(`[data-task-card="${taskId}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
 
-    // (1) I DUE GESTI SI VEDONO, E SI CHIAMANO COME IL LORO EFFETTO. Un'icona
-    //     con tooltip non basterebbe: era proprio il nome a mentire.
-    const rimanda = card.getByTestId("card-reply-send-back");
+    // (1) IL GESTO QUIETO SI VEDE E SI CHIAMA COME IL SUO EFFETTO. Un'icona con
+    //     tooltip non basterebbe: era proprio il nome a mentire.
     const nota = card.getByTestId("card-reply-quiet-note");
-    await expect(rimanda).toContainText("Rimanda");
     await expect(nota).toContainText("Nota");
-    // E il campo lo dice PRIMA che uno scriva.
-    await expect(card.getByPlaceholder(/«Rimanda» risveglia/)).toBeVisible();
+    // E IL GEMELLO NON C'E' PIU'. «Rimanda» accanto al campo chiamava la stessa
+    // `review('reject', testo)` di «Rimandalo avanti» nella riga qui sopra, che
+    // da quando porta `pendingText` si prende pure lo stesso testo: due bottoni
+    // per una porta sola, a due centimetri di distanza. Segnalato: «e' ripetuto
+    // due volte». Il drawer lo aveva gia' tolto, la card era rimasta indietro.
+    await expect(card.getByTestId("card-reply-send-back")).toHaveCount(0);
+    // Il gesto che risveglia resta raggiungibile: e' nella riga delle scelte.
+    await expect(card.getByTestId("task-choice-send-back")).toBeVisible();
+    // E il campo dice cosa fa PRIMA che uno scriva, nominando il bottone vero.
+    await expect(card.getByPlaceholder(/Una nota, che resta qui/)).toBeVisible();
     await beat(page);
 
-    // (2) Si scrive la nota e si sceglie il gesto quieto.
-    await card.getByPlaceholder(/«Rimanda» risveglia/).fill(NOTA);
+    // (2) Si scrive la nota e si preme il gesto quieto.
+    await card.getByPlaceholder(/Una nota, che resta qui/).fill(NOTA);
     await beat(page);
     await nota.click();
 

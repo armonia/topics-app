@@ -21,7 +21,7 @@ import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
-import { taskActionWord } from './taskActionWords';
+import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
@@ -1216,28 +1216,52 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               ref={freeTextRef}
               value={freeText} disabled={busy}
               onChange={(e) => setFreeText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); replyFree(); } }}
-              placeholder={isAgentReview ? tr('board.task.replyPlaceholderShort') : tr('board.card.commentPlaceholder')}
+              // Invio = il bottone che gli sta accanto, e adesso quello e'
+              // «Nota». Prima lanciava il gesto rumoroso, che era il gemello di
+              // «Rimandalo avanti»: chi batteva Invio per annotare risvegliava
+              // un agente su un lavoro finito senza aver premuto niente.
+              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); replyFree({ quiet: isAgentReview }); } }}
+              // `{sendBack}` va INTERPOLATO col nome vero del bottone qui
+              // sopra: su una card che nessuno ha consegnato non si chiama
+              // «Rimanda indietro» ma «Rimandalo avanti», e un placeholder che
+              // nomina un bottone inesistente e' peggio di uno generico.
+              placeholder={isAgentReview
+                ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
+                : tr('board.card.commentPlaceholder')}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
-            {/* DUE GESTI, DUE BOTTONI, e ognuno si chiama come il suo effetto.
-                Qui lo spazio è quello che è, quindi le etichette sono corte:
-                ma restano PAROLE, perché il bottone unico diceva «Commenta» e
-                RIMANDAVA la consegna all'agent, e nessuna icona lo diceva. */}
+            {/* UN GESTO SOLO QUI, e non e' un'amputazione: e' la fine di un
+                doppione.
+
+                «Rimanda» accanto al campo chiamava `review('reject', testo)` —
+                LA STESSA IDENTICA COSA di «Rimandalo avanti» nella riga qui
+                sopra, che da quando porta con se' `pendingText` si prende pure
+                lo stesso testo dal campo. Due bottoni, una chiamata, a due
+                centimetri di distanza: chi guarda non puo' sapere che sono la
+                stessa porta, quindi esita davanti a entrambe. Segnalato: «e'
+                ripetuto due volte».
+
+                Il drawer questo doppione lo aveva gia' tolto, e per questa
+                identica ragione; la card era rimasta indietro.
+
+                «Nota» invece RESTA, ed e' l'unica cosa che questa zona sa fare
+                da sola: salva la riga sulla card senza risvegliare l'agent.
+                Nessuna scelta della riga sopra fa questo — toglierla lascerebbe
+                senza gesto chi vuole solo annotare «verificata», che e'
+                esattamente il difetto che quel bottone e' nato per chiudere.
+                Su una card senza agente dietro non c'e' niente da risvegliare:
+                li' il gesto e' uno solo e si chiama «Commenta». */}
             <button
-              disabled={busy || !freeText.trim()} onClick={() => replyFree()}
-              title={isAgentReview ? tr('board.task.sendBackReplyTitle') : tr('board.card.comment')}
-              data-testid="card-reply-send-back"
-              className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
-            ><Send className="h-3.5 w-3.5" />{isAgentReview && <span>{tr('board.task.sendBackReply')}</span>}</button>
-            {isAgentReview && (
-              <button
-                disabled={busy || !freeText.trim()} onClick={() => replyFree({ quiet: true })}
-                title={tr('board.task.quietNoteTitle')}
-                data-testid="card-reply-quiet-note"
-                className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-              ><StickyNote className="h-3.5 w-3.5" /><span>{tr('board.task.quietNote')}</span></button>
-            )}
+              disabled={busy || !freeText.trim()}
+              onClick={() => replyFree({ quiet: isAgentReview })}
+              title={isAgentReview ? tr('board.task.quietNoteTitle') : tr('board.card.comment')}
+              data-testid="card-reply-quiet-note"
+              className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+            >
+              {isAgentReview
+                ? <><StickyNote className="h-3.5 w-3.5" /><span>{tr('board.task.quietNote')}</span></>
+                : <Send className="h-3.5 w-3.5" />}
+            </button>
           </div>
         </div>
       )}

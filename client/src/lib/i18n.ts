@@ -299,9 +299,15 @@ const IT: Dict = {
    * bottone si chiama «Rimandalo avanti».
    */
   'board.task.replyPlaceholder': "Scrivi un'indicazione: «{sendBack}» la porta all'agent, «Nota» la lascia sulla card.",
-  /** La CARD ha ancora i suoi due bottoni accanto al campo, quindi qui la frase
-   *  resta quella: i nomi che cita sono a un centimetro di distanza. */
-  'board.task.replyPlaceholderShort': '…nota: «Rimanda» risveglia, «Nota» no',
+  /**
+   * Anche la CARD ha perso il suo gemello di «Rimanda indietro» (era la stessa
+   * `review('reject', testo)` del bottone nella riga sopra, col medesimo testo
+   * preso dal campo). Quindi la frase non nomina piu' due bottoni accanto: dice
+   * cosa fa QUESTA casella — una nota che resta — e per l'altro gesto indica la
+   * riga sopra, chiamando il bottone col suo nome vero, che su una card mai
+   * consegnata e' «Rimandalo avanti».
+   */
+  'board.task.replyPlaceholderShort': 'Una nota, che resta qui: «{sendBack}» qui sopra la porta all\'agent.',
   'board.task.sendBackReply': 'Rimanda',
   'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
   'board.task.quietNote': 'Nota',
