@@ -763,7 +763,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           UNA distanza sola (`gap-1.5`): prima erano 6px dopo la priorita' e
           4px dopo il `#`, due misure per la stessa cosa nella stessa riga. */}
       <span className="block break-words leading-snug">
-        <span className="mr-1.5 inline-flex h-[1.375em] shrink-0 items-center gap-1.5 align-text-bottom">
+        {/* `align-top` e non `align-text-bottom`.
+            Il gruppo e' alto ESATTAMENTE una line-box (`h-[1.375em]` =
+            `leading-snug`), quindi il suo centro coincide con quello della
+            line-box - ma solo se lo si allinea alla line-box, che e' cio' che
+            fa `top`. `text-bottom` allinea le BASI del testo, e la base non e'
+            il centro: la line-box e' 19,25px, il testo dentro ne occupa 17, e
+            la meta' della differenza e' esattamente lo scarto che si vedeva.
+            Misurato sulla card vera, sette valori a confronto:
+              text-bottom -1,125   baseline -1,5   middle +1,813
+              text-top    +1,125   bottom   +0,125   TOP  +0,125
+            0,125px e' il sub-pixel del font, non un disallineamento. */}
+        <span className="mr-1.5 inline-flex h-[1.375em] shrink-0 items-center gap-1.5 align-top">
           {showPriority && (
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
