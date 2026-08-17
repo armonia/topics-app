@@ -45,7 +45,7 @@ import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { bucketSessionMsgs, EMPTY_SESSION_BUCKETS, type SessionBuckets, type SessionMsg } from './sessionBuckets';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { ProjectPickerBody } from './ProjectPicker';
-import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
+import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -1241,7 +1241,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
   const projectLabel = task && isProjectlessId(task.projectId)
     ? 'Nessun progetto'
-    : currentProject?.name ?? (task ? projectNameFromId(task.projectId) : '');
+    // `?? UNKNOWN_PROJECT_NAME`: da un id che non ha un nome dentro (un UUID)
+    // `projectNameFromId` torna `null`, e a schermo va la frase, non il codice.
+    : currentProject?.name ?? (task ? projectNameFromId(task.projectId) ?? UNKNOWN_PROJECT_NAME : '');
   const moveBlocked = !task ? null
     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
     : task.assignedTopicId || isAgentWorking(task.dispatchState)
