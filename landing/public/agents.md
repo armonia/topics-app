@@ -9,7 +9,7 @@ them from a stack trace.
 installed on this machine — Claude Code, Codex, OpenCode, Gemini CLI, or any ACP
 agent — each inside a real PTY. Several agents can work the same repository at
 once because each task gets its own git worktree on its own branch. MIT, free,
-no account, no telemetry, nothing hosted.
+no account, no analytics, nothing hosted unless you pay for the relay.
 
 **Current version:** resolve it from
 <https://github.com/armonia/topics-app/releases/latest>; the tag is
@@ -154,8 +154,11 @@ user distrust everything else you said.
   turns the checks off and is a recovery hatch, not a configuration. `SECURITY.md`
   is the authority and states the boundary the project defends: reaching the port
   is not the same as getting in.
-- **No telemetry.** Nothing phones home; there is no endpoint to phone. Verifiable
-  by reading the source or by watching the socket.
+- **No analytics.** No analytics library, no crash reporter, nothing collected
+  about how the app is used. Verifiable by reading the source or watching the
+  socket. The one exception is the paid relay: reaching Topics from outside your
+  network routes that traffic through a relay, ours by default, and
+  `TOPICS_RELAY_URL` points at your own instead. Billing goes through Stripe.
 - **Mobile is a PWA**, not a native app.
 - **It is not an editor and not a model.** If the user wants an AI editor, Cursor
   or Zed is the honest answer. Topics is for the case where the agents already

@@ -3,7 +3,8 @@
 > A desktop workspace for CLI coding agents. Several agents work the same
 > repository at once — each inside its own git worktree, so none of them collide —
 > and you watch, review and land their work from one window. Free, MIT, runs
-> entirely on your machine, no account, no telemetry, no cloud that reads your code.
+> entirely on your machine, no account, no analytics, no cloud that reads your code.
+> Reaching it from outside your network is a paid relay; everything local works without it.
 
 Topics is not an editor and not a model. It is the room the agents work in. It
 drives the agent CLIs you already have installed — Claude Code, Codex, OpenCode,
