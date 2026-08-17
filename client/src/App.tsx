@@ -62,6 +62,7 @@ import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
+import { isUtilityPanelType } from './state/pane/adapters/utilityPanelId';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
@@ -775,13 +776,17 @@ function App() {
       handleQuickCreateTerminal(normalizeTerminalAgent(subType), claudeSkipPermissions);
     } else if (type === 'browser') {
       openBrowserPane(newBrowserContextId());
-    } else if (type === 'board' || type === 'dashboard' || type === 'cron') {
-      // Le tre pane UTILITY: id fisso (`__board__`, `__dashboard__`, `__cron__`)
-      // e quindi non `createPaneId`, che ne sorteggerebbe uno nuovo a ogni
-      // apertura — la seconda tab della stessa pagina. `handleOpenAsPage` è
-      // l'unica porta che conosce quella forma. Il ramo era il solo `board`
-      // finché le altre due si aprivano dal dropdown «Topics ▾»; ora che sono
-      // righe del «+» passano da qui, o la riga sarebbe muta.
+    } else if (isUtilityPanelType(type)) {
+      // Le pane UTILITY: id fisso (`__board__`, `__dashboard__`, `__cron__`,
+      // `__profile__`) e quindi non `createPaneId`, che ne sorteggerebbe uno
+      // nuovo a ogni apertura — la seconda tab della stessa pagina.
+      // `handleOpenAsPage` è l'unica porta che conosce quella forma.
+      //
+      // Il predicato viene dall'INSIEME canonico (`UTILITY_PANEL_TYPES`) e non
+      // da tre `===` scritti a mano, che è come stava e come si è già rotto due
+      // volte: il ramo elencava il solo `board` finché Dashboard e Cron
+      // arrivavano dal dropdown «Topics ▾», e le loro righe nel «+»
+      // comparivano senza fare NIENTE. Profilo sarebbe stata la terza volta.
       handleOpenAsPage(type);
     }
   }, [handleQuickCreateTerminal, claudeSkipPermissions, openBrowserPane, handleOpenAsPage]);
@@ -1614,10 +1619,15 @@ function App() {
         }
         boardInFront={boardInFront}
         onToggleBoard={handleMobileBoardToggle}
-        // La stessa stanza a cui portava la voce «account» del menu «Topics»,
-        // che adesso non c'è più: Impostazioni → Account e dispositivi. Il
-        // cassetto si chiude, come per ogni cosa che si apre da qui.
-        onOpenProfile={() => { setSettingsSection('profile'); setShowSettings(true); setShowTopicsMenu(false); }}
+        // LA PANE Profilo, non più la modale delle Impostazioni.
+        //
+        // Portava a Impostazioni → Profilo, cioè dentro un pannello che si apre
+        // sopra la app e va richiuso per tornare a lavorare. Adesso è una tab
+        // come Dashboard e Board: `topics:open-utility` è il bus che le apre
+        // tutte (l'ascoltatore sta in `usePanelLifecycle` e accetta l'insieme
+        // `UTILITY_PANEL_TYPES`), e sul telefono `handleOpenAsPage` chiude da sé
+        // il cassetto. La sezione in Impostazioni resta dov'era.
+        onOpenProfile={() => { window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'profile' } })); setShowTopicsMenu(false); }}
       />
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
