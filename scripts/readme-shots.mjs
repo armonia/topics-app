@@ -41,7 +41,7 @@ mkdirSync(OUT, { recursive: true });
 // L'app: 1440x900 e' la dimensione a cui una schermata resta leggibile dentro
 // la colonna di un README. Attorno, 64px di aria per far respirare l'ombra.
 const APP = { w: 1440, h: 900 };
-const PAD = 64;
+const PAD = 72;
 
 /** La pagina che fa da cornice. L'app vive nell'iframe, intatta. */
 const frameHtml = (src) => `<!doctype html>
@@ -68,19 +68,29 @@ const frameHtml = (src) => `<!doctype html>
     opacity:.55;
   }
   .win, .stage > * { position:relative; z-index:1; }
+  /* L'ANELLO DI VETRO. Un filter:blur sullo sfondo sfoca il fondo e basta;
+     backdrop-filter sfoca cio' che sta DIETRO un elemento semi-trasparente,
+     ed e' l'effetto che si vede nelle finestre di sistema. Qui e' una cornice
+     spessa attorno alla UI: il colore del fondo la attraversa sfocato, e la
+     finestra sembra appoggiata sopra invece che incollata. */
+  .glass {
+    padding:18px; border-radius:26px;
+    background:rgba(255,255,255,.07);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    backdrop-filter: blur(24px) saturate(140%);
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow: 0 2px 8px rgba(0,0,0,.45), 0 40px 110px rgba(0,0,0,.70);
+  }
   .win {
     width:${APP.w}px; height:${APP.h}px;
-    border-radius:14px; overflow:hidden;
+    border-radius:12px; overflow:hidden;
     border:1px solid rgba(255,255,255,.10);
-    /* Ombra a due livelli: una stretta che stacca il bordo, una larga e
-       morbida che da' la distanza dal fondo. Una sola sembra un contorno. */
-    box-shadow: 0 2px 8px rgba(0,0,0,.45), 0 30px 90px rgba(0,0,0,.65);
   }
   iframe { width:100%; height:100%; border:0; display:block; }
 </style></head>
-<body><div class="stage"><div class="win">
+<body><div class="stage"><div class="glass"><div class="win">
   <iframe src="${src}"></iframe>
-</div></div></body></html>`;
+</div></div></div></body></html>`;
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({

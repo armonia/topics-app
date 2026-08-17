@@ -436,8 +436,29 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     // review 1 · in corso 1 · in coda 1 (il «todo» seminato nel beforeAll).
     await expect(conteggi).toHaveText("111");
     // I due chiusi non sono fra gli aperti, ma il dettaglio c'è nel tooltip.
-    await expect(chipAlfa).toHaveAttribute("title", /Review: 1/);
-    await expect(chipAlfa).toHaveAttribute("title", /Done: 2/);
+    // NON un `title` nativo: quello lo disegna il sistema operativo, arriva
+    // dopo oltre un secondo e sta su una riga sola. Ora è un componente, e il
+    // test lo apre davvero col mouse invece di leggere un attributo.
+    await expect(chipAlfa).not.toHaveAttribute("title", /./);
+    await chipAlfa.hover();
+    const tip = page.getByTestId("app-tooltip");
+    await expect(tip).toBeVisible({ timeout: 3000 });
+    await expect(tip).toContainText("Review: 1");
+    await expect(tip).toContainText("Done: 2");
+    // La LOCATION del progetto: è ciò che distingue due progetti con lo stesso
+    // nome, e nel tooltip vecchio non c'era proprio. I progetti di test stanno
+    // in /tmp, quindi qui `homeTilde` non accorcia niente e il path esce intero:
+    // va bene, l'asserzione è che il percorso CI SIA.
+    await expect(tip).toContainText(dirOf(PROJECTS[0]));
+    // Sta dentro la finestra: un tooltip mezzo fuori schermo non si legge.
+    const box = await tip.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(1440);
+    // E se ne va da solo quando il mouse esce: un tooltip appiccicato copre
+    // la board.
+    await page.mouse.move(720, 700);
+    await expect(tip).toBeHidden({ timeout: 3000 });
 
     // 2. Lo stesso conteggio, con la stessa forma, dentro il menu «Progetto».
     await page.getByTestId("filter-project-chip").click();
