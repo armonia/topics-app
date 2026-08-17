@@ -202,15 +202,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   // signal that a local change landed. A genuinely shipped release is >24h old,
   // so the chip auto-hides there instead of being a meaningless ever-growing
   // counter (the earlier "30s fa che non è vero" complaint).
-  // Evaluated once at mount via a lazy initializer — the wall-clock read stays
-  // out of the (pure) render body, and a coarse 24h "recent build" boolean has
-  // no reason to re-tick mid-session.
-  const [buildIsRecent] = useState(() => {
-    try {
-      return !!BUILD_TIME && (Date.now() - new Date(BUILD_TIME).getTime()) < 24 * 60 * 60 * 1000;
-    } catch { return false; }
-  });
-
   // The headline is the WHOLE app: shell + every WKWebView process macOS
   // attributes to it, the same set (and the same footprint metric) Activity
   // Monitor groups under "Topics". It used to be the shell process alone —
@@ -730,32 +721,21 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               Driven by server status, so it shows in the PROD-minified desktop
               bundle too (unlike the Vite-only `dev` badge above). Hidden when
               isDev (the amber `dev` already implies live reload). */}
-          {!isDev && status?.server?.devReload && (
-            <span
-              data-testid="auto-update-badge"
-              // SOLO L'ICONA, senza la parola. La riga di stato e' l'unico posto
-              // dell'app dove sette informazioni si contendono ~200px, e «auto»
-              // era l'unica scritta accanto a un glifo che dice gia' la stessa
-              // cosa. Il senso pieno resta nel `title`, che e' dove sta il senso
-              // pieno di ogni altro pezzo di questa barra.
-              //
-              // `aria-label` perche' togliere la parola la toglie anche a chi
-              // legge con lo schermo spento: l'icona da sola sarebbe muta.
-              aria-label={tr('statusBar.autoUpdate')}
-              className={`flex items-center px-1 rounded bg-emerald-500/15 ${SEGNALE_OK} font-medium text-[10px] leading-tight`}
-              title={tr('statusBar.autoUpdateTitle')}
-            >
-              <RefreshCw size={9} />
-            </span>
-          )}
+          {/* IL BADGE «auto» E' STATO TOLTO. Diceva una cosa vera in un
+              posto dove sette informazioni si contendono ~200px, e la sua
+              conseguenza pratica - «non devi fare niente» - ora si vede da
+              sola: in automatico l'avviso di nuova versione non compare
+              proprio. Un simbolo che segnala l'assenza di un'azione e' un
+              simbolo che si guarda una volta e poi mai piu'.
+              Lo STATO resta leggibile nel dropdown della versione, che e' dove
+              si va a chiedere «a che punto sono con gli aggiornamenti». */}
           {/* Relative "X fa" = last local update. Shown in dev (HMR-tracked) and
               for a recent local build (the desktop app runs the built bundle even
               while developing). Hidden on a stale shipped release. */}
-          {!isDev && buildIsRecent && lastChangeTime && (
-            <span title={tr('statusBar.lastCodeUpdate', { t: formatBuildTime(lastChangeTime) })}>
-              {formatBuildTime(lastChangeTime)}
-            </span>
-          )}
+          {/* E VIA ANCHE «X fa». Rispondeva a «quando e' stata costruita
+              questa build», che e' una domanda da dropdown della versione, non
+              da riga di stato: li' compete per larghezza con gli fps, la
+              memoria e la versione, che si guardano di continuo. */}
           <button
             onClick={handleRefresh}
             disabled={refreshing}

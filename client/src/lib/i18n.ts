@@ -1060,6 +1060,22 @@ const IT: Dict = {
   'perf.serverTitleHeap': ' · heap del server {mb} MB',
   'perf.serverTitleSingle': 'RSS del processo server Bun',
   'perf.serverTitleHeapShort': ' · heap {mb} MB',
+  // IL PANNELLO PERFORMANCE RISPONDE A TRE DOMANDE, in quest'ordine. Prima
+  // erano nove blocchi di numeri con etichette diverse per la stessa cosa:
+  // «troppa informazione messa in maniera confusionaria», ed era vero.
+  'perf.q1': 'Va veloce?',
+  'perf.q2': 'Quanto costa',
+  'perf.fpsAvg': 'media {n}',
+  'perf.procCount': '{n} processi',
+  // Due tessere e non cinque: sono le uniche due meta' che si chiudono in modo
+  // diverso - una chiudendo pannelli, l'altra fermando sessioni.
+  'perf.tileApp': "L'app",
+  'perf.tileAppTitle': "La finestra che stai guardando e i suoi processi. Si alleggerisce chiudendo pannelli e schede.",
+  'perf.tileAgents': 'Agenti e servizi ({n})',
+  'perf.residentInline': 'Di cui in RAM adesso: {mb} MB (il resto e\' compresso o in swap).',
+  'perf.compressedInline': 'Compressi o in swap: {n} MB.',
+  'perf.cpuInline': 'CPU dell\'app: {pct}% della macchina.',
+  'perf.cpuServerInline': 'CPU di agenti e servizi: {pct}% della macchina.',
   'perf.memLabel': 'Memoria',
   'perf.memShellTitle': 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli).',
   'perf.memFootprintTitle': 'Footprint di TUTTI i {n} processi della shell (finestra + WKWebView dei pannelli) · lo stesso valore della colonna "Memoria" di Activity Monitor.',
@@ -1144,6 +1160,12 @@ const IT: Dict = {
   'statusBar.orgPresenceTitle': 'Membri della tua organizzazione visti negli ultimi cinque minuti',
   'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
   // ── Popover della versione e aggiornamenti.
+  // «Quanto tempo fa» accanto alla data: una data assoluta dice QUANDO, il
+  // tempo trascorso dice se e' vecchia - ed e' la domanda vera.
+  'version.agoNow': 'adesso',
+  'version.agoMin': '{n} min fa',
+  'version.agoHours': '{n} h fa',
+  'version.agoDays': '{n} g fa',
   'version.builtAt': 'Compilato',
   'version.platform': 'Piattaforma',
   'version.nativeApp': 'App nativa',

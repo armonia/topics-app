@@ -4,7 +4,7 @@
  * user can check / download / install updates from one place. In web mode it
  * falls back to the service-worker update hint.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
@@ -62,6 +62,24 @@ export function VersionPopover({
   // runs after this one.
   useEffect(() => { anchorRef.current = anchorEl; });
   const { available, status, check, download, install } = useUpdater();
+  // Quanto tempo fa e' stata costruita: si ricava dalla data che il pannello
+  // gia' riceve, senza una seconda fonte da tenere allineata.
+  //
+  // L'orologio si legge al MONTAGGIO, non nel corpo del render: `Date.now()`
+  // durante il render e' una funzione impura (il lint lo marca, e ha ragione -
+  // due render darebbero due risposte). Il pannello vive quanto resta aperto,
+  // quindi un valore fissato all'apertura e' anche quello giusto: nessuno tiene
+  // aperto un dropdown abbastanza da vedere «2 min fa» diventare «3 min fa».
+  const [buildAgo] = useState(() => {
+    const t = Date.parse(buildDate ?? '');
+    if (!Number.isFinite(t)) return null;
+    const min = Math.floor((Date.now() - t) / 60_000);
+    if (min < 1) return tr('version.agoNow');
+    if (min < 60) return tr('version.agoMin', { n: min });
+    const h = Math.floor(min / 60);
+    if (h < 24) return tr('version.agoHours', { n: h });
+    return tr('version.agoDays', { n: Math.floor(h / 24) });
+  });
   // «AUTO» VUOL DIRE CHE NON DEVI FARE NIENTE, e allora non si chiede niente.
   //
   // Col flag `topics-dev.json` acceso le finestre si ricaricano DA SOLE a ogni
@@ -118,7 +136,18 @@ export function VersionPopover({
         </span>
       </div>
       <div className="space-y-1 text-[11px] text-app-text-muted">
-        <div className="flex justify-between"><span>{tr('version.builtAt')}</span><span className="text-app-text-secondary">{buildDate || '-'}</span></div>
+        {/* LA DATA CON IL SUO «QUANTO TEMPO FA», ed e' qui che sta bene: la
+            riga di stato la mostrava di continuo, competendo con gli fps e la
+            memoria, per rispondere a una domanda che si fa una volta ogni
+            tanto. Una data assoluta dice QUANDO, il tempo trascorso dice se e'
+            vecchia - e la seconda e' la domanda vera. */}
+        <div className="flex justify-between">
+          <span>{tr('version.builtAt')}</span>
+          <span className="text-app-text-secondary" data-testid="version-built-at">
+            {buildDate || '-'}
+            {buildAgo && <span className="ml-1 opacity-60">({buildAgo})</span>}
+          </span>
+        </div>
         <div className="flex justify-between"><span>Build</span><span className="text-app-text-secondary font-mono">{buildSha || '-'}</span></div>
         <div className="flex justify-between"><span>{tr('version.platform')}</span><span className="text-app-text-secondary">{platformLabel()}{isDesktop ? ' · desktop' : ''}</span></div>
         {/* Native shell version — surfaced ONLY when it lags the client (a
