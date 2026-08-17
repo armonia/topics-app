@@ -121,8 +121,16 @@ export function compact(
  * valore più prudente invece del più generoso.
  */
 export function windowFor(model: string): number {
+  // LA VARIANTE A FINESTRA LUNGA SI GUARDA PER PRIMA, e l'ordine non e' uno
+  // stile: era l'ultimo dei quattro rami, quindi `claude-opus-4[1m]` cadeva
+  // nel ramo `opus-4` e usciva a 200k senza mai arrivarci. Misurato il 17/08:
+  // due famiglie su quattro dichiaravano un quinto della finestra che avevano,
+  // e la conversazione veniva compattata buttando contesto che c'era ancora.
+  //
+  // Il suffisso e' una nostra convenzione (`providers/claude-models.ts`) e
+  // vince su qualunque famiglia: dice «questo modello, con la finestra lunga».
+  if (/\[1m\]$|-1m$/.test(model)) return 1_000_000;
   if (/opus-4|sonnet-4-6|sonnet-4-5/.test(model)) return 200_000;
   if (/haiku-4/.test(model)) return 200_000;
-  if (/\[1m\]|-1m/.test(model)) return 1_000_000;
   return 200_000;
 }
