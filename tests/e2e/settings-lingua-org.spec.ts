@@ -70,6 +70,22 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     const appunti = await page.evaluate(() => navigator.clipboard.readText());
     expect(appunti, `negli appunti c'e' "${appunti}"`).toMatch(/^!\[[^\]]*\]\(https?:\/\/[^)]*\/api\/profile\/banner\.svg[^)]*\)$/);
 
+    // E SE L'INDIRIZZO NON E' RAGGIUNGIBILE DA FUORI, LO DICE.
+    //
+    // Il banner lo serve il processo locale: su un'installazione di prova
+    // l'origine e' `localhost`, e quel markdown incollato in un README su
+    // GitHub e' un'immagine rotta per chiunque. Il gesto lo consegnava in
+    // silenzio, e il difetto si scopriva solo dopo aver incollato.
+    const origine = new URL(page.url()).hostname;
+    const locale = origine === "localhost" || origine.startsWith("127.");
+    const avviso = pannello.getByTestId("profile-banner-warning");
+    if (locale) {
+      await expect(avviso, "da localhost il markdown NON e' condivisibile e va detto").toBeVisible({ timeout: 3000 });
+      await expect(avviso).toContainText(/questo computer|indirizzo/i);
+    } else {
+      await expect(avviso, "da un indirizzo pubblico non serve nessun avviso").toHaveCount(0);
+    }
+
     // E il gesto lo dice: senza conferma non si sa se ha funzionato.
     await expect(copia).toHaveText(/Copiato/, { timeout: 3000 });
   });
