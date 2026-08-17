@@ -20,7 +20,7 @@ import { bannerMarkdown } from './bannerShare';
  */
 describe('il markdown del banner', () => {
   test('da un indirizzo PUBBLICO: markdown pronto, senza avvisi', () => {
-    const r = bannerMarkdown('https://app.topics.armonia.io', 'Attilio');
+    const r = bannerMarkdown('https://app.topics.armonia.io', 'Tizio');
     expect(r.condivisibile).toBe(true);
     expect(r.testo).toMatch(/^!\[Topics\]\(https:\/\/app\.topics\.armonia\.io\/api\/profile\/banner\.svg/);
     expect(r.avviso).toBeNull();
