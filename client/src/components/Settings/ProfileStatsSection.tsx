@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { profileApi, type ProfileStats } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
+import { bannerMarkdown } from '../../lib/bannerShare';
 
 /**
  * LE TUE STATISTICHE: quanto lavoro è passato davvero di qui.
@@ -62,6 +63,8 @@ export function ProfileStatsSection() {
   const [nome, setNome] = useState<string | null>(null);
   const [errore, setErrore] = useState(false);
   const [copiato, setCopiato] = useState(false);
+  // L'avviso vive finche' non si ricopia: e' la risposta a un gesto.
+  const [avviso, setAvviso] = useState<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -174,8 +177,16 @@ export function ProfileStatsSection() {
                 type="button"
                 data-testid="profile-banner-copy"
                 onClick={async () => {
-                  const url = `${window.location.origin}/api/profile/banner.svg${nome ? `?name=${encodeURIComponent(nome)}` : ''}`;
-                  setCopiato(await copyText(`![Topics](${url})`));
+                  // `bannerMarkdown` non costruisce solo la stringa: risponde
+                  // anche alla domanda che il bottone deve porsi PRIMA di
+                  // copiarla - questo indirizzo lo raggiunge qualcuno che non
+                  // sono io? Da localhost la risposta e' no, e allora il
+                  // markdown si copia lo stesso (chi ha un tunnel lo adatta)
+                  // ma accompagnato dall'avviso: un link rotto scoperto dopo
+                  // averlo incollato su GitHub e' il momento peggiore.
+                  const m = bannerMarkdown(window.location.origin, nome);
+                  setAvviso(m.condivisibile ? null : m.avviso);
+                  setCopiato(await copyText(m.testo));
                   // Torna com'era da solo: un «copiato» che resta acceso
                   // diventa un'etichetta e smette di dire che e' successo ORA.
                   setTimeout(() => setCopiato(false), 2000);
@@ -185,6 +196,9 @@ export function ProfileStatsSection() {
                 {copiato ? t('profile.banner.copied') : t('profile.banner.copy')}
               </button>
               <span className="text-[10.5px] text-app-text-muted">{t('profile.banner.hint')}</span>
+              {avviso && (
+                <p data-testid="profile-banner-warning" className="w-full text-[10.5px] leading-snug text-amber-400">{avviso}</p>
+              )}
             </div>
           </>
         )}
