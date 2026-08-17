@@ -141,10 +141,25 @@ async function measureChip(page: Page, taskId: string): Promise<ChipGeometry> {
     const gruppo = el.parentElement!;
     const rowEl = gruppo.parentElement!;
     const rr = rowEl.getBoundingClientRect();
-    const nome = rowEl.lastElementChild as HTMLElement;
-    const testo = [...nome.childNodes].find(
-      (n) => n.nodeType === 3 && (n.textContent ?? '').trim().length > 0,
-    ) as Text | undefined;
+    // IL TITOLO E' UN NODO DI TESTO DELLA RIGA, non un elemento dentro di essa.
+    //
+    // Fino al 16/08 la riga era un flex con DUE figli (gruppo dei segni + uno
+    // span col nome), e `lastElementChild` era quello span. Dal 17/08 il titolo
+    // sta in linea nella riga - serve perche' vada a capo AL BORDO invece che
+    // sotto se stesso (IDCHIP-05) - quindi `lastElementChild` e' tornato ad
+    // essere il gruppo dei segni, e questa sonda misurava il chip contro se
+    // stesso: 10,25px di «scarto» su un layout corretto.
+    //
+    // Si prende il primo nodo di TESTO con del contenuto, ovunque stia: regge
+    // sia la vecchia forma (dentro uno span) sia quella nuova (in linea).
+    const camminatore = document.createTreeWalker(rowEl, NodeFilter.SHOW_TEXT);
+    let testo: Text | undefined;
+    for (let n = camminatore.nextNode(); n; n = camminatore.nextNode()) {
+      // Salta il testo che sta DENTRO i segni (il `#a1b2` del chip): quello e'
+      // il soggetto della misura, non il suo riferimento.
+      if (gruppo.contains(n)) continue;
+      if ((n.textContent ?? '').trim().length > 0) { testo = n as Text; break; }
+    }
     let firstLineCy = rr.top + rr.height / 2;
     if (testo) {
       const rg = document.createRange();
@@ -312,22 +327,65 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     await expect(card).toBeVisible({ timeout: 10000 });
 
     const righe = await card.evaluate((el) => {
+      // LA RIGA DEL TITOLO, non il gruppo dei segni.
+      //
+      // `chip.closest('span')` risale al primo span che contiene il chip: dal
+      // 17/08 quello e' il GRUPPO dei segni (`inline-flex`), quindi il suo
+      // `parentElement` era la riga - ma solo per un pelo, e la stessa
+      // espressione su un DOM che cambia una volta di piu' misura un'altra
+      // cosa senza dirlo. Meglio chiedere l'elemento per quello che E': il
+      // blocco che porta il testo del titolo.
       const chip = el.querySelector('[data-testid="task-id-chip"]');
-      const riga = chip?.closest("span")?.parentElement;
-      if (!riga) return null;
+      const gruppo = chip?.parentElement;
+      const riga = gruppo?.parentElement;
+      if (!riga || !gruppo) return null;
       const box = el.getBoundingClientRect();
-      return [...riga.getClientRects()].map((r) => +(r.left - box.left).toFixed(1));
+      // UN RETTANGOLO PER RIGA DI TESTO, e li da' solo un Range sul NODO DI
+      // TESTO. `riga.getClientRects()` su un elemento `display: block` torna un
+      // rettangolo solo - quello del blocco intero - quindi il caso trovava
+      // sempre `length === 1` e si fermava dicendo «questo titolo deve andare a
+      // capo», su un titolo che a capo ci andava eccome. Funzionava prima solo
+      // perche' il titolo stava in uno span IN LINEA, e per quelli i rettangoli
+      // sono davvero uno per riga.
+      const w = document.createTreeWalker(riga, NodeFilter.SHOW_TEXT);
+      let testo: Node | null = null;
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        if (gruppo.contains(n)) continue;
+        if ((n.textContent ?? '').trim().length > 0) { testo = n; break; }
+      }
+      if (!testo) return null;
+      const rg = document.createRange();
+      rg.selectNodeContents(testo);
+      return [...rg.getClientRects()].map((r) => +(r.left - box.left).toFixed(1));
     });
 
     expect(righe, "il titolo dev'essere misurabile").not.toBeNull();
     expect(righe!.length, "questo titolo deve andare a capo, o il caso non misura niente")
       .toBeGreaterThan(1);
-    // Tutte le righe partono dallo stesso bordo: nessun rientro.
-    for (const x of righe!.slice(1)) {
-      expect(Math.abs(x - righe![0]),
-        `una riga parte da x=${x} mentre la prima e' a x=${righe![0]}: il titolo e' rientrato`,
+    // LA PRIMA RIGA COMINCIA DOPO IL CHIP, ed e' giusto cosi': il chip sta IN
+    // LINEA nel titolo, quindi il testo gli scorre accanto. Misurato: prima
+    // riga a x=35, le altre a x=11.
+    //
+    // Il difetto segnalato era l'opposto - «il titolo e' incolonnato a partire
+    // dal cancelletto», cioe' TUTTE le righe a x=35, perche' il titolo era una
+    // colonna flex larga quanto lo spazio rimasto. Quindi cio' che va asserito
+    // e' che le righe DOPO la prima tornino al bordo del testo, non che tutte
+    // partano insieme: la vecchia formulazione avrebbe preteso di rimettere il
+    // difetto.
+    expect(righe!.length, "servono almeno due righe, o non c'e' niente da misurare").toBeGreaterThan(1);
+    const dopo = righe!.slice(1);
+    // Le righe successive sono allineate FRA LORO...
+    for (const x of dopo) {
+      expect(Math.abs(x - dopo[0]!),
+        `una riga parte da x=${x} mentre la seconda e' a x=${dopo[0]}: le righe del titolo non sono allineate`,
       ).toBeLessThanOrEqual(0.5);
     }
+    // ...e stanno PIU' A SINISTRA della prima, cioe' sono tornate al bordo
+    // invece di restare rientrate sotto il chip. E' la riga che diventa rossa
+    // se qualcuno rimette il titolo in una colonna.
+    expect(dopo[0]!,
+      `la seconda riga parte da x=${dopo[0]} come la prima (x=${righe![0]}): il titolo e' incolonnato sotto il cancelletto`,
+    ).toBeLessThan(righe![0]! - 1);
   });
 
   test("IDCHIP-04: schermata della riga per la consegna", async ({ page }, testInfo) => {
