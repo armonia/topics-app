@@ -2146,12 +2146,19 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     const misura = await tessera.evaluate((t: HTMLElement) => {
       const b = t.getBoundingClientRect();
       const img = t.querySelector("img")!.getBoundingClientRect();
+      // A USCIRE DAL FLUSSO E' LO SLOT, non il glifo che ci sta dentro.
+      // Da quando il chevron ha uno slot di larghezza fissa (perche' il nome
+      // parta dalla stessa x con e senza chevron), `pinned-tile-lead` sta sul
+      // wrapper: il glifo dentro resta `static` ed e' giusto cosi'. Questo
+      // test leggeva la `position` del glifo e chiedeva `absolute`: misurava
+      // il posto sbagliato, quindi era rosso pur essendo tutto a posto.
       const chev = t.querySelector<HTMLElement>('[data-testid="pinned-expand-hint"]')!;
+      const slot = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-slot"]')!;
       const c = chev.getBoundingClientRect();
       return {
         larghezza: b.width,
         scarto: (img.left + img.right) / 2 - (b.left + b.right) / 2,
-        posizioneChevron: getComputedStyle(chev).position,
+        posizioneChevron: getComputedStyle(slot).position,
         chevronPrecede: c.right - img.left,
         chevronDentro: c.left - b.left,
       };
@@ -2168,7 +2175,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       Math.abs(misura.scarto),
       `l'icona sta al centro della tessera: ${JSON.stringify(misura)}`,
     ).toBeLessThanOrEqual(1);
-    expect(misura.posizioneChevron, "il chevron esce dal flusso").toBe("absolute");
+    expect(misura.posizioneChevron, "lo slot del chevron esce dal flusso").toBe("absolute");
     // Fuori dal flusso, ma non addosso all'icona ne' fuori dalla tessera: e'
     // esattamente la condizione che regge la soglia dei 54px.
     expect(misura.chevronPrecede, "il chevron non si sovrappone all'icona").toBeLessThanOrEqual(0);
