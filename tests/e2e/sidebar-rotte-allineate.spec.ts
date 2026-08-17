@@ -85,6 +85,9 @@ test.describe("Sidebar · le rotte partono dalla stessa colonna", () => {
     expect(xCon, "il progetto con icona deve avere un nome misurabile").not.toBeNull();
     expect(xSenza).not.toBeNull();
 
+    // I NUMERI OSSERVATI, sempre, anche quando passa: senza, un verde dice solo
+    // «non e' peggiorato» e non permette di rispondere a «di quanto era fuori?».
+    console.log(`[ROTTE-01] con favicon x=${xCon} · senza favicon x=${xSenza} · scarto ${Math.abs(xCon! - xSenza!).toFixed(1)}px`);
     expect(
       Math.abs(xCon! - xSenza!),
       `il nome parte da due colonne diverse: con icona x=${xCon}, senza icona x=${xSenza}`,

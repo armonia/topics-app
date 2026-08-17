@@ -178,6 +178,24 @@ test.describe("Sidebar — tessere fissate", () => {
     // che si vede. Si prende con un `Range`, che da' il rettangolo dei glifi
     // davvero disegnati. Verificato togliendo il centraggio: la misura sui box
     // restava verde, questa diventa rossa.
+    // ANCHE UNA TESSERA SENZA GLIFO. Le chat un'icona ce l'hanno sempre
+    // (`TYPE_ICONS`), quindi tre chat non coprono il caso in cui il
+    // contenitore dell'icona resta nel flusso VUOTO: largo zero, ma il `gap`
+    // della riga pesa lo stesso, e il nome finisce fuori centro di meta' gap.
+    // Misurato il 17/08 sulla sidebar vera: 16px a sinistra contro 8 a destra
+    // su una tessera di progetto senza favicon, mentre le tre chat di questo
+    // caso restavano a zero. Un caso che non contiene il difetto non lo
+    // ferma, ed e' il modo in cui questo test e' stato verde mentre lo
+    // schermo era storto.
+    const senzaGlifo = await tiles(page).evaluateAll((els) =>
+      els.filter((el) => !el.querySelector('img, svg:not([data-testid="pinned-expand-hint"])'))
+         .map((el) => el.getAttribute("aria-label") ?? "?"),
+    );
+    // Non si asserisce che ce ne sia una (dipende da cosa e' fissato): si
+    // asserisce che se c'e', e' misurata come le altre - il ciclo sotto le
+    // prende tutte.
+    if (senzaGlifo.length) console.log(`[TILE-CENTRO] tessere senza glifo misurate: ${senzaGlifo.join(", ")}`);
+
     const scarti = await tiles(page).evaluateAll((els) =>
       els.map((el) => {
         const r = el.getBoundingClientRect();
@@ -223,6 +241,9 @@ test.describe("Sidebar — tessere fissate", () => {
     const strette = (scarti as Scarto[]).filter((s) => s.larghezza < 104);
     expect(strette.length, `nessuna tessera stretta da misurare: ${JSON.stringify(scarti)}`).toBeGreaterThan(0);
     for (const s of strette) {
+      // Il numero OSSERVATO anche quando passa: un verde muto dice solo «non e'
+      // peggiorato», e non permette di rispondere a «di quanto era fuori?».
+      console.log(`[TILE-CENTRO] ${s.nome} larga ${s.larghezza}: sx ${s.sinistra} · dx ${s.destra} · fuori centro ${s.scarto}px`);
       expect(
         Math.abs(s.scarto),
         `"${s.nome}" (larga ${s.larghezza}) ha ${s.sinistra}px a sinistra e ${s.destra}px a destra: il contenuto e' fuori centro di ${s.scarto}px`,
