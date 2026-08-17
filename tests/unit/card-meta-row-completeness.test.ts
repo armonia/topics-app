@@ -37,8 +37,34 @@ function chipDentroLaFascia(): string[] {
   expect(inizio, "la fascia dei chip deve esistere").toBeGreaterThan(0);
   // Fino alla fine del componente: i chip stanno tutti lì dentro, e prendere
   // qualche testid di troppo renderebbe il test più severo, non più debole.
-  const corpo = SORGENTE.slice(inizio);
+  // FINO ALLA CHIUSURA DELLA FASCIA, non fino alla fine del componente. Dopo
+  // la fascia ci sono altri chip (l'errore d'azione, per dirne uno) che non
+  // c'entrano con `hasMetaRow`: prenderli renderebbe il test severo nel posto
+  // sbagliato, cioe' rumoroso, cioe' da spegnere.
+  const dopo = SORGENTE.slice(inizio);
+  const fine = dopo.indexOf("\n      )}");
+  const corpo = fine > 0 ? dopo.slice(0, fine) : dopo;
   return [...corpo.matchAll(/data-testid="(card-[a-z-]+)"/g)].map((m) => m[1]!);
+}
+
+/**
+ * Il chip è disegnato dentro un `{predicato && (`?
+ *
+ * Si guarda all'INDIETRO dal suo `data-testid` fino al `{... && (` più vicino:
+ * se fra i due non c'è la chiusura di un altro blocco, quel chip è
+ * condizionato, e allora la sua condizione deve stare in `hasMetaRow`. Un chip
+ * incondizionato (sempre disegnato) non ha questo problema.
+ */
+function chipCondizionato(testid: string): boolean {
+  const i = SORGENTE.indexOf(`data-testid="${testid}"`);
+  if (i < 0) return false;
+  // Una finestra corta: la condizione di un chip sta nelle righe subito sopra.
+  const prima = SORGENTE.slice(Math.max(0, i - 400), i);
+  const apre = prima.lastIndexOf("&& (");
+  if (apre < 0) return false;
+  // Fra il `&& (` e il chip non deve esserci la fine di un altro blocco JSX,
+  // altrimenti quel `&&` governa qualcos'altro.
+  return !prima.slice(apre).includes(")}");
 }
 
 describe("la fascia dei chip conosce tutti i suoi chip", () => {
@@ -57,6 +83,16 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
       "card-review-age": "attesa",
       "card-checks-green": "checksGreen",
       "card-checks-running": "checksRunning",
+      "card-checks-red": "checksRed",
+      "card-system-delivered": "systemDelivered",
+      "card-blocked-by": "blockedChip",
+      "card-reopened": "reopened",
+      "card-waiting-on-this": "waitingOnThis",
+      "card-worked-in-place": "lavoroInPlace",
+      "card-moved-by-hand": "spostataAMano",
+      // Questo ha DUE condizioni in `&&`: basta che una delle due sia nella
+      // riga, ed e' `showsQuestion` a portarcelo (via `attesa`/`assignedTo`).
+      "card-human-context": "humanContextText",
     };
 
     const mancanti = trovati
@@ -65,6 +101,21 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
 
     expect(mancanti,
       `chip che non montano mai perché fuori da hasMetaRow: ${mancanti.join(", ")}`,
+    ).toEqual([]);
+
+    // IL BUCO DELLA MAPPA SCRITTA A MANO, chiuso qui.
+    //
+    // `governatoDa` è compilata a mano, quindi un chip NUOVO non è coperto
+    // finché qualcuno non lo aggiunge: esattamente la stessa dimenticanza che
+    // questo test esiste per prendere, un piano più su. Verificato il 17/08
+    // sabotando `card-moved-by-hand` (tolto da `hasMetaRow`): questo test
+    // restava verde mentre la e2e diventava rossa.
+    //
+    // Il chip che sta dentro un `{qualcosa && (` deve avere una riga qui.
+    const scoperti = trovati.filter((t) => !governatoDa[t] && chipCondizionato(t));
+    expect(scoperti,
+      `chip condizionati senza una riga in governatoDa: ${scoperti.join(", ")}. ` +
+      `Aggiungila, altrimenti nessuno verifica che montino davvero.`,
     ).toEqual([]);
   });
 
