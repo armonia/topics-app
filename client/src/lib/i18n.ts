@@ -376,6 +376,18 @@ const IT: Dict = {
   'board.task.attempt.stat.noChangesError': 'nessuna modifica ({error})',
   'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
   'board.task.attempt.stat.files.many': '{n} file · +{ins} −{del}',
+  // LE VOCI DELLE IMPOSTAZIONI. Erano scritte in inglese dentro il componente:
+  // cinque parole che in un'app italiana fanno fallire la scansione della
+  // lista, e la conclusione di chi cerca diventa «non c'e'». Segnalato:
+  // «tutta la parte di settings ancora non le vedo ben divise. Non vedo le
+  // organizzazioni» - le organizzazioni c'erano, sotto una voce che si
+  // chiamava «Profile».
+  'settings.section.appearance': 'Aspetto',
+  'settings.section.notifications': 'Notifiche',
+  'settings.section.providers': 'Provider AI',
+  'settings.section.profile': 'Profilo',
+  'settings.section.devices': 'Dispositivi',
+  'settings.section.plan': 'Piano',
   'board.settings.close': 'Chiudi le impostazioni della board',
   // Il rinvio al «▾ accanto al titolo» è sparito da qui: era un tooltip, e un
   // tooltip su un telefono non esiste. Il tetto di agent in parallelo ora si

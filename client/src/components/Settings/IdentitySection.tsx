@@ -382,7 +382,7 @@ export function IdentitySection() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-app-border">
+      <div className="overflow-hidden rounded-lg border border-app-border" data-testid="identity-orgs">
         {/* Il nome del gruppo: sempre visibile, rinominabile da chi amministra. */}
         {gruppo && (
           <div className="border-b border-app-border bg-app-hover/40 px-3 py-1.5">
