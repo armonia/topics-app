@@ -14,6 +14,7 @@ import { ProfileStatsSection } from './ProfileStatsSection';
 import { DiscordSection } from './DiscordSection';
 import { FriendsSection } from './FriendsSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useT } from '../../hooks/useT';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -65,22 +66,28 @@ type SectionId = 'appearance' | 'notifications' | 'providers' | 'profile' | 'dev
 // dice cosa hai invece di cosa ti manca, quindi l'obiezione qui sopra non la
 // tocca. La seconda: quanto paghi e chi sei sono domande diverse, e chi cerca
 // «dove si paga» non apre la scheda dell'identità.
-const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
-  { id: 'appearance', label: 'Appearance', icon: Palette },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'providers', label: 'AI Providers', icon: Cpu },
+// L'ETICHETTA E' UNA CHIAVE, non una parola. Erano cinque stringhe inglesi in
+// un'app italiana: quando una voce non si chiama come la parola che hai in
+// testa, la lista si scorre senza vederla e la conclusione e' «non c'e'» -
+// che e' letteralmente cio' che e' successo con le organizzazioni, presenti
+// dentro una voce chiamata «Profile».
+const SECTIONS: Array<{ id: SectionId; labelKey: string; icon: typeof Palette }> = [
+  { id: 'appearance', labelKey: 'settings.section.appearance', icon: Palette },
+  { id: 'notifications', labelKey: 'settings.section.notifications', icon: Bell },
+  { id: 'providers', labelKey: 'settings.section.providers', icon: Cpu },
   // CHI SEI e CHE FERRI HAI sono due domande, e per un anno sono state una
   // voce sola: la sezione si chiamava `devices` e l'etichetta diceva
   // «Profile». Chi cercava i dispositivi apriva il profilo, chi cercava il
   // profilo apriva i dispositivi, e dentro trovavano entrambi cinque schede.
   // Il nome interno e quello mostrato che non coincidono non sono un dettaglio
   // di stile: sono la prova che la voce risponde a due domande.
-  { id: 'profile', label: 'Profile', icon: UserRound },
-  { id: 'devices', label: 'Devices', icon: MonitorSmartphone },
-  { id: 'plan', label: 'Plan', icon: CreditCard },
+  { id: 'profile', labelKey: 'settings.section.profile', icon: UserRound },
+  { id: 'devices', labelKey: 'settings.section.devices', icon: MonitorSmartphone },
+  { id: 'plan', labelKey: 'settings.section.plan', icon: CreditCard },
 ];
 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, onOpenShortcuts, initialSection }: GlobalSettingsProps & { initialSection?: SectionId }) {
+  const t = useT();
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [section, setSection] = useState<SectionId>(initialSection ?? 'appearance');
   // Chi apre il pannello da un punto preciso ci vuole arrivare, non ripartire da
@@ -165,7 +172,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Sidebar (desktop) / riga di schede scorrevole (mobile) */}
           <nav className="flex flex-shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-app-border bg-app-hover/30 px-2 py-2 md:w-[180px] md:flex-col md:gap-0.5 md:overflow-x-visible md:border-b-0 md:border-r md:py-3">
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
+            {SECTIONS.map(({ id, labelKey, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setSection(id)}
@@ -181,7 +188,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                 aria-current={section === id ? 'page' : undefined}
               >
                 <Icon size={14} className="flex-shrink-0" />
-                {label}
+                {t(labelKey)}
               </button>
             ))}
           </nav>
