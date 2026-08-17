@@ -3,19 +3,26 @@
  * Togliere i nomi dei clienti dalla STORIA, non solo dall'albero.
  *
  * IL FATTO. `armonia/topics-app` è un repo PUBBLICO, e nella sua storia
- * compaiono i nomi di due clienti e la ragione sociale:
+ * compaiono i nomi di due clienti e la ragione sociale dell'azienda: in tutto
+ * ventinove commit al 17/08, e il numero CRESCE finché nessuno riscrive.
  *
- *     [cliente]         19 commit
- *     [azienda]      4 commit
- *     [cliente]   3 commit
+ * Quali siano NON sta scritto qui: stanno in `.personal-terms`, che non è
+ * tracciato di proposito. Un file che elenca le cose da nascondere, dentro il
+ * repo da cui vanno nascoste, è la fuga che dice di voler chiudere — e questo
+ * commento, prima, li elencava tutti e tre per nome. Lo ha preso
+ * `tests/unit/no-personal-data-tracked.test.ts`, che è esattamente il suo
+ * mestiere.
+ *
+ * Per vedere l'elenco con i conteggi si lancia lo script: li legge dal file
+ * locale e li stampa sul terminale di chi lo esegue, che è l'unico posto in cui
+ * quei nomi possono stare.
  *
  * Nel presente non ci sono più (misurato: zero file tracciati li contengono).
  * Ma `git log -p` continua a mostrarli, e su un repo pubblico questo significa
  * che chiunque può leggere chi sono i clienti e quanta CI consumano.
  *
- * [azienda] è il nome dell'azienda che pubblica l'app: in sé non è una fuga.
- * `[cliente]` e `[cliente]` sì — sono clienti che non hanno chiesto di
- * comparire.
+ * La ragione sociale in sé non è una fuga: è il nome di chi pubblica l'app. I
+ * due clienti sì — non hanno chiesto di comparire.
  *
  * PERCHÉ QUESTO SCRIPT NON RISCRIVE NIENTE DA SOLO.
  *

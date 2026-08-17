@@ -13,7 +13,7 @@
  * quel progetto parte da una x diversa da quella di un progetto che l'icona ce
  * l'ha, e diversa da quella di una chat (che un glifo ce l'ha sempre).
  *
- * Non è la stessa decisione di «niente monogrammi» (Attilio, 16/07): lì si
+ * Non è la stessa decisione di «niente monogrammi» (16/07): lì si
  * vietava di INVENTARE un'identità (una lettera, una tessera colorata) per un
  * progetto che non ne ha una. Qui serve solo che la colonna del testo sia una
  * sola, cioè un segnaposto neutro che non dice niente e occupa lo spazio.
