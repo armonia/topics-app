@@ -1580,21 +1580,44 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          ORDER BY task_id ASC, rn DESC`,
       ).all(idParam(ids)) as any[];
     } catch { return out; }
+    // CHI RICEVE IL TESTO INTERO E' CHI LA CARD STAMPERA', e non è più «il più
+    // recente».
+    //
+    // La `review-note` la scrive la macchina a OGNI ingresso in review
+    // («Consegna SENZA anteprima…», «Anteprima viva pronta — http://…»), quindi
+    // arriva sempre DOPO il riassunto di chi ha consegnato. Con la regola
+    // vecchia il taglio pieno finiva alla nota e il riassunto — che è ciò che
+    // la card disegna (`selectCardComments`) — arrivava mozzato a 200
+    // caratteri: misurato sulla board vera il 17/08, sette card su otto
+    // troncate a esattamente 201.
+    //
+    // La regola nuova è la STESSA che usa il client per scegliere: la prima
+    // parola vera scendendo dal più recente, e la nota solo se non c'è altro.
+    // Due regole diverse sullo stesso fatto sono la forma esatta del difetto
+    // già pagato con `hasMetaRow`.
+    const perTask = new Map<string, any[]>();
     for (const r of rows) {
-      const list = out.get(r.task_id);
-      const full = rowToComment(r);
-      // `rn === 1` è l'ULTIMA parola del thread — la sola che la card stampa
-      // intera — perché la finestra numera dal più recente. Le altre possono
-      // solo finire nella riga di contesto, che è già tagliata dal CSS.
-      // `rowToComment` normalizza `kind` (una riga scritta prima che la colonna
-      // esistesse vale 'comment'): il taglio dei campi viene DOPO, o la card
-      // riceverebbe il `kind` grezzo del disco.
-      const c: CardComment = {
-        author: full.author,
-        content: cardCommentContent(full.content, r.rn === 1 ? CARD_COMMENT_CHARS : CARD_CONTEXT_CHARS),
-        kind: full.kind,
-      };
-      if (list) list.push(c); else out.set(r.task_id, [c]);
+      const l = perTask.get(r.task_id);
+      if (l) l.push(r); else perTask.set(r.task_id, [r]);
+    }
+    for (const [taskId, righe] of perTask) {
+      // `rn` numera dal più recente, e le righe arrivano `ORDER BY rn DESC`:
+      // la più recente è l'ultima. Fra quelle, la prima che non è una nota.
+      const dalPiuRecente = [...righe].reverse();
+      const scelta = dalPiuRecente.find((r) => rowToComment(r).kind !== "review-note") ?? dalPiuRecente[0];
+      for (const r of righe) {
+        const full = rowToComment(r);
+        // `rowToComment` normalizza `kind` (una riga scritta prima che la
+        // colonna esistesse vale 'comment'): il taglio dei campi viene DOPO, o
+        // la card riceverebbe il `kind` grezzo del disco.
+        const c: CardComment = {
+          author: full.author,
+          content: cardCommentContent(full.content, r === scelta ? CARD_COMMENT_CHARS : CARD_CONTEXT_CHARS),
+          kind: full.kind,
+        };
+        const list = out.get(taskId);
+        if (list) list.push(c); else out.set(taskId, [c]);
+      }
     }
     return out;
   }
