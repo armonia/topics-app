@@ -261,6 +261,73 @@ test.describe("Sidebar — tessere fissate", () => {
     }
   });
 
+  test("TILE-CENTRO-b: il centraggio non dipende dal FONT ne' dalla DENSITA'", async ({ page, request }) => {
+    // IL CONFINE CHE HA FATTO CADERE TILE-32 IN CI.
+    //
+    // Il centraggio si misura in frazioni di pixel, e quelle cambiano con la
+    // faccia montata: in locale la San Francisco di sistema, sul runner Linux
+    // un'altra. Un verde sul portatile non dice niente su cosa succede la'.
+    //
+    // La prova non e' «passa anche altrove» (i font del runner non li ho), ma
+    // «il centraggio non DIPENDE dal font»: `justify-center` divide lo spazio
+    // che avanza, e quanto ne avanza dipende dalla larghezza del contenuto,
+    // non dalle metriche verticali del carattere. Quello che poteva romperlo
+    // era un figlio VUOTO nel flusso, ed e' il difetto corretto oggi.
+    // QUATTRO su una riga: sui 244px della colonna due fanno ~118 (forma
+    // RIGA, che parte da sinistra e non si centra), quattro fanno ~56, cioe'
+    // sotto la soglia dei 104 in cui il centraggio esiste. Con due il caso
+    // misurava zero tessere e si fermava - che e' come deve fare, ma non
+    // provava niente.
+    const a = await createTopic(request, `E2E-Font-A-${Date.now()}`);
+    const b2 = await createTopic(request, `E2E-Font-B-${Date.now()}`);
+    const c2 = await createTopic(request, `E2E-Font-C-${Date.now()}`);
+    created.push(a.id, b2.id, c2.id);
+    const nudo = `/tmp/e2e-font-nudo-${Date.now()}`;
+    fs.mkdirSync(nudo, { recursive: true });
+    const chiave = `project:${nudo}`;
+    await setPins(page, [a.id, b2.id, c2.id, chiave], [[a.id, b2.id, c2.id, chiave]]);
+    await gotoSidebar(page);
+
+    const misura = async () => tiles(page).evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width >= 104) return null;
+        const pezzi: Array<{ left: number; right: number }> = [];
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = w.nextNode(); n; n = w.nextNode()) {
+          if (!n.textContent?.trim()) continue;
+          const rg = document.createRange(); rg.selectNodeContents(n);
+          const b = rg.getBoundingClientRect();
+          const clip = (n.parentElement as HTMLElement).getBoundingClientRect();
+          const L = Math.max(b.left, clip.left), R = Math.min(b.right, clip.right);
+          if (R > L) pezzi.push({ left: L, right: R });
+        }
+        for (const g of el.querySelectorAll('img, svg:not([data-testid="pinned-expand-hint"])')) {
+          const b = g.getBoundingClientRect();
+          if (b.width > 0) pezzi.push({ left: b.left, right: b.right });
+        }
+        if (!pezzi.length) return null;
+        const sx = Math.min(...pezzi.map((x) => x.left)) - r.left;
+        const dx = r.right - Math.max(...pezzi.map((x) => x.right));
+        return { nome: el.getAttribute("aria-label") ?? "?", scarto: +((sx - dx) / 2).toFixed(2) };
+      }).filter(Boolean),
+    );
+
+    for (const [family, che] of [
+      ["Georgia, serif", "serif"],
+      ['"Courier New", monospace', "monospazio"],
+      ['"Times New Roman", serif', "x-height bassa"],
+    ] as const) {
+      await page.addStyleTag({ content: `:root, body, * { font-family: ${family} !important; }` });
+      const m = (await misura()) as Array<{ nome: string; scarto: number }>;
+      expect(m.length, "servono tessere strette da misurare").toBeGreaterThan(0);
+      const peggio = Math.max(...m.map((x) => Math.abs(x.scarto)));
+      // eslint-disable-next-line no-console
+      console.log(`[TILE-CENTRO-b] ${che.padEnd(14)} ${m.length} tessere, peggiore ${peggio}px`);
+      expect(peggio, `con ${family} il centraggio salta: dipende dal font, e in CI la faccia e' un'altra`).toBeLessThanOrEqual(0.5);
+    }
+  });
+
   test.afterAll(async ({ request }) => {
     for (const id of created) await deleteTopic(request, id).catch(() => {});
     created.length = 0;

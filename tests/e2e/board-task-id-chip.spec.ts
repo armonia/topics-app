@@ -281,6 +281,46 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     expect(Math.abs(g.chip.cy - g.row.cy)).toBeLessThanOrEqual(1);
   });
 
+  test("IDCHIP-01b: l'allineamento REGGE ANCHE SOTTO UN ALTRO FONT", async ({ page }) => {
+    // IL CONFINE CHE HA FATTO CADERE QUESTO TEST IN CI.
+    //
+    // `IDCHIP-01` misura mezzo pixel, e mezzo pixel dipende dalla FACCIA
+    // montata: in locale c'e' la San Francisco di sistema, sul runner Linux ce
+    // n'e' un'altra. Un verde sul portatile non dice niente su cosa succede
+    // la'; e' esattamente cosi' che questo caso e' passato in locale ed e'
+    // stato rosso in CI.
+    //
+    // La prova che serve non e' «passa anche altrove» (non posso installare i
+    // font del runner), ma «l'allineamento non DIPENDE dal font». Il gruppo
+    // dei segni e' alto una line-box e si allinea alla line-box (`align-top`),
+    // e la line-box vale 19,25px con qualunque faccia: e' `leading-snug` sul
+    // font-size, non una metrica del carattere.
+    //
+    // Misurato il 17/08 su cinque facce con metriche molto diverse: il testo
+    // passa da 15px (Times) a 17px (sistema) di altezza, e lo scarto del chip
+    // resta fra 0,125 e 0,625 - sempre sotto la soglia di 1.
+    //
+    // Col vecchio `align-text-bottom` sarebbe stato meta' della differenza fra
+    // line-box e testo, cioe' 1,125px col font di sistema e 2,125 con Times:
+    // fuori soglia SEMPRE, e di quanto lo decideva il carattere.
+    const FACCE = [
+      ['Georgia, serif', 'serif con x-height alta'],
+      ['"Times New Roman", serif', 'serif con x-height bassa'],
+      ['"Courier New", monospace', 'monospazio'],
+      ['Verdana, sans-serif', 'sans con x-height alta'],
+    ];
+    for (const [family, che] of FACCE) {
+      await page.addStyleTag({ content: `:root, body, * { font-family: ${family} !important; }` });
+      const g = await measureChip(page, createdTasks[0]);
+      // eslint-disable-next-line no-console
+      console.log(`[IDCHIP-01b] ${che.padEnd(24)} scarto ${(g.chip.cy - g.row.cy).toFixed(3)}px`);
+      expect(
+        Math.abs(g.chip.cy - g.row.cy),
+        `con ${family} (${che}) il chip e' fuori asse: l'allineamento dipende dal font, e in CI la faccia e' un'altra`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
   test("IDCHIP-02: col mouse l'area sensibile resta quella del glifo", async ({ page }) => {
     // Il rovescio del patto: su puntatore fine `tap-expand` non proietta
     // niente, quindi il segno non ruba i clic al nome del progetto accanto né
