@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, FileDiff, GitBranch, Hand, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Cpu, FileDiff, GitBranch, Hand, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -1108,9 +1108,23 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             // which for a dispatched agent is the task title cut at 60
             // characters, so this tooltip used to open with half a word.
             <div
-              className={`text-xs leading-relaxed text-app-text-heading ${COMPACT_MD_CLS}`}
+              className={`text-xs leading-relaxed ${lastComment.kind === 'review-note' ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS}`}
               title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
             >
+              {/* CHI PARLA, quando non e' una persona.
+                  Una nota del sistema ha lo stesso aspetto del riassunto di una
+                  consegna, e si legge come se fosse quello: «gli ultimi commenti
+                  che devo da review non hanno senso, saranno messaggi di sistema».
+                  Arriva qui solo quando e' l'UNICA voce del thread (vedi
+                  `selectCardComments`), quindi il segno serve proprio nel caso in
+                  cui non c'e' nient'altro con cui confrontarla. Anche il colore
+                  scende a `muted`: e' contorno, non la parola della consegna. */}
+              {lastComment.kind === 'review-note' && (
+                <span
+                  data-testid="card-comment-system-tag"
+                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-[10px] uppercase tracking-wide text-app-text-muted"
+                ><Cpu className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
+              )}
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
             </div>
           ) : null}

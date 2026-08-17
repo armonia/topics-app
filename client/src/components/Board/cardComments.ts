@@ -86,7 +86,20 @@ function isReply(comment: CardComment): boolean {
  */
 export function selectCardComments<T extends CardComment>(comments: readonly T[]): CardComments<T> | null {
   const speech = comments.filter(isThreadSpeech);
-  const latest = speech[speech.length - 1];
+  // LA NOTA DEL SISTEMA NON E' LA PAROLA DELLA CONSEGNA.
+  //
+  // Una `review-note` la scrive la macchina a OGNI ingresso in review
+  // («Consegna SENZA anteprima…», «Anteprima viva pronta — http://localhost:
+  // 3400/»), quindi arriva sempre DOPO il riassunto di chi ha consegnato e ne
+  // prendeva il posto in cima alla card. Misurato il 17/08: 19 card su 22
+  // mostravano un promemoria di sistema al posto di cio' che c'era da
+  // rivedere. Segnalato: «gli ultimi commenti che devo da review non hanno
+  // senso, saranno messaggi di sistema».
+  //
+  // Non si buttano: se sono l'UNICA voce dicono comunque qualcosa (perche' la
+  // card e' cieca). Si tolgono solo di mezzo quando c'e' una parola vera.
+  const parole = speech.filter((c) => c.kind !== 'review-note');
+  const latest = (parole.length ? parole : speech)[((parole.length ? parole : speech).length) - 1];
   if (!latest) return null;
   // The human spoke last: there is no answer yet, he IS the protagonist, and
   // quoting him above himself would print the same line twice.
