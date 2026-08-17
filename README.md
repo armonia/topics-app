@@ -14,13 +14,34 @@ Agents run inside Topics instead of one process each, so
 
 ## What it does
 
-- **One topic per thing you are doing.** Each has its own files, Git changes, terminal and browser.
-- **Watch every agent at once.** State, context left, and a ping when one finishes or gets stuck.
-- **Run a hundred of them.** Sessions live in the server, so they cost megabytes, not gigabytes.
-- **Hand work to a board.** Describe a task, an agent picks it up in its own worktree.
-- **Your agents, your keys.** Uses the `claude-code` and `codex` CLIs you already pay for.
+**One topic per thing you are doing.** A topic holds a chat, its project files,
+its Git changes, a terminal and a browser. Switching topic switches all of them
+at once, so you stop rebuilding context every time you change subject.
 
-![The board: two agents working, one task waiting for review](landing/public/img/readme-board.jpg)
+**Close the lid and come back.** Sessions survive a restart with their whole
+scrollback, not just the last screen. Most embedded terminals lose everything
+that scrolled past while you were away, which is exactly what you need when an
+agent worked for twenty minutes without you.
+
+**Go back to before it went wrong.** Long agent sessions rarely fail with an
+error; they take a wrong turn that is obvious only later, after the conversation
+has built on it. A checkpoint returns the session *and the working tree* to a
+saved point, so undoing is not an argument with the agent about what it did.
+
+![The board: two agents working, one waiting for review](landing/public/img/readme-board.jpg)
+
+**Hand work to a board instead of babysitting it.** Describe a task, and an
+agent picks it up with everything it needs: working directory, model, effort
+level, and its own git worktree. Several agents can edit the same repository at
+once because each has a real checkout on its own branch.
+
+**Approving, landing and publishing are three buttons.** Accepting an agent's
+work is not the same as merging it into main, which is not the same as pushing
+it. Collapsing them into one is how code nobody read ends up on a remote.
+
+**Your agents, your keys.** It drives the `claude-code` and `codex` CLIs you
+already pay for, or talks to the APIs with your own key. No credential of ours
+in the middle, no proxy: your prompts go straight to the model vendor.
 
 ## Install
 
