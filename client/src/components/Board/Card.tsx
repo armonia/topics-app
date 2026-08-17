@@ -8,6 +8,7 @@ import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Cpu, F
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
@@ -1155,7 +1156,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-[10px] uppercase tracking-wide text-app-text-muted"
                 ><Cpu className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
               )}
-              <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
+              {/* IL RECINTO ```question NON ARRIVA MAI CRUDO AL MARKDOWN.
+                  Qui ci finisce ogni parola che non e' «la domanda in fondo al
+                  thread» (`pending`), e fra quelle c'e' anche una domanda che
+                  i sottotask hanno gia' risolto: per il renderer ```…``` e' un
+                  BLOCCO DI CODICE, quindi 300 caratteri di italiano diventavano
+                  una riga sola con `overflow-x-auto`, da leggere scorrendo di
+                  lato. Vedi `shared/question-prose.ts`. */}
+              <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
             </div>
           ) : null}
           {/* Il pieghevole compare SOLO se c'e' davvero da ripiegare: la

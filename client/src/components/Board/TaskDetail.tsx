@@ -15,6 +15,7 @@ import { getMediaUrl } from '../../lib/api';
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
+import { questionToProse } from '../../../../shared/question-prose';
 import { ThreadRuns } from './ThreadRuns';
 import { copyText } from '../../lib/clipboard';
 import { openExternalOnce } from '../../lib/openExternal';
@@ -3301,7 +3302,11 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
  */
 export function CommentBody({ content }: { content: string }) {
   const q = parseQuestionBlock(content);
-  if (!q) return <div className={`mt-0.5 text-app-text ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{content}</ChatMarkdown></div>;
+  // Un recinto che NON parsa (aperto e mai chiuso, corpo vuoto) arriverebbe qui
+  // com'e', e per il renderer ```…``` e' un blocco di codice: prosa in
+  // `whitespace-pre`, cioe' scroll orizzontale. `questionToProse` e' un no-op su
+  // tutto il resto. Vedi `shared/question-prose.ts`.
+  if (!q) return <div className={`mt-0.5 text-app-text ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{questionToProse(content)}</ChatMarkdown></div>;
   const outside = content.replace(/```question[\s\S]*?```/, '').trim();
   return (
     <div className="mt-0.5 space-y-1">
