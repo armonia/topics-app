@@ -1595,7 +1595,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // parola vera scendendo dal più recente, e la nota solo se non c'è altro.
     // Due regole diverse sullo stesso fatto sono la forma esatta del difetto
     // già pagato con `hasMetaRow`.
-    const perTask = new Map<string, any[]>();
+    // `typeof rows` e non un `any[]` nuovo: le righe sono le stesse, e il
+    // cricchetto degli `any` conta ogni occorrenza scritta a mano.
+    const perTask = new Map<string, typeof rows>();
     for (const r of rows) {
       const l = perTask.get(r.task_id);
       if (l) l.push(r); else perTask.set(r.task_id, [r]);
