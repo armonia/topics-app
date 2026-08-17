@@ -18,6 +18,7 @@
  */
 
 import { HUMAN_AUTHOR, isMachineNote, isThreadSpeech } from '../../../../shared/board';
+import { isResolvedParkedQuestion, isSettledParkedQuestion } from '../../../../shared/parked-question';
 import type { BoardTask, CardComment } from '../../lib/board';
 
 export interface CardComments<T extends CardComment = CardComment> {
@@ -112,7 +113,63 @@ function contorno(c: CardComment): boolean {
   return !c.content.includes('```question');
 }
 
-export function selectCardComments<T extends CardComment>(comments: readonly T[]): CardComments<T> | null {
+/**
+ * UNA DOMANDA GIA' RISOLTA NON E' PIU' UNA DOMANDA, quindi non e' piu' nemmeno
+ * l'eccezione che la tiene in cima alla card.
+ *
+ * `contorno` lascia passare ogni `system` che contenga un recinto ```question,
+ * ed e' giusto: quella e' l'unica cosa che tiene ferma la card. Ma quando i
+ * sottotask hanno risposto muovendosi, `Card.tsx` smette di parsarla (vedi
+ * `isSettledParkedQuestion`) e quel commento cade nel ramo «testo semplice»:
+ * la card stampa il MARKDOWN GREZZO della domanda morta — recinto, elenco
+ * puntato delle due opzioni e tutto — al posto del riassunto della consegna.
+ * Misurato il 17/08 su `63bcc31b` (remotion-scenes): 3 sottotask su 3 chiusi,
+ * e la card mostrava ancora «Fermo su 2 sottotask che non lavorera nessuno»
+ * con sotto «- Rimetti in coda i sottotask / - Archivia i sottotask» come
+ * testo inerte, senza bottoni.
+ *
+ * Quindi l'eccezione va CHIUSA alle stesse condizioni in cui i bottoni
+ * spariscono: una domanda a cui nessuno puo' piu' rispondere torna a essere
+ * contorno come ogni altra nota di sistema. Resta nel thread, smette di
+ * prendere il posto della parola vera.
+ *
+ * L'asimmetria e' la stessa di `shared/parked-question.ts` e va nello stesso
+ * verso: senza i figli (`counts` assenti) non si spegne niente. Meglio una
+ * domanda morta in cima che una viva nascosta.
+ */
+function domandaSpenta(c: CardComment, counts: CardThreadContext | null): boolean {
+  if (!counts) return false;
+  return counts.children
+    ? isResolvedParkedQuestion(c, counts.children)
+    : isSettledParkedQuestion(c, counts);
+}
+
+/**
+ * Quello che la RIGA sa e il thread da solo non puo' sapere.
+ *
+ * Due fatti, entrambi opzionali perche' senza di loro il selettore si comporta
+ * come prima (nessuna promozione, nessuna domanda spenta): il verso sicuro.
+ *
+ *  · i sottotask, per sapere se la domanda sui figli fermi e' ancora viva — la
+ *    card ha due numeri, il drawer ha i figli veri, e quando ci sono i figli
+ *    vince il predicato esatto;
+ *  · CHI HA CONSEGNATO, che e' l'unica cosa capace di distinguere due thread
+ *    identici: un commento firmato `user` puo' essere una consegna fatta a mano
+ *    (chi lavora dal terminale chiude cosi') oppure una richiesta a cui nessuno
+ *    ha mai risposto. Sullo schermo sono la stessa riga; nel database no.
+ */
+export interface CardThreadContext {
+  subtaskCount?: number;
+  subtaskDoneCount?: number;
+  children?: readonly { status: string; archived?: number | boolean }[];
+  /** `'system'` = nessuno ha consegnato: ce l'ha portata il dispatcher. */
+  deliveredBy?: string | null;
+}
+
+export function selectCardComments<T extends CardComment>(
+  comments: readonly T[],
+  ctx?: CardThreadContext | null,
+): CardComments<T> | null {
   const speech = comments.filter(isThreadSpeech);
   // LA NOTA DEL SISTEMA NON E' LA PAROLA DELLA CONSEGNA.
   //
@@ -126,12 +183,60 @@ export function selectCardComments<T extends CardComment>(comments: readonly T[]
   //
   // Non si buttano: se sono l'UNICA voce dicono comunque qualcosa (perche' la
   // card e' cieca). Si tolgono solo di mezzo quando c'e' una parola vera.
-  const parole = speech.filter((c) => !contorno(c));
-  const latest = (parole.length ? parole : speech)[((parole.length ? parole : speech).length) - 1];
+  const parole = speech.filter((c) => !contorno(c) && !domandaSpenta(c, ctx ?? null));
+  const vive = parole.length ? parole : speech;
+  const latest = vive[vive.length - 1];
   if (!latest) return null;
-  // The human spoke last: there is no answer yet, he IS the protagonist, and
-  // quoting him above himself would print the same line twice.
-  if (isHumanComment(latest)) return { latest, humanContext: null };
+  // ── QUANDO NESSUNO HA RISPOSTO, LA NOTA DI SISTEMA E' LA PAROLA NUOVA ──────
+  //
+  // `contorno` toglie di mezzo le note di sistema perche' il sistema scrive per
+  // ULTIMO e rubava il posto al riassunto della consegna. Quel motivo esiste
+  // solo se una consegna c'e'. Quando l'agent non ha prodotto niente — turni
+  // bruciati da errori del provider, `delivered_by = 'system'` — l'ultima
+  // parola rimasta e' la RICHIESTA UMANA, e la card la ristampa in cima come se
+  // fosse la novita'.
+  //
+  // Non e' un dettaglio estetico, e' un fraintendimento misurato. Su `5cf58e29`
+  // (17/08) la card apriva con la mia frase di un'ora prima — «Messa in
+  // progress = via libera» — senza nessun segno di chi l'avesse scritta: letta
+  // in cima a una card in review sembra un'ISTRUZIONE del sistema («per farlo
+  // andare avanti devi rimetterlo in progress»), mentre l'unica riga che
+  // spiegava davvero perche' la card fosse li' («l'agent ha lavorato 2 turni ma
+  // non ha spostato il task in review da solo… rimandalo indietro») era stata
+  // scartata come contorno.
+  //
+  // Quindi la nota di sistema cede il posto a CHI HA CONSEGNATO, non al
+  // silenzio: se davanti a se' non trova altro che la richiesta umana, torna lei
+  // la parola — e la richiesta le fa da contesto sopra, che e' esattamente la
+  // coppia che questo modulo esiste per comporre.
+  //
+  // IL CANCELLO E' `deliveredBy`, e non poteva essere il thread. Un commento
+  // firmato `user` come ultima parola ha due significati opposti che sullo
+  // schermo sono identici: la CONSEGNA fatta a mano (chi lavora dal terminale
+  // chiude scrivendo cos'ha fatto — e li' la notifica del sistema arriva dopo e
+  // le ruberebbe il posto, che e' il difetto tolto stamattina), oppure una
+  // richiesta a cui nessuno ha mai risposto. La riga lo sa: `delivered_by =
+  // 'system'` dice che quella parola NON e' una consegna, perche' consegne non
+  // ce ne sono state. Senza il campo non si promuove niente.
+  if (isHumanComment(latest)) {
+    if (ctx?.deliveredBy === 'system') {
+      const idx = speech.lastIndexOf(latest);
+      // Solo una nota che SPIEGA, e cioe' `kind: 'comment'` — la specie con cui
+      // il dispatcher scrive perche' la card e' finita in review. Una
+      // `review-note` no: e' l'evidenza attaccata alla consegna («Anteprima viva
+      // pronta — http://…»), e una card la cui unica novita' e' uno screenshot
+      // non ha ancora ricevuto risposta. Promuoverla direbbe che qualcuno ha
+      // risposto quando nessuno l'ha fatto.
+      const nota = speech.slice(idx + 1).filter((c) => c.author === 'system' && c.kind === 'comment').pop();
+      if (nota) return { latest: nota, humanContext: latest };
+    }
+    // Ha parlato lui per ultimo davvero (o non c'e' niente da promuovere): e' il
+    // protagonista, e citarlo sopra se stesso stamperebbe due volte la stessa
+    // riga. Il `return` e' qui e non piu' in basso apposta: senza, la scansione
+    // all'indietro troverebbe la richiesta PRECEDENTE e la card stamperebbe
+    // sopra la frase che questa ha appena sostituito.
+    return { latest, humanContext: null };
+  }
   let requestAt = -1;
   for (let i = speech.length - 2; i >= 0; i--) {
     if (isHumanRequest(speech[i]!)) { requestAt = i; break; }
@@ -142,7 +247,7 @@ export function selectCardComments<T extends CardComment>(comments: readonly T[]
 }
 
 /** I campi della riga su cui si decide cosa la card mostra e cosa deve chiedere. */
-export type CardThreadRow = Pick<BoardTask, 'status' | 'assignedTopicId' | 'deliveredReason' | 'subtaskCount' | 'recentComments'>;
+export type CardThreadRow = Pick<BoardTask, 'status' | 'assignedTopicId' | 'deliveredBy' | 'deliveredReason' | 'subtaskCount' | 'subtaskDoneCount' | 'recentComments'>;
 
 /**
  * La card ha una PAROLA da mostrare: l'ultima del thread, con i suoi bottoni.
@@ -200,5 +305,13 @@ export function cardDetailNeed(task: CardThreadRow): 'none' | 'children' | 'thre
  *  non c'è niente da mostrare o quando il server non li manda. */
 export function cardCommentsFromRow(task: CardThreadRow): CardComments | null {
   if (!showsCardThread(task) || !task.recentComments) return null;
-  return selectCardComments(task.recentComments);
+  // I due numeri che la riga porta sempre: bastano a riconoscere una domanda
+  // sui sottotask a cui i sottotask hanno gia' risposto. Il predicato e' quello
+  // stretto (`isSettledParkedQuestion`) — puo' lasciare viva una domanda morta,
+  // mai spegnerne una viva.
+  return selectCardComments(task.recentComments, {
+    subtaskCount: task.subtaskCount,
+    subtaskDoneCount: task.subtaskDoneCount,
+    deliveredBy: task.deliveredBy,
+  });
 }
