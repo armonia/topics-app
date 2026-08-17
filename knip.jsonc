@@ -196,7 +196,22 @@
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
         "relay/*.test.ts",     // idem, via `./relay` in `test:unit`
         "cli/**/*.test.ts",    // idem, via `./cli` in `test:unit`
-        "tests/**/*.{test,spec}.ts"
+        "tests/**/*.{test,spec}.ts",
+        // UN BANCO DI PROVA CHE SI LANCIA COME PROCESSO, non si importa.
+        //
+        // `files.git-commit-identity.test.ts` deve mettersi nella condizione
+        // del runner (nessun `~/.gitconfig`), e `Bun.spawn` passa al figlio
+        // l'ambiente FOTOGRAFATO all'avvio, non `process.env` di adesso:
+        // ripulire l'ambiente e chiamare la route in-process non tocca il git
+        // che la route lancia, e il banco passa anche col fix rimosso
+        // (misurato il 16/08, prima versione di quel test). Da qui l'harness,
+        // lanciato come processo separato con l'ambiente pulito dalla nascita.
+        //
+        // Il test lo raggiunge con un percorso costruito a runtime
+        // (`join(import.meta.dir, ...)`), che knip non puo' seguire: senza
+        // questa riga risulta «file morto» e tiene rosso il cancello per
+        // tutti. Il `!` dice «e' un entrypoint anche se nessuno lo importa».
+        "server/routes/files.git-commit-harness.ts!"
       ],
       "project": [
         "server/**/*.{ts,mjs}",
