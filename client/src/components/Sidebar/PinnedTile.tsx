@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, RESTING_SURFACE, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
@@ -38,7 +38,7 @@ const TYPE_ICONS: Partial<Record<SidebarItem['type'], LucideIcon>> = {
  *  PANE_CONFIG — la stessa mappa che usano la riga nell'albero e la tab, così
  *  la tessera non può mostrare una chiave inglese al posto della board. */
 const UTILITY_ICONS: Record<string, LucideIcon> = {
-  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, UserRound, LayoutGrid,
 };
 
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e

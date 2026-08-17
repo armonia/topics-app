@@ -19,9 +19,14 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * Stava dentro il menu «Topics», cioè dietro un gesto che nessuno fa per
  * cercare il proprio account (chi usa la app, 14/08: «il tasto del profilo, togliendolo
  * dal menu di Topics»). Qui è una faccia, che è il modo in cui un account si
- * riconosce a colpo d'occhio, e porta dove portava prima: Impostazioni →
- * Account e dispositivi. Non è una copia della voce del menu: quella voce non
- * c'è più, altrimenti sarebbero due porte per la stessa stanza.
+ * riconosce a colpo d'occhio. Non è una copia della voce del menu: quella voce
+ * non c'è più, altrimenti sarebbero due porte per la stessa stanza.
+ *
+ * E porta a una TAB, non a una modale: la pane Profilo (`__profile__`), come
+ * Dashboard e Board. Prima apriva Impostazioni → Profilo, cioè un pannello
+ * sopra la app da richiudere per tornare a lavorare — le statistiche sono
+ * qualcosa che si va a guardare, e una cosa che si guarda vuole una tab. La
+ * sezione in Impostazioni resta dov'era, per chi la cerca lì.
  *
  * ── IL «BOARD» È UN INTERRUTTORE, NON UN LINK ──────────────────────────────
  * Premuto porta alla Kanban; premuto di nuovo torna alla LISTA — cioè alla
@@ -81,7 +86,8 @@ export interface MobileChromeBarProps {
   boardInFront: boolean;
   /** L'interruttore: board ⇄ lista. */
   onToggleBoard: () => void;
-  /** Apre Impostazioni → Account e dispositivi: la stanza del profilo. */
+  /** Apre la pane Profilo — statistiche e identità in una tab, non in una
+   *  modale. Chi passa la callback la instrada su `topics:open-utility`. */
   onOpenProfile: () => void;
 }
 
@@ -247,7 +253,7 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
       onClick={onClick}
       testId="mobile-chrome-profile"
       forma={forma}
-      titolo={nome ? `${nome}. Account e dispositivi` : 'Account e dispositivi'}
+      titolo={nome ? `${nome}. Profilo e statistiche` : 'Profilo e statistiche'}
     >
       {avatarUrl ? (
         <img src={avatarUrl} alt="" className="h-[22px] w-[22px] flex-shrink-0 rounded-full object-cover" />

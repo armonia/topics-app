@@ -45,6 +45,7 @@ export type AddMenuItemId =
   | 'board'
   | 'dashboard'
   | 'cron'
+  | 'profile'
   | 'open-project';
 
 export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
@@ -78,6 +79,12 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   // dentro l'etichetta, quindi la sottolineatura resta possibile.
   dashboard: 'A',
   cron: 'R',
+  // Profilo scorre fino alla QUINTA lettera, e ogni salto ha un motivo: P è di
+  // «Progetto…», R di Cron, O di opencode — occupate nello stesso menu — e la F
+  // è l'iniziale RISERVATA di Files, che qui non compare ma che non si scippa
+  // (è la clausola del caso (b), la stessa per cui Codex ha preso la X). Resta
+  // la I di pro-f-I-lo: dentro l'etichetta, quindi sottolineabile.
+  profile: 'I',
   // UNA riga sola per il progetto: «Apri» e «Crea» chiamavano la stessa
   // funzione (`openProjectPicker`) e il pannello di sistema si intitola gia'
   // «Apri / Crea progetto» — erano due voci per un solo comportamento.
@@ -96,5 +103,5 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
  *  si calcola sul visibile (invariante 1 in testa al file). */
 export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
   project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'git', 'files', 'kanban'],
-  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'board', 'dashboard', 'cron', 'open-project'],
+  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'board', 'dashboard', 'cron', 'profile', 'open-project'],
 };
