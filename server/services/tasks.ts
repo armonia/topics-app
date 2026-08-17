@@ -1606,7 +1606,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `rn` numera dal più recente, e le righe arrivano `ORDER BY rn DESC`:
       // la più recente è l'ultima. Fra quelle, la prima che non è una nota.
       const dalPiuRecente = [...righe].reverse();
-      const scelta = dalPiuRecente.find((r) => rowToComment(r).kind !== "review-note") ?? dalPiuRecente[0];
+      // STESSA REGOLA DEL CLIENT, e stavolta per intero: contorno non e' solo
+      // la `review-note`. Le NOTIFICHE DI STATO del sistema (`author:
+      // 'system'`, `kind: 'comment'`) sono 3984 nel db, la specie piu'
+      // numerosa - «l'agent ha lavorato 2 turni ma non ha spostato il task»,
+      // «Worktree e branch ripuliti» - e arrivano sempre DOPO il riassunto,
+      // perche' il sistema scrive per ultimo. Misurato il 17/08: un riassunto
+      // da 1832 caratteri arrivava alla card tagliato a 201, perche' i 1200
+      // se li prendeva la notifica.
+      //
+      // Una DOMANDA del sistema no: il recinto ```question e' la firma di
+      // qualcosa che aspetta una risposta, ed e' l'unica cosa che tiene ferma
+      // la card. Vedi `contorno()` in client/src/components/Board/cardComments.ts:
+      // le due regole devono dire la stessa cosa, o il testo pieno va a una
+      // riga che il client non disegna.
+      const contorno = (r: (typeof rows)[number]): boolean => {
+        const c = rowToComment(r);
+        if (c.kind === "review-note") return true;
+        if (c.author !== "system") return false;
+        return !c.content.includes("```question");
+      };
+      const scelta = dalPiuRecente.find((r) => !contorno(r)) ?? dalPiuRecente[0];
       for (const r of righe) {
         const full = rowToComment(r);
         // `rowToComment` normalizza `kind` (una riga scritta prima che la

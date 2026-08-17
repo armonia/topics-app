@@ -84,6 +84,34 @@ function isReply(comment: CardComment): boolean {
  * became the card's `latest`: the card printed "In attesa di uno slot" as the
  * delivery while the buttons underneath still offered the agent's question.
  */
+/**
+ * Una riga che fa da CONTORNO alla consegna, non da parola.
+ *
+ * Due specie, e la seconda l'avevo mancata stamattina:
+ *
+ *  · `review-note` — l'evidenza che la macchina attacca entrando in review
+ *    («Consegna SENZA anteprima…», «Anteprima viva pronta — http://…»);
+ *  · le NOTIFICHE DI STATO del sistema — `author: 'system'` con `kind:
+ *    'comment'`, che nel db sono 3984, la specie piu' numerosa: «l'agent ha
+ *    lavorato 2 turni ma non ha spostato il task», «Worktree e branch
+ *    ripuliti», «Niente da atterrare».
+ *
+ * Le due hanno lo stesso difetto: il sistema scrive per ULTIMO, quindi
+ * arrivano sempre dopo il riassunto e gli rubano il posto in cima alla card.
+ * Misurato sulla board vera il 17/08: un riassunto da 1832 caratteri arrivava
+ * tagliato a 201 perche' il taglio pieno se lo prendeva la notifica.
+ *
+ * MA UNA DOMANDA DEL SISTEMA NON E' CONTORNO. Il sistema chiede davvero, con i
+ * bottoni di risposta rapida (```question), e quella e' l'unica cosa che tiene
+ * ferma la card: nasconderla sarebbe peggio del difetto che sto togliendo.
+ */
+function contorno(c: CardComment): boolean {
+  if (c.kind === 'review-note') return true;
+  if (c.author !== 'system') return false;
+  // Il recinto ```question e' la firma di una domanda vera: se c'e', resta.
+  return !c.content.includes('```question');
+}
+
 export function selectCardComments<T extends CardComment>(comments: readonly T[]): CardComments<T> | null {
   const speech = comments.filter(isThreadSpeech);
   // LA NOTA DEL SISTEMA NON E' LA PAROLA DELLA CONSEGNA.
@@ -98,7 +126,7 @@ export function selectCardComments<T extends CardComment>(comments: readonly T[]
   //
   // Non si buttano: se sono l'UNICA voce dicono comunque qualcosa (perche' la
   // card e' cieca). Si tolgono solo di mezzo quando c'e' una parola vera.
-  const parole = speech.filter((c) => c.kind !== 'review-note');
+  const parole = speech.filter((c) => !contorno(c));
   const latest = (parole.length ? parole : speech)[((parole.length ? parole : speech).length) - 1];
   if (!latest) return null;
   // The human spoke last: there is no answer yet, he IS the protagonist, and
