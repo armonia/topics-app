@@ -14,26 +14,26 @@ six `APPLE_*` secrets into `tauri-action`. `tauri-action` only attempts signing 
 ships unsigned exactly as before. Set the secrets and the next `tauri-vX.Y.Z` release
 signs + notarizes automatically — no workflow edit needed.
 
-## Step 0 — Enrolment ([azienda], as an **organization**)
+## Step 0 — Enrolment (as an **organization**, not an individual)
 
 Everything below presumes a paid membership. We don't have one yet, and it is the only
 part of this document that **cannot be scripted**: creating the Apple Account, accepting
-the agreement that binds [azienda], and paying are legal and financial acts. Per
+the agreement that binds the company, and paying are legal and financial acts. Per
 [Apple's own rules](https://developer.apple.com/help/account/membership/program-enrollment/),
 they must be done by someone with **legal binding authority** for the company — for us,
 Attilio. Nobody else, and no tool.
 
 Enrol as an **organization**, not as an individual: only an organization membership puts
-`[azienda]` on the certificate (an individual one would sign as a natural person, and
+the COMPANY on the certificate (an individual one would sign as a natural person, and
 converting later requires Apple Support).
 
 What Apple checks, and what we have:
 
 | Requirement | Our value |
 |-------------|-----------|
-| Legal entity (no DBAs / trade names) | [azienda] |
-| D‑U‑N‑S Number | **[identificativo]** (already obtained, free) |
-| Legal binding authority | Attilio Cianci, CTO — must be the one enrolling |
+| Legal entity (no DBAs / trade names) | the company's registered name, exactly as filed |
+| D‑U‑N‑S Number | already obtained (free) — see `.personal-terms`, it is not in this repo |
+| Legal binding authority | whoever can sign for the company — must be the one enrolling |
 | Work email on the company domain | an `@armonia.io` address, with 2FA on |
 | Public, functional website on that domain | <https://armonia.io> |
 
