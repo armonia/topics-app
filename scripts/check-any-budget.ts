@@ -55,10 +55,37 @@ function stripBlockComments(src: string): string {
 }
 
 /** Quante righe di CODICE contengono un `any` non esentato, in questa sorgente. */
+/**
+ * Il testo dentro le VIRGOLETTE, tolto di mezzo prima di contare.
+ *
+ * `any` in una stringa non e' un tipo: e' una parola. Le descrizioni dei tool
+ * che l'agente legge sono inglese corrente, e «tests, and any tool the machine
+ * already has» faceva salire il conto di uno. Il difetto non era teorico: il
+ * cricchetto e' stato scritto a 369 il 16/08 mentre il conto era 370, quindi
+ * e' nato ROSSO e ci e' rimasto un giorno, bloccando le release (`check` rosso
+ * = nessuna release, af8efda5). Nessuno se n'era accorto perche' il numero
+ * sembrava un debito vero.
+ *
+ * Si tolgono le tre forme di stringa di TypeScript e i template literal.
+ * L'apostrofo dentro una stringa doppia (`"l'unico"`) non rompe niente: si
+ * cancella la stringa doppia per prima, e cio' che resta non ha piu quel
+ * carattere. Il caso che questa funzione NON copre e' un backtick con
+ * `${...}` che contiene a sua volta un `any`: sparisce insieme al template, ed
+ * e' un sotto-conteggio accettato - un tipo `any` dentro un'interpolazione e'
+ * un caso che qui non esiste, e vedere un `any` in meno e' meglio che
+ * contare una parola inglese.
+ */
+export function stripStrings(line: string): string {
+  return line
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+}
+
 export function countAny(src: string): number {
   let n = 0;
   for (const line of stripBlockComments(src).split(/\r?\n/)) {
-    const code = line.split("//")[0];
+    const code = stripStrings(line.split("//")[0]!);
     if (!ANY_RE.test(code)) continue;
     if (line.includes("allow-any:")) continue;
     n++;

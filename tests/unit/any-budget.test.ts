@@ -66,6 +66,23 @@ describe("check:any-budget — il cricchetto sugli any", () => {
     expect(files.every((f) => !f.endsWith(".test.ts"))).toBe(true);
   });
 
+  it("una parola inglese dentro una stringa NON e' un tipo", () => {
+    // Il difetto che teneva il cricchetto rosso da un giorno: la descrizione
+    // di un tool - inglese corrente, letto dall'agente - diceva «tests, and
+    // any tool the machine already has», e quel testo contava come un `any`.
+    // Sette occorrenze in tutto il repo, e il tetto e' stato scritto a 369
+    // mentre il conto ne diceva 370: il cancello e' NATO rosso.
+    expect(countAny('const d = "Use it for git, builds, and any tool";')).toBe(0);
+    expect(countAny("const d = 'appears zero times or many, then any';")).toBe(0);
+    expect(countAny("const d = `template con any dentro`;")).toBe(0);
+    // E fuori dalle virgolette continua a contare, o la correzione avrebbe
+    // spento il cancello invece di aggiustarlo.
+    expect(countAny('const x: any = "any";')).toBe(1);
+    expect(countAny('function f(a: any) { return "any tool"; }')).toBe(1);
+    // Un apostrofo dentro una stringa doppia non manda in confusione il taglio.
+    expect(countAny(`const s = "l'unico modo"; const y: any = s;`)).toBe(1);
+  });
+
   it("il totale di oggi non supera il tetto scritto", () => {
     const total = trackedFiles(ROOT).reduce(
       (n, f) => n + countAny(readFileSync(resolve(ROOT, f), "utf8")),
