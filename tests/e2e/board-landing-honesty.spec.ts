@@ -345,6 +345,41 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await expect(card.getByTestId("card-delivery-stat")).toHaveCount(0);
   });
 
+  test("REVIEW-MUTA: una card senza misura dice PERCHE' non ce l'ha", async ({ page }) => {
+    // Segnalato: «quelli in review non mi sembrano pronti da sistema per
+    // essere fatti review da me, sembrano solo i task spostati». Misurato sul
+    // db: 33 card in review, 31 senza fotografia di consegna, 30 senza nemmeno
+    // una sessione - tutte con lo STESSO niente sotto, che voleva dire due
+    // cose opposte.
+    //
+    // Qui la card entra in review senza ramo e senza agente: e' il caso piu'
+    // comune sulla board vera, ed e' quello che sembrava «pronto» e non lo
+    // era.
+    const text = `Spostata a mano ${Date.now()}`;
+    const res = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text, status: "backlog" },
+    });
+    const task = (await res.json()) as { id: string };
+    createdTasks.push(task.id);
+    await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    // Nessuna misura inventata...
+    await expect(card.getByTestId("card-delivery-stat")).toHaveCount(0);
+    // ...ma la ragione detta, e leggibile senza aprire la card.
+    const chip = card.getByTestId("card-moved-by-hand");
+    await expect(chip, "una card senza ramo e senza agente deve dirlo").toBeVisible({ timeout: 5000 });
+    // E il perche' per esteso, per chi si ferma sopra.
+    await expect(chip).toHaveAttribute("title", /nessun ramo|Nessun agente/i);
+  });
+
   test("LANDING-01: la card in Done dichiara «non su main» e nomina il ramo", async ({ page }) => {
     const text = `Non landato ${Date.now()}`;
     await seedDoneTask(page.request, text, {
