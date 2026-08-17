@@ -400,6 +400,17 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.card.commentMore': 'Mostra tutto',
   'board.card.commentLess': 'Mostra meno',
+  /**
+   * NIENTE CONSEGNATO, detto dalla colonna.
+   *
+   * Prima questa card portava «Lavorata qui», che promette commit su main
+   * impossibili da attribuire: su una card dove l'agent non ha prodotto nulla
+   * quella frase manda a cercare un lavoro che non esiste. Misurato il 17/08 su
+   * `5cf58e29`: nessun ramo, zero file, ogni turno morto su un errore del
+   * provider. Segnalato: «non capisco che succede».
+   */
+  'board.card.nothingDelivered': 'Niente consegnato',
+  'board.card.nothingDeliveredTitle': "L'agent non ha prodotto niente: nessun ramo, nessun file toccato, e ce l'ha portata qui il sistema a tentativi finiti. Non c'e' un diff da guardare. Il thread dice come e' finito l'ultimo turno: rimandalo avanti e riparte, oppure prendilo in mano tu.",
   'board.card.inPlace': 'Lavorata qui',
   'board.card.inPlaceTitle': "Un agente ha lavorato sul checkout condiviso, non su un ramo suo. I commit ci sono ma stanno su main insieme a quelli degli altri, quindi non si puo' dire quali siano di questa card: la misura manca per questo, non perche' non sia stato fatto niente.",
   'board.card.movedByHand': 'Spostata a mano',
