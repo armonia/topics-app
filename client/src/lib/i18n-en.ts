@@ -212,7 +212,7 @@ const EN = {
   'board.task.recapturePreview': 'Recapture evidence',
   'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
   'board.task.replyPlaceholder': 'Write a direction: «{sendBack}» takes it to the agent, «Note» leaves it on the card.',
-  'board.task.replyPlaceholderShort': '…note: «Send back» wakes it up, «Note» does not',
+  'board.task.replyPlaceholderShort': 'A note that stays here: «{sendBack}» above sends it to the agent.',
   'board.task.sendBackReply': 'Send back',
   'board.task.sendBackReplyTitle': 'Send the task back to the agent with this note. It restarts and the card returns to In Progress.',
   'board.task.quietNote': 'Note',
