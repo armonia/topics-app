@@ -719,10 +719,17 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       if (!row) return;
       const avail = strip.clientWidth;
       let fit = 0;
-      for (const child of Array.from(row.children) as HTMLElement[]) {
+      // I CHIP, non i figli della riga. Da quando ogni chip è avvolto nel
+      // `Tooltip`, i figli diretti sono wrapper `display: contents`: per il
+      // layout non esistono (ed è il motivo per cui si usa `contents`), ma nel
+      // DOM ci sono e hanno `offsetWidth` ZERO. La misura li vedeva larghi
+      // nulla, concludeva che ci stavano tutti, e i chip in eccesso finivano
+      // oltre il bordo destro invece che dentro il menu. `querySelectorAll`
+      // sul testid salta i wrapper e misura ciò che si vede davvero.
+      for (const chipEl of Array.from(row.querySelectorAll<HTMLElement>('[data-testid^="project-filter-chip-"]'))) {
         // +0.5: le larghezze sono frazionarie, e un mezzo pixel di
         // arrotondamento non è un chip che non ci sta.
-        if (child.offsetLeft + child.offsetWidth <= avail + 0.5) fit++;
+        if (chipEl.offsetLeft + chipEl.offsetWidth <= avail + 0.5) fit++;
         else break;
       }
       setInlineProjects((n) => (n === fit ? n : fit));
