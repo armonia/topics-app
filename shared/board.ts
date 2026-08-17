@@ -117,6 +117,29 @@ export function statusEventEnters(content: string, status: TaskStatus): boolean 
  */
 export const PREVIEW_CARD_MAX_RATIO = 0.7;
 
+/**
+ * PERCHE' NON ESISTE UN SECONDO TETTO PER LA PORTA MANUALE.
+ *
+ * Il 17/08 ho aggiunto un cancello sulla FORMA a `acceptPreview`: un'anteprima
+ * piu' alta che larga occupa la card e spinge giu' il testo (misurato: 255x397
+ * alta 330px su una card di 798). Il fatto era vero; il rimedio no, e l'ha
+ * detto la suite - due tentativi, due rossi su `board-preview-cap.spec.ts`.
+ *
+ * Prima con 0,7: rifiutava anche una QUADRATA. Poi con 1,2: rifiutava una
+ * 900x1800, che quella spec tiene fra i casi buoni col commento «quella che il
+ * tetto deve tagliare».
+ *
+ * La ragione e' che il riquadro RITAGLIA gia', sempre (`object-cover
+ * object-top` + `max-h-[70cqw]` in `PreviewMedia.tsx`), ed e' il comportamento
+ * dichiarato. Un cancello che rifiuta cio' che il layout sa gestire non
+ * protegge niente: duplica una decisione presa altrove e la contraddice.
+ *
+ * Il rifiuto per forma resta dov'era: nella promozione AUTOMATICA
+ * (`tooTallForCard`), che sceglie da sola cosa mettere sulla card e nel dubbio
+ * non sceglie. La porta manuale e' un gesto esplicito, e a un gesto esplicito
+ * si risponde mostrando, non rifiutando.
+ */
+
 
 /**
  * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia

@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus, PREVIEW_CARD_MAX_RATIO } from "../../shared/board";
+import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -1270,33 +1270,27 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!isPreviewablePath(raw)) {
       return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
     }
-    // TERZO CANCELLO: LA FORMA.
+    // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.
     //
-    // Un'immagine piu' alta che larga occupa la card e spinge giu' il testo che
-    // quella card deve far leggere. Il tetto e' `PREVIEW_CARD_MAX_RATIO`, LO
-    // STESSO numero che usa la promozione automatica dal thread
-    // (`tooTallForCard` in services/tasks.ts): due numeri diversi per la stessa
-    // immagine, a seconda della porta da cui entra, erano un odore.
+    // Ci avevo messo un terzo cancello: un'anteprima piu' alta che larga occupa
+    // la card e spinge giu' il testo (misurato il 17/08: 255x397 alta 330px su
+    // una card di 798). Il fatto e' vero, il rimedio era sbagliato, e l'ha
+    // detto la suite - due tentativi, due rossi su `board-preview-cap.spec.ts`.
     //
-    // Mancava, e si vedeva: misurato il 17/08 su una card vera, un'anteprima
-    // 255x397 (rapporto 1,56) alta 330px su una card di 798.
+    // Il riquadro della card RITAGLIA, sempre: `object-cover object-top` con
+    // `max-h-[70cqw]`. Quella spec dichiara il contratto («il tetto taglia, non
+    // deforma») e tiene apposta fra i casi buoni una quadrata E una 900x1800,
+    // col commento «quella che il tetto deve tagliare». Rifiutarle qui vorrebbe
+    // dire che la porta manuale non crede a cio' che la card fa un layer piu'
+    // in la'.
     //
-    // I video non si misurano da qui e restano fuori dal cancello, come nella
-    // promozione automatica. `null` = non si e' potuto leggere, e non e'
-    // «troppo alta»: chi non sa misurare lascia passare.
-    const shape = typeof ctx.imageShapeOf === "function" ? ctx.imageShapeOf(raw) : null;
-    if (shape && shape.ratio > PREVIEW_CARD_MAX_RATIO) {
-      return {
-        ok: false,
-        // Il `reason` di un rifiuto d'API, letto dall'agente che ha provato ad allegare
-        // l'anteprima: non e' un testo dell'interfaccia. Gli altri tre rifiuti di questa
-        // stessa funzione sono in italiano da sempre, e mescolare le due lingue nella
-        // stessa risposta sarebbe peggio di entrambe.
-        reason: `immagine troppo ALTA per una card: ${shape.width}x${shape.height} ha rapporto ` // allow-italian: reason d'API, non UI
-          + `${shape.ratio.toFixed(2)}, il massimo e' ${PREVIEW_CARD_MAX_RATIO}. ` // allow-italian: reason d'API, non UI
-          + `Ritagliala o affiancane i pezzi: su una card occuperebbe piu' spazio del testo da leggere.`, // allow-italian: reason d'API, non UI
-      };
-    }
+    // Il rifiuto per forma resta dov'era gia': nella promozione AUTOMATICA
+    // (`tooTallForCard`), che sceglie da sola cosa mettere sulla card e nel
+    // dubbio non sceglie. Qui c'e' un gesto esplicito - qualcuno dice «voglio
+    // QUESTA» - e la risposta giusta e' mostrarla ritagliata, non rifiutarla.
+    //
+    // Cio' che ho sbagliato a fare qui e' documentato in
+    // `shared/board.ts:PREVIEW_CARD_MAX_RATIO`.
     return { ok: true, value: raw };
   }
 

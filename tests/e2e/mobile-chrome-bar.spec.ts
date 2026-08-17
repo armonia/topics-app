@@ -499,7 +499,7 @@ test.describe.serial("La chrome del telefono", () => {
     // nessuno gli dice dove andare, quindi una modale aperta e basta sarebbe
     // una porta che si apre su un'altra stanza.
     const scheda = pannello.locator('nav button[aria-current="page"]');
-    await expect(scheda).toHaveText("Profile");
+    await expect(scheda).toHaveText("Profilo");
 
     // E il menu «Topics» è rimasto chiuso per tutto il tragitto.
     await expect(page.locator('[data-testid="sidebar-system-menu"]')).toHaveCount(0);

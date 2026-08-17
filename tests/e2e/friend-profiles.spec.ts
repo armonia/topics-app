@@ -94,7 +94,7 @@ test.describe("Profili degli amici", () => {
 
     await page.goto("/");
     await settingsPage.openSettings();
-    await page.locator('nav button:has-text("Profile")').click();
+    await page.locator('nav button:has-text("Profilo")').click();
 
     const sezione = page.getByTestId("friends-section");
     await expect(sezione).toBeVisible();
