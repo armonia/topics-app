@@ -50,7 +50,17 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
   const id = useId();
 
   const stopTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
-  const apri = () => { if (disabled || !content) return; stopTimer(); timer.current = setTimeout(() => setAperto(true), APERTURA_MS); };
+  const apri = () => {
+    if (disabled || !content) return;
+    stopTimer();
+    timer.current = setTimeout(() => {
+      // La posizione si azzera QUI, nel gestore, non nell'effetto: e' un
+      // evento, non un render, quindi nessuna cascata. Senza, alla riapertura
+      // il primo fotogramma userebbe la posizione dell'apertura precedente.
+      setPos(null);
+      setAperto(true);
+    }, APERTURA_MS);
+  };
   const chiudi = () => { stopTimer(); timer.current = setTimeout(() => setAperto(false), CHIUSURA_MS); };
 
   // Smontando col timer in volo, `setAperto` scriverebbe su un componente che
@@ -70,7 +80,14 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
   // tooltip ha una dimensione vera: prima si può solo indovinare, e un
   // tooltip largo indovinato stretto esce dallo schermo.
   useLayoutEffect(() => {
-    if (!aperto) { setPos(null); return; }
+    // NIENTE `setPos(null)` ALLA CHIUSURA: sarebbe una scrittura di stato
+    // sincrona dentro un effetto (il lint la vieta, e ha ragione - innesca un
+    // secondo render a cascata su un componente che sta sparendo). Non serve:
+    // il tooltip smontato porta via il suo rettangolo, e alla riapertura il
+    // ramo qui sotto ricalcola prima che qualcuno lo veda. La posizione vecchia
+    // non si rivede perche' `visibility` resta `hidden` finche' `pos` non e'
+    // stato riscritto DA QUESTA apertura - vedi lo `style` in fondo.
+    if (!aperto) return;
     const anchor = wrapRef.current?.firstElementChild ?? wrapRef.current;
     const tip = tipRef.current;
     if (!anchor || !tip) return;
@@ -112,7 +129,7 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
         onMouseLeave={chiudi}
         // Il fuoco da tastiera lo apre SUBITO: chi tabula ha già dichiarato
         // dove sta guardando, farlo aspettare 350ms è solo attrito.
-        onFocus={() => { if (!disabled && content) { stopTimer(); setAperto(true); } }}
+        onFocus={() => { if (!disabled && content) { stopTimer(); setPos(null); setAperto(true); } }}
         onBlur={chiudi}
         aria-describedby={aperto ? id : undefined}
       >
