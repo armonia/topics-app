@@ -57,6 +57,34 @@ describe('la card in review mostra ciò che il server le ha mandato', () => {
     expect(cardCommentsFromRow(inVolo as never)).toBeNull();
   });
 
+  test('una nota di SISTEMA non ruba il posto alla parola della consegna', () => {
+    // Segnalato: «gli ultimi commenti che devo da review non hanno senso,
+    // saranno messaggi di sistema». Misurato: 19 card su 22 mostravano come
+    // ultima cosa «Consegna SENZA anteprima…» o «Anteprima viva pronta —
+    // http://localhost:3400/», cioe' il promemoria che il sistema scrive a
+    // OGNI ingresso in review. Il riassunto vero stava sotto, invisibile.
+    const t = {
+      status: 'review', assignedTopicId: null, deliveredReason: null, subtaskCount: 0,
+      recentComments: [commento, nota],
+    };
+    const c = cardCommentsFromRow(t as never);
+    expect(c, 'la card deve avere qualcosa da mostrare').not.toBeNull();
+    expect(c!.latest.content, 'in cima va la parola di chi ha consegnato, non il promemoria del sistema')
+      .toBe(commento.content);
+  });
+
+  test('se il sistema e\' l\'UNICA voce, si mostra: e\' meglio del vuoto', () => {
+    // Una card senza riassunto ma con la nota che spiega perche' e' cieca:
+    // quella nota e' l'unica cosa che c'e', e dice comunque qualcosa.
+    const t = {
+      status: 'review', assignedTopicId: null, deliveredReason: null, subtaskCount: 0,
+      recentComments: [nota],
+    };
+    const c = cardCommentsFromRow(t as never);
+    expect(c).not.toBeNull();
+    expect(c!.latest.kind).toBe('review-note');
+  });
+
   test('fuori da review non si mostra niente: la domanda non esiste', () => {
     const t = { status: 'in_progress', assignedTopicId: 'topic-1', deliveredReason: null, subtaskCount: 0, recentComments: [commento] };
     expect(showsCardThread(t as never)).toBe(false);

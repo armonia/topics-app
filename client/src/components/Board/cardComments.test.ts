@@ -96,19 +96,36 @@ describe('selectCardComments', () => {
     // The preview manager writes its note the moment the task enters review.
     // With no agent word after the request, the card would read as a question
     // answered by a URL.
+    //
+    // Dal 17/08 in cima va la RICHIESTA UMANA, non la nota: nessuno ha
+    // risposto, quindi l'ultima parola vera e' ancora la sua. `humanContext`
+    // resta nullo perche' una coppia «domanda / risposta» qui non c'e'.
     const human = comment('user', 'rifai l header');
     const evidence = comment('system', 'Anteprima viva pronta: http://127.0.0.1:5173', 'review-note');
     const got = selectCardComments([human, evidence]);
-    expect(got?.latest).toBe(evidence);
+    expect(got?.latest).toBe(human);
     expect(got?.humanContext).toBeNull();
   });
 
-  test('an agent replied and evidence followed: the pair holds, evidence leads', () => {
+  test("an agent replied and evidence followed: the pair holds, and the AGENT leads", () => {
+    // REGOLA CAMBIATA IL 17/08, e il perche' e' una misura.
+    //
+    // Prima guidava l'evidenza (b293208b, 13/08): allora la `review-note`
+    // portava un link all'anteprima viva, cioe' qualcosa da APRIRE. Oggi
+    // l'anteprima e' un'immagine sulla card, quindi quella riga e' un
+    // promemoria che si ripete a ogni ingresso in review - misurato: 19 card
+    // su 22 mostravano «Consegna SENZA anteprima…» o «Anteprima viva pronta»
+    // al posto del riassunto della consegna. Segnalato: «gli ultimi commenti
+    // che devo da review non hanno senso, saranno messaggi di sistema».
+    //
+    // La nota resta nel thread e resta l'ultima parola quando e' l'UNICA
+    // (test qui sotto): non si butta, si toglie di mezzo quando c'e' qualcuno
+    // che ha parlato davvero.
     const human = comment('user', 'rifai l header');
     const agent = comment('claude', 'rifatto');
     const evidence = comment('system', 'Anteprima viva pronta: http://127.0.0.1:5173', 'review-note');
     const got = selectCardComments([human, agent, evidence]);
-    expect(got?.latest).toBe(evidence);
+    expect(got?.latest).toBe(agent);
     expect(got?.humanContext).toBe(human);
   });
 

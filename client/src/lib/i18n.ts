@@ -390,6 +390,7 @@ const IT: Dict = {
   'settings.section.plan': 'Piano',
   // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
+  'board.card.systemNote': 'Nota di sistema',
   'board.card.inPlace': 'Lavorata qui',
   'board.card.inPlaceTitle': "Un agente ha lavorato sul checkout condiviso, non su un ramo suo. I commit ci sono ma stanno su main insieme a quelli degli altri, quindi non si puo' dire quali siano di questa card: la misura manca per questo, non perche' non sia stato fatto niente.",
   'board.card.movedByHand': 'Spostata a mano',
