@@ -414,6 +414,53 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
       .not.toContainText("Consegna SENZA anteprima");
   });
 
+  test("REVIEW-PIEGA: un riassunto lungo si ripiega, e il bottone lo apre", async ({ page }) => {
+    // Segnalato: «potremmo mostrare tutta la risposta dell'AI senza troncarla
+    // quando in review, o magari mettere mostra di piu' se davvero troppo
+    // alta». Il riassunto arriva INTERO (il server ne manda 1200 caratteri) ma
+    // su una card sola faceva 871px, quasi una schermata: otto card erano
+    // 4824px di colonna, cioe' per vedere la terza si scorre oltre le prime
+    // due.
+    const text = `Riassunto lungo ${Date.now()}`;
+    const res = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text, status: "backlog" },
+    });
+    const task = (await res.json()) as { id: string };
+    createdTasks.push(task.id);
+    // Un riassunto sopra la soglia (620 caratteri).
+    const lungo = Array.from({ length: 14 }, (_, i) => `Punto ${i + 1}: qualcosa di misurato, con abbastanza parole da occupare una linea intera nella colonna.`).join("\n\n");
+    await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}/comments`, {
+      data: { content: lungo },
+    });
+    await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    const bottone = card.getByTestId("card-comment-toggle");
+    await expect(bottone, "un riassunto lungo deve avere il pieghevole").toBeVisible({ timeout: 5000 });
+
+    // Ripiegata la card sta in una schermata; aperta cresce.
+    const piegata = (await card.boundingBox())!.height;
+    expect(piegata, `ripiegata la card e' alta ${piegata}px: non entra in una schermata`).toBeLessThan(900);
+    await bottone.click();
+    await expect(card.getByTestId("card-comment-toggle")).toHaveText(/meno|less/i);
+    const aperta = (await card.boundingBox())!.height;
+    expect(aperta, "aperta deve mostrare piu' testo di quando e' ripiegata").toBeGreaterThan(piegata);
+
+    // Il click sul pieghevole NON apre la scheda: e' un gesto di lettura.
+    await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
+
+    // E si richiude.
+    await bottone.click();
+    await expect(card.getByTestId("card-comment-toggle")).toHaveText(/tutto|all/i);
+  });
+
   test("LANDING-01: la card in Done dichiara «non su main» e nomina il ramo", async ({ page }) => {
     const text = `Non landato ${Date.now()}`;
     await seedDoneTask(page.request, text, {
