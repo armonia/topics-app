@@ -25,6 +25,7 @@
 
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import { CODING_TOOLS } from "./tools";
+import { pruneDanglingToolUses } from "./history-repair";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
@@ -217,6 +218,25 @@ export class NativeProvider implements AIProvider {
       }));
     }
     session.history.push({ role: "user", content: message });
+    // ── LA STORIA SI RIPARA PRIMA DI PARTIRE, NON SI SPERA CHE SIA SANA ──────
+    //
+    // Un turno morto a meta' (processo riavviato, rete caduta, stop) lascia in
+    // memoria un `assistant` che chiede dei tool e nessuno che risponde. Quella
+    // storia veniva rimandata IDENTICA al turno dopo, e l'API la rifiuta
+    // sempre: «`tool_use` ids were found without `tool_result` blocks
+    // immediately after». Nessun ritentativo la sblocca, quindi il dispatcher
+    // bruciava i suoi due tentativi contro lo stesso muro e consegnava
+    // all'umano una card senza niente sotto.
+    //
+    // Misurato il 17/08 sul db vivo: 20 turni cosi', 2 sessioni, dalle 16:57
+    // alle 20:15. Una e' `5cf58e29`, arrivata in review vuota.
+    //
+    // Qui e non in `agent-loop`: il loop e' gia' corretto quando arriva in
+    // fondo: e' la SOPRAVVIVENZA della storia fra un turno e l'altro il punto
+    // in cui si rompe, e questo e' l'unico posto che entrambe le sorgenti (la
+    // memoria e la storia del chiamante) attraversano. Vedi `history-repair.ts`
+    // per perche' si pota invece di inventare risultati finti.
+    session.history = pruneDanglingToolUses(session.history);
 
     const abort = new AbortController();
     session.abort = abort;
