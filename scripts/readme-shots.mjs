@@ -48,15 +48,26 @@ const frameHtml = (src) => `<!doctype html>
 <html><head><meta charset="utf-8"><style>
   html,body { margin:0; padding:0; background:#000; }
   .stage {
+    position:relative; overflow:hidden;
     width:${APP.w + PAD * 2}px; height:${APP.h + PAD * 2}px;
     display:grid; place-items:center;
-    /* Due aloni diagonali invece di un gradiente lineare: un fondo piatto
-       legge come un rettangolo colorato, questo legge come luce. */
-    background:
-      radial-gradient(120% 120% at 15% 0%, #1e2740 0%, transparent 55%),
-      radial-gradient(120% 120% at 85% 100%, #2a1f3d 0%, transparent 55%),
-      #0b0d12;
+    background:#0b0d12;
   }
+  /* LO SFONDO SI DEVE VEDERE. La prima versione usava aloni a #1e2740 su
+     #0b0d12: differenza di luminosita' troppo piccola, e su un monitor non
+     calibrato spariva del tutto — restava un rettangolo nero attorno a una
+     finestra nera. Qui i due aloni sono saturi e sfocati per davvero
+     (filter: blur), quindi il colore si legge ma non compete con la UI. */
+  .stage::before {
+    content:""; position:absolute; inset:-20%;
+    background:
+      radial-gradient(38% 46% at 22% 18%, #3d5bd9 0%, transparent 70%),
+      radial-gradient(42% 48% at 82% 88%, #7c3aed 0%, transparent 70%),
+      radial-gradient(30% 34% at 92% 12%, #0ea5e9 0%, transparent 70%);
+    filter: blur(72px);
+    opacity:.55;
+  }
+  .win, .stage > * { position:relative; z-index:1; }
   .win {
     width:${APP.w}px; height:${APP.h}px;
     border-radius:14px; overflow:hidden;
