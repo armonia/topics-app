@@ -273,6 +273,8 @@ const EN = {
   'settings.section.devices': 'Devices',
   'settings.section.plan': 'Plan',
   'board.card.systemNote': 'System note',
+  'board.card.commentMore': 'Show all',
+  'board.card.commentLess': 'Show less',
   'board.card.inPlace': 'Worked here',
   'board.card.inPlaceTitle': "An agent worked on the shared checkout, not on its own branch. The commits exist but sit on main among everyone else's, so they cannot be attributed to this card: that is why the measure is missing.",
   'board.card.movedByHand': 'Moved by hand',

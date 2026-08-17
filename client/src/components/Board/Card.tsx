@@ -23,7 +23,7 @@ import { taskChoiceState } from './taskChoices';
 import { taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
-import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
+import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
@@ -548,6 +548,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // in review dovrei vedere aggiornamenti, no?».
   //
   // Non si inventa una misura che non puo' esistere: si dice perche' non c'e'.
+  // Il riassunto ripiegato/aperto vive PER CARD e non nel task: e' una scelta
+  // di lettura, non un dato. Chi apre una card la ritrova aperta finche' la
+  // board resta montata.
+  const [commentoAperto, setCommentoAperto] = useState(false);
   const evidenza = reviewEvidence(task);
   const lavoroInPlace = evidenza.kind === 'in-place';
   const spostataAMano = evidenza.kind === 'manual';
@@ -1119,7 +1123,22 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             // which for a dispatched agent is the task title cut at 60
             // characters, so this tooltip used to open with half a word.
             <div
-              className={`text-xs leading-relaxed ${lastComment.kind === 'review-note' ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS}`}
+              // RIPIEGATO SE E' TROPPO, non tagliato in silenzio.
+              //
+              // Il riassunto arriva intero (1200 caratteri), ed e' giusto: e'
+              // cio' che si sta approvando. Ma misurato sulla board vera una
+              // card sola arrivava a 871px, quasi una schermata, e otto card
+              // facevano 4824px di colonna: per vedere la terza bisogna
+              // scorrere oltre le prime due. Segnalato: «mostrare tutta la
+              // risposta dell'AI senza troncarla, o magari mettere mostra di
+              // piu' se davvero troppo alta».
+              //
+              // Non un `line-clamp` fisso: sotto le dieci righe non si ripiega
+              // niente, perche' aprire un pieghevole per due righe e' attrito
+              // senza guadagno. Il testo NON viene tagliato: e' tutto li',
+              // basta un click - e chi ha ripiegato una card la ritrova
+              // ripiegata, perche' lo stato vive per card.
+              className={`text-xs leading-relaxed ${lastComment.kind === 'review-note' ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
               title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
             >
               {/* CHI PARLA, quando non e' una persona.
@@ -1139,6 +1158,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
             </div>
           ) : null}
+          {/* Il pieghevole compare SOLO se c'e' davvero da ripiegare: la
+              soglia guarda il testo, non l'altezza resa, perche' un'altezza
+              misurata dopo il render farebbe saltare la card di un fotogramma.
+              620 caratteri sono circa dieci righe nella colonna della board. */}
+          {showsQuestion && !pending && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS && (
+            <button
+              data-testid="card-comment-toggle"
+              onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
+              className="text-xs md:text-[10px] text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+            >
+              {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
+            </button>
+          )}
           {/* Update time trails the agent's last word (the card body's true tail). */}
           <div
             className="text-xs md:text-[10px] text-app-text-muted"
