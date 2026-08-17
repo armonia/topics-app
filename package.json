@@ -1,7 +1,7 @@
 {
   "name": "topics-app",
   "version": "2.2.158",
-  "description": "Desktop home for coding agents — Claude Code, Codex and friends — each session in its own topic with its project, terminal and browser. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
+  "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
   "repository": {

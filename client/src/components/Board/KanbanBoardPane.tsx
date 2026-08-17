@@ -36,6 +36,8 @@ import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectTaskCounts } from './atoms';
 import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { Tooltip } from '../Shared/Tooltip';
+import { homeTilde } from '../../lib/homeTilde';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
@@ -614,9 +616,33 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
     () => projectTaskCounts(tasks, (t) => (isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId)),
     [tasks],
   );
+  /**
+   * Il contenuto del tooltip di un filtro. Prima era una riga sola dentro un
+   * `title=` nativo: il sistema operativo la mostrava dopo un secondo abbondante
+   * e senza struttura. Segnalato: «passando sui filtri dovrebbe dare un minimo
+   * di informazioni sul progetto, magari anche la location».
+   *
+   * Tre cose, in ordine di quanto servono: il NOME (che nel chip è troncato a
+   * 13rem), DOVE STA su disco (l'unica cosa che distingue due progetti chiamati
+   * uguale in cartelle diverse), e come stanno i task.
+   */
   const countsTitle = (p: BoardProjectRef) => {
     const c = projectCounts[p.projectId];
-    return c ? `${p.name}. ${countsSummary(c, STATUS_LABEL)}` : `Filtra per ${p.name}`;
+    return (
+      <div className="space-y-1">
+        <div className="font-medium">{p.name}</div>
+        {p.path ? (
+          // Monospazio e a capo sul percorso: un path lungo su una riga sola
+          // diventa illeggibile, ed è proprio il dato che si viene a cercare.
+          <div className="break-all font-mono text-[10px] text-app-text-muted">{homeTilde(p.path)}</div>
+        ) : (
+          // Perché non c'è: senza questa riga il tooltip di un progetto sparito
+          // sembra solo un tooltip a cui manca un pezzo.
+          <div className="text-[10px] text-app-text-faint">Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.</div>
+        )}
+        {c && <div className="text-[10px] text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
+      </div>
+    );
   };
   const projectOptions = useMemo(() => {
     const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
@@ -846,13 +872,13 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
               const on = selectedProjectIds.includes(p.projectId);
               const shown = i < inlineProjects;
               return (
+                // Il `key` sta sul Tooltip: è lui il figlio della lista ora.
+                <Tooltip key={p.projectId} content={countsTitle(p)}>
                 <button
-                  key={p.projectId}
                   onClick={() => toggleProject(p)}
                   aria-hidden={!shown}
                   tabIndex={shown ? 0 : -1}
                   data-testid={`project-filter-chip-${p.projectId}`}
-                  title={countsTitle(p)}
                   className={`${chip(on)} max-w-[13rem] ${shown ? '' : 'invisible'}`}
                 >
                   {p.path ? <ProjectFavicon path={p.path} size={12} /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />}
@@ -860,6 +886,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
                   {projectCounts[p.projectId] && <ProjectTaskCounts counts={projectCounts[p.projectId]!} />}
                   {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
+                </Tooltip>
               );
             })}
           </div>

@@ -1,7 +1,7 @@
 # Topics
 
-**A desktop home for the coding agents you already run.** Every session gets its
-own topic, with its project, its terminal and its browser.
+**A desktop workspace for the coding agents you already run** — editor, diff
+viewer, terminal, browser and a task board, one topic at a time.
 
 Agents run inside Topics instead of one process each, so
 **[200 sessions answering at once fit in 162 MB of RAM](#numbers)**.
@@ -14,9 +14,15 @@ Agents run inside Topics instead of one process each, so
 
 ## What it does
 
-**One topic per thing you are doing.** A topic holds a chat, its project files,
-its Git changes, a terminal and a browser. Switching topic switches all of them
-at once, so you stop rebuilding context every time you change subject.
+**One topic per thing you are doing.** Each holds a chat, a file tree and code
+editor, a Git view with diffs, a terminal and a browser. Switching topic
+switches all of them at once, so you stop rebuilding context every time you
+change subject.
+
+**The browser is part of the tool, not a link that opens elsewhere.** It runs
+inside the topic, an agent can drive it, and you watch the real DOM rather than
+a video of it: text stays sharp and selectable, and it costs a fraction of a
+pixel stream.
 
 **Close the lid and come back.** Sessions survive a restart with their whole
 scrollback, not just the last screen. Most embedded terminals lose everything
