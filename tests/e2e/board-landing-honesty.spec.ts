@@ -380,6 +380,40 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await expect(chip).toHaveAttribute("title", /nessun ramo|Nessun agente/i);
   });
 
+  test("REVIEW-RUMORE: la nota del sistema non copre la parola della consegna", async ({ page }) => {
+    // Segnalato: «gli ultimi commenti che devo da review non hanno senso,
+    // saranno messaggi di sistema». Misurato sulla board vera: 19 card su 22
+    // mostravano in cima «Consegna SENZA anteprima…» o «Anteprima viva pronta
+    // — http://localhost:3400/», cioe' cio' che la macchina scrive a OGNI
+    // ingresso in review, al posto del riassunto di chi ha consegnato.
+    const text = `Riassunto sopra la nota ${Date.now()}`;
+    const res = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text, status: "backlog" },
+    });
+    const task = (await res.json()) as { id: string };
+    createdTasks.push(task.id);
+    // Prima il riassunto di chi consegna...
+    await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}/comments`, {
+      data: { content: "Quattro cose chieste, quattro chiuse. Ecco cosa cambia." },
+    });
+    await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+    // ...poi la nota che il sistema scrive entrando in review (la scrive lui:
+    // qui basta che ci sia, e il PATCH sopra la produce).
+
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    // In cima c'e' la parola della consegna, non il promemoria.
+    await expect(card).toContainText("Quattro cose chieste");
+    await expect(card, "il promemoria dell'anteprima non deve coprire il riassunto")
+      .not.toContainText("Consegna SENZA anteprima");
+  });
+
   test("LANDING-01: la card in Done dichiara «non su main» e nomina il ramo", async ({ page }) => {
     const text = `Non landato ${Date.now()}`;
     await seedDoneTask(page.request, text, {
