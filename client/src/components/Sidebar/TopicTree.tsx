@@ -1141,11 +1141,33 @@ export function TopicTree({
             aria-label={`${item.name} project`}
             data-testid={`project-toggle-${item.name}`}
           >
-            {/* Real project icon when the folder ships a favicon / web-manifest
-                / index.html <link rel=icon> (resolved by /api/projects/icon).
-                Folders without one render nothing — zero footprint, no fake
-                glyph, no monogram (decisione Attilio 2026-07-16). */}
-            <ProjectFavicon path={pp} size={14} />
+            {/* L'icona vera quando la cartella ne porta una (favicon,
+                web-manifest, <link rel=icon>, risolti da /api/projects/icon).
+                Chi non ce l'ha prende un SEGNAPOSTO NEUTRO, non un'icona
+                inventata: la decisione «niente monogrammi» (Attilio, 16/07)
+                vieta di dare a un progetto un'identità che non ha - una
+                lettera, una tessera colorata - e resta intatta. Qui il punto è
+                un altro: la COLONNA del testo.
+                Misurato: il nome di un progetto senza favicon partiva da x=0,
+                quello di un progetto con favicon da x=22. Ventidue pixel fra
+                due righe adiacenti della stessa lista. Segnalato: «le rotte
+                dovevano essere allineate, e metti un'icona ai progetti che non
+                hanno l'icona, come è allineata a quelli della chat».
+                Il segnaposto è un punto piccolo e tenue: occupa lo spazio e non
+                pretende di dire chi sia quel progetto. */}
+            <ProjectFavicon
+              path={pp}
+              size={14}
+              // La SCATOLA è quella dell'icona vera (14px), il punto ci sta
+              // dentro centrato: un segnaposto largo 6 lascerebbe il nome a
+              // x=14 contro i 22 dell'icona, cioè lo stesso difetto più
+              // piccolo. È la scatola che allinea, non il disegno.
+              fallback={
+                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+                  <span className="h-1.5 w-1.5 rounded-full border border-app-text-faint" />
+                </span>
+              }
+            />
             <span className="truncate flex-1">{item.name}</span>
           </button>
           {/* Window-position mini-map: where THIS project's window sits in the
