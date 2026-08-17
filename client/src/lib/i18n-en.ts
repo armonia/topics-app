@@ -272,6 +272,7 @@ const EN = {
   'settings.section.profile': 'Profile',
   'settings.section.devices': 'Devices',
   'settings.section.plan': 'Plan',
+  'board.filter.projectUnknown': 'Not among the open projects: still filterable, but where it lives is unknown.',
   'board.card.systemNote': 'System note',
   'board.card.commentMore': 'Show all',
   'board.card.commentLess': 'Show less',

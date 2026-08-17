@@ -1288,9 +1288,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (shape && shape.ratio > PREVIEW_CARD_MAX_RATIO) {
       return {
         ok: false,
-        reason: `immagine troppo ALTA per una card: ${shape.width}x${shape.height} ha rapporto `
-          + `${shape.ratio.toFixed(2)}, il massimo e' ${PREVIEW_CARD_MAX_RATIO}. `
-          + `Ritagliala o affiancane i pezzi: su una card occuperebbe piu' spazio del testo da leggere.`,
+        // Il `reason` di un rifiuto d'API, letto dall'agente che ha provato ad allegare
+        // l'anteprima: non e' un testo dell'interfaccia. Gli altri tre rifiuti di questa
+        // stessa funzione sono in italiano da sempre, e mescolare le due lingue nella
+        // stessa risposta sarebbe peggio di entrambe.
+        reason: `immagine troppo ALTA per una card: ${shape.width}x${shape.height} ha rapporto ` // allow-italian: reason d'API, non UI
+          + `${shape.ratio.toFixed(2)}, il massimo e' ${PREVIEW_CARD_MAX_RATIO}. ` // allow-italian: reason d'API, non UI
+          + `Ritagliala o affiancane i pezzi: su una card occuperebbe piu' spazio del testo da leggere.`, // allow-italian: reason d'API, non UI
       };
     }
     return { ok: true, value: raw };
