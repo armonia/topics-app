@@ -35,8 +35,21 @@ import { mkdirSync } from "fs";
 import { join } from "path";
 
 const BASE = process.argv[2] ?? "https://127.0.0.1:39520";
-const OUT = join(process.cwd(), "landing", "public", "img");
+// DOVE SCRIVE, e perche' non sulle immagini pubblicate.
+//
+// Due volte uno scatto nuovo e' uscito PEGGIORE di quello gia' su GitHub: la
+// prima con gli agenti a lavoro finito e un riquadro d'errore al posto dei
+// cronometri, la seconda con tre card «non consegnato». L'app e' viva, quindi
+// ogni ri-scatto e' un'immagine NUOVA, non la stessa immagine piu' bella.
+//
+// Percio' il default scrive in una cartella di lavoro e le immagini vive si
+// toccano solo con `--publish`, dopo aver GUARDATO cosa e' uscito.
+const PUBLISH = process.argv.includes("--publish");
+const OUT = PUBLISH
+  ? join(process.cwd(), "landing", "public", "img")
+  : join(process.cwd(), "landing", "public", "img", "_new");
 mkdirSync(OUT, { recursive: true });
+if (!PUBLISH) console.log("scrivo in _new/ — guarda le immagini, poi rilancia con --publish\n");
 
 // L'app: 1440x900 e' la dimensione a cui una schermata resta leggibile dentro
 // la colonna di un README. Attorno, 64px di aria per far respirare l'ombra.
@@ -144,6 +157,27 @@ if (await board.count()) {
   await shoot("readme-board.jpg");
 } else {
   console.warn("tab Board non trovato: nessuna seconda immagine");
+}
+
+// 3. La sidebar di progetto (file, Git changes), per la landing. Le immagini
+// sul sito mostrano ancora un prodotto finto («acme-api»): finche' ci sono, le
+// due facce pubbliche del progetto si contraddicono.
+//
+// Si passa dal topic, non dalla board: «Git changes» vive nella sidebar di
+// progetto, e quella sidebar esiste solo dentro un topic con un progetto
+// collegato. Cercare un tab «Git» non trovava niente.
+const topicAgain = app().getByText("topics-app", { exact: false }).first();
+if (await topicAgain.count()) {
+  await topicAgain.click();
+  await page.waitForTimeout(2500);
+  const git = app().getByText(/git changes/i).first();
+  if (await git.count()) {
+    await git.click();
+    await page.waitForTimeout(3000);
+    await shoot("landing-git.jpg");
+  } else {
+    console.warn("«Git changes» non trovato: nessuna immagine git per la landing");
+  }
 }
 
 await browser.close();
