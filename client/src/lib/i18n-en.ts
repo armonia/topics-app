@@ -633,6 +633,8 @@ const EN = {
   'profile.banner.label': 'Banner',
   'profile.banner.open': 'Open (dark)',
   'profile.banner.light': 'Light',
+  'profile.banner.copy': 'Copy for the README',
+  'profile.banner.copied': 'Copied',
   'profile.banner.hint': 'An SVG with these numbers, to save and drop into a README.',
   // ── Discord: what this app says about you, and in how much detail.
   'discord.title': 'Discord status',
