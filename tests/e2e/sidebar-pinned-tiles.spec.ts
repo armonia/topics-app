@@ -164,11 +164,21 @@ test.describe("Sidebar — tessere fissate", () => {
     // sola formulazione che non dipende da quanti ornamenti ci sono attorno.
     const a = await createTopic(request, `E2E-Centro-A-${Date.now()}`);
     const b = await createTopic(request, `E2E-Centro-B-${Date.now()}`);
-    const c = await createTopic(request, `E2E-Centro-C-${Date.now()}`);
-    created.push(a.id, b.id, c.id);
+    created.push(a.id, b.id);
+    // UN PROGETTO SENZA FAVICON: il caso che contiene il difetto.
+    //
+    // Le chat un glifo ce l'hanno sempre (`TYPE_ICONS`), quindi tre chat
+    // misuravano solo tessere con qualcosa dentro il contenitore dell'icona.
+    // `project` NON e' in quella mappa: una cartella senza favicon rende il
+    // contenitore VUOTO, largo zero ma con il suo `gap` ancora nel flusso -
+    // ed e' li' che il 17/08 il nome stava a 16px da sinistra contro 8 a
+    // destra. Verificato: senza questa riga il sabotaggio resta verde.
+    const senzaIcona = `/tmp/e2e-centro-nudo-${Date.now()}`;
+    fs.mkdirSync(senzaIcona, { recursive: true });
     // Tre su UNA riga: e' cosi' che la tessera diventa stretta abbastanza da
     // passare in forma quadrata, che e' la forma in cui il centraggio esiste.
-    await setPins(page, [a.id, b.id, c.id], [[a.id, b.id, c.id]]);
+    const chiaveNuda = `project:${senzaIcona}`;
+    await setPins(page, [a.id, b.id, chiaveNuda], [[a.id, b.id, chiaveNuda]]);
     await gotoSidebar(page);
 
     // L'INCHIOSTRO, non le scatole. Misurare i box dei figli non distingue il
