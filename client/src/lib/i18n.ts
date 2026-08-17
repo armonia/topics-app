@@ -388,6 +388,12 @@ const IT: Dict = {
   'settings.section.profile': 'Profilo',
   'settings.section.devices': 'Dispositivi',
   'settings.section.plan': 'Piano',
+  // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
+  // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
+  'board.card.inPlace': 'Lavorata qui',
+  'board.card.inPlaceTitle': "Un agente ha lavorato sul checkout condiviso, non su un ramo suo. I commit ci sono ma stanno su main insieme a quelli degli altri, quindi non si puo' dire quali siano di questa card: la misura manca per questo, non perche' non sia stato fatto niente.",
+  'board.card.movedByHand': 'Spostata a mano',
+  'board.card.movedByHandTitle': "Nessun agente e nessun ramo: questa card l'ha portata in review una persona. Quello che c'e' da rivedere sta nei commenti, non in un diff.",
   'board.settings.close': 'Chiudi le impostazioni della board',
   // Il rinvio al «▾ accanto al titolo» è sparito da qui: era un tooltip, e un
   // tooltip su un telefono non esiste. Il tetto di agent in parallelo ora si

@@ -3,7 +3,8 @@ import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, FileDiff, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
+import { reviewEvidence } from '../../lib/reviewEvidence';
+import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, FileDiff, GitBranch, Hand, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -536,6 +537,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const deliveryStat = task.status === 'review' && task.deliveryFilesChanged != null
     ? task.deliveryFilesChanged
     : null;
+  // COME E' STATO LAVORATO, quando una misura non c'e'.
+  //
+  // Misurato il 17/08: 33 card in review, 31 senza fotografia di consegna, 30
+  // senza nemmeno una sessione. Tutte mostravano lo STESSO niente, e quel
+  // niente voleva dire due cose opposte: «ci ha lavorato un agente sul
+  // checkout condiviso, i commit ci sono ma stanno su main e non sono
+  // attribuibili» oppure «questa card l'ha trascinata qui una mano».
+  // Segnalato: «quelli in review sembrano solo i task spostati, ma una volta
+  // in review dovrei vedere aggiornamenti, no?».
+  //
+  // Non si inventa una misura che non puo' esistere: si dice perche' non c'e'.
+  const evidenza = reviewEvidence(task);
+  const lavoroInPlace = evidenza.kind === 'in-place';
+  const spostataAMano = evidenza.kind === 'manual';
   // DA QUANTO ASPETTA UNA RISPOSTA. La data di aggiornamento in review era
   // nascosta apposta - e faceva bene, perche' `updatedAt` si muove a ogni
   // commento e diceva «ora» su una card ferma da giorni. Questo invece e'
@@ -576,7 +591,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || task.labels.length);
 
   return (
     <div
@@ -951,6 +966,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
               <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
             </span>
+          )}
+          {lavoroInPlace && (
+            <span
+              data-testid="card-worked-in-place"
+              title={tr('board.card.inPlaceTitle')}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
+            ><GitBranch className="h-3 w-3 shrink-0" /> {tr('board.card.inPlace')}</span>
+          )}
+          {spostataAMano && (
+            <span
+              data-testid="card-moved-by-hand"
+              title={tr('board.card.movedByHandTitle')}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
+            ><Hand className="h-3 w-3 shrink-0" /> {tr('board.card.movedByHand')}</span>
           )}
           {checksGreen && (
             <span
