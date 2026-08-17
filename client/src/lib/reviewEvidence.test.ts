@@ -68,4 +68,52 @@ describe('cosa mostra una card in review', () => {
     const e = reviewEvidence({ ...base, status: 'in_progress', assignedTopicId: 't1' });
     expect(e.kind).toBe('none');
   });
+
+  /**
+   * IL QUARTO CASO, che si travestiva da terzo.
+   *
+   * Misurato il 17/08 su `5cf58e29`: agente legato, nessun ramo, zero file,
+   * ogni turno morto su un errore del provider. `reviewEvidence` rispondeva
+   * `in-place`, cioe' la card mostrava «Lavorata qui» col tooltip che promette
+   * commit su main non attribuibili. Il lavoro pero' non c'era proprio, quindi
+   * quella frase mandava a cercare qualcosa che non esiste: «non capisco che
+   * succede».
+   */
+  describe("niente consegnato non e' «lavorata qui»", () => {
+    const vuota = { ...base, assignedTopicId: 't1', deliveredBy: 'system' };
+
+    test('il sistema l\'ha portata qui senza ramo ne file: e vuota, e lo dice', () => {
+      const e = reviewEvidence(vuota);
+      expect(e.kind).toBe('empty');
+      expect(e.isolated).toBe(false);
+    });
+
+    test('lo stesso task consegnato DALL\'AGENT resta «lavorata qui»', () => {
+      // Il discriminante e' chi ha dichiarato finito, non i campi del diff: un
+      // agente che consegna da solo dice che il lavoro c'e' anche senza misura.
+      expect(reviewEvidence({ ...vuota, deliveredBy: null }).kind).toBe('in-place');
+      expect(reviewEvidence({ ...vuota, deliveredBy: 'agent' }).kind).toBe('in-place');
+    });
+
+    test('con un RAMO la misura vince: il vuoto non copre una consegna vera', () => {
+      // Una consegna di sistema puo' comunque avere prodotto un ramo (turno
+      // finito a meta' dopo dei commit): li' c'e' un diff da guardare.
+      expect(reviewEvidence({ ...vuota, deliveryBranch: 'topics/x', deliveryFilesChanged: 4 }).kind).toBe('measured');
+      expect(reviewEvidence({ ...vuota, deliveryBranch: 'topics/x' }).kind).toBe('unmeasured');
+    });
+
+    test('senza agente resta «spostata a mano»: nessun turno e nessun turno morto', () => {
+      expect(reviewEvidence({ ...base, deliveredBy: 'system' }).kind).toBe('manual');
+    });
+
+    test('i QUATTRO casi restano distinti', () => {
+      const tipi = new Set([
+        reviewEvidence({ ...base, deliveryBranch: 'topics/x', deliveryFilesChanged: 3 }).kind,
+        reviewEvidence({ ...base, assignedTopicId: 't1' }).kind,
+        reviewEvidence(base).kind,
+        reviewEvidence(vuota).kind,
+      ]);
+      expect(tipi.size, 'quattro situazioni diverse, quattro esiti diversi').toBe(4);
+    });
+  });
 });

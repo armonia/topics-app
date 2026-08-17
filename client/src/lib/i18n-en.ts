@@ -276,6 +276,8 @@ const EN = {
   'board.card.systemNote': 'System note',
   'board.card.commentMore': 'Show all',
   'board.card.commentLess': 'Show less',
+  'board.card.nothingDelivered': 'Nothing delivered',
+  'board.card.nothingDeliveredTitle': "The agent produced nothing: no branch, no files touched, and the system brought it here after the retries ran out. There is no diff to look at. The thread says how the last turn ended: send it forward and it restarts, or take it over yourself.",
   'board.card.inPlace': 'Worked here',
   'board.card.inPlaceTitle': "An agent worked on the shared checkout, not on its own branch. The commits exist but sit on main among everyone else's, so they cannot be attributed to this card: that is why the measure is missing.",
   'board.card.movedByHand': 'Moved by hand',

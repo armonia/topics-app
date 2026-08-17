@@ -29,6 +29,10 @@ export type ReviewEvidenceKind =
   | 'in-place'
   /** Nessun ramo, nessuna sessione: la card è stata spostata a mano. */
   | 'manual'
+  /** Un agente c'era, ma non ha prodotto NIENTE: niente ramo, niente file, e
+   *  ce l'ha portata qui il sistema a budget finito. Non e' `in-place` — li'
+   *  il lavoro esiste e non e' attribuibile; qui non esiste. */
+  | 'empty'
   /** Non è in review: la domanda non esiste. */
   | 'none';
 
@@ -44,6 +48,7 @@ export function reviewEvidence(task: {
   deliveryBranch?: string | null;
   deliveryFilesChanged?: number | null;
   assignedTopicId?: string | null;
+  deliveredBy?: string | null;
 }): ReviewEvidence {
   if (task.status !== 'review') return { kind: 'none', isolated: false };
   if (task.deliveryBranch) {
@@ -51,9 +56,32 @@ export function reviewEvidence(task: {
       ? { kind: 'measured', isolated: true }
       : { kind: 'unmeasured', isolated: true };
   }
-  // Nessun ramo. La sessione distingue «ci ha lavorato qualcuno, qui dentro»
-  // da «questa card in review ce l'ha messa una mano».
-  return task.assignedTopicId
-    ? { kind: 'in-place', isolated: false }
-    : { kind: 'manual', isolated: false };
+  // ── NIENTE RAMO E NIENTE FILE, PORTATA QUI DAL SISTEMA: NON E' «in-place» ──
+  //
+  // `in-place` dice una cosa precisa e rassicurante: «il lavoro c'e', sta su
+  // main, non si puo' attribuire». Su una card dove l'agent non ha prodotto
+  // nulla quella frase e' falsa, e manda a cercare commit che non esistono.
+  //
+  // Misurato il 17/08 su `5cf58e29`: nessun ramo, zero file, ogni turno morto
+  // su un errore del provider — e la card mostrava «Lavorata qui», con il
+  // tooltip che prometteva commit su main. Chi guarda non poteva saperlo:
+  // «non capisco che succede».
+  //
+  // Il discriminante e' CHI l'ha portata in review. Un agente che consegna da
+  // solo dichiara di aver finito, e allora il lavoro c'e' anche senza misura;
+  // `delivered_by = 'system'` dice l'opposto — nessuno ha dichiarato niente, la
+  // card e' arrivata qui perche' il budget e' finito.
+  //
+  // Serve pero' che un agente ci sia STATO: senza sessione non c'e' nessun
+  // turno morto da raccontare, la card l'ha spostata una mano ed e' `manual`.
+  // Quel caso viene prima, e l'ordine non e' cosmetico: `delivered_by` puo'
+  // dire `system` anche su una card che nessun agente ha mai toccato (uno
+  // spazzino che chiude un giro), e li' «l'agent non ha prodotto niente»
+  // parlerebbe di un agente che non e' mai esistito.
+  if (!task.assignedTopicId) return { kind: 'manual', isolated: false };
+  if (task.deliveredBy === 'system') return { kind: 'empty', isolated: false };
+  // Nessun ramo, ma un agente c'e' ed e' stato LUI a dichiarare finito: il
+  // lavoro esiste, sta su main insieme a quello degli altri e non si puo'
+  // attribuire. Il silenzio della misura e' onesto, e va detto.
+  return { kind: 'in-place', isolated: false };
 }

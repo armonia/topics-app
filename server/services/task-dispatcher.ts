@@ -2354,11 +2354,28 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const fresh = hasFreshAgentComment(cur);
       const recovered = fresh ? null : recoverAgentWords(cur);
       if (cur.assignedTopicId && (fresh || recovered || needsHuman(end))) {
+        // ── «VALUTA COSA HA PRODOTTO» SU UNA CARD DOVE NON C'E' NIENTE ───────
+        //
+        // La frase era una sola per due situazioni opposte, e su quella
+        // sbagliata mandava a cercare un lavoro che non esiste. Misurato il
+        // 17/08 su `5cf58e29`: nessun ramo, zero file toccati, ogni turno morto
+        // su un errore del provider — e la card chiedeva di valutare la
+        // consegna. Segnalato: «non capisco che succede».
+        //
+        // La differenza la sanno le colonne, non il testo: un turno che ha
+        // prodotto qualcosa lascia un ramo o dei file cambiati. Quando non c'e'
+        // ne' l'uno ne' gli altri, la card lo DICE e nomina la sola mossa che
+        // ha senso, invece di chiedere una valutazione impossibile.
+        const nienteDaVedere = !cur.deliveryBranch && !cur.deliveryFilesChanged;
         const base = needsHuman(end)
           ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo: ` +
             "l'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
-          : `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
-            "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
+          : nienteDaVedere
+            ? `Nessun lavoro consegnato: ${cur.dispatchAttempts} turni, nessun ramo e nessun file toccato. ` +
+              `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}. ` +
+              "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
+            : `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
+              "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
         const reason = recovered
           ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
           : base;

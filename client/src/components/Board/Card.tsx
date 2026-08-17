@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Cpu, FileDiff, GitBranch, Hand, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Cpu, FileDiff, GitBranch, Hand, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -19,7 +19,7 @@ import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
-import { usableQuestionOptions } from './taskChoices';
+import { taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
@@ -414,19 +414,52 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Answering a question re-kicks the same agent tab (server routes reject →
   // dispatcher.resume), so the answer is a reject carrying the human's choice.
   const answer = (text: string) => review('reject', text);
-  // Il campo libero della card in review: con un agente dietro è una RISPOSTA
-  // (riparte lui); senza, è un commento e basta.
-  // Un `reject` chiuderebbe una revisione umana che nessuno ha chiesto di
-  // rifiutare.
-  //
-  // `quiet` è il secondo gesto: la nota si salva sulla card e basta, l'agent
-  // non riparte e il task resta in Review. Serve perché finora scrivere qui
-  // RIMANDAVA indietro la consegna senza dirlo, e chi voleva solo annotare
-  // "verificata" risvegliava un agente su un lavoro finito.
-  const replyFree = (opts?: { quiet?: boolean }) => {
+  /**
+   * INVIO NEL CAMPO = LA SCELTA PRINCIPALE, con dentro quello che hai scritto.
+   *
+   * Il campo non ha piu' un bottone suo: aveva «Rimanda» (gemello esatto di
+   * «Rimandalo avanti») e «Nota» (un commento che non risveglia nessuno, cioe'
+   * l'unica voce di una colonna di decisioni che non decideva niente). Tolti
+   * tutti e due, la tastiera non puo' restare l'unica strada per un gesto che
+   * i bottoni non offrono: farebbe la cosa peggiore, cioe' una scorciatoia
+   * invisibile con un effetto suo.
+   *
+   * Quindi Invio fa ESATTAMENTE il primo bottone della riga qui sopra — quello
+   * che la card raccomanda: «Rimandalo avanti» su una consegna mai arrivata,
+   * «Landa su main» su una col ramo. La logica di QUALE sia non si riscrive: si
+   * chiede a `taskChoices`, la stessa funzione pura che disegna quei bottoni,
+   * cosi' tastiera e click non possono divergere.
+   *
+   * Fuori dalla review (nessuna scelta da fare) resta quello che era: un
+   * commento, che sulla card in corso l'agent riceve al turno dopo.
+   */
+  const primaryChoiceWithText = async () => {
     const v = freeText.trim();
-    if (!v) return;
-    if (isAgentReview && opts?.quiet !== true) void answer(v); else void steer(v, opts);
+    if (!v || busy) return;
+    const scelte = taskChoices(task, { t: tr });
+    const prima = scelte[0];
+    // Nessuna scelta (o una che vuole solo il fuoco nel campo, dove siamo gia'):
+    // allora il testo e' una nota, ed e' l'unica cosa sensata da farne.
+    if (!prima || prima.needsText) { void steer(v, { quiet: true }); return; }
+    setBusy(true); clearError();
+    try {
+      // `send-back` porta con se' l'indicazione, come fa il bottone.
+      if (prima.id === 'send-back') await boardApi.review(task.projectId, task.id, 'reject', v);
+      else {
+        // Le altre non hanno un campo dove mettere una frase: la si lascia
+        // sulla card PRIMA di agire, cosi' il perche' resta scritto accanto
+        // all'effetto invece di andare perso premendo Invio.
+        await boardApi.comment(task.projectId, task.id, v, { quiet: true });
+        if (prima.id === 'land') await boardApi.land(task.projectId, task.id);
+        else if (prima.id === 'accept') await boardApi.review(task.projectId, task.id, 'approve');
+        else if (prima.id === 'take-over') await boardApi.update(task.projectId, task.id, { status: 'in_progress', assignee: 'io' });
+        else if (prima.id === 'unblock') await boardApi.update(task.projectId, task.id, { blockedByTaskId: null, status: 'todo' });
+        else if (prima.id === 'stop') await boardApi.stop(task.projectId, task.id);
+      }
+      setThread(null); setFreeText(''); onRefetch();
+    } catch (e) {
+      fail(e, tr('board.card.actionFailed', { action: prima.label }));
+    } finally { setBusy(false); }
   };
   const archive = async () => {
     // Archiviare un task con l'agent al lavoro gli taglia il turno (il server lo
@@ -556,6 +589,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const evidenza = reviewEvidence(task);
   const lavoroInPlace = evidenza.kind === 'in-place';
   const spostataAMano = evidenza.kind === 'manual';
+  // NIENTE CONSEGNATO, e la card lo dice dalla colonna. Prima questa situazione
+  // portava il chip «Lavorata qui», che promette commit su main: su una card
+  // dove l'agent non ha prodotto nulla e' una bugia che manda a cercare un
+  // lavoro inesistente. Vedi `lib/reviewEvidence.ts`.
+  const senzaConsegna = evidenza.kind === 'empty';
   // DA QUANTO ASPETTA UNA RISPOSTA. La data di aggiornamento in review era
   // nascosta apposta - e faceva bene, perche' `updatedAt` si muove a ogni
   // commento e diceva «ora» su una card ferma da giorni. Questo invece e'
@@ -596,7 +634,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || task.labels.length);
 
   return (
     <div
@@ -983,6 +1021,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
             </span>
           )}
+          {senzaConsegna && (
+            <span
+              data-testid="card-nothing-delivered"
+              title={tr('board.card.nothingDeliveredTitle')}
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><CircleSlash className="h-3 w-3 shrink-0" /> {tr('board.card.nothingDelivered')}</span>
+          )}
           {lavoroInPlace && (
             <span
               data-testid="card-worked-in-place"
@@ -1211,16 +1256,32 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               pendingText={() => freeText}
             />
           </div>
-          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {/* IL CAMPO DA' UN'INDICAZIONE ALLE SCELTE QUI SOPRA. Non ha un
+              bottone suo, e non e' una mancanza: e' cio' che resta dopo aver
+              tolto due doppioni.
+
+              «Rimanda» se n'e' andato perche' chiamava `review('reject', testo)`
+              — la stessa identica cosa di «Rimandalo avanti» due centimetri
+              sopra, che da quando porta `pendingText` si prende pure lo stesso
+              testo. «Nota» lo segue per una ragione diversa e piu' semplice: un
+              commento che non risveglia nessuno non e' una decisione di review,
+              e in una colonna dove OGNI cosa e' una decisione era l'unica voce
+              che non faceva avanzare niente. Segnalato: «se uno vuole fare una
+              nota lo mette il backlog».
+
+              Il gesto quieto NON sparisce dal prodotto: vive nel drawer, dove
+              si scrive per esteso e si vede il thread (`task-reply-quiet-note`).
+              Qui la card resta quello che deve essere in review: un elenco di
+              uscite, e una riga per dire perche'. */}
+          <div onClick={(e) => e.stopPropagation()}>
             <input
               ref={freeTextRef}
               value={freeText} disabled={busy}
               onChange={(e) => setFreeText(e.target.value)}
-              // Invio = il bottone che gli sta accanto, e adesso quello e'
-              // «Nota». Prima lanciava il gesto rumoroso, che era il gemello di
-              // «Rimandalo avanti»: chi batteva Invio per annotare risvegliava
-              // un agente su un lavoro finito senza aver premuto niente.
-              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); replyFree({ quiet: isAgentReview }); } }}
+              // Invio = la scelta principale della riga sopra, con questo testo
+              // gia' dentro. E' la stessa cosa che fa il click, quindi la
+              // tastiera non e' una seconda strada: e' la stessa.
+              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); void primaryChoiceWithText(); } }}
               // `{sendBack}` va INTERPOLATO col nome vero del bottone qui
               // sopra: su una card che nessuno ha consegnato non si chiama
               // «Rimanda indietro» ma «Rimandalo avanti», e un placeholder che
@@ -1228,40 +1289,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               placeholder={isAgentReview
                 ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
                 : tr('board.card.commentPlaceholder')}
-              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
+              className="w-full rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
-            {/* UN GESTO SOLO QUI, e non e' un'amputazione: e' la fine di un
-                doppione.
-
-                «Rimanda» accanto al campo chiamava `review('reject', testo)` —
-                LA STESSA IDENTICA COSA di «Rimandalo avanti» nella riga qui
-                sopra, che da quando porta con se' `pendingText` si prende pure
-                lo stesso testo dal campo. Due bottoni, una chiamata, a due
-                centimetri di distanza: chi guarda non puo' sapere che sono la
-                stessa porta, quindi esita davanti a entrambe. Segnalato: «e'
-                ripetuto due volte».
-
-                Il drawer questo doppione lo aveva gia' tolto, e per questa
-                identica ragione; la card era rimasta indietro.
-
-                «Nota» invece RESTA, ed e' l'unica cosa che questa zona sa fare
-                da sola: salva la riga sulla card senza risvegliare l'agent.
-                Nessuna scelta della riga sopra fa questo — toglierla lascerebbe
-                senza gesto chi vuole solo annotare «verificata», che e'
-                esattamente il difetto che quel bottone e' nato per chiudere.
-                Su una card senza agente dietro non c'e' niente da risvegliare:
-                li' il gesto e' uno solo e si chiama «Commenta». */}
-            <button
-              disabled={busy || !freeText.trim()}
-              onClick={() => replyFree({ quiet: isAgentReview })}
-              title={isAgentReview ? tr('board.task.quietNoteTitle') : tr('board.card.comment')}
-              data-testid="card-reply-quiet-note"
-              className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-            >
-              {isAgentReview
-                ? <><StickyNote className="h-3.5 w-3.5" /><span>{tr('board.task.quietNote')}</span></>
-                : <Send className="h-3.5 w-3.5" />}
-            </button>
           </div>
         </div>
       )}
