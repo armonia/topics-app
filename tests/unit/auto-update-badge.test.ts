@@ -56,44 +56,28 @@ describe("in automatico l'app non chiede di aggiornare a mano", () => {
   });
 });
 
-describe("il badge «auto» è solo l'icona", () => {
-  it("la parola «auto» non è più stampata accanto al glifo", () => {
-    const i = BARRA.indexOf('data-testid="auto-update-badge"');
-    expect(i, "il badge deve esistere").toBeGreaterThan(0);
-    // Il CONTENUTO dello span, non il suo tag di apertura: si parte dal `>` che
-    // chiude l'apertura, altrimenti gli attributi (che contengono la parola
-    // «auto» di proposito, in aria-label e title) finiscono nel testo misurato.
-    const apertura = BARRA.indexOf(">", BARRA.indexOf("title=", i));
-    const corpo = BARRA.slice(apertura + 1, BARRA.indexOf("</span>", apertura));
-    expect(corpo).toContain("RefreshCw");
-    // Il TESTO VISIBILE, non il sorgente: `aria-label` e `title` contengono la
-    // parola «auto» di proposito, quindi cercarla nel corpo grezzo darebbe un
-    // rosso permanente. Si guarda cosa resta togliendo attributi, tag e
-    // commenti — cioè quello che finisce sullo schermo.
-    //
-    // La prima stesura usava una regex `>\s*auto\s*<` e NON ha morso quando ho
-    // rimesso la parola: `auto` era su una riga sua, fra il glifo e la chiusura,
-    // quindi fra `>` e `<` c'era anche il tag dell'icona. Un test che non ho
-    // visto fallire non è un test.
-    const testoVisibile = corpo
-      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")   // commenti JSX
-      .replace(/\/\/[^\n]*/g, "")             // commenti di riga
-      .replace(/<[^>]*>/g, "")                // tag (con i loro attributi)
-      .replace(/\{[^}]*\}/g, "")               // espressioni JS
-      .trim();
-    expect(testoVisibile, "la parola «auto» è tornata accanto all'icona").toBe("");
+describe("la riga di stato non porta piu' il badge ne' la data", () => {
+  it("il badge «auto» non c'e' piu' affatto", () => {
+    // Prima era stato ridotto alla sola icona, poi tolto: segnalato che un
+    // simbolo il cui significato e' «non devi fare niente» e' un simbolo che si
+    // guarda una volta e poi mai piu'. La sua conseguenza pratica ora si vede
+    // da sola - in automatico l'avviso di nuova versione non compare proprio.
+    expect(BARRA).not.toContain('data-testid="auto-update-badge"');
   });
 
-  it("l'icona da sola non è muta: resta un nome per chi non la vede", () => {
-    // Togliere la parola la toglie anche a uno screen reader. `aria-label` è la
-    // differenza fra «più pulito» e «meno accessibile», e costa una riga.
-    const i = BARRA.indexOf('data-testid="auto-update-badge"');
-    // Qui invece serve il tag INTERO: sono gli attributi che si stanno
-    // verificando.
-    const corpo = BARRA.slice(i, BARRA.indexOf("</span>", i));
-    expect(corpo).toContain("aria-label");
-    expect(corpo).toContain("statusBar.autoUpdate");
-    // E il senso pieno resta nel tooltip, dov'è il senso pieno di tutta la barra.
-    expect(corpo).toContain("statusBar.autoUpdateTitle");
+  it("la data dell'ultimo aggiornamento e' scesa nel dropdown", () => {
+    // In riga di stato competeva per larghezza con fps, memoria e versione,
+    // che si guardano di continuo, per rispondere a una domanda che si fa una
+    // volta ogni tanto. Nel pannello della versione ci sta insieme al numero
+    // di build, che e' il posto dove quella domanda si va a fare.
+    expect(BARRA).not.toContain("buildIsRecent");
+    const POPOVER_SRC = readFileSync(
+      resolve(RADICE, "client/src/components/Sidebar/VersionPopover.tsx"), "utf8",
+    );
+    expect(POPOVER_SRC).toContain('data-testid="version-built-at"');
+    // E porta il tempo TRASCORSO accanto alla data: una data assoluta dice
+    // quando, il tempo trascorso dice se e' vecchia - ed e' la domanda vera.
+    expect(POPOVER_SRC).toContain("buildAgo");
+    expect(IT).toContain("version.agoMin");
   });
 });
