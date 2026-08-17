@@ -46,6 +46,34 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     }
   });
 
+  test("SET-BANNER: il banner da mettere su GitHub si copia gia' scritto", async ({ page, context }) => {
+    // «Ci deve potere essere il banner da mettere sul mio profilo di github.»
+    // Il banner c'era gia' (/api/profile/banner.svg, SVG vero con i numeri
+    // veri), ma l'unico gesto offerto era «apri»: poi tocca salvare, cercare
+    // la sintassi del markdown e ricordarsi l'URL. La riga da incollare e' una
+    // sola e la sa gia' l'app.
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await page.keyboard.press("Meta+Comma");
+    const pannello = page.locator('[data-testid="settings-panel"]');
+    await expect(pannello).toBeVisible({ timeout: 10000 });
+    await pannello.locator("nav button", { hasText: /^Profilo$/ }).click();
+
+    const copia = pannello.getByTestId("profile-banner-copy");
+    await expect(copia, "deve esserci un gesto per copiare il banner").toBeVisible({ timeout: 10000 });
+    await copia.click();
+
+    // Cio' che finisce negli appunti dev'essere markdown VALIDO e puntare al
+    // banner: un bottone che copia una stringa sbagliata e' peggio che non
+    // averlo, perche' il difetto si scopre incollandolo su GitHub.
+    const appunti = await page.evaluate(() => navigator.clipboard.readText());
+    expect(appunti, `negli appunti c'e' "${appunti}"`).toMatch(/^!\[[^\]]*\]\(https?:\/\/[^)]*\/api\/profile\/banner\.svg[^)]*\)$/);
+
+    // E il gesto lo dice: senza conferma non si sa se ha funzionato.
+    await expect(copia).toHaveText(/Copiato/, { timeout: 3000 });
+  });
+
   test("SET-ORG: le organizzazioni si trovano dalle impostazioni", async ({ page }) => {
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });

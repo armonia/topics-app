@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { profileApi, type ProfileStats } from '../../lib/api';
+import { copyText } from '../../lib/clipboard';
 
 /**
  * LE TUE STATISTICHE: quanto lavoro è passato davvero di qui.
@@ -60,6 +61,7 @@ export function ProfileStatsSection() {
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [nome, setNome] = useState<string | null>(null);
   const [errore, setErrore] = useState(false);
+  const [copiato, setCopiato] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -162,6 +164,26 @@ export function ProfileStatsSection() {
               >
                 {t('profile.banner.light')}
               </a>
+              {/* IL MARKDOWN GIA' SCRITTO, non le istruzioni per scriverlo.
+                  Il suggerimento diceva «da salvare e mettere in un README»:
+                  cioe' apri, salva, cerca la sintassi, ricordati l'URL. La
+                  riga che serve e' una sola, e la sa gia' l'app. Segnalato:
+                  «ci deve potere essere il banner da mettere sul mio profilo
+                  di github». */}
+              <button
+                type="button"
+                data-testid="profile-banner-copy"
+                onClick={async () => {
+                  const url = `${window.location.origin}/api/profile/banner.svg${nome ? `?name=${encodeURIComponent(nome)}` : ''}`;
+                  setCopiato(await copyText(`![Topics](${url})`));
+                  // Torna com'era da solo: un «copiato» che resta acceso
+                  // diventa un'etichetta e smette di dire che e' successo ORA.
+                  setTimeout(() => setCopiato(false), 2000);
+                }}
+                className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+              >
+                {copiato ? t('profile.banner.copied') : t('profile.banner.copy')}
+              </button>
               <span className="text-[10.5px] text-app-text-muted">{t('profile.banner.hint')}</span>
             </div>
           </>

@@ -820,7 +820,9 @@ const IT: Dict = {
   'profile.banner.label': 'Banner',
   'profile.banner.open': 'Apri (scuro)',
   'profile.banner.light': 'Chiaro',
-  'profile.banner.hint': 'SVG con questi numeri, da salvare e mettere in un README.',
+  'profile.banner.copy': 'Copia per il README',
+  'profile.banner.copied': 'Copiato',
+  'profile.banner.hint': 'SVG con questi numeri, sempre aggiornato: il link va nel README, non il file.',
   // ── Discord: cosa dice di te questa app, e con quanto dettaglio.
   'discord.title': 'Stato su Discord',
   'discord.blurb': 'Topics può mostrare sul tuo profilo Discord cosa sta lavorando. I numeri sono quelli esatti di questa installazione, non una stima sui processi.',
