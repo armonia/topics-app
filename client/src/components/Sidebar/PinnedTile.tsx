@@ -475,7 +475,18 @@ export function PinnedTile({
         {expandable && <ExpandChevron expanded={expanded} />}
       </span>
 
-      <span className="relative flex flex-shrink-0 items-center justify-center">
+      {/* IL CONTENITORE DELL'ICONA SPARISCE QUANDO NON C'E' UN'ICONA.
+          Un riquadro largo ZERO non occupa spazio, ma il `gap-2` della riga
+          SI': lo spazio si mette fra due figli, e un figlio vuoto e' comunque
+          un figlio. Misurato su una tessera stretta senza icona: 16px di aria
+          a sinistra contro 8 a destra, cioe' il nome fuori centro di 4 - lo
+          stesso difetto dello slot del chevron, un elemento piu' in la'.
+          `hidden` e non `w-0`: toglie il figlio dal flusso, e con lui il suo
+          gap. Il segnaposto mentre la sonda gira resta, perche' li' un
+          ingombro c'e' e serve (tiene il posto che l'icona avra'). */}
+      <span className={`relative flex-shrink-0 items-center justify-center ${
+        hasRealIcon || Glyph || iconProbing ? 'flex' : 'hidden'
+      }`}>
         {hasRealIcon
           ? <ProjectFavicon path={projectPath} size={18} />
           : Glyph
