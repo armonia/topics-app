@@ -1,5 +1,5 @@
 /**
- * `/Users/zorahrel/Projects/topics-app` → `~/Projects/topics-app`.
+ * `/Users/tizio/Projects/topics-app` → `~/Projects/topics-app`.
  *
  * Nel tooltip di un filtro il percorso è la riga che distingue due progetti
  * chiamati uguale, ma i primi 16 caratteri sono gli stessi per tutti e
