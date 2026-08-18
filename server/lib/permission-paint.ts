@@ -11,6 +11,8 @@
  * Chi chiama resta responsabile degli effetti (l'alias, la scrittura, il frame WS).
  */
 
+import { decodeCol } from "../../shared/message-blob";
+
 /** L'ultima riga di `messages` per questa sessione, coi due campi che contano. */
 export interface PermissionPaintRow {
   tool_calls?: string | null;
@@ -90,7 +92,7 @@ export function decidePermissionPaint(
     // Nessuna rete di protezione sulla FORMA: una `tool_calls` che non è un
     // array cade nel catch qui sotto, cioè in «ridipingi» — la stessa uscita
     // che aveva prima dell'estrazione.
-    const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string; status?: string }[]) : [];
+    const calls = row?.tool_calls ? (JSON.parse(decodeCol(row.tool_calls) ?? "null") as { id?: string; name?: string; status?: string }[]) : [];
     if (!calls.some((c) => c?.id === toolUseId)) {
       const byName = [...calls]
         .reverse()
@@ -101,11 +103,11 @@ export function decidePermissionPaint(
       }
     }
 
-    const fromBlocks = findPainted(row?.blocks, targetId, (b) => {
+    const fromBlocks = findPainted(decodeCol(row?.blocks), targetId, (b) => {
       const bb = b as { kind?: string; toolCall?: { id?: string; status?: string; permissionRequest?: unknown } };
       return bb?.kind === "tool" ? bb.toolCall ?? null : null;
     });
-    const shown = fromBlocks ?? findPainted(row?.tool_calls, targetId, (c) => c as ShownCall);
+    const shown = fromBlocks ?? findPainted(decodeCol(row?.tool_calls), targetId, (c) => c as ShownCall);
     alreadyPainted = shown?.status === "awaiting_permission" && !!shown?.permissionRequest;
   } catch {
     /* nel dubbio si ridipinge: un pannello in più è visibile, uno in meno no */

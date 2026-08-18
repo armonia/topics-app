@@ -35,5 +35,5 @@
     }
   },
   "include": ["src", "../shared"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "../shared/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "../shared/**/*.test.ts", "../shared/message-blob.ts"]
 }
