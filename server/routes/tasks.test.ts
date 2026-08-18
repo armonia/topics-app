@@ -1968,7 +1968,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
   // nothing to merge), but "it is a question" exempted it, and the single
   // option "Landa su main" was enough to make it look like one.
   test("a dirty delivery offering «Landa su main»: 409 review_needs_commit", async () => {
-    const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts", "server/services/tasks.ts"] });
+    const r = mk({ taskWorktreeDirtProbe: async () => ({ ok: true, paths: ["server/routes/tasks.ts", "server/services/tasks.ts"] }) });
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
       content: "Fatto: rifatto il gate.", options: [LAND_ACTION_LABEL],
@@ -1981,7 +1981,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
   });
 
   test("MIXED question with a dirty worktree: legitimate, no 409", async () => {
-    const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts"] });
+    const r = mk({ taskWorktreeDirtProbe: async () => ({ ok: true, paths: ["server/routes/tasks.ts"] }) });
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
       content: "Ho finito, ma il nome del flag non mi convince.",
@@ -2906,5 +2906,106 @@ describe("fan-out: la scelta del vincitore", () => {
     const resp = (await pick(taskId, a1))!;
     expect(resp.status).toBe(409);
     expect((await resp.json()).code).toBe("fanout_running");
+  });
+});
+
+// ── Cancello review_needs_commit: porta che fallisce aperta ──────────────────
+//
+// Incidente 18/08, card `171b787d`: worktree con 279 righe non committate,
+// `deliveryFilesChanged: 0`, card passata in review. La catena:
+// 1. dispatcher rilascia la card (assigned_topic_id = NULL);
+// 2. l'agente ancora vivo sposta la card in todo → review;
+// 3. `taskWorktreeDirt` torna null (worktreeOfTask non trovava il worktree);
+// 4. il cancello legge null come «pulito».
+//
+// Questi test verificano:
+// (a) null dalla sonda + task con ramo → 409, non silenzio;
+// (b) null dalla sonda + task senza ramo (in-place) → passa;
+// (c) sonda che risponde ok:false → 409 (git status fallita, non «pulito»);
+// (d) worktree sporco ma worktreeOfTask risolve via task_attempts → 409.
+describe("cancello review_needs_commit: null = non so, non = pulito", () => {
+  let db: Database;
+  let broadcasts: any[];
+
+  beforeEach(() => {
+    db = freshDb();
+    broadcasts = [];
+    // Riga topics richiesta dalla FK di assigned_topic_id
+    db.run("INSERT INTO topics (id) VALUES ('top-s1')");
+  });
+
+  // Crea un task dal lato agente e aggiunge un commento di consegna
+  // (senza comment l'agente va in 409 "review_needs_summary" prima del gate).
+  async function makeTaskProntoPerReview() {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "feat" }))!.json();
+    // Il task viene assegnato al topic dell'agente (come farebbe il dispatcher).
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-s1', status = 'in_progress' WHERE id = ?").run(t.id);
+    // Commento di consegna: sblocca il gate "review_needs_summary".
+    await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "fatto" });
+    return t.id;
+  }
+
+  test("(a) sonda null + task con branch attempt → 409 review_needs_commit", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    // Simula un record di tentativo con worktree: il task aveva un ramo ma
+    // l'agente è stato rilasciato (state = 'failed', non 'running'): il gate
+    // fan-out non scatta, e siamo nella situazione dell'incidente 18/08.
+    db.run(`INSERT INTO task_attempts (id, task_id, idx, worktree_id, state, created_at)
+            VALUES ('att-1', '${taskId}', 1, 'wt-abc', 'failed', datetime('now'))`);
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      // La sonda torna null: worktreeOfTask non ha trovato il worktree
+      // (scenario: dispatcher ha rilasciato la card, assigned_topic_id = NULL).
+      taskWorktreeDirtProbe: async () => null,
+      // taskHasBranchAttempt deve riconoscere che il task aveva un ramo.
+      taskHasBranchAttempt: (_id) => true,
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("review_needs_commit");
+  });
+
+  test("(b) sonda null + task in-place (nessun branch attempt) → passa", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    // Nessun record di tentativo con worktree: task non ha mai avuto un ramo.
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => null,
+      taskHasBranchAttempt: (_id) => false,
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("review");
+  });
+
+  test("(c) sonda ok:false (git status ha fallito) → 409 review_needs_commit", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => ({ ok: false, paths: [] }),
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("review_needs_commit");
+  });
+
+  test("(d) worktree sporco → 409 review_needs_commit con nomi file", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => ({ ok: true, paths: ["server/foo.ts", "client/bar.ts"] }),
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    const body = await resp.json();
+    expect(body.code).toBe("review_needs_commit");
+    expect(body.error).toContain("server/foo.ts");
+  });
+
+  test("(e) worktree pulito (sonda ok, paths vuoti) → review concessa", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => ({ ok: true, paths: [] }),
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("review");
   });
 });
