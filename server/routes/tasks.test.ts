@@ -1636,8 +1636,20 @@ describe("approve decoupled from landing", () => {
    *
    * Prima del fix, `reapAfterLand` usava `taskWorktreeDirt` (string[] | null):
    * un `git status` muto collassava a `paths:[]` = «pulito», e il reap partiva
-   * proprio quando c'era più probabilità che il worktree contenesse lavoro in
-   * corso (index.lock = qualcun altro stava scrivendo su quella cartella).
+   * su un albero di cui non sapeva niente.
+   *
+   * QUANDO `git status` TACE DAVVERO, misurato il 2026-08-18 — perché la prima
+   * versione di questo commento diceva «index.lock», ed è FALSO: con un
+   * `.git/index.lock` presente `git status --porcelain` esce 0 e riporta lo
+   * sporco correttamente, sia con modifiche unstaged sia staged. A farlo uscire
+   * non-zero sono solo la cartella inesistente e i metadati git rotti (worktree
+   * admin dir potata → `fatal: not a git repository`, exit 128). Il canale per
+   * perdere lavoro è quindi stretto — dir presente + modifiche non committate +
+   * metadati rotti + branch già merged — ma esiste, e soprattutto le due porte
+   * sullo stesso contratto puro non devono più divergere.
+   *
+   * Un «perché» sbagliato dentro un commento è peggio di nessun commento: si
+   * eredita, e il prossimo ci costruisce sopra.
    *
    * Con `taskWorktreeDirtProbe`, `ok:false` vale quanto sporco: il reap NON
    * parte, il thread dice perché, il branch resta.
