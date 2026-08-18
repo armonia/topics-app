@@ -128,7 +128,7 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
    * regola. Qui c'è solo l'effetto: un vuoto sospetto non tocca né lo stato né la
    * cache, così non distrugge ciò che sapevamo su sessioni ancora vive.
    */
-  const applyRoster = useCallback((incoming: TerminalSessionInfo[], reconciled?: boolean) => {
+  const applyRoster = useCallback((incoming: TerminalSessionInfo[], reconciled?: boolean): boolean => {
     const merged = mergeWithOptimistic(incoming);
     const d = decideRosterTrust({
       incoming: merged,
@@ -140,20 +140,41 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
       rosterAuthoritativeRef.current = true;
       setRosterAuthoritative(true);
     }
-    if (!d.accept) return;
+    if (!d.accept) return false;
     setSessions(merged);
     if (d.cache) {
       try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
     }
+    // TORNA LA DECISIONE, e serve a chi arma la potatura: un roster RIFIUTATO
+    // (vuoto sospetto) non deve valere come «adesso so quali terminali esistono».
+    return true;
   }, [mergeWithOptimistic, sessionsRef]);
 
   const fetchTerminalSessions = useCallback(() => {
-    fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
-      terminalSessionsLoadedRef.current = true;
-      // Nessun `reconciled` da questa via: il corpo è un array nudo e cambiargli
-      // forma romperebbe MCP, mobile e i test. Lo porta il broadcast.
-      applyRoster(data);
-    }).catch(() => {});
+    // TRE GUARDIE, e ognuna chiude un modo diverso di armare una POTATURA su una
+    // risposta che non era un roster. `terminalSessionsLoadedRef` e' l'unico
+    // cancello di `pruneStaleTerminalPanes`, che toglie le pane terminale dal
+    // layout: alzarlo per sbaglio non produce un errore, produce pane sparite.
+    //
+    //  · `r.ok`      — un 500 con un corpo JSON (`{"error": ...}`) passava da
+    //                  `r.json()` senza un fiato.
+    //  · `Array.isArray` — quel corpo poi arrivava ad `applyRoster` come se
+    //                  fosse un elenco di sessioni.
+    //  · l'ORDINE    — la bandiera si alzava PRIMA di applicare il roster, e
+    //                  restava alzata anche quando `decideRosterTrust` lo
+    //                  RIFIUTAVA. Un vuoto sospetto non e' una conoscenza.
+    fetch('/api/terminal/sessions')
+      .then(r => {
+        if (!r.ok) throw new Error(`roster ${r.status}`);
+        return r.json();
+      })
+      .then((data: TerminalSessionInfo[]) => {
+        if (!Array.isArray(data)) return;
+        // Nessun `reconciled` da questa via: il corpo è un array nudo e cambiargli
+        // forma romperebbe MCP, mobile e i test. Lo porta il broadcast.
+        if (applyRoster(data)) terminalSessionsLoadedRef.current = true;
+      })
+      .catch(() => {});
   }, [applyRoster]);
 
   // Fetch on mount
