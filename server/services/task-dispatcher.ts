@@ -1684,6 +1684,38 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // quattro (misurato il 18/08 su `eef64e32`: tre dispatch, tre topic, e al
       // terzo la sessione aveva due messaggi).
       deps.svc.bindTopic({ taskId, topicId, freshSession: !reuseTopicId });
+
+      // DIRLO: il cambio di worktree era muto, e l'umano non sapeva dove
+      // cercarlo se la GC l'avesse tenuto aperto per sporco. Un commento di
+      // sistema con il nuovo ramo e l'eventuale vecchio e' l'unica traccia
+      // leggibile nel thread — senza, la card sembrava "ancora in coda".
+      //
+      // La nota esce SOLO per un worktree NUOVO (non per il riuso del bloccante):
+      // il riuso e' trasparente per definizione e la nota lo renderebbe rumore.
+      // Il vecchio ramo viene cercato nell'ultimo tentativo registrato: `release()`
+      // azzera gia' `assigned_topic_id` prima che il nuovo dispatch cominci, quindi
+      // il vecchio topic e' irraggiungibile da qui tranne che dallo storico.
+      if (!reuseTopicId && worktreeId) {
+        try {
+          const newBranch = deps.worktreeBranch?.(worktreeId) ?? worktreeId;
+          let note = `Nuovo worktree: \`${newBranch}\``;
+          if (attemptStore) {
+            try {
+              const prev = attemptStore.list(taskId);
+              if (prev.length >= 2) {
+                // L'ultimo e' il tentativo appena aperto; quello prima e' il precedente.
+                const prevAttempt = prev[prev.length - 2];
+                const prevBranch = prevAttempt?.worktreeId
+                  ? (deps.worktreeBranch?.(prevAttempt.worktreeId) ?? prevAttempt.worktreeId)
+                  : null;
+                if (prevBranch) note += ` (precedente: \`${prevBranch}\`)`;
+              }
+            } catch { /* storico non disponibile: la nota esce comunque */ }
+          }
+          deps.svc.addComment({ taskId, author: "system", content: note });
+        } catch { /* best-effort: la nota non blocca il dispatch */ }
+      }
+
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
