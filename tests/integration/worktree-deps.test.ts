@@ -35,9 +35,9 @@ const SRC = readFileSync(resolve(import.meta.dir, "../../server/services/worktre
 
 /** Il corpo di `installClientDeps`, fino alla sua chiusura. */
 function corpo(): string {
-  const i = SRC.indexOf("async function installClientDeps(");
-  expect(i, "installClientDeps e' cambiata di nome: aggiorna questo test").toBeGreaterThan(0);
-  const fine = SRC.indexOf("\n  }", i);
+  const i = SRC.indexOf("async function installDeps(");
+  expect(i, "installDeps e' cambiata di nome: aggiorna questo test").toBeGreaterThan(0);
+  const fine = SRC.indexOf("\n  }\n", i);
   expect(fine).toBeGreaterThan(i);
   return SRC.slice(i, fine);
 }
@@ -49,7 +49,7 @@ describe("le dipendenze del client arrivano col worktree", () => {
 
   test("la creazione la CHIAMA: un worktree che nasce cieco e' il difetto", () => {
     const creazione = SRC.slice(SRC.indexOf("async function materialiseOnDisk"));
-    expect(creazione.slice(0, 2600)).toContain("await installClientDeps(absPath)");
+    expect(creazione.slice(0, 2600)).toContain("await installDeps(absPath)");
   });
 
   test("installa davvero, non collega: niente symlink alle dipendenze di main", () => {
@@ -75,7 +75,16 @@ describe("le dipendenze del client arrivano col worktree", () => {
     expect(corpo()).not.toContain("throw");
   });
 
-  test("non parte dove non c'e' un client: non ogni progetto ne ha uno", () => {
-    expect(corpo()).toContain('existsSync(join(clientDir, "package.json"))');
+  test("non parte dove non c'e' un package.json: non ogni progetto ne ha uno", () => {
+    expect(corpo()).toContain('existsSync(join(dir, "package.json"))');
+  });
+
+  test("DUE installazioni: la radice e il client, non una sola", () => {
+    // La radice porta `bun-types`: senza, il typecheck muore su «Cannot find
+    // type definition file for 'bun'», che sembra un errore del ramo e non lo
+    // e'. Misurato su `soaring-cypress`: con le dipendenze di radice quel ramo
+    // fa 0 errori. Il client porta eslint e tsc. Ne manca una, e mezza barra
+    // tace — che e' il difetto di partenza, spostato di un livello.
+    expect(corpo()).toContain('[absPath, join(absPath, "client")]');
   });
 });
