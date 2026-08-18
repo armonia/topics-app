@@ -470,20 +470,20 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     expect(s.get(t.id)!.task.previewImage).toBe(diagram); // e arriva fino al client
   });
 
-  test("una consegna SENZA nessun allegato lo dice: la card cieca non resta muta", () => {
-    // Misurato il 14/08 sulla board di topics: 186 card su 393 senza anteprima,
-    // e ZERO scartate per forma — cioè l'unico ramo che parlava non era mai
-    // scattato, e chi apriva la card non sapeva se l'evidenza mancasse, fosse
-    // fallita o non servisse.
+  test("una consegna SENZA nessun allegato non scrive nulla nel thread", () => {
+    // Prima scriveva «Consegna SENZA anteprima» nel thread dell'umano:
+    // 39 copie nel DB (misurato il 18/08), 26 card distinte. Il promemoria
+    // viveva nel posto sbagliato: istruzioni operative per l'agente recapitate
+    // a chi decide, che non puo' eseguirle. La regola vive ora nell'envelope
+    // (PREVIEW_RULE in buildKickoff e buildResume).
     const s = mk();
     const t = s.create({ projectId: PID, text: "consegna a parole" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, cinque cancelli verdi" });
     const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
 
-    expect(after.status).toBe("review");          // resta un SEGNALE, non un blocco
+    expect(after.status).toBe("review");          // non e' un blocco
     expect(preview(t.id)).toBeNull();
-    expect(notes(t.id)[0]).toContain("SENZA anteprima");
-    expect(notes(t.id)[0]).toContain(".webm");    // porta con sé i tre rami
+    expect(notes(t.id)).toHaveLength(0);          // nessuna review-note nel thread
   });
 
   test("con un allegato promosso non si scrive nessuna nota di card cieca", () => {
