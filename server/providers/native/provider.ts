@@ -43,8 +43,15 @@ import type {
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
 
-/** Il modello di partenza quando nessuno ne chiede uno. */
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+/**
+ * Il modello di partenza quando nessuno ne chiede uno.
+ *
+ * Stesso gradino di prima (sonnet, non opus: è il default, non la scelta), ma
+ * della generazione corrente. Era fermo a `claude-sonnet-4-6`, e siccome la
+ * guardia in `routes/chat.ts` scartava ogni override alla famiglia 5, questo
+ * valore non era il default: era il modello di TUTTI.
+ */
+export const DEFAULT_MODEL = "claude-sonnet-5";
 
 /**
  * Cosa si dice all'agente quando la topic non ha un progetto.
@@ -65,8 +72,28 @@ const NO_WORKSPACE_NOTE =
  * OAuth, e inventarne uno interrogando `/v1/models` con credenziali da
  * abbonamento darebbe una lista che non corrisponde a ciò che l'abbonamento
  * copre. Meglio pochi nomi veri che un elenco lungo e sbagliato.
+ *
+ * ── Perché la famiglia 5 è arrivata in ritardo, e cosa è costata ──────────
+ * Questa lista non è cosmetica: `routes/chat.ts` la usa come GUARDIA. Un
+ * modello richiesto che non compare qui viene scartato con
+ * `Dropping stale model override`, e la sessione cade su {@link DEFAULT_MODEL}.
+ *
+ * Finché la lista si è fermata alla generazione 4-6, ogni card della board che
+ * chiedeva `claude-opus-5[1m]` — cioè tutte — è girata in silenzio su
+ * `claude-sonnet-4-6`. Il picker diceva Opus 5, la barra sotto al composer
+ * diceva Opus 5, e il turno era Sonnet. Il 18/08 quella riga di scarto compare
+ * a raffica nel log, e `agent-loop.ts` sapeva già eseguire il suffisso `[1m]`
+ * (vedi `long-window.ts`, atterrato il 17/08): mancava solo il permesso.
+ *
+ * Gli id qui sotto sono PROVATI, non dedotti: una richiesta da 1 token per id
+ * sull'endpoint OAuth con gli stessi header del loop, tutti 200 (19/08/2026).
+ * Se un domani se ne aggiunge uno, si prova allo stesso modo prima di scriverlo.
  */
 const MODELS = [
+  "claude-opus-5[1m]",
+  "claude-opus-5",
+  "claude-sonnet-5",
+  "claude-fable-5",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
