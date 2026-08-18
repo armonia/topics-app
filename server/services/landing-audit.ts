@@ -20,8 +20,31 @@
 import type { BranchStatus } from "./branch-status";
 import type { LandingEsito } from "./landing-verdict";
 
-/** 'landed' = content is on main · 'unlanded' = provably not · 'unverifiable' = can't tell. */
-export type LandingState = "landed" | "unlanded" | "unverifiable";
+/**
+ * 'landed' = content is on main · 'unlanded' = provably not · 'unverifiable' =
+ * can't tell · 'superseded' = provably not, E VA BENE COSI'.
+ *
+ * ── Perche' il quarto ─────────────────────────────────────────────────────
+ * I primi tre rispondono tutti alla stessa domanda — «il contenuto e' su
+ * main?» — e sono un fatto sul repo. `superseded` risponde a un'altra:
+ * qualcuno ha guardato quel ramo e ha DECISO di non portarlo dentro, perche'
+ * un'altra implementazione ha vinto o perche' il lavoro era gia' arrivato per
+ * un'altra strada.
+ *
+ * Senza questo stato quella decisione era indistinguibile da una dimenticanza:
+ * la card restava `unlanded` con un commit vero, quindi accendeva il chip «non
+ * su main» e il contatore rosso in cima alla board, per sempre. Misurato il
+ * 18/08/2026: tre card chiuse apposta senza landare — due perche' il loro
+ * ramo portava il doppione di un cancello gia' su main, una perche' fra due
+ * rimedi allo stesso guasto ne era stato scelto l'altro — e tutte e tre
+ * contate come debito.
+ *
+ * Un debito che nessuno intende pagare non e' un debito: e' rumore, e il
+ * rumore su un contatore lo rende inguardabile. `superseded` lo scrive UNA
+ * volta un umano, e l'audit non lo tocca piu' (vedi il filtro in
+ * `auditCandidates`): non e' una misura da rifare, e' una decisione presa.
+ */
+export type LandingState = "landed" | "unlanded" | "unverifiable" | "superseded";
 
 export interface AuditTask {
   id: string;
@@ -115,6 +138,13 @@ export interface LandingAuditSummary {
   landed: number;
   unlanded: number;
   unverifiable: number;
+  /**
+   * Non lo produce questa passata — `superseded` lo scrive un umano e l'audit
+   * quelle card non le guarda nemmeno. Sta qui perche' il conteggio indicizza
+   * il riepilogo con lo stato (`summary[state] += 1`): senza la voce, aggiungere
+   * uno stato al vocabolario romperebbe la somma invece del compilatore.
+   */
+  superseded: number;
 }
 
 /**
@@ -122,7 +152,7 @@ export interface LandingAuditSummary {
  * aborts the sweep, and an unreadable repo yields `unverifiable`, not a scare.
  */
 export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAuditSummary> {
-  const summary: LandingAuditSummary = { checked: 0, landed: 0, unlanded: 0, unverifiable: 0 };
+  const summary: LandingAuditSummary = { checked: 0, landed: 0, unlanded: 0, unverifiable: 0, superseded: 0 };
   const checkedAt = deps.now();
 
   for (const task of deps.listCandidates()) {

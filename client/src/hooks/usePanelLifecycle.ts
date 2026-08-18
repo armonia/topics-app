@@ -289,7 +289,10 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
-    handleOpenAsPage: (type: 'dashboard' | 'cron' | 'board') => void;
+    // L'INSIEME canonico, non tre literal a mano: l'implementazione qui sotto
+    // accetta già `UtilityPanelType`, e questa firma la restringeva — un tipo
+    // nuovo (`profile`) compilava nel modulo e veniva rifiutato a chi chiama.
+    handleOpenAsPage: (type: UtilityPanelType) => void;
     handleExternalDrop: () => void;
     handleReopenClosedTab: (record: ClosedTabRecord) => Promise<void>;
     handleProjectActiveTopicChange: (projectPath: string, topicId: string | null) => void;

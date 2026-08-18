@@ -23,6 +23,7 @@
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs";
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
+import { killProcessTree } from "../../lib/process-tree";
 
 export interface ToolSpec {
   name: string;
@@ -172,7 +173,11 @@ async function runCommand(
     child.stdout.on("data", cap);
     child.stderr.on("data", cap);
     const timer = setTimeout(() => {
-      try { child.kill("SIGKILL"); } catch { /* già morto */ }
+      // TUTTO L'ALBERO, non il solo figlio. Il comando gira in una shell, e chi
+      // lavora davvero (il compilatore, il server, il test runner) e' un suo
+      // discendente: un segnale al solo wrapper lasciava vivo il lavoro che il
+      // timeout doveva fermare, con la sua porta e la sua CPU.
+      killProcessTree(child.pid ?? 0).catch(() => { /* nessuno da uccidere */ });
       out += `\n[comando ucciso dopo ${timeoutMs}ms]`;
     }, timeoutMs);
     timer.unref?.();

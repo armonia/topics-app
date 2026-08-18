@@ -1026,6 +1026,20 @@ describe("callListTasks", () => {
     expect(text).toContain("[todo] Write tests (id=t1 project=proj1)");
   });
 
+  test("uno STEP si distingue da una card: porta il padre in coda alla riga", async () => {
+    // La rotta della sessione non taglia le radici, quindi i sottotask erano
+    // gia' in lista — ma identici a una card. Un agente che rilegge la propria
+    // checklist dopo un cambio di sessione non poteva dire quali righe fossero
+    // i suoi passi, e le leggeva come lavoro di qualcun altro.
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ tasks: [
+      { status: "in_progress", text: "La card", id: "t1", projectId: "p1", parentTaskId: null },
+      { status: "todo", text: "Uno step", id: "t2", projectId: "p1", parentTaskId: "t1" },
+    ] }), { status: 200 }));
+    const text = await callListTasks({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(text).toContain("[todo] Uno step (id=t2 project=p1 step of=t1)");
+    expect(text, "la card non finge di essere lo step di nessuno").toContain("[in_progress] La card (id=t1 project=p1)");
+  });
+
   test("omits query when no status, handles empty", async () => {
     const seen: { url?: string } = {};
     const fetchImpl = stubFetch(async (url) => {

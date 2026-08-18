@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import type { UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import { isDesktop, isTauri } from '../lib/shell';
 import { reloadAllWindows } from '../lib/shell/app';
 import { hasOpenModalSurface } from '../lib/modalSurface';
@@ -44,7 +45,7 @@ export interface UseKeyboardShortcutsArgs {
   // Stable callbacks (must not change identity each render).
   handleClosePanel: (topicId: string) => void;
   toggleSidebar: () => void;
-  handleOpenAsPage: (type: 'dashboard' | 'cron' | 'board') => void;
+  handleOpenAsPage: (type: UtilityPanelType) => void;
   setFocusedPanelId: (id: string) => void;
   /** Reopen a previously-closed tab (stable identity). */
   handleReopenClosedTab: (record: ClosedTabRecord) => void;

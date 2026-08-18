@@ -17,7 +17,7 @@
 import {
   MessageSquare, TerminalSquare, Globe, GitBranch, Activity, BookOpen, Cpu, Kanban,
   BarChart3, LayoutGrid, FolderOpen, FolderTree, FileCode, Eye, Terminal,
-  Brain, Clock, type LucideIcon,
+  Brain, Clock, UserRound, type LucideIcon,
 } from 'lucide-react';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { ADD_MENU_MNEMONICS, type AddMenuItemId } from '../../state/pane/adapters/paneMnemonics';
@@ -30,7 +30,7 @@ import type { PaneType } from '../../types';
  *  `PANE_CONFIG`; un nome non mappato non disegna icona (e non rompe niente). */
 const ICON_MAP: Record<string, LucideIcon> = {
   MessageSquare, Terminal, TerminalSquare, Globe, GitBranch, FolderTree, FolderOpen,
-  FileCode, Activity, BookOpen, Cpu, Kanban, Brain, BarChart3, LayoutGrid, Eye, Clock,
+  FileCode, Activity, BookOpen, Cpu, Kanban, Brain, BarChart3, LayoutGrid, Eye, Clock, UserRound,
 };
 
 /** Come si dipinge ogni agente del terminale. `Record<TerminalAgentType, …>`

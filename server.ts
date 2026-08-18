@@ -60,7 +60,8 @@ import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
-import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
+import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
+import { killProcessTree } from "./server/lib/process-tree";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
@@ -1010,6 +1011,15 @@ async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boole
  * il riferimento in avanti e' sicuro: prima di allora non c'e' nessun turno.
  */
 let capturaConsegna: DeliveryCapture | null = null;
+/**
+ * I file lasciati nel worktree e mai committati, per la consegna forzata.
+ *
+ * Tardiva come `capturaConsegna` e per la stessa ragione: `worktreeOfTask`
+ * nasce piu' in basso di queste deps. La usa il dispatcher SOLO quando la
+ * storia di git e' vuota, per non far dire alla card «nessun file toccato»
+ * mentre il lavoro sta sul disco.
+ */
+let sondaLavoroNonCommittato: ((taskId: string) => Promise<string[] | null>) | null = null;
 
 /**
  * Quante corse di check pre-review stanno girando adesso.
@@ -1030,6 +1040,8 @@ let checksGateRunningCount: (() => number) | null = null;
 
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
+  uncommittedInWorktree: (taskId) =>
+    sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
@@ -1705,6 +1717,15 @@ capturaConsegna = createDeliveryCapture({
   taskCheckoutRef,
   ownCommitFiles,
 });
+
+// Stessa sonda che il pannello delle modifiche usa gia' (`taskWorktreeDirt`):
+// il junk e' gia' escluso li' dentro, quindi la card non nomina un
+// `node_modules`. `null` = non misurabile, ed e' diverso da «pulito».
+sondaLavoroNonCommittato = async (taskId: string) => {
+  const wt = worktreeOfTask(taskId);
+  if (!wt || wt.mode !== "branch") return null;
+  try { return await worktreeRealDirt(wt.absPath); } catch { return null; }
+};
 
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,

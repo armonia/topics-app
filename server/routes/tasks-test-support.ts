@@ -90,6 +90,9 @@ export function makeCtx(db: Database, broadcasts: unknown[]) {
     // chat vere: lo stub dice «non c'è» invece di lasciare che il `catch` di
     // `reapAttemptWorkspace` stampi un TypeError per ogni perdente.
     getTopicById: () => null,
+    // `existsSync` dei path fittizi (/allowed/...) restituirebbe sempre false:
+    // stub che lascia passare tutti i path, cosi' i test non dipendono dal disco.
+    fileExistsSync: () => true,
   } as unknown as AppContext;
 }
 

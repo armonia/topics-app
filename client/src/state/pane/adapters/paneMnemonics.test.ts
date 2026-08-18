@@ -28,6 +28,7 @@ const LABELS: Record<AddMenuItemId, string> = {
   board: getPaneConfig('board').label,
   dashboard: getPaneConfig('dashboard').label,
   cron: getPaneConfig('cron').label,
+  profile: getPaneConfig('profile').label,
   'open-project': 'Progetto…',
 };
 
