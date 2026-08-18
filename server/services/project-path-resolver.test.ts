@@ -145,6 +145,12 @@ describe("isSelectableProjectDir (display filter)", () => {
     expect(ok("/Users/x/.claude/jarvis")).toBe(false);
   });
 
+  it("drops paths inside /.topics/ (worktrees and topics data dir)", () => {
+    expect(ok("/Users/x/.topics/worktrees/topics-app/my-branch")).toBe(false);
+    expect(ok("/Users/x/.topics/worktrees/some-project/feature-x")).toBe(false);
+    expect(ok("/Users/x/.topics")).toBe(false);
+  });
+
   it("drops vanished paths (stale topic/terminal rows) and non-absolute input", () => {
     expect(ok("/tmp/board-live-demo")).toBe(false); // not in `real` → doesn't exist
     expect(ok("relative/path")).toBe(false);
