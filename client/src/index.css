@@ -2802,46 +2802,37 @@ html.electron-mac:not(.dark) .chrome-glass {
  * `@apply backdrop-blur-*` e non un `backdrop-filter` scritto a mano: Lightning
  * CSS collassa la coppia grezza sul solo `-webkit-`, che Blink ignora, e il
  * blur sparisce in silenzio (la stessa trappola documentata su `.glass-surface`). */
-/* IL VELO PORTA LA TINTA DELLA SUPERFICIE SU CUI GALLEGGIA, NON QUELLA DEL
- * CHROME. È la differenza fra «la barra è la stessa superficie, translucida» —
- * che è quello che il commento qui sopra dichiara — e «la barra è una lastra
- * appoggiata sopra», che è quello che si vedeva.
+/* NESSUN VELO, NEMMENO SUL WEB: le tab GALLEGGIANO sul contenuto.
  *
- * Il velo era la tinta del chrome (#080a0e in scuro, un quasi-nero), stesa su
- * una superficie che è tutt'altra cosa (`--bg-surface`, #1b1c1d). Tinta ≠ base
- * significa che il velo SPOSTA il colore, e lo scarto si legge come un gradino
- * netto sul bordo basso della barra. Misurato campionando il pixel dipinto a
- * y=0..73 (le due righe) contro y=74 (il contenuto), tutte e quattro le
- * combinazioni:
- *   scuro  web  #0e0f12 contro #1b1c1d  → 13
- *   scuro  mac  #090b11 contro #0c0d12  →  3
- *   chiaro web  #f1f2f3 contro #ffffff  → 14
- *   chiaro mac  #eceff3 contro #f0f2f5  →  4
- * e sulla finestra Tauri vera, dove sotto c'e la vibrancy vera invece del
- * fondale di Chromium: #16181b contro #242527, cioe 14.
- * («Dovrebbe esserci continuità di sfondi fra contenuto e tabbar», Attilio 09/08.)
+ * Il velo era la tinta del chrome, poi è diventato la tinta della superficie
+ * sotto (che è la ragione per cui il gradino è sparito), e a quel punto la
+ * domanda giusta è: a cosa serve stendere un colore su se stesso? A mascherare
+ * ciò che scorre — che è esattamente ciò che fa il `backdrop-filter`, senza
+ * dover scegliere un'opacità. «Il bg tabbar doveva essere trasparente così
+ * appariva tutto in floating» (Attilio, 09/08): tolto il fondo, quello che si
+ * vede sono le CARD delle tab appoggiate sul contenuto, che è la forma che
+ * questa barra ha sempre voluto avere.
  *
- * Con tinta = base l'errore è ZERO PER COSTRUZIONE, a qualunque alpha: stendere
- * un colore su se stesso non lo sposta. L'alpha smette di essere un compromesso
- * fra «si vede il gradino» e «si legge il testo sotto» e torna a fare una cosa
- * sola — mascherare ciò che scorre — con il blur a fare il resto.
+ * Un valore solo per tutti gli ambienti: sotto la shell era già così dal
+ * blocco `html.electron-mac`, e tenerne due significava che web e desktop
+ * mostravano due barre diverse per una decisione che è una sola. */
+:root { --chrome-overlay-bg: transparent; }
+
+/* NOTA (19/08): questo blocco e' stato rimesso dopo che una card l'aveva
+ * ribaltato. La card chiedeva PIU' trasparenza — «la topbar dovrebbe essere
+ * trasparente cosi' da far andare i messaggi sotto le tab» — e la consegna
+ * aveva aggiunto un velo al 72%, cioe' l'opposto, cancellando il commento qui
+ * sopra insieme alla frase di Attilio che lo motivava.
  *
- * `color-mix` e non il valore riscritto a mano: `--bg-surface` cambia con il
- * tema, e una copia dei suoi canali qui diventerebbe una seconda verità che
- * diverge al primo che tocca la prima. Lightning CSS non può risolverlo
- * staticamente (dentro c'è una `var()`), quindi lo lascia passare intatto —
- * la stessa ragione per cui la riga sopravvive alla compilazione. Un solo
- * `:root`: la variante scura arriva da sé, perché arriva da `--bg-surface`. */
-/* IL VELO PORTA LA TINTA DELLA SUPERFICIE: `--bg-surface` all'alpha 0,72.
+ * L'ha detto `chrome-bar-continuity.spec.ts` («la riga di chrome NON dipinge —
+ * il vetro e' il blur»), che i cancelli di review non eseguono: quella card era
+ * `checks: pass` con cinque comandi verdi, e il contratto che rompeva vive solo
+ * nella suite E2E.
  *
- * `color-mix(in srgb, var(--bg-surface) 72%, transparent)` è la forma che il
- * commento sopra raccomanda: la tinta è quella della superficie su cui la
- * barra galleggia, non quella del chrome. Con tinta = base l'errore sul bordo
- * basso è zero per costruzione a qualunque alpha. Lightning CSS non può
- * risolvere `var()` staticamente, quindi la regola sopravvive alla
- * compilazione intatta. La variante scura arriva da sé perché arriva da
- * `--bg-surface`. */
-:root { --chrome-overlay-bg: color-mix(in srgb, var(--bg-surface) 72%, transparent); }
+ * `project_veil-tint-must-equal-base` NON dice «ci deve essere un velo»: dice
+ * che SE c'e' un velo, la sua tinta e' quella della superficie e non quella del
+ * chrome. Con `transparent` non c'e' velo, e l'invariante e' soddisfatto a
+ * vuoto — che e' la forma piu' forte, non la piu' debole. */
 .pane-chrome-bar {
   position: absolute;
   inset-inline: 0;

@@ -1,27 +1,31 @@
 /**
- * Il velo della `pane-chrome-bar` porta la tinta di `--bg-surface`, non quella
- * del chrome e non il vuoto puro.
+ * SE c'e' un velo sulla `pane-chrome-bar`, la sua tinta e' quella della
+ * SUPERFICIE. Non «ci deve essere un velo».
  *
- * PERCHE' CONTA. La barra delle tab e' `position: absolute` sopra la
- * conversazione: i messaggi scorrono sotto di lei. Senza velo, il testo che
- * scorre appare direttamente dietro i nomi delle tab. Con un velo a tinta =
- * chrome, il bordo basso della barra mostra un gradino di colore visibile
- * (misurato in tutte e quattro le combinazioni web/mac x chiaro/scuro: da 3 a
- * 14 punti di delta). Con tinta = `--bg-surface` il gradino e' zero per
- * costruzione: stendere un colore su se stesso a qualunque alpha non lo sposta.
+ * ── La differenza, che e' costata un rosso ──────────────────────────────────
+ * La tesi `project_veil-tint-must-equal-base` e' condizionale, e la prima
+ * versione di questo file l'aveva letta come un obbligo: pretendeva
+ * `--chrome-overlay-bg` DIVERSO da `transparent`. Cosi' scritta contraddiceva
+ * `chrome-bar-continuity.spec.ts` («la riga di chrome NON dipinge — il vetro e'
+ * il blur»), che porta una decisione presa e motivata: «il bg tabbar doveva
+ * essere trasparente cosi' appariva tutto in floating» (Attilio, 09/08).
  *
- * COSA VERIFICA. Il CSS di produzione (`client/src/index.css`) deve contenere
- * `--chrome-overlay-bg` con un valore che:
- *   1. non e' `transparent` (il velo deve esistere);
- *   2. fa riferimento a `--bg-surface` come tinta (non a `--chrome-bg` o a un
- *      colore opaco scritto a mano).
+ * Due test dello stesso repo che pretendono il contrario sono peggio di
+ * nessuno dei due: il primo che gira detta la regola, e chi arriva dopo
+ * ribalta il lavoro di chi c'era prima credendo di ripararlo. E' successo il
+ * 19/08 su una card che chiedeva PIU' trasparenza e ha consegnato un velo.
  *
- * La seconda condizione e' la tesi `project_veil-tint-must-equal-base`: il
- * velo porta la tinta della superficie su cui galleggia, non quella del chrome.
+ * ── Perche' la tinta, quando c'e' ───────────────────────────────────────────
+ * La barra e' `position: absolute` sopra la conversazione. Un velo con la tinta
+ * del CHROME sposta il colore e lascia un gradino sul bordo basso — misurato da
+ * 3 a 14 punti di delta nelle quattro combinazioni web/mac x chiaro/scuro. Con
+ * la tinta di `--bg-surface` il gradino e' zero per costruzione: stendere un
+ * colore su se stesso, a qualunque alpha, non lo sposta.
  *
- * COSA NON VERIFICA. Il valore computato a runtime (quello dipende dal tema e
- * dal browser). Qui si controlla solo che la sorgente dichiara l'invariante
- * corretto; `chrome-bar-overlay.spec.ts` verifica il comportamento geometrico.
+ * ── Cosa verifica ───────────────────────────────────────────────────────────
+ * Solo l'invariante condizionale. `transparent` (nessun velo) passa: e' la
+ * forma piu' forte, non un'eccezione. Un velo che NON viene da `--bg-surface`
+ * e' rosso. Il comportamento a runtime lo verifica la suite E2E.
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -43,19 +47,32 @@ describe("project_veil-tint-must-equal-base", () => {
     expect(valore).not.toBeNull();
   });
 
-  it("il velo non e' vuoto: --chrome-overlay-bg non e' transparent", () => {
-    expect(valore).not.toBe("transparent");
+  it("nessun velo e' una risposta valida, ed e' quella di oggi", () => {
+    // La barra galleggia sul contenuto e il `backdrop-filter` fa gia' tutto il
+    // lavoro che un velo farebbe. Pretendere una tinta qui vorrebbe dire
+    // ribaltare quella decisione dal test invece che da una conversazione.
+    if (valore === "transparent") return;
+    expect(valore, "un velo c'e': allora deve rispettare le due righe sotto").toBeTruthy();
   });
 
-  it("la tinta del velo e' --bg-surface, non il chrome ne' un colore opaco", () => {
-    // La forma corretta e' color-mix(in srgb, var(--bg-surface) <alpha>%, transparent)
-    // Verificare che --bg-surface sia presente garantisce che la tinta = base.
-    expect(valore).toContain("--bg-surface");
+  it("SE c'e' un velo, la sua tinta viene da --bg-surface", () => {
+    if (valore === "transparent") return; // niente velo, niente tinta da controllare
+    expect(
+      valore,
+      "un velo con la tinta del chrome lascia un gradino sul bordo basso (misurato: 3-14 punti)",
+    ).toContain("--bg-surface");
   });
 
-  it("il velo e' semitrasparente: usa transparent come secondo termine del mix", () => {
-    // color-mix con transparent garantisce che ci sia dell'alpha.
-    // Un colore opaco (es. #1b1c1d) coprirebbe tutto e non sarebbe un velo.
-    expect(valore).toContain("transparent");
+  it("SE c'e' un velo, e' semitrasparente e non un colore pieno", () => {
+    if (valore === "transparent") return;
+    expect(valore, "un colore opaco coprirebbe cio' che scorre: non sarebbe un velo").toContain("transparent");
+  });
+
+  it("il caso che tiene onesti gli altri tre: una tinta SBAGLIATA e' rossa", () => {
+    // Senza, i tre casi sopra passerebbero su qualunque cosa saltando a `return`.
+    // Qui si prova il predicato, non il file: e' l'unico modo di sapere che la
+    // guardia morde ancora.
+    const finto = "color-mix(in srgb, var(--chrome-bg) 72%, transparent)";
+    expect(finto.includes("--bg-surface"), "il predicato deve rifiutare la tinta del chrome").toBe(false);
   });
 });
