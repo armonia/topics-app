@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 
+import { prefersReducedMotion } from '../../lib/reducedMotion';
+
 /**
  * Le celle si SPOSTANO invece di teletrasportarsi.
  *
@@ -90,12 +92,15 @@ export function useCellFlip(root: RefObject<HTMLElement | null>): void {
     const radice = root.current;
     if (!radice) return;
 
-    // Chi ha chiesto meno movimento non lo riceve — ma le misure si aggiornano
+    // Chi ha chiesto meno movimento non lo riceve. Ma le misure si aggiornano
     // lo stesso, altrimenti al primo cambio di preferenza si animerebbe un
     // salto accumulato da tutti i riordini precedenti.
-    const ridotto =
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    //
+    // La domanda passa da `prefersReducedMotion` e non da `matchMedia` diretto:
+    // questo effetto gira a OGNI render (non ha array di dipendenze, vedi sotto)
+    // e ogni `matchMedia` costruisce un `MediaQueryList` che il documento poi si
+    // tiene. Erano +741 in 104 minuti a schermo fermo.
+    const ridotto = prefersReducedMotion();
 
     // L'origine del sistema di riferimento: la griglia stessa. Vedi il blocco
     // in cima — misurare dal viewport fa passare uno scorrimento per un
