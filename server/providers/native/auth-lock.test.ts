@@ -17,6 +17,7 @@
  * Nessuna credenziale vera viene letta o toccata.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { tokenUrlFromEnv, OAUTH_TOKEN_URL_DEFAULT } from "./auth";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -149,4 +150,30 @@ describe("lock inter-processo sul refresh OAuth", () => {
     const unique = new Set(tokens);
     expect(unique.size).toBe(1);
   }, 30_000);
+});
+
+describe("OAUTH_TOKEN_URL_OVERRIDE accetta solo il loopback", () => {
+  // E' l'indirizzo a cui viene spedito il REFRESH TOKEN: senza vincolo, una
+  // variabile d'ambiente qualunque lo manderebbe altrove e la risposta finirebbe
+  // scritta nel file delle credenziali dell'utente. Il test che la usa alza un
+  // server finto su 127.0.0.1, quindi il vincolo non gli costa niente.
+  test("un indirizzo di loopback passa", () => {
+    expect(tokenUrlFromEnv("http://127.0.0.1:41234/token")).toBe("http://127.0.0.1:41234/token");
+    expect(tokenUrlFromEnv("http://localhost:8080/t")).toBe("http://localhost:8080/t");
+    expect(tokenUrlFromEnv("http://[::1]:9/t")).toBe("http://[::1]:9/t");
+  });
+
+  test("qualunque altro host viene ignorato", () => {
+    expect(tokenUrlFromEnv("https://evil.example/token")).toBeNull();
+    // Il trucco classico: il loopback nel path o nella userinfo, non nell'host.
+    expect(tokenUrlFromEnv("https://evil.example/127.0.0.1/token")).toBeNull();
+    expect(tokenUrlFromEnv("https://127.0.0.1@evil.example/token")).toBeNull();
+  });
+
+  test("vuota o malformata: vale il default, non un buco", () => {
+    expect(tokenUrlFromEnv(undefined)).toBeNull();
+    expect(tokenUrlFromEnv("")).toBeNull();
+    expect(tokenUrlFromEnv("non-un-url")).toBeNull();
+    expect(OAUTH_TOKEN_URL_DEFAULT).toContain("platform.claude.com");
+  });
 });
