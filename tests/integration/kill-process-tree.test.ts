@@ -14,7 +14,7 @@ import {
   getDescendantPids,
   killProcessTreeWith,
   type KillTreeDeps,
-} from "../../server/routes/processes";
+} from "../../server/lib/process-tree";
 
 const spawned: Array<{ kill: () => void }> = [];
 afterEach(() => {

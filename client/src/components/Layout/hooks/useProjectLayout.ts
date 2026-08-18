@@ -53,6 +53,7 @@ import {
   recordBrowserOrigin,
   drainProjectBrowserReopens,
 } from '../../../state/pane/adapters';
+import { createDraftPaneId } from '../../../state/pane/adapters/paneConfig';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
 import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
@@ -1300,14 +1301,25 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const fullRow = isVertical && !!opts?.fullRow;
       const columnSplit = isVertical && !fullRow;
 
-      // Defensive only: the menu entries and the edge-drop preview are gated
-      // by the shared canSplitPane rule (GroupLayout), so a split-into-self
-      // on a single-pane group is normally unreachable. A fullRow move IS
-      // meaningful for a solo group (its pane moves to a new spanning row),
-      // so only the non-fullRow no-op is refused.
+      // Self-split of a single-pane group: the original pane will move to the
+      // new group, leaving the source group empty. Auto-spawn a draft chat in
+      // the source group first so it keeps one visible pane (mirrors what
+      // PanelGrid.handleSplitPane does for standalone-pool). A fullRow move IS
+      // still meaningful for a solo group (pane moves to a new spanning row).
       if (sourceGroupId === targetGroupId && !fullRow) {
         const sourceGroup = groups.find(g => g.id === sourceGroupId);
-        if (sourceGroup && sourceGroup.paneIds.length <= 1) return;
+        if (sourceGroup && sourceGroup.paneIds.length <= 1) {
+          const draftId = createDraftPaneId();
+          const draftPane: Pane = { id: draftId, type: 'chat', title: 'New Chat', preview: false };
+          setPanes(prev => [...prev, draftPane]);
+          setGroups(prev =>
+            prev.map(g =>
+              g.id === sourceGroupId
+                ? { ...g, paneIds: [draftId], activePaneId: draftId }
+                : g,
+            ),
+          );
+        }
       }
 
       // Enforce the grid limits before any state mutation (setGroups below) so

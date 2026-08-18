@@ -428,6 +428,14 @@ function ChatPaneComponent({
           const p = JSON.parse(raw);
           if (p && typeof p.provider === 'string' && typeof p.model === 'string') return { provider: p.provider, model: p.model };
         }
+        // Nessun override per questo draft: eredita dall'ultima selezione fatta
+        // su qualunque chat. Cosi' aprire una nuova chat mantiene il modello
+        // scelto nell'ultima sessione, senza dover riselezionarlo ogni volta.
+        const lastRaw = localStorage.getItem('providerOverride:last');
+        if (lastRaw) {
+          const p = JSON.parse(lastRaw);
+          if (p && typeof p.provider === 'string' && typeof p.model === 'string') return { provider: p.provider, model: p.model };
+        }
       } catch {}
     }
     return null;
@@ -445,7 +453,12 @@ function ChatPaneComponent({
   const [effort, setEffort] = useState<string | null>(() => {
     if (topic.effort) return topic.effort;
     if (topic.id.startsWith('draft:')) {
-      try { return localStorage.getItem(`effort:${topic.id}`) || null; } catch {}
+      try {
+        const own = localStorage.getItem(`effort:${topic.id}`);
+        if (own) return own;
+        // Eredita dall'ultima selezione fatta su qualunque chat.
+        return localStorage.getItem('effort:last') || null;
+      } catch {}
     }
     return null;
   });
@@ -555,6 +568,11 @@ function ChatPaneComponent({
   const isDraftTopic = topic.id.startsWith('draft:');
   const handleProviderOverrideChange = useCallback((next: { provider: string; model: string } | null) => {
     setProviderOverride(next);
+    // Aggiorna la "memoria globale" dell'ultima selezione: le chat nuove la
+    // leggono in inizializzazione e partono gia' con il modello giusto.
+    try {
+      if (next) localStorage.setItem('providerOverride:last', JSON.stringify(next));
+    } catch {}
     if (isDraftTopic) {
       // No server row to PATCH yet — persist the pick device-locally (same
       // approach as Fast Mode for drafts) so it survives a reload before the
@@ -577,6 +595,10 @@ function ChatPaneComponent({
 
   const handleEffortChange = useCallback((next: string | null) => {
     setEffort(next);
+    // Aggiorna la "memoria globale" dell'ultima selezione.
+    try {
+      if (next) localStorage.setItem('effort:last', next);
+    } catch {}
     if (isDraftTopic) {
       // No server row yet — persist device-locally; the promotion effect above
       // migrates it to the real topic id on first send.

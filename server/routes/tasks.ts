@@ -2525,6 +2525,27 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // Approve = ACCEPT the task only (→ done, dependents claimable). It no
           // longer merges/builds/reaps "da sotto": landing is now an EXPLICIT step
           // — the agent's "Landa su main" option above, or POST …/land.
+          // CHIUSA APPOSTA SENZA LANDARE, e la card deve poterlo dire.
+          //
+          // Un `approve` che non atterra lascia la card `unlanded` con un commit
+          // vero: da fuori e' identico a una dimenticanza, quindi accende il chip
+          // «non su main» e il contatore rosso in cima alla board, per sempre.
+          // Misurato il 18/08/2026: tre card chiuse deliberatamente — due il cui
+          // ramo portava il doppione di un cancello gia' su main, una in cui fra
+          // due rimedi allo stesso guasto era stato scelto l'altro — tutte e tre
+          // contate come debito. Un debito che nessuno intende pagare rende
+          // inguardabile il contatore di quelli veri.
+          //
+          // `superseded: true` e' un gesto ESPLICITO di chi rivede, non una
+          // deduzione: nessuno puo' sapere dal repo se un ramo fuori da main sia
+          // stato scartato o dimenticato. L'audit poi non lo tocca piu'.
+          if (decision === "approve" && body?.superseded === true) {
+            try {
+              svc.recordLandingState({
+                taskId: bReview.taskId, state: "superseded", checkedAt: new Date().toISOString(),
+              });
+            } catch { /* la decisione conta piu' del suo timbro */ }
+          }
           if (dispatcher && decision === "approve" && task.status === "done") {
             dispatcher.onBlockerDone(bReview.taskId);
             // Accepted (not landed): the preview server is no longer needed.

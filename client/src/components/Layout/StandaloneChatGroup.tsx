@@ -48,6 +48,7 @@ const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').the
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
+const ProfilePane = lazy(() => import('../Profile/ProfilePane').then(m => ({ default: m.ProfilePane })));
 
 
 interface StandaloneChatGroupProps {
@@ -719,6 +720,7 @@ export function StandaloneChatGroup({
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
           {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={openTopicFromBoard} />}
+          {utilityType === 'profile' && <ProfilePane />}
         </LazyPane>
       );
     }
