@@ -26,8 +26,13 @@
  * Uso:
  *   curl -sk -X PUT https://localhost:3333/api/ui-state/dev-heap-probe \
  *        -H 'content-type: application/json' -d '{"armed":true}'
- *   (ricaricare la finestra)
+ *   (ricaricare la finestra, poi lasciarla ferma quindici minuti)
  *   curl -sk https://localhost:3333/api/ui-state/dev-heap-probe-result
+ *
+ * Ogni campione porta anche un CENSIMENTO DEL DOM (`dom`): quanti `<svg>` sono
+ * vivi e sotto quale `data-testid` stanno. I proprietari registrati dicono chi
+ * tiene la heap JS; il censimento dice chi tiene i layer del compositore, che
+ * la heap JS non vede. Vedi `domCensus`.
  */
 
 const FLAG_KEY = 'dev-heap-probe';
@@ -46,6 +51,54 @@ export interface HeapReport {
 }
 
 const owners = new Map<string, () => HeapReport>();
+
+/** Il censimento del DOM: quanti `<svg>` ci sono, e sotto CHI stanno. */
+export interface DomCensus {
+  /** `document.querySelectorAll('svg').length`, il numero della barra. */
+  svg: number;
+  /** Nodi totali: serve a distinguere "crescono gli svg" da "cresce tutto". */
+  nodes: number;
+  /**
+   * Quanti `<svg>` per proprietario, decrescente. Il proprietario e' il
+   * `data-testid` piu' vicino risalendo, o il nome della classe del padre
+   * quando non c'e' nessun testid: il totale dice CHE cresce, questo dice CHI.
+   */
+  perOwner: Record<string, number>;
+}
+
+/** Quanti proprietari tenere: la coda lunga e' rumore, la testa e' la diagnosi. */
+const TOP_OWNERS = 12;
+
+/**
+ * Conta gli `<svg>` vivi nel documento e li raggruppa per proprietario.
+ *
+ * PERCHE' IL CONTEGGIO E NON IL PESO. Ogni `<svg>` promosso si porta dietro un
+ * layer CoreAnimation con backing IOSurface, e quel backing NON sta nella heap
+ * JS: e' invisibile a `heap` e a `vmmap`, si vede solo da `footprint`. Quindi la
+ * grandezza da sorvegliare non e' un numero di byte che non possiamo leggere da
+ * qui, e' il CONTEGGIO dei nodi, che possiamo leggere esattamente.
+ *
+ * A schermo fermo questo numero deve essere PIATTO. Se sale, qualcuno monta
+ * icone e non le smonta, e `perOwner` dice chi.
+ */
+export function domCensus(doc: Document | undefined = globalThis.document): DomCensus {
+  if (!doc) return { svg: 0, nodes: 0, perOwner: {} };
+  const svgs = doc.querySelectorAll('svg');
+  const perOwner = new Map<string, number>();
+  for (const el of svgs) {
+    const owner = el.closest('[data-testid]')?.getAttribute('data-testid');
+    // Senza testid il nome della classe del padre e' la traccia meno peggio:
+    // non identifica il componente, ma raggruppa le occorrenze dello stesso.
+    const key = owner ?? `class:${el.parentElement?.className || '?'}`.slice(0, 80);
+    perOwner.set(key, (perOwner.get(key) ?? 0) + 1);
+  }
+  const top = [...perOwner.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOP_OWNERS);
+  return {
+    svg: svgs.length,
+    nodes: doc.getElementsByTagName('*').length,
+    perOwner: Object.fromEntries(top),
+  };
+}
 
 /**
  * Dichiara di possedere stato che vale la pena misurare.
@@ -119,9 +172,17 @@ async function write(key: string, value: unknown): Promise<void> {
   }
 }
 
-/** Ogni quanto campionare, e per quante volte. */
+/**
+ * Ogni quanto campionare, e per quante volte.
+ *
+ * Trentuno campioni a mezzo minuto fanno QUINDICI MINUTI, che e' la finestra
+ * chiesta dalla barra: il primo campione e' il T0 e l'ultimo il T15, dallo
+ * stesso comando e sulla stessa finestra tenuta ferma. Con dieci campioni la
+ * misura durava cinque minuti, e a cinque al minuto un delta di venticinque
+ * nodi si confonde col rumore di un paio di render.
+ */
 const SAMPLE_EVERY_MS = 30_000;
-const SAMPLES = 10;
+const SAMPLES = 31;
 
 /**
  * Avvia la sonda se armata. Ritorna una funzione di stop idempotente.
@@ -137,10 +198,10 @@ export function initDevHeapProbe(): () => void {
   void readFlag().then((armed) => {
     if (!armed || stopped) return;
     void write(FLAG_KEY, { armed: false }); // one-shot: mai due giri di fila
-    const series: { at: string; owners: Record<string, HeapReport> }[] = [];
+    const series: { at: string; dom: DomCensus; owners: Record<string, HeapReport> }[] = [];
     let n = 0;
     const tick = (): void => {
-      series.push({ at: new Date().toISOString(), owners: collectHeapReport() });
+      series.push({ at: new Date().toISOString(), dom: domCensus(), owners: collectHeapReport() });
       n += 1;
       void write(RESULT_KEY, { samples: n, series });
       if (n >= SAMPLES && timer) {
