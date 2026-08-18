@@ -77,6 +77,14 @@ interface Props {
    * questa riga: la riga si limita a dire che cosa hai scelto.
    */
   onPlanDecision?: (approved: boolean) => void;
+  /**
+   * L'id del messaggio DB a cui appartiene questo toolCall. Necessario per
+   * il lazy-load del detail: quando il payload della cronologia ha svuotato
+   * `output`/`content`/`result`, la prima apertura della riga va a riprenderli
+   * da `GET /api/messages/:messageId/tool/:toolCallId/detail`.
+   * Assente per le righe in streaming (non hanno mai il detail svuotato).
+   */
+  messageId?: string;
 }
 
 /**
@@ -98,15 +106,27 @@ interface Props {
  * tool cambia — testualmente "so React.memo sees a real prop change" — quindi
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
-export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, onPlanDecision }: Props) {
+export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision }: Props) {
   const settledMetricClass = useSettledMetricClass('tool');
   const [open, setOpen] = useState(false);
+
+  // Lazy detail: when the history payload strips the large text fields from
+  // `detail` (output, content, result), it leaves `toolCall.detailBytes > 0`
+  // as a signal. The first time the row is actually opened, we fetch the full
+  // detail from GET /api/messages/:id/tool/:id/detail and merge it in.
+  // The fetched object lives only in this component state and dies with the
+  // unmount: nothing pollutes the store, and nothing travels on the wire until
+  // the user explicitly opens the row.
+  const [fetchedDetail, setFetchedDetail] = useState<Record<string, unknown> | null>(null);
+  const fetchedForRef = useRef<string | null>(null);
 
   // Resolve the detail (server-provided or fallback derivation) and the
   // user-facing display name + summary. Sub-agent rows are auto-expanded
   // because their action log IS the primary signal — collapsed they'd hide
   // the entire reason for showing the row.
-  const detail = resolveToolDetail(toolCall);
+  // When the payload has stripped text, merge the lazily-fetched fields back.
+  const baseDetail = resolveToolDetail(toolCall);
+  const detail = fetchedDetail ? { ...baseDetail, ...fetchedDetail } : baseDetail;
   const display = buildToolDisplayLabel(detail, toolCall.name);
   const Icon = iconForDetail(detail);
   const status = toolCall.status ?? 'pending';
@@ -165,13 +185,32 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     setOpen((v) => !v);
   };
 
+  // Lazy detail fetch: the first time a row with stripped text is opened,
+  // we pull the full detail from the server and merge it in.
+  useEffect(() => {
+    if (!effectiveOpen) return;
+    if (!messageId) return;
+    if (!toolCall.detailBytes || toolCall.detailBytes === 0) return;
+    if (fetchedForRef.current === toolCall.id) return; // already fetched
+    fetchedForRef.current = toolCall.id;
+    chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail }) => {
+      if (fullDetail && typeof fullDetail === 'object') {
+        setFetchedDetail(fullDetail as Record<string, unknown>);
+      }
+    }).catch(() => {
+      // Non-fatal: the row still renders with the partial detail.
+      // The missing text fields will just be empty, which is what they
+      // were before the user opened the row.
+    });
+  }, [effectiveOpen, messageId, toolCall.id, toolCall.detailBytes]);
+
   // C'è davvero qualcosa da aprire? Una `Skill` senza istruzioni — cioè ogni
   // riga scritta prima che il provider imparasse a raccoglierle — apriva un
   // riquadro vuoto: il chevron prometteva un corpo che non esisteva. Senza
   // corpo la riga non offre il gesto (e non ne finge nemmeno lo spazio: il
   // posto del chevron resta, o le righe non si allineerebbero più).
   const hasBody =
-    toolCardHasBody(detail) || isHumanTurn || isError || !!toolCall.error || !!toolCall.userResponse
+    toolCardHasBody(detail, toolCall.detailBytes) || isHumanTurn || isError || !!toolCall.error || !!toolCall.userResponse
     // Una decisione presa su un permesso è la traccia che si va a rileggere:
     // la riga si richiude (la palla non è più tua) ma deve restare APRIBILE,
     // come già fa una domanda a cui hai risposto.
