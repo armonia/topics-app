@@ -12,6 +12,7 @@
  *   C. una migration VALIDA pending → exit 0
  *   D. nessun DB sul disco → exit 0 (primo avvio, sicuro per definizione)
  *   E. sqlite3 assente → exit 0 (degradazione silenziosa, meglio un reload)
+ *   F. migration ROTTA senza DATA_DIR nell'env → exit 1 (percorso default corretto)
  *
  * Il cancello NON tocca il DB vivo: tutte le prove usano una copia.
  */
@@ -68,12 +69,23 @@ function appDirFinto(opts: {
   return dir;
 }
 
-/** Lancia il cancello vero nel dir fornito. */
+/**
+ * Lancia il cancello vero nel dir fornito.
+ *
+ * Per default NON inietta DATA_DIR: il cancello deve trovare il DB dal percorso
+ * di default (<APP_DIR>/data/topics.db), identico a quello di server/db.ts.
+ * Passa `env.DATA_DIR` esplicitamente solo se vuoi sovrascrivere il default
+ * (es. test D che punta a una dir vuota per simulare il primo avvio).
+ */
 function eseguiCancello(appDir: string, env?: Record<string, string>): { code: number; out: string } {
+  // Rimuoviamo DATA_DIR dall'ambiente ereditato: non deve influenzare il default.
+  const baseEnv = { ...process.env };
+  delete baseEnv["DATA_DIR"];
+  delete baseEnv["TOPICS_DATA_DIR"];
+
   const proc = Bun.spawnSync(["bash", GATE, appDir], {
     env: {
-      ...process.env,
-      DATA_DIR: join(appDir, "data"),
+      ...baseEnv,
       ...(env ?? {}),
     },
   });
@@ -175,5 +187,31 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     const { code } = eseguiCancello(dir, { PATH: fakePath });
     // Il cancello non può verificare: non blocca (exit 0)
     expect(code).toBe(0);
+  });
+
+  it("F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)", () => {
+    // Questo è il caso che falsificava il cancello:
+    //   $ echo "CREATE TABEL rotta(" > server/db/migrations/29990101000000-prova-rotta.sql
+    //   $ bash scripts/server-reload-gate.sh <appdir>
+    //   exit=0   ← SBAGLIATO, doveva essere 1
+    //
+    // La causa: lo script cercava ~/.openclaw/data/topics.db (non esistente),
+    // trovava `if [ ! -f "$DB_PATH" ] → exit 0` e usciva verde senza guardare niente.
+    // La correzione: se DATA_DIR non è nell'env, il default è <APP_DIR>/data,
+    // identico a server/db.ts:17 — così il cancello guarda dove guarda il server.
+    const dir = appDirFinto({
+      migrations: [
+        { name: "20260817120000-ok.sql", sql: "SELECT 1;", applied: true },
+        { name: "20260817120001-broken.sql", sql: "CREATE TABEL rotta(", applied: false },
+      ],
+    });
+    daPulire.push(dir);
+
+    // Nessun DATA_DIR: il cancello deve trovare il DB da <APP_DIR>/data/topics.db
+    const { code, out } = eseguiCancello(dir);
+
+    expect(code).toBe(1);
+    expect(out).toContain("20260817120001-broken.sql");
+    expect(out).toContain("server vecchio resta su");
   });
 });

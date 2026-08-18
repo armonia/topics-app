@@ -79,18 +79,33 @@ if [ ! -d "$MIGRATIONS_DIR" ]; then
   exit 0
 fi
 
-# Il DB vivo: cerchiamo DATA_DIR nell'ambiente, poi il default.
-DATA_DIR="${DATA_DIR:-${TOPICS_DATA_DIR:-}}"
-if [ -z "$DATA_DIR" ]; then
-  # Default dell'app: ~/.openclaw/data/topics.db (APP_DATA_DIR se impostato)
-  _APP_DATA="${APP_DATA_DIR:-$HOME/.openclaw}"
-  DATA_DIR="$_APP_DATA/data"
+# Il DB vivo: stessa logica di server/db.ts:
+#   1. $DATA_DIR (variabile d'ambiente, uguale a quella del server)
+#   2. <APP_DIR>/data  (default del server quando DATA_DIR non è impostata)
+#   3. ~/.openclaw/data  (ultimo ripiego per ambienti legacy)
+#
+# Prima usavamo APP_DATA_DIR/$HOME/.openclaw come primo ripiego: sbagliato,
+# perché il DB vivo è in <APP_DIR>/data e il cancello non trovava niente.
+# Un `if [ ! -f "$DB_PATH" ] → exit 0` che scatta sempre è un cancello morto.
+if [ -z "${DATA_DIR:-}" ]; then
+  # Nessuna variabile d'ambiente: usa il default del server.
+  if [ -f "$APP_DIR/data/topics.db" ]; then
+    DATA_DIR="$APP_DIR/data"
+  else
+    # Ultimo ripiego (ambienti legacy con APP_DATA_DIR o ~/.openclaw).
+    _APP_DATA="${APP_DATA_DIR:-$HOME/.openclaw}"
+    DATA_DIR="$_APP_DATA/data"
+  fi
 fi
 DB_PATH="$DATA_DIR/topics.db"
 
 if [ ! -f "$DB_PATH" ]; then
   # DB non ancora creato (primo avvio): nessuna migration è "pending"
-  # rispetto al registro, quindi niente da controllare.
+  # rispetto al registro, quindi niente da controllare. Lasciamo passare
+  # perché al primo avvio non c'è nulla da applicare su un registro vuoto.
+  # Nota: la sintassi delle migration si potrebbe controllare su un DB
+  # temporaneo vuoto, ma al primo avvio il rischio è basso e il guadagno
+  # minimo rispetto al costo di un falso blocco su ambienti di CI fresh.
   exit 0
 fi
 
