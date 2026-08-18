@@ -64,6 +64,27 @@ export function parseModelOptions(res: Record<string, unknown> | undefined): str
   return names.length > 0 ? names : null;
 }
 
+/**
+ * IL MODELLO CHIESTO ESISTE, per quanto ne sappiamo?
+ *
+ * `null`/vuoto = non lo sappiamo (l'agente non ha ancora dichiarato il suo
+ * catalogo): in quel caso si prova, perche' rifiutare su un'ignoranza sarebbe
+ * peggio che sbagliare. Se invece il catalogo c'e' e il nome non e' dentro, la
+ * risposta e' no — e la conseguenza e' un turno sul modello di default, non una
+ * card morta.
+ *
+ * IL PATTO DEL DEGRADO, misurato il 18/08 contro jcode vero: `session/set_model`
+ * ACCETTA un nome inesistente senza protestare, e il 404 arriva dopo, dal vero
+ * endpoint della chat, a turno gia' partito — «status: 404 model:
+ * modello-che-non-esiste-42». Su una board significa che un `task.model` scritto
+ * male non costa un turno sul modello sbagliato: ferma la card. E `board_model`
+ * e' un campo che si scrive a mano.
+ */
+export function modelIsKnown(model: string, known: string[] | null | undefined): boolean {
+  if (!known || known.length === 0) return true;
+  return known.includes(model);
+}
+
 /** Il modello che l'agente dichiara ATTIVO in una risposta con `configOptions`. */
 export function currentModelFrom(res: Record<string, unknown> | undefined): string | null {
   const opts = res?.configOptions;
@@ -104,10 +125,31 @@ export async function applyModel(
    * leva deve poter aggiornare TUTTO cio' che l'agente ha appena dichiarato,
    * non la meta' che serviva a chi ha scritto la firma.
    */
-  ctx: { name: string; unsupported: UnsupportedFlags; onConfig?: (res: Record<string, unknown> | undefined) => void },
+  ctx: {
+    name: string;
+    unsupported: UnsupportedFlags;
+    /** Il catalogo che l'agente ha dichiarato, se l'ha dichiarato. Vedi `modelIsKnown`. */
+    knownModels?: string[] | null;
+    onConfig?: (res: Record<string, unknown> | undefined) => void;
+  },
 ): Promise<void> {
   if (!model || model === state.model) return;
   if (ctx.unsupported.model) return;
+  // Il catalogo dell'agente e' l'unica cosa che sappiamo PRIMA di provarci, e
+  // `session/set_model` non protesta su un nome inventato: il rifiuto arriva
+  // dal vero endpoint della chat, a turno gia' partito. Vedi `modelIsKnown`.
+  if (!modelIsKnown(model, ctx.knownModels)) {
+    // Il catalogo si NOMINA, non si riversa: jcode ne dichiara oltre centotrenta,
+    // e un avviso lungo una schermata e' un avviso che si impara a saltare.
+    const cat = ctx.knownModels ?? [];
+    const assaggio = cat.slice(0, 5).join(", ") + (cat.length > 5 ? `, +${cat.length - 5} altri` : "");
+    console.warn(
+      `[ACP:${ctx.name}] modello "${model}" non e' fra i ${cat.length} che l'agente dichiara ` +
+      `(${assaggio}): il turno gira sul modello di default. ` +
+      "Un nome sbagliato costa un turno sul modello sbagliato, non una card ferma.",
+    );
+    return;
+  }
   try {
     const res = await withTimeout(
       peer.request<Record<string, unknown>>("session/set_model", {
