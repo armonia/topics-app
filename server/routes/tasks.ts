@@ -1055,6 +1055,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const build = await autoMerge.buildClient(res.repoPath);
             svc.addComment({
               taskId, author: "system",
+              // Riuscita ⇒ ricevuta; fallita ⇒ parola, perché chiede un comando
+              // all'umano. Stessa regola dei checks: non conta chi scrive, conta
+              // se cambia cosa fai.
+              kind: build.code === 0 ? "service" : "comment",
               content: build.code === 0
                 ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
                 : `Build client fallita (exit ${build.code}). Lancia \`bun run build:client\` a mano.`,
