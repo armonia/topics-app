@@ -152,12 +152,38 @@ body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFo
 </html>`;
 }
 
+/**
+ * ── PERCORSO CON TOKEN ───────────────────────────────────────────────────────
+ * Il percorso e' /public/profile/<token> dove il token e' opaco e generato dal
+ * server alla prima pubblicazione. NULL nel DB = pagina spenta (404). Il token
+ * non e' deducibile per tentativi (128 bit di entropia). Revocarlo azzera l'URL:
+ * il vecchio link smette di funzionare immediatamente, senza riavviare niente.
+ *
+ * Questo rende la condivisione un GESTO deliberato («Pubblica» genera il link)
+ * e la revoca un click («Revoca» lo azzera). Prima del primo click la pagina
+ * non esiste affatto — non e' sufficiente conoscere l'indirizzo del server.
+ */
 export function createPublicProfileHandler(
   ctx: AppContext,
 ): (pathname: string, method: string) => Response | null {
   return function publicProfileHandler(pathname: string, method: string): Response | null {
-    if (pathname !== "/public/profile") return null;
+    // Accetta solo /public/profile/<token> — lunghezza minima 22 caratteri.
+    const PREFIX = "/public/profile/";
+    if (!pathname.startsWith(PREFIX)) return null;
     if (method !== "GET" && method !== "HEAD") return null;
+
+    const requestedToken = pathname.slice(PREFIX.length);
+    if (!requestedToken) return null;
+
+    // Legge il token corrente dal DB a ogni richiesta: la revoca ha effetto
+    // immediatamente senza riavviare il server.
+    const settings = getAppSettings();
+    const activeToken = settings.profileShareToken;
+
+    // Token non impostato (pagina spenta) o diverso (link vecchio/revocato): 404.
+    if (!activeToken || requestedToken !== activeToken) {
+      return new Response("Not Found", { status: 404 });
+    }
 
     try {
       const html = buildPublicProfilePage(ctx);

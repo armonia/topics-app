@@ -1282,6 +1282,9 @@ export interface AppBehaviorSettings {
   /** Mostrare la spesa in dollari sulla pagina pubblica del profilo. `null`
    *  o `false` = spesa non visibile (default sicuro: dato personale). */
   profilePublishCost: boolean | null;
+  /** Token opaco nel percorso /public/profile/<token>. NULL = pagina spenta.
+   *  Gestito da POST/DELETE /api/app-settings/profile-token, non da PUT. */
+  profileShareToken: string | null;
 }
 
 /**
@@ -1320,6 +1323,19 @@ export const appSettingsApi = {
       body: JSON.stringify(patch),
     });
     return r.settings;
+  },
+  /** Genera il token di pubblicazione (idempotente: se esiste lo restituisce). */
+  async publishProfile(): Promise<string> {
+    const r = await request<{ ok: boolean; token: string }>('/app-settings/profile-token', {
+      method: 'POST',
+    });
+    return r.token;
+  },
+  /** Revoca il token: il vecchio URL diventa 404 immediatamente. */
+  async revokeProfile(): Promise<void> {
+    await request<{ ok: boolean }>('/app-settings/profile-token', {
+      method: 'DELETE',
+    });
   },
 };
 
