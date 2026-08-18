@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { cardCommentsFromRow, cardDetailNeed, selectCardComments, isHumanComment, showsCardThread, type CardThreadRow } from './cardComments';
+import { cardCommentsFromRow, cardDetailNeed, selectCardComments, isHumanComment, isMachineVoice, showsCardThread, type CardThreadRow } from './cardComments';
 import { NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, noteParkedChildrenResolved } from '../../../../shared/board';
 import type { CardComment, TaskComment } from '../../lib/board';
 
@@ -422,5 +422,56 @@ describe('isHumanComment', () => {
     expect(isHumanComment(comment('user', NOTE_STOPPED_BY_HUMAN))).toBe(false);
     expect(isHumanComment(comment('user', NOTE_ARCHIVED_BY_HUMAN))).toBe(false);
     expect(isHumanComment(comment('user', noteParkedChildrenResolved('archive', 2)))).toBe(false);
+  });
+});
+
+/**
+ * IL SEGNO CHE A PARLARE E' LA MACCHINA.
+ *
+ * Quando nel thread non c'e' nessuna voce vera, la card disegna comunque
+ * l'ultima riga — e senza un segno quella riga si legge come il riassunto di
+ * una consegna. Segnalato con queste parole: «gli ultimi commenti che devo da
+ * review non hanno senso, saranno messaggi di sistema».
+ *
+ * Il predicato guardava solo `kind === 'review-note'`, cioe' 38 note su 345 in
+ * tre giorni. Le notifiche del sistema — la specie piu' numerosa — passavano
+ * senza tag e in `text-app-text-heading`, indistinguibili da un agente.
+ *
+ * Gli autori qui sotto sono quelli VERI del database, non forme inventate.
+ */
+describe('isMachineVoice: chi parla non e\' una persona ne\' un agente', () => {
+  const c = (author: string, kind?: string) =>
+    ({ author, kind, content: 'x' }) as Parameters<typeof isMachineVoice>[0];
+
+  test('il sistema e\' macchina, ed e\' il caso che mancava', () => {
+    expect(isMachineVoice(c('system'))).toBe(true);
+    expect(isMachineVoice(c('system', 'comment'))).toBe(true);
+  });
+
+  test('anche il dispatcher e il verifier', () => {
+    expect(isMachineVoice(c('dispatcher'))).toBe(true);
+    expect(isMachineVoice(c('verifier'))).toBe(true);
+  });
+
+  test('la review-note resta macchina qualunque sia l\'autore', () => {
+    // E\' il caso che il predicato copriva gia\': non deve regredire.
+    expect(isMachineVoice(c('verifier', 'review-note'))).toBe(true);
+    expect(isMachineVoice(c('agent:abc', 'review-note'))).toBe(true);
+  });
+
+  test('l\'umano e l\'agente NON sono macchina: sono le due voci che la card mostra', () => {
+    expect(isMachineVoice(c('user'))).toBe(false);
+    expect(isMachineVoice(c('agent:c10ba16e-d138-4972-85df-4114ceac761e'))).toBe(false);
+    // Righe scritte prima del 13/08 portano li\' il NOME del topic, e
+    // `commentAuthorLabel` le classifica agente: non devono prendere il tag.
+    expect(isMachineVoice(c('Freno dispatch'))).toBe(false);
+  });
+
+  test('un autore vuoto o assente non diventa macchina per sbaglio', () => {
+    // `commentAuthorLabel` accetta null apposta — «una card non deve
+    // sbiancare perche\' una colonna l\'ha fatto». Qui la conseguenza e\' che
+    // l\'ignoto NON viene accusato di essere il sistema.
+    expect(isMachineVoice(c(''))).toBe(false);
+    expect(isMachineVoice({ author: null, kind: undefined, content: 'x' } as never)).toBe(false);
   });
 });

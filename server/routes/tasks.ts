@@ -586,7 +586,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return;
     }
     const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
-    if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
+    if (reaped) svc.addComment({ taskId, author: "system", kind: "service", content: "Worktree e branch del task ripuliti." });
   }
 
   /**
@@ -720,7 +720,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const comment = formatChecksComment(runs, { commit: ref.commit });
         try {
           svc.recordChecks({ taskId, state: ok ? "pass" : "fail", commit: ref.commit, runs });
-          svc.addComment({ taskId, author: "system", content: comment });
+          // VERDE ⇒ servizio, ROSSO ⇒ parola. Il verde è già un chip sulla card
+          // (`card-checks-green`) e il paragrafo lo ripete comando per comando,
+          // bruciando uno slot su OGNI consegna — misurate 92 copie in 7 giorni.
+          // Il rosso invece cambia cosa fa l'umano: elenca quali comandi sono
+          // caduti, e su una card in review è metà della decisione. Un chip col
+          // tooltip non basta a portare quel dettaglio in una colonna.
+          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: comment });
           const t = svc.get(taskId, { projectId })?.task;
           if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* l'esito conta più della sua registrazione */ }
@@ -792,6 +798,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     try {
       svc.addComment({
         taskId, author: "system",
+        // Ricevuta interna, e il commento qui accanto lo dice: esiste perché la
+        // coda vive in RAM e un riavvio la perderebbe. È un log, non una parola.
+        kind: "service",
         content: "Land accodato: la card si chiude solo quando il merge è CONFERMATO su main.",
       });
       const t = svc.get(taskId, { projectId })?.task;
@@ -936,7 +945,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.
       if (res.status === "merged" && res.realigned) {
-        svc.addComment({ taskId, author: "system", content: `Riallineato prima del land: ${res.realigned}.` });
+        svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato prima del land: ${res.realigned}.` });
       }
       // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
       // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
@@ -975,7 +984,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               "il verdetto di atterraggio resta «non verificabile». Controlla a mano se il lavoro è su main.",
           });
         }
-        svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+        svc.addComment({ taskId, author: "system", kind: "service", content: `Mergiato su main (commit ${res.commit}).` });
         // È QUI che finisce la vita di review della card, non all'inizio del
         // land: l'anteprima si smonta quando il merge è confermato. Smontarla
         // prima di provare a fondere toglieva al reviewer la pagina viva anche
@@ -1046,6 +1055,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const build = await autoMerge.buildClient(res.repoPath);
             svc.addComment({
               taskId, author: "system",
+              // Riuscita ⇒ ricevuta; fallita ⇒ parola, perché chiede un comando
+              // all'umano. Stessa regola dei checks: non conta chi scrive, conta
+              // se cambia cosa fai.
+              kind: build.code === 0 ? "service" : "comment",
               content: build.code === 0
                 ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
                 : `Build client fallita (exit ${build.code}). Lancia \`bun run build:client\` a mano.`,
@@ -1056,7 +1069,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             svc.addComment({ taskId, author: "system", content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch)." });
           }
           if (res.touchedServer) {
-            svc.addComment({ taskId, author: "system", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
+            svc.addComment({ taskId, author: "system", kind: "service", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
           }
         }
       } else if (res.status === "nothing") {
