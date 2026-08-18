@@ -262,12 +262,36 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
 fi
 
 # Restart-on-CRASH loop. An UNEXPECTED server exit drops us out of `wait` and we
-# relaunch after 1s; launchd KeepAlive=true is the outer backstop if
+# relaunch after a delay; launchd KeepAlive=true is the outer backstop if
 # start-prod.sh itself dies. A SIGTERM to THIS script (launchd `bootout`, or the
 # parent cleanup) interrupts `wait`, runs cleanup → SHUTTING_DOWN=1 → exit, so
 # the loop never relaunches on a real shutdown. There is no reload-on-edit: the
 # server only comes back after a genuine crash.
+#
+# ─── Backoff esponenziale sui boot-failure (2026-08-17) ─────────────────────
+#
+# Prima il loop riavviava sempre dopo 1s fisso, senza distinzione tra un crash
+# dopo ore di lavoro e un boot che muore subito. Il 17/08: 506 boot falliti in
+# 10 minuti e 38 secondi (01:00:48 → 01:11:26), un tentativo al secondo, senza
+# nessun freno. L'app era giù e nessuno lo sapeva finché un umano non se ne è
+# accorto.
+#
+# Un server che muore in meno di BOOT_THRESHOLD secondi non ha mai risposto a
+# nessuna richiesta: è un boot-failure, non un crash di produzione. Riavviare 1
+# volta al secondo mille volte non cambia il motivo del guasto; il backoff
+# invece dà tempo a un operatore di accorgersi e intervenire, e salva il log da
+# un muro di righe identiche che nasconde l'errore originale.
+#
+# Sequenza: 2s, 4s, 8s, 16s, 30s (tetto). Ogni exit che dura meno di
+# BOOT_THRESHOLD aumenta il contatore; un server che sopravvive almeno
+# BOOT_THRESHOLD secondi azzera il backoff (era un vero crash, non un loop).
+BOOT_THRESHOLD=10   # secondi: meno di questo = boot-failure
+BACKOFF_DELAY=2     # ritardo iniziale dopo un boot-failure (secondi)
+BACKOFF_MAX=30      # tetto del backoff (secondi)
+_backoff_cur=0      # ritardo corrente; 0 = primo giro / nessun boot-failure recente
+
 while [ "$SHUTTING_DOWN" != 1 ]; do
+  _boot_t="$(date +%s)"
   "$BUN" run "$APP_DIR/server.ts" &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$SERVER_PIDFILE"
@@ -275,6 +299,25 @@ while [ "$SHUTTING_DOWN" != 1 ]; do
   # Re-check in case the SIGTERM raced in after `wait` returned but before the
   # trap set the flag — never relaunch once we're tearing down.
   [ "$SHUTTING_DOWN" = 1 ] && break
-  echo "[$(date +%H:%M:%S)] server exited (code $code) — relaunching in 1s"
-  sleep 1
+
+  _exit_t="$(date +%s)"
+  _lived=$(( _exit_t - _boot_t ))
+
+  if [ "$_lived" -lt "$BOOT_THRESHOLD" ]; then
+    # Boot-failure: il server non ha raggiunto BOOT_THRESHOLD secondi di vita.
+    if [ "$_backoff_cur" -lt "$BACKOFF_DELAY" ]; then
+      _backoff_cur="$BACKOFF_DELAY"
+    else
+      _backoff_cur=$(( _backoff_cur * 2 ))
+    fi
+    [ "$_backoff_cur" -gt "$BACKOFF_MAX" ] && _backoff_cur="$BACKOFF_MAX"
+    echo "[$(date +%H:%M:%S)] server exited after ${_lived}s (code $code) — boot-failure, riavvio tra ${_backoff_cur}s"
+    sleep "$_backoff_cur"
+  else
+    # Crash dopo un avvio riuscito: azzera il backoff, breve pausa per non
+    # intasare il log in caso di crash immediato post-avvio.
+    _backoff_cur=0
+    echo "[$(date +%H:%M:%S)] server exited after ${_lived}s (code $code) — relaunching in 1s"
+    sleep 1
+  fi
 done
