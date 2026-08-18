@@ -37,6 +37,7 @@
 // dichiarato UNA volta in `shared/board.ts` e letto dai due lati.
 export type { LandingTicket } from "../../shared/board";
 import type { LandingTicket } from "../../shared/board";
+import { makeSerialQueue } from "../lib/serial-queue";
 
 export interface LandingQueueDeps {
   now?: () => string;
@@ -79,8 +80,8 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
 
   /** Task in fila per chiave, in ordine: l'indice 0 è quello che sta girando. */
   const lanes = new Map<string, string[]>();
-  /** La coda di promise per chiave: è ciò che serializza davvero. */
-  const tails = new Map<string, Promise<unknown>>();
+  /** La coda che serializza i land: usa makeSerialQueue invece di tails inline. */
+  const q = makeSerialQueue();
   const entries = new Map<string, Entry>();
   /** Ticket chiusi, dal più vecchio: la finestra da potare quando supera `cap`. */
   const history: string[] = [];
@@ -128,8 +129,9 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
       lanes.set(key, lane);
       const ticket = snapshot(entry);
 
-      const prev = tails.get(key) ?? Promise.resolve();
-      const next = prev.then(async () => {
+      // makeSerialQueue gestisce la coda di promise e la pulizia della mappa.
+      // La fn wrappa tutto in try/catch, quindi non rifiuta mai: `void` è sicuro.
+      void q.enqueue(key, async () => {
         entry.ticket.phase = "running";
         try {
           await run();
@@ -153,11 +155,6 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
         entry.ticket.ahead = 0;
         entry.finish({ ...entry.ticket });
       });
-      // `next` non rifiuta mai (il catch è dentro), ma la coda non deve dipendere
-      // da quella promessa: `catch` qui la rende vera per costruzione.
-      const tail = next.catch(() => undefined);
-      tails.set(key, tail);
-      void tail.then(() => { if (tails.get(key) === tail) tails.delete(key); });
 
       return ticket;
     },
