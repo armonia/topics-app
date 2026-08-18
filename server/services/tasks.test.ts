@@ -1760,10 +1760,13 @@ describe("il costo di una lista non cresce con le righe", () => {
    * loro `null`. Il tetto è salito da 1.600 il 16/08, quando le tre colonne
    * dell'entità della consegna (`deliveryFilesChanged`/`Insertions`/`Deletions`,
    * migration 20260816174500) hanno aggiunto ~53 byte per task: misurato 1.653.
+   * Rialzato a 1.750 il 18/08, quando `urlProbeStatus` e `urlProbeCheckedAt`
+   * (migration 20260818164410) hanno aggiunto ~40 byte per task: misurato 1.716.
    * Alzarlo è legittimo SOLO perché il pavimento è cresciuto per una ragione
-   * dichiarata — tre campi che la card in review disegna — e non perché il
-   * payload si è ingrassato di nascosto. La controprova sotto, che è la parte
-   * che non si ricalibra, resta identica. Restano poi due campi che non sono grasso ma contenuto —
+   * dichiarata — due campi che la card in review usa per decidere se mostrare
+   * il link all'anteprima viva — e non perché il payload si è ingrassato di
+   * nascosto. La controprova sotto, che è la parte che non si ricalibra, resta
+   * identica. Restano poi due campi che non sono grasso ma contenuto:
    * l'anteprima (263 byte, ed è ciò che la card disegna) e `queueReason`
    * (242 byte, la frase che dice perché la card non parte). Sotto i 700 non ci
    * si arriva accorciando: ci si arriva togliendo chiavi, che è un altro
@@ -1774,14 +1777,14 @@ describe("il costo di una lista non cresce con le righe", () => {
    * dei check, e quella condizione va rossa il giorno in cui uno dei due torna,
    * qualunque soglia si scriva sopra.
    */
-  test("proiezione magra: sotto i 1700 byte per task, con descrizioni da 2500 caratteri", () => {
+  test("proiezione magra: sotto i 1750 byte per task, con descrizioni da 2500 caratteri", () => {
     const db = freshDb();
     const s = svc(db);
     seed(db, { description: "d".repeat(2500) });
     const magra = s.list({ scope: "all", rootsOnly: true });
     expect(magra.length).toBe(300);
     const testo = JSON.stringify({ tasks: magra });
-    expect(testo.length / magra.length).toBeLessThan(1700);
+    expect(testo.length / magra.length).toBeLessThan(1750);
     // Strutturale: i due pesi che questo cambio toglie non sono nel payload.
     expect(testo).not.toContain("d".repeat(300));  // la descrizione intera
     expect(testo).not.toContain("x".repeat(300));  // la coda dei check
@@ -2052,7 +2055,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- literal e un backtick apre un'interpolazione JS. Seconda volta oggi.)
          delivery_files_changed = 7, delivery_insertions = 120, delivery_deletions = 30,
          -- 20260816214500: da quando la card aspetta una risposta umana.
-         review_at = ?
+         review_at = ?,
+         -- 20260818164410: esito sonda server-side sull'output_url.
+         url_probe_status = 'live', url_probe_checked_at = ?
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
@@ -2062,7 +2067,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
         `🎯${"d".repeat(400)}`,
         TS, TS, TS, TS, TS, bloccante.id, "2020-01-01T00:00:00.000Z",
         TS, TS, JSON.stringify([{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "ok" }]),
-        TS, TS, TS, TS, TS, t.id,
+        TS, TS, TS, TS, TS, TS, t.id,
       ],
     );
     return { id: t.id, altri: [padre.id, passo.id, bloccante.id, inCoda.id, dipendente.id] };

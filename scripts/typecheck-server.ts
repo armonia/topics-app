@@ -38,9 +38,13 @@ if (res.error || res.status === null) {
   console.error(
     `\n✗ tsc non trovato o non eseguibile in ${TSC}` +
       `${res.error ? ` (${res.error.message})` : ""}.\n` +
-      `  Il typecheck NON è girato — esegui \`bun install\` in client/.`,
+      `  Il typecheck NON è girato: esegui \`bun install\` in client/.`,
   );
-  process.exit(1);
+  // 97 = NON MISURATO, non «fallito». La distinzione c'era gia' a parole qui
+  // sopra, ma l'uscita 1 la buttava via: chi legge l'esito vede il numero, e la
+  // card scriveva `checks_state = 'fail'` — «il tuo codice e' rotto» su un
+  // worktree senza dipendenze. Vedi `scripts/check-client-deps.ts`.
+  process.exit(97);
 }
 
 // tsc failed for a reason the regex cannot see (bad tsconfig, crash, OOM):

@@ -179,6 +179,16 @@ export interface Task {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /**
+   * Esito dell'ultima sonda server-side sull'output_url.
+   * - `'live'`    : la sonda ha risposto 2xx/3xx
+   * - `'dead'`    : la sonda non risponde o risponde 4xx/5xx
+   * - `'unknown'` : sonda mai eseguita (default dopo la migration)
+   * `null` = nessun output_url, campo non rilevante.
+   */
+  urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
+  /** Timestamp dell'ultima sonda (ISO string). */
+  urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
@@ -936,6 +946,11 @@ export interface TaskService {
   setDispatchWeight(args: { taskId: string; weight: TaskWeight | null }): Task;
   /** Toglie l'anteprima e scrive sulla card PERCHÉ (stato, non messaggio). */
   retirePreview(args: { taskId: string; reason: string }): Task;
+  /**
+   * Scrive l'esito della sonda sull'output_url.
+   * Chiamato dal background probe trigger dopo ogni sonda HTTP.
+   */
+  setUrlProbeStatus(args: { taskId: string; status: 'live' | 'dead' | 'unknown'; checkedAt: string }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
@@ -1922,6 +1937,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
+      urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
+      urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
@@ -2370,6 +2387,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * Il predicato del gate `review_needs_summary`, estratto per essere chiamato
+   * anche dalle porte di sistema (`deliverToReviewBySystem`, `askParkedChildren`)
+   * che non passano da `update()`.
+   *
+   * Dentro `update()` il predicato BLOCCA (l'agente può riprovare). Dalle porte
+   * di sistema NON blocca — il turno e' gia' finito, la card deve andare da
+   * qualche parte — ma il fatto si ANNOTA: chi rivede sa subito che l'agente non
+   * ha dichiarato nulla, e non deve scoprirlo aprendo il worktree.
+   *
+   * `true` = il turno ha prodotto almeno un commento dell'agente = consegna non
+   * muta. `false` = nessuna parola fresca = annotare.
+   */
+  function hasFreshAgentComment(taskId: string): boolean {
+    const turnStart = lastTurnStart(taskId);
+    const c = (db.prepare(
+      `SELECT COUNT(*) AS c FROM task_comments
+        WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
+          AND (? IS NULL OR created_at >= ?)`,
+    ).get(taskId, turnStart, turnStart) as any).c as number;
+    return c > 0;
+  }
+
+  /**
    * Segna che una card è USCITA da `done` o da `review`, per le porte che
    * scrivono lo status a SQL grezzo (release, deferForWait,
    * deliverToReviewBySystem, il rifiuto in review). `update()` scrive le stesse
@@ -2790,13 +2830,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // (the newest `…→in_progress` status event). Coach a retry — same
           // pattern as comment_too_long. kind='comment' only: an agent-authored
           // status flip must not satisfy the gate.
-          const turnStart = lastTurnStart(taskId);
-          const fresh = (db.prepare(
-            `SELECT COUNT(*) AS c FROM task_comments
-              WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
-                AND (? IS NULL OR created_at >= ?)`,
-          ).get(taskId, turnStart, turnStart) as any).c as number;
-          if (fresh === 0) {
+          if (!hasFreshAgentComment(taskId)) {
             throw new TaskServiceError(
               "review_needs_summary",
               "post a delivery summary for THIS turn first. Use comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason), THEN set status='review'",
@@ -3828,6 +3862,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
         try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
       }
+      // PREDICATO review_needs_summary, PORTA DI SISTEMA.
+      //
+      // Dentro `update()` il predicato blocca: l'agente deve riprovare.
+      // Qui non puo' bloccare — il turno e' finito — ma il fatto si annota:
+      // chi rivede vede subito che l'agente non ha scritto nulla, e non deve
+      // scoprirlo da solo. Nota di servizio (kind='service'): contabilita',
+      // non conversazione — non interrompe il thread della consegna vera.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
+      }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).
       // `delivered_by = 'system'`: la card in review deve dire da sé che non è una
@@ -3925,6 +3974,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             : [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
         });
       } catch { /* dedupe/best-effort: la domanda resta comunque nello stato */ }
+      // PREDICATO review_needs_summary, PORTA DI SISTEMA (stessa logica di
+      // `deliverToReviewBySystem`): annota se l'agente non ha commentato nel
+      // suo turno. Non blocca — anche qui il turno e' gia' finito.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
+      }
       // Stessa forma di una consegna di sistema — review + `needs_input` + firma
       // `system` — perché è la stessa cosa: una card che aspetta una persona.
       // `delivered_reason` dice QUALE persona serve, e la card lo scrive da sé.
@@ -4267,6 +4327,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
       ).run(now(), reason.trim() || null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setUrlProbeStatus({ taskId, status, checkedAt }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare(
+        "UPDATE tasks SET url_probe_status = ?, url_probe_checked_at = ?, updated_at = ? WHERE id = ?",
+      ).run(status, checkedAt, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
