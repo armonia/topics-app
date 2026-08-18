@@ -22,7 +22,7 @@ import { describe, expect, test, afterEach, beforeAll } from "bun:test";
 import * as fs from "node:fs";
 import net from "node:net";
 import { createPreviewManager, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree } from "../../server/services/preview-manager";
-import { killProcessTree } from "../../server/routes/processes";
+import { killProcessTree } from "../../server/lib/process-tree";
 import { testTmpDir } from "./helpers";
 
 const TEST_ROOT = testTmpDir("preview-teardown-tree");

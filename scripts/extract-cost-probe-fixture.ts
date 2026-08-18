@@ -31,6 +31,7 @@
  */
 import { Database } from "bun:sqlite";
 import { writeFileSync } from "fs";
+import { decodeCol } from "../shared/message-blob";
 
 const dbPath = process.argv[2] || `${process.env.HOME}/Projects/topics-app/data/topics.db`;
 // Nessun default: l'id di una sessione reale non si scrive in un repo pubblico,
@@ -56,7 +57,7 @@ const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 
 const rows = raw.map((r) => {
   let callTokens: Array<number | null> = [];
   try {
-    const arr = JSON.parse(String(r.tool_calls || "[]"));
+    const arr = JSON.parse(decodeCol(r.tool_calls) || "[]");
     if (Array.isArray(arr)) {
       callTokens = arr.map((c: unknown) => {
         const t = c && typeof c === "object" ? (c as { tokens?: unknown }).tokens : undefined;

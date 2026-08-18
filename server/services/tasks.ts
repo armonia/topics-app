@@ -1036,7 +1036,7 @@ export interface TaskService {
    * (merge uscito zero, o fallito), non chi lo deduce dopo: quel verdetto
    * diventa definitivo finché la card non riconsegna.
    */
-  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable"; checkedAt: string; witnessed?: boolean }): void;
+  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable" | "superseded"; checkedAt: string; witnessed?: boolean }): void;
   /**
    * Lo stato terminale che un land RIUSCITO impone alla card: `done`, chip di
    * dispatch spento, nessuna finestra di ri-tentativo. Idempotente — su una card
@@ -4570,6 +4570,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           WHERE archived = 0
             AND (delivery_commit IS NOT NULL OR landing_state = 'unlanded')
             AND status IN ('review', 'done')
+            -- Una DECISIONE non si rimisura: superseded dice «non e' su main,
+            -- e va bene cosi'». L'audit chiede al repo, e il repo risponderebbe
+            -- di nuovo unlanded cancellando la scelta a ogni passata.
+            AND COALESCE(landing_state, '') <> 'superseded'
             AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
       ).all().map((r: any) => ({
         id: r.id,

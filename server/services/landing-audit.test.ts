@@ -76,7 +76,7 @@ describe("auditLandings", () => {
     // Il verdetto ricco costa un indice delle righe di main: su una card già
     // dentro non si chiede, e non lo si paga.
     expect(chiesti).toEqual(["fuori"]);
-    expect(s).toEqual({ checked: 2, landed: 1, unlanded: 0, unverifiable: 1 });
+    expect(s).toEqual({ checked: 2, landed: 1, unlanded: 0, unverifiable: 1, superseded: 0 });
   });
 
   it("un `unmerged` che la seconda domanda assolve non fa scattare l'allarme", async () => {
@@ -95,7 +95,7 @@ describe("auditLandings", () => {
   it("stamps a verdict on every candidate with the same timestamp", async () => {
     const h = harness({ tasks: [task("a"), task("b")], status: () => "merged" });
     const s = await auditLandings(h.deps);
-    expect(s).toEqual({ checked: 2, landed: 2, unlanded: 0, unverifiable: 0 });
+    expect(s).toEqual({ checked: 2, landed: 2, unlanded: 0, unverifiable: 0, superseded: 0 });
     expect(h.recorded.map((r) => r.state)).toEqual(["landed", "landed"]);
     expect(new Set(h.recorded.map((r) => r.at)).size).toBe(1);
     expect(h.alerts).toHaveLength(0);
@@ -125,7 +125,7 @@ describe("auditLandings", () => {
   it("a pruned commit is unverifiable and never alerts", async () => {
     const h = harness({ tasks: [task("old")], status: () => "gone" });
     const s = await auditLandings(h.deps);
-    expect(s).toEqual({ checked: 1, landed: 0, unlanded: 0, unverifiable: 1 });
+    expect(s).toEqual({ checked: 1, landed: 0, unlanded: 0, unverifiable: 1, superseded: 0 });
     expect(h.alerts).toHaveLength(0);
   });
 
@@ -180,7 +180,7 @@ describe("auditLandings", () => {
     });
     const s = await auditLandings(h.deps);
     expect(h.recorded).toEqual([{ id: "a", state: "unverifiable", at: "2026-07-28T10:00:00.000Z" }]);
-    expect(s).toEqual({ checked: 1, landed: 0, unlanded: 0, unverifiable: 1 });
+    expect(s).toEqual({ checked: 1, landed: 0, unlanded: 0, unverifiable: 1, superseded: 0 });
     expect(h.alerts).toHaveLength(0);
   });
 
@@ -279,7 +279,7 @@ describe("auditLandings", () => {
   it("un audit che non risolve NIENTE lo dice nel log invece di tacere", async () => {
     const h = harness({ tasks: [task("a"), task("b"), task("c")], repo: () => null });
     const s = await auditLandings(h.deps);
-    expect(s).toEqual({ checked: 3, landed: 0, unlanded: 0, unverifiable: 3 });
+    expect(s).toEqual({ checked: 3, landed: 0, unlanded: 0, unverifiable: 3, superseded: 0 });
     expect(h.logs.some((l) => l.includes("3/3") && l.includes("non verificabili"))).toBe(true);
   });
 
