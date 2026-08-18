@@ -285,14 +285,24 @@ describe("own-commits — il runner iniettato", () => {
  */
 describe("own-commits — il cablaggio della consegna in server.ts", () => {
   const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+  // IL BACKFILL HA TRASLOCATO il 18/08 (`services/delivery-backfill.ts`), quando
+  // il cancello di dimensione ha protestato su `server.ts`. Il cancello segue il
+  // codice: la domanda che sorveglia — «si chiede il commit PROPRIO, mai la
+  // punta» — non e' cambiata di una virgola, e sarebbe stata la cosa peggiore
+  // lasciarlo puntato a un blocco ormai vuoto, dove sarebbe passato verde a
+  // vuoto per sempre.
+  const backfillSrc = readFileSync(join(import.meta.dir, "delivery-backfill.ts"), "utf8");
 
-  function block(from: string, to: string): string {
-    const start = src.indexOf(from);
-    expect(start).toBeGreaterThan(-1);
-    const end = src.indexOf(to, start);
+  function blockIn(testo: string, from: string, to: string): string {
+    const start = testo.indexOf(from);
+    expect(start, `ancora non trovata: ${from}`).toBeGreaterThan(-1);
+    const end = to ? testo.indexOf(to, start) : testo.length;
     expect(end).toBeGreaterThan(start);
-    return src.slice(start, end);
+    return testo.slice(start, end);
   }
+  const block = (from: string, to: string) => blockIn(src, from, to);
+  /** Il corpo della passata, ovunque viva adesso. */
+  const backfill = () => blockIn(backfillSrc, "export async function backfillDeliveries", "");
 
   test("la cattura in review chiede il commit PROPRIO, non la punta", () => {
     // L'ANCORA E' CAMBIATA IL 18/08, e vale la pena dire perche': i due sguardi
@@ -310,9 +320,9 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
   test("il backfill periodico dell'audit fa la stessa domanda", () => {
     // Altrimenti ogni 30 minuti riscriverebbe la punta del ramo sopra le card
     // senza consegna registrata, disfacendo la cattura.
-    const backfill = block("async function backfillDeliveries()", "const LANDING_AUDIT_INTERVAL_MS");
-    expect(backfill).toContain("deliveryPointer(");
-    expect(backfill).not.toContain("resolveCommit(");
+    const corpo = backfill();
+    expect(corpo).toContain("deliveryPointer(");
+    expect(corpo).not.toContain("resolveCommit(");
   });
 
   /**
@@ -341,7 +351,7 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
     ];
     for (const [nome, testo] of [
       ["la cattura in review", block("const taskDeliveryRef = async (taskId: string)", "const taskCheckoutRef")],
-      ["il backfill", block("async function backfillDeliveries()", "const LANDING_AUDIT_INTERVAL_MS")],
+      ["il backfill", backfill()],
     ] as const) {
       const codice = testo.split("\n").filter((r) => !r.trim().startsWith("//")).join("\n");
       for (const p of punte) expect(`${nome}: ${codice}`).not.toMatch(p);

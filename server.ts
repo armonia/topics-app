@@ -166,6 +166,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
 // palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
 import { armTurnDeadline } from "./server/lib/turn-deadline";
+import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -4201,80 +4202,23 @@ const worktreeGcTimer = setInterval(() => { void worktreeGc.runWorktreeGc(); }, 
 //     every task that predates the delivery snapshot.
 //  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
 //     the verdict; the edge into `unlanded` posts a comment on the task.
-async function backfillDeliveries(): Promise<void> {
-  // ANCHE CHI IL COMMIT CE L'HA MA NON HA I NUMERI. La condizione guardava solo
-  // `delivery_commit IS NULL`, e i numeri non li scriveva comunque nessuno qui:
-  // `recordDelivery` senza `stat` mette NULL per contratto. Risultato misurato il
-  // 18/08 su topics-app: 294 card in review/done con un ramo, un commit e nessun
-  // numero — la colonna chiedeva «Approva» senza dire cosa si approva. Su
-  // `7588f2c1` il ramo portava 3 file +190 −12, su `348559d3` 3 file +39 −137, e
-  // la card non lo diceva.
-  //
-  // Il buco sta nei percorsi che portano una card in review SENZA passare da
-  // fine turno: `askParkedChildren` chiamata da un cambio di stato dei figli
-  // scrive `status='review'` con una UPDATE grezza, e `captureDelivery` — che
-  // vive nel dispatcher e nella rotta — non passa di li'. E' la QUARTA copia
-  // mancante dello stesso gesto (vedi `task-delivery-capture.ts`): invece di
-  // aggiungerne una quinta, la passata periodica la ripara per tutti.
-  const rows = ctx.db.prepare(
-    `SELECT id, delivery_commit FROM tasks
-      WHERE archived = 0 AND status IN ('review', 'done')
-        AND (delivery_commit IS NULL OR delivery_files_changed IS NULL)`,
-  ).all() as Array<{ id: string; delivery_commit: string | null }>;
-  // I candidati di progetto una volta sola: costruirli scandisce la cartella di
-  // lavoro, e qui si cicla su tutte le card senza consegna.
-  const candidati = buildProjectCandidates({
+/**
+ * Il cablaggio della passata di backfill: il COSA sta in
+ * `services/delivery-backfill.ts`, qui restano solo le dipendenze vere.
+ */
+function backfillDeliveries(): Promise<void> {
+  return backfillDeliveriesPass({
+    db: ctx.db,
     projectStore: ctx.projectStore,
+    svc: dispatcherSvc,
     workspaceDir: DISPATCH_WORKSPACE_DIR,
     extraPaths: dispatchExtraPaths,
+    buildProjectCandidates,
+    deliveryBranchDeps,
+    resolveDeliveryBranch,
+    deliveryPointer,
+    worktreeDiffStat,
   });
-  const deps = deliveryBranchDeps(candidati);
-  for (const row of rows) {
-    // Il worktree se è vivo, altrimenti il ramo che la card si è tenuta. Senza
-    // questo ripiego una card che ha perso la cartella non poteva più essere
-    // fotografata da nessuno, e `delivery_commit` restava NULL per sempre: sono
-    // le 23 card misurate il 18/08 su topics-app, 13 delle quali ferme su
-    // un'accusa che l'audit non poteva più togliere.
-    const ref = await resolveDeliveryBranch(deps, row.id).catch(() => null);
-    if (!ref) continue;
-    // Stessa domanda della cattura in review: il commit PROPRIO più recente, non
-    // la punta del ramo — altrimenti questo giro riscriverebbe ogni 30 minuti il
-    // lavoro di un'altra sessione sopra le card senza consegna.
-    // Awaited: the audit right below must see what we just recorded, otherwise
-    // a backfilled task waits a full interval for its first verdict.
-    const ptr = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
-    // Niente commit propri (o domanda senza risposta): non si scrive niente e si
-    // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
-    // stessa domanda cambia risposta da sola. In particolare NON si ripiega
-    // sulla punta: vedi `taskDeliveryRef`, dove c'è la misura del perché.
-    // I NUMERI, anche quando il commit c'è già. Due strade distinte apposta:
-    // se la consegna è NUOVA (commit mai registrato) la scrive `recordDelivery`,
-    // che azzera anche il verdetto — ed è giusto, un verdetto su un'altra
-    // consegna non vale. Se invece manca solo la MISURA su una consegna che non
-    // è cambiata, si scrive solo quella: passare da `recordDelivery` butterebbe
-    // via il verdetto testimoniato a ogni giro.
-    const commitNuovo = !row.delivery_commit;
-    if (!ptr?.commit) continue;
-    // QUANTO lavoro c'è dentro, con lo stesso misuratore del worktree vivo: si
-    // conta dal PADRE del commit proprio più vecchio, non dalla punta, così una
-    // card non si prende il lavoro di un'altra sessione. `null` = non misurabile
-    // (git in errore, ramo sparito a metà), e allora `stat: null` lascia la
-    // colonna vuota: un silenzio onesto, mai uno zero che direbbe «non ha
-    // prodotto niente». I ref sono condivisi fra i worktree, quindi il checkout
-    // principale basta a misurare il ramo.
-    const stat = await worktreeDiffStat(ref.repoPath, { branch: ptr.branch }).catch(() => null);
-    if (commitNuovo) {
-      dispatcherSvc.recordDelivery({
-        taskId: row.id, branch: ptr.branch, commit: ptr.commit,
-        stat: stat ? { filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions } : null,
-      });
-    } else if (stat) {
-      dispatcherSvc.setDeliveryStat({
-        taskId: row.id,
-        filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions,
-      });
-    }
-  }
 }
 
 const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
