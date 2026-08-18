@@ -1282,6 +1282,13 @@ export interface CheckRun {
   code: number | null;
   ms: number;
   timedOut: boolean;
+  /**
+   * Il comando ha DICHIARATO di non aver misurato (uscita 97): `tsc` o `eslint`
+   * non c'erano, cioè un worktree senza `bun install` in client/. Campo suo e
+   * non `timedOut`, perché dire «fermato oltre il tempo massimo» di un binario
+   * che non esiste sarebbe una bugia, e il testo del commento la ripeterebbe.
+   */
+  notMeasured?: boolean;
   tail: string;
   /** Valorizzato solo se il comando non è nemmeno partito (binario assente, cwd sparita). */
   spawnError?: string;

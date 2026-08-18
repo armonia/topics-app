@@ -3477,3 +3477,96 @@ describe("dispatchPaused: il freno di una board sola", () => {
     expect(h.task("t2")?.status).not.toBe("todo");
   });
 });
+
+/**
+ * IL RITENTATIVO DICE 60 SECONDI E IL POLL NE ASPETTA 10.
+ *
+ * Quando un turno cade su un guasto ricuperabile, `onTurnEnd` programma il
+ * ritentativo con un `setTimeout(backoff)` e lo ANNUNCIA sulla card. Ma il timer
+ * non trattiene lo slot: il `finally` del chiamante libera `inFlight` subito
+ * dopo, e da quel momento la card e' una riga `in_progress` con chip `working` e
+ * nessun turno vivo — cioe' identica a un orfano di riavvio per il giro di
+ * `reconcile`, che in produzione gira ogni 10 secondi (`DISPATCH_POLL_MS`).
+ *
+ * Misurato il 18/08 sul DB vivo: 504 note «La sessione stava gia' rispondendo:
+ * turno non avviato: riprovo tra 60s» su 12 card. Gli istanti di quattro
+ * consecutive su `d636cfbf`: 12:43:46, 12:43:59, 12:44:09, 12:44:19 — 13, 10, 10
+ * secondi. E' il poll, non il backoff. Ogni giro sveglia una sessione che sta
+ * davvero rispondendo, incassa un 409, scrive la nota e programma un ALTRO
+ * timer.
+ *
+ * Il costo non e' il thread: e' una chiamata alla front-door ogni dieci secondi,
+ * per card, pagata per farsi dire di no — e sale col numero di agenti.
+ */
+describe("un ritentativo programmato non si fa svegliare dal poll", () => {
+  it("reconcile NON riprende una card che sta aspettando il backoff", async () => {
+    // `retryBackoffMs` VERO, non lo zero del banco: senza un'attesa che dura,
+    // il registro e' gia' vuoto quando arriva il poll e la guardia non viene
+    // esercitata — il caso passerebbe verde anche disarmandola (verificato).
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    // Il turno non parte: la sessione stava gia' rispondendo. Non e' un guasto
+    // dell'agent e non brucia un tentativo — si riprova, fra `backoff`.
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+
+    // Il poll passa piu' volte DENTRO la finestra di attesa. Prima, ognuno di
+    // questi giri faceva partire un turno nuovo contro la stessa sessione.
+    // Il turno di partenza e basta: il ritentativo e' programmato fra 60s e non
+    // e' ancora scattato. Ogni turno in piu' da qui e' opera del poll.
+    expect(h.turns.length).toBe(1);
+    const primaDelPoll = h.turns.length;
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(
+      h.turns.length - primaDelPoll,
+      "il poll ha svegliato la sessione: e' il difetto delle 504 note",
+    ).toBe(0);
+  });
+
+  it("e la card non si riempie della stessa nota a ogni giro", async () => {
+    // La meta' visibile dello stesso guasto: 504 righe identiche nel thread.
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    const note = (h.svc.get("t1")?.comments ?? [])
+      .filter((c) => c.content.includes("stava già rispondendo"));
+    expect(note.length, "una nota per attesa, non una per giro di poll").toBeLessThanOrEqual(1);
+  });
+
+  it("il controllo: un orfano VERO reconcile lo riprende ancora", async () => {
+    // Senza questo caso, la guardia potrebbe diventare «non riprendere mai
+    // niente» e passerebbe verde: un riavvio a meta' turno lascerebbe la card
+    // ferma per sempre. Il riavvio azzera il registro insieme al timer, ed e'
+    // esattamente cio' che distingue un fantasma da un'attesa viva.
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+
+    const primaDelRiavvio = h.turns.length;
+    const dopoRiavvio = h.restart();
+    await dopoRiavvio.reconcile();
+    await flush();
+    expect(
+      h.turns.length - primaDelRiavvio,
+      "dopo un riavvio il registro e' vuoto: la card e' orfana davvero e va ripresa",
+    ).toBeGreaterThan(0);
+    dopoRiavvio.shutdown();
+  });
+});
+

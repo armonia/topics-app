@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler, StoredMessage } from "../types";
+import type { ContentBlock } from "../../shared/types";
 import type { AIProvider } from "../providers";
 import { getCompactionMarkersBySession } from "../db/compaction-markers";
-import { leanMessagesForWire } from "../../shared/lean-tool-call";
+import { leanMessagesForWire, stripToolDetailText } from "../../shared/lean-tool-call";
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 
 export interface HistoryDeps {
@@ -146,11 +147,17 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // are left alone, because `/api/topics/:id/messages` has to apply it too.
       // Gate: tests/integration/history-payload-weight.test.ts.
       const lean = leanMessagesForWire(result);
+      // Strip large text blobs from CLOSED tool detail: output, content, result.
+      // The client fetches the full detail lazily on first expand via
+      // GET /api/messages/:msgId/tool/:toolCallId/detail. plan.text is
+      // intentionally left — it drives the closed-row summary label.
+      // Gate: tests/integration/history-payload-weight.test.ts.
+      const stripped = stripToolDetailText(lean);
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
       // vast majority of sessions.
       const compactionMarkers = getCompactionMarkersBySession(ctx.db, sessionKey);
-      return json({ messages: lean, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers });
+      return json({ messages: stripped, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers });
     }
 
     // Fallback: Provider history
@@ -215,5 +222,56 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     } catch (err) { console.warn(`[Messages] JSONL migration failed for ${sessionKey}:`, err); }
 
     return json({ messages: [], total: 0 });
+  };
+}
+
+/**
+ * GET /api/messages/:messageId/tool/:toolCallId/detail — the FULL detail of one
+ * tool call, read fresh from the DB.
+ *
+ * The other half of the strip done by `stripToolDetailText` in the history
+ * route above. A closed tool row does not read `detail.output` /
+ * `detail.content` / `detail.result`, so the history payload ships them blank
+ * and the row learns from `toolCall.detailBytes` that a body exists. The first
+ * time the user actually expands that row, the client comes here and gets the
+ * text back. Nothing is lost, it is only paid for when it is looked at.
+ *
+ * No migration and no new column: the text is already in `blocks` on the stored
+ * message, exactly as the provider persisted it. This route only reads it.
+ *
+ * It answers with `{ detail }` and nothing else. Returning the whole message
+ * would put back on the wire precisely what the strip took off, one row at a
+ * time.
+ *
+ * Guests never get here, and that is the existing gate doing its job rather
+ * than a check of ours: `server.ts` reads the first segment after
+ * `/api/messages/` as a TOPIC id and demands a grant on it (`not_shared`), and
+ * a message id is not a topic id. It is the harmless direction to fail in --
+ * `/api/history/` is not in `isGuestAllowedPath` either, so a guest never sees
+ * a stripped payload to begin with.
+ */
+export function createToolDetailRouter(ctx: AppContext): RouteHandler {
+  const { json, matchRoute, getMessageById } = ctx;
+
+  return async function toolDetailRouter(_req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    if (method !== "GET") return null;
+    const params = matchRoute(pathname, "/api/messages/:messageId/tool/:toolCallId/detail");
+    if (!params) return null;
+
+    const msg = getMessageById(params.messageId);
+    if (!msg) return json({ error: "message not found" }, 404);
+
+    // The tool call lives in `blocks`; `toolCalls` is the legacy bucket the
+    // renderer stopped reading, and the history route drops it whenever blocks
+    // are present. Both are searched anyway: a message persisted before blocks
+    // existed has the call only in the second one, and a 404 there would read
+    // as "the text is gone" when it is merely somewhere else.
+    const fromBlocks = (msg.blocks ?? []).find(
+      (b): b is Extract<ContentBlock, { kind: "tool" }> => b.kind === "tool" && b.toolCall?.id === params.toolCallId,
+    )?.toolCall;
+    const tc = fromBlocks ?? (msg.toolCalls ?? []).find((c) => c.id === params.toolCallId);
+    if (!tc) return json({ error: "tool call not found" }, 404);
+
+    return json({ detail: tc.detail ?? null });
   };
 }
