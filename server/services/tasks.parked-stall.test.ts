@@ -249,6 +249,53 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     expect(ultimoCommento(s, padre)).toContain("- Rimetti in coda i sottotask");
   });
 
+  test("l'agente che spunta il PRIMO passo della sua checklist non si taglia il turno", () => {
+    // IL GUASTO DEL 18/08, nella sua forma esatta. Tre card dispacciate su
+    // cinque sono finite in review al PRIMO turno, con zero commit e una
+    // domanda di contabilita' in cima alla colonna: l'agente apriva la sua
+    // checklist (i sottotask nascono in `backlog`), spuntava il primo passo, e
+    // nel momento in cui quel figlio usciva dal volo `childLeftFlight` chiamava
+    // `askParkedChildren` — che SPOSTA la card — mentre il turno era vivo.
+    // La sessione di `e33820da` aveva due messaggi in tutto.
+    //
+    // `parkedChildRaisedStall` la guardia ce l'aveva (il test qui sopra);
+    // `childLeftFlight` no, e la funzione che muove la card nemmeno. Adesso la
+    // guardia sta dove si muove la card, cioe' in un posto solo.
+    const TOPIC = "t-agente";
+    db.prepare("INSERT INTO topics (id) VALUES (?)").run(TOPIC);
+    const padre = s.create({ projectId: PID, text: "Il padre al lavoro", status: "in_progress" }).id;
+    // Il legame topic<->card lo scrive il dispatcher: qui si mette sulla riga,
+    // che e' quello che `isOwnStep` legge per riconoscere «uno step MIO».
+    db.prepare("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?").run(TOPIC, padre);
+    const uno = s.create({ projectId: PID, text: "1. il primo passo", parentTaskId: padre }).id;
+    s.create({ projectId: PID, text: "2. il secondo passo", parentTaskId: padre });
+    s.create({ projectId: PID, text: "3. il terzo passo", parentTaskId: padre });
+    s.update({ taskId: uno, actor: "agent", by: "agent", agentTopicId: TOPIC, patch: { status: "in_progress" } });
+
+    // Spunta il primo passo — che l'agente PUO' chiudere: e' uno step suo.
+    // L'ultimo figlio in volo esce, e ne restano due fermi.
+    s.update({ taskId: uno, actor: "agent", by: "agent", agentTopicId: TOPIC, patch: { status: "done" } });
+
+    const t = s.get(padre)!.task;
+    expect(t.status, "il padre stava lavorando: la sua card non si sposta").toBe("in_progress");
+    expect(t.dispatchState).not.toBe("needs_input");
+    expect(t.deliveredReason).not.toBe("parked_children");
+  });
+
+  test("finito il turno la domanda si fa comunque: non si perde, si sposta", () => {
+    // L'altra meta' della guardia. Se la domanda sparisse invece di spostarsi,
+    // il padre resterebbe fermo per sempre su figli che nessuno prende — il
+    // guasto del 12/08 che questo file esiste per chiudere.
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    s.create({ projectId: PID, text: "Uno step mai lavorato", parentTaskId: padre });
+
+    const out = s.askParkedChildren({ taskId: padre, by: "dispatcher", evenIfLive: true });
+
+    expect(out, "chi chiude il turno sa che e' finito: la domanda si fa").not.toBeNull();
+    expect(s.get(padre)!.task.status).toBe("review");
+    expect(s.get(padre)!.task.dispatchState).toBe("needs_input");
+  });
+
   test("se il padre STA LAVORANDO l'avviso è una riga nel thread, non un turno tagliato", () => {
     const padre = s.create({ projectId: PID, text: "Il padre al lavoro", status: "in_progress" }).id;
     const figlio = s.create({ projectId: PID, text: "Uno step", parentTaskId: padre }).id;
