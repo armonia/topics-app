@@ -1264,7 +1264,10 @@ export function useChat() {
           return {
             ...prev,
             [sessionKey]: [...sessionMessages, {
-              id: event.messageId || generateMessageId(),
+              // NIENTE RIPIEGO: `messageId` e' obbligatorio sul filo e non vuoto
+              // (`shared/ws-outbound.ts`, `z.string().min(1)`), quindi un id
+              // coniato qui sarebbe solo il ramo rotto preso in silenzio.
+              id: event.messageId,
               role: 'assistant' as const,
               content: '',
               timestamp: new Date().toISOString(),

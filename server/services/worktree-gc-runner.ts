@@ -359,8 +359,13 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       },
       // Il ramo scritto sulla card mentre e' ancora noto: e' cio' che la tiene
       // landabile dopo che la cartella se n'e' andata (vedi `stampDeliveryBranch`).
+      // USA setDeliveryBranch e non recordDelivery: quest'ultima azzera commit,
+      // diffstat e landing_state (per progetto: un dato non aggiornato mente),
+      // ma qui non ci sono nuovi dati — solo un indirizzo da conservare. Le card
+      // dichiarate NON su main dal GC perdevano proprio quei dati, e con loro
+      // uscivano dall'audit di landing (filtra per delivery_commit IS NOT NULL).
       stampDeliveryBranch: (taskId, branch) => {
-        try { deps.svc.recordDelivery({ taskId, branch, commit: null }); }
+        try { deps.svc.setDeliveryBranch(taskId, branch); }
         catch (err) { console.warn("[worktree-gc] stampDeliveryBranch failed", err); }
       },
       log: (msg) => console.log(msg),
