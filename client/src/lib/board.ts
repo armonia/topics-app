@@ -139,8 +139,24 @@ export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string
 }
 
 /** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */
+/**
+ * `retries_exhausted` dice «turni finiti», NON «non consegnato».
+ *
+ * Questo chip si monta solo quando `senzaConsegna` e' falso — cioe' quando il
+ * lavoro C'E' per costruzione: il caso davvero vuoto ha gia' il suo chip
+ * (`reviewEvidence().kind === 'empty'`) che sopprime questo. Con la vecchia
+ * parola, misurato il 18/08 su `0a17739e`, la riga chip diceva contemporaneamente
+ * «non consegnato», «9 file +759 −21» e «checks verdi» — tre affermazioni, due
+ * delle quali smentivano la prima, a quattro pixel di distanza. I 9 file sono
+ * veri: `git diff --shortstat main...topics/tame-crane` li conferma.
+ *
+ * Il tooltip diceva gia' la cosa giusta («ce l'ha portato il sistema a fine
+ * turno»), ma su una card si legge l'ETICHETTA, e su touch il tooltip non
+ * esiste. Il segnale che vale — «nessun agente ha dichiarato di aver finito» —
+ * resta intero: cambia la parola, non il chip.
+ */
 const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
-  retries_exhausted: 'non consegnato',
+  retries_exhausted: 'turni finiti',
   model_refused: 'agent bloccato',
   fanout: 'scegli il tentativo',
   parked_children: 'sottotask parcheggiati',
@@ -162,7 +178,9 @@ export function systemDeliveryChip(
 ): { label: string; title: string } | null {
   if (task.status !== 'review' || task.deliveredBy !== 'system') return null;
   return {
-    label: task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'non consegnato',
+    // Causa non registrata: si dice il fatto certo — l'ha portata il sistema —
+    // senza affermare che sotto non ci sia niente, che qui non lo sappiamo.
+    label: task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'portata dal sistema',
     title: systemDeliveryNote(task.deliveredReason),
   };
 }

@@ -131,7 +131,10 @@ describe('systemDeliveryChip', () => {
 
   test('portata dal sistema: etichetta corta, ragione per esteso nel titolo', () => {
     const c = chip({ deliveredReason: 'retries_exhausted' });
-    expect(c?.label).toBe('non consegnato');
+    // «turni finiti», non «non consegnato»: questo chip si monta SOLO quando il
+    // lavoro c'e' (il caso vuoto ha il suo, che sopprime questo), quindi la
+    // vecchia parola smentiva i «9 file +759 −21» disegnati quattro pixel dopo.
+    expect(c?.label).toBe('turni finiti');
     expect(c?.title).toContain('finito i tentativi');
   });
 
@@ -142,7 +145,7 @@ describe('systemDeliveryChip', () => {
   });
 
   test('causa non registrata: il chip resta, degradato', () => {
-    expect(chip({ deliveredReason: null })?.label).toBe('non consegnato');
+    expect(chip({ deliveredReason: null })?.label).toBe('portata dal sistema');
   });
 
   test('fuori da review tace: su una card chiusa sarebbe archeologia', () => {

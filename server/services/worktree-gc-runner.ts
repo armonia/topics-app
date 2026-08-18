@@ -353,8 +353,8 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       // A reap refused because the work isn't provably on main must be VISIBLE:
       // the same class of loss went unnoticed for 8 days precisely because the
       // sweep only ever spoke to the server log.
-      noteOnTask: (taskId, message) => {
-        try { deps.svc.addComment({ taskId, author: "system", content: message }); }
+      noteOnTask: (taskId, message, opts) => {
+        try { deps.svc.addComment({ taskId, author: "system", content: message, kind: opts?.kind, once: opts?.once }); }
         catch (err) { console.warn("[worktree-gc] noteOnTask failed", err); }
       },
       // Il ramo scritto sulla card mentre e' ancora noto: e' cio' che la tiene
