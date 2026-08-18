@@ -2043,6 +2043,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
               dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
               dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
+              // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
+              // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni
+              // giro — ma qui non passavano, quindi restavano al default per
+              // sempre e il PATCH rispondeva 200 con il valore vecchio.
+              //
+              // `dispatchPaused` ha un interruttore VERO nel pannello
+              // (`BoardSettingsPanel.tsx:84-85`, `patch({ dispatchPaused })`):
+              // era un interruttore morto, che e' peggio di un interruttore
+              // assente perche' promette. Misurato il 18/08: PATCH
+              // `{"dispatchPaused":true}` -> risposta 200 con `false`.
+              // `dispatchRetryCap` decide quanti turni ha un agente prima che il
+              // sistema gli tolga la card: bloccato a 2 e non alzabile da nessuna
+              // porta.
+              dispatchPaused: typeof body?.dispatchPaused === "boolean" ? body.dispatchPaused : undefined,
+              dispatchRetryCap: typeof body?.dispatchRetryCap === "number" ? body.dispatchRetryCap : undefined,
+              dispatchRetryBackoffS: typeof body?.dispatchRetryBackoffS === "number" ? body.dispatchRetryBackoffS : undefined,
+              language: typeof body?.language === "string" ? body.language : undefined,
               nightMode: typeof body?.nightMode === "boolean" ? body.nightMode : undefined,
               nightModeUntil: typeof body?.nightModeUntil === "string" ? body.nightModeUntil : undefined,
               // Passa dal parser tollerante: il pannello manda una lista di
