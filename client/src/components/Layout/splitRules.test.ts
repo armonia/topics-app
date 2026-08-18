@@ -12,10 +12,13 @@ describe('canSplitPane', () => {
     expect(canSplitPane({ surface: 'standalone-solo', groupSize: 2 })).toBe(true);
   });
 
-  it('project groups split only when another pane stays behind', () => {
-    expect(canSplitPane({ surface: 'project', groupSize: 1 })).toBe(false);
+  it('project groups are always splittable (single-pane split auto-spawns a draft companion)', () => {
+    // A single-pane group is now splittable: handleSplitGroup creates a fresh
+    // draft in the source group so it retains one visible pane, mirroring the
+    // standalone-pool behaviour (PanelGrid auto-spawns a draft there too).
+    expect(canSplitPane({ surface: 'project', groupSize: 1 })).toBe(true);
     expect(canSplitPane({ surface: 'project', groupSize: 2 })).toBe(true);
-    expect(canSplitPane({ surface: 'project', groupSize: 0 })).toBe(false);
+    expect(canSplitPane({ surface: 'project', groupSize: 0 })).toBe(true);
   });
 });
 

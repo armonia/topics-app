@@ -16,10 +16,10 @@ import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { rememberDraggedPane } from '../../lib/dragPayload';
-import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { DND_TYPES, paneTabScopeType, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
-import { SplitRegion, InsertCaret } from './DropOverlay';
+import { InsertCaret } from './DropOverlay';
 import { useMobile } from '../../hooks/useMobile';
 import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -604,13 +604,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     if (dndScope) {
       e.dataTransfer.setData(paneTabScopeType(dndScope), '1');
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_SCOPE, dndScope);
-    }
-    // Solo-source marker: this group holds a single pane, so splitting it
-    // into ITSELF would be a no-op. Encoded as a per-group TYPE so the
-    // group's own content-area dragover (GroupLayout) can suppress the
-    // edge-split preview the drop would refuse — no promised-then-broken drop.
-    if (groupId && panes.length === 1) {
-      e.dataTransfer.setData(paneTabSoloSrcType(groupId), '1');
     }
     e.dataTransfer.effectAllowed = 'move';
     // Custom drag image: a compact tab-like chip instead of the browser's
@@ -1447,10 +1440,32 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       })}
       </div>
 
-      {/* Edge-split preview — a filled half-bar region (the footprint of the new
-          column), shared <SplitRegion> primitive: fill + seam, no dashed box.
-          Mutually exclusive with the insert caret (the edge zone nulls dragOverIdx). */}
-      {edgeSplitZone && <SplitRegion zone={edgeSplitZone} />}
+      {/* Edge-split preview — a narrow strip at the bar's left or right edge
+          (EDGE_DROP_PX wide, matching the actual trigger band) with a seam accent
+          on the inner edge. The old half-bar SplitRegion covered 50% of the bar
+          width, which looked broken when the user was simply aiming at the bar to
+          add a tab: the visual claimed half the bar but only 30px at the edge
+          actually trigger a split. Mutually exclusive with the insert caret. */}
+      {edgeSplitZone && (
+        <div
+          data-tab-edge-split={edgeSplitZone}
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            width: EDGE_DROP_PX,
+            ...(edgeSplitZone === 'left' ? { left: 0 } : { right: 0 }),
+            background: 'color-mix(in srgb, var(--primary) 22%, transparent)',
+            boxShadow: edgeSplitZone === 'left'
+              ? 'inset -2px 0 0 0 var(--primary)'
+              : 'inset 2px 0 0 0 var(--primary)',
+            borderRadius: 4,
+            pointerEvents: 'none',
+            zIndex: 40,
+            transition: 'all 140ms ease',
+          }}
+        />
+      )}
 
       {/* Add-pane affordance — single canonical component. Owns the
           trigger button, the click handler (web portal AND Electron
