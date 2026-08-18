@@ -498,7 +498,7 @@ async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntrac
 export { gitDiffBundle };
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
-  const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
+  const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed, fileExistsSync } = ctx;
   const svc = createTaskService(db);
   const attempts = createTaskAttemptStore(db);
 
@@ -1316,7 +1316,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!isPreviewablePath(raw)) {
       return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
     }
-    if (!existsSync(raw)) {
+    const checkExists = fileExistsSync ?? existsSync;
+    if (!checkExists(raw)) {
       return { ok: false, reason: `file non trovato sul disco: ${raw}` };
     }
     // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.

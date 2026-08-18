@@ -461,6 +461,12 @@ export interface AppContext {
    * difetto di sonda bloccherebbe consegne buone.
    */
   imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number } | null;
+  /**
+   * Controlla se un file esiste sul disco. Opzionale: in produzione usa
+   * `existsSync` di Node; nei test si sostituisce con uno stub che restituisce
+   * sempre `true`, cosi' i path fittizi non fanno fallire `acceptPreview`.
+   */
+  fileExistsSync?: (filepath: string) => boolean;
   findNewMediaFiles: (sinceMs: number) => Promise<string[]>;
   updateLastMessageWithMedia: (sessionKey: string, mediaPaths: string[]) => void;
   atomicWriteJSON: (filepath: string, data: object) => void;
