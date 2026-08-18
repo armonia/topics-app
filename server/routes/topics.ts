@@ -48,6 +48,7 @@ import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
 import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
+import { decodeCol } from "../../shared/message-blob";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -990,8 +991,8 @@ export function createTopicsRouter(
           try {
             const row = ctx.db.prepare(
               "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
-            ).get(topic.sessionKey) as { tool_calls?: string | null; blocks?: string | null } | undefined;
-            awaitingSince = waitingAskStartedAt(row?.tool_calls, row?.blocks, Date.now());
+            ).get(topic.sessionKey) as { tool_calls?: unknown; blocks?: unknown } | undefined;
+            awaitingSince = waitingAskStartedAt(decodeCol(row?.tool_calls), decodeCol(row?.blocks), Date.now());
           } catch { /* riga illeggibile: resta «streaming», come prima */ }
         }
         sessions.push({
@@ -2201,8 +2202,8 @@ export function createTopicsRouter(
         try {
           const row = ctx.db.prepare(
             "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
-          ).get(sessionKey) as { tool_calls?: string | null; blocks?: string | null } | undefined;
-          const haystack = `${row?.tool_calls ?? ''}${row?.blocks ?? ''}`;
+          ).get(sessionKey) as { tool_calls?: unknown; blocks?: unknown } | undefined;
+          const haystack = `${decodeCol(row?.tool_calls) ?? ''}${decodeCol(row?.blocks) ?? ''}`;
           return haystack.includes(toolCallId) && haystack.includes('ask_user_question');
         } catch { return false; }
       })();
