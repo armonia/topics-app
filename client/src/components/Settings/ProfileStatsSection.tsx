@@ -79,6 +79,8 @@ export function ProfileStatsSection() {
   const [copiatoLink, setCopiatoLink] = useState(false);
   const [appSettings, setAppSettings] = useState<AppBehaviorSettings | null>(null);
   const [relayInfo, setRelayInfo] = useState<RelayInfo | null>(null);
+  /** In-flight: 'publishing' | 'revoking' | null */
+  const [tokenBusy, setTokenBusy] = useState<'publishing' | 'revoking' | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -89,7 +91,7 @@ export function ProfileStatsSection() {
       .then((s) => { if (vivo) setAppSettings(s); })
       .catch(() => { /* non bloccante */ });
     // Costruisce l'URL pubblico dal relay se disponibile.
-    // `/i/:relayId/public/profile` e' il percorso del browser proxy del relay.
+    // `/i/:relayId/public/profile/<token>` e' il percorso del browser proxy del relay.
     fetch('/api/auth/relay', { credentials: 'same-origin' })
       .then((r) => r.json())
       .then((r: { enabled: boolean; baseUrl: string | null; relayId: string | null }) => {
@@ -117,9 +119,13 @@ export function ProfileStatsSection() {
     return () => { vivo = false; };
   }, []);
 
-  // Prima che il relay risponda, usa l'URL locale come placeholder.
-  const publicUrl = relayInfo?.url
+  // Il token rende la pagina raggiungibile. Senza token la pagina non esiste.
+  // L'URL completo aggiunge /<token> al base. Il relay proxy passa il path
+  // invariato al server, quindi /i/<relayId>/public/profile/<token> funziona.
+  const token = appSettings?.profileShareToken ?? null;
+  const baseUrl = relayInfo?.url
     ?? `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`;
+  const publicUrl = token ? `${baseUrl}/${token}` : null;
   const lanOnly = relayInfo?.lanOnly ?? true;
 
   const togglePublishCost = useCallback(async () => {
@@ -134,6 +140,34 @@ export function ProfileStatsSection() {
       setAppSettings((s) => s ? { ...s, profilePublishCost: !next } : s);
     }
   }, [appSettings]);
+
+  /** Genera il token di condivisione (idempotente). */
+  const handlePublish = useCallback(async () => {
+    if (tokenBusy) return;
+    setTokenBusy('publishing');
+    try {
+      const tok = await appSettingsApi.publishProfile();
+      setAppSettings((s) => s ? { ...s, profileShareToken: tok } : s);
+    } catch {
+      // noop: il bottone torna attivo
+    } finally {
+      setTokenBusy(null);
+    }
+  }, [tokenBusy]);
+
+  /** Revoca il token: il vecchio URL diventa 404 immediatamente. */
+  const handleRevoke = useCallback(async () => {
+    if (tokenBusy) return;
+    setTokenBusy('revoking');
+    try {
+      await appSettingsApi.revokeProfile();
+      setAppSettings((s) => s ? { ...s, profileShareToken: null } : s);
+    } catch {
+      // noop
+    } finally {
+      setTokenBusy(null);
+    }
+  }, [tokenBusy]);
 
   if (errore) {
     return (
@@ -262,37 +296,65 @@ export function ProfileStatsSection() {
               )}
             </div>
 
-            {/* ── Pagina pubblica: URL da condividere, senza login. ──────── */}
+            {/* ── Pagina pubblica: token-gated, condivisione deliberata. ── */}
             <div className="flex flex-col gap-1.5 border-t border-app-border pt-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] text-app-text-secondary">{t('profile.public.label')}</span>
-                <a
-                  href={publicUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
-                >
-                  {t('profile.public.open')}
-                </a>
-                <button
-                  type="button"
-                  data-testid="profile-public-copy"
-                  onClick={async () => {
-                    setCopiatoLink(await copyText(publicUrl));
-                    setTimeout(() => setCopiatoLink(false), 2000);
-                  }}
-                  className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
-                >
-                  {copiatoLink ? t('profile.public.copied') : t('profile.public.copy')}
-                </button>
+                {/* Pubblica / Revoca — il gesto deliberato. */}
+                {!token ? (
+                  <button
+                    type="button"
+                    data-testid="profile-public-publish"
+                    onClick={handlePublish}
+                    disabled={tokenBusy != null || appSettings == null}
+                    className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11"
+                  >
+                    {tokenBusy === 'publishing' ? t('profile.public.publishing') : t('profile.public.publish')}
+                  </button>
+                ) : (
+                  <>
+                    <a
+                      href={publicUrl!}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                    >
+                      {t('profile.public.open')}
+                    </a>
+                    <button
+                      type="button"
+                      data-testid="profile-public-copy"
+                      onClick={async () => {
+                        if (!publicUrl) return;
+                        setCopiatoLink(await copyText(publicUrl));
+                        setTimeout(() => setCopiatoLink(false), 2000);
+                      }}
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                    >
+                      {copiatoLink ? t('profile.public.copied') : t('profile.public.copy')}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="profile-public-revoke"
+                      onClick={handleRevoke}
+                      disabled={tokenBusy != null}
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover hover:text-app-text disabled:opacity-50 coarse:min-h-11"
+                    >
+                      {tokenBusy === 'revoking' ? t('profile.public.revoking') : t('profile.public.revoke')}
+                    </button>
+                  </>
+                )}
               </div>
-              {/* Avviso LAN-only: se il relay non e' configurato, l'URL funziona
-                  solo sulla rete locale. Distinguiamo i due casi con testo diverso
-                  cosi' chi incolla sa gia' cosa aspettarsi. */}
+              {/* Stato: non pubblicata / avviso LAN-only. */}
               <p className="text-[10.5px] text-app-text-muted">
-                {lanOnly ? t('profile.public.hintLanOnly') : t('profile.public.hint')}
+                {!token
+                  ? t('profile.public.notPublished')
+                  : lanOnly
+                  ? t('profile.public.hintLanOnly')
+                  : t('profile.public.hint')}
               </p>
-              {/* Toggle spesa: dato personale, opt-in esplicito. */}
+              {/* Toggle spesa: dato personale, opt-in esplicito. Visibile anche
+                  prima di pubblicare: la scelta si fa PRIMA di condividere. */}
               <label className="flex cursor-pointer items-start gap-2">
                 <input
                   type="checkbox"
