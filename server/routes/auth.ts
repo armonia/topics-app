@@ -749,7 +749,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // posto solo, `server/lib/orgs.ts`.
         const orgId = installationOrgId(db as never);
         const org = orgId
-          ? db.query("SELECT id, name FROM orgs WHERE id = ?").get(orgId) as { id: string; name: string } | undefined
+          ? db.query("SELECT id, name, logo_url FROM orgs WHERE id = ?").get(orgId) as { id: string; name: string; logo_url: string | null } | undefined
           : undefined;
         return json({
           person: io ?? null,
@@ -757,7 +757,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // `/api/auth/orgs`: erano tre definizioni di «membro» e due si erano
           // già separate — l'interfaccia diceva «siete in due» e la rubrica non
           // offriva il gruppo, perché per lei eri di nuovo solo.
-          org: org ? { id: org.id, name: org.name, members: liveMemberCount(db as never, org.id) } : null,
+          org: org ? { id: org.id, name: org.name, logo_url: org.logo_url ?? null, members: liveMemberCount(db as never, org.id) } : null,
         });
       } catch {
         // Schema più vecchio della 084: non c'è ancora nessuno da nominare.
@@ -777,13 +777,14 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "GET") {
         try {
           const righe = db.query(
-            "SELECT id, name, created_at FROM orgs WHERE revoked_at IS NULL ORDER BY created_at",
-          ).all() as Array<{ id: string; name: string; created_at: number }>;
+            "SELECT id, name, logo_url, created_at FROM orgs WHERE revoked_at IS NULL ORDER BY created_at",
+          ).all() as Array<{ id: string; name: string; logo_url: string | null; created_at: number }>;
           const installazione = installationOrgId(db as never);
           return json({
             orgs: righe.map((o) => ({
               id: o.id,
               name: o.name,
+              logo_url: o.logo_url ?? null,
               members: liveMemberCount(db as never, o.id),
               // Il ruolo di CHI CHIEDE, non un ruolo assoluto: è ciò che
               // decide quali gesti l'interfaccia può offrire senza proporne uno
@@ -933,13 +934,16 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     if (method === "PATCH" && /^\/api\/auth\/(people|orgs)\/[^/]+$/.test(pathname)) {
       const persona = pathname.startsWith("/api/auth/people/");
       const id = decodeURIComponent(pathname.slice(persona ? "/api/auth/people/".length : "/api/auth/orgs/".length));
-      const body = await readJSON(req) as { name?: unknown; email?: unknown } | null;
+      const body = await readJSON(req) as { name?: unknown; email?: unknown; logo_url?: unknown } | null;
       const name = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : null;
       // `null` esplicito cancella l'email; assente la lascia com'è. Sono due
       // intenzioni diverse e vanno distinte, o non si può più togliere un
       // indirizzo messo per sbaglio.
       const email = body?.email === null ? null
         : typeof body?.email === "string" ? body.email.trim().slice(0, 200) : undefined;
+      // `null` esplicito rimuove il logo; assente lo lascia com'è.
+      const logoUrl = body?.logo_url === null ? null
+        : typeof body?.logo_url === "string" ? body.logo_url.trim().slice(0, 4096) : undefined;
       if (name !== null && !name) return json({ error: "name_required" }, 400);
 
       // Rinominare un gruppo è amministrarlo, e passa dallo stesso ruolo che
@@ -972,6 +976,9 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         }
         if (persona && email !== undefined) {
           db.query("UPDATE people SET email = ?, rev = rev + 1, updated_at = ? WHERE id = ?").run(email || null, now, id);
+        }
+        if (!persona && logoUrl !== undefined) {
+          db.query("UPDATE orgs SET logo_url = ?, rev = rev + 1, updated_at = ? WHERE id = ?").run(logoUrl, now, id);
         }
       } catch {
         return json({ error: "db_unavailable" }, 400);

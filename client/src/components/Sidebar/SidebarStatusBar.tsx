@@ -840,6 +840,8 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
   const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
   /** Quanti ALTRI della tua organizzazione sono online adesso. Vedi `orgPresence.ts`. */
   const [colleghi, setColleghi] = useState<number>(0);
+  /** Logo e nome dell'organizzazione di questa installazione. */
+  const [orgInfo, setOrgInfo] = useState<{ name: string; logo_url: string | null } | null>(null);
   useEffect(() => subscribeSession(setSession), []);
   const io = usePersonaCorrente();
   const chi = etichettaIdentita(io, session);
@@ -873,9 +875,10 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
     try {
       const ro = await fetch('/api/auth/orgs', { credentials: 'same-origin' });
       if (!ro.ok) return;
-      const { orgs } = await ro.json() as { orgs: Array<{ id: string; installation?: boolean }> };
+      const { orgs } = await ro.json() as { orgs: Array<{ id: string; name: string; logo_url: string | null; installation?: boolean }> };
       const mia = orgs.find((o) => o.installation) ?? orgs[0];
       if (!mia) return;
+      setOrgInfo({ name: mia.name, logo_url: mia.logo_url ?? null });
       const rm = await fetch(`/api/auth/orgs/${encodeURIComponent(mia.id)}/members`, { credentials: 'same-origin' });
       if (!rm.ok) return;
       const { members } = await rm.json() as { members: MembroPresenza[] };
@@ -953,6 +956,28 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
           ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
           : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
       <span className="truncate text-app-text">{chi.nome}</span>
+      {/* IL BADGE DELL'ORG, visibile sempre quando c'e' un'organizzazione.
+          Appare solo quando NON ci sono colleghi online (in quel caso il chip
+          presenza li porta gia' il logo). Mostra il logo o le iniziali. */}
+      {orgInfo && colleghi === 0 && (
+        <span
+          className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted"
+          title={orgInfo.name}
+        >
+          {orgInfo.logo_url ? (
+            <img
+              src={orgInfo.logo_url}
+              alt={orgInfo.name}
+              className="h-3.5 w-3.5 flex-shrink-0 rounded-full object-cover opacity-70"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            />
+          ) : (
+            <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[7px] font-bold text-indigo-400">
+              {orgInfo.name.slice(0, 2).toUpperCase()}
+            </span>
+          )}
+        </span>
+      )}
       {/* IL FERRO, sceso a dettaglio. Cede lo spazio per primo (`min-w-0` senza
           `flex-shrink-0`): se la colonna e' stretta si tronca questo, mai il
           nome della persona. */}
@@ -974,9 +999,18 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
         <span
           data-testid="org-presence"
           className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted"
-          title={tr('statusBar.orgPresenceTitle')}
+          title={orgInfo ? `${orgInfo.name} \u00b7 ${tr('statusBar.orgPresenceTitle')}` : tr('statusBar.orgPresenceTitle')}
         >
-          <Users size={10} className="flex-shrink-0" />
+          {orgInfo?.logo_url ? (
+            <img
+              src={orgInfo.logo_url}
+              alt={orgInfo.name}
+              className="h-3 w-3 flex-shrink-0 rounded-full object-cover"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            />
+          ) : (
+            <Users size={10} className="flex-shrink-0" />
+          )}
           {colleghi}
         </span>
       )}
