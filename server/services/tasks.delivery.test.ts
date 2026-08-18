@@ -584,3 +584,80 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     expect(notes(b.id)).toEqual([]);
   });
 });
+
+/**
+ * I NUMERI SI POSSONO RIEMPIRE SENZA BUTTARE VIA IL VERDETTO.
+ *
+ * `recordDelivery` azzera `landing_state` / `landing_witnessed` apposta: una
+ * consegna nuova invalida il verdetto della precedente. Ma la passata di
+ * backfill non registra consegne nuove — misura quelle che ci sono gia' — e
+ * usarla li' avrebbe fatto due danni a ogni giro di trenta minuti: verdetto
+ * testimoniato buttato, e `stat` non misurabile scritto NULL sopra numeri buoni.
+ *
+ * Misurato il 18/08: 294 card in review/done con un ramo, un commit e nessun
+ * numero. Il buco sta nei percorsi che portano una card in review SENZA passare
+ * da fine turno (`askParkedChildren` chiamata da un cambio di stato dei figli
+ * scrive con una UPDATE grezza), e la passata periodica li ripara per tutti
+ * invece di aggiungere una quarta copia di `captureDelivery`.
+ */
+describe("setDeliveryStat: i numeri senza toccare il resto", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  function conConsegna(): string {
+    const t = s.create({ projectId: PID, text: "consegna" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/x", commit: "abc123", stat: null });
+    return t.id;
+  }
+
+  test("riempie il buco quando i numeri mancano", () => {
+    const id = conConsegna();
+    expect(s.setDeliveryStat({ taskId: id, filesChanged: 3, insertions: 190, deletions: 12 })).toBe(true);
+    const t = s.get(id)!.task;
+    expect(t.deliveryFilesChanged).toBe(3);
+    expect(t.deliveryInsertions).toBe(190);
+    expect(t.deliveryDeletions).toBe(12);
+  });
+
+  test("NON tocca ramo e commit: la consegna non e' cambiata", () => {
+    const id = conConsegna();
+    s.setDeliveryStat({ taskId: id, filesChanged: 3, insertions: 190, deletions: 12 });
+    const t = s.get(id)!.task;
+    expect(t.deliveryBranch).toBe("topics/x");
+    expect(t.deliveryCommit).toBe("abc123");
+  });
+
+  test("NON azzera il verdetto di atterraggio, che e' il punto", () => {
+    // E' la differenza con `recordDelivery`, ed e' la ragione per cui questa
+    // funzione esiste: chiamata ogni 30 minuti su 294 card, `recordDelivery`
+    // avrebbe fatto ripartire da zero ogni verdetto gia' testimoniato.
+    const id = conConsegna();
+    db.prepare("UPDATE tasks SET landing_state = 'landed', landing_witnessed = 1 WHERE id = ?").run(id);
+    s.setDeliveryStat({ taskId: id, filesChanged: 1, insertions: 1, deletions: 0 });
+    const row = db.prepare("SELECT landing_state, landing_witnessed FROM tasks WHERE id = ?").get(id) as
+      { landing_state: string | null; landing_witnessed: number };
+    expect(row.landing_state).toBe("landed");
+    expect(row.landing_witnessed).toBe(1);
+  });
+
+  test("su una card GIA' misurata non scrive: seconda cintura contro la sovrascrittura", () => {
+    const t = s.create({ projectId: PID, text: "consegna" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/x", commit: "abc123",
+      stat: { filesChanged: 9, insertions: 759, deletions: 21 } });
+    expect(s.setDeliveryStat({ taskId: t.id, filesChanged: 1, insertions: 1, deletions: 1 })).toBe(false);
+    expect(s.get(t.id)!.task.deliveryFilesChanged).toBe(9);
+  });
+
+  test("il controllo: recordDelivery AZZERA il verdetto, ed e' giusto cosi'", () => {
+    // Senza questo caso il test qui sopra si leggerebbe come «i verdetti non si
+    // azzerano mai», che e' falso e pericoloso: una consegna NUOVA deve buttare
+    // il verdetto della precedente.
+    const id = conConsegna();
+    db.prepare("UPDATE tasks SET landing_state = 'landed', landing_witnessed = 1 WHERE id = ?").run(id);
+    s.recordDelivery({ taskId: id, branch: "topics/x", commit: "def456", stat: null });
+    const row = db.prepare("SELECT landing_state, landing_witnessed FROM tasks WHERE id = ?").get(id) as
+      { landing_state: string | null; landing_witnessed: number };
+    expect(row.landing_state).toBeNull();
+    expect(row.landing_witnessed).toBe(0);
+  });
+});

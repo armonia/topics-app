@@ -978,6 +978,15 @@ export interface TaskService {
    * mente). Questo setter esiste per il caso in cui non ci sono nuovi dati da
    * scrivere, solo un indirizzo da conservare.
    */
+  /**
+   * I soli NUMERI di una consegna già registrata, e solo se mancano.
+   *
+   * Non `recordDelivery`: quella azzera il verdetto di atterraggio (è il suo
+   * mestiere, una consegna nuova invalida il verdetto vecchio) e con `stat`
+   * assente scrive NULL. Per riempire un buco su una consegna che NON è
+   * cambiata servono entrambe le cose al contrario. Torna `true` se ha scritto.
+   */
+  setDeliveryStat(args: { taskId: string; filesChanged: number; insertions: number; deletions: number }): boolean;
   setDeliveryBranch(taskId: string, branch: string): void;
   /** Esito dei checks pre-review sul task (evidenza per il reviewer). */
   recordChecks(args: {
@@ -4370,6 +4379,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         stat?.filesChanged ?? null, stat?.insertions ?? null, stat?.deletions ?? null,
         taskId,
       );
+    },
+
+    setDeliveryStat({ taskId, filesChanged, insertions, deletions }): boolean {
+      // SOLO I NUMERI, e SOLO se non ci sono. Stessa ragione di
+      // `setDeliveryBranch`: l'invariante di `recordDelivery` («un dato che non
+      // si aggiorna insieme al suo soggetto mente») serve a impedire che i
+      // numeri di una consegna restino su quella dopo. Qui la consegna non
+      // cambia — si sta solo misurando quella che c'è già — quindi passare da
+      // `recordDelivery` sarebbe distruttivo per due motivi:
+      //   · azzera `landing_state`, `landing_checked_at` e `landing_witnessed`,
+      //     cioè butta via il verdetto testimoniato a ogni passata di backfill;
+      //   · con `stat` non misurabile scrive NULL sopra numeri buoni.
+      // La condizione `IS NULL` nella WHERE è la seconda cintura: anche chiamata
+      // per sbaglio su una card già misurata, questa non la tocca.
+      const r = db.prepare(
+        "UPDATE tasks SET delivery_files_changed = ?, delivery_insertions = ?, delivery_deletions = ? " +
+        "WHERE id = ? AND delivery_files_changed IS NULL",
+      ).run(filesChanged, insertions, deletions, taskId);
+      return r.changes > 0;
     },
 
     setDeliveryBranch(taskId: string, branch: string): void {

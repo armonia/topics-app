@@ -20,6 +20,7 @@
 import { HUMAN_AUTHOR, isMachineNote, isThreadSpeech } from '../../../../shared/board';
 import { isResolvedParkedQuestion, isSettledParkedQuestion } from '../../../../shared/parked-question';
 import type { BoardTask, CardComment } from '../../lib/board';
+import { commentAuthorLabel } from '../../../../shared/comment-author';
 
 export interface CardComments<T extends CardComment = CardComment> {
   /**
@@ -46,6 +47,32 @@ export interface CardComments<T extends CardComment = CardComment> {
  * interrotto." back to you as your own request, on a task where you never typed
  * a word.
  */
+/**
+ * CHI PARLA NON E' UNA PERSONA NE' UN AGENTE: la riga e' una nota di macchina.
+ *
+ * Serve alla card per DIRLO — il tag «SISTEMA» e il colore muted — quando una
+ * nota di macchina finisce a fare da parola della consegna. Il predicato stava
+ * dentro il JSX di `Card.tsx` e guardava solo `kind === 'review-note'`, cioe'
+ * la specie meno numerosa: 38 note su 345 in tre giorni. Le notifiche del
+ * sistema hanno `author: 'system'` con la kind di default e sono la specie PIU'
+ * numerosa — quelle uscivano indistinguibili dal riassunto di un agente, in
+ * `text-app-text-heading` e senza tag.
+ *
+ * Positivo per COSTRUZIONE: «chi e' l'autore» la risponde `commentAuthorLabel`,
+ * unico posto dove quella tassonomia vive (`user | system | dispatcher |
+ * verifier | agent`). Non un elenco di stringhe da tenere allineato a mano, che
+ * e' il difetto di `isMachineNote`.
+ *
+ * `user` e `agent` NON sono macchina: sono le due voci che la card esiste per
+ * mostrare. E un autore vuoto nemmeno — `commentAuthorLabel` accetta null
+ * apposta, e l'ignoto non va accusato di essere il sistema.
+ */
+export function isMachineVoice(comment: Pick<CardComment, 'author' | 'kind'>): boolean {
+  if (comment.kind === 'review-note') return true;
+  const kind = commentAuthorLabel(comment.author).kind;
+  return kind === 'system' || kind === 'dispatcher' || kind === 'verifier';
+}
+
 export function isHumanComment(comment: CardComment): boolean {
   return comment.author === HUMAN_AUTHOR
     && comment.kind === 'comment'
