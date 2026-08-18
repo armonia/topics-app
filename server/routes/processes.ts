@@ -6,6 +6,9 @@ import { appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "../lib/log-c
 import { detectScripts, resolveScript, MANIFESTS } from "../lib/project-scripts";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 import { resolveStateDir } from "../lib/data-dir";
+// La primitiva vive in `lib/`: qui la si USA e basta. Il ramo aveva spostato
+// la funzione ma la ghost-reap arrivata da main la chiamava ancora da dentro.
+import { killProcessTree } from "../lib/process-tree";
 import { getDescendantPids, getPidStartTimes } from "../lib/process-tree";
 import { getTerminalSessionById } from "./terminal";
 import { getSessionCliPid } from "../providers/session-pids";
