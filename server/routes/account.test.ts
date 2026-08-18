@@ -23,10 +23,16 @@ import { createAccountRouter } from "./account";
 import { createAuthRouter } from "./auth";
 import { isGuestAllowedPath } from "../lib/grants";
 import type { AppContext } from "../types";
-import { TASKS_DDL } from "../db/test-schema";
+import { alterMigrationsAfter, TASKS_DDL } from "../db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
-const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"];
+const MIGRAZIONI = [
+  "080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql",
+  // Le ALTER arrivate dopo la 084 su queste tabelle: cercate, non elencate.
+  // Senza, la prima colonna nuova che una rotta legge fa esplodere la query e
+  // la risposta diventa un `null` che nomina il sintomo e non la causa.
+  ...alterMigrationsAfter("084-people-orgs.sql", ["orgs", "people", "devices", "grants", "task_shares"], RADICE),
+];
 const BASE = "https://conti.esempio.test";
 
 function dbFresco(): Database {

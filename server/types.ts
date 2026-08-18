@@ -462,9 +462,10 @@ export interface AppContext {
    */
   imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number } | null;
   /**
-   * Controlla se un file esiste sul disco. Opzionale: in produzione usa
-   * `existsSync` di Node; nei test si sostituisce con uno stub che restituisce
-   * sempre `true`, cosi' i path fittizi non fanno fallire `acceptPreview`.
+   * Controlla se un file esiste sul disco. Separato da `existsSync` per
+   * permettere ai test di iniettare uno stub senza toccare il filesystem reale.
+   * Se assente, si assume che il file esista (compatibilita' con contesti di
+   * test che non impostano il campo).
    */
   fileExistsSync?: (filepath: string) => boolean;
   findNewMediaFiles: (sinceMs: number) => Promise<string[]>;

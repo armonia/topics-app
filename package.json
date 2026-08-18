@@ -85,6 +85,7 @@
     "typecheck:server": "bun run scripts/typecheck-server.ts",
     "typecheck:e2e": "./client/node_modules/.bin/tsc -p tsconfig.e2e.json --ignoreDeprecations 5.0",
     "typecheck:relay": "./client/node_modules/.bin/tsc -p relay/tsconfig.json",
+    "test:agents": "TOPICS_REAL_AGENT_TESTS=1 bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./server/providers/acp-jcode-model.integration.test.ts",
     "test:e2e:shards": "./scripts/e2e-shards.sh",
     "test:e2e:plan": "bun run scripts/e2e-plan-shards.ts",
     "test:e2e:durations": "bun run scripts/e2e-record-durations.ts",

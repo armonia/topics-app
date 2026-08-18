@@ -2281,6 +2281,8 @@ export function createAppContext(baseDir: string): AppContext {
     resolveSafePath, resolveProjectPath, resolveTopicCwd, getMimeType, isPathAllowed,
     // La FORMA di un'immagine, per il cancello dell'anteprima: vedi `acceptPreview`.
     imageShapeOf: imageShape,
+    // Delegato al contesto per permettere ai test di iniettare uno stub.
+    fileExistsSync: existsSync,
     findNewMediaFiles, updateLastMessageWithMedia, atomicWriteJSON, logRequest,
     searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,
