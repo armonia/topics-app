@@ -1316,6 +1316,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!isPreviewablePath(raw)) {
       return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
     }
+    if (!existsSync(raw)) {
+      return { ok: false, reason: `file non trovato sul disco: ${raw}` };
+    }
     // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.
     //
     // Ci avevo messo un terzo cancello: un'anteprima piu' alta che larga occupa
