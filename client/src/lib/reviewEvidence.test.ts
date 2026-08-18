@@ -68,4 +68,99 @@ describe('cosa mostra una card in review', () => {
     const e = reviewEvidence({ ...base, status: 'in_progress', assignedTopicId: 't1' });
     expect(e.kind).toBe('none');
   });
+
+  /**
+   * IL QUARTO CASO, che si travestiva da terzo.
+   *
+   * Misurato il 17/08 su `5cf58e29`: agente legato, nessun ramo, zero file,
+   * ogni turno morto su un errore del provider. `reviewEvidence` rispondeva
+   * `in-place`, cioe' la card mostrava «Lavorata qui» col tooltip che promette
+   * commit su main non attribuibili. Il lavoro pero' non c'era proprio, quindi
+   * quella frase mandava a cercare qualcosa che non esiste: «non capisco che
+   * succede».
+   */
+  describe("niente consegnato non e' «lavorata qui»", () => {
+    const vuota = { ...base, assignedTopicId: 't1', deliveredBy: 'system' };
+
+    test('il sistema l\'ha portata qui senza ramo ne file: e vuota, e lo dice', () => {
+      const e = reviewEvidence(vuota);
+      expect(e.kind).toBe('empty');
+      expect(e.isolated).toBe(false);
+    });
+
+    test('lo stesso task consegnato DALL\'AGENT resta «lavorata qui»', () => {
+      // Il discriminante e' chi ha dichiarato finito, non i campi del diff: un
+      // agente che consegna da solo dice che il lavoro c'e' anche senza misura.
+      expect(reviewEvidence({ ...vuota, deliveredBy: null }).kind).toBe('in-place');
+      expect(reviewEvidence({ ...vuota, deliveredBy: 'agent' }).kind).toBe('in-place');
+    });
+
+    test('con un RAMO la misura vince: il vuoto non copre una consegna vera', () => {
+      // Una consegna di sistema puo' comunque avere prodotto un ramo (turno
+      // finito a meta' dopo dei commit): li' c'e' un diff da guardare.
+      expect(reviewEvidence({ ...vuota, deliveryBranch: 'topics/x', deliveryFilesChanged: 4 }).kind).toBe('measured');
+      expect(reviewEvidence({ ...vuota, deliveryBranch: 'topics/x' }).kind).toBe('unmeasured');
+    });
+
+    test('senza agente resta «spostata a mano»: nessun turno e nessun turno morto', () => {
+      expect(reviewEvidence({ ...base, deliveredBy: 'system' }).kind).toBe('manual');
+    });
+
+    test('i QUATTRO casi restano distinti', () => {
+      const tipi = new Set([
+        reviewEvidence({ ...base, deliveryBranch: 'topics/x', deliveryFilesChanged: 3 }).kind,
+        reviewEvidence({ ...base, assignedTopicId: 't1' }).kind,
+        reviewEvidence(base).kind,
+        reviewEvidence(vuota).kind,
+      ]);
+      expect(tipi.size, 'quattro situazioni diverse, quattro esiti diversi').toBe(4);
+    });
+  });
 });
+
+/**
+ * UNO ZERO MISURATO NON E' UNA CONSEGNA PICCOLA: E' NESSUNA CONSEGNA.
+ *
+ * `deliveryFilesChanged === 0` con un ramo vuol dire che su quel ramo non c'e'
+ * un solo commit proprio: l'agente ha lavorato nel worktree e non ha committato.
+ * Cadeva in `measured` — «il caso buono, si mostra il numero» — e la card
+ * disegnava «0 file +0 -0» con la stessa forma di una misura buona.
+ *
+ * Il costo non e' estetico: i file non committati bloccano il riallineamento,
+ * quindi il land si rifiuta e la card resta ferma finche' qualcuno non pulisce a
+ * mano. Misurato il 18/08 su `bb9fdc41` (tre file in piedi) e `acc16ffb` (due),
+ * entrambe rimaste in review senza che la colonna lo dicesse.
+ */
+describe("un ramo senza commit lo dice, prima che qualcuno clicchi Landa", () => {
+  const inReview = (o: Record<string, unknown>) =>
+    reviewEvidence({ status: 'review', assignedTopicId: 't1', ...o } as never);
+
+  test("ramo + ZERO file ⇒ uncommitted, non measured", () => {
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 0 }).kind).toBe('uncommitted');
+  });
+
+  test("ramo + file veri ⇒ measured, come prima", () => {
+    // Il controllo: la distinzione non deve diventare «ogni ramo e' sospetto».
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 3 }).kind).toBe('measured');
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 1 }).kind).toBe('measured');
+  });
+
+  test("ramo + misura ASSENTE ⇒ unmeasured: null non e' zero", () => {
+    // Le due assenze sono diverse: `null` = git non ha risposto, `0` = ha
+    // risposto «niente». Confonderle direbbe «non hai committato» a chi magari
+    // ha committato e basta.
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: null }).kind).toBe('unmeasured');
+    expect(inReview({ deliveryBranch: 'topics/x' }).kind).toBe('unmeasured');
+  });
+
+  test("resta isolato: il ramo c'e', e' il commit che manca", () => {
+    // `isolated` governa se ha senso parlare di diff e di land. Qui il ramo
+    // esiste davvero, quindi la risposta resta si'.
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 0 }).isolated).toBe(true);
+  });
+
+  test("fuori da review la domanda non si pone", () => {
+    expect(reviewEvidence({ status: 'in_progress', deliveryBranch: 'topics/x', deliveryFilesChanged: 0 } as never).kind).toBe('none');
+  });
+});
+

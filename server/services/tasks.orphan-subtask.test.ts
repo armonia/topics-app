@@ -26,27 +26,10 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { freshDb } from "./tasks-test-db";
 
 const PID = "proj-orfani";
 
-function freshDb(): Database {
-  const db = new Database(":memory:");
-  db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
-  db.run(TASKS_DDL);
-  db.run(TASKS_FK_STUBS_DDL);
-  db.run(TASK_LABELS_DDL);
-  db.run(`CREATE TABLE task_comments (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
-  )`);
-  db.run(`CREATE TABLE board_settings (
-    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
-    auto_dispatch INTEGER DEFAULT 0, dispatch_retry_cap INTEGER DEFAULT 2
-  )`);
-  return db;
-}
 
 /** Chiude un padre a SQL grezzo: il cancello `open_subtasks` lo rifiuterebbe,
  *  ed è proprio lo stato già presente in produzione che va fatto riemergere. */

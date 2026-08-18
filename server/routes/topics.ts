@@ -6,7 +6,7 @@ import type { AppContext, RouteHandler, Topic } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
-import { createHistoryRouter } from "./history";
+import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { leanMessagesForWire } from "../../shared/lean-tool-call";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
@@ -24,6 +24,7 @@ import { createTaskService } from "../services/tasks";
 import { persistAgentTaskTab, attachLoginHandleToTaskTab } from "../services/task-tab-persist";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "../../shared/clear-messages-policy";
+import { projectIdForPath } from "../../shared/board";
 import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
@@ -706,15 +707,17 @@ export function createTopicsRouter(
 
   const { db } = ctx;
 
+  /**
+   * Il `projectId` della board a cui un topic appartiene, o `null` se il topic
+   * non è legato a un progetto.
+   *
+   * L'hash NON è più riscritto qui: questa closure era la copia che nessun test
+   * di parità copriva, quindi l'unica delle tre che poteva derivare in silenzio.
+   */
   function getProjectIdForTopic(topicId: string): string | null {
     const topic = getTopicById(topicId);
     if (!topic?.projectPath) return null;
-    const projectPath = topic.projectPath;
-    const pathParts = projectPath.replace(/\/+$/, "").split("/");
-    const dirName = pathParts[pathParts.length - 1] || "project";
-    let hash = 0;
-    for (let i = 0; i < projectPath.length; i++) { hash = ((hash << 5) - hash) + projectPath.charCodeAt(i); hash |= 0; }
-    return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
+    return projectIdForPath(topic.projectPath);
   }
 
   // Scan workspace directory for project directories
@@ -763,6 +766,9 @@ export function createTopicsRouter(
   // helpers injected (they close over this scope), so it's instantiated here.
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
   const historyRouter = createHistoryRouter(ctx, { matchHistoryRoute, providerForSessionKey });
+  // Il rovescio dello sfoltimento di `/api/history`: la riga di tool arriva col
+  // testo svuotato e se lo riprende da qui, la prima volta che qualcuno la apre.
+  const toolDetailRouter = createToolDetailRouter(ctx);
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
   // Il canale umano non chiede niente a questa closure: solo ctx.
   const permissionRouter = createPermissionRouter(ctx);
@@ -2351,6 +2357,12 @@ export function createTopicsRouter(
     {
       const historyResp = await historyRouter(req, url, pathname, method);
       if (historyResp) return historyResp;
+    }
+
+    // --- Tool detail on demand --- (GET /api/messages/:id/tool/:id/detail)
+    {
+      const toolDetailResp = await toolDetailRouter(req, url, pathname, method);
+      if (toolDetailResp) return toolDetailResp;
     }
 
     // --- Media serving ---

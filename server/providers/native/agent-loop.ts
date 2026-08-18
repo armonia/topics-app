@@ -30,6 +30,7 @@ import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topic
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
+import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
@@ -86,7 +87,14 @@ export interface AgentTurnOptions {
 interface RoundResult {
   blocks: Block[];
   stopReason: string | null;
-  usage: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  /**
+   * `cacheWrite1h` e' la QUOTA di `cacheWrite` scritta con TTL a un'ora, che
+   * costa 2x un token fresco invece di 1.25x. Sta nell'usage
+   * (`cache_creation.ephemeral_1h_input_tokens`) e non si deduce dal tempo fra
+   * le richieste: tariffare tutto a 1.25x sottostima il conto, e su una sessione
+   * reale il 100% delle scritture era a un'ora. Sottoinsieme, non addendo.
+   */
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number };
 }
 
 /**
@@ -103,8 +111,15 @@ async function streamOnce(
   opts: AgentTurnOptions,
   handler: StreamHandler,
 ): Promise<RoundResult> {
+  // LA FINESTRA LUNGA E' UN HEADER, NON UN NOME.
+  // `claude-opus-5[1m]` e' una convenzione nostra: all'API va il nome NUDO
+  // piu' il beta `context-1m-2025-08-07`. Prima l'id partiva col suffisso e il
+  // beta non c'era, quindi la finestra lunga sul nativo non esisteva - e chi la
+  // sceglieva si portava dietro la CLI intera senza saperlo. Vedi long-window.ts.
+  const { model: modelloApi, longWindow } = splitLongWindow(opts.model);
+
   const body: Record<string, unknown> = {
-    model: opts.model,
+    model: modelloApi,
     max_tokens: opts.maxTokens ?? 16384,
     stream: true,
     messages: opts.history,
@@ -145,7 +160,7 @@ async function streamOnce(
       "content-type": "application/json",
       authorization: `Bearer ${token}`,
       "anthropic-version": API_VERSION,
-      "anthropic-beta": "oauth-2025-04-20",
+      "anthropic-beta": betaHeader(longWindow),
       "user-agent": "claude-cli/2.1.0 (external, cli)",
     },
     body: JSON.stringify(body),
@@ -154,13 +169,16 @@ async function streamOnce(
 
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${detail.slice(0, 300)}`);
+    // `spiegaErrore` traduce SOLO il 400 della finestra lunga, che altrimenti
+    // arriva a turno gia' partito come una frase inglese senza via d'uscita.
+    // Tutto il resto passa intatto: vedi long-window.ts.
+    throw new Error(spiegaErrore(res.status, detail, opts.model));
   }
 
   const blocks: Block[] = [];
   const partialJson = new Map<number, string>();
   let stopReason: string | null = null;
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -188,6 +206,7 @@ async function streamOnce(
           usage.input += ev.message?.usage?.input_tokens ?? 0;
           usage.cacheRead += ev.message?.usage?.cache_read_input_tokens ?? 0;
           usage.cacheWrite += ev.message?.usage?.cache_creation_input_tokens ?? 0;
+          usage.cacheWrite1h += ev.message?.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0;
           break;
 
         case "content_block_start": {
@@ -315,10 +334,10 @@ export async function runAgentTurn(
   if (!token) {
     const msg = "nessuna credenziale Claude: fai `claude` → /login una volta, poi riprova";
     handler.onError(msg);
-    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } };
   }
 
-  const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
   let finalText = "";
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {

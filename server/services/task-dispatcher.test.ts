@@ -2575,6 +2575,25 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(src).toContain("@container");
   });
 
+  it("promoteReviewPreview non scrive piu' il paragrafo istruttivo nel thread", () => {
+    // Prima scriveva «Consegna SENZA anteprima» nel thread dell'umano:
+    // 39 copie nel DB (18/08), 26 card distinte. Il pubblico era sbagliato:
+    // istruzioni operative recapitate a chi decide, che non puo' eseguirle.
+    // La regola vive ora nell'envelope dell'agente (PREVIEW_RULE).
+    const db = freshDb();
+    const PID_LOCAL = "proj-preview-test";
+    db.run("INSERT INTO topics (id) VALUES ('topic-x')");
+    const svc = createTaskService(db, { now: () => new Date().toISOString(), uuid: () => `upr-${Math.random()}` });
+    const t = svc.create({ projectId: PID_LOCAL, text: "consegna senza allegati" });
+    svc.addComment({ taskId: t.id, author: "claude", content: "cinque cancelli verdi" });
+    svc.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    const notes = (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'review-note'").all(t.id) as Array<{ content: string }>)
+      .map((r) => r.content);
+    expect(notes.some((n) => n.includes("Consegna SENZA anteprima"))).toBe(false);
+    expect(notes).toHaveLength(0);
+  });
+
   it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
     // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
     // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
@@ -3456,5 +3475,167 @@ describe("dispatchPaused: il freno di una board sola", () => {
     expect(h.turns.length).toBe(1);
     expect(h.task("t1")?.status).toBe("todo");
     expect(h.task("t2")?.status).not.toBe("todo");
+  });
+});
+
+/**
+ * IL RITENTATIVO DICE 60 SECONDI E IL POLL NE ASPETTA 10.
+ *
+ * Quando un turno cade su un guasto ricuperabile, `onTurnEnd` programma il
+ * ritentativo con un `setTimeout(backoff)` e lo ANNUNCIA sulla card. Ma il timer
+ * non trattiene lo slot: il `finally` del chiamante libera `inFlight` subito
+ * dopo, e da quel momento la card e' una riga `in_progress` con chip `working` e
+ * nessun turno vivo — cioe' identica a un orfano di riavvio per il giro di
+ * `reconcile`, che in produzione gira ogni 10 secondi (`DISPATCH_POLL_MS`).
+ *
+ * Misurato il 18/08 sul DB vivo: 504 note «La sessione stava gia' rispondendo:
+ * turno non avviato: riprovo tra 60s» su 12 card. Gli istanti di quattro
+ * consecutive su `d636cfbf`: 12:43:46, 12:43:59, 12:44:09, 12:44:19 — 13, 10, 10
+ * secondi. E' il poll, non il backoff. Ogni giro sveglia una sessione che sta
+ * davvero rispondendo, incassa un 409, scrive la nota e programma un ALTRO
+ * timer.
+ *
+ * Il costo non e' il thread: e' una chiamata alla front-door ogni dieci secondi,
+ * per card, pagata per farsi dire di no — e sale col numero di agenti.
+ */
+describe("un ritentativo programmato non si fa svegliare dal poll", () => {
+  it("reconcile NON riprende una card che sta aspettando il backoff", async () => {
+    // `retryBackoffMs` VERO, non lo zero del banco: senza un'attesa che dura,
+    // il registro e' gia' vuoto quando arriva il poll e la guardia non viene
+    // esercitata — il caso passerebbe verde anche disarmandola (verificato).
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    // Il turno non parte: la sessione stava gia' rispondendo. Non e' un guasto
+    // dell'agent e non brucia un tentativo — si riprova, fra `backoff`.
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+
+    // Il poll passa piu' volte DENTRO la finestra di attesa. Prima, ognuno di
+    // questi giri faceva partire un turno nuovo contro la stessa sessione.
+    // Il turno di partenza e basta: il ritentativo e' programmato fra 60s e non
+    // e' ancora scattato. Ogni turno in piu' da qui e' opera del poll.
+    expect(h.turns.length).toBe(1);
+    const primaDelPoll = h.turns.length;
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(
+      h.turns.length - primaDelPoll,
+      "il poll ha svegliato la sessione: e' il difetto delle 504 note",
+    ).toBe(0);
+  });
+
+  it("e la card non si riempie della stessa nota a ogni giro", async () => {
+    // La meta' visibile dello stesso guasto: 504 righe identiche nel thread.
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    const note = (h.svc.get("t1")?.comments ?? [])
+      .filter((c) => c.content.includes("stava già rispondendo"));
+    expect(note.length, "una nota per attesa, non una per giro di poll").toBeLessThanOrEqual(1);
+  });
+
+  it("il controllo: un orfano VERO reconcile lo riprende ancora", async () => {
+    // Senza questo caso, la guardia potrebbe diventare «non riprendere mai
+    // niente» e passerebbe verde: un riavvio a meta' turno lascerebbe la card
+    // ferma per sempre. Il riavvio azzera il registro insieme al timer, ed e'
+    // esattamente cio' che distingue un fantasma da un'attesa viva.
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+
+    const primaDelRiavvio = h.turns.length;
+    const dopoRiavvio = h.restart();
+    await dopoRiavvio.reconcile();
+    await flush();
+    expect(
+      h.turns.length - primaDelRiavvio,
+      "dopo un riavvio il registro e' vuoto: la card e' orfana davvero e va ripresa",
+    ).toBeGreaterThan(0);
+    dopoRiavvio.shutdown();
+  });
+});
+
+
+/**
+ * NIENTE NELLA STORIA DI GIT NON VUOL DIRE NIENTE SUL DISCO.
+ *
+ * La fotografia di consegna legge ramo, commit e diffstat: la STORIA. Un turno
+ * ucciso prima del commit non ne lascia, quindi la card concludeva «nessun ramo
+ * e nessun file toccato» e mandava chi rivede a chiudere o rilanciare una card
+ * il cui lavoro era li', sul disco, intatto.
+ *
+ * Misurato il 18/08/2026 su due card in colonna review, entrambe con zero
+ * commit e la stessa frase addosso: una aveva QUATTRO file modificati (367
+ * righe, test verdi), l'altra TRE — e le ultime parole del suo agente,
+ * recuperate dalla sessione, erano «Changes are staged but not committed».
+ */
+describe("una consegna senza commit guarda anche il worktree", () => {
+  /**
+   * Porta una card fino alla consegna forzata: l'agente PARLA (cosi' la card
+   * arriva all'umano invece di essere fallita) ma non si sposta mai in review,
+   * ed esaurisce i tentativi. E' lo stesso percorso di «HANDS an
+   * exhausted-but-worked task to review».
+   */
+  async function finoAllaConsegnaForzata(h: ReturnType<typeof harness>) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "agent", content: "Ecco il piano: 1) … 2) …" });
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    expect(h.task("t1")!.status, "il banco non e' arrivato alla consegna forzata").toBe("review");
+    return (h.svc.get("t1")?.comments ?? []).map((c) => c.content).join("\n---\n");
+  }
+
+  it("i file non committati si NOMINANO, e la mossa cambia", async () => {
+    const h = harness({
+      uncommittedInWorktree: async () => ["server/services/tasks.ts", "server/mcp/topics-mcp-server.ts"],
+    });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("2 file modificati");
+    expect(thread).toContain("server/services/tasks.ts");
+    // La mossa non e' «non c'e' un diff da guardare»: c'e' qualcosa da salvare.
+    expect(thread).toContain("non e' perduto");
+  });
+
+  it("un worktree davvero pulito resta il caso storico", async () => {
+    // L'elenco VUOTO e' una misura — il worktree c'e' ed e' pulito — e deve
+    // portare al testo di prima, non a «0 file modificati».
+    const h = harness({ uncommittedInWorktree: async () => [] });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
+    expect(thread).not.toContain("file modificati");
+  });
+
+  it("non misurabile (`null`) non inventa niente", async () => {
+    // Nessun worktree, o git muto: `null` non e' «pulito». Il testo storico e'
+    // un silenzio onesto, e senza questo caso la sonda potrebbe tornare `null`
+    // per sempre senza che nessuno se ne accorga.
+    const h = harness({ uncommittedInWorktree: async () => null });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
+  });
+
+  it("senza la sonda il comportamento e' quello di prima", async () => {
+    const h = harness();
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
   });
 });

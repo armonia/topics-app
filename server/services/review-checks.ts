@@ -60,6 +60,22 @@ export const TAIL_LINES = 40;
 export const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 
 /**
+ * IL CODICE CHE DICE «NON HO MISURATO», e non «hai sbagliato».
+ *
+ * Lo usano i cancelli che non riescono nemmeno a partire: `typecheck-server.ts`
+ * quando `tsc` non c'e', `check-client-deps.ts` quando manca `eslint`. Succede
+ * in ogni worktree di dispatch, perche' `git worktree add` copia i file
+ * TRACCIATI e `client/node_modules` non lo e' — misurato il 18/08: 95 worktree
+ * su 103 senza.
+ *
+ * Senza questo numero quei cancelli uscivano 1, indistinguibili da un rosso
+ * vero, e la card scriveva `checks_state = 'fail'` su rami che spesso non
+ * avevano nemmeno un commit. La distinzione la facevano gia' a parole; l'uscita
+ * la buttava via.
+ */
+export const NOT_MEASURED_EXIT = 97;
+
+/**
  * Legge la colonna `board_settings.review_checks`.
  *
  * Tollerante di proposito: accetta sia `[{name,cmd}]` sia un array di stringhe
@@ -256,6 +272,10 @@ async function runOne(
       code: timedOut ? null : code,
       ms: Date.now() - started,
       timedOut,
+      // Il comando ha DICHIARATO di non aver misurato (97). Campo suo e non
+      // `timedOut`: dire «fermato oltre il tempo massimo» di un binario che non
+      // c'e' sarebbe una bugia, e il testo del commento la ripeterebbe.
+      notMeasured: code === NOT_MEASURED_EXIT,
       tail: tailOf(combined) || (timedOut ? "(nessun output prima del timeout)" : "(nessun output)"),
     };
   } catch (e) {
@@ -287,6 +307,38 @@ function fmtMs(ms: number): string {
  * pistolotto. Rosso: il comando, l'exit code e la coda dell'output — cioè
  * quello che serve a rimetterci le mani senza aprire un terminale.
  */
+/**
+ * L'ESITO DI UNA BARRA, IN UNA PAROLA SOLA — e sono TRE, non due.
+ *
+ * `pass` misurato e verde · `fail` misurato e rosso · `unknown` NON misurato.
+ * Il terzo non e' una sfumatura del secondo: «rosso» dice «il tuo codice e'
+ * rotto, non approvare», «non misurato» dice «non lo sappiamo». Chi rivede
+ * decide diversamente nei due casi, e chi ha consegnato pure.
+ *
+ * ── Perche' esiste ──────────────────────────────────────────────────────────
+ * Il TESTO faceva gia' questa distinzione dal 12/08 («**Checks pre-review NON
+ * MISURATI**»), e il suo test si chiudeva con «la parola conta piu' del codice
+ * di stato». Si e' fermato li': `recordChecks` scriveva `ok ? "pass" : "fail"`,
+ * quindi lo STATO — che e' quello che la card legge, perche' `checks_json` non
+ * viaggia nel payload della lista (pesava 217 KB) — diceva rosso lo stesso.
+ *
+ * Misurato il 18/08 sul DB vivo: delle 15 card marcate `fail`, SEI erano solo
+ * scadute. Il 40% delle bocciature accusava un codice sano.
+ *
+ * `expected` e' il numero di comandi DICHIARATI: se ne sono tornati meno,
+ * qualcuno non e' arrivato in fondo e l'esito non e' misurato — non verde.
+ * Senza questo parametro un elenco troppo corto e tutto verde direbbe `pass`.
+ */
+export function checksVerdict(runs: CheckRun[], expected?: number): "pass" | "fail" | "unknown" {
+  if (!runs.length) return "unknown";
+  const failed = runs.find((r) => !r.ok);
+  if (!failed) return expected !== undefined && runs.length < expected ? "unknown" : "pass";
+  // Un SOLO rosso vero basta a dire rosso, anche se altri sono scaduti: c'e' un
+  // guasto misurato, e quello si guarda. Il verso opposto — un rosso nascosto
+  // da un timeout — sarebbe il difetto.
+  return runs.some((r) => !r.ok && !r.timedOut && !r.notMeasured) ? "fail" : "unknown";
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
   const failed = runs.find((r) => !r.ok);
@@ -300,7 +352,21 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   // cancelli verdi e `test:unit` fermato al tetto mentre cinque agenti
   // lavoravano — la suite da sola ne impiega tre o quattro. Il codice non
   // c'entrava: era piena la macchina.
-  if (failed.timedOut) {
+  // NON MISURATO, e i due modi si dicono diversi: uno SCADUTO ha girato e non e'
+  // arrivato in fondo, un cancello che non parte non ha guardato niente. Mandare
+  // «rilancia quando c'e' meno traffico» a chi ha un worktree senza dipendenze
+  // sarebbe una caccia a un guasto che non esiste.
+  if (failed.notMeasured) {
+    return [
+      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` non e' partito.`,
+      runs.map(line).join("\n"),
+      `Comando: \`${failed.cmd}\``,
+      failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",
+      "Non e' un fallimento del codice: e' un cancello che non ha potuto guardare. " +
+        "Quasi sempre e' un worktree senza le dipendenze del client (`cd client && bun install`).",
+    ].join("\n\n");
+  }
+  if (checksVerdict(runs) === "unknown") {
     return [
       `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` è stato fermato oltre il tempo massimo.`,
       runs.map(line).join("\n"),

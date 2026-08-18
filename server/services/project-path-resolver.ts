@@ -56,7 +56,7 @@ const PROJECT_MARKERS = [
 // terminal may have been rooted there. NOT `.openclaw` — its `workspace/<name>`
 // children are legit catch-all projects (see scanWorkspace); we only strip the
 // well-known non-project homes below.
-const NON_PROJECT_DOTDIR = /\/\.(claude|config|cache|local|npm|bun|cargo|rustup|ssh|vscode|cursor|git|Trash)(\/|$)/;
+const NON_PROJECT_DOTDIR = /\/\.(claude|config|cache|local|npm|bun|cargo|rustup|ssh|vscode|cursor|git|Trash|topics)(\/|$)/;
 
 /**
  * Pure display filter: which candidate dirs are offered as SELECTABLE boards in

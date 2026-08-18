@@ -26,8 +26,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
+import { landedMergeRange } from "./task-diff-range";
 import { gitEnvFor } from "../lib/git-identity";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
+import { makeSerialQueue } from "../lib/serial-queue";
 
 export type AutoMergeResult =
   | {
@@ -328,16 +330,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const log = deps.log ?? (() => {});
 
   // Serialize per repo path so two approvals on the same project never run
-  // overlapping git operations against the same working tree.
-  const queues = new Map<string, Promise<unknown>>();
+  // overlapping git operations against the same working tree (task e33820da).
+  const repoQueue = makeSerialQueue();
   function chain<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const prev = queues.get(key) ?? Promise.resolve();
-    const next = prev.catch(() => undefined).then(fn);
-    const tail = next.finally(() => {
-      if (queues.get(key) === tail) queues.delete(key);
-    });
-    queues.set(key, tail);
-    return next;
+    return repoQueue.enqueue(key, fn);
   }
 
   /**
@@ -742,6 +738,30 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // proprio ciò che questo ramo ha appena chiuso.
           const sha = delivery?.commit?.trim();
           if (sha && (await commitIsIn(repoPath, sha, defaultBranch, { runGit })) === true) {
+            return { status: "nothing", branch, deliveryDrift: drift };
+          }
+          // LA SECONDA PROVA, per le card che il commit di consegna non ce l'hanno.
+          //
+          // Il controllo qui sopra è giusto ma pretende `delivery.commit`, e fino
+          // al 18/08 quella colonna restava vuota su 9 card su 10 (vedi il fix in
+          // `landing-audit.ts`). Senza sha la domanda non si faceva nemmeno: si
+          // cadeva dritti su `branch-missing`, cioè su un'accusa.
+          //
+          // Misurato su `171b787d`: il merge `a89990ecb` è su main da giorni, il
+          // ramo `topics/rippling-fort` è stato potato DOPO — e la card è stata
+          // rispedita in review DUE VOLTE, ogni volta che qualcuno la chiudeva,
+          // con addosso «⚠️ Land NON riuscito». Riaprire una card chiusa è il
+          // danno peggiore che questo codice possa fare: dice al reviewer che il
+          // suo lavoro non è servito.
+          //
+          // Il merge che il land scrive porta il NOME della card, non lo pota
+          // nessuno, e sopravvive a entrambe le altre maniglie. Si chiede solo
+          // qui, dove il ramo NON esiste più: se il ramo è sparito e il merge
+          // c'è, non è rimasto niente fuori da main per definizione — nessun
+          // lavoro successivo sarebbe raggiungibile. La stessa funzione che usa
+          // il drawer per mostrare il diff di un land, non una seconda copia
+          // della regola.
+          if ((await landedMergeRange(repoPath, taskId, { runGit, mainRef: defaultBranch })) !== null) {
             return { status: "nothing", branch, deliveryDrift: drift };
           }
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };

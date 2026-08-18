@@ -61,12 +61,13 @@ import { Select } from '../Shared/Select';
  */
 interface Io {
   person: { id: string; name: string; email: string | null } | null;
-  org: { id: string; name: string; members: number } | null;
+  org: { id: string; name: string; logo_url: string | null; members: number } | null;
 }
 
 interface Gruppo {
   id: string;
   name: string;
+  logo_url: string | null;
   members: number;
   /** Il ruolo di CHI GUARDA, non un ruolo assoluto. `null` = non ne fa parte. */
   role: Ruolo | null;
@@ -406,6 +407,19 @@ export function IdentitySection() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
+                {/* Logo organizzazione */}
+                {gruppo.logo_url ? (
+                  <img
+                    src={gruppo.logo_url}
+                    alt={gruppo.name}
+                    className="size-5 flex-shrink-0 rounded-full object-cover"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                  />
+                ) : (
+                  <div className="flex size-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[9px] font-bold text-indigo-400">
+                    {gruppo.name.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
                 <button
                   onClick={() => { if (!amministra) return; setBozzaNome(gruppo.name); setModifica({ tipo: 'gruppo' }); }}
                   disabled={!amministra}

@@ -84,6 +84,22 @@ export interface LandingAuditDeps {
    * più severo, mai più permissivo.
    */
   debtVerdict?: (task: AuditTask, repoPath: string) => Promise<LandingState>;
+  /**
+   * LA TERZA MANIGLIA, e l'unica che regge quando le altre due sono sparite.
+   *
+   * Il land scrive su main un commit di fusione che porta il nome della card
+   * (`merge task <id>: …`, vedi `task-automerge.ts`). Quel commit non lo pota
+   * nessuno: sopravvive al ramo, e sopravvive al commit di consegna che non è
+   * mai stato registrato. È la stessa prova che un umano va a cercare a mano.
+   *
+   * Si paga SOLO dove le altre risposte tacciono, cioè su `unverifiable`: un
+   * `landed` è già provato, e un `unlanded` provato dal commit non si ribalta
+   * (dopo il land la card può aver prodotto altro, e quello è ancora fuori).
+   *
+   * `null` = nessun merge trovato, che non è una smentita: si resta su «non lo
+   * so». Assente ⇒ la domanda non si fa, e l'audit resta quello di prima.
+   */
+  landedMerge?: (task: AuditTask, repoPath: string) => Promise<boolean | null>;
   /** Persist the verdict (landing_state + landing_checked_at). */
   record: (taskId: string, state: LandingState, checkedAt: string) => void;
   /** Called once per task that flipped INTO `unlanded` — the human must see it. */
@@ -110,10 +126,19 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
   const checkedAt = deps.now();
 
   for (const task of deps.listCandidates()) {
-    if (!task.deliveryCommit) continue;
+    const before = deps.previousState(task.id);
+    // Senza consegna registrata non c'è niente da VERIFICARE, e si tace. Ma se
+    // sulla card c'è già scritto «non è su main», tacere non è neutrale: è
+    // lasciare in piedi un'accusa che nessuno può più sostenere. `markLandPending`
+    // scrive quel timbro appena il land viene CHIESTO e conta su questa passata
+    // per correggerlo; finché la passata saltava le card senza commit, l'accusa
+    // era definitiva (13 card su topics-app il 18/08, la più vecchia da 6 giorni).
+    // Quindi si prosegue, ma per RITIRARE: senza commit l'unica risposta possibile
+    // è «non lo so», più il merge del land se su main c'è.
+    if (!task.deliveryCommit && before !== "unlanded") continue;
     try {
       const repo = deps.repoPath(task.projectId);
-      let state: LandingState = repo
+      let state: LandingState = repo && task.deliveryCommit
         ? classifyLanding(await deps.commitStatus(repo, task.deliveryCommit))
         : "unverifiable";
       // Un `unlanded` è un'ACCUSA, e prima di scriverla si chiede la seconda
@@ -123,8 +148,12 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
       if (state === "unlanded" && repo && deps.debtVerdict) {
         state = await deps.debtVerdict(task, repo);
       }
+      // Restato un «non lo so» (commit potato, o mai registrato), c'è ancora il
+      // merge del land su main: porta il nome della card e non lo pota nessuno.
+      if (state === "unverifiable" && repo && deps.landedMerge) {
+        if ((await deps.landedMerge(task, repo)) === true) state = "landed";
+      }
 
-      const before = deps.previousState(task.id);
       deps.record(task.id, state, checkedAt);
       summary.checked += 1;
       summary[state] += 1;
@@ -132,7 +161,7 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
       if (state === "unlanded" && before !== "unlanded") {
         deps.log(
           `[landing-audit] ${task.id}: consegnato su ${task.deliveryBranch ?? "?"} ` +
-          `(${task.deliveryCommit.slice(0, 8)}) ma NON su main`,
+          `(${task.deliveryCommit?.slice(0, 8) ?? "senza commit"}) ma NON su main`,
         );
         deps.onNewlyUnlanded?.(task);
       }

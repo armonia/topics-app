@@ -291,6 +291,8 @@ export interface AppContext {
   projectStore: import("./services/project-store").ProjectStore;
   worktreeStore: import("./services/worktree-store").WorktreeStore;
   worktreeManager: import("./services/worktree-manager").WorktreeManager;
+  /** Lazy closure: iniettato in server.ts dopo createProcessesRouter (task e3240a22). */
+  worktreeGcDeps: import("./services/worktree-manager").WorktreeManagerGcDeps;
   // Multi-machine (Phase D · added at migration 020-021)
   machineStore: import("./services/machine-store").MachineStore;
 
@@ -459,6 +461,13 @@ export interface AppContext {
    * difetto di sonda bloccherebbe consegne buone.
    */
   imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number } | null;
+  /**
+   * Controlla se un file esiste sul disco. Separato da `existsSync` per
+   * permettere ai test di iniettare uno stub senza toccare il filesystem reale.
+   * Se assente, si assume che il file esista (compatibilita' con contesti di
+   * test che non impostano il campo).
+   */
+  fileExistsSync?: (filepath: string) => boolean;
   findNewMediaFiles: (sinceMs: number) => Promise<string[]>;
   updateLastMessageWithMedia: (sessionKey: string, mediaPaths: string[]) => void;
   atomicWriteJSON: (filepath: string, data: object) => void;

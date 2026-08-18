@@ -10,7 +10,7 @@ import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
-  uptimeMsSince, LiveLockError, worktreeIsolationHome,
+  uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -31,6 +31,8 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { describeInFlight } from "./server/lib/quiescence";
+import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
@@ -56,13 +58,15 @@ import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
 import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
-import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
+import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
-import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees } from "./server/routes/processes";
+import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
+import { resolveDeliveryBranch, type DeliveryBranchDeps } from "./server/services/delivery-branch-ref";
+import { landedMergeRange } from "./server/services/task-diff-range";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingState } from "./server/services/landing-audit";
@@ -106,11 +110,13 @@ import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProvider
 import { aiBridgeEnabled } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
+import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
-import { createTasksRouter } from "./server/routes/tasks";
+import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
+import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
 import { createNotificationsRouter } from "./server/routes/notifications";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
@@ -127,6 +133,7 @@ import {
   resolveAgentRuntime,
 } from "./server/services/app-settings";
 import { createProfileRouter } from "./server/routes/profile";
+import { createPublicProfileHandler } from "./server/routes/public-profile";
 import { startDiscordPresence } from "./server/services/discord-presence";
 import { computePresenceCounts } from "./server/services/profile-stats";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
@@ -161,6 +168,8 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
 // palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
 import { armTurnDeadline } from "./server/lib/turn-deadline";
+import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
+import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -210,11 +219,18 @@ if (!process.env.GATEWAY_TOKEN) {
 if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
   const isoHome = worktreeIsolationHome(import.meta.dir, homedir());
   if (isoHome) {
-    if (!process.env.TOPICS_HOME) process.env.TOPICS_HOME = isoHome;
-    if (!process.env.PORT && !process.env.BUN_PORT) process.env.PORT = "0";
+    // La decisione sta in `services/daemon-state.ts` (`worktreeIsolationEnv`),
+    // dove un test la raggiunge: qui viveva dentro `server.ts` ed era rimasta
+    // INCOMPLETA — spostava casa e porta principale e lasciava la porta del
+    // tunnel, che ha preso giu' la produzione il 18/08.
+    const patch = worktreeIsolationEnv(process.env, isoHome);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null) delete process.env[k]; else process.env[k] = v;
+    }
     console.log(
       `[Daemon] worktree server isolated → TOPICS_HOME=${process.env.TOPICS_HOME}, ` +
-      `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT} (won't touch production)`,
+      `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT}, ` +
+      `tunnel ${process.env.TOPICS_TUNNEL_PORT ? process.env.TOPICS_TUNNEL_PORT : "off"} (won't touch production)`,
     );
   }
 }
@@ -518,6 +534,20 @@ const claudeSessionTracker = createClaudeSessionTracker({
 // nasce DOPO il contesto; i tre percorsi di archiviazione la chiamano.
 configureSessionParkingForTracker(claudeSessionTracker);
 
+// Il runtime nativo tiene le conversazioni in una Map di processo e dichiara
+// alla rotta «la storia me la ricordo io» (`contextStrategy: inline-system`).
+// Vero finché il processo vive — e qui il processo si riavvia a ogni
+// salvataggio in `server/`. Da qui in poi, quando una sua sessione nasce, se la
+// va a riprendere dal DB: `loadActiveThread` è la stessa lettura che alimenta la
+// chat, quindi il modello riparte esattamente da ciò che l'utente ha davanti.
+configureNativeHistorySource((sessionKey) =>
+  ctx.loadActiveThread(sessionKey).map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
+    partial: (m as { partial?: number | boolean | null }).partial ?? null,
+  })),
+);
+
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
 const webrtcBridge = createWebrtcBridge();
@@ -659,6 +689,10 @@ ctx.setGuestBroadcastFilter({
   },
 });
 const processesRouter = createProcessesRouter(ctx);
+// PUNTO 1 (task e3240a22): inietta le closure nel manager DOPO che processes.ts
+// e' pronto. La closure viene letta solo alla chiamata, non alla costruzione.
+ctx.worktreeGcDeps.killTree = (pid, graceMs) => killProcessTree(pid, graceMs);
+ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
 // The dispatcher is the ONLY place that starts a headless agent turn from a
 // board gesture. All its host-specific wiring — the in-process turn runtime,
@@ -772,7 +806,24 @@ async function runHeadlessTurn(
 // reconcile REATTACH branch after a server restart.
 async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true });
+  // Il provider si DICHIARA, non si lascia indovinare alla rotta.
+  //
+  // `resolveProvider` risponde «con chi vorrebbe parlare questa topic», e senza
+  // un `provider` nel corpo cade sul default della macchina. Ma un riattacco
+  // non sceglie: adotta un turno che sta già girando, e qui il proprietario è
+  // `claude-code` per COSTRUZIONE — entrambi i chiamanti lo sanno già.
+  // `hasLiveSession` (poco sopra) interroga esplicitamente `claude-code`, e il
+  // setaccio di boot `reattachSurvivingChatTurns` enumera lo store del broker
+  // ai-bridge, che è del provider claude-code e di nessun altro.
+  //
+  // Senza questa riga, su una macchina il cui default è il runtime nativo
+  // (`topics`, che non ha `reattach`), ogni riadozione finiva su `sendChat` con
+  // un messaggio VUOTO: un turno fabbricato che rispondeva «Ciao! Come posso
+  // aiutarti?» e si sedeva in chat al posto della risposta vera. Nove volte in
+  // quindici minuti su topic:9fe7a291 il 2026-08-18, una per riavvio del
+  // server. La rotta adesso rifiuta quel caso (501 `reattach_unsupported`),
+  // ma la cura sta qui: chi conosce il proprietario lo scrive.
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
   // Stesso patto di runHeadlessTurn: residuo via prima di iniziare.
   takeTurnEnd(sessionKey);
   const resp = await topicsRouter(
@@ -952,7 +1003,43 @@ async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boole
   return state === "unverifiable" ? null : state === "landed";
 }
 
+/**
+ * Assegnata piu' in basso, dov'e' possibile costruirla (servono gli sguardi sul
+ * worktree). Il dispatcher nasce prima e la chiama solo a turno finito, quindi
+ * il riferimento in avanti e' sicuro: prima di allora non c'e' nessun turno.
+ */
+let capturaConsegna: DeliveryCapture | null = null;
+/**
+ * I file lasciati nel worktree e mai committati, per la consegna forzata.
+ *
+ * Tardiva come `capturaConsegna` e per la stessa ragione: `worktreeOfTask`
+ * nasce piu' in basso di queste deps. La usa il dispatcher SOLO quando la
+ * storia di git e' vuota, per non far dire alla card «nessun file toccato»
+ * mentre il lavoro sta sul disco.
+ */
+let sondaLavoroNonCommittato: ((taskId: string) => Promise<string[] | null>) | null = null;
+
+/**
+ * Quante corse di check pre-review stanno girando adesso.
+ *
+ * Il dispatcher viene costruito PRIMA della rotta dei task (che e' la closure
+ * che tiene il `checksGate`). Il riferimento in avanti e' sicuro per lo stesso
+ * motivo di `capturaConsegna`: il dispatcher chiama `checksRunning` solo dentro
+ * il tick o il resume, che sono entrambi dopo la costruzione della rotta. Zero
+ * finche' non esiste: un conteggio assente vale «nessuno», mai un'eccezione
+ * dentro un tick.
+ *
+ * Questo e' il collegamento che chiude il freno: prima mancava, e sei card che
+ * consegnavano nello stesso quarto d'ora lanciavano sei barre di check in
+ * parallelo. Con `test:unit` da solo a 322s e piu' core, il loadavg andava a
+ * 78,83 su 12 core.
+ */
+let checksGateRunningCount: (() => number) | null = null;
+
 const taskDispatcher = createTaskDispatcher({
+  captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
+  uncommittedInWorktree: (taskId) =>
+    sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
@@ -1021,6 +1108,11 @@ const taskDispatcher = createTaskDispatcher({
   // posti residui. Letto dentro la closure, non alla costruzione: il dispatcher
   // esiste solo dopo questa chiamata.
   recommendedCap: () => computeDispatchCapacity(turniInVolo()).recommended,
+  // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
+  // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
+  // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non
+  // esiste: stesso pattern di `capturaConsegna`.
+  checksRunning: () => checksGateRunningCount?.() ?? 0,
   // Don't drop an agent into a repo somebody is already working by hand.
   externalSessionsAt: (path) =>
     externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
@@ -1211,7 +1303,14 @@ const taskDispatcher = createTaskDispatcher({
   // spende di più risulterebbe la più economica. Vedi dispatch-usage.ts, che
   // tiene anche il ledger delle figlie ormai chiuse (una somma sulle sole vive
   // scenderebbe, e un calo il dispatcher lo appiattisce a zero).
-  getSessionUsage: (sessionKey: string) => dispatchUsageReader.read(sessionKey),
+  // IL NATIVO PRIMA, IL TRANSCRIPT COME RIPIEGO — e l'ordine e' il punto.
+  // `dispatchUsageReader` legge i JSONL di Claude Code; il runtime nativo gira
+  // in processo e non ne scrive nessuno, quindi per lui quel lettore rispondeva
+  // sempre zero. Misurato il 18/08: 43 card con turni registrati e costo zero,
+  // cioe' tutte quelle lavorate dal nativo. `readNativeUsage` torna `null` (non
+  // zero) quando il nativo non ha mai girato su quella sessione: e' cio' che
+  // lascia intatto il ripiego per le sessioni CLI.
+  getSessionUsage: (sessionKey: string) => readNativeUsage(sessionKey) ?? dispatchUsageReader.read(sessionKey),
   // Last assistant prose in the session — the dispatcher mirrors it into a task
   // comment at delivery when the agent forgot comment_task, so a review always
   // carries the agent's own summary. Reads the local message store (sync).
@@ -1243,11 +1342,31 @@ const taskDispatcher = createTaskDispatcher({
 // branch there. Only `branch`-mode worktrees on a ready project have something to
 // land; everything else resolves to null (skip). Default branch is `main`.
 const worktreeOfTask = (taskId: string) => {
+  // Percorso primario: task → assigned_topic_id → topic.worktree_id → worktree.
+  // Funziona finché il dispatcher tiene il legame vivo.
   const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
-  if (!topicId) return null;
-  const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
-  if (!worktreeId) return null;
-  return ctx.worktreeStore.get(worktreeId) ?? null;
+  if (topicId) {
+    const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+    if (worktreeId) return ctx.worktreeStore.get(worktreeId) ?? null;
+  }
+  // Percorso di ripiego: dopo un `release()` il dispatcher azzera
+  // `assigned_topic_id`, ma il record del tentativo corrente conserva
+  // `worktree_id`. Cerchiamo l'ultimo tentativo in stato `running` (o
+  // comunque con un worktree collegato) per questo task.
+  //
+  // Incidente 18/08: card `171b787d` in review con 279 righe non committate
+  // e `deliveryFilesChanged: 0` perche' `worktreeOfTask` tornava null dopo
+  // che il dispatcher aveva rilasciato la card — e la sonda `taskWorktreeDirt`
+  // leggeva null come «pulito» invece che come «non so».
+  try {
+    const row = ctx.db.prepare(
+      `SELECT worktree_id FROM task_attempts
+        WHERE task_id = ? AND worktree_id IS NOT NULL
+        ORDER BY idx DESC LIMIT 1`,
+    ).get(taskId) as { worktree_id: string } | undefined;
+    if (row?.worktree_id) return ctx.worktreeStore.get(row.worktree_id) ?? null;
+  } catch { /* fallback is best-effort */ }
+  return null;
 };
 
 // ── Review-ready previews ──────────────────────────────────────────────────
@@ -1486,8 +1605,125 @@ const worktreeGc = createWorktreeGcRunner({
   tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+  // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
+  listOwnedScripts: () => listOwnedScripts(),
 });
 
+
+/**
+ * I DUE SGUARDI SUL WORKTREE DI UNA CARD, estratti dall'oggetto della rotta
+ * perche' adesso li usa anche il DISPATCHER.
+ *
+ * `taskDeliveryRef` e `taskCheckoutRef` vivevano dentro le opzioni di
+ * `createTasksRouter`, quindi solo la rotta poteva fotografare una consegna. La
+ * consegna forzata dal sistema — che passa dal dispatcher — leggeva percio'
+ * colonne che nessuno aveva scritto e concludeva sempre «nessun ramo e nessun
+ * file toccato», anche su card che avevano committato (misurato il 18/08 su
+ * `cf15dea6`, ramo con commit `af248dcf9`).
+ */
+/**
+ * DOVE e SU QUALE RAMO chiedere della consegna di una card, in un posto solo.
+ *
+ * Il worktree quando c'è, il ramo scritto sulla card quando non c'è più. Il
+ * perché sta in `services/delivery-branch-ref.ts`: la catena
+ * `task → assignedTopicId → topic.worktreeId → worktrees` si spezza da sola per
+ * strada, e da lì in poi la consegna non si poteva più fotografare.
+ *
+ * È lo stesso ripiego che il land già si era costruito per sé
+ * (`declaredDelivery`, più in alto): quello serve a decidere se c'è qualcosa da
+ * pubblicare, questo a registrare cosa è stato consegnato. La risposta alla
+ * domanda «quale ramo» ora è una sola.
+ *
+ * `candidati` si passa da chi CICLA: costruirli scandisce la cartella di lavoro,
+ * e il backfill ne farebbe una scansione per card.
+ */
+const deliveryBranchDeps = (candidati?: ReturnType<typeof buildProjectCandidates>): DeliveryBranchDeps => ({
+  worktreeOfTask: (id) => worktreeOfTask(id),
+  storeRepoPath: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+  recordedDelivery: (id) => {
+    const t = dispatcherSvc.get(id)?.task;
+    return t ? { projectId: t.projectId, deliveryBranch: t.deliveryBranch ?? null } : null;
+  },
+  boardRepoPath: (boardProjectId) => {
+    try {
+      const lista = candidati ?? buildProjectCandidates({
+        projectStore: ctx.projectStore,
+        workspaceDir: DISPATCH_WORKSPACE_DIR,
+        extraPaths: dispatchExtraPaths,
+      });
+      return resolveProjectPath(boardProjectId, lista)?.path ?? null;
+    } catch { return null; }
+  },
+  branchExists: (repoPath, branch) => branchExistsInRepo(repoPath, branch),
+});
+
+const taskDeliveryRef = async (taskId: string) => {
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
+    // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
+    // di chi stava sul checkout condiviso ha una punta che non è della card, e
+    // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
+    // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
+    //
+    // E `commit: null` NON si ripiega sulla punta. È la tentazione ovvia quando
+    // si vede una colonna vuota, ed è il difetto stesso: `own = []` vuol dire
+    // «verificato, questa card non ha prodotto niente di suo», e sovrascriverlo
+    // con `HEAD` intesta a lei il lavoro di un altro. Misurato il 18/08 sulla
+    // card `5bfd7356` (worktree `mossy-marble`, zero commit propri): la sua
+    // punta è `27d9ebca4`, «Le missioni: compiti a preset…», di un'altra card e
+    // già su main da una settimana. Registrarla avrebbe fatto leggere al
+    // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
+    // esattamente il guasto per cui l'audit esiste.
+    const pointer = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
+    if (!pointer) return null;
+    // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
+    //
+    // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
+    // diff esisteva solo dietro l'apertura del drawer, una card alla volta.
+    // Calcolarlo nel feed sarebbe stato tre comandi git per card a ogni push
+    // WebSocket; calcolarlo alla consegna è una volta sola, quando il fatto
+    // accade. `worktreeDiffStat` misura dal PADRE del commit più vecchio SUO,
+    // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
+    // chi stava parcheggiato sul checkout condiviso.
+    //
+    // Senza cartella si misura dal checkout del progetto: la domanda è tutta sui
+    // ref, che i worktree di un repo condividono, e l'albero di lavoro non entra
+    // nella risposta (`worktreeDiffStat` confronta due commit).
+    //
+    // Best-effort come tutto il resto di questa funzione: se git inciampa la
+    // consegna passa lo stesso, senza misura (NULL, che non è zero).
+    const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
+    return stat
+      ? { ...pointer, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
+      : pointer;
+};
+
+const taskCheckoutRef = async (taskId: string) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch") return null;
+    const commit = await resolveCommit(wt.absPath, "HEAD");
+    return { cwd: wt.absPath, commit };
+};
+
+/**
+ * La fotografia di consegna, UNA implementazione per tre chiamanti (rotta,
+ * scelta del fan-out, dispatcher). Vedi `services/task-delivery-capture.ts`.
+ */
+capturaConsegna = createDeliveryCapture({
+  svc: dispatcherSvc,
+  taskDeliveryRef,
+  taskCheckoutRef,
+  ownCommitFiles,
+});
+
+// Stessa sonda che il pannello delle modifiche usa gia' (`taskWorktreeDirt`):
+// il junk e' gia' escluso li' dentro, quindi la card non nomina un
+// `node_modules`. `null` = non misurabile, ed e' diverso da «pulito».
+sondaLavoroNonCommittato = async (taskId: string) => {
+  const wt = worktreeOfTask(taskId);
+  if (!wt || wt.mode !== "branch") return null;
+  try { return await worktreeRealDirt(wt.absPath); } catch { return null; }
+};
 
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
@@ -1516,6 +1752,25 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!wt || wt.mode !== "branch") return null;
     return worktreeRealDirt(wt.absPath);
   },
+  // Come sopra, ma dice anche SE ha potuto leggere: la usa chi CANCELLA
+  // (`reapAfterLand`), dove un `git status` muto non vale «pulito».
+  taskWorktreeDirtProbe: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch") return null;
+    return worktreeDirtProbe(wt.absPath);
+  },
+  // Il task ha (o ha avuto) un tentativo con worktree di ramo registrato?
+  // Usato dal cancello `review_needs_commit` per distinguere «non ho trovato
+  // il worktree» da «questo task non ha mai avuto un ramo»: un task senza
+  // ramo (in-place) non deve essere bloccato quando la sonda torna null.
+  taskHasBranchAttempt: (taskId) => {
+    try {
+      const row = ctx.db.prepare(
+        `SELECT 1 FROM task_attempts WHERE task_id = ? AND worktree_id IS NOT NULL LIMIT 1`,
+      ).get(taskId);
+      return !!row;
+    } catch { return false; }
+  },
   // Post-landing reap guard: the branch's state relative to main read by
   // CONTENT (survives squash-landing). null = no branch worktree to protect.
   taskBranchStatus: async (taskId) => {
@@ -1534,43 +1789,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // `dd2aa40d` registrava `987cd8ae`, commit di un'altra card e già su main.
   // `null` = domanda senza risposta ⇒ nessuna fotografia (meglio del ritratto
   // sbagliato); `commit: null` = verificato, non ha prodotto codice.
-  taskDeliveryRef: async (taskId) => {
-    const wt = worktreeOfTask(taskId);
-    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
-    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-    if (!repoPath) return null;
-    // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
-    // di chi stava sul checkout condiviso ha una punta che non è della card, e
-    // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
-    // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
-    const ref = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
-    if (!ref) return null;
-    // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
-    //
-    // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
-    // diff esisteva solo dietro l'apertura del drawer, una card alla volta.
-    // Calcolarlo nel feed sarebbe stato tre comandi git per card a ogni push
-    // WebSocket; calcolarlo alla consegna è una volta sola, quando il fatto
-    // accade. `worktreeDiffStat` misura dal PADRE del commit più vecchio SUO,
-    // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
-    // chi stava parcheggiato sul checkout condiviso.
-    //
-    // Best-effort come tutto il resto di questa funzione: se git inciampa la
-    // consegna passa lo stesso, senza misura (NULL, che non è zero).
-    const stat = await worktreeDiffStat(wt.absPath, { branch: wt.branchName }).catch(() => null);
-    return stat
-      ? { ...ref, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-      : ref;
-  },
+  taskDeliveryRef,
   // Dove far girare i checks pre-review: la cartella del worktree del task e il
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
   // comandi nel checkout principale, cioè su codice che non è il suo.
-  taskCheckoutRef: async (taskId) => {
-    const wt = worktreeOfTask(taskId);
-    if (!wt || wt.mode !== "branch") return null;
-    const commit = await resolveCommit(wt.absPath, "HEAD");
-    return { cwd: wt.absPath, commit };
-  },
+  taskCheckoutRef,
   // L'esito di atterraggio della card, timbrato SUBITO dopo un land: un verdetto
   // concreto è ciò che il land ha visto e vale come fatto (`witnessed`), `"ask"`
   // è il caso in cui non sa e si chiede al repo (`auditOneLanding`, più in basso).
@@ -1636,6 +1859,10 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
+  // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
+  // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
+  // lo usa in ogni tick e resume per sapere quante barre sono in volo.
+  onChecksGate: (gate) => { checksGateRunningCount = () => gate.runningCount(); },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -1710,6 +1937,8 @@ const openRouter = createOpenRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 const profileRouter = createProfileRouter(ctx);
+// Pagina pubblica del profilo — senza autenticazione, prima del gate.
+const publicProfileHandler = createPublicProfileHandler(ctx);
 // Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
 const tabsRouter = createTabsRouter(ctx, browserService);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
@@ -2206,6 +2435,14 @@ const opzioniServer = {
         });
       }
       return new Response("Not Found", { status: 404 });
+    }
+
+    // ── Pagina pubblica del profilo — senza autenticazione.
+    // Risponde prima del gate: l'URL e' pensato per essere condiviso con chi
+    // non ha un account Topics. Raggiungibile via LAN e via relay.
+    {
+      const r = publicProfileHandler(pathname, method);
+      if (r) return r;
     }
 
     // ── Origin gate — guards /api, /ws, /preview, /media, /uploads.
@@ -3749,6 +3986,33 @@ async function reattachSurvivingChatTurns(): Promise<void> {
             const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
             const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
             if (state === "open") {
+              // «Resta viva» va SCRITTA, non solo non-disfatta.
+              //
+              // Saltare la pulizia qui sotto non bastava: la riga era già stata
+              // chiusa a monte. `finalizeStream` passa `partial: undefined` e la
+              // UPDATE di `updateMessage` (server/utils.ts:330) scrive
+              // `partial = $partial` SENZA COALESCE — quindi ogni gamba di
+              // riadozione, anche quella che finisce su un turno ancora aperto,
+              // lascia `partial` spento. E `reuseOrCreatePartialForReattach`
+              // (utils.ts:1347) riusa la riga SOLO se è assistant con
+              // `partial = 1`: al riavvio successivo non trovava niente da
+              // riprendere e ne apriva una NUOVA. È il conto esatto del
+              // 2026-08-18 su topic:9fe7a291 — dieci riadozioni, 1 riusata
+              // («partial in DB») + 8 nuove («store del broker aperto») = nove
+              // righe dove doveva essercene una. Lo stesso sintomo delle cinque
+              // copie su topic:ed2070df che il commento qui sopra dice curato:
+              // la guardia c'era, ma disarmava un flag che qualcun altro aveva
+              // già spento.
+              //
+              // Il broker ha appena detto `open`: la riga è di un turno vivo, e
+              // il flag si RIACCENDE. Solo l'ultima della sessione, che è quella
+              // che il prossimo riattacco riprenderà.
+              try {
+                ctx.db.run(
+                  "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
+                  [s.id],
+                );
+              } catch { /* al peggio il prossimo riattacco apre una riga nuova, com'era prima */ }
               console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
               return;
             }
@@ -4042,132 +4306,42 @@ const worktreeGcTimer = setInterval(() => { void worktreeGc.runWorktreeGc(); }, 
 //     every task that predates the delivery snapshot.
 //  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
 //     the verdict; the edge into `unlanded` posts a comment on the task.
-async function backfillDeliveries(): Promise<void> {
-  const rows = ctx.db.prepare(
-    `SELECT id FROM tasks
-      WHERE archived = 0 AND delivery_commit IS NULL AND status IN ('review', 'done')`,
-  ).all() as Array<{ id: string }>;
-  for (const row of rows) {
-    const wt = worktreeOfTask(row.id);
-    if (!wt || wt.mode !== "branch" || !wt.branchName) continue;
-    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-    if (!repoPath) continue;
-    // Stessa domanda della cattura in review: il commit PROPRIO più recente, non
-    // la punta del ramo — altrimenti questo giro riscriverebbe ogni 30 minuti il
-    // lavoro di un'altra sessione sopra le card senza consegna.
-    // Awaited: the audit right below must see what we just recorded, otherwise
-    // a backfilled task waits a full interval for its first verdict.
-    const ptr = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
-    // Niente commit propri (o domanda senza risposta): non si scrive niente e si
-    // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
-    // stessa domanda cambia risposta da sola.
-    if (ptr?.commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: ptr.branch, commit: ptr.commit });
-  }
+/**
+ * Il cablaggio della passata di backfill: il COSA sta in
+ * `services/delivery-backfill.ts`, qui restano solo le dipendenze vere.
+ */
+function backfillDeliveries(): Promise<void> {
+  return backfillDeliveriesPass({
+    db: ctx.db,
+    projectStore: ctx.projectStore,
+    svc: dispatcherSvc,
+    workspaceDir: DISPATCH_WORKSPACE_DIR,
+    extraPaths: dispatchExtraPaths,
+    buildProjectCandidates,
+    deliveryBranchDeps,
+    resolveDeliveryBranch,
+    deliveryPointer,
+    worktreeDiffStat,
+  });
 }
 
 const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
 
 /**
- * Le dipendenze dell'audit, meno la lista di chi guardare — così la passata
- * periodica e il timbro su UNA card fanno lo stesso conto. Se divergessero, il
- * verdetto istantaneo dopo un land e quello del giro dopo potrebbero
- * contraddirsi, e il semaforo tornerebbe a non voler dire niente.
- *
- * `announce` è l'unica differenza legittima: la passata deve DIRE sulla card
- * che una consegna non è su main (una riga, datata); il timbro post-land no —
- * lì il thread ha appena scritto perché il land non è riuscito, e ripeterlo
- * sarebbe il commento numero due sullo stesso fatto.
+ * Il cablaggio dell'audit: il COSA sta in `services/landing-audit-pass.ts`, qui
+ * restano i cinque riferimenti che vivono davvero in questo file.
  */
-function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) {
-  // `tasks.project_id` is the BOARD id — `projectIdForPath(path)`, a one-way
-  // hash — not a ProjectStore UUID. Asking the store for it returns undefined
-  // for every real board, and the audit reads a missing repo as "can't tell":
-  // wired that way the counter sat on `unverifiable` forever and could never
-  // catch the failure it exists for. Invert the hash the way the dispatcher
-  // does (resolveProject), building the candidate list ONCE per sweep — it
-  // scans the workspace dir, and re-scanning it per task buys nothing.
-  const candidates = buildProjectCandidates({
-    projectStore: ctx.projectStore,
-    workspaceDir: DISPATCH_WORKSPACE_DIR,
-    extraPaths: dispatchExtraPaths,
-  });
-  // L'indice delle righe di main costa una `git grep` dell'intero albero, e la
-  // paga UNA volta per repo per passata: le card di una board stanno tutte nello
-  // stesso checkout, e senza cache l'avrebbero pagata una a testa.
-  const indici = new Map<string, ReadonlySet<string>>();
-  const indiceDi = async (repoPath: string): Promise<ReadonlySet<string>> => {
-    const gia = indici.get(repoPath);
-    if (gia) return gia;
-    const nuovo = await indiceRigheMain(repoPath);
-    indici.set(repoPath, nuovo);
-    return nuovo;
-  };
-  return {
-    listCandidates,
-    repoPath: (projectId: string) => resolveProjectPath(projectId, candidates)?.path ?? null,
-    commitStatus: (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit),
-    // La seconda domanda, solo su chi la prima ha già dato per fuori: è lo
-    // STESSO conto di `report:landed`, che è il modo in cui la misura a mano e la
-    // pastiglia sulla card non possono più dire due cose diverse.
-    debtVerdict: async (task: AuditTask, repoPath: string): Promise<LandingState> => {
-      const indiceMain = await indiceDi(repoPath);
-      // Col ramo ancora vivo si può chiedere tutto (patch inversa, conflitto,
-      // supersessione); potato il ramo resta la sola domanda sul contenuto.
-      const verdetto = task.deliveryBranch && (await branchExistsInRepo(repoPath, task.deliveryBranch))
-        ? await classifyBranchLanding(repoPath, task.deliveryBranch, { indiceMain })
-        : await classifyCommitLanding(repoPath, task.deliveryCommit ?? "", { indiceMain });
-      return classifyLandingEsito(verdetto.esito);
-    },
-    record: (taskId: string, state: LandingState, checkedAt: string) =>
-      dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
-    previousState: (taskId: string) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
-    // The whole point: a delivery that never reached main must SAY so, on the
-    // task, once — not sit silently in a column for 8 days.
-    onNewlyUnlanded: announce
-      ? (task: AuditTask) => {
-          try {
-            dispatcherSvc.addComment({
-              taskId: task.id, author: "system",
-              // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
-              // drawer e un badge sulla card (`landingState`), e questo commento
-              // serve solo a datare il momento in cui è successo. Ripeterci sopra
-              // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
-              // 128 commenti su 97 card, uno lungo tre righe.
-              content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
-            });
-            const fresh = dispatcherSvc.get(task.id)?.task;
-            if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
-          } catch (err) { console.warn("[landing-audit] comment failed", err); }
-        }
-      : undefined,
-    now: () => new Date().toISOString(),
-    log: (msg: string) => console.log(msg),
-  };
-}
+const auditWiring: AuditWiring = {
+  projectStore: ctx.projectStore,
+  workspaceDir: DISPATCH_WORKSPACE_DIR,
+  extraPaths: dispatchExtraPaths,
+  svc: dispatcherSvc as unknown as AuditWiring["svc"],
+  broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
+  backfill: backfillDeliveries,
+};
+const runLandingAudit = () => runLandingAuditPass(auditWiring);
+const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, taskId);
 
-async function runLandingAudit() {
-  await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
-  return auditLandings(
-    landingAuditDeps(() => dispatcherSvc.listLandingAuditCandidates(), /*announce*/ true),
-  ).catch((err) => { console.error("[landing-audit] sweep failed", err); return null; });
-}
-
-/**
- * Il verdetto DEDOTTO per UNA card, subito. Lo chiama il land (`stampLanding`)
- * quando l'esito non l'ha visto lui — nessun ramo da guardare, o «non c'era
- * niente da portare». Dove invece l'ha visto scrive il fatto e non passa di
- * qui: una deduzione sopra una testimonianza è un declassamento.
- */
-async function auditOneLanding(taskId: string): Promise<void> {
-  const t = dispatcherSvc.get(taskId)?.task;
-  if (!t?.deliveryCommit) return; // niente fotografia della consegna: niente da verificare
-  const one: AuditTask = {
-    id: t.id, projectId: t.projectId,
-    deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,
-  };
-  await auditLandings(landingAuditDeps(() => [one], /*announce*/ false))
-    .catch((err) => { console.warn("[landing-audit] verdetto singolo fallito", err); return null; });
-}
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
 const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
@@ -4378,21 +4552,100 @@ setTimeout(() => {
 // reload-resilience path resumes whatever was still running. Only for
 // CONTROLLED restarts; raw SIGTERM/SIGINT (OS shutdown) stay fast.
 const QUIESCENCE_CAP_MS = 5 * 60_000;
+/** Il broker si interroga a questa cadenza, non a ogni giro da 500ms: la sonda
+ *  legge la coda dello store di OGNI sessione viva, e a 2Hz sarebbe un costo
+ *  pagato per un'informazione che cambia di rado. */
+const QUIESCENCE_BROKER_PROBE_MS = 5_000;
+
+/**
+ * Le sessioni di chat il cui TURNO è ancora aperto secondo il broker.
+ *
+ * È l'unico oracolo che vede un turno ADOTTATO. Dopo un riavvio la gamba di
+ * riadozione (`runHeadlessReattach`) dura un attimo — è un replay muto — e
+ * quando si chiude `endStream` toglie la voce da `activeStreams`. Da quel
+ * momento, in QUESTO processo, non esiste più niente che rappresenti il figlio
+ * CLI che sta ancora lavorando: `busyCount()` e `activeStreams` dicono «fermo»,
+ * e lo dicono con verità. Solo lo store del broker sa che il figlio è vivo.
+ *
+ * Direzione del fallimento: se il broker non risponde si torna una lista VUOTA,
+ * cioè non si trattiene il riavvio. È il verso opposto a quello del reap in
+ * `reattachSurvivingChatTurns` — là il dubbio salvava un turno dall'essere
+ * ucciso, qui il dubbio costerebbe un cancello che si inchioda su ogni riavvio
+ * per un ponte rotto. Un SIGTERM, a differenza di un kill, il turno non lo
+ * ammazza: il figlio sopravvive e viene riadottato.
+ */
+async function openBrokerChatTurns(): Promise<string[]> {
+  if (!aiBridgeEnabled()) return [];
+  try {
+    const sessions = await getAiBridgeClient().list();
+    const live = sessions.filter((s) => s.alive && s.id.startsWith("topic:"));
+    if (live.length === 0) return [];
+    const prov = tryGetProvider("claude-code") as
+      { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
+    if (typeof prov?.brokerTurnState !== "function") return [];
+    const open: string[] = [];
+    for (const s of live) {
+      // Niente `park: true`: quel flag è la promessa di riadottare subito, e qui
+      // stiamo solo guardando.
+      try { if (await prov.brokerTurnState(s.id) === "open") open.push(s.id); }
+      catch { /* una sessione che non risponde non trattiene il riavvio */ }
+    }
+    return open;
+  } catch { return []; }
+}
+
+let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
+
+/**
+ * Che cosa sta ancora lavorando — e perché il riavvio aspetta. `null` = niente.
+ *
+ * Il cancello guardava UN contatore solo: `taskDispatcher.busyCount()`, cioè
+ * `inFlight.size`, una mappa chiavata sul taskId e scritta solo da `beginRun`
+ * sul cammino di dispatch di una CARD. Una chat umana non è una card: non può
+ * entrarci per costruzione, e infatti non ci entrava. Il 2026-08-18 il server
+ * si è riavviato ~1,4 volte al minuto sopra un turno di chat vivo da quattordici
+ * minuti senza che una sola riga `[quiescence]` comparisse nel log — il predicato
+ * non era mai nemmeno entrato nel `while`. Il nome della rotta prometteva
+ * «quando i turni finiscono»; manteneva «quando finiscono i turni della board».
+ *
+ * Ora le fonti sono tre, in ordine di costo: le card (contatore in RAM), le chat
+ * che stanno streammando in QUESTO processo (`activeStreams`), e i turni
+ * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
+ * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
+ */
+async function whatIsStillWorking(): Promise<string | null> {
+  const cards = taskDispatcher.busyCount();
+  const streamKeys = [...activeStreams.keys()];
+  // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
+  // economica ha già detto «occupato», la risposta non cambia.
+  let brokerOpen = brokerProbeCache.open;
+  if (cards === 0 && streamKeys.length === 0) {
+    const now = Date.now();
+    if (now - brokerProbeCache.at >= QUIESCENCE_BROKER_PROBE_MS) {
+      brokerProbeCache = { at: now, open: await openBrokerChatTurns() };
+    }
+    brokerOpen = brokerProbeCache.open;
+  }
+  return describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen });
+}
+
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
   const deadline = Date.now() + capMs;
   let logged = false;
-  while (taskDispatcher.busyCount() > 0) {
+  for (;;) {
+    const busy = await whatIsStillWorking();
+    if (!busy) break;
     if (Date.now() >= deadline) {
-      console.warn(`[quiescence] ${label}: ${taskDispatcher.busyCount()} turn(s) still in flight after ${Math.round(capMs / 1000)}s — proceeding anyway (reload-resilience will resume them)`);
+      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo dopo ${Math.round(capMs / 1000)}s, si procede lo stesso (la reload-resilience li riprende)`);
       return;
     }
     if (!logged) {
-      console.log(`[quiescence] ${label}: waiting for ${taskDispatcher.busyCount()} in-flight turn(s) to finish before restart`);
+      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}`);
       logged = true;
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  if (logged) console.log(`[quiescence] ${label}: all turns finished — proceeding with restart`);
+  if (logged) console.log(`[quiescence] ${label}: tutto finito — si procede col riavvio`);
 }
 
 // Graceful shutdown

@@ -2,10 +2,10 @@
  * board.ts — client API + types for the Kanban board (human surface).
  *
  * Talks to the project-scoped `/api/boards/:projectId/...` endpoints
- * (server/routes/tasks.ts, actor="human"). Self-contained (its own fetch
- * wrapper + a pure `boardIdForPath`) so it carries no coupling to the rest of
- * lib/api.ts. The AGENT surface (`/api/sessions/...`) is driven by MCP, not
- * from here.
+ * (server/routes/tasks.ts, actor="human"). Porta il proprio fetch wrapper, così
+ * non si accoppia al resto di lib/api.ts; il contratto e l'identità della board
+ * arrivano invece da `shared/board.ts`. The AGENT surface (`/api/sessions/...`)
+ * is driven by MCP, not from here.
  */
 
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
@@ -139,8 +139,24 @@ export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string
 }
 
 /** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */
+/**
+ * `retries_exhausted` dice «turni finiti», NON «non consegnato».
+ *
+ * Questo chip si monta solo quando `senzaConsegna` e' falso — cioe' quando il
+ * lavoro C'E' per costruzione: il caso davvero vuoto ha gia' il suo chip
+ * (`reviewEvidence().kind === 'empty'`) che sopprime questo. Con la vecchia
+ * parola, misurato il 18/08 su `0a17739e`, la riga chip diceva contemporaneamente
+ * «non consegnato», «9 file +759 −21» e «checks verdi» — tre affermazioni, due
+ * delle quali smentivano la prima, a quattro pixel di distanza. I 9 file sono
+ * veri: `git diff --shortstat main...topics/tame-crane` li conferma.
+ *
+ * Il tooltip diceva gia' la cosa giusta («ce l'ha portato il sistema a fine
+ * turno»), ma su una card si legge l'ETICHETTA, e su touch il tooltip non
+ * esiste. Il segnale che vale — «nessun agente ha dichiarato di aver finito» —
+ * resta intero: cambia la parola, non il chip.
+ */
 const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
-  retries_exhausted: 'non consegnato',
+  retries_exhausted: 'turni finiti',
   model_refused: 'agent bloccato',
   fanout: 'scegli il tentativo',
   parked_children: 'sottotask parcheggiati',
@@ -162,9 +178,35 @@ export function systemDeliveryChip(
 ): { label: string; title: string } | null {
   if (task.status !== 'review' || task.deliveredBy !== 'system') return null;
   return {
-    label: task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'non consegnato',
+    // Causa non registrata: si dice il fatto certo — l'ha portata il sistema —
+    // senza affermare che sotto non ci sia niente, che qui non lo sappiamo.
+    label: task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'portata dal sistema',
     title: systemDeliveryNote(task.deliveredReason),
   };
+}
+
+/**
+ * DUE CHIP PER LO STESSO FATTO SONO UNO SOLO, e questa e' la regola che sceglie.
+ *
+ * `systemDeliveryChip` esiste dal 29/07 e dice «non l'ha consegnato l'agent».
+ * `reviewEvidence(...).kind === 'empty'` e' arrivato il 17/08 e dice «l'agent
+ * non ha prodotto niente». Il secondo insieme e' contenuto nel primo per
+ * costruzione — `empty` pretende `delivered_by = 'system'` in review, che e'
+ * esattamente la condizione del primo — quindi ogni card `empty` ne portava
+ * DUE, stesso ambra e stessa icona: sulla card `5cf58e29` si leggeva «non
+ * consegnato» e «Niente consegnato» a 268px di larghezza, uno accanto all'altro.
+ *
+ * Chi vince. Quando la ragione di sistema e' `null` o `retries_exhausted` le
+ * due chip dicono le STESSE parole, e vince «niente consegnato» perche' il suo
+ * tooltip e' quello utile: dice che non c'e' un diff da guardare e cosa fare
+ * invece. Le altre tre ragioni (`model_refused`, `fanout`, `parked_children`)
+ * aggiungono un fatto che l'altra non ha, e allora vince la ragione.
+ *
+ * Nessun test lo prendeva: `card-meta-row-completeness` verifica che una chip
+ * si MONTI, non che due non dicano la stessa cosa.
+ */
+export function nothingDeliveredWins(reason: BoardTask['deliveredReason']): boolean {
+  return reason === null || reason === undefined || reason === 'retries_exhausted';
 }
 
 /**
@@ -376,6 +418,15 @@ export interface BoardTask {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /**
+   * Esito della sonda server-side sull'output_url.
+   * `'live'` = risponde, `'dead'` = morto, `'unknown'` = mai provata.
+   * `null` = nessun output_url, campo non rilevante.
+   * Il client mostra il link solo su `live`; su `dead` mostra un avviso;
+   * su `unknown` (incluso `null`) tace.
+   */
+  urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
+  urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
   previewImage: string | null;
@@ -457,7 +508,13 @@ export interface BoardTask {
   landingState: "landed" | "unlanded" | "unverifiable" | null;
   landingCheckedAt: string | null;
   /** Esito dei checks pre-review. null = mai girati — NON un verde. */
-  checksState: "running" | "pass" | "fail" | null;
+  /**
+   * `unknown` = i comandi non sono arrivati in fondo (quasi sempre il tetto dei
+   * 20 minuti su una macchina carica). NON e' una sfumatura di `fail`: rosso
+   * dice «il codice e' rotto, non approvare», non-misurato dice «non lo
+   * sappiamo». Misurate il 18/08: 6 card su 15 marcate rosse erano solo scadute.
+   */
+  checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksAt: string | null;
   /** Commit su cui sono girati: se il branch è avanzato, il verde è scaduto. */
   checksCommit: string | null;
@@ -492,20 +549,13 @@ export interface TaskWithThread {
 /**
  * Derive the board `projectId` from an absolute project path.
  *
- * BYTE-IDENTICAL to the server (server/services/tasks.ts:projectIdForPath ⇔
- * routes/topics.ts:getProjectIdForTopic). A parity test locks the exact output;
- * do NOT change the hash without updating all three copies.
+ * Stessa dichiarazione del server, non una gemella: `boardIdForPath` è il nome
+ * con cui il client la conosce (`TopicTree`, `KanbanBoardPane`), ma la funzione
+ * è quella di `shared/board.ts`. Il test di parità qui accanto resta: adesso
+ * misura che l'alias punti ancora al vettore giusto, non che due copie siano
+ * ancora d'accordo.
  */
-export function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, '').split('/');
-  const dirName = parts[parts.length - 1] || 'project';
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
-}
+export { projectIdForPath as boardIdForPath } from '../../../shared/board';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`/api${path}`, {

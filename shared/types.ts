@@ -728,6 +728,29 @@ export interface ToolCall {
    * `detail.actions[]` rather than emitting separate timeline items.
    */
   detail?: ToolCallDetail;
+  /**
+   * How many characters the history payload REMOVED from `detail`.
+   *
+   * `GET /api/history/:sessionKey` blanks the three big text fields inside
+   * `detail` (`output`, `content`, `result`) before putting the thread on the
+   * wire: a closed tool row never reads them, and they are most of the weight
+   * of opening a chat. This counter is what the row has left to know that a
+   * body EXISTED, since the strings it would have measured are now empty.
+   *
+   * Set by `stripDetailText` (shared/lean-tool-call.ts). Absent when nothing
+   * was stripped, which is also the shape every other route ships: only the
+   * history route strips, so a message read from the DB or from
+   * `/api/topics/:id/messages` carries the full text and no counter.
+   *
+   * It lives HERE and not inside `detail` on purpose: `parseToolCallDetail`
+   * runs a Zod schema over `detail` and drops unknown keys, so a counter put
+   * in there would have to be added to all 20+ variants of the union to
+   * survive the trip.
+   *
+   * The text is not lost. The row fetches it on first expand from
+   * `GET /api/messages/:messageId/tool/:toolCallId/detail`.
+   */
+  detailBytes?: number;
   /** See client mirror for full semantics. Populated for tools that
    *  request human input; lives on the row so re-renders + scrollback
    *  show the original prompt. */

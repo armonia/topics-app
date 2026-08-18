@@ -384,8 +384,69 @@ jobs:
   # values are set by global-setup.ts / start-test-server.sh themselves.
   # Previously this suite was only *collected* (`playwright test --list`) in
   # the check job above, which parses every spec but runs none of them.
+
+  # Calcola il piano di sharding per durata UNA volta sola: `playwright test
+  # --list` deve caricare e transpilare tutte le spec (~10s), farlo una volta
+  # per shard significherebbe pagarlo quattro volte. Il piano viene caricato
+  # come artifact e scaricato da ogni shard.
+  prepare-e2e:
+    runs-on: ubuntu-latest
+    outputs:
+      plan-ok: ${{ steps.plan.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by the server)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Install Playwright browsers (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Calcola il piano di sharding per durata
+        id: plan
+        # E2E_TIER=pr: il piano copre solo i test del gate PR, come fa lo shard.
+        # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
+        # ogni shard cade nel fallback --shard=i/4, che e' sempre stato l'unico.
+        run: |
+          if bun run scripts/e2e-plan-shards.ts 4 --out plan; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          E2E_TIER: pr
+
+      - name: Carica il piano come artifact
+        if: steps.plan.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-plan-pr
+          path: plan/
+          retention-days: 1
+
   e2e:
     runs-on: ubuntu-latest
+    needs: prepare-e2e
     # PR gate tier (E2E_TIER=pr): fast, deterministic subset, sharded across
     # parallel runners. The heavy/flaky/perf specs run in e2e-nightly.yml.
     #
@@ -482,8 +543,28 @@ jobs:
           test -x "$bin"
           echo "path=$bin" >> "$GITHUB_OUTPUT"
 
+      - name: Scarica il piano di sharding
+        if: needs.prepare-e2e.outputs.plan-ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-plan-pr
+          path: plan/
+
       - name: Run E2E tests (Playwright)
-        run: npx playwright test --shard=${{ matrix.shard }}/4
+        # Usa il piano per durata (shard-N.txt) se disponibile; altrimenti fallback
+        # a --shard=i/N di Playwright, che riparte per numero di test.
+        # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
+        # che Playwright accetta come argomenti posizionali.
+        run: |
+          PLAN_FILE="plan/shard-${{ matrix.shard }}.txt"
+          if [ -f "$PLAN_FILE" ]; then
+            echo "[ci] usando il piano per durata: $PLAN_FILE"
+            readarray -t SELECTORS < "$PLAN_FILE"
+            npx playwright test "${SELECTORS[@]}"
+          else
+            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/4"
+            npx playwright test --shard=${{ matrix.shard }}/4
+          fi
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
           E2E_TIER: pr

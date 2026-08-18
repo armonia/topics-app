@@ -17,33 +17,21 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { freshDb as schemaDb } from "./tasks-test-db";
 
+/**
+ * Lo schema e' quello condiviso; l'INTERRUTTORE ACCESO no, ed e' una scelta di
+ * questo file: qui si misura la coda, e a dispatch spento ogni `queueReason`
+ * risponde «dispatch spento» invece della posizione in fila. Sta in
+ * `app_settings` dalla migration 20260816112635 — sulla riga `*` di
+ * `board_settings` la colonna non esiste piu'.
+ */
 function freshDb(): Database {
-  const db = new Database(":memory:");
-  db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
-  db.run(TASKS_DDL);
-  db.run(TASKS_FK_STUBS_DDL);
-  // `max_agents_auto` (migration 053) is not optional decoration: `readGlobalCap`
-  // SELECTs it, so a DDL without it makes every read of the machine-wide cap
-  // throw "no such column" instead of returning a number. Harmless while nothing
-  // in this file reads the cap, and a trap for whoever adds the first line that does.
-  db.run(`CREATE TABLE board_settings (
-    project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
-    max_agents INTEGER DEFAULT 3, max_agents_auto INTEGER, dispatch_retry_cap INTEGER
-  )`);
-  db.run(`CREATE TABLE task_comments (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
-  )`);
-  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
-  // L'interruttore acceso: la riga '*' È l'interruttore globale.
-  // L'interruttore globale sta in `app_settings` dalla migration 20260816112635:
-  // sulla riga '*' di board_settings la colonna non esiste piu'.
+  const db = schemaDb();
   db.run("UPDATE app_settings SET auto_dispatch = 1");
   return db;
 }
+
 
 const PID = "topics-app-abc123";
 
@@ -224,7 +212,12 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
     mv(s, padre.id, "in_progress");
 
-    const chiesto = s.askParkedChildren({ taskId: padre.id, by: "test" })!;
+    // `evenIfLive`: qui si prova la FORMA della domanda, non quando si alza.
+    // Dal 18/08 `askParkedChildren` rifiuta di spostare una card con un turno
+    // vivo (era il modo in cui un agente si tagliava il turno spuntando il
+    // primo passo della propria checklist), e chi CHIUDE il turno lo dichiara.
+    // Questo test sta in quel secondo caso: il turno e' finito, la domanda si fa.
+    const chiesto = s.askParkedChildren({ taskId: padre.id, by: "test", evenIfLive: true })!;
     // La firma della domanda, letta sul payload: è il predicato della sonda.
     expect(chiesto.status).toBe("review");
     expect(chiesto.deliveredReason).toBe("parked_children");
@@ -248,7 +241,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     const padre = s.create({ projectId: PID, text: "Il padre" });
     s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
     mv(s, padre.id, "in_progress");
-    s.askParkedChildren({ taskId: padre.id, by: "test" });
+    s.askParkedChildren({ taskId: padre.id, by: "test", evenIfLive: true });
 
     const r = db.prepare("SELECT status, dispatch_state, delivered_reason FROM tasks WHERE id = ?")
       .get(padre.id) as { status: string; dispatch_state: string; delivered_reason: string };

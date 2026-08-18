@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 420" width="700" height="420" font-family="monospace" font-size="13">
+  <!-- Background -->
+  <rect width="700" height="420" fill="#0f1117" rx="8"/>
+
+  <!-- Title -->
+  <text x="350" y="30" text-anchor="middle" fill="#e2e8f0" font-size="15" font-weight="bold">serial-queue: fix unhandled rejection</text>
+
+  <!-- BUG section -->
+  <rect x="20" y="50" width="300" height="160" fill="#1a1a2e" rx="6" stroke="#e53e3e" stroke-width="1.5"/>
+  <text x="170" y="72" text-anchor="middle" fill="#e53e3e" font-size="12" font-weight="bold">PRIMA (bug)</text>
+
+  <rect x="40" y="82" width="120" height="30" fill="#2d3748" rx="4"/>
+  <text x="100" y="101" text-anchor="middle" fill="#90cdf4" font-size="11">fn() rejects</text>
+
+  <rect x="40" y="128" width="120" height="30" fill="#2d3748" rx="4"/>
+  <text x="100" y="147" text-anchor="middle" fill="#fc8181" font-size="11">next.finally()</text>
+
+  <rect x="40" y="174" width="120" height="24" fill="#742a2a" rx="4"/>
+  <text x="100" y="190" text-anchor="middle" fill="#fed7d7" font-size="10">tail rejects! → map</text>
+
+  <text x="175" y="147" text-anchor="start" fill="#68d391" font-size="10">caller ok</text>
+  <text x="175" y="190" text-anchor="start" fill="#e53e3e" font-size="10">no handler</text>
+  <text x="175" y="205" text-anchor="start" fill="#e53e3e" font-size="9">⚡ Bun kills proc</text>
+
+  <!-- arrows bug -->
+  <line x1="100" y1="112" x2="100" y2="128" stroke="#718096" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="100" y1="158" x2="100" y2="174" stroke="#e53e3e" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="160" y1="143" x2="170" y2="143" stroke="#68d391" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="160" y1="185" x2="170" y2="185" stroke="#e53e3e" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- FIX section -->
+  <rect x="370" y="50" width="310" height="200" fill="#1a2e1a" rx="6" stroke="#48bb78" stroke-width="1.5"/>
+  <text x="525" y="72" text-anchor="middle" fill="#48bb78" font-size="12" font-weight="bold">DOPO (fix) — serial-queue.ts</text>
+
+  <rect x="390" y="82" width="120" height="30" fill="#2d3748" rx="4"/>
+  <text x="450" y="101" text-anchor="middle" fill="#90cdf4" font-size="11">fn() rejects</text>
+
+  <rect x="390" y="128" width="120" height="30" fill="#2d3748" rx="4"/>
+  <text x="450" y="143" text-anchor="middle" fill="#90cdf4" font-size="10">next (real result)</text>
+
+  <rect x="390" y="174" width="140" height="24" fill="#2d6a4f" rx="4"/>
+  <text x="460" y="190" text-anchor="middle" fill="#d1fae5" font-size="10">tail=next.catch(noop) → map</text>
+
+  <rect x="390" y="212" width="140" height="24" fill="#1e3a2f" rx="4"/>
+  <text x="460" y="228" text-anchor="middle" fill="#a7f3d0" font-size="10">void tail.then(GC) ✓ safe</text>
+
+  <text x="540" y="143" fill="#68d391" font-size="10">→ caller</text>
+  <text x="540" y="190" fill="#48bb78" font-size="10">never rejects</text>
+
+  <!-- arrows fix -->
+  <line x1="450" y1="112" x2="450" y2="128" stroke="#718096" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="450" y1="158" x2="450" y2="174" stroke="#718096" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="450" y1="198" x2="450" y2="212" stroke="#48bb78" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="510" y1="140" x2="535" y2="140" stroke="#68d391" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- Test results -->
+  <rect x="20" y="235" width="660" height="130" fill="#1a1a2e" rx="6" stroke="#4a5568" stroke-width="1"/>
+  <text x="350" y="257" text-anchor="middle" fill="#a0aec0" font-size="12" font-weight="bold">serial-queue.test.ts — 5 pass 0 fail</text>
+
+  <text x="40" y="280" fill="#68d391" font-size="11">✓ fn che rifiuta → processo sopravvive</text>
+  <text x="40" y="298" fill="#68d391" font-size="11">✓ la coda serializza ancora dopo un fallimento</text>
+  <text x="40" y="316" fill="#68d391" font-size="11">✓ mappa svuotata dopo settle (no leak)</text>
+  <text x="360" y="280" fill="#68d391" font-size="11">✓ stessa chiave: strict serialization</text>
+  <text x="360" y="298" fill="#68d391" font-size="11">✓ chiavi diverse: esecuzione parallela</text>
+  <text x="360" y="316" fill="#a0aec0" font-size="10">worktree-mgr + automerge → makeSerialQueue</text>
+
+  <!-- callers -->
+  <text x="40" y="348" fill="#718096" font-size="11">Callers allineati:</text>
+  <rect x="40" y="355" width="180" height="18" fill="#2d3748" rx="3"/>
+  <text x="130" y="368" text-anchor="middle" fill="#90cdf4" font-size="10">worktree-manager.ts</text>
+  <rect x="235" y="355" width="180" height="18" fill="#2d3748" rx="3"/>
+  <text x="325" y="368" text-anchor="middle" fill="#90cdf4" font-size="10">task-automerge.ts</text>
+  <line x1="220" y1="364" x2="235" y2="364" stroke="#48bb78" stroke-width="1"/>
+
+  <!-- Arrow marker -->
+  <defs>
+    <marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#718096"/>
+    </marker>
+  </defs>
+</svg>

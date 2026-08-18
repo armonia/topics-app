@@ -1,9 +1,10 @@
 import { test, expect, describe } from 'bun:test';
-import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
+import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
 
 describe('boardIdForPath', () => {
-  // Parity lock with the server (services/tasks.ts:projectIdForPath). Must stay
-  // byte-identical or the client would address a different board than the API.
+  // Regression lock: boardIdForPath e' adesso un alias di projectIdForPath da
+  // shared/board.ts. Il test pinna che l'alias punti all'algoritmo giusto;
+  // la funzione non puo' piu' divergere per costruzione.
   test('exact output matches the server algorithm', () => {
     expect(boardIdForPath('/x/proj')).toBe('proj-xwac8t');
   });
@@ -130,7 +131,10 @@ describe('systemDeliveryChip', () => {
 
   test('portata dal sistema: etichetta corta, ragione per esteso nel titolo', () => {
     const c = chip({ deliveredReason: 'retries_exhausted' });
-    expect(c?.label).toBe('non consegnato');
+    // «turni finiti», non «non consegnato»: questo chip si monta SOLO quando il
+    // lavoro c'e' (il caso vuoto ha il suo, che sopprime questo), quindi la
+    // vecchia parola smentiva i «9 file +759 −21» disegnati quattro pixel dopo.
+    expect(c?.label).toBe('turni finiti');
     expect(c?.title).toContain('finito i tentativi');
   });
 
@@ -141,7 +145,7 @@ describe('systemDeliveryChip', () => {
   });
 
   test('causa non registrata: il chip resta, degradato', () => {
-    expect(chip({ deliveredReason: null })?.label).toBe('non consegnato');
+    expect(chip({ deliveredReason: null })?.label).toBe('portata dal sistema');
   });
 
   test('fuori da review tace: su una card chiusa sarebbe archeologia', () => {
@@ -293,5 +297,45 @@ describe('«io aspetto» e «altri aspettano me» non condividono una parola', (
     expect(waitingOnThisChip({ waitingOnCount: 0, status: 'todo' } as BoardTask)).toBeNull();
     // Su una card chiusa il legame è già stato sciolto: dirlo sarebbe archeologia.
     expect(waitingOnThisChip({ waitingOnCount: 3, status: 'done' } as BoardTask)).toBeNull();
+  });
+});
+
+describe('la non-consegna si dice UNA volta sola', () => {
+  // `reviewEvidence(...).kind === 'empty'` pretende gia' `delivered_by =
+  // 'system'` in review, che e' esattamente la condizione di
+  // `systemDeliveryChip`: l'insieme e' contenuto, quindi senza una regola le
+  // due chip escono SEMPRE insieme. Sulla card 5cf58e29 si leggeva «non
+  // consegnato» accanto a «Niente consegnato», stesso ambra e stessa icona.
+  const card = (deliveredReason: BoardTask['deliveredReason']) =>
+    ({ status: 'review', deliveredBy: 'system', deliveredReason }) as BoardTask;
+
+  test('esattamente una chip per ogni ragione di sistema', () => {
+    const ragioni: BoardTask['deliveredReason'][] =
+      [null, 'retries_exhausted', 'model_refused', 'fanout', 'parked_children'];
+    for (const r of ragioni) {
+      const t = card(r);
+      // La card e' `empty` (nessun ramo, un agente c'e' stato): e' il caso in
+      // cui le due chip si sovrapponevano.
+      const senzaConsegna = nothingDeliveredWins(r);
+      const systemDelivered = senzaConsegna ? null : systemDeliveryChip(t);
+      const disegnate = [senzaConsegna ? 'niente-consegnato' : null, systemDelivered ? 'system' : null].filter(Boolean);
+      expect(disegnate, `ragione ${String(r)}: ne devono uscire una sola`).toHaveLength(1);
+    }
+  });
+
+  test('le due ragioni che dicono le stesse parole cedono a «niente consegnato»', () => {
+    // `SYSTEM_DELIVERY_CHIP.retries_exhausted` e' letteralmente «non
+    // consegnato»: e' l'unica coppia in cui la chip generica non aggiunge nulla.
+    expect(nothingDeliveredWins(null)).toBe(true);
+    expect(nothingDeliveredWins('retries_exhausted')).toBe(true);
+  });
+
+  test('una ragione che aggiunge un fatto lo tiene', () => {
+    // «agent bloccato» e «scegli il tentativo» dicono qualcosa che «niente
+    // consegnato» non dice: la chip specifica vince, e resta una sola.
+    for (const r of ['model_refused', 'fanout', 'parked_children'] as const) {
+      expect(nothingDeliveredWins(r)).toBe(false);
+      expect(systemDeliveryChip(card(r))).not.toBeNull();
+    }
   });
 });

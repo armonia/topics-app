@@ -285,17 +285,34 @@ describe("own-commits — il runner iniettato", () => {
  */
 describe("own-commits — il cablaggio della consegna in server.ts", () => {
   const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+  // IL BACKFILL HA TRASLOCATO il 18/08 (`services/delivery-backfill.ts`), quando
+  // il cancello di dimensione ha protestato su `server.ts`. Il cancello segue il
+  // codice: la domanda che sorveglia — «si chiede il commit PROPRIO, mai la
+  // punta» — non e' cambiata di una virgola, e sarebbe stata la cosa peggiore
+  // lasciarlo puntato a un blocco ormai vuoto, dove sarebbe passato verde a
+  // vuoto per sempre.
+  const backfillSrc = readFileSync(join(import.meta.dir, "delivery-backfill.ts"), "utf8");
 
-  function block(from: string, to: string): string {
-    const start = src.indexOf(from);
-    expect(start).toBeGreaterThan(-1);
-    const end = src.indexOf(to, start);
+  function blockIn(testo: string, from: string, to: string): string {
+    const start = testo.indexOf(from);
+    expect(start, `ancora non trovata: ${from}`).toBeGreaterThan(-1);
+    const end = to ? testo.indexOf(to, start) : testo.length;
     expect(end).toBeGreaterThan(start);
-    return src.slice(start, end);
+    return testo.slice(start, end);
   }
+  const block = (from: string, to: string) => blockIn(src, from, to);
+  /** Il corpo della passata, ovunque viva adesso. */
+  const backfill = () => blockIn(backfillSrc, "export async function backfillDeliveries", "");
 
   test("la cattura in review chiede il commit PROPRIO, non la punta", () => {
-    const capture = block("taskDeliveryRef: async (taskId)", "taskCheckoutRef:");
+    // L'ANCORA E' CAMBIATA IL 18/08, e vale la pena dire perche': i due sguardi
+    // sul worktree vivevano dentro l'oggetto delle opzioni di
+    // `createTasksRouter`, quindi solo la ROTTA poteva fotografare una consegna
+    // — e la consegna forzata dal sistema, che passa dal dispatcher, diceva
+    // sempre «nessun ramo e nessun file toccato». Adesso sono due const, usate
+    // da entrambi. Il cancello non cambia: quello che sorveglia e' che si
+    // continui a chiedere il commit PROPRIO.
+    const capture = block("const taskDeliveryRef = async (taskId: string)", "const taskCheckoutRef");
     expect(capture).toContain("deliveryPointer(");
     expect(capture).not.toContain("resolveCommit(");
   });
@@ -303,9 +320,42 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
   test("il backfill periodico dell'audit fa la stessa domanda", () => {
     // Altrimenti ogni 30 minuti riscriverebbe la punta del ramo sopra le card
     // senza consegna registrata, disfacendo la cattura.
-    const backfill = block("async function backfillDeliveries()", "const LANDING_AUDIT_INTERVAL_MS");
-    expect(backfill).toContain("deliveryPointer(");
-    expect(backfill).not.toContain("resolveCommit(");
+    const corpo = backfill();
+    expect(corpo).toContain("deliveryPointer(");
+    expect(corpo).not.toContain("resolveCommit(");
+  });
+
+  /**
+   * IL RIPIEGO CHE SEMBRA OVVIO E RIFÀ IL DANNO.
+   *
+   * `delivery_commit` resta NULL su parecchie card, e la cura che viene in mente
+   * guardando la colonna vuota è «e allora prendi la punta del ramo». Il 18/08
+   * quella cura è arrivata fin dentro `server.ts`, in tutt'e due i punti.
+   *
+   * Ma `commit: null` non è un buco: è la risposta «verificato, questa card non
+   * ha prodotto niente di suo», e la punta in quel caso è di qualcun altro.
+   * Misurato sulla card `5bfd7356` (worktree `mossy-marble`, zero commit
+   * propri): `HEAD` è `27d9ebca4`, «Le missioni: compiti a preset…», commit di
+   * un'altra card e su main da una settimana. Registrarlo manda il reviewer a
+   * leggere il diff sbagliato e stampa all'audit un «atterrato» falso, cioè
+   * proprio il guasto per cui l'audit esiste (`landing-audit.ts`).
+   *
+   * Il buco vero era un altro e sta chiuso altrove: senza worktree non si
+   * risaliva più al ramo (`delivery-branch-ref.ts`).
+   */
+  test("nessuno dei due punti ripiega sulla PUNTA quando i commit propri sono zero", () => {
+    const punte = [
+      /rev-parse["'\s,\]]+.{0,20}HEAD/s,   // `["rev-parse", "HEAD"]` in ogni spaziatura
+      /symbolic-ref/,
+      /\bHEAD\b["']/,
+    ];
+    for (const [nome, testo] of [
+      ["la cattura in review", block("const taskDeliveryRef = async (taskId: string)", "const taskCheckoutRef")],
+      ["il backfill", backfill()],
+    ] as const) {
+      const codice = testo.split("\n").filter((r) => !r.trim().startsWith("//")).join("\n");
+      for (const p of punte) expect(`${nome}: ${codice}`).not.toMatch(p);
+    }
   });
 });
 

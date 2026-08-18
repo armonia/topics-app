@@ -374,7 +374,7 @@ export interface WorktreeGcDeps {
    * because its content never reached main is exactly the failure that went
    * unnoticed for 8 days — it must be visible where the human looks.
    */
-  noteOnTask?: (taskId: string, message: string) => void;
+  noteOnTask?: (taskId: string, message: string, opts?: { kind?: "service"; once?: boolean }) => void;
   /**
    * TIMBRA IL RAMO SULLA CARD prima che la cartella sparisca.
    *
@@ -626,6 +626,30 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
 
       if (decision.action === "keep") {
         keep(decision.reason);
+        // Modifiche non committate: il worktree sopravvive, ma l'umano deve
+        // saperlo — altrimenti non sa dove cercare il lavoro. Senza questa
+        // nota la card era silenziosa anche quando il suo worktree conteneva
+        // l'unica copia del lavoro non committato (misurato il 18/08 su
+        // `eef64e32`: `groovy-frond` era vivo ma nessuno sapeva dove guardare).
+        //
+        // La condizione legge la ragione, non un flag a parte: "modifiche non
+        // committate" è l'unica nota che `decideWorktreeReap` aggiunge quando
+        // si ferma per sporco, e nient'altro usa quella stringa.
+        if (taskId && decision.reason.includes("non committate")) {
+          const dirtNote = (!probe.ok)
+            ? `⚠️ Worktree \`${wt.branchName ?? wt.id}\` tenuto: la sonda git non ha risposto (path: \`${wt.absPath}\`). ` +
+              "Verificare a mano: potrebbe contenere lavoro non committato."
+            : `⚠️ Worktree \`${wt.branchName ?? wt.id}\` tenuto per modifiche non committate (path: \`${wt.absPath}\`). ` +
+              "Il lavoro non si perde, ma non e' su nessun commit: committare o salvare prima di eliminare il worktree.";
+          // SERVICE E UNA VOLTA SOLA. La condizione «worktree sporco» dura finche'
+          // qualcuno non tocca quella cartella, e il GC ripassa ogni 30 minuti:
+          // senza questi due flag la stessa frase da 244 caratteri si riscrive
+          // per giorni. Misurato il 18/08: 108 copie su 12 card in quattro ore,
+          // dieci-dodici byte-per-byte sulla stessa card. Il testo poi e'
+          // un'ISTRUZIONE PER L'AGENTE («committare o salvare prima di eliminare
+          // il worktree») recapitata nel thread di chi deve solo decidere.
+          deps.noteOnTask?.(taskId, dirtNote, { kind: "service", once: true });
+        }
         await slimKept(wt, taskStatus, taskArchived, present);
         continue;
       }
@@ -695,7 +719,10 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
             const branchNote = branchAfter === "gone"
               ? `Il branch \`${wt.branchName ?? wt.id}\` NON è più nel repo: quello che resta è nel worktree, controllalo prima che sparisca.`
               : `Il branch \`${wt.branchName ?? wt.id}\` è stato conservato. Verifica a mano prima di cancellarlo.`;
-            deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`);
+            // Stessa famiglia: si riscrive a ogni passata finche' il worktree
+            // resta li'. Il FATTO conta (il ramo puo' non esserci piu'), la
+            // ripetizione no.
+            deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`, { once: true });
           }
           keep(post.reason);
           await slimKept(wt, taskStatus, taskArchived, deps.diskPresent(wt.absPath));

@@ -276,6 +276,12 @@ const IT: Dict = {
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
+  // La coda del turno: le stesse parole del badge del composer, perché è la
+  // stessa coda vista da due parti (il pannello e il trascritto).
+  'chat.queue.waiting': 'da inviare',
+  'chat.queue.waitingTitle': 'Non è ancora partito. Parte quando il turno finisce.',
+  'chat.queue.sendNow': 'Invia subito',
+  'chat.queue.sendNowTitle': 'Interrompi il turno in corso e fai partire la coda adesso',
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.collapse': 'Comprimi',
   'board.task.showSteps': 'Mostra i passaggi che la sessione ha fatto qui',
@@ -299,9 +305,15 @@ const IT: Dict = {
    * bottone si chiama «Rimandalo avanti».
    */
   'board.task.replyPlaceholder': "Scrivi un'indicazione: «{sendBack}» la porta all'agent, «Nota» la lascia sulla card.",
-  /** La CARD ha ancora i suoi due bottoni accanto al campo, quindi qui la frase
-   *  resta quella: i nomi che cita sono a un centimetro di distanza. */
-  'board.task.replyPlaceholderShort': '…nota: «Rimanda» risveglia, «Nota» no',
+  /**
+   * Anche la CARD ha perso il suo gemello di «Rimanda indietro» (era la stessa
+   * `review('reject', testo)` del bottone nella riga sopra, col medesimo testo
+   * preso dal campo). Quindi la frase non nomina piu' due bottoni accanto: dice
+   * cosa fa QUESTA casella — una nota che resta — e per l'altro gesto indica la
+   * riga sopra, chiamando il bottone col suo nome vero, che su una card mai
+   * consegnata e' «Rimandalo avanti».
+   */
+  'board.task.replyPlaceholderShort': 'Una nota, che resta qui: «{sendBack}» qui sopra la porta all\'agent.',
   'board.task.sendBackReply': 'Rimanda',
   'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
   'board.task.quietNote': 'Nota',
@@ -394,6 +406,19 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.card.commentMore': 'Mostra tutto',
   'board.card.commentLess': 'Mostra meno',
+  /**
+   * NIENTE CONSEGNATO, detto dalla colonna.
+   *
+   * Prima questa card portava «Lavorata qui», che promette commit su main
+   * impossibili da attribuire: su una card dove l'agent non ha prodotto nulla
+   * quella frase manda a cercare un lavoro che non esiste. Misurato il 17/08 su
+   * `5cf58e29`: nessun ramo, zero file, ogni turno morto su un errore del
+   * provider. Segnalato: «non capisco che succede».
+   */
+  'board.card.uncommitted': 'ramo senza commit',
+  'board.card.uncommittedTitle': 'C\'e\' un ramo ma non porta un solo commit: l\'agent ha lavorato nel worktree senza committare. Il land si rifiutera\' finche\' quel lavoro non e\' committato, perche\' i file in piedi bloccano il riallineamento.',
+  'board.card.nothingDelivered': 'Niente consegnato',
+  'board.card.nothingDeliveredTitle': "L'agent non ha prodotto niente: nessun ramo, nessun file toccato, e ce l'ha portata qui il sistema a tentativi finiti. Non c'e' un diff da guardare. Il thread dice come e' finito l'ultimo turno: rimandalo avanti e riparte, oppure prendilo in mano tu.",
   'board.card.inPlace': 'Lavorata qui',
   'board.card.inPlaceTitle': "Un agente ha lavorato sul checkout condiviso, non su un ramo suo. I commit ci sono ma stanno su main insieme a quelli degli altri, quindi non si puo' dire quali siano di questa card: la misura manca per questo, non perche' non sia stato fatto niente.",
   'board.card.movedByHand': 'Spostata a mano',
@@ -571,6 +596,8 @@ const IT: Dict = {
   'board.card.checksGreenTitle': 'I controlli sono passati su questa consegna. Approvare non aspetta altro.',
   'board.card.checksRunning': 'check in corso',
   'board.card.checksRunningTitle': 'I controlli stanno girando: l\'esito non c\'e\' ancora. Approvare adesso vuol dire non aspettarlo.',
+  'board.card.checksUnknown': 'check non misurati',
+  'board.card.checksUnknownTitle': 'I comandi non sono arrivati in fondo (quasi sempre il tetto dei 20 minuti su una macchina carica). Non e\' un fallimento: e\' un\'assenza di misura. Rilanciali quando c\'e\' meno traffico, oppure guarda il diff.',
   'board.card.checksRed': 'checks rossi',
   'board.card.checksRedTitle': 'Checks pre-review ROSSI: {commands}',
   'board.card.checksRedUnknown': 'un comando è fallito',
@@ -833,6 +860,20 @@ const IT: Dict = {
   'profile.banner.copy': 'Copia per il README',
   'profile.banner.copied': 'Copiato',
   'profile.banner.hint': 'SVG con questi numeri, sempre aggiornato: il link va nel README, non il file.',
+  // ── Profilo pubblico: la pagina condivisibile.
+  'profile.public.label': 'Pagina pubblica',
+  'profile.public.hint': 'Un URL senza login. Chi lo raggiunge vede queste statistiche, senza la spesa.',
+  'profile.public.open': 'Apri',
+  'profile.public.copy': 'Copia link',
+  'profile.public.copied': 'Copiato',
+  'profile.public.publish': 'Pubblica',
+  'profile.public.revoke': 'Revoca',
+  'profile.public.publishing': 'Pubblicazione…',
+  'profile.public.revoking': 'Revoca…',
+  'profile.public.notPublished': 'Non pubblicata. Clicca «Pubblica» per generare il link.',
+  'profile.public.showCost': 'Mostra anche la spesa in dollari',
+  'profile.public.showCostHint': "La spesa \u00e8 un dato personale. Di default non compare sulla pagina pubblica.",
+  'profile.public.hintLanOnly': 'Raggiungibile solo sulla rete locale. Per un URL pubblico, attiva il relay nelle impostazioni.',
   // ── Discord: cosa dice di te questa app, e con quanto dettaglio.
   'discord.title': 'Stato su Discord',
   'discord.blurb': 'Topics può mostrare sul tuo profilo Discord cosa sta lavorando. I numeri sono quelli esatti di questa installazione, non una stima sui processi.',

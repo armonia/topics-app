@@ -33,6 +33,47 @@ export const MAX_FANOUT = 5;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Identità di una board — la funzione che la genera, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Il `projectId` della board, derivato dal path assoluto del progetto:
+ * `<basename della cartella>-<hash a 6 cifre>`.
+ *
+ * Fino al 18/08 questa funzione esisteva in QUARANTANOVE copie: il servizio
+ * (`server/services/tasks.ts:projectIdForPath`), una closure dentro
+ * `server/routes/topics.ts:getProjectIdForTopic`, il client
+ * (`client/src/lib/board.ts:boardIdForPath`), 45 spec E2E e il bench di
+ * concorrenza (`scripts/bench/concurrency.ts:boardId`) — quasi tutte con un
+ * commento che dichiarava «BYTE-IDENTICAL» alle altre. Il commento era l'unica
+ * cosa che le teneva insieme: tre test inchiodavano il server, il router e il
+ * client sullo stesso vettore, ma la closure di `topics.ts`, le 45 spec e il
+ * bench non erano coperti da niente. Il bench era già derivato — gli mancava il
+ * ripiego `|| 'project'` — e nessuno se n'era accorto perché lo chiama solo su
+ * cartelle di `mkdtemp`. Una divergenza lì non esplode: scrive i task sotto un
+ * `projectId` che nessuna board legge, e la colonna resta vuota senza un errore
+ * da nessuna parte.
+ *
+ * Hash djb2 a 32 bit con segno (variante `h * 33 + c` scritta `(h<<5)-h+c`),
+ * base36 del valore assoluto, troncato a 6 caratteri. NON cambiarlo: ogni
+ * modifica orfanerebbe ogni riga `tasks` già scritta nel DB.
+ *
+ * Parente ma NON la stessa cosa di `shared/project-keys.ts:projectHash`, che
+ * gira lo stesso djb2 sulle chiavi `ui_state` ma restituisce l'hash intero e
+ * senza prefisso: identità diversa, store diverso, resta separata.
+ */
+export function projectIdForPath(projectPath: string): string {
+  const parts = projectPath.replace(/\/+$/, '').split('/');
+  const dirName = parts[parts.length - 1] || 'project';
+  let hash = 0;
+  for (let i = 0; i < projectPath.length; i++) {
+    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
+    hash |= 0;
+  }
+  return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Evento di transizione (`kind='status'`) — il formato, in UN posto solo.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -167,6 +208,7 @@ export const PREVIEW_RULE = [
   "· VIDEO .webm/.mp4 ≤20s — proving the delivery takes TWO OR MORE STATES (appears, stays, disappears; scroll, open/close, streaming, a multi-step flow): a still screenshot cannot prove a behaviour. A short Playwright clip (`recordVideo: { dir }` on the context) or, if the project has spec-flow, the scenario's .webm.",
   "· DIAGRAM .svg — the delivery has NO rendered surface (a plan, an architecture, a protocol, a migration): you DRAW the structure — boxes, arrows, five words per node — you do not photograph the document.",
   "A TAB of the task (open_browser_pane) does NOT replace the preview: the live page dies with the server that serves it, the preview stays.",
+  "The preview is an ATTACHMENT, not source. Never leave it in the repo root: an untracked file there BLOCKS the land (it would be swallowed by the realign merge, and the land refuses rather than swallow it — measured twice on 18/08), and a committed one is repo litter. Write it under ~/.topics/media/, or if it genuinely documents a decision worth keeping, under docs/archive/ — never the root.",
   "One single gate, and it holds for all three: at 268px wide (`sips -Z 268 <file>`) you must still be able to say what it shows.",
 ].join("\n");
 
@@ -1240,6 +1282,13 @@ export interface CheckRun {
   code: number | null;
   ms: number;
   timedOut: boolean;
+  /**
+   * Il comando ha DICHIARATO di non aver misurato (uscita 97): `tsc` o `eslint`
+   * non c'erano, cioè un worktree senza `bun install` in client/. Campo suo e
+   * non `timedOut`, perché dire «fermato oltre il tempo massimo» di un binario
+   * che non esiste sarebbe una bugia, e il testo del commento la ripeterebbe.
+   */
+  notMeasured?: boolean;
   tail: string;
   /** Valorizzato solo se il comando non è nemmeno partito (binario assente, cwd sparita). */
   spawnError?: string;
@@ -1731,4 +1780,20 @@ export interface LandingTicket {
   settledAt: string | null;
   /** Il motivo del `failed`. `null` in ogni altra fase. */
   error: string | null;
+  /**
+   * L'esito del land, disponibile su `phase === 'settled'`. `null` finche'
+   * non e' finito o se l'esito non e' determinabile.
+   * - `landed` il commit e' su main
+   * - `unlanded` il merge e' stato rifiutato (checkout sporco, conflitto, ecc.)
+   * - `unverifiable` il merge e' uscito zero ma non si e' potuto rileggere main
+   * - `skipped` non c'era niente da atterrare (nessun ramo proprio)
+   * - `nothing` il ramo non portava commit che main non avesse gia'
+   */
+  outcome: 'landed' | 'unlanded' | 'unverifiable' | 'skipped' | 'nothing' | null;
+  /**
+   * La ragione del rifiuto quando `outcome === 'unlanded'`. Corrisponde al
+   * testo scritto nel thread della card dal sistema. `null` in tutti gli
+   * altri casi.
+   */
+  reason: string | null;
 }

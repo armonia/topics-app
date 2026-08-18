@@ -179,42 +179,122 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
             sleep 2
             continue
           fi
-          echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
-          kill -TERM "$SP" 2>/dev/null
-          # Settle window: one save can emit TWO fswatch batches (write +
-          # rename straddling the 2s latency). Without this pause the second
-          # batch SIGTERMs the FRESH server mid-init — before server.ts has
-          # registered its signal handlers — killing it with code 143 and
-          # skipping gracefulShutdown. Sleeping here just delays the next
-          # batch's reload until the new process is fully up (init is ~2-4s),
-          # so every reload stays graceful.
-          sleep 10
-          # …E POI SI CONTROLLA CHE SIA MORTO DAVVERO.
+          # PRIMA SI CHIEDE AL SERVER, e solo se non risponde si taglia.
           #
-          # Prima qui c'era solo lo `sleep 10`: si mandava SIGTERM e si andava
-          # avanti, dando per scontato che fosse bastato. Se il vecchio processo
-          # NON esce — un `gracefulShutdown` che resta appeso su un turno in
-          # volo, un handler che non ritorna — nessuno se ne accorge, e quello
-          # resta su. Misurato il 2026-08-15: un `bun run server.ts` vivo da
-          # 4h18m, reparentato a pid 1, senza piu' un socket in ascolto, che
-          # teneva 89 MB per niente mentre il server nuovo lavorava accanto.
-          # Non e' solo memoria sprecata: finche' e' vivo puo' ancora avere il
-          # DB aperto e i suoi timer accesi.
+          # Il SIGTERM secco taglia i TURNI DEGLI AGENTI in volo. Misurato il
+          # 18/08 mentre cinque card della board lavoravano: «Turno annullato:
+          # riprovo tra 60s» tre volte in un minuto sulla stessa card, con il
+          # budget dei tentativi che si svuotava e nessun lavoro che arrivava
+          # mai in fondo. La causa erano i salvataggi su `server/` di chi stava
+          # sviluppando: sviluppare e dispacciare insieme era impossibile.
           #
-          # Dieci secondi li ha gia' avuti sopra, e sono molti piu' dei 2-4s che
-          # l'init impiega. Se e' ancora li' dopo altri cinque, non sta
-          # chiudendo con garbo: sta ignorando il segnale. Allora SIGKILL, e
-          # detto ad alta voce — un reload che deve arrivare a SIGKILL e' un
-          # fatto da leggere nel log, non da nascondere.
-          if kill -0 "$SP" 2>/dev/null; then
-            for _ in 1 2 3 4 5; do
-              sleep 1
-              kill -0 "$SP" 2>/dev/null || break
+          # `/__daemon/restart-when-idle` esiste esattamente per questo: risponde
+          # 202 subito, ASPETTA che i turni finiscano (cap suo) e poi si manda da
+          # solo il SIGTERM, cosi' `gracefulShutdown` gira per intero. Lo dice
+          # anche il commento della rotta: «use this instead of kickstart -k,
+          # which SIGKILLs mid-turn».
+          #
+          # Se il server non risponde — non e' su, token illeggibile, curl
+          # assente — si ricade sul SIGTERM di prima: un reload che non parte
+          # sarebbe peggio.
+          RELOAD_ASKED=0
+          DSTATE="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json"
+          if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
+            DTOKEN=$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
+            DPORT=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
+            if [ -n "$DTOKEN" ] && [ -n "$DPORT" ]; then
+              for SCHEME in https http; do
+                RESP=$(curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
+                  -H "Authorization: Bearer $DTOKEN" \
+                  "$SCHEME://127.0.0.1:$DPORT/__daemon/restart-when-idle" 2>/dev/null)
+                if [ "$RESP" = "202" ]; then
+                  echo "[start-prod] server source changed → riavvio quando i turni finiscono (restart-when-idle)"
+                  RELOAD_ASKED=1
+                  break
+                fi
+              done
+            fi
+          fi
+          if [ "$RELOAD_ASKED" = 1 ]; then
+            # NON SI UCCIDE CHI NON HA ANCORA RICEVUTO IL SEGNALE.
+            #
+            # Su questo ramo il SIGTERM non l'abbiamo mandato noi: se lo manda il
+            # server, DA SOLO, quando i turni finiscono (cap suo: 5 minuti).
+            # L'escalation dell'altro ramo — sleep 10, cinque secondi di grazia,
+            # SIGKILL a 15s — e' scritta per il caso opposto: segnale partito,
+            # processo che lo ignora. Applicata anche qui ammazzava un server che
+            # stava semplicemente ASPETTANDO, e un SIGKILL salta
+            # `gracefulShutdown`: niente detach dei figli nel broker, i turni
+            # tagliati a meta' — esattamente il danno che restart-when-idle
+            # esiste per evitare. Misurato nel log il 2026-08-18: tutte e cinque
+            # le volte in cui il cancello ha davvero atteso ([quiescence]
+            # waiting…) il server e' uscito con code 137. Il cancello non ha mai
+            # potuto arrivare in fondo nemmeno una volta.
+            #
+            # Qui si aspetta la SUA finestra (5 min + margine). Se la sfora,
+            # allora si' che e' appeso — ma si comincia dal SIGTERM, non dal
+            # martello.
+            echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: 5 min)"
+            WAITED=0
+            while kill -0 "$SP" 2>/dev/null && [ "$WAITED" -lt 330 ]; do
+              sleep 2
+              WAITED=$((WAITED + 2))
             done
             if kill -0 "$SP" 2>/dev/null; then
-              echo "[start-prod] ATTENZIONE: il server $SP ha ignorato SIGTERM per 15s — SIGKILL."
-              echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
-              kill -KILL "$SP" 2>/dev/null
+              echo "[start-prod] ATTENZIONE: restart-when-idle accettato, ma il server $SP e' ancora vivo dopo ${WAITED}s — SIGTERM."
+              kill -TERM "$SP" 2>/dev/null
+              for _ in 1 2 3 4 5 6 7 8 9 10; do
+                sleep 1
+                kill -0 "$SP" 2>/dev/null || break
+              done
+              if kill -0 "$SP" 2>/dev/null; then
+                echo "[start-prod] ATTENZIONE: ha ignorato anche il SIGTERM per 10s — SIGKILL."
+                echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
+                kill -KILL "$SP" 2>/dev/null
+              fi
+            fi
+            # Il vecchio e' uscito: la finestra di settle serve lo stesso, perche'
+            # il secondo batch di fswatch non deve colpire il server FRESCO a
+            # meta' init (il perche' sta nel ramo qui sotto).
+            sleep 5
+          else
+            echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
+            kill -TERM "$SP" 2>/dev/null
+            # Settle window: one save can emit TWO fswatch batches (write +
+            # rename straddling the 2s latency). Without this pause the second
+            # batch SIGTERMs the FRESH server mid-init — before server.ts has
+            # registered its signal handlers — killing it with code 143 and
+            # skipping gracefulShutdown. Sleeping here just delays the next
+            # batch's reload until the new process is fully up (init is ~2-4s),
+            # so every reload stays graceful.
+            sleep 10
+            # …E POI SI CONTROLLA CHE SIA MORTO DAVVERO.
+            #
+            # Prima qui c'era solo lo `sleep 10`: si mandava SIGTERM e si andava
+            # avanti, dando per scontato che fosse bastato. Se il vecchio processo
+            # NON esce — un `gracefulShutdown` che resta appeso su un turno in
+            # volo, un handler che non ritorna — nessuno se ne accorge, e quello
+            # resta su. Misurato il 2026-08-15: un `bun run server.ts` vivo da
+            # 4h18m, reparentato a pid 1, senza piu' un socket in ascolto, che
+            # teneva 89 MB per niente mentre il server nuovo lavorava accanto.
+            # Non e' solo memoria sprecata: finche' e' vivo puo' ancora avere il
+            # DB aperto e i suoi timer accesi.
+            #
+            # Dieci secondi li ha gia' avuti sopra, e sono molti piu' dei 2-4s che
+            # l'init impiega. Se e' ancora li' dopo altri cinque, non sta
+            # chiudendo con garbo: sta ignorando il segnale. Allora SIGKILL, e
+            # detto ad alta voce — un reload che deve arrivare a SIGKILL e' un
+            # fatto da leggere nel log, non da nascondere.
+            if kill -0 "$SP" 2>/dev/null; then
+              for _ in 1 2 3 4 5; do
+                sleep 1
+                kill -0 "$SP" 2>/dev/null || break
+              done
+              if kill -0 "$SP" 2>/dev/null; then
+                echo "[start-prod] ATTENZIONE: il server $SP ha ignorato SIGTERM per 15s — SIGKILL."
+                echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
+                kill -KILL "$SP" 2>/dev/null
+              fi
             fi
           fi
         fi
@@ -224,12 +304,36 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
 fi
 
 # Restart-on-CRASH loop. An UNEXPECTED server exit drops us out of `wait` and we
-# relaunch after 1s; launchd KeepAlive=true is the outer backstop if
+# relaunch after a delay; launchd KeepAlive=true is the outer backstop if
 # start-prod.sh itself dies. A SIGTERM to THIS script (launchd `bootout`, or the
 # parent cleanup) interrupts `wait`, runs cleanup → SHUTTING_DOWN=1 → exit, so
 # the loop never relaunches on a real shutdown. There is no reload-on-edit: the
 # server only comes back after a genuine crash.
+#
+# ─── Backoff esponenziale sui boot-failure (2026-08-17) ─────────────────────
+#
+# Prima il loop riavviava sempre dopo 1s fisso, senza distinzione tra un crash
+# dopo ore di lavoro e un boot che muore subito. Il 17/08: 506 boot falliti in
+# 10 minuti e 38 secondi (01:00:48 → 01:11:26), un tentativo al secondo, senza
+# nessun freno. L'app era giù e nessuno lo sapeva finché un umano non se ne è
+# accorto.
+#
+# Un server che muore in meno di BOOT_THRESHOLD secondi non ha mai risposto a
+# nessuna richiesta: è un boot-failure, non un crash di produzione. Riavviare 1
+# volta al secondo mille volte non cambia il motivo del guasto; il backoff
+# invece dà tempo a un operatore di accorgersi e intervenire, e salva il log da
+# un muro di righe identiche che nasconde l'errore originale.
+#
+# Sequenza: 2s, 4s, 8s, 16s, 30s (tetto). Ogni exit che dura meno di
+# BOOT_THRESHOLD aumenta il contatore; un server che sopravvive almeno
+# BOOT_THRESHOLD secondi azzera il backoff (era un vero crash, non un loop).
+BOOT_THRESHOLD=10   # secondi: meno di questo = boot-failure
+BACKOFF_DELAY=2     # ritardo iniziale dopo un boot-failure (secondi)
+BACKOFF_MAX=30      # tetto del backoff (secondi)
+_backoff_cur=0      # ritardo corrente; 0 = primo giro / nessun boot-failure recente
+
 while [ "$SHUTTING_DOWN" != 1 ]; do
+  _boot_t="$(date +%s)"
   "$BUN" run "$APP_DIR/server.ts" &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$SERVER_PIDFILE"
@@ -237,6 +341,25 @@ while [ "$SHUTTING_DOWN" != 1 ]; do
   # Re-check in case the SIGTERM raced in after `wait` returned but before the
   # trap set the flag — never relaunch once we're tearing down.
   [ "$SHUTTING_DOWN" = 1 ] && break
-  echo "[$(date +%H:%M:%S)] server exited (code $code) — relaunching in 1s"
-  sleep 1
+
+  _exit_t="$(date +%s)"
+  _lived=$(( _exit_t - _boot_t ))
+
+  if [ "$_lived" -lt "$BOOT_THRESHOLD" ]; then
+    # Boot-failure: il server non ha raggiunto BOOT_THRESHOLD secondi di vita.
+    if [ "$_backoff_cur" -lt "$BACKOFF_DELAY" ]; then
+      _backoff_cur="$BACKOFF_DELAY"
+    else
+      _backoff_cur=$(( _backoff_cur * 2 ))
+    fi
+    [ "$_backoff_cur" -gt "$BACKOFF_MAX" ] && _backoff_cur="$BACKOFF_MAX"
+    echo "[$(date +%H:%M:%S)] server exited after ${_lived}s (code $code) — boot-failure, riavvio tra ${_backoff_cur}s"
+    sleep "$_backoff_cur"
+  else
+    # Crash dopo un avvio riuscito: azzera il backoff, breve pausa per non
+    # intasare il log in caso di crash immediato post-avvio.
+    _backoff_cur=0
+    echo "[$(date +%H:%M:%S)] server exited after ${_lived}s (code $code) — relaunching in 1s"
+    sleep 1
+  fi
 done
