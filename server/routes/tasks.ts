@@ -169,6 +169,12 @@ export interface TasksRouterOpts {
    */
   taskWorktreeDirt?: (taskId: string) => Promise<string[] | null>;
   /**
+   * Come `taskWorktreeDirt`, ma dice anche SE ha potuto leggere.
+   * `ok: false` = `git status` non ha risposto: trattare come sporco.
+   * Chi distrugge usa questa; chi solo consiglia usa `taskWorktreeDirt`.
+   */
+  taskWorktreeDirtProbe?: (taskId: string) => Promise<{ ok: boolean; paths: string[] } | null>;
+  /**
    * Il progetto di questa board può davvero avere un worktree isolato?
    *
    * È una condizione del BOARD, non del task, ma si scopriva una volta PER
@@ -549,16 +555,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    */
   async function reapAfterLand(taskId: string, outcome: LandOutcome): Promise<void> {
     if (!opts?.deleteTaskWorktree) return;
-    const [dirtAfter, branchAfter] = await Promise.all([
-      opts.taskWorktreeDirt?.(taskId).catch(() => null) ?? Promise.resolve(null),
+    const [dirtProbe, branchAfter] = await Promise.all([
+      opts.taskWorktreeDirtProbe?.(taskId).catch(() => null) ?? Promise.resolve(null),
       opts.taskBranchStatus?.(taskId).catch(() => "unmerged" as BranchStatus) ?? Promise.resolve(null),
     ]);
     // No branch worktree to reason about (in-place task) → nothing to reap.
-    if (dirtAfter === null && branchAfter === null) return;
+    if (dirtProbe === null && branchAfter === null) return;
     const post = decidePostLandReap({
       outcome,
       branchAfter: branchAfter ?? "gone",
-      dirtAfter: dirtAfter ?? [],
+      dirtAfter: dirtProbe?.paths ?? [],
+      dirtReadable: dirtProbe === null ? undefined : dirtProbe.ok,
     });
     // `free-checkout` — liberare la cartella tenendo il branch — è una decisione
     // che QUESTO percorso non esegue, di proposito. La passata periodica agisce
