@@ -1,7 +1,7 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ArrowUpRight, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, Link2 } from 'lucide-react';
+import { X, ArrowUpRight, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -64,7 +64,7 @@ import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 const TAB_DRAG_SLOP_PX = 4;
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
-  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock,
+  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound,
 };
 
 // Tab status reads as two orthogonal cues, both shared with the sidebar so the
