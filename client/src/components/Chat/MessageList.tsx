@@ -940,10 +940,22 @@ export function MessageList({
    *  al montaggio e a ogni cambio di topic — cioè in tutti e soli i momenti in
    *  cui «apertura» vuol dire qualcosa. */
   const openedAtRef = useRef(performance.now());
+  /**
+   * True se al momento dell'apertura (cambio topic.id) c'erano gia' messaggi
+   * in cache. Con la cache il contenuto e' gia' stabile: non serve aspettare
+   * 80ms per evitare il pop, bastano 2 frame stabili (LIST_REVEAL_FLOOR_MS=0).
+   * Senza cache (apertura a freddo) il pavimento rimane 80ms per coprire il
+   * primo assestamento dopo la fetch del server.
+   */
+  const hadCacheAtOpenRef = useRef(filteredMessages.length > 0);
   useEffect(() => {
     openedAtRef.current = performance.now();
+    // Legge filteredMessages.length PRIMA del render causato dal cambio topic:
+    // usa il valore sincronizzato al momento dell'effetto (post-render).
+    // Se i messaggi sono gia' presenti, il floor del sipario e' 0.
+    hadCacheAtOpenRef.current = filteredMessages.length > 0;
     setListSettled(false);
-  }, [topic.id]);
+  }, [topic.id]); // eslint-disable-line react-hooks/exhaustive-deps -- filteredMessages.length letto in modo ref-safe
   useEffect(() => {
     if (listSettled) return;
     if (!scrollerEl || filteredMessages.length === 0) return;
@@ -954,6 +966,10 @@ export function MessageList({
       return;
     }
     const inizio = performance.now();
+    // Con messaggi gia' in cache all'apertura, il contenuto e' stabile fin
+    // dal primo render: il floor scenica 0 (bastano 2 frame fermi).
+    // Senza cache il floor rimane 80ms per coprire l'assestamento post-fetch.
+    const floorMs = hadCacheAtOpenRef.current ? 0 : LIST_REVEAL_FLOOR_MS;
     let raf = 0;
     let ultimaH = -1;
     let ultimoTop = -1;
@@ -967,7 +983,7 @@ export function MessageList({
       ultimaH = h;
       ultimoTop = top;
       const trascorso = performance.now() - inizio;
-      if ((fermi >= LIST_REVEAL_STABLE_FRAMES && trascorso >= LIST_REVEAL_FLOOR_MS) || trascorso > LIST_REVEAL_HARD_CAP_MS) {
+      if ((fermi >= LIST_REVEAL_STABLE_FRAMES && trascorso >= floorMs) || trascorso > LIST_REVEAL_HARD_CAP_MS) {
         setListSettled(true);
         return;
       }
