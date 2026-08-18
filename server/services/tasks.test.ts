@@ -157,10 +157,10 @@ describe("projectIdForPath", () => {
     expect(a.startsWith("topics-app-")).toBe(true);
     expect(a.slice("topics-app-".length)).toMatch(/^[0-9a-z]{1,6}$/);
   });
-  // Exact-value lock: pins the format byte-for-byte so any drift from the
-  // canonical algorithm in routes/topics.ts:getProjectIdForTopic breaks here.
-  // (The raw path is hashed, so a trailing slash DOES change the id — matches
-  // the original; topic.projectPath is stored normalized, so it never bites.)
+  // Regression lock: la funzione ora vive in shared/board.ts e questo modulo
+  // la ri-esporta. Il test pinna che il re-export non sia un alias silenzioso
+  // verso un'implementazione derivata.
+  // (Il trailing slash cambia l'hash: topic.projectPath e' normalizzato, non morde.)
   test("exact output is stable (regression lock)", () => {
     expect(projectIdForPath("/x/proj")).toBe("proj-xwac8t");
   });

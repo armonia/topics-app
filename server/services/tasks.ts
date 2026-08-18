@@ -532,22 +532,12 @@ export class TaskServiceError extends Error {
 /**
  * Derive the board `project_id` from an absolute project path.
  *
- * BYTE-IDENTICAL to `getProjectIdForTopic` in `server/routes/topics.ts:720`
- * (djb2-ish 32-bit hash, base36, 6 chars, prefixed by the dir basename). Kept
- * duplicated here — not imported — because that helper is closure-local; a
- * parity test (`tasks.test.ts`) pins the two together. Do NOT "improve" the
- * hash without updating both, or existing rows orphan.
+ * La funzione vive in `shared/board.ts`, dichiarata UNA volta: questo modulo
+ * resta la porta da cui il resto del server la importa (routes/tasks.ts,
+ * lib/tab-resolver.ts, services/project-path-resolver.ts), ma non ne tiene più
+ * una copia. Prima erano quarantanove, tenute insieme da un commento.
  */
-export function projectIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
+export { projectIdForPath } from "../../shared/board";
 
 /**
  * Per quanto una rivendicazione di interruzione tiene il campo.
