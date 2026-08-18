@@ -1977,8 +1977,9 @@ export function TopicTree({
             </button>
           )}
           {/* CONDIVIDI IL PROGETTO: una riga sola, e i suoi task la ereditano
-              in lettura. `boardIdForPath` e' byte-identica al server, quindi
-              l'id qui e' lo stesso su cui il server scrive la concessione. */}
+              in lettura. `boardIdForPath` E' la funzione del server, importata
+              da `shared/board.ts`, quindi l'id qui e' per costruzione lo stesso
+              su cui il server scrive la concessione. */}
           <button
             data-testid="project-share"
             onClick={() => {
