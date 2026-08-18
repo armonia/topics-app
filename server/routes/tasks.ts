@@ -1341,7 +1341,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!isPreviewablePath(raw)) {
       return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
     }
-    const checkExists = ctx.fileExistsSync ?? (() => true);
+    // IL DEFAULT E' LA COSA VERA, non un si'.
+    //
+    // Il seam esiste perche' un test possa dire «fingi che ci sia»; il suo
+    // valore di riposo pero' deve restare `existsSync`, altrimenti qualunque
+    // AppContext costruito senza quel campo perde il cancello SENZA dirlo — e
+    // un cancello che sparisce in silenzio e' peggio di uno che non c'e' mai
+    // stato. Con `?? (() => true)` bastava dimenticare una riga di cablaggio
+    // per tornare al difetto di partenza: una card che punta a un'anteprima
+    // cancellata e una PATCH che risponde 200.
+    const checkExists = ctx.fileExistsSync ?? existsSync;
     if (!checkExists(raw)) {
       return { ok: false, reason: `file non trovato sul disco: ${raw}` };
     }
