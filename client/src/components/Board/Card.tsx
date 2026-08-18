@@ -10,7 +10,7 @@ import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
-import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { cardCommentsFromRow, cardDetailNeed, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -593,7 +593,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // portava il chip «Lavorata qui», che promette commit su main: su una card
   // dove l'agent non ha prodotto nulla e' una bugia che manda a cercare un
   // lavoro inesistente. Vedi `lib/reviewEvidence.ts`.
-  const senzaConsegna = evidenza.kind === 'empty';
+  // UNA SOLA CHIP PER LA NON-CONSEGNA: la regola sta in `lib/board.ts`
+  // (`nothingDeliveredWins`), dove un test la raggiunge. Qui si applica.
+  const senzaConsegna = evidenza.kind === 'empty' && nothingDeliveredWins(task.deliveredReason);
   // DA QUANTO ASPETTA UNA RISPOSTA. La data di aggiornamento in review era
   // nascosta apposta - e faceva bene, perche' `updatedAt` si muove a ogni
   // commento e diceva «ora» su una card ferma da giorni. Questo invece e'
@@ -610,7 +612,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
   // drawer la conserva comunque). La regola sta in `lib/board.ts` come le altre
   // due qui sotto: dentro il JSX nessun test unitario la raggiungeva.
-  const systemDelivered = systemDeliveryChip(task);
+  const systemDelivered = senzaConsegna ? null : systemDeliveryChip(task);
   // Il legame, non la lista: il chip nasce da `blockedByTaskId` + il bloccante
   // risolto dal server, così vale anche quando il bloccante non è fra i task
   // fetchati (sottotask, altro progetto, archiviato).

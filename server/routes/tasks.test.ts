@@ -1631,6 +1631,59 @@ describe("approve decoupled from landing", () => {
     expect(after.comments.some((c) => c.content.includes("Land NON confermato"))).toBe(true);
   });
 
+  /**
+   * PORTA DEL CONTRATTO — la sonda restituisce `ok:false` (git non ha risposto).
+   *
+   * Prima del fix, `reapAfterLand` usava `taskWorktreeDirt` (string[] | null):
+   * un `git status` muto collassava a `paths:[]` = «pulito», e il reap partiva
+   * su un albero di cui non sapeva niente.
+   *
+   * QUANDO `git status` TACE DAVVERO, misurato il 2026-08-18 — perché la prima
+   * versione di questo commento diceva «index.lock», ed è FALSO: con un
+   * `.git/index.lock` presente `git status --porcelain` esce 0 e riporta lo
+   * sporco correttamente, sia con modifiche unstaged sia staged. A farlo uscire
+   * non-zero sono solo la cartella inesistente e i metadati git rotti (worktree
+   * admin dir potata → `fatal: not a git repository`, exit 128). Il canale per
+   * perdere lavoro è quindi stretto — dir presente + modifiche non committate +
+   * metadati rotti + branch già merged — ma esiste, e soprattutto le due porte
+   * sullo stesso contratto puro non devono più divergere.
+   *
+   * Un «perché» sbagliato dentro un commento è peggio di nessun commento: si
+   * eredita, e il prossimo ci costruisce sopra.
+   *
+   * Con `taskWorktreeDirtProbe`, `ok:false` vale quanto sporco: il reap NON
+   * parte, il thread dice perché, il branch resta.
+   */
+  test("sonda illeggibile (ok:false): il worktree NON viene potato anche dopo un land riuscito", async () => {
+    const d = freshDb(); const b: any[] = []; const reaped: string[] = [];
+    const rt = createTasksRouter(makeCtx(d, b), undefined, {
+      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
+      confirmLandedOnMain: async () => true,
+      deleteTaskWorktree: async (taskId: string) => { reaped.push(taskId); return true; },
+      taskBranchStatus: async () => "merged" as const,
+      // Sonda fail-open: ok:false simula git status che non risponde
+      // (es. cartella smontata a metà, fs non risponde).
+      taskWorktreeDirtProbe: async () => ({ ok: false, paths: [] }),
+    });
+    d.run("INSERT INTO topics (id) VALUES ('top-probe')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "probe-feature" }))!.json();
+    d.prepare("UPDATE tasks SET assigned_topic_id='top-probe', status='review' WHERE id = ?").run(t.id);
+    d.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('cp1', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t.id, new Date().toISOString());
+
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Il land ha riportato success (MERGED, confermato su main), ma la sonda
+    // ha detto «non lo so»: illeggibile != pulito, niente potatura.
+    expect(reaped).toEqual([]);
+    // Il thread deve dire perché il worktree è rimasto.
+    const comments = d.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(t.id) as Array<{ content: string }>;
+    const guardComment = comments.find((c) => c.content.includes("NON ripulito") || c.content.includes("illeggibile"));
+    expect(guardComment).toBeDefined();
+    expect(guardComment!.content).toMatch(/illeggibile|leggibile/);
+  });
+
   test("main non risponde: il verdetto è «non verificabile», mai 'landed'", async () => {
     // Il no e il non-lo-so restano due cose diverse: `null` non accusa nessuno,
     // ma nemmeno assolve — e `landed` è un'assoluzione.

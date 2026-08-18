@@ -48,6 +48,7 @@ import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
+import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 
@@ -168,6 +169,12 @@ export interface TasksRouterOpts {
    * gate: an agent delivery with uncommitted work is refused with coaching.
    */
   taskWorktreeDirt?: (taskId: string) => Promise<string[] | null>;
+  /**
+   * Come `taskWorktreeDirt`, ma dice anche SE ha potuto leggere.
+   * `ok: false` = `git status` non ha risposto: trattare come sporco.
+   * Chi distrugge usa questa; chi solo consiglia usa `taskWorktreeDirt`.
+   */
+  taskWorktreeDirtProbe?: (taskId: string) => Promise<{ ok: boolean; paths: string[] } | null>;
   /**
    * Il progetto di questa board può davvero avere un worktree isolato?
    *
@@ -347,7 +354,7 @@ function parseLabelsParam(raw: string | null): string[] | undefined {
  * niente. `[]` = verificato, nessun file — che NON è invisibilità (vedi
  * `deriveCloser`): una card senza codice è una DECISIONE, e la chiude un umano.
  */
-async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<TaskFile[] | null> {
+export async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<TaskFile[] | null> {
   const head = await runGitCap(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const branch = head.code === 0 ? head.out.trim() : "";
   if (!branch || branch === "HEAD") return null; // detached: non c'è un ramo di cui dire "suo"
@@ -549,16 +556,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    */
   async function reapAfterLand(taskId: string, outcome: LandOutcome): Promise<void> {
     if (!opts?.deleteTaskWorktree) return;
-    const [dirtAfter, branchAfter] = await Promise.all([
-      opts.taskWorktreeDirt?.(taskId).catch(() => null) ?? Promise.resolve(null),
+    const [dirtProbe, branchAfter] = await Promise.all([
+      opts.taskWorktreeDirtProbe?.(taskId).catch(() => null) ?? Promise.resolve(null),
       opts.taskBranchStatus?.(taskId).catch(() => "unmerged" as BranchStatus) ?? Promise.resolve(null),
     ]);
     // No branch worktree to reason about (in-place task) → nothing to reap.
-    if (dirtAfter === null && branchAfter === null) return;
+    if (dirtProbe === null && branchAfter === null) return;
     const post = decidePostLandReap({
       outcome,
       branchAfter: branchAfter ?? "gone",
-      dirtAfter: dirtAfter ?? [],
+      dirtAfter: dirtProbe?.paths ?? [],
+      dirtReadable: dirtProbe === null ? undefined : dirtProbe.ok,
     });
     // `free-checkout` — liberare la cartella tenendo il branch — è una decisione
     // che QUESTO percorso non esegue, di proposito. La passata periodica agisce
@@ -623,49 +631,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * is exactly how 139 lines were lost on 19/07 without anyone noticing.
    * Best-effort: a git hiccup must never refuse a delivery.
    */
+  /**
+   * La fotografia e le etichette stanno in `services/task-delivery-capture.ts`:
+   * ne esistevano tre copie e la terza — quella del dispatcher — mancava, cioe'
+   * la consegna forzata dal sistema diceva «nessun ramo» su card che avevano
+   * committato. Qui resta solo il CANCELLO sull'edge: si fotografa quando la
+   * card ENTRA in review, non a ogni PATCH su una card che c'e' gia'.
+   */
+  const capturaConsegna = createDeliveryCapture({
+    svc,
+    taskDeliveryRef: opts?.taskDeliveryRef,
+    taskCheckoutRef: opts?.taskCheckoutRef,
+    ownCommitFiles: (cwd) => ownCommitFiles(cwd),
+  });
+
   async function captureDelivery<T extends { id: string; status: string }>(task: T, prevStatus?: string): Promise<T> {
-    if (task.status !== "review" || prevStatus === "review" || !opts?.taskDeliveryRef) return task;
-    try {
-      const ref = await opts.taskDeliveryRef(task.id);
-      if (!ref) return task; // in-place task: nothing to compare against main
-      svc.recordDelivery({
-        taskId: task.id, branch: ref.branch, commit: ref.commit,
-        // `undefined` ⇒ NULL in colonna, cioè «non misurato»: sulla card è un
-        // silenzio, non uno zero che direbbe «non ha prodotto niente».
-        stat: ref.filesChanged === undefined ? null : {
-          filesChanged: ref.filesChanged,
-          insertions: ref.insertions ?? 0,
-          deletions: ref.deletions ?? 0,
-        },
-      });
-      await deriveDeliveryLabels(task.id);
-      // Return the REFRESHED row so the response and the broadcast already carry
-      // the snapshot — otherwise the board only learns about it on a refetch.
-      return (svc.get(task.id)?.task as T | undefined) ?? task;
-    } catch { /* best-effort: never block a delivery on git */ }
-    return task;
+    if (task.status !== "review" || prevStatus === "review") return task;
+    await capturaConsegna(task.id);
+    // Return the REFRESHED row so the response and the broadcast already carry
+    // the snapshot — otherwise the board only learns about it on a refetch.
+    return (svc.get(task.id)?.task as T | undefined) ?? task;
   }
 
-  /**
-   * Chi CHIUDERÀ questa card, deciso sull'edge verso `review` e non dopo: la
-   * board deve poter mostrare la coda «visibili in review» già al primo
-   * disegno, e l'etichetta è ciò che ci mette dentro (o fuori) la card.
-   *
-   * Nessun agente la dichiara. Qui si guardano i file dei suoi commit PROPRI e
-   * si applica la regola di `shared/task-labels.ts`. Best-effort come la
-   * fotografia di consegna: se git non risponde, la card resta senza etichetta —
-   * e senza etichetta la chiude un umano, che è il default sicuro.
-   */
-  async function deriveDeliveryLabels(taskId: string): Promise<void> {
-    if (!opts?.taskCheckoutRef) return;
-    try {
-      const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
-      if (!ref) return;
-      const files = await ownCommitFiles(ref.cwd);
-      if (files === null) return; // non contabile: non si scrive un verdetto a caso
-      svc.deriveLabelsFromDiff({ taskId, files });
-    } catch { /* l'etichetta non può far fallire una consegna */ }
-  }
 
   /**
    * Le corse dei check, una per task, VIVE oltre la richiesta che le ha chieste.
@@ -1785,21 +1772,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // vincitore, non quelli del tentativo 1 a cui il task era legato un
         // istante fa. `captureDelivery` non scatta (il task è in review da
         // quando il fan-out ha chiuso), quindi la fotografia si prende qui.
-        if (opts?.taskDeliveryRef) {
-          try {
-            const ref = await opts.taskDeliveryRef(taskId);
-            if (ref) {
-              svc.recordDelivery({
-                taskId, branch: ref.branch, commit: ref.commit,
-                stat: ref.filesChanged === undefined ? null : {
-                  filesChanged: ref.filesChanged,
-                  insertions: ref.insertions ?? 0,
-                  deletions: ref.deletions ?? 0,
-                },
-              });
-              task = svc.get(taskId, { projectId })?.task ?? task;
-            }
-          } catch { /* la scelta vale anche senza fotografia */ }
+        if (await capturaConsegna(taskId)) {
+          task = svc.get(taskId, { projectId })?.task ?? task;
         }
 
         const losers = picked.losers;
@@ -2043,6 +2017,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
               dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
               dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
+              // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
+              // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni
+              // giro — ma qui non passavano, quindi restavano al default per
+              // sempre e il PATCH rispondeva 200 con il valore vecchio.
+              //
+              // `dispatchPaused` ha un interruttore VERO nel pannello
+              // (`BoardSettingsPanel.tsx:84-85`, `patch({ dispatchPaused })`):
+              // era un interruttore morto, che e' peggio di un interruttore
+              // assente perche' promette. Misurato il 18/08: PATCH
+              // `{"dispatchPaused":true}` -> risposta 200 con `false`.
+              // `dispatchRetryCap` decide quanti turni ha un agente prima che il
+              // sistema gli tolga la card: bloccato a 2 e non alzabile da nessuna
+              // porta.
+              dispatchPaused: typeof body?.dispatchPaused === "boolean" ? body.dispatchPaused : undefined,
+              dispatchRetryCap: typeof body?.dispatchRetryCap === "number" ? body.dispatchRetryCap : undefined,
+              dispatchRetryBackoffS: typeof body?.dispatchRetryBackoffS === "number" ? body.dispatchRetryBackoffS : undefined,
+              language: typeof body?.language === "string" ? body.language : undefined,
               nightMode: typeof body?.nightMode === "boolean" ? body.nightMode : undefined,
               nightModeUntil: typeof body?.nightModeUntil === "string" ? body.nightModeUntil : undefined,
               // Passa dal parser tollerante: il pannello manda una lista di
