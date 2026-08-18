@@ -16,18 +16,23 @@
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
 
 /** Dipendenze inerti: rispondono, non fanno nulla, e registrano se le chiamano. */
-function depsFinte(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; toccati: string[] } {
+function depsFinte(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; toccati: string[]; annunci: unknown[]; db: Database } {
   const toccati: string[] = [];
+  const annunci: unknown[] = [];
   const db = new Database(":memory:");
   db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, archived INTEGER, updated_at TEXT, assigned_topic_id TEXT)");
   db.run("CREATE TABLE task_comments (id TEXT PRIMARY KEY, task_id TEXT, created_at TEXT)");
-  db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, session_key TEXT)");
+  db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, session_key TEXT, worktree_id TEXT)");
   db.run("CREATE TABLE messages (session_key TEXT, timestamp TEXT)");
   const deps: WorktreeGcDeps = {
     db,
+    broadcast: (msg) => { annunci.push(msg); },
     worktreeStore: { list: () => [] },
     worktreeManager: { delete: async (id) => { toccati.push(`delete:${id}`); return null; } },
     projectStore: { get: () => ({ path: "/tmp/non-esiste" }) },
@@ -49,7 +54,21 @@ function depsFinte(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; 
     previewTeardown: async () => { toccati.push("previewTeardown"); },
     ...over,
   };
-  return { deps, toccati };
+  return { deps, toccati, annunci, db };
+}
+
+/**
+ * La coppia topic+task che la potatura risolve a partire da un worktree.
+ * `projectId` NON compare qui: sulla card lo scrive il servizio task, e i test
+ * che lo guardano se lo fanno restituire dal doppio di `svc.get`.
+ */
+function legaTask(db: Database, opts: { taskId: string; worktreeId: string; status: string }): void {
+  const topicId = `topic-${opts.taskId}`;
+  db.run("INSERT INTO topics (id, session_key, worktree_id) VALUES (?, ?, ?)", [topicId, `topic:${opts.taskId}`, opts.worktreeId]);
+  db.run(
+    "INSERT INTO tasks (id, status, archived, updated_at, assigned_topic_id) VALUES (?, ?, 0, ?, ?)",
+    [opts.taskId, opts.status, new Date().toISOString(), topicId],
+  );
 }
 
 describe("il cablaggio della potatura dei worktree", () => {
@@ -106,5 +125,156 @@ describe("il cablaggio della potatura dei worktree", () => {
     await gc.slimWorktreeOfTask("t1");
     expect(letture).toEqual(["t1"]);   // ha risolto il worktree…
     // …e si e' fermato: nessuna chiamata al disco oltre l'esistenza.
+  });
+});
+
+/**
+ * LA POTATURA PARLA A UN TIMER, NON A UNA ROTTA.
+ *
+ * Ogni scrittura che fa su una card — il park `failed`, la riga nel thread, il
+ * ramo di consegna timbrato — nasce dentro un `setInterval`, e dietro non c'e'
+ * nessuna richiesta HTTP che ne trasmetta l'esito. Fino al 19/08/2026 la
+ * fabbrica non aveva nemmeno un modo per farlo: `broadcast` non era fra le sue
+ * dipendenze. Il risultato non era un errore, era il silenzio — la card
+ * cambiava nel database e restava com'era su ogni schermo aperto, e la board
+ * mostrava «in lavorazione» su un task parcheggiato alle tre di notte.
+ *
+ * Questi test guardano l'unica cosa che il typecheck non puo' guardare: che il
+ * frame parta davvero da ognuno dei percorsi che scrivono.
+ */
+describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
+  /** Il doppio del servizio task: una card sola, con l'id di BOARD sopra. */
+  function svcConCard(taskId: string, toccati: string[], patch: Record<string, unknown> = {}) {
+    const task = { id: taskId, projectId: "board-hash-1", text: "una card", deliveryCommit: null, deliveryBranch: null, ...patch };
+    return {
+      get: (id: string) => (id === taskId ? { task } : null),
+      release: () => { toccati.push("release"); },
+      addComment: () => { toccati.push("addComment"); },
+      setDeliveryBranch: () => { toccati.push("setDeliveryBranch"); },
+      recordDelivery: () => { toccati.push("recordDelivery"); },
+      getBoardSettings: () => ({ dispatchAutoMerge: false }),
+    };
+  }
+
+  /** Un worktree in modo `branch` il cui ramo non risolve piu': la riga fantasma. */
+  function fantasma(worktreeId: string) {
+    return {
+      list: () => [{ id: worktreeId, projectId: "store-uuid-1", absPath: "/tmp/questa-cartella-non-esiste", branchName: "topics/fantasma", mode: "branch" }],
+    };
+  }
+
+  it("un task parcheggiato `failed` esce sul filo, non solo nel database", async () => {
+    // Il percorso `abandon`: ramo sparito sotto un task che dichiara di
+    // starci lavorando. `release` lo declassa, e senza annuncio la board
+    // continuerebbe a mostrarlo in lavorazione fino al ricaricamento.
+    const toccati: string[] = [];
+    const { deps, annunci, db } = depsFinte({
+      worktreeStore: fantasma("w-abbandonato"),
+      projectStore: { get: () => null },          // niente repo ⇒ ramo "gone"
+      worktreeManager: { delete: async () => true },
+      svc: svcConCard("t-abbandonato", toccati),
+    });
+    legaTask(db, { taskId: "t-abbandonato", worktreeId: "w-abbandonato", status: "in_progress" });
+
+    const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
+
+    expect(esito!.abandoned).toBe(1);
+    expect(toccati).toContain("release");
+    expect(annunci).toEqual([
+      { type: "task:updated", projectId: "board-hash-1", task: expect.objectContaining({ id: "t-abbandonato" }) },
+    ]);
+  });
+
+  it("lo scioglimento di una card in review esce sul filo allo stesso modo", async () => {
+    // `unbind` NON declassa: la card resta in review. Cambia comunque, perche'
+    // perde il legame col worktree, ed e' quel legame a decidere se il bottone
+    // che apre la cartella ha ancora un posto dove andare.
+    const toccati: string[] = [];
+    const { deps, annunci, db } = depsFinte({
+      worktreeStore: fantasma("w-slegato"),
+      projectStore: { get: () => null },
+      worktreeManager: { delete: async () => true },
+      svc: svcConCard("t-slegato", toccati),
+    });
+    legaTask(db, { taskId: "t-slegato", worktreeId: "w-slegato", status: "review" });
+
+    const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
+
+    expect(esito!.unbound).toBe(1);
+    expect(toccati).toContain("release");
+    expect(annunci).toHaveLength(1);
+    expect(annunci[0]).toMatchObject({ type: "task:updated", projectId: "board-hash-1" });
+  });
+
+  it("il `projectId` annunciato e' quello della CARD, mai quello del worktree", async () => {
+    // I due id vivono in namespace diversi: `wt.projectId` e' l'uuid del
+    // projectStore, la board filtra per l'id scritto sulla card. Passare il
+    // primo non solleva niente e non si vede da nessuna parte: il client
+    // riceve il frame e lo butta, che e' il silenzio da cui siamo partiti.
+    const toccati: string[] = [];
+    const { deps, annunci, db } = depsFinte({
+      worktreeStore: fantasma("w-namespace"),
+      projectStore: { get: () => null },
+      worktreeManager: { delete: async () => true },
+      svc: svcConCard("t-namespace", toccati),
+    });
+    legaTask(db, { taskId: "t-namespace", worktreeId: "w-namespace", status: "in_progress" });
+
+    await createWorktreeGcRunner(deps).runWorktreeGc();
+
+    const frame = annunci[0] as { projectId: string };
+    expect(frame.projectId).toBe("board-hash-1");
+    expect(frame.projectId).not.toBe("store-uuid-1");
+  });
+
+  it("anche la riga scritta nel thread viene annunciata", async () => {
+    // Il worktree tenuto per modifiche non committate: la potatura non
+    // distrugge niente, ma SCRIVE — ed e' proprio quella riga che dice
+    // all'umano dove sta il suo lavoro. Arrivare solo al prossimo
+    // ricaricamento vuol dire arrivare dopo che l'ha gia' cercato.
+    const dir = mkdtempSync(join(tmpdir(), "gc-runner-sporco-"));
+    try {
+      const toccati: string[] = [];
+      const { deps, annunci, db } = depsFinte({
+        // `reuse`: il ramo non e' suo, quindi la riga fantasma non entra in
+        // gioco e si arriva alla sonda dello sporco. La cartella esiste ma non
+        // e' un repo git: `git status` esce non-zero, e chi non ha potuto
+        // guardare non ha il diritto di distruggere.
+        worktreeStore: { list: () => [{ id: "w-sporco", projectId: "store-uuid-1", absPath: dir, branchName: null, mode: "reuse" }] },
+        worktreeManager: { delete: async () => true },
+        svc: svcConCard("t-sporco", toccati),
+      });
+      legaTask(db, { taskId: "t-sporco", worktreeId: "w-sporco", status: "done" });
+
+      const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
+
+      expect(esito!.kept).toBe(1);
+      expect(toccati).toContain("addComment");
+      expect(annunci).toHaveLength(1);
+      expect(annunci[0]).toMatchObject({ type: "task:updated", projectId: "board-hash-1" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("un filo rotto non ferma la potatura: l'annuncio e' best-effort", async () => {
+    // La regola di tutto questo file: nessun effetto di contorno puo' abbattere
+    // un giro che serve a liberare spazio. Se il broadcast alza, il task e'
+    // gia' parcheggiato e la cartella va rimossa lo stesso.
+    const toccati: string[] = [];
+    const { deps, db } = depsFinte({
+      worktreeStore: fantasma("w-filo-rotto"),
+      projectStore: { get: () => null },
+      worktreeManager: { delete: async () => true },
+      svc: svcConCard("t-filo-rotto", toccati),
+      broadcast: () => { throw new Error("client staccati"); },
+    });
+    legaTask(db, { taskId: "t-filo-rotto", worktreeId: "w-filo-rotto", status: "in_progress" });
+
+    const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
+
+    expect(esito).not.toBeNull();
+    expect(esito!.abandoned).toBe(1);
+    expect(toccati).toContain("release");
   });
 });
