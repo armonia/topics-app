@@ -103,17 +103,4 @@ export function isInternalDrag(types: readonly string[]): boolean {
   return types.some(t => TIPI_NOSTRI.some(nostro => t.startsWith(nostro)));
 }
 
-/**
- * Marks a tab drag whose SOURCE group holds a single pane (a "solo" group),
- * encoded per-group as a dataTransfer TYPE — same hashed-type trick as
- * `paneTabScopeType`, because `getData()` is blocked during dragover. A drop
- * target whose group id matches can then SUPPRESS the self-split preview the
- * drop handler would refuse anyway (splitting a solo group into itself is a
- * no-op): without this, the user saw a full edge-split preview on their own
- * solo pane, released, and nothing happened.
- */
-export function paneTabSoloSrcType(groupId: string): string {
-  let h = 5381;
-  for (let i = 0; i < groupId.length; i++) h = (((h << 5) + h) ^ groupId.charCodeAt(i)) >>> 0;
-  return `application/x-pane-solo-src-${h.toString(36)}`;
-}
+

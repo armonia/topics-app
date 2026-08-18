@@ -6,7 +6,7 @@ import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
 import { spawnDragGhost } from './dragGhost';
 import { equalizeWidths, weightedWidths } from './gridWidths';
-import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
+import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHROME_BAR_SUB_H_CLASS } from '../../lib/selectionStyles';
 import { PaneKeepAlive } from './PaneKeepAlive';
@@ -383,17 +383,6 @@ export function GroupLayout({
     // Group-tagged tab drags only (dragover can't read VALUES, so we can't
     // tell WHICH group — every project tab drag qualifies here).
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP)) return;
-    // Self-drop from a SOLO group: splitting a single-pane group into itself
-    // is a no-op (handleSplitGroup refuses it), so don't paint the edge
-    // preview / accept the drop — the promise would be broken. The source
-    // encodes "my group is solo" as a per-group TYPE (readable in dragover).
-    if (e.dataTransfer.types.includes(paneTabSoloSrcType(groupId))) {
-      if (edgeDropTargetRef.current?.groupId === groupId) {
-        edgeDropTargetRef.current = null;
-        setEdgeDropTarget(null);
-      }
-      return;
-    }
 
     e.preventDefault();
     e.stopPropagation();

@@ -20,12 +20,14 @@
  *    extractToOwnCell), while the lone tab of a single-tab cell has nothing
  *    left to split away from.
  *
- *  - `project` (a GroupLayout group): splittable iff the group has another
- *    pane to leave behind. Splitting the only pane of a group into itself is
- *    a visual no-op (the new group would just replace the old in place), so
- *    the entries hide instead of silently failing.
+ *  - `project` (a GroupLayout group): ALWAYS splittable (mirrors
+ *    standalone-pool). When a single-pane group is split from the context
+ *    menu, `handleSplitGroup` in useProjectLayout creates a fresh draft chat
+ *    in the source group so it retains a visible pane; the original pane
+ *    then moves to the new split group. This matches what standalone does
+ *    (PanelGrid auto-spawns a draft when the pool has only one panel).
  *
- * Callers use the SAME predicate to (a) hide/disable the menu entries, and
+ * Callers use the SAME predicate to (a) show/hide the menu entries, and
  * (b) guard the handlers — so an offered gesture always works and a refused
  * one is never promised.
  */
@@ -41,8 +43,11 @@ export interface SplitContext {
 
 /** True when a tab in a group described by `ctx` may be split out. */
 export function canSplitPane(ctx: SplitContext): boolean {
-  if (ctx.surface === 'standalone-pool') return true;
-  return ctx.groupSize > 1;
+  if (ctx.surface === 'standalone-solo') return ctx.groupSize > 1;
+  // standalone-pool and project: always splittable. For project, a single-pane
+  // group split auto-creates a companion draft pane (useProjectLayout); for
+  // standalone-pool, PanelGrid does the same. The menu entries are always shown.
+  return true;
 }
 
 /** Map a standalone grid item key ('standalone' | 'solo:<id>') to its surface. */
