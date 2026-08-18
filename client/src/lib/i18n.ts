@@ -276,6 +276,12 @@ const IT: Dict = {
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
+  // La coda del turno: le stesse parole del badge del composer, perché è la
+  // stessa coda vista da due parti (il pannello e il trascritto).
+  'chat.queue.waiting': 'da inviare',
+  'chat.queue.waitingTitle': 'Non è ancora partito. Parte quando il turno finisce.',
+  'chat.queue.sendNow': 'Invia subito',
+  'chat.queue.sendNowTitle': 'Interrompi il turno in corso e fai partire la coda adesso',
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.collapse': 'Comprimi',
   'board.task.showSteps': 'Mostra i passaggi che la sessione ha fatto qui',
