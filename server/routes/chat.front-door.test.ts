@@ -44,7 +44,13 @@ interface Harness {
   streaming: Map<string, { messageId: string }>;
 }
 
-function harness(): Harness {
+/**
+ * `provider` inietta il provider che `resolveProvider` restituirà. Serve alle
+ * due prove sul riattacco: la porta deve saper distinguere un provider che sa
+ * riattaccarsi da uno che non lo sa, e quella distinzione è l'unica cosa che
+ * separa «adotto il turno vivo» da «fabbrico un turno che nessuno ha chiesto».
+ */
+function harness(opts?: { provider?: Record<string, unknown> }): Harness {
   const appended: string[] = [];
   const streaming = new Map<string, { messageId: string }>();
 
@@ -61,7 +67,10 @@ function harness(): Harness {
     },
   } as unknown as AppContext;
 
-  const deps = { browserNavigatedTopics: new Set<string>() } as never;
+  const deps = {
+    browserNavigatedTopics: new Set<string>(),
+    ...(opts?.provider ? { resolveProvider: () => opts.provider } : {}),
+  } as never;
   const router = createChatRouter(ctx, deps);
 
   const post = async (body: unknown) => {
@@ -161,5 +170,72 @@ describe("POST /api/chat — la porta d'ingresso", () => {
     const resp = await h.post({ sessionKey: "topic:abc" });
 
     expect(resp?.status).toBe(400);
+  });
+
+  /**
+   * IL RIATTACCO NON DEVE MAI DIVENTARE UN INVIO.
+   *
+   * Il guasto, misurato il 2026-08-18 su topic:9fe7a291. Il turno vero girava
+   * su `claude-code` (figlio CLI vivo nello store del broker). A ogni riavvio
+   * del server — una ventina, perché un'altra sessione stava salvando file in
+   * `server/` con `TOPICS_SERVER_WATCH=1` — il setaccio di boot chiamava
+   * `runHeadlessReattach`, che POSTava `{messages: [], mode:"reattach"}` SENZA
+   * dichiarare il provider. `resolveProvider` cadeva sul default della
+   * macchina, che qui è il runtime nativo `topics`; quello non ha `reattach`;
+   * e il ternario di `drive` ripiegava su `sendChat` con `userContent` = solo
+   * il preambolo `<context>` e nessuna domanda.
+   *
+   * Risultato: nove turni FABBRICATI, pagati all'API, uno per riavvio, ognuno
+   * con un «Ciao! Come posso aiutarti con la valutazione del lavoro di
+   * Giovanni?» (il nome del topic — l'unica cosa che quel modello vedeva) che
+   * si sedeva in chat al posto della risposta vera. La risposta vera, 2.396
+   * caratteri di verdetto documentato, non è mai arrivata in `messages`: è
+   * rimasta solo nel JSONL della CLI.
+   *
+   * Due cose lo permettevano insieme: il ripiego silenzioso, e il fatto che
+   * `isReattach` salta il cancello 409 (giustamente — adottare il turno vivo è
+   * il suo mestiere), quindi il turno fantasma partiva su una sessione che ne
+   * aveva già uno in volo.
+   */
+  test("riattacco su un provider che NON sa riattaccarsi ⇒ 501, e nessun messaggio inviato", async () => {
+    let sendChatCalls = 0;
+    const h = harness({
+      provider: {
+        name: "topics",
+        capabilities: new Set(["streaming"]),
+        connected: true,
+        // Nessun `reattach`: è il runtime nativo.
+        sendChat: () => { sendChatCalls++; return Promise.resolve({}); },
+      },
+    });
+
+    const resp = await h.post({ sessionKey: "topic:abc", messages: [], mode: "reattach" });
+
+    expect(resp?.status).toBe(501);
+    const body = await resp!.json();
+    expect(body.code).toBe("reattach_unsupported");
+    expect(body.provider).toBe("topics");
+    // Il punto dell'intera prova: non è partita nessuna chiamata al modello.
+    expect(sendChatCalls).toBe(0);
+    // E nessuna riga in chat: il rifiuto arriva prima della riga parziale.
+    expect(h.appended).toEqual([]);
+  });
+
+  test("riattacco su un provider che SA riattaccarsi passa la porta", async () => {
+    const h = harness({
+      provider: {
+        name: "claude-code",
+        capabilities: new Set(["streaming"]),
+        connected: true,
+        reattach: () => Promise.resolve("live"),
+        sendChat: () => Promise.resolve({}),
+      },
+    });
+
+    const out = await h.attempt({ sessionKey: "topic:abc", messages: [], mode: "reattach" });
+
+    // La guardia non deve trasformarsi in un muro: il caso per cui il riattacco
+    // esiste — il provider giusto, quello che possiede il turno vivo — passa.
+    expect(out.status).not.toBe(501);
   });
 });
