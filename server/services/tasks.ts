@@ -518,6 +518,35 @@ function parseChecksJson(raw: unknown): CheckRun[] | null {
  */
 const VALID_EFFORT = new Set<string>([...EFFORT_TIERS, "auto"]);
 const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
+
+/**
+ * Le colonne che descrivono LO SNAPSHOT DI UNA CONSEGNA: ramo, commit,
+ * diffstat e risultati dei controlli automatici.
+ *
+ * Una fonte sola per tutti e tre i punti di azzeramento:
+ *   - `update()` quando la card esce da review/done verso la coda;
+ *   - `reviewDecision("reject")` che scrive a SQL grezzo;
+ *   - `recordDelivery` che le sovrascrive con i dati nuovi.
+ *
+ * Aggiungere una colonna qui la porta automaticamente in tutti e tre i
+ * punti: la prossima colonna di consegna non nasce dimenticata da due di loro.
+ *
+ * `checks_state`/`checks_json`/`checks_commit` fanno parte dello snapshot
+ * perche' descrivono la barra verde DI QUELLA CONSEGNA. Su un commit
+ * diverso da quello consegnato un verde non e' un verde: `whoCloses` legge
+ * `checksState` per decidere se il conduttore puo' chiudere da solo, e
+ * senza azzeramento decide su dati di una consegna che non esiste piu'.
+ */
+const DELIVERY_SNAPSHOT_COLUMNS = [
+  "delivery_branch",
+  "delivery_commit",
+  "delivery_files_changed",
+  "delivery_insertions",
+  "delivery_deletions",
+  "checks_state",
+  "checks_json",
+  "checks_commit",
+] as const;
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
 
@@ -2866,7 +2895,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Stessa lista che azzera `recordDelivery`: la TESTIMONIANZA cade col
         // suo commit, altrimenti il prossimo verdetto nascerebbe già «visto».
         if ((current === "done" || current === "review") && patch.status !== "done" && patch.status !== "review") {
-          put("delivery_branch", null); put("delivery_commit", null);
+          for (const col of DELIVERY_SNAPSHOT_COLUMNS) put(col, null);
           put("landing_state", null); put("landing_checked_at", null); put("landing_witnessed", 0);
         }
         // A card leaving the flow keeps no live chip: dragging review → done
@@ -3127,8 +3156,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // non ci passa, perché questa porta scrive lo status a SQL grezzo.
         db.prepare(
           "UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, " +
-            "delivery_branch = NULL, delivery_commit = NULL, landing_state = NULL, " +
-            "landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
+            DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
+            "landing_state = NULL, landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
         ).run(target, ts, taskId);
         markReopened(taskId, "review", target, "human", by);
       } else {
