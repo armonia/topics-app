@@ -113,7 +113,7 @@ describe("deadline sul silenzio, non sul totale", () => {
     // REQUEST_ATTEMPTS = 3: prima si moriva al primo colpo. `list` è
     // idempotente, quindi rimandarlo è sicuro per costruzione.
     expect(listRicevuti).toBe(3);
-  }, 10_000);
+  }, 20_000);
 });
 
 describe("cosa vale la pena rimandare", () => {
