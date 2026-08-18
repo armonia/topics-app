@@ -171,6 +171,32 @@ jobs:
           bun run check:ui-language
           bun run check:sleeps
 
+      # `check:sicurezza` risponde a una domanda sola: questo checkout si può
+      # pubblicare? Il repo è PUBBLICO, e i quattro modi di sbagliare erano
+      # sorvegliati da tre parti diverse più la memoria di chi committava. Ora
+      # sono un comando.
+      #
+      # QUI NE GIRANO DUE SU QUATTRO, e il perché è nella natura degli altri
+      # due. `dati` e `home` cercano il nome e il percorso di casa di CHI
+      # COMMITTA, e li DERIVANO dalla macchina (`id -F`, `git config user.name`,
+      # `homedir()`) proprio per non doverli scrivere dentro un repo pubblico.
+      # Un runner di GitHub non ha un'identità da proteggere: il suo account si
+      # chiama `runner`, che non è il nome di nessuno ma compare in decine di
+      # file tracciati. Eseguirli qui non misurerebbe una fuga, misurerebbe come
+      # si chiama l'utente della macchina di build. Quei due pezzi mordono dove
+      # il commit nasce davvero: sulla postazione, dove `bun run
+      # check:sicurezza` li lancia tutti e quattro, e nei check pre-review, che
+      # eseguono `test:unit` nel worktree dell'agente.
+      #
+      # `segreti` e `dipendenze` invece non dipendono da chi è alla tastiera:
+      # cercano chiavi in chiaro nei file tracciati (forme di chiave, entropia,
+      # `.env` tracciati) e confrontano `bun audit` con
+      # `scripts/sicurezza-baseline.json`. Entrambi sono veloci e senza bundle,
+      # quindi stanno fra i guard rails. `dipendenze` è l'unico passo di questa
+      # fila che tocca la rete: senza registro non stampa verde, esce 2.
+      - name: Il checkout è pubblicabile (segreti in chiaro, avvisi sulle dipendenze)
+        run: bun run check:sicurezza --only=segreti,dipendenze
+
       # `check:sleeps` è l'ultimo di questa fila e conta una cosa sola:
       # `waitForTimeout` sotto `tests/e2e/`. `tests/e2e/CONVENTIONS.md:16` lo
       # vieta da sempre, e il 15/08/2026 ce n'erano 176 per ~151s di attesa a
