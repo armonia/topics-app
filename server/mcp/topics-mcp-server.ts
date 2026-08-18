@@ -232,7 +232,7 @@ const TOOLS = [
   {
     name: "list_tasks",
     description:
-      "List Kanban board tasks for THIS session's project. Optionally filter by status. Pass scope='all' for the flat cross-project feed (each row shows its project). Row ids feed get_task / update_task / comment_task.",
+      "List Kanban board tasks for THIS session's project. Optionally filter by status. Pass scope='all' for the flat cross-project feed (each row shows its project). SUBTASKS ARE INCLUDED: a nested checklist step is listed like any other row, marked `step of=<parent id>` so you can tell it from a card. A step you inherited from a previous attempt on the same task shows up here too, in todo. Row ids feed get_task / update_task / comment_task.",
     inputSchema: {
       type: "object",
       properties: {
@@ -881,6 +881,8 @@ interface TaskRow {
   priority?: number;
   assignedTo?: string;
   assigned_to?: string;
+  parentTaskId?: string | null;
+  parent_task_id?: string | null;
 }
 interface TasksResp { tasks?: TaskRow[] }
 /**
@@ -1331,9 +1333,16 @@ export async function callListTasks(
   const body = await httpJson<TasksResp>(args, "GET", path, undefined, fetchImpl);
   const tasks = Array.isArray(body?.tasks) ? body.tasks : [];
   if (!tasks.length) return "No tasks.";
-  return tasks.map((t: TaskRow) =>
-    `[${t.status}] ${t.text} (id=${t.id} project=${t.projectId ?? t.project_id ?? "?"})`,
-  ).join("\n");
+  // Uno STEP e' gia' in questa lista (la rotta non taglia le radici), ma finora
+  // usciva identico a una card: stesso formato, nessun padre. Un agente che
+  // rilegge la propria checklist dopo un cambio di sessione non poteva
+  // distinguere i propri passi dalle card del board, e li leggeva come lavoro
+  // di qualcun altro. Il padre e' l'unico dato che li separa: si stampa.
+  return tasks.map((t: TaskRow) => {
+    const parent = t.parentTaskId ?? t.parent_task_id ?? null;
+    const meta = `id=${t.id} project=${t.projectId ?? t.project_id ?? "?"}${parent ? ` step of=${parent}` : ""}`;
+    return `[${t.status}] ${t.text} (${meta})`;
+  }).join("\n");
 }
 
 export async function callUpdateTask(

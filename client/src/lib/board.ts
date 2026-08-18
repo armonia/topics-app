@@ -418,6 +418,15 @@ export interface BoardTask {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /**
+   * Esito della sonda server-side sull'output_url.
+   * `'live'` = risponde, `'dead'` = morto, `'unknown'` = mai provata.
+   * `null` = nessun output_url, campo non rilevante.
+   * Il client mostra il link solo su `live`; su `dead` mostra un avviso;
+   * su `unknown` (incluso `null`) tace.
+   */
+  urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
+  urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
   previewImage: string | null;

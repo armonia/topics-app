@@ -32,11 +32,14 @@ import {
 } from "../../server/routes/auth";
 import { PAIRING_CODE_TTL_MS } from "../../server/lib/device-auth";
 import { hashToken, readSessionCookie } from "../../server/lib/device-auth";
-import { TASKS_DDL } from "../../server/db/test-schema";
+import { alterMigrationsAfter, TASKS_DDL } from "../../server/db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql"];
 
+/** Le tabelle che questo file usa: vedi `alterMigrationsAfter`. */
+const TABELLE_QUI = ["orgs", "people", "devices", "grants", "task_shares"];
+const alterazioniSuccessive = (dopo: string) => alterMigrationsAfter(dopo, TABELLE_QUI, RADICE);
 function dbFresco(): Database {
   const db = new Database(":memory:");
   // Le due tabelle a cui le migration si agganciano con una FK, e da cui
@@ -390,7 +393,7 @@ describe("rotte auth · condivisione", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda condivisa','todo', 'p-test', '2026-01-01', '2026-01-01')");
@@ -577,7 +580,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;
@@ -646,7 +649,7 @@ describe("rotte auth · il ruolo DISCENDE dalla persona", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     // La 084 il proprietario lo crea da sé, anche su un database vuoto — e la
@@ -804,7 +807,7 @@ describe("rotte auth · i membri dell'organizzazione", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;
@@ -1044,7 +1047,7 @@ describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda",
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;
@@ -1318,7 +1321,7 @@ describe("rotte auth · la rubrica e il cancello non possono divergere", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda','todo', 'p-test', '2026-01-01', '2026-01-01')");
@@ -1414,7 +1417,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;
