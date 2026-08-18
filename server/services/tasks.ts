@@ -670,7 +670,7 @@ export interface TaskService {
    * archiviato, oppure sta GIÀ chiedendo (è in review: la domanda c'è).
    * Idempotente per costruzione: due giri di dispatch non fanno due domande.
    */
-  askParkedChildren(args: { taskId: string; by?: string }): Task | null;
+  askParkedChildren(args: { taskId: string; by?: string; evenIfLive?: boolean }): Task | null;
   /**
    * LO STESSO GIRO, SULLE CARD GIÀ FERME. `askParkedChildren` si arma su due
    * eventi — un figlio che si ferma, il turno del padre che finisce — e chi si
@@ -883,7 +883,7 @@ export interface TaskService {
    */
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
-  bindTopic(args: { taskId: string; topicId: string }): Task;
+  bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
@@ -929,6 +929,18 @@ export interface TaskService {
      *  niente», ed è una frase che va detta solo quando è vera. */
     stat?: { filesChanged: number; insertions: number; deletions: number } | null;
   }): void;
+  /**
+   * Timbra SOLO il `delivery_branch`, senza toccare commit, diffstat o
+   * landing_state. Usato dal GC (`stampDeliveryBranch`) prima di liberare la
+   * cartella di un worktree: scrive l'unico pezzo che mancherebbe dopo la
+   * rimozione, senza azzerare la testimonianza di una consegna precedente.
+   *
+   * `recordDelivery` con `commit: null` avrebbe azzerato anche il commit e il
+   * diffstat (per progetto: un dato non aggiornato insieme al suo soggetto
+   * mente). Questo setter esiste per il caso in cui non ci sono nuovi dati da
+   * scrivere, solo un indirizzo da conservare.
+   */
+  setDeliveryBranch(taskId: string, branch: string): void;
   /** Esito dei checks pre-review sul task (evidenza per il reviewer). */
   recordChecks(args: {
     taskId: string;
@@ -2060,6 +2072,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * Lo `status` viaggia perché la riga lo scrive: la domanda dice DOVE sono
    * fermi, e «in backlog» su un figlio in todo era una bugia.
    */
+  /**
+   * IL PADRE HA UN TURNO ADDOSSO ADESSO?
+   *
+   * Il predicato esisteva gia', ma solo dentro `parkedChildRaisedStall`, che e'
+   * uno dei TRE punti che devono conoscerlo: il rastrello lo riscrive come
+   * esclusione SQL (`status NOT IN (... 'in_progress')`), e `childLeftFlight`
+   * non lo aveva affatto. Tre copie di cui una mancante e' il modo esatto in
+   * cui il 18/08 tre card dispacciate sono finite in review al PRIMO turno:
+   * l'agente creava la sua checklist, spuntava il primo passo, e nel momento in
+   * cui quel figlio usciva dal volo `childLeftFlight` chiamava
+   * `askParkedChildren` — che sposta la card — mentre il turno era vivo.
+   * Sessione con DUE messaggi, zero commit, e una domanda di contabilita' in
+   * cima alla colonna di review.
+   *
+   * Sta qui perche' qui lo legge chi SPOSTA la card, che e' la regola che il
+   * rastrello dichiara gia' («questa query stringe il campo, poi
+   * `askParkedChildren` applica le sue guardie una per una»).
+   */
+  function hasLiveTurn(row: { status: string; dispatch_state?: string | null }): boolean {
+    return row.status === "in_progress"
+      || row.dispatch_state === "working"
+      || row.dispatch_state === "starting";
+  }
+
   function parkedChildren(taskId: string): Array<{ id: string; text: string; status: string }> {
     return db.prepare(
       "SELECT id, text, status FROM tasks WHERE parent_task_id = ? AND archived = 0" +
@@ -2086,9 +2122,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const parent = getTaskRow(parentId);
       if (!parent || parent.archived === 1 || parent.status === "done") return;
       if (!hasActiveChildren(parentId) || hasChildrenInFlight(parentId)) return;
-      const live = parent.status === "in_progress"
-        || parent.dispatch_state === "working" || parent.dispatch_state === "starting";
-      if (!live) { svc.askParkedChildren({ taskId: parentId, by }); return; }
+      if (!hasLiveTurn(parent)) { svc.askParkedChildren({ taskId: parentId, by }); return; }
       const child = getTaskRow(childId);
       const titolo = child?.text ? `«${child.text}»` : "un sottotask";
       // La COLONNA non si nomina: un figlio in `todo` è fermo quanto uno in
@@ -3662,7 +3696,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `dispatch_error` la nascondeva nel drawer di una card in fondo alla
       // colonna del riposo: misurate il 12/08 cinque card ferme così, e nessuna
       // lo diceva a nessuno. `askParkedChildren` la porta in review coi bottoni.
-      const domanda = this.askParkedChildren({ taskId, by: "dispatcher" });
+      // `evenIfLive`: qui il turno E' finito — questa funzione la chiama chi lo
+      // sta chiudendo — quindi la guardia sul padre vivo non deve mordere.
+      const domanda = this.askParkedChildren({ taskId, by: "dispatcher", evenIfLive: true });
       if (domanda) return domanda;
       if (hasActiveChildren(taskId)) {
         // Il tentativo si RESTITUISCE: il turno non è finito per colpa del
@@ -3719,13 +3755,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    askParkedChildren({ taskId, by }): Task | null {
+    askParkedChildren({ taskId, by, evenIfLive }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) return null;
       // Una card chiusa o archiviata non ha domande da fare; una GIÀ in review la
       // sta già facendo, e rifarla a ogni giro sarebbe il rumore che spegne le
       // domande vere.
       if (row.archived === 1 || row.status === "done" || row.status === "review") return null;
+      // IL PADRE STA LAVORANDO: la domanda non si fa adesso.
+      //
+      // Spostare in review una card con un turno vivo gli taglia il turno sotto
+      // i piedi — lo dice gia' la docstring di `parkedChildRaisedStall`, che per
+      // questo la guardia ce l'aveva. Mancava qui, cioe' nell'unico punto che la
+      // card la MUOVE davvero, e `childLeftFlight` ci arrivava senza nessuna
+      // protezione: bastava che l'agente spuntasse il primo passo della propria
+      // checklist perche' la sua card finisse in review a turno in corso.
+      // La domanda non si perde: la fa `deliverToReviewBySystem` a fine turno,
+      // che passa `evenIfLive` proprio perche' li' il turno e' finito per
+      // davvero. Fra minuti, non fra giorni.
+      if (!evenIfLive && hasLiveTurn(row)) return null;
       if (!hasActiveChildren(taskId) || hasChildrenInFlight(taskId)) return null;
       const parked = parkedChildren(taskId);
       if (parked.length === 0) return null;
@@ -3911,11 +3959,43 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return { task, children };
     },
 
-    bindTopic({ taskId, topicId }): Task {
+    bindTopic({ taskId, topicId, freshSession }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-      db.prepare("UPDATE tasks SET assigned_topic_id = ?, chat_id = ?, updated_at = ? WHERE id = ?")
-        .run(topicId, topicId, now(), taskId);
+      // UNA SESSIONE NUOVA E' UN TENTATIVO NUOVO, e il budget riparte da zero.
+      //
+      // `dispatch_attempts` conta i turni di UN tentativo — e' il freno contro
+      // un agente che gira in tondo dentro la stessa conversazione. Fra un
+      // dispatch e l'altro, invece, il contatore restava: la card ripartiva su
+      // una sessione VERGINE con il budget gia' speso, quindi moriva al primo
+      // turno annunciando di averne fatti quattro.
+      //
+      // Misurato il 18/08 su `eef64e32`: tre dispatch, tre topic diversi
+      // (`groovy-frond`, `stellar-weasel`, `stellar-geyser`), e al terzo la
+      // sessione aveva DUE messaggi mentre la card scriveva «L'agent ha
+      // lavorato 4 turni». Un ciclo che non poteva chiudersi: ogni giro
+      // ricominciava il piano e non arrivava mai a lavorarlo.
+      //
+      // E' la stessa regola che le due uscite UMANE applicano gia', con la
+      // stessa ragione scritta accanto (`reviewDecision` rifiuto,
+      // `resolveParkedChildren`): «il mandato e' NUOVO, quindi il budget dei
+      // tentativi riparte da zero. Senza, il padre tornerebbe in coda gia'
+      // esaurito e non lo reclamerebbe piu' nessuno».
+      //
+      // Il freno NON si allenta: se la sessione e' la STESSA — una ripresa, una
+      // continuazione — il contatore resta dov'e', ed e' li' che serve.
+      // `freshSession` lo DICE chi lo sa: il dispatcher, che ha appena creato
+      // il topic invece di riusarne uno. Dedurlo da «il topic e' cambiato» non
+      // funziona — fra un tentativo e l'altro `release` azzera il legame, e il
+      // primo attacco di OGNI tentativo sarebbe `null -> topic`, cioe' anche
+      // quello che la rivendicazione ha appena contato.
+      //
+      // `1` e non `0`: questo turno e' il PRIMO della sessione nuova, e conta.
+      db.prepare(
+        "UPDATE tasks SET assigned_topic_id = ?, chat_id = ?" +
+          (freshSession ? ", dispatch_attempts = 1" : "") +
+          ", updated_at = ? WHERE id = ?",
+      ).run(topicId, topicId, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -4137,6 +4217,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         stat?.filesChanged ?? null, stat?.insertions ?? null, stat?.deletions ?? null,
         taskId,
       );
+    },
+
+    setDeliveryBranch(taskId: string, branch: string): void {
+      // Scrive SOLO delivery_branch, senza toccare commit, diffstat o
+      // landing_state. L'invariante di recordDelivery (un dato non aggiornato
+      // insieme al suo soggetto mente) non si applica qui: non ci sono nuovi
+      // dati da scrivere, solo un indirizzo da conservare prima che la cartella
+      // sparisca. Toccare commit/diffstat/landing_state sarebbe distruttivo.
+      db.prepare("UPDATE tasks SET delivery_branch = ? WHERE id = ?").run(branch, taskId);
     },
 
     listLandingAuditCandidates() {

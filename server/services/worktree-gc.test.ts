@@ -117,6 +117,27 @@ describe("decidePostLandReap — verify before destroy", () => {
     expect(d.reason).toContain("non committate");
   });
 
+  // BUG-PRINCIPALE: git status esce non-zero (index.lock presente, fs non risponde).
+  // La sonda fallisce APERTA: dirtAfter=[] viene letto come «pulito» e il worktree
+  // viene potato — esattamente il momento in cui contiene l'unica copia del lavoro.
+  // Con dirtReadable:false il guard deve fermarsi (keep), non distruggere.
+  test("sonda illeggibile (dirtReadable:false) → keep, anche con dirtAfter vuoto", () => {
+    const d = decidePostLandReap({ ...base, dirtReadable: false });
+    expect(d.action).toBe("keep");
+    expect(d.reason).toContain("illeggibile");
+  });
+
+  test("sonda illeggibile batte un land 'landed': illeggibile != pulito", () => {
+    const d = decidePostLandReap({ ...base, outcome: "landed", branchAfter: "merged", dirtReadable: false });
+    expect(d.action).toBe("keep");
+    expect(d.action).not.toBe("reap");
+  });
+
+  test("sonda leggibile e albero pulito → reap (il caso normale deve continuare)", () => {
+    const d = decidePostLandReap({ ...base, dirtReadable: true });
+    expect(d.action).toBe("reap");
+  });
+
   for (const outcome of ["conflict", "skipped"] as const) {
     // Il land non è avvenuto: i commit vivono solo sul branch, che non si tocca.
     // La cartella invece è ridondante, e da `03ca44c3` questo è il caso NORMALE
