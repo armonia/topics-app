@@ -4,7 +4,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -78,6 +78,30 @@ function hostLabel(url: string): string {
  * reviewer scopriva solo aprendo il diff che non c'era niente da vedere. Sta
  * SOPRA i bottoni perché cambia la decisione, non a fondo pagina come una nota.
  */
+/**
+ * Badge sull'esito della sonda sull'output_url.
+ *
+ * Tre stati, tre comportamenti:
+ *   live    - silenzio (il link funziona, non serve avvertire)
+ *   dead    - avviso rosso; il link NON compare (vedere useEffect sotto)
+ *   unknown - silenzio (mai sondata, non sappiamo se funziona)
+ *
+ * Render solo in review e solo se c'è un output_url.
+ */
+function OutputUrlProbeNotice({ task }: { task: BoardTask }) {
+  if (!task.outputUrl || task.urlProbeStatus !== 'dead') return null;
+  return (
+    <div className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300">
+      <WifiOff className="mt-px h-3 w-3 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="font-medium">Anteprima non raggiungibile.</span>{' '}
+        Il server su {task.outputUrl} non risponde: il link non viene aperto automaticamente.
+        Se il server di sviluppo e' spento, usa lo screenshot come evidenza.
+      </span>
+    </div>
+  );
+}
+
 function SystemDeliveryNotice({ task }: { task: BoardTask }) {
   const tr = useT();
   if (task.deliveredBy !== 'system') return null;
@@ -1326,9 +1350,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         .filter((t) => !!t.url)
         .map((t) => ({ url: t.url, contextId: workspaceTwinContextId(t.contextId) }));
     }
-    const seed = task?.outputUrl;
+    // Non usare un output_url morto come seme del workspace: stessa logica dell'useEffect.
+    const seed = task?.outputUrl && task?.urlProbeStatus !== 'dead' ? task.outputUrl : null;
     return seed ? [{ url: seed, contextId: task?.assignedTopicId || `task-${task?.id}` }] : [];
-  }, [liveTaskTabs, task?.outputUrl, task?.assignedTopicId, task?.id]);
+  }, [liveTaskTabs, task?.outputUrl, task?.urlProbeStatus, task?.assignedTopicId, task?.id]);
 
   const openInWorkspace = useCallback(() => { promoteToWorkspace(workspaceManifest); }, [promoteToWorkspace, workspaceManifest]);
 
@@ -1741,9 +1766,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // default ("Browser") until the page loads, then the page's OWN title (auto).
   useEffect(() => {
     if (!task?.outputUrl) return;
+    // Non seminare la tab quando la sonda dice che il server e' spento:
+    // aprire una pagina morta e' peggio dell'assenza perche' promette e non mantiene.
+    // `unknown` (mai sondata) -> lasciamo passare (conservativo: potrebbe essere viva).
+    if (task.urlProbeStatus === 'dead') return;
     void browser.seedFromUrl(task.outputUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seedFromUrl is stable per taskId; refire only when the output_url changes
-  }, [task?.outputUrl]);
+  }, [task?.outputUrl, task?.urlProbeStatus]);
 
   const doneCount = children.filter((c) => c.status === 'done').length;
 
@@ -2703,6 +2732,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {/* L'evidenza sta ATTACCATA alla decisione: il gate rifiuta un
                     approve coi checks rossi, e scoprirlo da un 409 dopo il click
                     sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
+                <OutputUrlProbeNotice task={task} />
                 <SystemDeliveryNotice task={task} />
                 <ChecksSection task={task} />
                 {/* Le parole e QUALE dei tre è il verde: dalla card, non da

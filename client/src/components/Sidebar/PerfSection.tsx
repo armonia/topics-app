@@ -2,6 +2,7 @@ import { Activity, Cpu, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import { computeTopicsFootprint } from '@/lib/topicsFootprint';
 import { useT } from '@/hooks/useT';
 
 const SPARK_W = 288;
@@ -96,22 +97,27 @@ export function PerfSection() {
   // processes (Windows/Linux); on macOS these figures now cover the whole app.
   // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
   // shell gets a payload without `memory`, so guard the whole block.
-  const serverMemMB = status?.server.memoryMB ?? null;
-  // The server side is not one process: the pty-bridge tree (claude CLIs, MCP
-  // servers, headless Chromes), the ai-bridge and the WebRTC sidecar are all
-  // launchd-reparented children of the server that the shell's attribution set
-  // can't see. `fleet` is that whole set, summed from `ps rss`; `serverMemMB`
-  // (the Bun process alone) is the fallback where `ps` isn't usable.
   const fleet = status?.server.fleet;
-  const serverSideMemMB = fleet?.memoryMB ?? serverMemMB;
-  const serverSideProcs = fleet?.processCount ?? 1;
   const mem = perf?.memory ?? null;
   const isPartial = perf?.partial ?? false;
-  // Shell footprint + server-side RSS. Different metrics, shown as one headline
-  // because the question it answers ("quanto costa Topics?") has one answer; the
-  // tiles below split it back apart and the tooltips name each metric.
-  const totalMemMB = mem ? mem.totalMB + (serverSideMemMB ?? 0) : serverSideMemMB;
-  const memLabel = mem?.metric === 'footprint' ? 'footprint' : 'RSS';
+
+  // Calcolatore unico: combina shell + server con EMA per smorzare le oscillazioni.
+  // Usa computeTopicsFootprint invece di sommare direttamente qui.
+  const footprint = computeTopicsFootprint(
+    mem?.totalMB ?? null,
+    mem?.processCount ?? 0,
+    isPartial,
+    fleet?.memoryMB ?? (status?.server.memoryMB ?? 0),
+    fleet?.processCount ?? 1,
+    fleet?.memMetric ?? 'rss',
+    fleet?.scriptsMB ?? 0,
+    fleet?.scriptsProcessCount ?? 0,
+  );
+
+  const totalMemMB = footprint.totalMB > 0 ? footprint.totalMB : null;
+  const serverSideMemMB = footprint.serverMB;
+  const serverSideProcs = footprint.serverProcessCount;
+
   const serverSideTitle = fleet
     ? tr('perf.serverTitleFleet', { n: fleet.processCount })
       + fleet.roots
@@ -185,7 +191,7 @@ export function PerfSection() {
           className="flex items-center justify-between px-0.5"
           title={[
             isPartial ? tr('perf.memShellTitle')
-              : memLabel === 'footprint' ? tr('perf.memFootprintTitle', { n: mem?.processCount ?? '?' })
+              : footprint.serverMetric === 'footprint' ? tr('perf.memFootprintTitle', { n: mem?.processCount ?? '?' })
               : tr('perf.memRssTitle'),
             serverSideTitle,
             !isPartial && mem ? tr('perf.residentInline', { mb: mem.residentMB }) : null,
