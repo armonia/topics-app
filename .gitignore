@@ -253,6 +253,13 @@ ui-state-backups/
 # ai-bridge broker store (ephemeral NDJSON session buffers)
 ai-bridge/
 
+# bench/results/ai-latency-latest.json e' un puntatore «ultimo run» rigenerato
+# a ogni passata con E2E_BENCH=1: non porta informazione che i file datati non
+# abbiano gia', e tracciarlo sporcava il checkout dopo ogni run E2E normale.
+# I file datati (ai-latency-darwin-YYYY-MM-DD.json) restano tracciati: sono la
+# memoria storica delle misure, confrontabili nel tempo.
+bench/results/ai-latency-latest.json
+
 # L'identificativo di QUESTA installazione. Lo genera il server al primo avvio e
 # vive in STATE_DIR — che sotto launchd è la radice del repo, ed è il motivo per
 # cui compare qui. Ci si lega la LICENZA (un gettone coniato per un'altra
