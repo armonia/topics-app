@@ -179,6 +179,16 @@ export interface Task {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /**
+   * Esito dell'ultima sonda server-side sull'output_url.
+   * - `'live'`    : la sonda ha risposto 2xx/3xx
+   * - `'dead'`    : la sonda non risponde o risponde 4xx/5xx
+   * - `'unknown'` : sonda mai eseguita (default dopo la migration)
+   * `null` = nessun output_url, campo non rilevante.
+   */
+  urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
+  /** Timestamp dell'ultima sonda (ISO string). */
+  urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
@@ -936,6 +946,11 @@ export interface TaskService {
   setDispatchWeight(args: { taskId: string; weight: TaskWeight | null }): Task;
   /** Toglie l'anteprima e scrive sulla card PERCHÉ (stato, non messaggio). */
   retirePreview(args: { taskId: string; reason: string }): Task;
+  /**
+   * Scrive l'esito della sonda sull'output_url.
+   * Chiamato dal background probe trigger dopo ogni sonda HTTP.
+   */
+  setUrlProbeStatus(args: { taskId: string; status: 'live' | 'dead' | 'unknown'; checkedAt: string }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
@@ -1922,6 +1937,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
+      urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
+      urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
@@ -4201,6 +4218,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
       ).run(now(), reason.trim() || null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setUrlProbeStatus({ taskId, status, checkedAt }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare(
+        "UPDATE tasks SET url_probe_status = ?, url_probe_checked_at = ?, updated_at = ? WHERE id = ?",
+      ).run(status, checkedAt, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 

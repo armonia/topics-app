@@ -107,7 +107,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   delivery_insertions INTEGER,
   delivery_deletions INTEGER,
   -- 20260816214500: da quando la card aspetta una risposta umana.
-  review_at TEXT
+  review_at TEXT,
+  -- 20260818164410: esito sonda server-side sull'output_url (live/dead/unknown).
+  url_probe_status TEXT CHECK (url_probe_status IN ('live', 'dead', 'unknown')) DEFAULT NULL,
+  url_probe_checked_at TEXT DEFAULT NULL
 )`;
 
 /**

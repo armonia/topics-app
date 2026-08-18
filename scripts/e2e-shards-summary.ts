@@ -22,6 +22,8 @@ type Spec = {
   tests: Array<{
     status: string; // "expected" | "unexpected" | "flaky" | "skipped"
     results: Array<{ error?: { message?: string } }>;
+    /** Dove Playwright mette il motivo di `test.skip(cond, "perche'")`. */
+    annotations?: Array<{ type?: string; description?: string }>;
   }>;
 };
 type Suite = { specs?: Spec[]; suites?: Suite[] };
@@ -34,6 +36,19 @@ function collectSpecs(suite: Suite, out: Spec[] = []): Spec[] {
 
 const failures: Array<{ shard: number; spec: Spec; message: string }> = [];
 const flaky: Array<{ shard: number; spec: Spec }> = [];
+/**
+ * I SALTATI, CON IL LORO MOTIVO.
+ *
+ * Un `skipped` contato e basta e' la stessa bugia di uno shard morto, in
+ * piccolo: la riga finale resta verde mentre un pezzo di suite non ha girato, e
+ * nessuno sa che cosa manchi. Misurato il 18/08/2026: due test della dettatura
+ * col microfono vero saltavano perche' l'unica chiave STT del server di test
+ * risponde 401, e dal riepilogo si leggeva soltanto «2 skippati».
+ *
+ * Il motivo lo scrive gia' chi salta — `test.skip(cond, "perche'")` finisce
+ * nelle annotazioni del report. Qui si limita a NON buttarlo via.
+ */
+const skips: Array<{ shard: number; spec: Spec; why: string }> = [];
 /**
  * Shard che NON hanno prodotto un verdetto: results.json assente, zero spec
  * eseguite, o un errore a livello di report (globalSetup che esplode, un modulo
@@ -85,6 +100,11 @@ for (let i = 1; i <= shards; i++) {
           passed++;
         } else if (test.status === "skipped") {
           skipped++;
+          const why = (test.annotations ?? [])
+            .filter((a) => a.type === "skip" || a.type === "fixme")
+            .map((a) => a.description)
+            .find((d) => !!d);
+          skips.push({ shard: i, spec, why: why ?? "(nessun motivo dichiarato)" });
         } else {
           passed++;
         }
@@ -127,6 +147,22 @@ if (brokenShards.length) {
     `\n  Conteggi parziali (${reporting}/${shards} shard): ${passed} passati, ` +
       `${failures.length} falliti, ${flaky.length} flaky, ${skipped} skippati`,
   );
+}
+
+if (skips.length) {
+  console.log("\nSALTATI (non hanno girato — il motivo lo dice il test stesso):");
+  // Raggruppati per motivo: quasi sempre e' UNA causa d'ambiente che ne ferma
+  // parecchi, e vederla una volta sola dice subito che cosa manca su questa
+  // macchina invece di far leggere N righe uguali.
+  const perMotivo = new Map<string, typeof skips>();
+  for (const s of skips) {
+    if (!perMotivo.has(s.why)) perMotivo.set(s.why, []);
+    perMotivo.get(s.why)!.push(s);
+  }
+  for (const [why, list] of [...perMotivo.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    console.log(`  ${list.length}× ${why}`);
+    for (const s of list) console.log(`      · ${s.spec.file}:${s.spec.line} — ${s.spec.title}`);
+  }
 }
 
 if (flaky.length) {
