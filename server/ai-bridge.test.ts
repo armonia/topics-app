@@ -279,6 +279,11 @@ describe("ai-bridge replay a fette", () => {
 // silently — the monitor tested `process.ppid === 1`, which Bun never updates
 // after reparenting — and abandoned daemons piled up for days.
 describe("ai-bridge orphan monitor", () => {
+  // Shrink the monitor tick so tests don't sit through the real 5s production
+  // interval. Production never sets TOPICS_AI_BRIDGE_MONITOR_TICK_MS.
+  const MONITOR_TICK_MS = 500;
+  const FAST_ENV = { TOPICS_AI_BRIDGE_MONITOR_TICK_MS: String(MONITOR_TICK_MS) };
+
   /** Poll until `pred` holds or the deadline passes. */
   async function until(pred: () => boolean, timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
@@ -300,21 +305,21 @@ describe("ai-bridge orphan monitor", () => {
     const orphan = Bun.spawn(
       [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
         "--socket", sock, "--store-dir", store, "--parent-pid", String(deadPid)],
-      { stdout: "ignore", stderr: "ignore", env: { ...process.env, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000" } },
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...FAST_ENV, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000" } },
     );
     try {
       expect(await until(() => existsSync(sock), 10_000)).toBe(true);
-      // Monitor ticks every 5s, then a 1s grace: 20s is ample headroom.
+      // Monitor ticks at MONITOR_TICK_MS, then a 1s grace: 8s is ample headroom.
       let exited = false;
       void orphan.exited.then(() => { exited = true; });
-      expect(await until(() => exited, 20_000)).toBe(true);
+      expect(await until(() => exited, 8_000)).toBe(true);
       // A clean shutdown() unlinks its socket; a stale one would strand it.
       expect(existsSync(sock)).toBe(false);
     } finally {
       try { orphan.kill(); } catch { /* already gone — that's the pass case */ }
       try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
     }
-  }, 40_000);
+  }, 20_000);
 
   test("a probe that connects and closes does NOT renew the orphan's lease", async () => {
     // How the immortal daemons survived. Every bridge that tries to be born runs
@@ -333,6 +338,7 @@ describe("ai-bridge orphan monitor", () => {
         "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
       { stdout: "ignore", stderr: "ignore", env: {
         ...process.env,
+        ...FAST_ENV,
         TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000",
         // A real probe lasts ~1s (connect → ping → pong → close); the threshold
         // sits above it, so the probes below never count as a server.
@@ -354,14 +360,16 @@ describe("ai-bridge orphan monitor", () => {
         probe.on("error", () => { /* il ponte se n'è andato: è il caso di successo */ });
         setTimeout(() => { open.delete(probe); probe.destroy(); }, 1_000).unref();
       }, 800);
-      expect(await until(() => exited, 35_000)).toBe(true);
+      // With MONITOR_TICK_MS=500ms, ORPHAN_GRACE_MS=1s, and one REAL_CLIENT_MS*2
+      // extension: at most ~8s total.
+      expect(await until(() => exited, 15_000)).toBe(true);
     } finally {
       if (probing) clearInterval(probing);
       for (const p of open) { try { p.destroy(); } catch { /* già chiuso */ } }
       try { orphan.kill(); } catch { /* already gone — that's the pass case */ }
       try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
     }
-  }, 60_000);
+  }, 25_000);
 
   test("a daemon with a LIVE parent stays up", async () => {
     const sock = join(tmpdir(), `ai-bridge-live-${process.pid}.sock`);
@@ -370,18 +378,18 @@ describe("ai-bridge orphan monitor", () => {
     const daemon2 = Bun.spawn(
       [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
         "--socket", sock, "--store-dir", store, "--parent-pid", String(process.pid)],
-      { stdout: "ignore", stderr: "ignore", env: { ...process.env, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000" } },
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...FAST_ENV, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000" } },
     );
     try {
       expect(await until(() => existsSync(sock), 10_000)).toBe(true);
       let exited = false;
       void daemon2.exited.then(() => { exited = true; });
-      // Well past two monitor ticks + grace: it must still be there.
-      await new Promise((r) => setTimeout(r, 12_000));
+      // With MONITOR_TICK_MS=500ms: well past several ticks + grace — still there.
+      await new Promise((r) => setTimeout(r, 3_000));
       expect(exited).toBe(false);
     } finally {
       try { daemon2.kill(); } catch { /* ignore */ }
       try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
     }
-  }, 40_000);
+  }, 15_000);
 });
