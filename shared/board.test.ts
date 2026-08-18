@@ -16,12 +16,41 @@ import {
   parseQuestionBlock,
   parseStatusEvent,
   pendingQuestion,
+  projectIdForPath,
   questionAsksHuman,
   showsLandingDebt,
   statusEventEnters,
   type BlockerRef,
   type QueueReason,
 } from "./board";
+
+/**
+ * L'identita' della board: unica copia, tre lati del filo.
+ *
+ * Fino al 18/08 la funzione esisteva in 49 copie indipendenti: il servizio,
+ * una closure in routes/topics.ts, il client, 45 spec E2E e il bench di
+ * concorrenza. Ora vive qui. Questo test e' la prova che non si tratta di un
+ * alias silenzioso verso un algoritmo derivato: il vettore inchiodato
+ * `/x/proj` -> `proj-xwac8t` e' lo stesso che gia' passava in tasks.test.ts,
+ * board.test.ts (client) e routes/tasks.test.ts, ora al posto canonico, quello
+ * da cui gli altri importano.
+ */
+describe("projectIdForPath", () => {
+  test("formato: basename-dir + 6 cifre base36, deterministico", () => {
+    const a = projectIdForPath("/Users/utente/Projects/topics-app");
+    expect(a).toBe(projectIdForPath("/Users/utente/Projects/topics-app"));
+    expect(a.startsWith("topics-app-")).toBe(true);
+    expect(a.slice("topics-app-".length)).toMatch(/^[0-9a-z]{1,6}$/);
+  });
+
+  test("vettore inchiodato: /x/proj -> proj-xwac8t (qualunque copia che deriva nega questo)", () => {
+    expect(projectIdForPath("/x/proj")).toBe("proj-xwac8t");
+  });
+
+  test("slash finale cambia l'hash (topic.projectPath e' normalizzato, non morde)", () => {
+    expect(projectIdForPath("/x/proj")).not.toBe(projectIdForPath("/x/proj/"));
+  });
+});
 
 /**
  * Il formato dell'evento di stato ha UN writer e UN parser, perché lo leggono in

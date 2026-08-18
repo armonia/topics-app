@@ -2,10 +2,10 @@
  * board.ts — client API + types for the Kanban board (human surface).
  *
  * Talks to the project-scoped `/api/boards/:projectId/...` endpoints
- * (server/routes/tasks.ts, actor="human"). Self-contained (its own fetch
- * wrapper + a pure `boardIdForPath`) so it carries no coupling to the rest of
- * lib/api.ts. The AGENT surface (`/api/sessions/...`) is driven by MCP, not
- * from here.
+ * (server/routes/tasks.ts, actor="human"). Porta il proprio fetch wrapper, così
+ * non si accoppia al resto di lib/api.ts; il contratto e l'identità della board
+ * arrivano invece da `shared/board.ts`. The AGENT surface (`/api/sessions/...`)
+ * is driven by MCP, not from here.
  */
 
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
@@ -516,20 +516,13 @@ export interface TaskWithThread {
 /**
  * Derive the board `projectId` from an absolute project path.
  *
- * BYTE-IDENTICAL to the server (server/services/tasks.ts:projectIdForPath ⇔
- * routes/topics.ts:getProjectIdForTopic). A parity test locks the exact output;
- * do NOT change the hash without updating all three copies.
+ * Stessa dichiarazione del server, non una gemella: `boardIdForPath` è il nome
+ * con cui il client la conosce (`TopicTree`, `KanbanBoardPane`), ma la funzione
+ * è quella di `shared/board.ts`. Il test di parità qui accanto resta: adesso
+ * misura che l'alias punti ancora al vettore giusto, non che due copie siano
+ * ancora d'accordo.
  */
-export function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, '').split('/');
-  const dirName = parts[parts.length - 1] || 'project';
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
-}
+export { projectIdForPath as boardIdForPath } from '../../../shared/board';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`/api${path}`, {
