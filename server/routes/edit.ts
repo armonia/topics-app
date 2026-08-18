@@ -2,6 +2,7 @@ import type { AppContext, RouteHandler, Topic } from "../types";
 import type { AIProvider, ChatMessage } from "../providers";
 import { adaptEnvelope, assembleTopicContext } from "../context";
 import { autoreDaIdentita } from "../lib/message-author";
+import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -22,6 +23,7 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
     json, readJSON, matchRoute, getMessageById, getMessageSessionKey, createBranchMessage,
     getTopicBySessionKey, loadActiveThread, broadcastToAll, broadcastToTopicSubscribers,
     createBranchPartialMessage, startStream, updateLastMessage, endStream, updateStreamContent, isStreaming,
+    addToolCallToLastMessage, updateToolCallResult,
   } = ctx;
   const { resolveProvider, updateUnreadCount } = deps;
 
@@ -123,11 +125,6 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
       const originalBody = resp.body!;
-      let fullContent = "";
-      let fullThinking = "";
-      let isInThinking = false;
-      let chunkCount = 0;
-      let lastSaveChunk = 0;
       const SAVE_INTERVAL = 10;
 
       const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -143,127 +140,53 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         try { await writer.close(); } catch { clientDisconnected = true; }
       };
 
-      const processLine = (line: string) => {
-        if (!line.startsWith("data: ")) return;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") {
-          // Stesso guard di chat.ts (CHAT-REL-01): una risposta vuota si DICE.
-          // Senza, la Rigenera finalizzava una bolla assistant vuota e
-          // l'utente vedeva sparire il messaggio senza sapere perche'.
-          if (!fullContent.trim()) {
-            fullContent = "⚠️ No response received. The AI service may be overloaded. Please try again.";
-            console.warn(`[Stream:Edit] Empty response for ${sessionKey} — surfacing error to client`);
-          }
-          updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-          endStream(sessionKey);
-          if (matchedTopic) {
-            broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-            updateUnreadCount(matchedTopic.id);
-          }
-          return;
-        }
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta;
-          if (delta?.content) {
-            const content = delta.content;
-            if (content.includes('<thinking>')) { isInThinking = true; broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
-            if (content.includes('</thinking>')) { isInThinking = false; broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
-            if (isInThinking) {
-              const cleaned = content.replace(/<\/?thinking>/g, '');
-              fullThinking += cleaned;
-              const tc = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned };
-              if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, tc);
-              else broadcastToAll(tc);
-            } else {
-              const cleaned = content.replace(/<\/?thinking>/g, '');
-              if (cleaned) {
-                fullContent += cleaned;
-                const cc = { type: "stream:content_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned };
-                if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cc);
-                else broadcastToAll(cc);
-              }
-            }
-            chunkCount++;
-            updateStreamContent(sessionKey, fullContent, fullThinking);
-            if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) {
-              lastSaveChunk = chunkCount;
-              updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined });
-            }
-          }
-        } catch {}
-      };
+      const encoder = new TextEncoder();
+      const contentRef = { value: "" };
+      const thinkingRef = { value: "" };
+      const inThinkingRef = { value: false };
+      const chunkCountRef = { value: 0 };
 
-      const consumeGateway = async () => {
-        const reader = originalBody.getReader();
-        const onAbort = () => reader.cancel();
-        abortController.signal.addEventListener("abort", onAbort, { once: true });
-        const decoder = new TextDecoder();
-        let sseBuffer = "";
-        // Inactivity timeout (60s per chunk) — mirrors chat.ts consumeGateway.
-        // Without it a gateway that stalls mid-stream (partial data then silence
-        // without closing the socket) leaves reader.read() blocked forever:
-        // isStreaming stays true, the partial message never finalizes, and
-        // stream:end never broadcasts. The abort flows through to the finally.
-        const INACTIVITY_TIMEOUT_MS = 60000;
-        let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-        const resetInactivityTimer = () => {
-          if (inactivityTimer) clearTimeout(inactivityTimer);
-          inactivityTimer = setTimeout(() => {
-            console.warn(`[Stream:Edit] Inactivity timeout (${INACTIVITY_TIMEOUT_MS / 1000}s) for ${sessionKey}`);
-            abortController.abort();
-          }, INACTIVITY_TIMEOUT_MS);
-        };
-        resetInactivityTimer();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            resetInactivityTimer();
-            await forwardToClient(value);
-            sseBuffer += decoder.decode(value, { stream: true });
-            const lines = sseBuffer.split("\n");
-            sseBuffer = lines.pop() || "";
-            for (const line of lines) processLine(line);
-          }
-          if (sseBuffer.trim()) processLine(sseBuffer);
-        } catch (err: any) {
-          // Prima qui c'era SOLO questo console.warn, e il `finally` qui sotto
-          // persisteva comunque `fullContent` cosi' com'era: con un gateway
-          // che si pianta a meta' (o non risponde affatto) la Rigenera
-          // salvava una bolla assistant VUOTA e chiudeva lo stream senza un
-          // segno. L'utente vedeva il messaggio svuotarsi e basta.
-          //
-          // Stessa gestione di chat.ts (CHAT-REL-02): si compone il motivo, lo
-          // si mette nel contenuto persistito, e lo si manda anche sul canale
-          // SSE — dietro `clientDisconnected`, perche' scrivere su un client
-          // gia' andato via rilancia.
-          const isAbort = err?.name === "AbortError" || abortController.signal.aborted;
-          const errorMsg = isAbort
-            ? "⚠️ Response timed out. Please try again."
-            : "⚠️ Connection lost during response. Please try again.";
-          console.warn(`[Stream:Edit] Gateway read error for ${sessionKey}:`, err?.message || err);
-          if (!fullContent.trim()) fullContent = errorMsg;
-          else fullContent += `\n\n---\n*${errorMsg}*`;
+      const { consumeGateway } = makeGatewaySseProcessor({
+        sessionKey,
+        matchedTopic,
+        partialMsgId: partialMsg.id,
+        contentRef,
+        thinkingRef,
+        inThinkingRef,
+        chunkCountRef,
+        forwardToClient,
+        closeClient,
+        isClientDisconnected: () => clientDisconnected,
+        encoder,
+        writeExtra: (payload: string) => {
           if (!clientDisconnected) {
-            const errPayload = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `\n\n${errorMsg}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-            try { await writer.write(new TextEncoder().encode(errPayload)); } catch { clientDisconnected = true; }
+            try { writer.write(encoder.encode(payload)); } catch { clientDisconnected = true; }
           }
-        } finally {
-          if (inactivityTimer) clearTimeout(inactivityTimer);
-          abortController.signal.removeEventListener("abort", onAbort);
-          reader.releaseLock();
-          await closeClient();
-          if (isStreaming(sessionKey)) {
-            updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-            endStream(sessionKey);
-            broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-            if (matchedTopic) updateUnreadCount(matchedTopic.id);
-          }
-        }
-      };
+        },
+        broadcastToAll,
+        broadcastToTopicSubscribers,
+        updateStreamContent,
+        updateLastMessage,
+        endStream,
+        isStreaming,
+        addToolCallToLastMessage,
+        updateToolCallResult: (sk, id, result) => updateToolCallResult(sk, id, result),
+        saveInterval: SAVE_INTERVAL,
+        onDone: (msgId: string) => {
+          // edit.ts-specific: broadcast stream:end and update unread count
+          broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: msgId });
+          if (matchedTopic) updateUnreadCount(matchedTopic.id);
+        },
+        onStreamEnd: () => {
+          // edit.ts-specific: update unread count for the topic (abrupt end,
+          // stream:end already broadcast by the shared module's finally block).
+          if (matchedTopic) updateUnreadCount(matchedTopic.id);
+        },
+        logTag: "[Stream:Edit]",
+        abortController,
+      });
 
-      consumeGateway().catch(err => console.error('[consumeGateway:edit] error:', err));
+      consumeGateway(originalBody).catch(err => console.error('[consumeGateway:edit] error:', err));
 
       return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
     } catch (err: any) {
