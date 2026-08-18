@@ -183,10 +183,56 @@ export function isServiceComment(c: ThreadComment): boolean {
   return isMarkedService(c) || isLegacyDispatcherNote(c);
 }
 
+/** The kind the board writes for a status transition ("chi l'ha spostata"). */
+export const STATUS_KIND = 'status';
+
+/**
+ * A transition row: the card moved, and this says who moved it and when.
+ *
+ * NOT service (see `isServiceComment`): the trail of a reopened task is the one
+ * thing nobody can reconstruct. But it is also not SPEECH, and on the live
+ * database it is 4406 of 9973 rows — the other half of the wall. It is drawn as
+ * a chip rather than a paragraph (`StatusTrail`), which is the decision this
+ * constant exists to carry.
+ */
+export function isStatusComment(c: ThreadComment): boolean {
+  return c.kind === STATUS_KIND;
+}
+
 /** A stretch of adjacent thread rows that are all service, or all not. */
 export interface ThreadRun<T> {
   service: boolean;
   comments: T[];
+}
+
+/** A stretch of adjacent rows that are all status transitions, or all not. */
+export interface StatusRun<T> {
+  status: boolean;
+  comments: T[];
+}
+
+/**
+ * Split a run into stretches of adjacent status rows and stretches of
+ * everything else. Same contract as `groupServiceRuns`: order preserved,
+ * nothing dropped, concatenating the stretches gives back the input.
+ *
+ * `breaksRun` cuts BEFORE a row for the same reason it does there — the drawer
+ * draws the agent's session steps in the gap above a comment, and a chip strip
+ * that swallowed a gap would hide them.
+ */
+export function groupStatusRuns<T extends ThreadComment>(
+  comments: readonly T[],
+  breaksRun?: (comment: T, index: number) => boolean,
+): Array<StatusRun<T>> {
+  const runs: Array<StatusRun<T>> = [];
+  comments.forEach((c, i) => {
+    const status = isStatusComment(c);
+    const last = runs[runs.length - 1];
+    const cut = i > 0 && !!breaksRun?.(c, i);
+    if (last && last.status === status && !cut) last.comments.push(c);
+    else runs.push({ status, comments: [c] });
+  });
+  return runs;
 }
 
 /**

@@ -19,9 +19,11 @@
  *      colonna — cioè il difetto di partenza);
  *   3. NIENTE STIRATURA — un'immagine più BASSA del tetto resta alla sua
  *      altezza naturale: il tetto taglia, non deforma;
- *   4. SCANSIONABILITÀ — N, il numero scelto: una card con anteprima non
- *      supera 2/3 del corpo colonna a 1280×800. Cioè si vede INTERA senza
- *      scorrere, e in una colonna di lavoro se ne vedono due.
+ *   4. SCANSIONABILITÀ, a 1280×800 e per colonna: in review la card si vede
+ *      INTERA senza scorrere; in una colonna di lavoro se ne vedono DUE. Erano
+ *      un numero solo (2/3 ovunque) finché il riquadro aveva un tetto in px;
+ *      tolto quello, l'anteprima in review vale da sola più di metà colonna, e
+ *      il numero unico chiedeva l'opposto del punto (2). Vedi PREVIEW-CAP-02.
  *
  * `PREVIEW-CAP-03` produce l'evidenza prima/dopo: le stesse card, le stesse tre
  * forme, con e senza il vecchio tetto in 144px rimesso via CSS.
@@ -34,7 +36,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
-import { PREVIEW_CARD_MAX_RATIO } from "../../shared/board";
+import { PREVIEW_CARD_MAX_RATIO, projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
@@ -45,17 +47,6 @@ const PROJECT_PATH = `/tmp/e2e-preview-cap-${Date.now()}`;
 const MEDIA_DIR = join(E2E_DATA_DIR, ".openclaw", "media", "preview-cap");
 const EVIDENCE_DIR = join(__dirname, "..", "..", "test-results", "preview-cap");
 
-/** BYTE-IDENTICAL to server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 /**
@@ -296,17 +287,30 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
 
     assertCapContract(await previewBoxes(page), "mobile 390");
 
-    // (4) scansionabilità, sul viewport di riferimento. N = 2/3 del corpo
-    // colonna: oltre, la card non si vedrebbe più intera senza scorrere e la
-    // colonna smetterebbe di essere una lista. Nella colonna di lavoro il
-    // margine è molto più largo (metà), ed è lì che si scorre davvero.
+    // (4) scansionabilità, sul viewport di riferimento — e sono DUE promesse
+    // diverse, una per colonna, non un unico numero.
+    //
+    // In REVIEW: la card si vede INTERA senza scorrere. Non di più, e il perché
+    // è aritmetica, non gusto. La colonna review parte da 32rem (`widthCls`),
+    // il riquadro riempie la card per scelta dichiarata (12/08: «proporzioni
+    // giuste ma non prendono tutta la larghezza»), e il rapporto è
+    // `PREVIEW_CARD_MAX_RATIO`: la sola anteprima vale già 0.7 x 472 = 330px su
+    // un corpo colonna di ~597: il 55%. Sommato ai comandi di review — che dal
+    // 12/08 stanno su OGNI card in review, non solo su quelle di un agente —
+    // non esiste nessun tetto sotto il corpo colonna, e chiederne uno vorrebbe
+    // dire rimettere un limite in px sul riquadro, cioè disfare (1).
+    //
+    // In LAVORO: ce ne stanno DUE. Lì la colonna è una lista che si scorre, la
+    // card non porta comandi, e la metà è un numero che il layout regge.
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.waitForTimeout(300);
     for (const b of await previewBoxes(page)) {
-      const share = b.status === "review" ? 2 / 3 : 1 / 2;
+      const share = b.status === "review" ? 1 : 1 / 2;
       expect(
         b.cardH,
-        `${b.shape} in ${b.status}: card ${Math.round(b.cardH)}px su un corpo colonna di ${Math.round(b.columnBodyH)}px`,
+        b.status === "review"
+          ? `${b.shape} in review: card ${Math.round(b.cardH)}px su un corpo colonna di ${Math.round(b.columnBodyH)}px: deve vedersi intera senza scorrere`
+          : `${b.shape} in ${b.status}: card ${Math.round(b.cardH)}px su un corpo colonna di ${Math.round(b.columnBodyH)}px: in colonna di lavoro se ne devono vedere due`,
       ).toBeLessThanOrEqual(b.columnBodyH * share);
     }
   });

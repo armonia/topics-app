@@ -13,13 +13,13 @@ import { chiaveErroreAuth, CODICI_AUTH } from './authErrors';
 import { t, missingKeys } from './i18n';
 
 describe('dal codice di /api/auth/** alla frase', () => {
-  test('ogni codice ha una frase in ENTRAMBE le lingue', () => {
+  test('ogni codice ha una frase in ENTRAMBE le lingue', async () => {
     // `missingKeys` e non `t()`: `t()` ripiega sull'ALTRA lingua prima che sulla
     // chiave nuda, quindi «la stringa inglese esiste» è una domanda a cui `t()`
     // non può rispondere di no finché quella italiana c'è. Un'asserzione che
     // non può fallire è peggio della sua assenza.
-    const buchiIt = new Set(missingKeys('it'));
-    const buchiEn = new Set(missingKeys('en'));
+    const buchiIt = new Set(await missingKeys('it'));
+    const buchiEn = new Set(await missingKeys('en'));
     for (const c of CODICI_AUTH) {
       const chiave = chiaveErroreAuth(c);
       expect(chiave).toBe(`auth.err.${c}`);

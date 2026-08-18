@@ -1,0 +1,73 @@
+name: Purga artifact (igiene del repo)
+
+# La quota artifact di Actions e' dell'ORGANIZZAZIONE — 500 MB sul piano free —
+# non del repo, e l'API per cancellarli e' invece per-repo: il purge va messo dove
+# gli artifact si accumulano, non dove danno fastidio. Il 16/08 il purge viveva in
+# quadra, che di artifact ne produce zero, mentre a riempire la quota erano altri.
+#
+# ATTENZIONE a una cosa che non e' scritta da nessuna parte nella UI: solo i repo
+# PRIVATI consumano quota. topics-app e' pubblico, quindi i suoi report — per
+# quanto grossi — sono gratis, e questa purga qui e' IGIENE (meno rumore, meno
+# storico inutile), NON il rimedio alla quota.
+#
+# Se gli upload tornano a fallire con "Artifact storage quota has been hit", qui
+# non c'e' niente da guardare: il colpevole e' un repo PRIVATO. Il rimedio sta in
+# quadra, `scripts/purge-org-artifacts.sh`, che li copre tutti in un colpo (un
+# workflow non potrebbe: il suo GITHUB_TOKEN vede solo il proprio repo).
+#
+# Due cose diverse, entrambe necessarie:
+#  - gli SCADUTI: GitHub marca `expired` (il contenuto non si scarica piu') ma non
+#    li cancella, e finche' esistono occupano quota. Erano 263, 4,6 GB di spazio
+#    senza contenuto. Cancellarli non perde nulla.
+#  - i VIVI oltre il tetto: si buttano dal piu' vecchio. Il report che serve e'
+#    sempre quello dell'ultimo rosso.
+
+on:
+  schedule:
+    - cron: "43 2 * * *" # ogni notte, prima della nightly delle 03:17
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+concurrency:
+  group: artifact-purge
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rimuovi gli scaduti e rientra sotto il tetto
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 250 MB: meta' della quota dell'org, cosi' resta spazio per gli
+            // altri repo, che insieme stanno sotto la decina di MB per run.
+            const CAP_BYTES = 250 * 1024 * 1024;
+            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              ...context.repo, per_page: 100,
+            });
+            const del = async (a, why) => {
+              await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: a.id });
+              core.info(`rimosso ${a.name} (${(a.size_in_bytes / 1048576).toFixed(1)} MB) — ${why}`);
+            };
+            const live = [];
+            let freed = 0;
+            for (const a of all) {
+              if (a.expired) { await del(a, "scaduto"); freed += a.size_in_bytes; }
+              else live.push(a);
+            }
+            live.sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+            let used = live.reduce((n, a) => n + a.size_in_bytes, 0);
+            while (used > CAP_BYTES && live.length > 1) {
+              const a = live.shift();
+              await del(a, "sopra il tetto");
+              used -= a.size_in_bytes;
+              freed += a.size_in_bytes;
+            }
+            core.info(`liberati ${(freed / 1048576).toFixed(1)} MB — in uso ora: ${(used / 1048576).toFixed(1)} MB in ${live.length} artifact`);
+            await core.summary
+              .addHeading("Purga artifact")
+              .addRaw(`Liberati **${(freed / 1048576).toFixed(1)} MB**. In uso: **${(used / 1048576).toFixed(1)} MB** in ${live.length} artifact (tetto ${CAP_BYTES / 1048576} MB).`)
+              .write();

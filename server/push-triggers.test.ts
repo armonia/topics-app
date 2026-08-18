@@ -9,9 +9,16 @@
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 
-const pushCalls: Array<{ title: string; body: string; tag?: string; url?: string }> = [];
+type PushPayload = { title: string; body: string; tag?: string; url?: string };
+const pushCalls: PushPayload[] = [];
+// In bun a module mock outlives the file that installed it, so this factory is
+// the ONLY `push-service` any later file in the same run will see. It must
+// therefore carry every export the real module has, not just the one this file
+// exercises: `routes/push.ts` imports `getVapidPublicKey`, and without it that
+// route fails to load whenever this spec is ordered first.
 mock.module("./push-service", () => ({
-  sendPushToAll: async (payload: any) => { pushCalls.push(payload); },
+  sendPushToAll: async (payload: PushPayload) => { pushCalls.push(payload); },
+  getVapidPublicKey: () => "test-vapid-public-key",
 }));
 
 const { maybeSendPush, configurePushTriggers, isTopicSilenced } = await import("./push-triggers");

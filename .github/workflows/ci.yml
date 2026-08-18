@@ -44,6 +44,17 @@ jobs:
       - name: Rebuild node-pty (Linux)
         run: npm rebuild node-pty
 
+      # `--ignore-scripts` qui sopra non salta solo i postinstall delle
+      # dipendenze: salta anche quello della RADICE, che e'
+      # `bun run scripts/fix-node-pty-exec-bit.ts`. E quel bit serve davvero: il
+      # tarball di node-pty spedisce gli `spawn-helper` a 644 (verificato con
+      # `npm pack`), nessuno script del pacchetto li chmoda, e `npm rebuild`
+      # ricostruisce `build/Release` senza toccare i `prebuilds/`. Su questa
+      # macchina sono 755 solo perche' il postinstall gira; sul runner no, e il
+      # test «ogni spawn-helper di node-pty e' eseguibile» diventava rosso.
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
       - name: Install client deps
         run: bun install --frozen-lockfile
         working-directory: client
@@ -78,9 +89,18 @@ jobs:
       - name: Typecheck (client + server ratchet + e2e)
         run: bun run typecheck
 
-      - name: Lint client (eslint)
+      # The ROOT `lint`, run from the repo root, and both halves of that matter.
+      # This step used to carry `working-directory: client`, which made it run
+      # CLIENT's own `eslint .` and stop at the client folder: measured on
+      # 2026-08-15, 832 files linted and ZERO of them under relay/ — while
+      # relay/ is a DEPLOYED Cloudflare Worker (relay/wrangler.jsonc) whose ten
+      # TypeScript files no gate had ever opened. The root script covers both
+      # ("(cd client && bun run lint) && eslint --config client/eslint.config.js relay"),
+      # so dropping `working-directory` was the whole fix.
+      # `relay/gate-coverage.test.ts` then asserts the wiring by MEASURING the
+      # file list eslint actually opens, so this cannot be silently unpicked.
+      - name: Lint client + relay worker (eslint)
         run: bun run lint
-        working-directory: client
 
       # Quattro cancelli che esistevano in package.json e non comparivano in
       # NESSUN workflow — la terza volta che questo repo trova la stessa cosa
@@ -124,28 +144,32 @@ jobs:
       # era l'unica cosa che lo faceva sembrare una barra da tenere verde: sta
       # con `report:disk` e `report:branches`, che è quello che è. Non
       # aggiungerlo qui.
-      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip / long dash / bloat)
+      # `check:any` is a RATCHET over six named files (TRACKED_FILES in
+      # scripts/check-any.ts), not a repo-wide ban on `any`. The step name used
+      # to say just "any", which read as coverage this gate never had. A listed
+      # path that no longer exists now FAILS the script: it used to warn on
+      # stderr and exit 0, so renaming a ratcheted file quietly removed it from
+      # the gate while this step stayed green and the warning was folded away.
+      - name: Static guard rails (any in 6 ratcheted files / NUL / dead code / eslint-disable / test skip / long dash / bloat / UI language / E2E sleeps)
         run: |
           bun run check:any
+          # Il fratello del ratchet: quello difende lo ZERO sui sei file gia'
+          # puliti, questo impedisce agli altri 276 di crescere. Servono
+          # entrambi — con 370 di budget un file ratchettato potrebbe
+          # riprendersi dieci `any` senza che il totale se ne accorga.
+          bun run check:any-budget
+          # La forma che ha rotto la pane della chat il 16/08 (React #185):
+          # callback ref inline + setState. Il crash non si riproduce in una
+          # spec — dipende dal carico — ma la sua CAUSA si legge nel JSX.
+          bun run check:ref-callbacks
           bun run check:nul
           bun run check:deadcode
           bun run check:eslint-disable
           bun run check:test-skips
           bun run check:emdash
           bun run check:bloat
-
-      # `check:bloat` è il settimo di questa fila ed è il rovescio di
-      # `check:deadcode`: knip copre il codice che NESSUNO chiama, questo copre
-      # il codice che chiamano tutti e che sta tutto nello stesso file. Misura
-      # due cose e le confronta con `scripts/bloat-baseline.json`: righe per file
-      # e blocchi duplicati. È un RATCHET, non una barra assoluta. Su questo
-      # albero 93 file sono già oltre le 800 righe, quindi una barra assoluta
-      # nascerebbe rossa e verrebbe spenta in una settimana. Diventa rosso quando
-      # un file NUOVO passa la soglia, quando uno già censito cresce oltre il
-      # suo tetto, o quando la duplicazione totale sale.
-      #
-      # Sta qui e non fra i referti perché non guarda né il database né la
-      # macchina: legge `git ls-files` e i file, come gli altri sette.
+          bun run check:ui-language
+          bun run check:sleeps
 
       # `check:sicurezza` risponde a una domanda sola: questo checkout si può
       # pubblicare? Il repo è PUBBLICO, e i quattro modi di sbagliare erano
@@ -172,6 +196,54 @@ jobs:
       # fila che tocca la rete: senza registro non stampa verde, esce 2.
       - name: Il checkout è pubblicabile (segreti in chiaro, avvisi sulle dipendenze)
         run: bun run check:sicurezza --only=segreti,dipendenze
+
+      # `check:sleeps` è l'ultimo di questa fila e conta una cosa sola:
+      # `waitForTimeout` sotto `tests/e2e/`. `tests/e2e/CONVENTIONS.md:16` lo
+      # vieta da sempre, e il 15/08/2026 ce n'erano 176 per ~151s di attesa a
+      # vuoto per passata — la regola era scritta e basta. Riscriverli tutti in
+      # una volta non è sicuro (ognuno nasconde una condizione diversa), quindi
+      # come `check:bloat` è un RATCHET su `scripts/e2e-sleeps-baseline.json`:
+      # scendere non fallisce mai, un file che ne guadagna uno sì. La baseline
+      # si abbassa, non si alza.
+
+      # `check:bloat` è il settimo di questa fila ed è il rovescio di
+      # `check:deadcode`: knip copre il codice che NESSUNO chiama, questo copre
+      # il codice che chiamano tutti e che sta tutto nello stesso file. Misura
+      # due cose e le confronta con `scripts/bloat-baseline.json`: righe per file
+      # e blocchi duplicati. È un RATCHET, non una barra assoluta. Su questo
+      # albero 93 file sono già oltre le 800 righe, quindi una barra assoluta
+      # nascerebbe rossa e verrebbe spenta in una settimana. Diventa rosso quando
+      # un file NUOVO passa la soglia, quando uno già censito cresce oltre il
+      # suo tetto, o quando la duplicazione totale sale.
+      #
+      # Sta qui e non fra i referti perché non guarda né il database né la
+      # macchina: legge `git ls-files` e i file, come gli altri sette.
+
+      # `check:security` risponde a una domanda sola: questo checkout si può
+      # pubblicare? Il repo è PUBBLICO, e i quattro modi di sbagliare erano
+      # sorvegliati da tre parti diverse più la memoria di chi committava. Ora
+      # sono un comando.
+      #
+      # QUI NE GIRANO DUE SU QUATTRO, e il perché è nella natura degli altri
+      # due. `data` e `home` cercano il nome e il percorso di casa di CHI
+      # COMMITTA, e li DERIVANO dalla macchina (`id -F`, `git config user.name`,
+      # `homedir()`) proprio per non doverli scrivere dentro un repo pubblico.
+      # Un runner di GitHub non ha un'identità da proteggere: il suo account si
+      # chiama `runner`, che non è il nome di nessuno ma compare in decine di
+      # file tracciati. Eseguirli qui non misurerebbe una fuga, misurerebbe come
+      # si chiama l'utente della macchina di build. Quei due pezzi mordono dove
+      # il commit nasce davvero: sulla postazione, dove `bun run
+      # check:security` li lancia tutti e quattro, e nei check pre-review, che
+      # eseguono `test:unit` nel worktree dell'agente.
+      #
+      # `secrets` e `dependencies` invece non dipendono da chi è alla tastiera:
+      # cercano chiavi in chiaro nei file tracciati (forme di chiave, entropia,
+      # `.env` tracciati) e confrontano `bun audit` con
+      # `scripts/security-baseline.json`. Entrambi sono veloci e senza bundle,
+      # quindi stanno fra i guard rails. `dependencies` è l'unico passo di questa
+      # fila che tocca la rete: senza registro non stampa verde, esce 2.
+      - name: Il checkout è pubblicabile (segreti in chiaro, avvisi sulle dipendenze)
+        run: bun run check:security --only=secrets,dependencies
 
       # `check:deadcode` dice «zero export morti». Non dice su quanti file
       # l'ha guardato, e la differenza non era teorica: su `client/src/lib/api.ts`
@@ -203,9 +275,30 @@ jobs:
       # `fetch-depth` di default è 1, quindi `main` NON esiste in questo
       # checkout: senza il fetch mirato il cancello non avrebbe con cosa
       # confrontarsi (e uscirebbe 1 dicendolo, invece di passare a vuoto).
+      #
+      # IL `+` NON È DECORATIVO. `actions/checkout` punta già
+      # `refs/remotes/origin/main` al commit in prova; se fra il checkout e
+      # questa riga qualcun altro pusha, `main` è avanzato e un fetch NON forzato
+      # viene RIFIUTATO — `! [rejected] main -> origin/main (non-fast-forward)`,
+      # uscita 1. La shell di default è `bash -e`, quindi il passo muore lì e
+      # tutti quelli dopo (test unitari, bundle, rotte, fluido, inchiostro)
+      # vengono SALTATI. Con `--depth=1` il rifiuto è garantito: il commit
+      # innestato non ha storia, quindi git non può dimostrare la discendenza.
+      # Su un repo dove pushano dodici agenti quella finestra si becca di
+      # continuo: rosso il 2026-08-14 su due push di fila, e non per una
+      # migration sbagliata. Riprodotto in un repo usa-e-getta, non dedotto.
+      #
+      # LIMITE NOTO, scritto perché nessuno lo scopra di nuovo da capo: su un
+      # evento `push` questo passo non misura niente. La base che `checkout`
+      # lascia È il commit in prova, quindi il cancello confronta HEAD con sé
+      # stesso e non può che passare. Il lavoro vero lo fa sulle pull request,
+      # dove la base è un altro commit. Per renderlo reale anche sui push serve
+      # `github.event.before` come base (e la guardia per il caso in cui sia
+      # tutto zeri, cioè force-push o ramo nuovo): è un cambio più grosso di
+      # questa riga e va fatto guardando, non di corsa.
       - name: Le migration nuove usano il timestamp, e nessun numero è doppio
         run: |
-          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
       - name: Unit + integration tests
@@ -224,25 +317,190 @@ jobs:
       - name: Bundle size budget
         run: bun run check:bundle
 
+      # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
+      # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
+      # un server suo (banda 15200-15299, DB in /tmp buttato via alla fine) e
+      # perche' su una macchina occupata la misura non vale: se il runner e'
+      # carico il banco esce 2 («non misurabile») invece di inventare un rosso,
+      # e un 2 qui non ferma la pipeline.
+      - name: Route latency budget
+        run: bun run check:route-latency || test $? -eq 2
+
+      # I FRAME PERSI scorrendo il trascritto di una chat. Vuole il bundle e il
+      # banco e2e, come `check:route-latency`, e come lui tollera l'uscita 2: quella
+      # dice «misura non utilizzabile» (la macchina non consegna frame nemmeno
+      # su una pagina vuota, o il banco non ha scorso niente), e un rosso preso
+      # su una misura che non vale e' il modo piu' rapido per far disattivare un
+      # cancello.
+      - name: Scroll fluidity budget
+        run: bun run check:scroll-fluidity || test $? -eq 2
+
+      # CLICK -> INK: the milliseconds between the gesture and the first frame
+      # that has PAINTED the answer, on the three most frequent gestures. The
+      # budget and the probe existed already, but NO workflow invoked them: the
+      # spec ran inside the E2E shards and measured, while the comparison against
+      # `tests/e2e/ink-budget.json` is done only by this script, which was not in
+      # the pipeline. A budget nobody executes is not a gate.
+      #
+      # It does not tolerate exit 2 the way the two above do, because it has no
+      # such exit: it either measures or fails. The margin absorbs the gap
+      # between this runner and an Apple laptop: a 100 ms median budget against
+      # 13-23 ms measured, so 4x to 8x of headroom, and a 250 ms ceiling on any
+      # single sample against roughly 23. If it ever turns noisy, the right
+      # answer is to give it the exit 2 of its siblings ("not measurable on this
+      # machine"), not to raise the threshold: raising it would switch the gate
+      # off while leaving it green.
+      #
+      # Reuses the bundle built by `verify:phase30-strip`, like check:bundle.
+      - name: Click-to-ink budget
+        run: bun run check:ink
+
+      # FRAME TIME WHILE A CARD IS DRAGGED across the Kanban board. The goal asks
+      # for a stable 60 FPS during drag and the board is the product's core
+      # surface, with the measured volume to match (449 of its 467 root cards are
+      # `done`). `check:scroll-fluidity` does NOT cover this: it scrolls a virtualised
+      # transcript, where the per-frame work is virtuoso mounting rows, while a
+      # drag is dnd-kit running collision detection against every droppable on
+      # every pointer move. A regression in one is invisible to the other.
+      #
+      # Tolerates exit 2 like its two siblings ("not measurable on this machine").
+      # The baseline WAS recorded, on an idle Apple laptop on 2026-08-15, against
+      # the real board: p95 frame 9.5 ms and worst frame 10.1 ms against budgets
+      # of 16.7 and 100, zero long tasks, with 33 cards drawn over a 984 px
+      # gesture and a calibration of 8.3 ms at rest. So this step is judging a
+      # real number, not a wish.
+      #
+      # Seen red on purpose the same day: `TOPICS_DRAG_JANK_MS=40` gives p95
+      # 40.8 ms and exit 1. The knob has to clear the budget ON ITS OWN, because
+      # pointer moves coalesce to one per frame: 12 ms produced p95 10 ms and
+      # stayed green, which looks like a broken gate and is not one.
+      - name: Kanban drag frame budget
+        run: bun run check:drag || test $? -eq 2
+
+      # WHAT A LONG SESSION ACCUMULATES: heap, DOM nodes and listeners after
+      # fifty cycles of the same interaction (switch topic, close and reopen a
+      # pane, stream a burst of messages), compared as a RATIO between cycle 5
+      # and cycle 50 so the bar survives a different machine. The goal calls out
+      # progressive growth during long sessions, and every other gate here takes
+      # ONE sample: a leak is invisible to all of them by construction, because a
+      # leak is a derivative.
+      #
+      # Same exit-2 tolerance, same never-recorded state as the drag gate, plus
+      # its own: too few cycles, a first sample too small to be a denominator, or
+      # a heap read without a forced collection all mean "not measurable" rather
+      # than red.
+      #
+      # ON PUSH ONLY, and that is a cost decision written down rather than left
+      # implicit. Fifty cycles that each close a pane through its 3 s soft
+      # confirm take about ten minutes: paying that on every PR, for a metric
+      # that moves slowly and rarely because of a single diff, is how a step ends
+      # up deleted. On merges to main the leak is still caught within one commit
+      # of the change that caused it. If it ever needs to leave the PR path
+      # entirely, its home is e2e-nightly.yml.
+      #
+      # Note that until the baseline is recorded this step costs nothing at all:
+      # the script answers "never recorded" BEFORE spawning the bench.
+      - name: Long-session growth budget
+        if: github.event_name == 'push'
+        run: bun run check:growth || test $? -eq 2
+
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
   # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
   # values are set by global-setup.ts / start-test-server.sh themselves.
   # Previously this suite was only *collected* (`playwright test --list`) in
   # the check job above, which parses every spec but runs none of them.
+
+  # Calcola il piano di sharding per durata UNA volta sola: `playwright test
+  # --list` deve caricare e transpilare tutte le spec (~10s), farlo una volta
+  # per shard significherebbe pagarlo quattro volte. Il piano viene caricato
+  # come artifact e scaricato da ogni shard.
+  prepare-e2e:
+    runs-on: ubuntu-latest
+    outputs:
+      plan-ok: ${{ steps.plan.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by the server)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Install Playwright browsers (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Calcola il piano di sharding per durata
+        id: plan
+        # E2E_TIER=pr: il piano copre solo i test del gate PR, come fa lo shard.
+        # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
+        # ogni shard cade nel fallback --shard=i/4, che e' sempre stato l'unico.
+        run: |
+          if bun run scripts/e2e-plan-shards.ts 4 --out plan; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          E2E_TIER: pr
+
+      - name: Carica il piano come artifact
+        if: steps.plan.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-plan-pr
+          path: plan/
+          retention-days: 1
+
   e2e:
     runs-on: ubuntu-latest
+    needs: prepare-e2e
     # PR gate tier (E2E_TIER=pr): fast, deterministic subset, sharded across
     # parallel runners. The heavy/flaky/perf specs run in e2e-nightly.yml.
     #
-    # NON-BLOCKING (continue-on-error) for now: the suite shares one test DB
-    # across tests with no per-test reset (global-setup wipes once per run), so
-    # accumulated state leaks between tests and sharding re-partitions surface a
-    # different order-dependent failure each run — pre-existing debt, not a
-    # regression of any one PR. Runs for signal + report; `check` and `tauri`
-    # are the blocking gates. TODO(e2e-isolation): add per-test DB reset, then
-    # drop continue-on-error to make this a hard gate again.
-    continue-on-error: true
+    # BLOCKING since 2026-08-15. It carried `continue-on-error: true` on the
+    # grounds that "the suite shares one test DB with no per-test reset, so
+    # accumulated state leaks and sharding surfaces a different order-dependent
+    # failure each run". That justification was falsified by the code itself:
+    # `tests/e2e/fixtures/hermetic.ts` gives every FILE a reset from the
+    # globalSetup snapshot, `tests/unit/e2e-hermetic-coverage.test.ts` fails the
+    # build when a spec forgets to call it, and Playwright shards by FILE with
+    # `fullyParallel: false`, so re-partitioning cannot interleave two files.
+    #
+    # What was actually red, measured on a quiet machine before this change:
+    # 30 failures out of 806. Not one of them was order dependence. They were
+    # two specs running in the desktop project as well as their touch project
+    # (`.tap()` cannot work at hasTouch:false), a dozen specs asserting literals
+    # that product commits had legitimately changed, four dying inside
+    # `page.evaluate` on a locator that resolved to nothing, three real product
+    # bugs (a review card that no longer opened, an "open in workspace" that was
+    # silently dropped when a project window had no group, a drag-region
+    # attribute missing on one button), and one spec whose count read 0 because
+    # the message list is at `visibility: hidden` for 320 ms after opening.
+    # Every one of them was diagnosed and closed; the suite is 839/0 with one
+    # spec quarantined to nightly for want of a working microphone.
+    #
+    # A red here now means a real regression. If it ever goes noisy again, the
+    # answer is a NAMED spec in `NIGHTLY_ONLY_SPECS` with a dated reason, never
+    # this flag: a blanket amnesty is how thirty reds accumulated unseen.
     strategy:
       fail-fast: false
       matrix:
@@ -272,6 +530,17 @@ jobs:
       - name: Rebuild node-pty (Linux)
         run: npm rebuild node-pty
 
+      # `--ignore-scripts` qui sopra non salta solo i postinstall delle
+      # dipendenze: salta anche quello della RADICE, che e'
+      # `bun run scripts/fix-node-pty-exec-bit.ts`. E quel bit serve davvero: il
+      # tarball di node-pty spedisce gli `spawn-helper` a 644 (verificato con
+      # `npm pack`), nessuno script del pacchetto li chmoda, e `npm rebuild`
+      # ricostruisce `build/Release` senza toccare i `prebuilds/`. Su questa
+      # macchina sono 755 solo perche' il postinstall gira; sul runner no, e il
+      # test «ogni spawn-helper di node-pty e' eseguibile» diventava rosso.
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
       - name: Install client deps
         run: bun install --frozen-lockfile
         working-directory: client
@@ -300,8 +569,28 @@ jobs:
           test -x "$bin"
           echo "path=$bin" >> "$GITHUB_OUTPUT"
 
+      - name: Scarica il piano di sharding
+        if: needs.prepare-e2e.outputs.plan-ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-plan-pr
+          path: plan/
+
       - name: Run E2E tests (Playwright)
-        run: npx playwright test --shard=${{ matrix.shard }}/4
+        # Usa il piano per durata (shard-N.txt) se disponibile; altrimenti fallback
+        # a --shard=i/N di Playwright, che riparte per numero di test.
+        # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
+        # che Playwright accetta come argomenti posizionali.
+        run: |
+          PLAN_FILE="plan/shard-${{ matrix.shard }}.txt"
+          if [ -f "$PLAN_FILE" ]; then
+            echo "[ci] usando il piano per durata: $PLAN_FILE"
+            readarray -t SELECTORS < "$PLAN_FILE"
+            npx playwright test "${SELECTORS[@]}"
+          else
+            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/4"
+            npx playwright test --shard=${{ matrix.shard }}/4
+          fi
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
           E2E_TIER: pr
@@ -312,7 +601,12 @@ jobs:
         with:
           name: playwright-report-shard-${{ matrix.shard }}
           path: test-results/html-report
-          retention-days: 7
+          # 3, non 7: la quota artifact e' dell'ORG (500 MB sul piano free), non del repo,
+          # e questi report pesano fino a 20 MB l'uno. Con sette giorni di storico topics-app
+          # da solo arrivava a 600 MB e saturava la quota di TUTTI: il 16/08 gli upload della
+          # UAT di quadra sono morti con "Artifact storage quota has been hit". Un report di
+          # un rosso si guarda entro il giorno; tre giorni sono gia' larghi.
+          retention-days: 3
 
   # The Tauri shell is the primary desktop app (Electron was archived in v2.0.0,
   # recoverable on branch `electron-archive`). Its Rust crate compiles only on a
@@ -352,7 +646,9 @@ jobs:
       - name: Rust build cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop-tauri/src-tauri
+          workspaces: |
+            desktop-tauri/src-tauri
+            desktop-tauri/pty-bridge
           key: ${{ matrix.os }}
 
       # tauri-build validates that every externalBin resource EXISTS for the
@@ -379,3 +675,13 @@ jobs:
       - name: Cargo check (Tauri crate)
         run: cargo check
         working-directory: desktop-tauri/src-tauri
+
+      # Il sidecar PTY e un crate SEPARATO: il `cargo check` qui sopra non lo
+      # sfiora, e finora niente lo compilava fuori dai tag `tauri-v*` — cioe si
+      # scopriva rotto alla release. `cargo test` compila e misura: tests/orphan.rs
+      # verifica che un ponte abbandonato si ritiri (era il difetto del 2026-08-14:
+      # 20 demoni immortali con zero client). Su Windows quei test sono
+      # `#![cfg(unix)]`, quindi resta una compilazione — che e il punto.
+      - name: Cargo test (PTY bridge sidecar)
+        run: cargo test
+        working-directory: desktop-tauri/pty-bridge

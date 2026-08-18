@@ -54,20 +54,23 @@ const TESTABILE = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|md|sql|sh|yml|yaml|toml|c
  * un buco che nessuno saprà più valutare.
  */
 const ESENTI = new Map<string, string>([
-  [
-    "desktop-tauri/SIGNING.md",
-    "L'identità legale serve alla FIRMA del binario: l'iscrizione all'Apple " +
-      "Developer Program come organizzazione richiede la persona con potere di " +
-      "rappresentanza, e chi ricostruisce l'app deve sapere chi è. Eccezione " +
-      "decisa dal proprietario il 2026-08-13, esplicitamente e solo per questo.",
-  ],
-  [
-    "scripts/apple-signing-setup.sh",
-    "La procedura di firma, come SIGNING.md e per la stessa ragione: iscrive " +
-      "l'organizzazione all'Apple Developer Program e la ragione sociale è il " +
-      "dato su cui l'iscrizione si regge. Il D-U-N-S invece è stato tolto: Apple " +
-      "lo verifica, ma il repo non ha nessun bisogno di portarlo scritto.",
-  ],
+  // `desktop-tauri/SIGNING.md` e `scripts/apple-signing-setup.sh` STAVANO QUI,
+  // e non ci sono piu'. L'esenzione diceva: «l'identità legale serve alla FIRMA
+  // del binario, e chi ricostruisce l'app deve sapere chi è — decisa dal
+  // proprietario il 2026-08-13, esplicitamente e solo per questo».
+  //
+  // Poi quei due file sono stati REDATTI: la ragione sociale è diventata «the
+  // company», il D-U-N-S è sparito. L'esenzione è sopravvissuta alla ragione che
+  // la reggeva, e da quel momento era un BUCO — non copriva più un fatto voluto,
+  // copriva soltanto quei due percorsi, qualunque cosa ci finisse dentro.
+  //
+  // Il 18/08 un agente della board ci ha rimesso `<ragione sociale>`, il D-U-N-S e il
+  // nome per esteso, in un repo PUBBLICO, e questo cancello non avrebbe detto
+  // niente: l'ho visto rivedendo il diff a mano. Adesso lo direbbe.
+  //
+  // Se un giorno l'identità legale dovrà tornare in quei file, l'esenzione si
+  // riscrive — con la data e la ragione nuove. Un'esenzione che sopravvive al
+  // suo motivo non protegge: nasconde.
   [
     "tests/unit/no-personal-data-tracked.test.ts",
     "Questo file: nomina i termini come CODICE che li deriva, mai come dato.",
@@ -85,6 +88,34 @@ function prova(cmd: string, args: string[]): string {
   } catch {
     return "";
   }
+}
+
+/**
+ * Gli account che NON sono il nome di nessuno.
+ *
+ * Su un runner di CI l'utente della macchina di build si chiama `runner`
+ * (ubuntu-latest), e nessuna delle altre fonti risponde: `id -F` è un'opzione
+ * BSD e su Linux fallisce, e `git config user.name` non lo imposta
+ * `actions/checkout`. Resta quindi «runner» come unico termine — sei caratteri,
+ * sopra la soglia — e la parola compare in 74 file tracciati (ci.yml,
+ * CONTRIBUTING.md, CHANGELOG.md…). Il cancello sarebbe diventato rosso per come
+ * si chiama l'utente della macchina di build, non per una fuga: il modo più
+ * rapido in cui un cancello proattivo viene disattivato da chi lo subisce.
+ *
+ * Non sono esenzioni sul CONTENUTO — nessun file viene perdonato. È il
+ * riconoscimento che questi nomi non appartengono a una persona, quindi non
+ * c'è niente da proteggere.
+ */
+const ACCOUNT_DI_SERVIZIO = new Set([
+  "runner", "ubuntu", "root", "admin", "build", "builder", "jenkins",
+  "circleci", "travis", "vsts", "vagrant", "docker", "codespace", "gitpod",
+  "github-actions", "actions", "nobody", "user", "test",
+]);
+
+/** Soglia, minuscolo, dedup e account di servizio: la regola in un posto solo. */
+export function filtraTermini(grezzi: string[]): string[] {
+  return [...new Set(grezzi.map((t) => t.trim().toLowerCase()))]
+    .filter((t) => t.length >= 4 && !ACCOUNT_DI_SERVIZIO.has(t));
 }
 
 /**
@@ -124,7 +155,7 @@ export function terminiPersonali(): string[] {
   // Dedup, soglia, minuscolo: il confronto è insensibile alle maiuscole perché
   // il nome rientra tanto in prosa («Nome ha chiesto») quanto come valore di
   // test (`by: "nome"`).
-  return [...new Set(grezzi.map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 4))];
+  return filtraTermini(grezzi);
 }
 
 function tracciati(): string[] {
@@ -159,7 +190,28 @@ describe("nessun dato personale in un file tracciato", () => {
     // Un cancello che non sa cosa cercare passa sempre. Questa è la guardia che
     // lo impedisce: su una macchina senza `id -F` e senza `.personal-terms` il
     // test diventa rosso qui, non verde a vuoto altrove.
+    //
+    // L'ECCEZIONE è una macchina di build, e non è un'attenuante: su un runner
+    // non c'è NESSUNA persona la cui identità vada protetta, quindi «zero
+    // termini» è la risposta giusta e non un guasto della derivazione. Il
+    // cancello sull'identità è locale per natura — vive dove il commit nasce —
+    // e lì la guardia resta durissima.
+    if (process.env.CI && termini.length === 0) {
+      expect(ACCOUNT_DI_SERVIZIO.has(userInfo().username.toLowerCase())).toBe(true);
+      return;
+    }
     expect(termini.length).toBeGreaterThan(0);
+  });
+
+  test("l'utente di una macchina di build non è il nome di nessuno", () => {
+    // Senza questo filtro `runner` sarebbe un termine personale e i 74 file
+    // tracciati che contengono la parola renderebbero rosso `bun test:unit` in
+    // ci.yml. Non se ne era accorto nessuno perché ci.yml non gira da settimane.
+    expect(filtraTermini(["runner"])).toEqual([]);
+    expect(filtraTermini(["Runner", "UBUNTU", "jenkins"])).toEqual([]);
+    // E il filtro non deve mangiarsi una persona che si chiama davvero così:
+    // resta una lista di account, non un elenco di parole vietate.
+    expect(filtraTermini(["runnerson"])).toEqual(["runnerson"]);
   });
 
   test("l'elenco dei file tracciati non è vuoto (guardia contro un verde a vuoto)", () => {
@@ -183,6 +235,14 @@ describe("nessun dato personale in un file tracciato", () => {
     // Un elenco di debito che tiene dentro file già puliti smette di misurare
     // il debito e diventa un'allowlist permanente. Ogni voce deve essere ancora
     // colpevole; quando smette di esserlo, si toglie da lì.
+    //
+    // SENZA TERMINI non si misura niente, e «niente» qui vorrebbe dire «tutte
+    // le voci sono stantie»: su un runner, dove `filtraTermini` giustamente
+    // svuota la lista perché nessuna identità va protetta, questo test dichiarava
+    // stantie tutte e 127. È lo stesso motivo della guardia più su, applicato
+    // all'altro verso: senza un termine da cercare, «ancora colpevole» non è una
+    // domanda a cui si possa rispondere.
+    if (termini.length === 0) return;
     const ancoraColpevoli = new Set(colpevoli(files, termini));
     const stantie = DEBITO_NOME_PROPRIETARIO.filter((f) => !ancoraColpevoli.has(f));
     expect(stantie).toEqual([]);

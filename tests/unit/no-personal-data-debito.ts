@@ -22,13 +22,16 @@
  */
 export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "CHANGELOG.md",
-  "PORTING-PLAN.md",
+  // Spostato in docs/archive/ il 16/08 (9ef747e7): il debito segue il FILE, non
+  // la sua vecchia posizione. Un path stantio qui e' un file che nessuno
+  // sorveglia piu' e un'esenzione che copre il nulla - e il cancello prende
+  // entrambe le cose, ed e' cosi' che questa riga e' stata corretta.
+  "docs/archive/PORTING-PLAN.md",
   "client/public/changelog.json",
   "client/src/App.tsx",
   "client/src/components/Board/Card.tsx",
   "client/src/components/Board/KanbanBoardPane.tsx",
   "client/src/components/Board/PreviewMedia.tsx",
-  "client/src/components/Board/TaskDetail.tsx",
   "client/src/components/Board/atoms.tsx",
   "client/src/components/Board/constants.ts",
   "client/src/components/Board/dndSensors.ts",
@@ -74,14 +77,14 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "openspec/changes/autonomous-credential-store/proposal.md",
   "openspec/changes/autonomous-credential-store/specs/app-signing/spec.md",
   "openspec/changes/autonomous-credential-store/tasks.md",
-  "openspec/changes/human-reopen-out-of-review/proposal.md",
+  "openspec/changes/archive/2026-08-13-human-reopen-out-of-review/proposal.md",
   "openspec/changes/kanban-agent-authoring/proposal.md",
   "openspec/changes/lan-open-same-origin/design.md",
   "openspec/changes/lan-open-same-origin/tasks.md",
   "openspec/changes/relay/tasks.md",
   "openspec/changes/remappable-shortcuts/proposal.md",
-  "openspec/changes/sidebar-pinned-tiles/proposal.md",
-  "openspec/changes/sidebar-pinned-tiles/tasks.md",
+  "openspec/changes/archive/2026-08-10-sidebar-pinned-tiles/proposal.md",
+  "openspec/changes/archive/2026-08-10-sidebar-pinned-tiles/tasks.md",
   "scripts/browser-orphan-bar.sh",
   "scripts/check-emdash.ts",
   "scripts/mcp-cap-bench/bench.ts",

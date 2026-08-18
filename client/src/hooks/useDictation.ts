@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchSttCapabilities,
+  forgetSttCapabilities,
   transcribeAudio,
   pickRecorderMimeType,
   extForMime,
   micErrorMessage,
   MIN_VOICE_BLOB_BYTES,
+  messaggioNotaVuota,
+  segnalaNotaVuota,
   SPEECH_AUDIO_CONSTRAINTS,
   SPEECH_BITS_PER_SECOND,
   type SttCapabilities,
 } from '../lib/stt';
+import { ascoltaLivello, messaggioTrascrittoVuoto, type SondaLivello } from '../lib/livello-audio';
 import { useSpeechToText } from './useSpeech';
 
 export type DictationEngine = 'server' | 'webspeech' | null;
@@ -47,6 +51,8 @@ export function useDictation(opts: {
   /** Un annullo (Escape, smontaggio) non deve pagare una trascrizione né incollare niente. */
   const discardRef = useRef(false);
   const maxDurationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Misura il segnale mentre si registra: serve solo se il trascritto torna vuoto. */
+  const sondaRef = useRef<SondaLivello | null>(null);
 
   // I callback arrivano dal componente e cambiano a ogni render: tenerli in un
   // ref evita che `stop`/`start` cambino identità (e con loro le dipendenze
@@ -63,8 +69,18 @@ export function useDictation(opts: {
 
   useEffect(() => {
     let alive = true;
-    void fetchSttCapabilities().then(caps => { if (alive) setCapabilities(caps); });
-    return () => { alive = false; };
+    const chiedi = () => { void fetchSttCapabilities().then(caps => { if (alive) setCapabilities(caps); }); };
+    chiedi();
+    // L'ACCOPPIAMENTO CAMBIA LA RISPOSTA. `/api/stt/capabilities` sta dietro
+    // l'identita': su un dispositivo appena arrivato in rete risponde `401`
+    // finche' non e' dentro. Senza questo ascolto il microfono resterebbe
+    // invisibile fino a un ricarico della pagina - la sonda si dimentica il
+    // «no» (vedi `fetchSttCapabilities`), ma qualcuno deve pur richiederla, e
+    // aspettare un tentativo naturale qui vuol dire aspettare che l'utente
+    // riapra un pannello.
+    const riprova = () => { forgetSttCapabilities(); chiedi(); };
+    window.addEventListener('topics:auth-pair-resolved', riprova);
+    return () => { alive = false; window.removeEventListener('topics:auth-pair-resolved', riprova); };
   }, []);
 
   const engine: DictationEngine =
@@ -79,6 +95,9 @@ export function useDictation(opts: {
 
   const releaseMic = useCallback(() => {
     if (maxDurationRef.current) { clearTimeout(maxDurationRef.current); maxDurationRef.current = null; }
+    // La sonda si chiude col microfono, non con la trascrizione: il picco che
+    // ha gia' raccolto resta leggibile anche dopo, ed e' quello che serve.
+    sondaRef.current?.chiudi();
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
@@ -89,6 +108,7 @@ export function useDictation(opts: {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
+      sondaRef.current = ascoltaLivello(stream);
       const mimeType = pickRecorderMimeType();
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
@@ -102,16 +122,54 @@ export function useDictation(opts: {
       recorder.onstop = async () => {
         releaseMic();
         const type = recorder.mimeType || mimeType || 'audio/webm';
+        const spezzoni = chunksRef.current.length;
         const blob = new Blob(chunksRef.current, { type });
         chunksRef.current = [];
         setIsListening(false);
-        if (discardRef.current || blob.size < MIN_VOICE_BLOB_BYTES) return;
+        // ANNULLATO A MANO: nessun messaggio, e' una scelta di chi usa la app.
+        if (discardRef.current) return;
+        // VUOTA: e questo ramo era MUTO, come lo era il gemello della chat prima
+        // di `fe635287` che pero' ha fatto parlare solo quello. Qui premevi il
+        // microfono nel campo task, parlavi, mollavi, e non compariva niente:
+        // indistinguibile da una app rotta, ed e' il motivo per cui la dettatura
+        // «non funziona» sul telefono senza che nessuno sappia perche'.
+        //
+        // I due numeri sono la diagnosi, non un ornamento: ZERO spezzoni vuol
+        // dire che il microfono non ha aperto affatto (permesso negato in
+        // silenzio, traccia muta), mentre pochi byte in uno spezzone solo vuol
+        // dire che ha aperto e ha prodotto la sola intestazione del contenitore.
+        // Sono due guasti diversi e si riparano in due posti diversi.
+        if (blob.size < MIN_VOICE_BLOB_BYTES) {
+          onErrorRef.current?.(messaggioNotaVuota(spezzoni, blob.size, type));
+          segnalaNotaVuota(spezzoni, blob.size, type, 'dettatura');
+          return;
+        }
         setIsTranscribing(true);
         try {
           const result = await transcribeAudio(blob, { filename: `dictation.${extForMime(type)}`, language });
           // Silenzio (o l'artefatto che Whisper produce sul silenzio, che il
           // server filtra): niente da incollare, e niente errore da mostrare.
-          if (result.transcript.trim()) onTextRef.current(result.transcript.trim());
+          const testo = result.transcript.trim();
+          if (testo) onTextRef.current(testo);
+          // SILENZIO NON E' NIENTE DA DIRE: e' una notizia.
+          //
+          // Questo era l'ultimo ramo muto della dettatura. Il giro andava a
+          // buon fine, il server rispondeva 200 con un trascritto vuoto (o
+          // l'artefatto che Whisper produce sul silenzio, che il server
+          // filtra), e il client non faceva NULLA: nessun testo, nessun
+          // messaggio. Chi aveva premuto e parlato vedeva la stessa cosa di
+          // una app rotta, ed e' il sintomo con cui questa caccia e' iniziata.
+          //
+          // I due casi che si somigliano — «non ho sentito» (microfono aperto
+          // sul nulla) e «non ho capito» (audio c'era, il modello non ha
+          // riconosciuto parole) — li separa la SONDA, non un'ipotesi: ha
+          // misurato il segnale prima che venisse codificato, quindi sa dire
+          // se dal microfono e' passato qualcosa.
+          else onErrorRef.current?.(messaggioTrascrittoVuoto({
+            sonda: sondaRef.current,
+            provider: result.provider,
+            durataMs: result.durationMs,
+          }));
         } catch (err) {
           onErrorRef.current?.(`Dettatura non trascritta: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
         } finally {
@@ -185,6 +243,7 @@ export function useDictation(opts: {
       discardRef.current = true;
       if (maxDurationRef.current) clearTimeout(maxDurationRef.current);
       if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
+      sondaRef.current?.chiudi();
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     };
   }, []);

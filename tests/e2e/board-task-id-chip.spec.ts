@@ -27,23 +27,13 @@ import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjec
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-idchip-${Date.now()}`;
 
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 /** Il minimo che un dito deve poter colpire, in px CSS (HIG Apple / Material). */
@@ -104,6 +94,7 @@ async function openProjectBoard(page: Page) {
  */
 type ChipGeometry = {
   chip: { x: number; y: number; w: number; h: number; cy: number };
+  /** Il contenitore del segno (il titolo) e il centro della sua PRIMA riga. */
   row: { top: number; bottom: number; left: number; right: number; cy: number };
   /** Il rettangolo dichiarato dal `::after` di `tap-expand` (0 se non c'è). */
   pseudo: { w: number; h: number };
@@ -130,8 +121,42 @@ async function measureChip(page: Page, taskId: string): Promise<ChipGeometry> {
 
   return chip.evaluate((el, probe) => {
     const r = el.getBoundingClientRect();
-    const rowEl = el.parentElement!.parentElement!; // riga eyebrow (flex-wrap)
+    // La casa del segno e' il TITOLO: dal 16/08 sta davanti al nome del task,
+    // non piu' nell'eyebrow del progetto (dove leggeva come una proprieta' del
+    // progetto, «topics-app #»). La riga e' un flex con due figli — il gruppo
+    // dei segni e il nome — e il riferimento verticale e' il RETTANGOLO DELLA
+    // PRIMA RIGA DI TESTO, preso con un Range: non l'altezza del blocco, che su
+    // un titolo che va a capo scende sotto il glifo e farebbe misurare l'andare
+    // a capo invece dell'allineamento.
+    const gruppo = el.parentElement!;
+    const rowEl = gruppo.parentElement!;
     const rr = rowEl.getBoundingClientRect();
+    // IL TITOLO E' UN NODO DI TESTO DELLA RIGA, non un elemento dentro di essa.
+    //
+    // Fino al 16/08 la riga era un flex con DUE figli (gruppo dei segni + uno
+    // span col nome), e `lastElementChild` era quello span. Dal 17/08 il titolo
+    // sta in linea nella riga - serve perche' vada a capo AL BORDO invece che
+    // sotto se stesso (IDCHIP-05) - quindi `lastElementChild` e' tornato ad
+    // essere il gruppo dei segni, e questa sonda misurava il chip contro se
+    // stesso: 10,25px di «scarto» su un layout corretto.
+    //
+    // Si prende il primo nodo di TESTO con del contenuto, ovunque stia: regge
+    // sia la vecchia forma (dentro uno span) sia quella nuova (in linea).
+    const camminatore = document.createTreeWalker(rowEl, NodeFilter.SHOW_TEXT);
+    let testo: Text | undefined;
+    for (let n = camminatore.nextNode(); n; n = camminatore.nextNode()) {
+      // Salta il testo che sta DENTRO i segni (il `#a1b2` del chip): quello e'
+      // il soggetto della misura, non il suo riferimento.
+      if (gruppo.contains(n)) continue;
+      if ((n.textContent ?? '').trim().length > 0) { testo = n as Text; break; }
+    }
+    let firstLineCy = rr.top + rr.height / 2;
+    if (testo) {
+      const rg = document.createRange();
+      rg.selectNodeContents(testo);
+      const first = rg.getClientRects()[0];
+      if (first) firstLineCy = first.y + first.height / 2;
+    }
     const cx = r.x + r.width / 2;
     const cy = r.y + r.height / 2;
     const reaches = (dx: number, dy: number) =>
@@ -139,7 +164,7 @@ async function measureChip(page: Page, taskId: string): Promise<ChipGeometry> {
     const after = getComputedStyle(el, "::after");
     return {
       chip: { x: r.x, y: r.y, w: r.width, h: r.height, cy },
-      row: { top: rr.top, bottom: rr.bottom, left: rr.left, right: rr.right, cy: rr.y + rr.height / 2 },
+      row: { top: rr.top, bottom: rr.bottom, left: rr.left, right: rr.right, cy: firstLineCy },
       pseudo: { w: parseFloat(after.width) || 0, h: parseFloat(after.height) || 0 },
       reach: {
         left: reaches(-probe, 0),
@@ -191,6 +216,14 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
       status: "todo",
       priority: 2,
     });
+    // La TERZA ha un titolo che va a capo per forza: serve a IDCHIP-05, che
+    // misura DOVE ricomincia la seconda riga.
+    await apiCreateTask(request, {
+      text: "Un titolo lungo abbastanza da andare a capo dentro la colonna della board, "
+        + "perche' e' esattamente li' che si vedeva il difetto dell'incolonnamento",
+      status: "todo",
+      priority: 2,
+    });
   });
 
   test.afterAll(async ({ request }) => {
@@ -218,8 +251,64 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     expect(g.chip.y + g.chip.h).toBeLessThanOrEqual(g.row.bottom + 0.5);
     expect(g.chip.x).toBeGreaterThanOrEqual(g.row.left - 0.5);
     expect(g.chip.x + g.chip.w).toBeLessThanOrEqual(g.row.right + 0.5);
-    // Allineamento verticale col resto della riga.
+    // ALLINEATO CON IL TESTO ACCANTO: i segni stanno in un gruppo alto
+    // esattamente una riga di titolo e ci si centrano dentro, quindi i due
+    // centri coincidono per costruzione e non per taratura. Misurato prima e
+    // dopo il 16/08: era 1,81px di scarto con `align-middle` inline, e nessuno
+    // dei sette valori di `vertical-align` provati scendeva sotto 1,3 — perche'
+    // il chip e' piu' alto della riga di testo e quindi e' LUI a definirla.
+    //
+    // UN PIXEL, e non mezzo, ed e' il font a deciderlo. Lo scarto residuo e' la
+    // distanza fra il centro geometrico della riga e il centro OTTICO del
+    // glifo, che dipende dalle metriche della faccia effettivamente montata:
+    // 0,1px su macOS con la San Francisco di sistema, 0,625px sul runner Linux
+    // che ripiega su un'altra faccia. Con la soglia a 0,5 il cancello misurava
+    // quale font ha la macchina, non se il layout e' allineato — verde in
+    // locale, rosso in CI, sullo stesso identico DOM.
+    // Un pixel resta un cancello vero: la regressione che questo test esiste
+    // per fermare valeva 1,81px, e passare da qui richiederebbe di raddoppiare
+    // lo scarto peggiore mai misurato su una macchina qualsiasi.
     expect(Math.abs(g.chip.cy - g.row.cy)).toBeLessThanOrEqual(1);
+  });
+
+  test("IDCHIP-01b: l'allineamento REGGE ANCHE SOTTO UN ALTRO FONT", async ({ page }) => {
+    // IL CONFINE CHE HA FATTO CADERE QUESTO TEST IN CI.
+    //
+    // `IDCHIP-01` misura mezzo pixel, e mezzo pixel dipende dalla FACCIA
+    // montata: in locale c'e' la San Francisco di sistema, sul runner Linux ce
+    // n'e' un'altra. Un verde sul portatile non dice niente su cosa succede
+    // la'; e' esattamente cosi' che questo caso e' passato in locale ed e'
+    // stato rosso in CI.
+    //
+    // La prova che serve non e' «passa anche altrove» (non posso installare i
+    // font del runner), ma «l'allineamento non DIPENDE dal font». Il gruppo
+    // dei segni e' alto una line-box e si allinea alla line-box (`align-top`),
+    // e la line-box vale 19,25px con qualunque faccia: e' `leading-snug` sul
+    // font-size, non una metrica del carattere.
+    //
+    // Misurato il 17/08 su cinque facce con metriche molto diverse: il testo
+    // passa da 15px (Times) a 17px (sistema) di altezza, e lo scarto del chip
+    // resta fra 0,125 e 0,625 - sempre sotto la soglia di 1.
+    //
+    // Col vecchio `align-text-bottom` sarebbe stato meta' della differenza fra
+    // line-box e testo, cioe' 1,125px col font di sistema e 2,125 con Times:
+    // fuori soglia SEMPRE, e di quanto lo decideva il carattere.
+    const FACCE = [
+      ['Georgia, serif', 'serif con x-height alta'],
+      ['"Times New Roman", serif', 'serif con x-height bassa'],
+      ['"Courier New", monospace', 'monospazio'],
+      ['Verdana, sans-serif', 'sans con x-height alta'],
+    ];
+    for (const [family, che] of FACCE) {
+      await page.addStyleTag({ content: `:root, body, * { font-family: ${family} !important; }` });
+      const g = await measureChip(page, createdTasks[0]);
+      // eslint-disable-next-line no-console
+      console.log(`[IDCHIP-01b] ${che.padEnd(24)} scarto ${(g.chip.cy - g.row.cy).toFixed(3)}px`);
+      expect(
+        Math.abs(g.chip.cy - g.row.cy),
+        `con ${family} (${che}) il chip e' fuori asse: l'allineamento dipende dal font, e in CI la faccia e' un'altra`,
+      ).toBeLessThanOrEqual(1);
+    }
   });
 
   test("IDCHIP-02: col mouse l'area sensibile resta quella del glifo", async ({ page }) => {
@@ -249,6 +338,84 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     expect(copied).toBe(taskId);
     // Il click sul segno non apre la card: `stopPropagation` regge.
     await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
+  });
+
+  test("IDCHIP-05: un titolo lungo va a capo AL BORDO, non sotto il cancelletto", async ({ page }) => {
+    // Segnalato: «il titolo non va piu' a capo bene, ma e' incolonnato a
+    // partire dal cancelletto».
+    //
+    // I segni e il nome erano due colonne flex: i centri coincidevano per
+    // costruzione (parte buona, tenuta) ma il titolo diventava una COLONNA
+    // larga quanto lo spazio rimasto, quindi andava a capo sotto se stesso e
+    // la card leggeva come un paragrafo rientrato.
+    //
+    // Si misura la GEOMETRIA e non l'aspetto: la seconda riga di testo deve
+    // cominciare alla stessa x della prima, cioe' al bordo del testo della
+    // card. Un VLM o un'occhiata non distinguono 11px da 35px con sicurezza;
+    // due rettangoli si'.
+    const card = page.locator(`[data-task-card="${createdTasks[2]}"]`).first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    const righe = await card.evaluate((el) => {
+      // LA RIGA DEL TITOLO, non il gruppo dei segni.
+      //
+      // `chip.closest('span')` risale al primo span che contiene il chip: dal
+      // 17/08 quello e' il GRUPPO dei segni (`inline-flex`), quindi il suo
+      // `parentElement` era la riga - ma solo per un pelo, e la stessa
+      // espressione su un DOM che cambia una volta di piu' misura un'altra
+      // cosa senza dirlo. Meglio chiedere l'elemento per quello che E': il
+      // blocco che porta il testo del titolo.
+      const chip = el.querySelector('[data-testid="task-id-chip"]');
+      const gruppo = chip?.parentElement;
+      const riga = gruppo?.parentElement;
+      if (!riga || !gruppo) return null;
+      const box = el.getBoundingClientRect();
+      // UN RETTANGOLO PER RIGA DI TESTO, e li da' solo un Range sul NODO DI
+      // TESTO. `riga.getClientRects()` su un elemento `display: block` torna un
+      // rettangolo solo - quello del blocco intero - quindi il caso trovava
+      // sempre `length === 1` e si fermava dicendo «questo titolo deve andare a
+      // capo», su un titolo che a capo ci andava eccome. Funzionava prima solo
+      // perche' il titolo stava in uno span IN LINEA, e per quelli i rettangoli
+      // sono davvero uno per riga.
+      const w = document.createTreeWalker(riga, NodeFilter.SHOW_TEXT);
+      let testo: Node | null = null;
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        if (gruppo.contains(n)) continue;
+        if ((n.textContent ?? '').trim().length > 0) { testo = n; break; }
+      }
+      if (!testo) return null;
+      const rg = document.createRange();
+      rg.selectNodeContents(testo);
+      return [...rg.getClientRects()].map((r) => +(r.left - box.left).toFixed(1));
+    });
+
+    expect(righe, "il titolo dev'essere misurabile").not.toBeNull();
+    expect(righe!.length, "questo titolo deve andare a capo, o il caso non misura niente")
+      .toBeGreaterThan(1);
+    // LA PRIMA RIGA COMINCIA DOPO IL CHIP, ed e' giusto cosi': il chip sta IN
+    // LINEA nel titolo, quindi il testo gli scorre accanto. Misurato: prima
+    // riga a x=35, le altre a x=11.
+    //
+    // Il difetto segnalato era l'opposto - «il titolo e' incolonnato a partire
+    // dal cancelletto», cioe' TUTTE le righe a x=35, perche' il titolo era una
+    // colonna flex larga quanto lo spazio rimasto. Quindi cio' che va asserito
+    // e' che le righe DOPO la prima tornino al bordo del testo, non che tutte
+    // partano insieme: la vecchia formulazione avrebbe preteso di rimettere il
+    // difetto.
+    expect(righe!.length, "servono almeno due righe, o non c'e' niente da misurare").toBeGreaterThan(1);
+    const dopo = righe!.slice(1);
+    // Le righe successive sono allineate FRA LORO...
+    for (const x of dopo) {
+      expect(Math.abs(x - dopo[0]!),
+        `una riga parte da x=${x} mentre la seconda e' a x=${dopo[0]}: le righe del titolo non sono allineate`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+    // ...e stanno PIU' A SINISTRA della prima, cioe' sono tornate al bordo
+    // invece di restare rientrate sotto il chip. E' la riga che diventa rossa
+    // se qualcuno rimette il titolo in una colonna.
+    expect(dopo[0]!,
+      `la seconda riga parte da x=${dopo[0]} come la prima (x=${righe![0]}): il titolo e' incolonnato sotto il cancelletto`,
+    ).toBeLessThan(righe![0]! - 1);
   });
 
   test("IDCHIP-04: schermata della riga per la consegna", async ({ page }, testInfo) => {

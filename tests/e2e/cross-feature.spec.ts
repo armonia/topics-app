@@ -278,10 +278,27 @@ test.describe("Cross-Feature Interactions", () => {
         timeout: 10_000,
       });
 
-      // Find the Virtuoso scroller element (has data-virtuoso-scroller attribute)
-      const virtuosoScroller = messageList.locator("[data-virtuoso-scroller]").first();
-      const scrollerVisible = await virtuosoScroller.isVisible().catch(() => false);
-      const scroller = scrollerVisible ? virtuosoScroller : messageList;
+      // LO SCROLLER E' QUELLO DI VIRTUOSO, e se non c'e' il test deve dirlo.
+      //
+      // Qui prima c'era un ripiego silenzioso su `messageList` quando lo
+      // scroller non risultava ancora visibile (`.catch(() => false)`).
+      // Scrollare il contenitore sbagliato non muove la lista virtualizzata:
+      // la finestra resta dov'era, `idx.some(matches)` non diventa mai vero, e
+      // il test moriva in `toPass` dopo dieci secondi accusando la
+      // virtualizzazione. Un ripiego che rende il test incapace di misurare non
+      // e' robustezza, e' un rosso che parla della cosa sbagliata.
+      // `chat-message-list` E' lo scroller: il testid sta sul componente
+      // Virtuoso, che rende un div scrollabile. Qui prima si cercava
+      // `[data-virtuoso-scroller]` DENTRO di lui, un elemento che li' non
+      // esiste, con un ripiego silenzioso sul contenitore quando non lo
+      // trovava: cioe' sempre. Il ripiego funzionava per caso, e si portava
+      // dietro un `.catch(() => false)` che avrebbe nascosto anche il caso in
+      // cui la lista non si monta affatto.
+      const scroller = messageList;
+      await expect(
+        scroller,
+        "la lista dei messaggi non e' montata: senza, questo test non puo' misurare niente",
+      ).toBeVisible({ timeout: 10_000 });
 
       // Helper to collect visible item indices
       async function collectVisibleIndices(): Promise<number[]> {
@@ -294,9 +311,18 @@ test.describe("Cross-Feature Interactions", () => {
         return indices;
       }
 
-      // Virtuoso starts at the bottom (initialTopMostItemIndex = last)
-      // Collect indices at the bottom position
-      const bottomIndices = await collectVisibleIndices();
+      // IL FONDO SI ASPETTA, non si presume. Virtuoso parte in fondo
+      // (`initialTopMostItemIndex` = ultimo), ma «parte» non vuol dire «ci e'
+      // gia'»: il primo campione poteva cadere mentre la lista montava ancora
+      // le prime righe, e allora `maxIndex >= 1000` falliva su una lista sana
+      // che un istante dopo era a posto. Era l'ultimo residuo di flake di
+      // CROSS-04, e si toglie con lo stesso retry che usano le altre fasce.
+      let bottomIndices: number[] = [];
+      await expect(async () => {
+        const idx = await collectVisibleIndices();
+        expect(idx.some((i) => i >= 1000)).toBe(true);
+        bottomIndices = idx;
+      }).toPass({ timeout: 15_000 });
 
       // Scroll a una frazione dell'altezza e aspetta che Virtuoso ci porti
       // davvero le righe di quella zona.
@@ -313,12 +339,43 @@ test.describe("Cross-Feature Interactions", () => {
         fraction: number,
         matches: (i: number) => boolean,
       ): Promise<number[]> {
+        // Si RESTITUISCE il campione che ha soddisfatto la condizione, non uno
+        // preso dopo. Ricampionare fuori dal retry era il difetto che teneva
+        // rosso CROSS-04: `follow output` di Virtuoso riporta la lista in fondo
+        // appena smette di ricevere scroll, quindi fra l'`expect` che vedeva
+        // l'indice 0 e la riga dopo la finestra era gia' tornata a 1181. Il
+        // test falliva su `minIndex <= 5` denunciando una virtualizzazione che
+        // aveva appena funzionato — e la prova che era funzionata e' che il
+        // retry, per uscire, quell'indice 0 lo aveva visto per forza.
+        let campione: number[] = [];
         await expect(async () => {
           await scroller.evaluate((el, f) => { el.scrollTop = el.scrollHeight * f; }, fraction);
+          // Si aspetta che la finestra CAMBI, non un tempo. Virtuoso monta le
+          // righe della zona nuova in un effetto, quindi leggere il DOM nello
+          // stesso tick dello scroll campiona la finestra di PRIMA, e il retry
+          // finisce per misurare il proprio ritardo invece della lista.
+          //
+          // Un `waitForTimeout` qui sarebbe il sonno che `check:sleeps` vieta,
+          // e per la ragione giusta: su un runner lento non basterebbe, su uno
+          // veloce sarebbe sprecato. La condizione e' «il primo indice montato
+          // non e' piu' quello di prima»: e' l'evento vero, scade dentro il
+          // tentativo, e a rimettere lo scroll ci pensa il retry esterno.
+          const primaDi = (await collectVisibleIndices())[0] ?? -1;
+          await page
+            .waitForFunction(
+              (prec) => {
+                const el = document.querySelector("[data-item-index]");
+                return !!el && Number(el.getAttribute("data-item-index")) !== prec;
+              },
+              primaDi,
+              { timeout: 3_000, polling: "raf" },
+            )
+            .catch(() => { /* gia' nella zona giusta, o ci pensa il retry */ });
           const idx = await collectVisibleIndices();
           expect(idx.some(matches)).toBe(true);
-        }).toPass({ timeout: 10_000 });
-        return collectVisibleIndices();
+          campione = idx;
+        }).toPass({ timeout: 15_000 });
+        return campione;
       }
 
       // Cima della lista. Passa dallo STESSO retry delle altre fasce, e per lo
@@ -475,9 +532,14 @@ test.describe("Cross-Feature Interactions", () => {
       await expect(page.locator("html")).toHaveClass(/dark/, { timeout: 5_000 });
     }
 
-    // Close settings via backdrop
-    await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
-    await expect(settingsPage.panel).not.toBeVisible({ timeout: 5_000 });
+    // Si chiude dalla fixture, che sa dov'e' il velo. Qui c'era
+    // `.fixed.inset-0.z-50` scritto a mano: quel `z-50` non esiste piu' da
+    // quando il layer dei modali e' passato a `z-[10000]` (`MODAL_OVERLAY` in
+    // client/src/lib/modalStyles.ts), quindi il click aspettava per quindici
+    // secondi un elemento che non c'e'. E' la lezione gia' scritta in
+    // `PaneTabBar.tsx`: un locator agganciato alle classi Tailwind muore
+    // quando qualcuno rinomina una utility, senza che nulla sia rotto.
+    await settingsPage.closeSettings();
 
     // Verify panels survived the theme toggle:
     // 1. Messages are still visible (not wiped by re-render)
@@ -507,7 +569,7 @@ test.describe("Cross-Feature Interactions", () => {
       ? settingsPage.panel.getByRole("button", { name: "Dark" })
       : settingsPage.panel.getByRole("button", { name: "System" });
     await restoreBtn.click();
-    await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
+    await settingsPage.closeSettings();
 
     await deleteTopic(page.request, topic.id);
   });

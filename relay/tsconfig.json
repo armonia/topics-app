@@ -1,0 +1,53 @@
+{
+  // Relay typecheck config — `bun run typecheck:relay`.
+  //
+  // WHY IT EXISTS. `relay/` is a DEPLOYED Cloudflare Worker (`relay/wrangler.jsonc`
+  // ships `src/worker.ts`), and until 2026-08-15 nine of its ten TypeScript files
+  // were in no program at all: `tsconfig.server.json` includes only
+  // server/shared/scripts/cli, and the client configs live under client/.
+  // Measured with `tsc -p <config> --listFiles | grep relay`:
+  //   tsconfig.server.json -> 0 relay files
+  //   tsconfig.e2e.json    -> 1, `relay/src/ponte.ts`
+  // That one is the exception worth stating plainly, because it is the LARGEST
+  // relay source (821 lines) and the earlier note here said "zero files in any
+  // of them", which was wrong. It is in the e2e program only because
+  // `tests/e2e/helpers/relay-e2e.ts:34` and `tests/e2e/relay-reachability.spec.ts:8`
+  // import from it — and that program runs with `strict: false`, so even that
+  // file was never checked under the settings the Worker needs.
+  // A type error in the other nine reached production and nothing went red.
+  //
+  // WHY IT IS NOT JUST ADDED TO tsconfig.server.json. The Worker uses globals
+  // that do not exist on Bun (`WebSocketPair`, `DurableObjectNamespace`, the
+  // `webSocket` field on a 101). They come from `workers-runtime.d.ts`, which is
+  // an AMBIENT script file: whichever program includes it gets those globals
+  // everywhere. Folding relay into the server program would hand `WebSocketPair`
+  // to every server file, where it does not exist at runtime.
+  //
+  // Same settings as tsconfig.server.json (full `strict`) on purpose: this code
+  // handles bytes on a socket and cost accounting for hibernation, and it was
+  // already clean under strict when the gate was first armed. Five errors, all
+  // of them missing Worker globals, none of them logic.
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // `bun` is here for the *.test.ts files, which run under `bun test` (they are
+    // in `test:unit` via `./relay`). It also means a Worker source could reference
+    // `Bun.*` and typecheck while failing on workerd. That hole is watched by
+    // `gate-coverage.test.ts`, which is cheaper than a second program plus a
+    // second copy of the shared/ resolution.
+    "types": ["bun"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  },
+  // Everything under relay/, sources and tests alike. The tests are the only
+  // executable proof this Worker has (`relay-do.run.test.ts` drives the Durable
+  // Object the way the runtime does), so leaving them out would repeat exactly
+  // the mistake this file fixes.
+  "include": ["**/*.ts"]
+}

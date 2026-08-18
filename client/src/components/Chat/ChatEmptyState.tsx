@@ -1,4 +1,8 @@
 import type { Topic } from '../../types';
+import { useT } from '../../hooks/useT';
+import { contextBits } from './emptyStateContext';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { resolveEffectiveProvider } from '../../lib/effortTiers';
 
 /**
  * Il vuoto di una chat: il nome, l'invito, quattro spunte da cui partire.
@@ -57,9 +61,28 @@ export function ChatEmptyState({
    */
   fading: boolean;
 }) {
+  const t = useT();
   const starters = topic.projectPath ? PROJECT_STARTERS : PLAIN_STARTERS;
   const showStarters = paneHeight >= H_WITH_STARTERS;
   const showHints = paneHeight >= H_WITH_HINTS;
+  // L'ABBONAMENTO ALLO SNAPSHOT STA QUI, e non in `ChatPane`, di proposito.
+  //
+  // ChatPane evita di abbonarsi apposta: si ridisegnerebbe a ogni push, e la
+  // fast mode ne manda uno a ogni inizio e fine turno. Questo componente pero'
+  // esiste SOLO quando la chat e' vuota, cioe' quando di turni non ce n'e'
+  // nessuno: lo stesso abbonamento, qui, non paga quel prezzo.
+  //
+  // Serve perche' `topic.model` e' l'override e resta vuoto se non lo tocchi,
+  // mentre la barra sotto al composer mostrava gia' `claude-opus-5`: due
+  // superfici a un centimetro l'una dall'altra che dicevano due cose diverse
+  // sulla stessa chat, e quella muta era quella che si legge PRIMA di scrivere.
+  const { snapshot } = useProvidersSnapshot();
+  const effettivo = resolveEffectiveProvider(
+    snapshot?.providers ?? [],
+    topic.provider && topic.model ? { provider: topic.provider, model: topic.model } : null,
+    topic.provider ?? undefined,
+  );
+  const bits = contextBits(topic, t, effettivo?.model ?? null);
 
   return (
     <div
@@ -77,6 +100,20 @@ export function ChatEmptyState({
       )}
       {!topic.projectPath && (
         <p className="text-[12px] text-app-text-muted mt-2">Start a conversation</p>
+      )}
+      {/* Sopra le spunte e sotto il nome: e' il posto in cui si guarda per
+          capire DOVE si sta scrivendo, prima di decidere cosa scrivere. Sparisce
+          per prima quando la pane e' bassa? No: sta sotto la stessa soglia delle
+          spunte, perche' sapere che una chat agisce senza chiedere vale piu' di
+          un suggerimento su cosa domandare. */}
+      {bits.length > 0 && showStarters && (
+        <p
+          data-testid="chat-empty-context"
+          title={t('chat.empty.contextTitle')}
+          className="mt-2 text-[11px] text-app-text-faint break-words"
+        >
+          {bits.join(' · ')}
+        </p>
       )}
       {showStarters && (
         <div className="flex flex-wrap gap-2 justify-center mt-4">

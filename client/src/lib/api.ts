@@ -331,6 +331,21 @@ export const chatApi = {
       body: JSON.stringify({ branchIndex }),
     });
   },
+
+  /**
+   * Recupera il `detail` completo di una singola chiamata tool.
+   *
+   * La rotta `/api/history` spedisce i detail CON i campi di testo grossi
+   * (`output`, `content`, `result`) svuotati, e mette sul toolCall il contatore
+   * dei byte tolti (`detailBytes`). Questa chiamata li recupera la prima volta
+   * che la riga viene APERTA: la risposta resta in uno stato locale della riga
+   * e non rientra nello store. Niente si perde, si paga solo quando serve.
+   */
+  async fetchToolDetail(messageId: string, toolCallId: string): Promise<{ detail: unknown }> {
+    return request<{ detail: unknown }>(
+      `/messages/${encodeURIComponent(messageId)}/tool/${encodeURIComponent(toolCallId)}/detail`,
+    );
+  },
 };
 
 // Search API
@@ -1275,6 +1290,16 @@ export interface AppBehaviorSettings {
   /** Quanto se ne vede: `minimal` | `activity` | `detailed`. `null` = il
    *  default del server, `activity`. */
   discordDetailLevel: DiscordDetailLevel | null;
+  /** Con quale meccanica gira un agente: `cli` (una CLI per sessione) o
+   *  `jcode` (sessioni ACP dentro un demone condiviso). `null` = il default
+   *  del server, `cli`. */
+  agentRuntime: AgentRuntime | null;
+  /** Mostrare la spesa in dollari sulla pagina pubblica del profilo. `null`
+   *  o `false` = spesa non visibile (default sicuro: dato personale). */
+  profilePublishCost: boolean | null;
+  /** Token opaco nel percorso /public/profile/<token>. NULL = pagina spenta.
+   *  Gestito da POST/DELETE /api/app-settings/profile-token, non da PUT. */
+  profileShareToken: string | null;
 }
 
 /**
@@ -1285,8 +1310,8 @@ export interface AppBehaviorSettings {
  * La superficie è in Impostazioni → Permessi.
  */
 export type { ToolGrant } from '../../../shared/types';
-import type { ToolGrant, DiscordDetailLevel } from '../../../shared/types';
-export type { DiscordDetailLevel } from '../../../shared/types';
+import type { ToolGrant, DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
+export type { DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
 
 export const toolGrantsApi = {
   async list(): Promise<ToolGrant[]> {
@@ -1313,6 +1338,19 @@ export const appSettingsApi = {
       body: JSON.stringify(patch),
     });
     return r.settings;
+  },
+  /** Genera il token di pubblicazione (idempotente: se esiste lo restituisce). */
+  async publishProfile(): Promise<string> {
+    const r = await request<{ ok: boolean; token: string }>('/app-settings/profile-token', {
+      method: 'POST',
+    });
+    return r.token;
+  },
+  /** Revoca il token: il vecchio URL diventa 404 immediatamente. */
+  async revokeProfile(): Promise<void> {
+    await request<{ ok: boolean }>('/app-settings/profile-token', {
+      method: 'DELETE',
+    });
   },
 };
 
@@ -1344,6 +1382,11 @@ import type {
 export const profileApi = {
   async stats(): Promise<{ stats: ProfileStats; name: string | null }> {
     return request<{ stats: ProfileStats; name: string | null }>('/profile/stats');
+  },
+  /** Solo come si chiama chi usa l'app. Porta separata da `stats`, che per un
+   *  nome scandirebbe sessioni, messaggi e token dell'intera installazione. */
+  async owner(): Promise<{ name: string | null }> {
+    return request<{ name: string | null }>('/profile/owner');
   },
   /** Stato del filo + l'anteprima di OGNI livello: la card le mostra tutte e
    *  tre, così la scelta si fa guardando il risultato invece di leggendo una

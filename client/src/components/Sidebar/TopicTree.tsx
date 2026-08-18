@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
+import { boardIdForPath } from '../../lib/board';
+import { ShareControl } from '../Share/ShareControl';
+import { MODAL_OVERLAY } from '../../lib/modalStyles';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -111,7 +114,7 @@ function describeChildAttention(children: SidebarItem[] | undefined): string | u
 // PANE_CONFIG — one lookup shared with the tab bar's config, no re-mapping
 // per utility type at the call sites.
 const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
-  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, UserRound, LayoutGrid,
 };
 
 /** La pane della Board generale. È anche la sua chiave di fissaggio: al
@@ -433,6 +436,12 @@ export function TopicTree({
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean; muted: boolean } | null>(null);
+  // IL PROGETTO CHE SI STA CONDIVIDENDO. Da 20260816230500 un progetto e' una
+  // risorsa condivisibile: condividerlo apre i suoi task senza scrivere una
+  // riga per ciascuno. Il pannello e' lo STESSO di un task e di una chat -
+  // `ShareControl` e' generico sul tipo di risorsa - perche' «con chi e'
+  // condiviso» dev'essere una domanda sola con una risposta sola.
+  const [progettoDaCondividere, setProgettoDaCondividere] = useState<{ id: string; nome: string } | null>(null);
   /** Menu della tessera fissata di un terminale o di un browser: quei tipi non
    *  hanno un menu di riga proprio, e senza questo una volta fissati non si
    *  potrebbero più togliere dai Fissati da nessuna parte. */
@@ -1132,11 +1141,33 @@ export function TopicTree({
             aria-label={`${item.name} project`}
             data-testid={`project-toggle-${item.name}`}
           >
-            {/* Real project icon when the folder ships a favicon / web-manifest
-                / index.html <link rel=icon> (resolved by /api/projects/icon).
-                Folders without one render nothing — zero footprint, no fake
-                glyph, no monogram (decisione Attilio 2026-07-16). */}
-            <ProjectFavicon path={pp} size={14} />
+            {/* L'icona vera quando la cartella ne porta una (favicon,
+                web-manifest, <link rel=icon>, risolti da /api/projects/icon).
+                Chi non ce l'ha prende un SEGNAPOSTO NEUTRO, non un'icona
+                inventata: la decisione «niente monogrammi» (Attilio, 16/07)
+                vieta di dare a un progetto un'identità che non ha - una
+                lettera, una tessera colorata - e resta intatta. Qui il punto è
+                un altro: la COLONNA del testo.
+                Misurato: il nome di un progetto senza favicon partiva da x=0,
+                quello di un progetto con favicon da x=22. Ventidue pixel fra
+                due righe adiacenti della stessa lista. Segnalato: «le rotte
+                dovevano essere allineate, e metti un'icona ai progetti che non
+                hanno l'icona, come è allineata a quelli della chat».
+                Il segnaposto è un punto piccolo e tenue: occupa lo spazio e non
+                pretende di dire chi sia quel progetto. */}
+            <ProjectFavicon
+              path={pp}
+              size={14}
+              // La SCATOLA è quella dell'icona vera (14px), il punto ci sta
+              // dentro centrato: un segnaposto largo 6 lascerebbe il nome a
+              // x=14 contro i 22 dell'icona, cioè lo stesso difetto più
+              // piccolo. È la scatola che allinea, non il disegno.
+              fallback={
+                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+                  <span className="h-1.5 w-1.5 rounded-full border border-app-text-faint" />
+                </span>
+              }
+            />
             <span className="truncate flex-1">{item.name}</span>
           </button>
           {/* Window-position mini-map: where THIS project's window sits in the
@@ -1798,7 +1829,7 @@ export function TopicTree({
                 >
                   {rows.length > 0
                     ? <SidebarRowList>{rows.map(item => renderItem(item))}</SidebarRowList>
-                    : <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessuna tab</div>}
+                    : <div className="px-3 py-1 text-[11px] text-app-text-muted">{tr('sidebar.noTabs')}</div>}
                 </SpaceGroupCard>
               );
             })}
@@ -1945,6 +1976,24 @@ export function TopicTree({
               <span>{tr('sidebar.markAllRead')}</span>
             </button>
           )}
+          {/* CONDIVIDI IL PROGETTO: una riga sola, e i suoi task la ereditano
+              in lettura. `boardIdForPath` E' la funzione del server, importata
+              da `shared/board.ts`, quindi l'id qui e' per costruzione lo stesso
+              su cui il server scrive la concessione. */}
+          <button
+            data-testid="project-share"
+            onClick={() => {
+              setProgettoDaCondividere({
+                id: boardIdForPath(projectContextMenu.projectPath),
+                nome: projectContextMenu.projectName,
+              });
+              setProjectContextMenu(null);
+            }}
+            className={POPOVER_ITEM}
+          >
+            <Share2 size={14} />
+            <span>{tr('sidebar.shareProject')}</span>
+          </button>
           {onTogglePin && (
             <button
               onClick={() => {
@@ -1998,6 +2047,36 @@ export function TopicTree({
             </button>
           )}
         </ContextMenuPortal>
+      )}
+
+      {/* IL PANNELLO DI CONDIVISIONE DI UN PROGETTO.
+          Lo STESSO componente di un task e di una chat: «con chi e' condiviso»
+          dev'essere una domanda sola con una risposta sola, e un secondo
+          pannello scritto qui divergerebbe dal primo alla prima modifica.
+          Nessun `deepLink`: un progetto non ha ancora un indirizzo suo da
+          aprire, e un bottone «copia il link» che copia il nulla e' peggio di
+          un bottone assente. */}
+      {progettoDaCondividere && (
+        <div
+          data-testid="project-share-panel"
+          // `MODAL_OVERLAY` e non il numero a mano: il piano dei modali e'
+          // legato per TIPO a `Z_MODAL` (lib/modalStyles.ts), cosi' cambiare la
+          // costante fa smettere di compilare le stringhe che non la seguono.
+          // Un `z-[10000]` scritto qui divergerebbe in silenzio - ed e' quello
+          // che il cancello `overlay-z-plane` ha preso.
+          className={`${MODAL_OVERLAY} !items-start pt-24`}
+          onClick={() => setProgettoDaCondividere(null)}
+        >
+          <div
+            className="w-[360px] rounded-lg border border-app-border bg-app-bg p-3 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-2 truncate text-[12px] font-medium text-app-text-heading">
+              {progettoDaCondividere.nome}
+            </p>
+            <ShareControl resourceType="project" resourceId={progettoDaCondividere.id} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2658,7 +2737,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
               className={POPOVER_ITEM}
             >
               <X size={14} className="text-app-text-tertiary" />
-              Chiudi browser
+              {tr('sidebar.closeBrowser')}
             </button>
           )}
         </ContextMenuPortal>

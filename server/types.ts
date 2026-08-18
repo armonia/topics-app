@@ -46,6 +46,23 @@ export interface WSData {
    * il motivo sbagliato: `deviceId` nullo, non ruolo.
    */
   deviceRole?: 'owner' | 'guest' | null;
+  /**
+   * Is there a network between this socket and its peer? Stamped at upgrade,
+   * the only moment the peer address is still available: after that a WebSocket
+   * is just a pipe.
+   *
+   * It exists to decide whether a frame goes out compressed
+   * (`server/lib/ws-compression.ts`). It is NOT `deviceId == null`, which would
+   * look like the same question and is not: the terminal and browser upgrades
+   * never stamp a device, so that field is null for a LAN peer too. And it is
+   * not `isLocalTransport` either, which asks who we trust and counts the
+   * tunnel as remote: here the tunnel is local, because the socket on the other
+   * end belongs to `relay-client.ts` on this very machine.
+   *
+   * Absent means "not stamped", which is read as local: a socket nobody has
+   * classified pays nothing.
+   */
+  remote?: boolean;
   focusedTopicId: string | null;
   /** P6: topics this connection currently has open; streaming deltas are routed
    *  only to clients that include the streaming topic. `undefined` until the
@@ -130,6 +147,20 @@ import type { ToolCall, ContentBlock } from "../shared/types";
  */
 export interface ReattachedPartial extends StoredMessage {
   reusedBody: boolean;
+}
+
+/**
+ * How much of a message the caller loading a thread actually needs.
+ *
+ * The two fat columns of the `messages` table are `blocks` and `tool_calls`:
+ * 98% of the bytes (353 MB and 220 MB against 13 MB of text, on this machine as
+ * of 2026-08-14). A caller that reads only role/content/partial/id, such as
+ * context assembly which runs on EVERY turn, says `false` to both, and then
+ * those columns are never even requested from SQLite. Both default to loaded.
+ */
+export interface ThreadLoadOpts {
+  withBlocks?: boolean;
+  withToolCalls?: boolean;
 }
 
 export interface StoredMessage {
@@ -260,6 +291,8 @@ export interface AppContext {
   projectStore: import("./services/project-store").ProjectStore;
   worktreeStore: import("./services/worktree-store").WorktreeStore;
   worktreeManager: import("./services/worktree-manager").WorktreeManager;
+  /** Lazy closure: iniettato in server.ts dopo createProcessesRouter (task e3240a22). */
+  worktreeGcDeps: import("./services/worktree-manager").WorktreeManagerGcDeps;
   // Multi-machine (Phase D · added at migration 020-021)
   machineStore: import("./services/machine-store").MachineStore;
 
@@ -367,7 +400,7 @@ export interface AppContext {
   setTopicBrowserState: (topicId: string, state: Topic['browserState'] | null) => void;
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
-  loadLocalMessages: (sessionKey: string, opts?: { withBlocks?: boolean }) => StoredMessage[];
+  loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
   /** Righe della sessione INTERA (rami morti compresi) — ciò che una
    *  cancellazione colpisce davvero. */
   countMessagesBySession: (sessionKey: string) => number;
@@ -418,6 +451,23 @@ export interface AppContext {
   resolveTopicCwd: (topic: import("./types").Topic | null | undefined) => string | null;
   getMimeType: (filepath: string) => string;
   isPathAllowed: (filepath: string) => boolean;
+  /**
+   * La FORMA di un'immagine sul disco, o `null` quando non si riesce a leggerla
+   * (formato ignoto, file illeggibile). Serve al cancello dell'anteprima: una
+   * immagine piu' alta che larga occupa la card e spinge giu' il testo che
+   * quella card deve far leggere.
+   *
+   * `null` non e' «troppo alta»: chi non sa misurare lascia passare, o un
+   * difetto di sonda bloccherebbe consegne buone.
+   */
+  imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number } | null;
+  /**
+   * Controlla se un file esiste sul disco. Separato da `existsSync` per
+   * permettere ai test di iniettare uno stub senza toccare il filesystem reale.
+   * Se assente, si assume che il file esista (compatibilita' con contesti di
+   * test che non impostano il campo).
+   */
+  fileExistsSync?: (filepath: string) => boolean;
   findNewMediaFiles: (sinceMs: number) => Promise<string[]>;
   updateLastMessageWithMedia: (sessionKey: string, mediaPaths: string[]) => void;
   atomicWriteJSON: (filepath: string, data: object) => void;

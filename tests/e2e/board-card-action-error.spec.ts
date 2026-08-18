@@ -38,6 +38,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
@@ -47,17 +48,6 @@ const API = `${BASE}/api`;
 const STAMP = Date.now();
 const PROJECT_PATH = `/tmp/e2e-card-errore-${STAMP}`;
 
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const PADRE = "Rifare la scheda prodotto";

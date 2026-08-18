@@ -1591,7 +1591,7 @@ fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
     if let Some(wv) = app.get_webview("main") {
         return wv.eval(js).is_ok();
     }
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview("main") {
         return w.eval(js).is_ok();
     }
     false
@@ -1887,7 +1887,7 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
 /// e `useTheme` riallinea classe e meta. Il materiale della vibrancy segue
 /// l'effectiveAppearance da sé, quindi il frost non regredisce.
 #[cfg(target_os = "macos")]
-fn apply_appearance(window: &tauri::WebviewWindow, dark: Option<bool>) {
+fn apply_appearance(window: &tauri::Window, dark: Option<bool>) {
     use crate::mac::*;
 
     let ptr = match window.ns_window() {
@@ -1947,7 +1947,18 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
         // no_abort: run_on_main_thread locks the window dispatcher — same
         // poisoned-mutex SIGABRT class (see no_abort doc).
         let _ = no_abort("set_theme", || {
-            for (label, win) in app.webview_windows() {
+            // `windows()`: l'appearance si pinna su una NSWindow, e la mappa
+            // filtrata perde proprio le finestre che hanno una pane browser
+            // aperta (vedi `reload_all_ui_windows`). Il risultato era che con
+            // una pane aperta il tema non arrivava più al cromo nativo: semafori
+            // e titlebar restavano sull'appearance vecchia sotto un contenuto
+            // già cambiato, e in modo «Sistema» il `setAppearance: nil` che
+            // toglie il pin non partiva mai — quindi la finestra restava
+            // inchiodata all'ultimo tema forzato e, siccome la WKWebView eredita
+            // l'effectiveAppearance dalla finestra, «Sistema» smetteva di
+            // seguire il Mac. Nessun errore da nessuna parte: `set_theme`
+            // tornava Ok.
+            for (label, win) in app.windows() {
                 if label != "main" && !label.starts_with("detach-") {
                     continue;
                 }
@@ -2031,637 +2042,9 @@ mod child_reaper {
     }
 }
 
-/// Native banner delivery via the modern `UserNotifications` framework.
-///
-/// The plugin path (tauri-plugin-notification → notify-rust → mac-notification-sys)
-/// posts through the DEPRECATED `NSUserNotificationCenter`. macOS 26's usernoted
-/// refuses those legacy connections outright — "no notification allowed to be sent
-/// to it" — so every banner was silently dropped, and since nothing ever requested
-/// authorization (the desktop plugin hardcodes `PermissionState::Granted`) Topics
-/// never even appeared in System Settings → Notifications. This module posts
-/// `UNNotificationRequest`s directly and requests authorization once at setup.
-///
-/// Un-bundled processes (`cargo run` dev) MUST NOT touch `UNUserNotificationCenter`:
-/// `currentNotificationCenter()` raises an ObjC exception when there is no bundle
-/// proxy. Every entry point guards on `NSBundle.bundleIdentifier`; the caller falls
-/// back to the plugin path (at worst the old non-delivery, never a crash).
 #[cfg(target_os = "macos")]
-mod macos_notifications {
-    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-    use std::sync::OnceLock;
-
-    use block2::RcBlock;
-    use objc2::rc::Retained;
-    use objc2::runtime::{Bool, ProtocolObject};
-    use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
-    use objc2_foundation::{NSArray, NSBundle, NSError, NSObject, NSObjectProtocol, NSSet, NSString};
-    use objc2_user_notifications::{
-        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAction,
-        UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
-        UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
-        UNUserNotificationCenter, UNUserNotificationCenterDelegate,
-    };
-
-    /// Un tasto del banner: l'id che torna indietro al click + l'etichetta.
-    /// L'id lo compone il client (`shared/notify-actions`) e CODIFICA l'azione
-    /// per intero — qui dentro non si sa (e non serve sapere) cosa significhi:
-    /// il guscio lo trasporta e lo restituisce, la decisione resta di là.
-    #[derive(Clone, serde::Deserialize)]
-    pub struct NotifyAction {
-        pub id: String,
-        pub title: String,
-    }
-
-    /// True when running from a real .app bundle (`bundleIdentifier` set).
-    pub fn is_bundled() -> bool {
-        NSBundle::mainBundle().bundleIdentifier().is_some()
-    }
-
-    /// UN authorization state, resolved async by `install()`'s callbacks. False
-    /// until they land (instants after boot) — early posts take the helper path.
-    static UN_AUTHORIZED: AtomicBool = AtomicBool::new(false);
-
-    /// L'esito TESTUALE dell'autorizzazione, per poterlo RACCONTARE.
-    ///
-    /// Tutta questa catena fallisce in silenzio: non bundled → esci; non
-    /// autorizzato → passa dall'helper; niente helper → esci. Da fuori è
-    /// indistinguibile da "nessuna notifica da mostrare", e l'utente resta
-    /// convinto che il pannello Impostazioni dica il vero. Qui si tiene l'ultimo
-    /// stato noto perché `notification_status` possa dirlo alla UI.
-    ///
-    /// `NOT_DETERMINED` è distinto da `DENIED` e la differenza NON è accademica:
-    /// il pannello, su «negato», consiglia di riaccendere le notifiche in
-    /// Impostazioni di Sistema → Notifiche. Se lo stato vero è «non ancora
-    /// deciso», lì dentro Topics non compare proprio, e il consiglio manda
-    /// l'utente a cercare una voce che non esiste.
-    static AUTH_STATE: AtomicU8 = AtomicU8::new(AUTH_PENDING);
-    /// Nessuna lettura è ancora tornata (istanti dopo il boot).
-    const AUTH_PENDING: u8 = 0;
-    const AUTH_GRANTED: u8 = 1;
-    /// SOLO `UNAuthorizationStatus::Denied`. Un `requestAuthorization` fallito
-    /// non basta: vedi `install()`.
-    const AUTH_DENIED: u8 = 2;
-    /// macOS non ha ancora deciso: né concesso né negato. È lo stato di una
-    /// build a cui il prompt non è mai riuscito.
-    const AUTH_NOT_DETERMINED: u8 = 3;
-
-    /// Fotografia dello stato reale della catena delle notifiche native.
-    /// Sola lettura: nessun campo qui cambia il comportamento, servono a NON
-    /// far fallire in silenzio.
-    #[derive(serde::Serialize, Clone)]
-    pub struct NotificationStatus {
-        /// Gira da un vero .app? Fuori dal bundle non si posta nulla.
-        pub bundled: bool,
-        /// macOS ci ha autorizzati a postare a NOSTRO nome. Su una build non
-        /// firmata Apple è `false` per progetto — macOS 26 rifiuta senza
-        /// nemmeno chiedere.
-        pub authorized: bool,
-        /// "pending" | "notDetermined" | "granted" | "denied". `authorized=false`
-        /// con "pending" è ancora in volo; con "notDetermined" macOS non ha mai
-        /// deciso (e in Impostazioni di Sistema l'app NON compare); con "denied"
-        /// c'è un rifiuto esplicito, ed è l'unico caso in cui ha senso mandare
-        /// l'utente in quel pannello.
-        pub auth_state: &'static str,
-        /// Il carrier di ripiego, se risolto. `None` = niente banner nativi,
-        /// punto: né come noi né via helper.
-        pub helper: Option<String>,
-        /// Dove va il log della catena, così il campo può guardarlo.
-        pub log_path: Option<String>,
-    }
-
-    /// Rilegge da macOS lo stato dell'autorizzazione e lo scrive negli atomici.
-    ///
-    /// Il pannello Impostazioni consiglia di riaccendere le notifiche in
-    /// Impostazioni di Sistema. Finché questa lettura si faceva UNA volta sola
-    /// dentro `install()`, seguire quel consiglio non cambiava niente: la
-    /// diagnosi restava la fotografia scattata al boot e continuava a dire
-    /// «non arrivano» proprio nel momento in cui l'utente aveva appena fatto
-    /// quello che gli avevamo chiesto. Vale anche al contrario — notifiche
-    /// spente a mano e pannello che giura che va tutto bene.
-    ///
-    /// `wait` è il tetto entro cui aspettare il callback (`ZERO` = spara e
-    /// vai, com'era all'install). Scaduto il tetto non si blocca niente:
-    /// restano gli ultimi valori noti e il callback aggiornerà comunque gli
-    /// atomici per la lettura dopo. Chi aspetta NON deve stare sul main
-    /// thread: `notification_status` è marcato `#[tauri::command(async)]`
-    /// apposta.
-    fn refresh_auth_state(wait: std::time::Duration) {
-        if !is_bundled() {
-            return;
-        }
-        let center = UNUserNotificationCenter::currentNotificationCenter();
-        let landed = std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
-        let signal = landed.clone();
-        let settings_done = RcBlock::new(
-            move |settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
-                use objc2_user_notifications::UNAuthorizationStatus;
-                let s = unsafe { settings.as_ref() };
-                let status = s.authorizationStatus();
-                // Questa lettura è AUTORITATIVA: dice lo stato di adesso, non
-                // l'esito di un prompt. Perciò un `Denied` sovrascrive anche un
-                // `granted` precedente — è l'unico modo perché una revoca fatta
-                // in Impostazioni di Sistema si veda. E `UN_AUTHORIZED=false`
-                // non spegne i banner: manda `post` sull'helper firmato, che è
-                // esattamente quello che serve quando a nostro nome verrebbero
-                // buttati in silenzio.
-                //
-                // `NotDetermined` ora si REGISTRA (prima veniva ignorato, e il
-                // pannello restava con il "denied" inventato da `install()` —
-                // che mandava a cercare Topics in un pannello dove non c'è).
-                // Non tocca `UN_AUTHORIZED`, però: quello è instradamento di
-                // consegna, e mentre il prompt è ancora aperto l'altro callback
-                // può arrivare con un `granted` — spegnerlo qui sarebbe una
-                // corsa contro la sola via che consegna davvero.
-                if status == UNAuthorizationStatus::Authorized
-                    || status == UNAuthorizationStatus::Provisional
-                {
-                    UN_AUTHORIZED.store(true, Ordering::Relaxed);
-                    AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
-                } else if status == UNAuthorizationStatus::Denied {
-                    UN_AUTHORIZED.store(false, Ordering::Relaxed);
-                    AUTH_STATE.store(AUTH_DENIED, Ordering::Relaxed);
-                } else if status == UNAuthorizationStatus::NotDetermined {
-                    AUTH_STATE.store(AUTH_NOT_DETERMINED, Ordering::Relaxed);
-                }
-                diag(&format!(
-                    "settings → authorizationStatus={:?} alertSetting={:?}",
-                    status,
-                    s.alertSetting()
-                ));
-                let (lock, cv) = &*signal;
-                if let Ok(mut done) = lock.lock() {
-                    *done = true;
-                }
-                cv.notify_all();
-            },
-        );
-        center.getNotificationSettingsWithCompletionHandler(&settings_done);
-        if wait.is_zero() {
-            return;
-        }
-        let (lock, cv) = &*landed;
-        let Ok(mut done) = lock.lock() else { return };
-        while !*done {
-            let Ok((guard, timeout)) = cv.wait_timeout(done, wait) else { return };
-            done = guard;
-            if timeout.timed_out() {
-                break;
-            }
-        }
-    }
-
-    pub fn status() -> NotificationStatus {
-        // Prima di raccontarlo, si ricontrolla: vedi `refresh_auth_state`. Il
-        // tetto è stretto perché è una query locale al demone delle notifiche —
-        // se non risponde in 300ms si risponde con l'ultimo stato noto invece
-        // di far aspettare il pannello.
-        refresh_auth_state(std::time::Duration::from_millis(300));
-        let auth_state = match AUTH_STATE.load(Ordering::Relaxed) {
-            AUTH_GRANTED => "granted",
-            AUTH_DENIED => "denied",
-            AUTH_NOT_DETERMINED => "notDetermined",
-            _ => "pending",
-        };
-        NotificationStatus {
-            bundled: is_bundled(),
-            authorized: UN_AUTHORIZED.load(Ordering::Relaxed),
-            auth_state,
-            helper: helper_path().map(|p| p.display().to_string()),
-            log_path: std::env::var("HOME")
-                .ok()
-                .map(|h| format!("{h}/Library/Logs/topics-notifications.log")),
-        }
-    }
-
-    /// Fallback banner carrier. macOS 26 denies UN authorization to any app
-    /// without an Apple-chain code signature (adhoc AND locally self-signed both
-    /// refused: no prompt, app never listed in Settings → Notifications), so an
-    /// unsigned Topics.app cannot post banners AS ITSELF. terminal-notifier is
-    /// Developer-ID-signed and already authorized on this machine (it's the same
-    /// carrier ~/.claude/notify.sh banners ride on — usernoted logs `Presenting`
-    /// for it), and `-activate` hands the banner click back to Topics. Resolved
-    /// once; absolute candidates because a login-item's PATH is minimal.
-    static HELPER: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
-
-    // NON spediamo un carrier dentro il bundle, ed è una scelta.
-    //
-    // Il piano era: impacchettare `terminal-notifier.app` sotto
-    // `bundle.resources` e cercarlo in `resource_dir()`, così una build
-    // rilasciata non dipende da cosa ha installato l'utente. Il presupposto era
-    // che terminal-notifier fosse firmato Developer ID. Non lo è:
-    //
-    //   $ codesign -dvvv /opt/homebrew/Cellar/terminal-notifier/2.0.0/terminal-notifier.app
-    //   CodeDirectory flags=0x20002(adhoc,linker-signed)
-    //   Signature=adhoc
-    //   TeamIdentifier=not set
-    //
-    // Su QUESTA macchina funziona perché è stato autorizzato a suo tempo. Su
-    // una macchina pulita ha esattamente il problema di Topics — adhoc, che
-    // macOS 26 rifiuta — quindi spedirne una copia sposterebbe il fallimento,
-    // non lo toglierebbe: un ripiego che nasconde il sintomo invece di curarlo.
-    // La cura vera è firmare Topics con un Developer ID (vedi il task nel
-    // backlog); nel frattempo il fallimento almeno non è più muto, lo racconta
-    // `status()` qui sotto.
-    fn helper_path() -> Option<&'static std::path::Path> {
-        HELPER
-            .get_or_init(|| {
-                const CANDIDATES: &[&str] = &[
-                    "/opt/homebrew/bin/terminal-notifier",
-                    "/usr/local/bin/terminal-notifier",
-                ];
-                CANDIDATES
-                    .iter()
-                    .map(std::path::Path::new)
-                    .find(|p| p.exists())
-                    .map(|p| p.to_path_buf())
-            })
-            .as_deref()
-    }
-
-    fn post_via_helper(title: &str, body: &str) {
-        let Some(bin) = helper_path() else {
-            // L'ultimo anello della catena, e finora il più muto: niente
-            // autorizzazione E niente carrier = nessun banner, mai, senza che
-            // nessuno lo dica. Almeno finisce nel log.
-            diag("post_via_helper: nessun carrier — banner NON consegnato");
-            return;
-        };
-        // terminal-notifier parses argv via NSUserDefaults: a value starting
-        // with "-" reads as a flag. A leading space defuses it.
-        let pad = |s: &str| {
-            if s.starts_with('-') {
-                format!(" {s}")
-            } else {
-                s.to_string()
-            }
-        };
-        // Unique -group per banner: terminal-notifier's default group is a
-        // CONSTANT ident, so without this each post silently REPLACES the
-        // previous notification instead of presenting a new banner.
-        let group = format!(
-            "topics-notif-{}-{}",
-            std::process::id(),
-            NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
-        );
-        // Hand the child to the reaper: this fires on every session state
-        // change, and a dropped-unwaited `Child` is a permanent zombie.
-        if let Ok(child) = std::process::Command::new(bin)
-            .arg("-title")
-            .arg(pad(title))
-            .arg("-message")
-            .arg(pad(body))
-            .arg("-group")
-            .arg(group)
-            .arg("-activate")
-            .arg("io.armonia.topics.tauri")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        {
-            super::child_reaper::reap(child);
-        }
-    }
-
-    struct DelegateIvars {
-        app: tauri::AppHandle,
-    }
-
-    /// È un tasto NOSTRO? macOS riusa `actionIdentifier` anche per il click sul
-    /// corpo e per lo scarto della notifica (`com.apple.UNNotification…`), e
-    /// quei due devono restare quello che sono sempre stati.
-    ///
-    /// Il riconoscimento è per PREFISSO e non per lista esatta: i verbi li
-    /// decide `shared/notify-actions.ts` e uno nuovo non deve richiedere una
-    /// modifica al guscio nativo — che è il pezzo che l'utente aggiorna meno
-    /// spesso (un guscio vecchio con un client nuovo è la forma classica del
-    /// bug qui). Il gate che conta sta comunque di là: il client esegue solo
-    /// gli id che sa decodificare.
-    fn is_our_action(id: &str) -> bool {
-        id.starts_with("answer:") || id == "approve" || id == "requeue"
-    }
-
-    /// Una stringa Rust come LETTERALE JavaScript, virgolette comprese.
-    ///
-    /// Gli id dei tasti portano dentro il testo dell'opzione scritta
-    /// dall'agente: apici, virgolette, a capo, qualunque cosa. Interpolarli
-    /// dentro `w.eval` tra apici a mano — com'è per il task id, che però è un
-    /// UUID passato al setaccio dei caratteri — vorrebbe dire far scrivere JS a
-    /// un LLM. `serde_json` produce un letterale valido per definizione.
-    fn js_string(value: &str) -> String {
-        serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
-    }
-
-    define_class!(
-        #[unsafe(super(NSObject))]
-        #[name = "TopicsNotificationDelegate"]
-        #[ivars = DelegateIvars]
-        struct NotificationDelegate;
-
-        unsafe impl NSObjectProtocol for NotificationDelegate {}
-
-        unsafe impl UNUserNotificationCenterDelegate for NotificationDelegate {
-            /// Without a delegate the framework SUPPRESSES banners while the app is
-            /// frontmost. Whether to notify at all is the CLIENT's call
-            /// (`decideTerminalBanner` / `notifyEvenWhenFocused`) — by the time the
-            /// shell is invoked the answer was already "yes", so always present.
-            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
-            fn will_present(
-                &self,
-                _center: &UNUserNotificationCenter,
-                _notification: &UNNotification,
-                completion: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
-            ) {
-                completion.call((UNNotificationPresentationOptions(
-                    UNNotificationPresentationOptions::Banner.0
-                        | UNNotificationPresentationOptions::List.0,
-                ),));
-            }
-
-            /// Click on a banner → surface the main window (parity with the old
-            /// terminal-notifier `-activate`). Delegate callbacks arrive on a
-            /// private queue; window work must hop to the main thread.
-            ///
-            /// Con un TASTO premuto il giro è un altro: non si apre niente, si
-            /// ESEGUE. Chi esegue è il client (`window.__topicsNotificationAction`),
-            /// non questo modulo — la chiamata vuole la sessione, i cookie e gli
-            /// endpoint della board, cioè tre cose che vivono nel webview e che
-            /// riportare qui dentro significherebbe tenerne una seconda copia.
-            #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
-            fn did_receive(
-                &self,
-                _center: &UNUserNotificationCenter,
-                response: &UNNotificationResponse,
-                completion: &block2::DynBlock<dyn Fn()>,
-            ) {
-                // A task-bound banner encodes its task id in the request identifier
-                // (`topics-task-<id>`, see post()). Read it here (on the delegate
-                // queue), then hop to the main thread to surface the window AND open
-                // the task in the webview. Charset-gated to UUID-safe chars so the
-                // id can be inlined into the eval'd JS with no injection surface.
-                let task_id: Option<String> = {
-                    let ident = response.notification().request().identifier().to_string();
-                    ident
-                        .strip_prefix("topics-task-")
-                        .filter(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
-                        .map(|t| t.to_string())
-                };
-                // Il tasto premuto, se è uno dei NOSTRI. macOS usa lo stesso
-                // campo anche per il click sul corpo e per lo scarto
-                // (`com.apple.UNNotification*ActionIdentifier`): si tiene solo
-                // ciò che abbiamo registrato noi, così quei due restano il
-                // comportamento di sempre invece di diventare azioni a caso.
-                let action_id: Option<String> = {
-                    let id = response.actionIdentifier().to_string();
-                    if is_our_action(&id) { Some(id) } else { None }
-                };
-                let app = self.ivars().app.clone();
-                let app2 = app.clone();
-                let _ = app.run_on_main_thread(move || {
-                    use tauri::Manager;
-                    if let Some(w) = app2.get_webview_window("main") {
-                        match (&task_id, &action_id) {
-                            // Tasto premuto su un banner legato a un task: si
-                            // esegue e basta. Niente `ensure_window_visible`:
-                            // portare in faccia la finestra vanificherebbe il
-                            // senso del tasto, che è NON dover aprire l'app.
-                            (Some(tid), Some(aid)) => {
-                                let _ = w.eval(&format!(
-                                    "window.__topicsNotificationAction && window.__topicsNotificationAction({}, {});",
-                                    js_string(tid),
-                                    js_string(aid),
-                                ));
-                            }
-                            _ => {
-                                super::ensure_window_visible(&w);
-                                if let Some(tid) = &task_id {
-                                    let _ = w.eval(&format!(
-                                        "window.__topicsOpenTask && window.__topicsOpenTask('{tid}');"
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                });
-                completion.call(());
-            }
-        }
-    );
-
-    /// Install the delegate + request authorization. Call once from `setup()`.
-    ///
-    /// The delegate is intentionally leaked: `UNUserNotificationCenter.delegate`
-    /// is a weak property, so somebody must hold a strong ref for the app's
-    /// lifetime. Authorization asks for `.alert` only — the completion tone is
-    /// played client-side (WebAudio), an OS sound would double it. Fire-and-forget:
-    /// una richiesta fallita vuol dire solo niente banner a nostro nome — si passa
-    /// dal carrier di ripiego (`post_via_helper`).
-    ///
-    /// L'esito di questa richiesta NON è lo stato del sistema, e non va scritto
-    /// come tale: qui si registra solo il `granted`. Chi vuole sapere come stiamo
-    /// davvero chiede a `refresh_auth_state`. La riga che prometteva «l'app ora
-    /// compare in Impostazioni di Sistema → Notifiche» è stata tolta perché non è
-    /// vera: con la richiesta che fallisce (`UNErrorDomain error 1`, lo stato
-    /// resta `NotDetermined`) Topics in quel pannello non compare affatto —
-    /// `defaults read com.apple.ncprefs apps` non ne ha traccia.
-    pub fn install(app: &tauri::AppHandle) {
-        if !is_bundled() {
-            return;
-        }
-        let delegate =
-            NotificationDelegate::alloc().set_ivars(DelegateIvars { app: app.clone() });
-        let delegate: Retained<NotificationDelegate> = unsafe { msg_send![super(delegate), init] };
-        let center = UNUserNotificationCenter::currentNotificationCenter();
-        center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-        std::mem::forget(delegate);
-        let done = RcBlock::new(|granted: Bool, error: *mut NSError| {
-            let err = if error.is_null() {
-                String::from("none")
-            } else {
-                unsafe { &*error }.localizedDescription().to_string()
-            };
-            if granted.as_bool() {
-                UN_AUTHORIZED.store(true, Ordering::Relaxed);
-                AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
-            }
-            // Un `granted=false` NON diventa "negato", e prima invece lo
-            // diventava. L'esito di `requestAuthorization` è l'esito di UNA
-            // richiesta — qui è quasi sempre `UNErrorDomain error 1`, cioè la
-            // richiesta stessa non è andata a buon fine — non lo stato del
-            // sistema. La sola fonte autorevole è `getNotificationSettings`
-            // (`refresh_auth_state`), che su questa macchina risponde
-            // `NotDetermined`: mai `Denied`. Scriverlo qui produceva un
-            // "denied" inventato che nessuna lettura successiva correggeva più
-            // (`refresh_auth_state` non toccava `NotDetermined`), e il pannello
-            // finiva per consigliare Impostazioni di Sistema → Notifiche, dove
-            // Topics non è mai comparso.
-            diag(&format!(
-                "requestAuthorization → granted={} error={}",
-                granted.as_bool(),
-                err
-            ));
-        });
-        center.requestAuthorizationWithOptions_completionHandler(
-            UNAuthorizationOptions::Alert,
-            &done,
-        );
-        // Spara e vai: qui il prompt può essere ancora aperto, non c'è niente
-        // da aspettare. La stessa lettura la rifà `status()` quando il pannello
-        // la chiede, ed è lì che conta che sia fresca.
-        refresh_auth_state(std::time::Duration::ZERO);
-        diag(&format!(
-            "helper fallback: {}",
-            helper_path().map(|p| p.display().to_string()).unwrap_or_else(|| "none".into())
-        ));
-    }
-
-    /// Release builds have no logger installed (tauri_plugin_log is debug-only),
-    /// and the whole failure class here is SILENT drops — so the authorization
-    /// outcome goes to a plain file the field can always read.
-    fn diag(line: &str) {
-        use std::io::Write;
-        let Ok(home) = std::env::var("HOME") else { return };
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(format!("{home}/Library/Logs/topics-notifications.log"))
-        {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let _ = writeln!(f, "[{ts}] {line}");
-        }
-    }
-
-    static NOTIF_SEQ: AtomicU64 = AtomicU64::new(0);
-
-    /// Le categorie ancora registrate, come DATO Rust e non come oggetti ObjC.
-    ///
-    /// I tasti di un banner vivono in una `UNNotificationCategory`, e le loro
-    /// etichette sono il testo delle opzioni dell'agente: cioè cambiano a ogni
-    /// notifica, quindi la categoria non può essere una sola registrata al boot.
-    /// `setNotificationCategories` però SOSTITUISCE l'intero insieme: registrare
-    /// solo l'ultima farebbe scadere i tasti delle notifiche ancora appese in
-    /// Centro Notifiche. Qui si tiene una coda corta e si ri-registra tutta.
-    ///
-    /// Perché `(String, Vec<(String, String)>)` e non i `Retained<…>` già
-    /// costruiti: `Retained` non è `Send`, quindi non può stare in uno static
-    /// condiviso. Ricostruire gli oggetti a ogni post costa qualche allocazione
-    /// per una cosa che succede quando finisce un task, non in un ciclo.
-    static CATEGORIES: OnceLock<std::sync::Mutex<std::collections::VecDeque<(String, Vec<(String, String)>)>>> =
-        OnceLock::new();
-
-    /// Quante categorie si tengono vive. Copre abbondantemente le notifiche
-    /// ancora appese in Centro Notifiche senza far crescere senza fine un
-    /// insieme che va ri-registrato per intero a ogni post.
-    const MAX_LIVE_CATEGORIES: usize = 16;
-
-    /// Registra la categoria di QUESTO banner (e ri-registra le precedenti).
-    /// Torna l'identificatore da mettere sul contenuto.
-    fn register_category(actions: &[NotifyAction]) -> String {
-        let ident = format!(
-            "topics-actions-{}-{}",
-            std::process::id(),
-            NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
-        );
-        let store = CATEGORIES.get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()));
-        let snapshot = {
-            let Ok(mut q) = store.lock() else { return ident };
-            q.push_back((
-                ident.clone(),
-                actions.iter().map(|a| (a.id.clone(), a.title.clone())).collect(),
-            ));
-            while q.len() > MAX_LIVE_CATEGORIES {
-                q.pop_front();
-            }
-            q.iter().cloned().collect::<Vec<_>>()
-        };
-
-        let mut categories: Vec<Retained<UNNotificationCategory>> = Vec::with_capacity(snapshot.len());
-        for (cat_id, acts) in &snapshot {
-            let built: Vec<Retained<UNNotificationAction>> = acts
-                .iter()
-                .map(|(id, title)| {
-                    UNNotificationAction::actionWithIdentifier_title_options(
-                        &NSString::from_str(id),
-                        &NSString::from_str(title),
-                        // Nessuna opzione: il tasto NON porta in primo piano
-                        // l'app e non richiede lo sblocco. È il punto — premere
-                        // "Landa su main" dal banner deve costare un gesto, non
-                        // un gesto più una finestra che si apre in faccia.
-                        UNNotificationActionOptions::empty(),
-                    )
-                })
-                .collect();
-            let refs: Vec<&UNNotificationAction> = built.iter().map(|a| &**a).collect();
-            categories.push(UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
-                &NSString::from_str(cat_id),
-                &NSArray::from_slice(&refs),
-                &NSArray::from_slice(&[]),
-                UNNotificationCategoryOptions::empty(),
-            ));
-        }
-        let cat_refs: Vec<&UNNotificationCategory> = categories.iter().map(|c| &**c).collect();
-        UNUserNotificationCenter::currentNotificationCenter()
-            .setNotificationCategories(&NSSet::from_slice(&cat_refs));
-        ident
-    }
-
-    /// Post one banner. Unique identifier per request — completion banners must
-    /// stack in the Notification Center, never coalesce/replace each other.
-    /// When macOS never authorized the app (unsigned build, see UN_AUTHORIZED),
-    /// posting as ourselves is a guaranteed silent drop — ride the signed
-    /// helper instead.
-    ///
-    /// `actions` sono i tasti. Il ripiego `terminal-notifier` li IGNORA e non è
-    /// una svista: la 2.0.0 di Homebrew non ha `-actions` (`-execute`/`-open`
-    /// sono tutto ciò che offre), quindi là un banner resta un link. Meglio un
-    /// banner senza tasti che un tasto che non esiste.
-    pub fn post(title: &str, body: &str, task_id: Option<&str>, actions: &[NotifyAction]) {
-        if !is_bundled() {
-            return;
-        }
-        if !UN_AUTHORIZED.load(Ordering::Relaxed) {
-            post_via_helper(title, body);
-            return;
-        }
-        let content = UNMutableNotificationContent::new();
-        content.setTitle(&NSString::from_str(title));
-        content.setBody(&NSString::from_str(body));
-        if !actions.is_empty() {
-            let cat = register_category(actions);
-            // Nel log per lo stesso motivo di tutto il resto in questo modulo:
-            // un tasto che non compare non ha nessun altro modo di dirlo. Le
-            // cause sono almeno tre e nessuna produce un errore — il client non
-            // le ha mandate, la categoria non si è registrata, macOS non
-            // disegna i bottoni con lo stile "banner". Qui si legge la prima.
-            diag(&format!(
-                "post: category={cat} actions=[{}]",
-                actions.iter().map(|a| a.id.as_str()).collect::<Vec<_>>().join(", ")
-            ));
-            content.setCategoryIdentifier(&NSString::from_str(&cat));
-        }
-        // The task id (when the banner is task-bound) rides in the request
-        // IDENTIFIER — a plain string we read back verbatim from the click
-        // response in the delegate (no NSDictionary/userInfo plumbing). A stable
-        // `topics-task-<id>` also means a task's newer banner replaces its older.
-        let id = match task_id {
-            Some(t) => format!("topics-task-{t}"),
-            None => format!(
-                "topics-notif-{}-{}",
-                std::process::id(),
-                NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
-            ),
-        };
-        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
-            &NSString::from_str(&id),
-            &content,
-            None,
-        );
-        UNUserNotificationCenter::currentNotificationCenter()
-            .addNotificationRequest_withCompletionHandler(&request, None);
-    }
-}
+#[path = "macos_notifications.rs"]
+mod macos_notifications;
 
 /// Focus / Do-Not-Disturb state, read from the OS so the client can silence its
 /// completion banners while the user has a Focus on.
@@ -2800,7 +2183,7 @@ fn spawn_focus_watcher(app: tauri::AppHandle) {
                     let (supported, active, reason) = current;
                     let app = app.clone();
                     let _ = app.clone().run_on_main_thread(move || {
-                        if let Some(w) = app.get_webview_window("main") {
+                        if let Some(w) = app.get_webview("main") {
                             // `reason` è una costante nostra (`ok`/`denied`/
                             // `absent`), mai un dato di fuori: inlinarla fra
                             // apici non apre nessuna superficie d'iniezione.
@@ -3022,6 +2405,105 @@ fn set_clipboard_image(bytes: Vec<u8>) -> Result<(), String> {
 struct StatusItem {
     id: String,
     title: String,
+    /// Board the row comes from. Empty for a chat row (topics have no board);
+    /// on a task row it is what tells two same-named cards apart.
+    #[serde(default, rename = "projectId")]
+    project_id: String,
+}
+
+/// One board column in the tray menu: a status, how many tasks it holds and the
+/// first rows, which become a submenu. WHAT goes in — which statuses, in what
+/// order, how many rows, how a long title is cut — is decided and unit-tested in
+/// `shared/tray-board.ts`; this side only draws it. `count` is the WHOLE column,
+/// `rows` the ones that fit: the difference is what the submenu declares as
+/// "altri N", instead of letting them vanish.
+#[derive(Deserialize)]
+struct StatusGroup {
+    /// Kanban status id: picks the label and builds the row id that reopens the board.
+    status: String,
+    count: u32,
+    rows: Vec<StatusItem>,
+}
+
+/// Come si chiama una colonna nel menu. Le stesse parole delle colonne della
+/// kanban (`STATUS_LABEL`): la tray non introduce un secondo vocabolario per le
+/// stesse cose. Uno stato che il guscio non conosce si scrive com'è arrivato,
+/// che è meglio di una riga muta se un giorno ne nasce un altro.
+#[cfg(target_os = "macos")]
+fn tray_status_label(status: &str) -> &str {
+    match status {
+        "review" => "Review",
+        "in_progress" => "In Progress",
+        "todo" => "Todo",
+        "backlog" => "Backlog",
+        "done" => "Done",
+        other => other,
+    }
+}
+
+/// UNA riga di tray, UNA porta: mostra la finestra e consegna l'intenzione al
+/// client come DOM CustomEvent. Una tray che facesse le cose da sola (aprire una
+/// pane, cambiare stato) avrebbe una seconda copia delle regole della app in
+/// Rust; qui la tray dice solo COSA, il client sa COME — ed è la stessa via che
+/// il menu nativo e il forwarder delle scorciatoie usano già.
+///
+/// Ogni riga porta prima la finestra a galla: la tray si usa proprio quando la
+/// app è nascosta, e un evento consegnato a una finestra invisibile aprirebbe
+/// una cosa che nessuno vede.
+fn tray_dispatch(app: &tauri::AppHandle, event: &str, detail: Option<(&str, &str)>) {
+    use tauri::Manager;
+    // Due lookup e non uno: alzare la finestra e' un'operazione di FINESTRA,
+    // valutare il JS e' della WEBVIEW, e `get_webview_window` — che le univa —
+    // torna None appena la main ospita una pane browser. Con una pane aperta la
+    // tray smetteva di consegnare i suoi eventi, in silenzio.
+    let Some(w) = app.get_window("main") else { return };
+    ensure_window_visible(&w);
+    // Il valore passa da `serde_json` e non da un `format!`: un titolo o un id
+    // con un apice romperebbe (o peggio: allargherebbe) il JS che valutiamo.
+    let body = match detail {
+        Some((key, value)) => format!(
+            "{{detail:{{{key}:{}}}}}",
+            serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+        ),
+        None => String::new(),
+    };
+    let js = format!("window.dispatchEvent(new CustomEvent('{event}'{}))",
+        if body.is_empty() { String::new() } else { format!(",{body}") });
+    if let Some(wv) = app.get_webview("main") { let _ = wv.eval(&js); }
+}
+
+/// Il nome leggibile dentro l'id di un progetto: gli id nascono `<nome>-<hash>`
+/// e in un menu la coda esadecimale è rumore. Si toglie SOLO se ha la forma di
+/// un suffisso generato (corto e alfanumerico), così un progetto che si chiama
+/// davvero "topics-2" non perde un pezzo di nome.
+#[cfg(target_os = "macos")]
+fn project_slug(project_id: &str) -> &str {
+    match project_id.rsplit_once('-') {
+        Some((name, tail))
+            if !name.is_empty()
+                && (4..=8).contains(&tail.len())
+                && tail.chars().all(|c| c.is_ascii_alphanumeric())
+                && tail.chars().any(|c| c.is_ascii_digit()) =>
+        {
+            name
+        }
+        _ => project_id,
+    }
+}
+
+/// Trim a menu label so the tray stays a menu and not an inventory. An empty
+/// title still gets a row: a task with no text is a task, and a blank line in a
+/// menu is unclickable-looking. Solo macOS: è il menu dinamico che la usa, e
+/// altrove sarebbe una funzione senza chiamanti (cioè un warning).
+#[cfg(target_os = "macos")]
+fn tray_label(title: &str) -> String {
+    if title.chars().count() > 48 {
+        format!("{}…", title.chars().take(47).collect::<String>())
+    } else if title.is_empty() {
+        "(senza titolo)".to_string()
+    } else {
+        title.to_string()
+    }
 }
 
 /// Reflect the app-wide attention total on the dock-icon badge, the macOS
@@ -3032,19 +2514,26 @@ struct StatusItem {
 /// attention chats (id + title) rendered as clickable menu rows. Both are computed
 /// centrally by the client from the SAME signals the in-app tab badges read (see
 /// `useTabNotifications`), so the OS chrome can never drift from what's on screen.
-/// 0/empty clears the badge/glyph and leaves just Show/Quit. No-op off macOS (no
-/// dock; a Win/Linux taskbar badge can follow later).
+/// `groups` = the board's open work per status (`shared/tray-board.ts`), rendered as
+/// one submenu per column. 0/empty clears the badge/glyph and leaves the static rows.
+/// No-op off macOS (no dock; a Win/Linux taskbar badge can follow later).
 #[tauri::command]
-fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
+fn set_app_status(
+    app: tauri::AppHandle,
+    count: u32,
+    items: Vec<StatusItem>,
+    groups: Option<Vec<StatusGroup>>,
+) {
     #[cfg(target_os = "macos")]
     // no_abort: run_on_main_thread + tray/menu mutations go through the
     // window dispatcher — same poisoned-mutex SIGABRT class (see no_abort
     // doc). Fires on every attention-status change.
     let _ = no_abort("set_app_status", || {
-        use tauri::menu::MenuBuilder;
+        use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
         use tauri::Manager;
+        let groups = groups.unwrap_or_default();
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
-        if let Some(win) = app.get_webview_window("main") {
+        if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
         }
         // Menu-bar tray: glyph + tooltip + the clickable attention rows.
@@ -3056,20 +2545,73 @@ fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
             // menu is currently set, so dynamically-swapped rows still navigate.
             let mut mb = MenuBuilder::new(&app);
             for it in &items {
-                // Trim over-long chat titles so the menu stays tidy.
-                let label = if it.title.chars().count() > 48 {
-                    format!("{}…", it.title.chars().take(47).collect::<String>())
-                } else if it.title.is_empty() {
-                    "(senza titolo)".to_string()
-                } else {
-                    it.title.clone()
-                };
-                mb = mb.text(format!("nav:{}", it.id), label);
+                mb = mb.text(format!("nav:{}", it.id), tray_label(&it.title));
             }
             if !items.is_empty() {
                 mb = mb.separator();
             }
+            // IL LAVORO, non solo le chat. Un sottomenu per stato («Review (3)»)
+            // con le prime righe di quella colonna: da app nascosta la tray è
+            // l'unica superficie che resta, e finora sapeva dire soltanto chi
+            // aspetta una risposta in chat — della board, niente. Le righe
+            // aprono il task (`task:`), la testa della sezione apre la board.
+            if !groups.is_empty() {
+                let open: u32 = groups.iter().map(|g| g.count).sum();
+                mb = mb.text("board:open", format!("Board ({open} aperti)"));
+                for g in &groups {
+                    let mut sb = SubmenuBuilder::new(
+                        &app,
+                        format!("{} ({})", tray_status_label(&g.status), g.count),
+                    );
+                    for it in &g.rows {
+                        // DUE CARD OMONIME su board diverse capitano ("Fix build"
+                        // esiste ovunque), ed è la ragione per cui la riga porta
+                        // anche il progetto. In un menu due righe identiche non
+                        // sono due righe: sono una che sembra disegnata due volte.
+                        // Il progetto compare quindi SOLO quando serve a
+                        // distinguere, non su ogni riga: un menu in cui ogni voce
+                        // ripete la stessa parentesi si legge peggio.
+                        let ambigua = g.rows.iter().filter(|o| o.title == it.title).count() > 1;
+                        let label = if ambigua && !it.project_id.is_empty() {
+                            format!("{} ({})", tray_label(&it.title), project_slug(&it.project_id))
+                        } else {
+                            tray_label(&it.title)
+                        };
+                        sb = sb.text(format!("task:{}", it.id), label);
+                    }
+                    // Il resto si DICHIARA invece di sparire: una riga spenta,
+                    // che non promette un click che non c'è. `count` è la colonna
+                    // intera, `rows` quelle che ci stanno: la differenza è ciò che
+                    // il menu non sta elencando.
+                    let more = g.count.saturating_sub(g.rows.len() as u32);
+                    if more > 0 {
+                        if let Ok(rest) = MenuItemBuilder::with_id(
+                            format!("board-more:{}", g.status),
+                            format!("altri {more}…"),
+                        )
+                        .enabled(false)
+                        .build(&app)
+                        {
+                            sb = sb.item(&rest);
+                        }
+                    }
+                    sb = sb
+                        .separator()
+                        .text(format!("board:{}", g.status), "Apri la board");
+                    if let Ok(sub) = sb.build() {
+                        mb = mb.item(&sub);
+                    }
+                }
+                mb = mb.separator();
+            }
+            // Le azioni che il menu si era perso per strada: la app è cresciuta
+            // (chat, board, aggiornatore) e la tray era rimasta a Mostra/Esci,
+            // cioè non sapeva far FARE niente. Sono le stesse porte del menu
+            // nativo e della sidebar, non gesti nuovi.
             mb = mb
+                .text("tray-new-chat", "Nuova chat")
+                .text("tray-check-updates", "Controlla aggiornamenti")
+                .separator()
                 .text("tray-show", "Mostra Topics")
                 .text("tray-quit", "Esci");
             if let Ok(menu) = mb.build() {
@@ -3088,7 +2630,7 @@ fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items);
+    let _ = (app, count, items, groups);
 }
 
 /// Set (or clear, when 0) the macOS dock-icon badge label via the shared
@@ -3162,7 +2704,7 @@ async fn updater_install(app: tauri::AppHandle) -> Result<(), String> {
 fn toggle_always_on_top(app: &tauri::AppHandle) {
     use tauri::Manager;
     let next = !ALWAYS_ON_TOP.fetch_xor(true, Ordering::Relaxed);
-    if let Some(win) = app.get_webview_window("main") {
+    if let Some(win) = app.get_window("main") {
         let _ = win.set_always_on_top(next);
     }
     // Persist so the floating state survives relaunch (Electron parity — it was an
@@ -8029,7 +7571,7 @@ fn read_win_position_logical(path: &std::path::Path) -> Option<(i32, i32)> {
 /// units, the one coherent global space on macOS. tao's `Monitor::position()/
 /// size()` return "physical" values scaled by each monitor's OWN backing
 /// factor, so they must be unscaled per-monitor before any cross-monitor math.
-fn logical_monitors(win: &tauri::WebviewWindow) -> Vec<(i32, i32, u32, u32)> {
+fn logical_monitors(win: &tauri::Window) -> Vec<(i32, i32, u32, u32)> {
     win.available_monitors()
         .unwrap_or_default()
         .iter()
@@ -8081,7 +7623,7 @@ fn logical_monitors(win: &tauri::WebviewWindow) -> Vec<(i32, i32, u32, u32)> {
 /// facendo girare il guscio su QUESTA disposizione di monitor, cioè
 /// ricostruendo e sostituendo la app in uso. Le due misure qui sopra sono il
 /// punto di partenza: chi ci mette mano le rilegga dopo, non prima.
-fn window_logical_geometry(win: &tauri::WebviewWindow) -> Option<((i32, i32), (u32, u32))> {
+fn window_logical_geometry(win: &tauri::Window) -> Option<((i32, i32), (u32, u32))> {
     let sf = win.scale_factor().ok()?;
     let pos = win.outer_position().ok()?.to_logical::<f64>(sf);
     let size = win.outer_size().ok()?.to_logical::<f64>(sf);
@@ -8098,19 +7640,30 @@ fn window_logical_geometry(win: &tauri::WebviewWindow) -> Option<((i32, i32), (u
 /// nothing else runs on the way out (CloseRequested hides to tray instead).
 fn save_main_window_geometry(app: &tauri::AppHandle) {
     use tauri::Manager;
-    for (label, win) in app.webview_windows() {
-        if label != "main" {
-            continue;
-        }
-        if win.is_minimized().unwrap_or(false) {
-            return; // a minimized frame is not a real position
-        }
-        if let (Some(path), Some(((lx, ly), (lw, lh)))) =
-            (win_size_file(app), window_logical_geometry(&win))
-        {
-            save_win_size_logical(&path, lw as f64, lh as f64, Some((lx, ly)));
-        }
-        return;
+    // `get_window("main")` e la geometria letta in linea, per la stessa ragione
+    // scritta in `recompose_main_window`: `window_logical_geometry` prende una
+    // `WebviewWindow`, e quella ricerca torna `None` appena ci sono pane browser
+    // aperte. Qui il ciclo su `webview_windows()` era la stessa trappola in
+    // un'altra forma — con una pane aperta la mappa non conteneva più "main",
+    // il ciclo non trovava niente e usciva muto. Effetto: l'ULTIMA posizione
+    // della finestra non veniva più salvata all'uscita, e siccome i salvataggi
+    // durante il movimento sono throttled in testa, l'ultimo spostamento di un
+    // gesto si perdeva.
+    let Some(win) = app.get_window("main") else { return };
+    if win.is_minimized().unwrap_or(false) {
+        return; // a minimized frame is not a real position
+    }
+    let (Ok(sf), Ok(pos), Ok(size)) = (win.scale_factor(), win.outer_position(), win.outer_size())
+    else { return };
+    let pos = pos.to_logical::<f64>(sf);
+    let size = size.to_logical::<f64>(sf);
+    if let Some(path) = win_size_file(app) {
+        save_win_size_logical(
+            &path,
+            size.width.round().max(0.0),
+            size.height.round().max(0.0),
+            Some((pos.x.round() as i32, pos.y.round() as i32)),
+        );
     }
 }
 
@@ -8196,7 +7749,7 @@ fn clamp_position_to_monitors(
 /// LIVE monitor when the current rect is off every attached display (reusing the
 /// exact clamp as the restore path — a valid position on any connected display,
 /// including a second one, is honored verbatim), then focus.
-fn ensure_window_visible(win: &tauri::WebviewWindow) {
+fn ensure_window_visible(win: &tauri::Window) {
     let _ = win.show();
     let _ = win.unminimize();
     // LOGICAL points throughout (see clamp_position_to_monitors): tao physical
@@ -8481,6 +8034,13 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
     // (detach windows register themselves as they're built). The monitor
     // resolves the target window PER EVENT from this map — never a cached single
     // pointer, which mis-forwarded ⌘W from a detached window into main.
+    // Qui `get_webview_window` va bene, ed è per il momento in cui gira: siamo in
+    // `setup()`, prima che il frontend possa aver chiesto una pane browser, quindi
+    // la mappa filtrata e quella completa coincidono ancora. Serve una
+    // `WebviewWindow` vera perché il registro vuole DUE puntatori, la NSWindow e
+    // la NSView della sua webview di UI. Se un giorno questa riga si spostasse
+    // dopo l'avvio dell'event loop tornerebbe `None` con una pane aperta — e
+    // senza registro il monitor NSEvent esce prima di guardare ⌘R.
     if let Some(win) = app.get_webview_window("main") {
         register_ui_webview(&win, "main");
     }
@@ -8581,7 +8141,13 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                 // (browser_open le parenta alla finestra ospite): keying off the
                 // event window è ciò che tiene corretto questo forward.
                 let mut dispatched = false;
-                for (label, w) in app.webview_windows() {
+                // `windows()`: questo ramo gira PROPRIO QUANDO una pane browser
+                // ha il fuoco, cioè esattamente quando la mappa filtrata non
+                // contiene la finestra dell'evento. Il confronto non combaciava
+                // mai, `dispatched` restava false e si finiva sempre nel
+                // fallback su "main": con un pop-out il chord digitato lì
+                // atterrava nella finestra principale.
+                for (label, w) in app.windows() {
                     if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
                         if let Some(wv) = app.get_webview(&label) {
                             let _ = wv.eval(&js);
@@ -8731,7 +8297,7 @@ fn focus_task_composer_from_background(app: &tauri::AppHandle) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         use crate::mac::*;
-        if let Some(win) = app.get_webview_window("main") {
+        if let Some(win) = app.get_window("main") {
             unsafe {
                 let nsapp: id = msg_send![class!(NSApplication), sharedApplication];
                 let _: () = msg_send![nsapp, activateIgnoringOtherApps: YES];
@@ -8974,10 +8540,28 @@ async fn window_detach_space(
     // griglia. `ensure_window_visible` è una catena di chiamate al dispatcher
     // della finestra: va sul MAIN THREAD e dentro `no_abort`, come
     // `window_focus_label` (stessa classe di SIGABRT).
+    // ⚠️ QUESTA MAPPA È ANCORA QUELLA FILTRATA, ed è l'ultimo posto in cui la
+    // trappola morde (le altre sono state corrette: `reload_all_ui_windows`,
+    // `set_theme`, `save_main_window_geometry`, il forward dei chord,
+    // `purge_dead_space_labels`). Con una pane browser aperta nella
+    // finestra-gruppo, `find` non la trova e questo ramo «alzala invece di
+    // riaprirla» non scatta.
+    //
+    // Non è corretto qui perché non è uno swap: `ensure_window_visible` prende
+    // una `&WebviewWindow`, e ritiparla a `&Window` tira dentro anche
+    // `logical_monitors` e `window_logical_geometry` più una dozzina di
+    // chiamanti. Va fatto, ma come giro suo — e insieme ai due gemelli che
+    // hanno lo STESSO filtro: `get_webview_window` più sotto in questa funzione
+    // e in `window_close_label`.
+    //
+    // Il sintomo resta in gran parte coperto: il gesto «Sposta in una finestra»
+    // passa prima dalla presenza (SpaceGroups.tsx), che sa già dove vive il
+    // gruppo e alza la finestra senza arrivare qui. Questo ramo è la rete di
+    // sotto, e oggi è la rete che ha un buco.
     {
         use tauri::Manager;
         let existing = app
-            .webview_windows()
+            .windows()
             .into_iter()
             .find(|(label, _)| label.starts_with("space-") && window_space_of(label) == Some(space.clone()));
         if let Some((label, win)) = existing {
@@ -9135,7 +8719,15 @@ fn space_window_label(space: &str) -> String {
 /// finestre aperte e rende il ramo "già aperta?" onesto.
 fn purge_dead_space_labels(app: &tauri::AppHandle) {
     use tauri::Manager;
-    let alive: std::collections::HashSet<String> = app.webview_windows().into_keys().collect();
+    // `windows()`, non `webview_windows()`: qui si chiede «quali finestre
+    // esistono», e la seconda risponde a una domanda diversa — «quali finestre
+    // hanno UNA sola webview» (vedi `reload_all_ui_windows` per il predicato).
+    // Una finestra-gruppo con una pane browser aperta ne ha due, quindi cadeva
+    // fuori da `alive` e questa spazzata la sfrattava da viva: il ramo «già
+    // aperta?» tornava a mentire e si apriva una SECONDA finestra sullo stesso
+    // gruppo. Cioè esattamente l'etichetta zombie che questa rete esiste per
+    // togliere, al contrario.
+    let alive: std::collections::HashSet<String> = app.windows().into_keys().collect();
     if let Ok(mut m) = SPACE_WINDOWS.lock() {
         m.retain(|label, _| alive.contains(label));
     }
@@ -9163,7 +8755,10 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     // (show/unminimize/outer_position/set_focus…) — same poisoned-mutex
     // SIGABRT class as the browser_* commands (see no_abort doc).
     no_abort("window_focus_label", || {
-        if let Some(w) = app.get_webview_window(&label) {
+        // `get_window`, non `get_webview_window`: la seconda passa dallo stesso
+        // filtro di `webview_windows()` e torna None appena la finestra ospita
+        // una pane browser (lo dice gia' il commento su `set_traffic_lights`).
+        if let Some(w) = app.get_window(&label) {
             ensure_window_visible(&w);
             Ok(true)
         } else {
@@ -9205,11 +8800,34 @@ const RELOAD_WITH_FLASH_JS: &str =
 fn reload_all_ui_windows(app: &tauri::AppHandle) -> usize {
     use tauri::Manager;
     let mut n = 0usize;
-    for (label, win) in app.webview_windows() {
+    // `webviews()`, NON `webview_windows()`, ed è la differenza fra ricaricare e
+    // non fare niente.
+    //
+    // In tauri 2.11.3 la mappa delle finestre-webview tiene solo quelle per cui
+    // `is_webview_window()` è vero, e quel predicato è
+    // `self.webviews().iter().all(|w| w.label() == self.label())`
+    // (tauri/src/lib.rs:588-602, tauri/src/window/mod.rs:1160). Una pane del
+    // browser è una webview FIGLIA della finestra ospite — `window.add_child(…)`
+    // in `browser_open` — quindi appena ne apri una quella finestra ha due
+    // webview, il predicato diventa falso e **la finestra sparisce dalla mappa**,
+    // `main` compresa. Il ciclo girava a vuoto, tornava 0 e non falliva: ⌘R, la
+    // voce Reload del menu e `app_reload_all` tacevano tutti e tre insieme, e
+    // SOLO con una pane aperta. È il «premo ⌘R e non succede nulla» che questa
+    // funzione era già stata scritta per risolvere una volta.
+    //
+    // La prova che è un errore e non una scelta sta 400 righe più sotto, in
+    // questo stesso file: `notify_app_shell_bundle_stale` fa lo stesso ciclo, con
+    // lo stesso salto sulle `browserpane-`, ma sulle webview — ed è il motivo per
+    // cui il toast «Build più recente pronta» continuava a comparire mentre il
+    // reload non partiva. Stesso intento, due collezioni, un esito solo giusto.
+    //
+    // E qui il salto sulle `browserpane-` diventa finalmente portante: prima era
+    // codice morto, perché in una mappa già filtrata una pane non compariva mai.
+    for (label, wv) in app.webviews() {
         // Le pane native del browser sono webview a sé: si saltano, o si
         // ricaricherebbe la pagina che l'utente sta guardando.
         if label.starts_with("browserpane-") { continue; }
-        if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
+        if wv.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
     }
     n
 }
@@ -9229,7 +8847,11 @@ fn window_close_label(app: tauri::AppHandle, label: String) -> bool {
     // no_abort: `close()` passa dal dispatcher della finestra — stessa classe di
     // SIGABRT dei comandi `browser_*` (vedi la doc di no_abort).
     no_abort("window_close_label", || {
-        match app.get_webview_window(&label) {
+        // `get_window`: `window_close_self` qui sotto porta gia' scritto il perche'
+        // — l'estrattore rifiuta in silenzio una `WebviewWindow` appena la finestra
+        // ha piu' di una webview. Chiudere una finestra-gruppo con una pane aperta
+        // tornava `false` senza chiudere niente.
+        match app.get_window(&label) {
             Some(w) => { w.close().map_err(|e| e.to_string())?; Ok(true) }
             None => Ok(false),
         }
@@ -9804,13 +9426,54 @@ pub fn run() {
         // In dev mode it disk-serves /public with embedded fallback; otherwise it's
         // byte-identical to the built-in. Registered before the window builds.
         .register_uri_scheme_protocol("tauri", move |ctx, request| {
-            serve_tauri_asset(&ctx, &request, dev_serve_for_proto.as_ref())
+            // FIREWALL SUI PANICI, e qui non e' facoltativo.
+            //
+            // Questa chiusura gira sul callback SINCRONO di WKURLSchemeHandler,
+            // lo stesso confine FFI non-unwind che `no_abort` protegge dodici
+            // volte altrove: un panic qui non risale, chiama `abort()` e porta
+            // via l'intera app. `serve_tauri_asset` lo sa e lo scrive nel suo
+            // commento («a panic here abort()s the WHOLE app, and this is the
+            // highest-traffic path in the file»), e degrada a mano i propri
+            // `.unwrap()` con `unwrap_or_else(asset_fallback)`. Ma quella e' una
+            // garanzia per ISPEZIONE, non per costruzione: copre le righe che
+            // qualcuno ha guardato, non `asset_request_path`, non
+            // `disk_asset_response`, non il risolutore incorporato, non un
+            // indice fuori range, e soprattutto non un mutex gia' avvelenato da
+            // un panic avvenuto altrove — che e' esattamente il meccanismo
+            // descritto sopra `no_abort`.
+            //
+            // Il 2026-08-15 alle 19:30 la 2.2.138 e' morta di SIGABRT proprio
+            // qui: `WebURLSchemeHandlerCocoa::platformStartTask` -> tredici
+            // frame dell'app -> `abort() called`. Il binario di quel crash e'
+            // stato sostituito da un aggiornamento prima che potessi
+            // simbolicarlo, quindi la riga esatta NON la so. Ma la difesa non
+            // dipende dal saperla, e la sua assenza si paga sempre allo stesso
+            // modo: un asset che non si carica deve restare un asset che non si
+            // carica, non la finestra che sparisce.
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                serve_tauri_asset(&ctx, &request, dev_serve_for_proto.as_ref())
+            })) {
+                Ok(resp) => resp,
+                Err(payload) => {
+                    let msg = payload
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "non-string panic payload".to_string());
+                    eprintln!("[no-abort] uri-scheme tauri://{}: {msg}", request.uri());
+                    let mut resp = tauri::http::Response::new(std::borrow::Cow::Borrowed(
+                        &b"asset handler panicked"[..],
+                    ));
+                    *resp.status_mut() = tauri::http::StatusCode::INTERNAL_SERVER_ERROR;
+                    resp
+                }
+            }
         })
         // Single-instance FIRST (plugin requirement): a duplicate launch focuses
         // the running window instead of spawning a process that can't bind :13333.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
-            if let Some(w) = app.get_webview_window("main") {
+            if let Some(w) = app.get_window("main") {
                 // A second launch forwards here and exits; if this window can't be
                 // shown ON-SCREEN the user just sees "opens then closes, no window".
                 ensure_window_visible(&w);
@@ -10053,8 +9716,8 @@ pub fn run() {
                         .map(|w| w.label().to_string())
                         .unwrap_or_else(|| "main".to_string());
                     let win = app
-                        .get_webview_window(&label)
-                        .or_else(|| app.get_webview_window("main"));
+                        .get_webview(&label)
+                        .or_else(|| app.get_webview("main"));
                     if let Some(win) = win {
                         let _ = win
                             .eval("window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))");
@@ -10078,7 +9741,7 @@ pub fn run() {
                         _ => 100,
                     };
                     ZOOM_PERCENT.store(next, Ordering::Relaxed);
-                    if let Some(win) = app.get_webview_window("main") {
+                    if let Some(win) = app.get_webview("main") {
                         let _ = win.set_zoom(next as f64 / 100.0);
                     }
                 }
@@ -10091,9 +9754,9 @@ pub fn run() {
                     // Hand off to the client's updater flow (reuses updater_check +
                     // UpdaterToast). A DOM CustomEvent keeps the shell free of the
                     // @tauri-apps/event dependency — same bridge the tray uses.
-                    if let Some(w) = app.get_webview_window("main") {
-                        ensure_window_visible(&w);
-                        let _ = w.eval(
+                    if let Some(w) = app.get_window("main") { ensure_window_visible(&w); }
+                    if let Some(wv) = app.get_webview("main") {
+                        let _ = wv.eval(
                             "window.dispatchEvent(new CustomEvent('topics:check-for-updates'))",
                         );
                     }
@@ -10326,7 +9989,7 @@ pub fn run() {
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
                         // Un-occlude (always_on_top) so rAF runs — see the FPS probe note above.
-                        if let Some(win) = h.get_webview_window("main") {
+                        if let Some(win) = h.get_window("main") {
                             let _ = win.unminimize();
                             let _ = win.show();
                             let _ = win.set_always_on_top(true);
@@ -10405,8 +10068,18 @@ pub fn run() {
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
                         // get_webview_window("main") can be None in this multi-webview app;
-                        // iterate webview_windows() (proven reliable) and match the label.
-                        for (label, win) in h.webview_windows() {
+                        // iterate the WINDOWS and match the label.
+                        //
+                        // «(proven reliable)» diceva questa riga di
+                        // `webview_windows()`, ed è la frase che ha propagato
+                        // l'errore in mezzo file: quella mappa tiene solo le
+                        // finestre con UNA sola webview, quindi con una pane
+                        // browser aperta è vuota proprio dove serve. Qui servono
+                        // API di FINESTRA (outer_size / outer_position /
+                        // scale_factor), quindi la collezione giusta è
+                        // `windows()`. Vedi `reload_all_ui_windows`, dove la
+                        // stessa confusione teneva muto ⌘R.
+                        for (label, win) in h.windows() {
                             if label != "main" { continue; }
                             if let (Ok(os), Ok(pos), Ok(sf)) =
                                 (win.outer_size(), win.outer_position(), win.scale_factor())
@@ -10555,6 +10228,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
+                // Qui `webview_windows()` va bene, ed è l'unico posto in cui lo
+                // è: si è dentro `.setup()`, prima che l'event loop parta e
+                // quindi prima che il frontend possa aver chiesto una sola pane
+                // browser (`browser_open` è un comando: nasce da un click). Con
+                // zero pane la mappa filtrata e quella completa coincidono.
+                // Altrove no — vedi `reload_all_ui_windows`.
                 for (_label, win) in app.webview_windows() {
                     apply_traffic_lights(&win, false);
                     // NOTE: masking the content view (round_window_content_corners) to
@@ -10591,7 +10270,7 @@ pub fn run() {
                             let win_size = saved_size
                                 .map(|(w, h)| (w.round() as u32, h.round() as u32))
                                 .unwrap_or((1200, 800));
-                            let monitors = logical_monitors(&win);
+                            let monitors = logical_monitors(&win.as_ref().window());
                             if let Some((nx, ny)) =
                                 clamp_position_to_monitors(saved, win_size, &monitors)
                             {
@@ -10644,7 +10323,7 @@ pub fn run() {
                         std::time::Instant::now() - std::time::Duration::from_secs(2),
                     ));
                     let size_file = win_size_file(app.handle());
-                    let save_state_throttled = move |w: &tauri::WebviewWindow| {
+                    let save_state_throttled = move |w: &tauri::Window| {
                         let mut g = match save_gate.lock() { Ok(g) => g, Err(_) => return };
                         if g.elapsed() >= std::time::Duration::from_millis(500) {
                             *g = std::time::Instant::now();
@@ -10668,14 +10347,14 @@ pub fn run() {
                             // cover is sized here. (Interactive drags are handled by the
                             // notification + autoresizing mask above.)
                             vibrancy_resize_cover(&w);
-                            save_state_throttled(&w);
+                            save_state_throttled(&w.as_ref().window());
                             // Same titlebar re-pin as a focus change.
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
                         }
                         tauri::WindowEvent::Moved(_) => {
-                            save_state_throttled(&w);
+                            save_state_throttled(&w.as_ref().window());
                         }
                         tauri::WindowEvent::Focused(_) => {
                             // In fullscreen the titlebar is gone, so FORCE the
@@ -10718,12 +10397,32 @@ pub fn run() {
                     .on_menu_event(|app, event| {
                         let id = event.id().0.as_str();
                         if id == "tray-show" {
-                            if let Some(w) = app.get_webview_window("main") {
+                            if let Some(w) = app.get_window("main") {
                                 ensure_window_visible(&w);
                             }
                         } else if id == "tray-quit" {
                             QUITTING.store(true, Ordering::Relaxed);
                             app.exit(0);
+                        } else if id == "tray-new-chat" {
+                            // Stesso bus del composer: la riga della tray non è un
+                            // gesto nuovo, è la stessa porta vista da fuori.
+                            tray_dispatch(app, "topics:new-chat", None);
+                        } else if id == "tray-check-updates" {
+                            // Identico alla voce del menu nativo (updater_check +
+                            // UpdaterToast lato client).
+                            tray_dispatch(app, "topics:check-for-updates", None);
+                        } else if id.starts_with("board:") {
+                            // La testa della sezione e il piede di ogni sottomenu:
+                            // portano alla board, che è dove il lavoro si guarda per
+                            // intero. Lo stato dopo i due punti non seleziona niente
+                            // (la board mostra tutte le colonne), serve solo a dare
+                            // un id distinto a ogni riga.
+                            tray_dispatch(app, "topics:tray-open-board", None);
+                        } else if let Some(task_id) = id.strip_prefix("task:") {
+                            // Una riga di un sottomenu di stato: apre QUEL task, cioè
+                            // il deep-link `/task/<id>` che già apre il cassetto dalla
+                            // cronologia delle notifiche.
+                            tray_dispatch(app, "topics:tray-open-task", Some(("taskId", task_id)));
                         } else if let Some(topic_id) = id.strip_prefix("nav:") {
                             // A dynamic attention row (set by `set_app_status`): surface
                             // the window and hand the topic id to the renderer, which
@@ -10731,15 +10430,7 @@ pub fn run() {
                             // CustomEvent (not a Tauri event) keeps the client free of
                             // the @tauri-apps/event dependency — same bridge the native
                             // shortcut forwarder uses.
-                            if let Some(w) = app.get_webview_window("main") {
-                                ensure_window_visible(&w);
-                                let arg = serde_json::to_string(topic_id)
-                                    .unwrap_or_else(|_| "\"\"".to_string());
-                                let js = format!(
-                                    "window.dispatchEvent(new CustomEvent('topics:tray-navigate',{{detail:{{topicId:{arg}}}}}))"
-                                );
-                                let _ = w.eval(&js);
-                            }
+                            tray_dispatch(app, "topics:tray-navigate", Some(("topicId", topic_id)));
                         }
                     });
                 if let Some(icon) = app.default_window_icon() {
@@ -10755,7 +10446,7 @@ pub fn run() {
                 let on = read_aot(app.handle());
                 ALWAYS_ON_TOP.store(on, Ordering::Relaxed);
                 if on {
-                    if let Some(w) = app.get_webview_window("main") {
+                    if let Some(w) = app.get_window("main") {
                         let _ = w.set_always_on_top(true);
                     }
                 }
@@ -10836,7 +10527,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 use tauri::Manager;
-                if let Some(w) = app_handle.get_webview_window("main") {
+                if let Some(w) = app_handle.get_window("main") {
                     ensure_window_visible(&w);
                 }
             }

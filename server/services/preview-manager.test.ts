@@ -125,6 +125,40 @@ describe("ensurePreview", () => {
     expect(h.procs[0].killed).toBe(true);
   });
 
+  /**
+   * L'ALBERO ANCHE SULLE USCITE DI ERRORE, e non e' pignoleria.
+   *
+   * `deps.spawn` lancia `bun run dev`: il processo che ASCOLTA e' un suo
+   * DISCENDENTE. `proc.kill()` chiude il wrapper e lascia il figlio vivo,
+   * reparentato a init, con la porta presa e la CPU accesa — e' scritto nel
+   * commento di `teardown`, che infatti usa `killTree`. Le due uscite di errore
+   * di `bootPreview` no: usavano `proc.kill()` nudo, cioe' proprio dove il dev
+   * server e' mezzo avviato e nessuno lo sta piu' guardando. Il pool 3400-3450
+   * si consuma cosi', finche' una card in review non ha piu' dove nascere.
+   */
+  it("un boot fallito chiude l'ALBERO, non solo il wrapper", async () => {
+    const killed: number[] = [];
+    const h = harness({
+      probe: async () => false, readyTimeoutMs: 5, readyPollMs: 1,
+      killTree: async (pid) => { killed.push(pid); },
+    });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    expect(killed, "il discendente che ascolta va chiuso, non solo l'handle").toEqual([h.procs[0].pid!]);
+  });
+
+  it("una porta di un estraneo chiude l'ALBERO del nostro figlio", async () => {
+    const killed: number[] = [];
+    const h = harness({
+      listenerPid: async () => 999,   // ad ascoltare non e' il nostro
+      processCwd: async () => "/altrove",
+      killTree: async (pid) => { killed.push(pid); },
+    });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    expect(killed).toEqual([h.procs[0].pid!]);
+  });
+
   it("skips ports already taken by other previews", async () => {
     const h = harness({ portRange: [3400, 3401] });
     const pm = createPreviewManager(h.deps);
@@ -388,5 +422,106 @@ describe("teardown", () => {
     await pm.teardownAll();
     expect(pm.list().length).toBe(0);
     expect(h.procs.every((p) => p.killed)).toBe(true);
+  });
+});
+
+// ── sweepOrphans ─────────────────────────────────────────────────────────────
+//
+// La spazzata chiude per CWD: «ascolta su una porta del pool e sta in un
+// worktree conosciuto». Sono i due modi in cui quella descrizione prende un
+// processo che nessuno voleva chiudere.
+describe("sweepOrphans", () => {
+  /** Un ambiente in cui OGNI porta del pool sembra un'anteprima orfana. */
+  function sweepHarness(over: Partial<PreviewManagerDeps> = {}) {
+    const killed: number[] = [];
+    const h = harness({
+      portRange: [3400, 3401],
+      knownWorktreePaths: () => [WT.absPath],
+      listenerPid: async (port) => 9000 + (port - 3400),
+      processCwd: async () => WT.absPath,
+      killTree: async (pid) => { killed.push(pid); },
+      ...over,
+    });
+    return { h, killed };
+  }
+
+  it("chiude una porta del pool tenuta da un worktree conosciuto", async () => {
+    const { h, killed } = sweepHarness();
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.sweepOrphans()).toEqual([3400, 3401]);
+    expect(killed).toEqual([9000, 9001]);
+  });
+
+  it("non tocca chi sta fuori dai worktree conosciuti", async () => {
+    const { h, killed } = sweepHarness({ processCwd: async () => "/Users/qualcuno/altro-progetto" });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.sweepOrphans()).toEqual([]);
+    expect(killed).toEqual([]);
+  });
+
+  /**
+   * IL DIFETTO H10, primo verso. `live.set` avviene solo DOPO `waitReady` (fino
+   * a 40 s) e la sonda d'identità: fra la scelta della porta e quella riga
+   * l'anteprima non risultava «mia» a nessuno. La spazzata d'avvio parte a
+   * T+10 s, cioè dentro quella finestra, e cammina 51 porte con un `lsof`
+   * ciascuna: un'anteprima che stava nascendo veniva chiusa dalla spazzata del
+   * suo stesso processo.
+   */
+  it("non uccide un'anteprima ancora in AVVIO", async () => {
+    let sbloccaProbe: () => void = () => {};
+    const attesa = new Promise<void>((r) => { sbloccaProbe = r; });
+    const { h, killed } = sweepHarness({
+      // `waitReady` resta appeso qui: è la finestra di boot, riprodotta.
+      probe: async () => { await attesa; return true; },
+    });
+    const pm = createPreviewManager(h.deps);
+    const inAvvio = pm.ensurePreview("t1");
+    // Lascia arrivare `pickPort` + `spawn`: adesso siamo dentro `waitReady`.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(h.spawned.length).toBe(1);
+    expect(pm.list()).toEqual([]); // non è ancora in `live`: è la finestra del difetto
+
+    const cleared = await pm.sweepOrphans();
+    expect(cleared).not.toContain(3400);
+    expect(killed).not.toContain(9000);
+
+    sbloccaProbe();
+    const res = await inAvvio;
+    expect(res?.port).toBe(3400);
+    // E finito l'avvio la prenotazione è rilasciata: la porta è «mia» perché è
+    // viva, non perché una prenotazione è rimasta appesa.
+    expect(pm.list()).toEqual([{ taskId: "t1", port: 3400, url: "http://localhost:3400/" }]);
+  });
+
+  it("una prenotazione non sopravvive a un avvio FALLITO", async () => {
+    const { h, killed } = sweepHarness({ probe: async () => false, readyTimeoutMs: 0 });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    // Senza il rilascio, 3400 resterebbe «mia» per sempre e la spazzata non la
+    // libererebbe mai: il pool si prosciuga di una porta per ogni avvio fallito.
+    expect(await pm.sweepOrphans()).toContain(3400);
+    expect(killed).toContain(9000);
+  });
+
+  /**
+   * IL DIFETTO H10, secondo verso. Un dev server acceso da un agente con
+   * `run_script` NEL SUO worktree ascolta su una porta e sta in una cartella
+   * conosciuta: per tutto ciò che la spazzata sa guardare è identico a un
+   * residuo. Il pannello Processi lo mostra con un bottone Stop — cioè qualcuno
+   * lo sta guardando — e la spazzata non lo consultava.
+   */
+  it("non tocca un pid che il pannello Processi rivendica", async () => {
+    const { h, killed } = sweepHarness({ protectedPids: () => new Set([9000]) });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.sweepOrphans()).toEqual([3401]);
+    expect(killed).toEqual([9001]);
+  });
+
+  it("se il registro dei processi esplode la spazzata non ammazza tutto", async () => {
+    // Il verso sbagliato in cui sbagliare sarebbe «non so chi proteggere, quindi
+    // procedo»; qui si vuole almeno che non lanci e non cambi il resto.
+    const { h } = sweepHarness({ protectedPids: () => { throw new Error("registro giu'"); } });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.sweepOrphans()).toEqual([3400, 3401]);
   });
 });

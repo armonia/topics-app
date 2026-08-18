@@ -195,10 +195,10 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     const k = h.turns[0].content;
-    expect(k).toContain("IL REPO E' PUBBLICO");
+    expect(k).toContain("THE REPO IS PUBLIC");
     // Le due meta' che servono: cosa non scrivere, e cosa scrivere al posto.
-    expect(k).toContain("nemmeno nei commenti");
-    expect(k).toContain("RUOLO");
+    expect(k).toContain("not in comments either");
+    expect(k).toContain("the ROLE");
     // E il cancello nominato, perche' un divieto senza il suo controllo si
     // legge come un consiglio.
     expect(k).toContain("no-personal-data-tracked");
@@ -212,19 +212,19 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     const k = h.turns[1].content;
-    expect(k).toContain("TENTATIVO 2 di 2");
-    expect(k).toContain("NON spostare il task di stato");
-    expect(k).toContain("NON scrivere nel thread del task");
-    expect(k).toContain("COMMITTA tutto sul tuo branch");
+    expect(k).toContain("ATTEMPT 2 of 2");
+    expect(k).toContain("Do NOT move the task's status");
+    expect(k).toContain("Do NOT write in the task thread");
+    expect(k).toContain("COMMIT everything on your branch");
     // Il divieto è su main, non sulla BASE del proprio ramo. La vecchia formula
     // ("nessun rebase su main") vietava anche il gesto che RISOLVE il conflitto
     // di land, e tre card in un pomeriggio ci sono rimaste incastrate.
-    expect(k).toContain("NON TOCCARE main");
+    expect(k).toContain("DO NOT TOUCH main");
     expect(k).toContain("git rebase main");
-    expect(k).not.toContain("nessun rebase");
+    expect(k).not.toContain("no rebase");
     // Il contratto normale ("sei l'owner, porta in review") NON deve comparire:
     // due contratti opposti nello stesso prompt = il modello ne sceglie uno a caso.
-    expect(k).not.toContain("owner esclusivo del task");
+    expect(k).not.toContain("exclusive owner of task");
   });
 
   /**
@@ -389,8 +389,14 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     expect(h.turns.length).toBe(1);
-    expect(h.rows("t1").length).toBe(0);              // nessun tentativo: path storico
-    expect(h.turns[0].content).toContain("owner esclusivo del task");
+    // UN tentativo, non zero. Dal 2026-08-16 anche il lancio singolo lascia la
+    // sua riga in `task_attempts`: quella tabella aveva diciannove colonne e
+    // zero righe perche' la scriveva solo il fan-out, e senza lo storico del
+    // dispatch normale non c'era modo di sapere perche' una card rimbalza.
+    // Quello che questo caso difende resta il numero di TURNI: senza worktree
+    // il fan-out non parte, e l'agente e' uno solo.
+    expect(h.rows("t1").length).toBe(1);
+    expect(h.turns[0].content).toContain("exclusive owner of task");
     expect(h.comments("t1").join("\n")).toContain("board IN-PLACE");
   });
 
@@ -403,7 +409,7 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     expect(h.turns.length).toBe(1);
-    expect(h.turns[0].content).toContain("owner esclusivo del task");
+    expect(h.turns[0].content).toContain("exclusive owner of task");
   });
 
   it("riavvio a metà giro: chiude i tentativi orfani con ciò che i worktree hanno salvato", async () => {
@@ -549,3 +555,128 @@ describe("cleanup del worktree — non buttare via i commit", () => {
 // Quello che il test qui sopra («nessun tentativo ha committato») prova è che
 // l'hook FIRA: è per causa sua che `topicsArchived` contiene un doppione, ed è
 // il motivo per cui quell'asserzione è diventata sull'insieme.
+
+/**
+ * LO STORICO DEL DISPATCH NORMALE.
+ *
+ * `task_attempts` ha diciannove colonne e ha avuto ZERO righe fino al
+ * 2026-08-16: la scriveva solo il fan-out, che e' il caso raro, mentre il
+ * dispatch singolo — la quasi totalita' dei lanci — non lasciava traccia.
+ * Il conto lo si e' pagato quando e' servito capire perche' il 40% delle uscite
+ * dalla review torna indietro: senza storico non c'e' modo di sapere perche' una
+ * card ha rimbalzato quattro volte, e ogni vista costruita su quella tabella
+ * mostrava zero sembrando che andasse tutto bene.
+ *
+ * I casi qui sotto sono i tre che rendono lo storico utile invece che presente:
+ * la riga ESISTE, dice com'e' finito il turno, e distingue una consegna da un
+ * timeout — che e' la distinzione che ha aperto la card (due tentativi tagliati
+ * a 1.800.0xx ms tondi sembravano pronti e non lo erano).
+ */
+describe("storico: anche un dispatch singolo lascia la sua riga", () => {
+  const boardSemplice = (h: ReturnType<typeof harness>) => {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+  };
+
+  it("un lancio riuscito scrive UNA riga, legata al suo topic e al suo ramo", async () => {
+    const h = harness();
+    boardSemplice(h);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishAll();
+    await flush();
+
+    const [r] = h.rows("t1");
+    expect(r).toBeDefined();
+    // Le colonne che rendono la riga un deep-link e non un contatore: senza
+    // topic e ramo lo storico dice «e' successo qualcosa» e non «dove».
+    expect(r.topicId).toBe("topic-1");
+    expect(r.worktreeId).toBe("wt-1");
+    expect(r.branch).toBe("task/wt-1");
+    expect(r.idx).toBe(1);
+    expect(r.state).toBe("delivered");
+    // `agent_ms` popolato: e' la colonna con cui si riconosce un taglio al
+    // timeout, ed era quella che mancava per diagnosticare il rimbalzo.
+    expect(r.agentMs).toBeGreaterThanOrEqual(0);
+    expect(r.endedAt).toBeTruthy();
+    expect(r.summary).toContain("riassunto di");
+  });
+
+  it("un turno TAGLIATO non e' una consegna, e la riga lo dice", async () => {
+    // Il caso della card: due tentativi con agent_ms a 1.800.0xx, cioe' il
+    // timeout tondo. Sembravano pronti perche' erano in review, e non lo erano.
+    const h = harness();
+    boardSemplice(h);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finish("topic:sk1", { end: "cancelled", cause: "watchdog" });
+    await flush();
+
+    const [r] = h.rows("t1");
+    expect(r.state).toBe("failed");
+    // Il PERCHE' e' scritto: senza, «failed» non distingue un agente che ha
+    // sbagliato da uno a cui e' finito il tempo.
+    expect(r.error).toBeTruthy();
+  });
+
+  it("un RESUME non e' un tentativo nuovo: stessa sessione, stessa riga", async () => {
+    // La distinzione che tiene utile lo storico. Un `resume` — l'agente riprende
+    // la stessa sessione dopo una risposta umana o un nudge post-timeout — e' un
+    // TURNO in piu' dentro lo stesso tentativo, e non deve produrre una riga
+    // nuova: contarlo come tentativo direbbe «questa card e' stata affrontata da
+    // capo cinque volte» quando l'agente non ha mai smesso di lavorarci, ed e'
+    // esattamente la domanda a cui lo storico deve rispondere.
+    const h = harness();
+    boardSemplice(h);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finish("topic:sk1", { end: "cancelled", cause: "watchdog" });
+    await flush(40);
+
+    // Il dispatcher riprende da solo (nudge post-timeout) sulla stessa sessione.
+    await h.dispatcher.tick(PID);
+    await flush(20);
+    h.finishAll();
+    await flush();
+
+    // Due turni, un tentativo solo.
+    expect(h.turns.length).toBeGreaterThanOrEqual(2);
+    const righe = h.rows("t1");
+    expect(righe.length).toBe(1);
+    expect(righe[0].idx).toBe(1);
+    // E resta com'era finito il turno che l'ha chiuso: uno storico che si
+    // riscrive a ogni ripresa non e' storico.
+    expect(righe[0].state).toBe("failed");
+  });
+
+  it("una traccia non fa mai fallire il lavoro che sta tracciando", async () => {
+    // Store che esplode a ogni scrittura: il dispatch deve andare avanti
+    // comunque. Il caso contrario — un turno perso perche' non si e' potuto
+    // annotarlo — sarebbe peggio del non avere lo storico.
+    const rotto = {
+      create: () => { throw new Error("disco pieno"); },
+      get: () => null, list: () => { throw new Error("disco pieno"); }, bind: () => null, finish: () => null,
+      runningCount: () => 0, select: () => null, clear: () => {},
+    };
+    const h = harness({ attempts: rotto as never });
+    boardSemplice(h);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishAll();
+    await flush();
+
+    // Il turno e' partito ed e' arrivato in fondo: e' tutto quello che conta.
+    // (Il conteggio esatto dei turni non e' il soggetto qui: con lo store rotto
+    // il fan-out gate non sa dire quanti tentativi ci sono, e va bene cosi'.)
+    expect(h.turns.length).toBeGreaterThanOrEqual(1);
+    expect(h.task("t1")?.status).not.toBe("todo");
+  });
+});

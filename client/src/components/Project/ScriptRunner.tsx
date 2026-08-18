@@ -149,11 +149,11 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     return (
       <div data-testid="script-runner-empty" className="px-3 py-2 text-[11px] text-app-text-tertiary leading-relaxed">
         {found.length === 0
-          ? <>Nessun manifest di script in questa cartella.</>
-          : <>Nessuno script dichiarato in {found.join(', ')}.</>}
+          ? <>{tr('scripts.noManifest')}</>
+          : <>{tr('scripts.noneDeclared', { files: found.join(', ') })}</>}
         {looked.length > 0 && (
           <div className="mt-1 text-app-text-faint" title={looked.join('\n')}>
-            Guardo: {looked.join(', ')}
+            {tr('scripts.lookedIn', { files: looked.join(', ') })}
           </div>
         )}
       </div>
@@ -331,7 +331,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               <span className={`truncate ${isStopping ? 'text-red-500/70' : 'text-green-500 font-medium'}`}>{sp.scriptName}</span>
               <span
                 className="text-[9px] uppercase tracking-wide px-1 py-px rounded bg-primary/15 text-primary flex-shrink-0"
-                title="Shell lasciata in background dall'agente. L'output arriva dai suoi BashOutput."
+                title={tr('scripts.shellFromAgent')}
               >
                 shell
               </span>
@@ -358,7 +358,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   className={`p-0.5 rounded transition-colors ${sp.pid
                     ? 'hover:bg-red-500/20 text-app-text-faint hover:text-red-500 opacity-40 group-hover:opacity-100'
                     : 'text-app-text-faint opacity-20 cursor-default'}`}
-                  title={sp.pid ? 'Stop' : "Processo non ancora individuato. Fermala dalla chat con KillShell."}
+                  title={sp.pid ? 'Stop' : tr('scripts.noPid')}
                 >
                   <Square size={10} />
                 </button>

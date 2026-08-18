@@ -108,8 +108,17 @@ function filoDelTag(tags: string[]): { gen: string; filo: number } | null {
 const tagSessione = (sid: string) => `s:${sid}`;
 const tagRuolo = (r: RuoloSessione) => `r:${r}`;
 
+/**
+ * Lo stato del Durable Object, ridotto a ciò che il relay usa DAVVERO.
+ *
+ * C'era anche `storage`, e non lo leggeva nessuno: il relay non persiste
+ * niente, per la stessa ragione per cui non tiene campi (l'ibernazione, sopra).
+ * Un membro che nessuno chiama è una forma che nessun test controlla — e qui
+ * lo sarebbe stata due volte, perché il tipo `DurableObjectStorage` è
+ * dichiarato a mano in `../workers-runtime.d.ts`, dove entra solo ciò che ha un
+ * chiamante.
+ */
 interface Stato {
-  storage: DurableObjectStorage;
   acceptWebSocket(ws: WebSocket, tags?: string[]): void;
   getWebSockets(tag?: string): WebSocket[];
 }

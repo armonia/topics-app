@@ -32,23 +32,13 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { deflateSync } from "zlib";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-drawer-${Date.now()}`;
 
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath (come board.spec.ts). */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 // ── Un PNG VERO, della forma che rompe ───────────────────────────────────────
@@ -368,12 +358,28 @@ test.describe("Drawer del task — un solo scroll", () => {
 
     const drawer = page.getByTestId("task-detail-drawer");
 
-    // Modo stretto: nessuna seconda colonna, la sessione è una pane del gruppo.
+    // Modo stretto: nessuna seconda colonna, la sessione è una pane del gruppo,
+    // e nessuna fascia del brief — il titolo sta impilato dentro l'unica colonna.
     await expect(drawer.getByTestId("task-drawer-right")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-brief-header")).toHaveCount(0);
 
     await drawer.getByTitle(/Allarga il drawer/).click();
     const right = drawer.getByTestId("task-drawer-right");
     await expect(right).toBeVisible({ timeout: 5000 });
+
+    // LA CONSEGNA È IL TITOLO: in modo largo sale in una fascia SOPRA entrambe
+    // le colonne, a tutta larghezza. In una colonna da 22rem un titolo di due
+    // righe e mezza era la prima cosa che si perdeva, proprio mentre le due
+    // colonne esistono per farti vedere di più.
+    const header = drawer.getByTestId("task-brief-header");
+    await expect(header).toBeVisible({ timeout: 5000 });
+    const drawerW = (await drawer.boundingBox())!;
+    const headerBox = (await header.boundingBox())!;
+    expect(headerBox.width).toBeGreaterThanOrEqual(drawerW.width - 2);
+    // …e sta SOPRA le due colonne, non dentro una delle due.
+    expect(headerBox.y + headerBox.height).toBeLessThanOrEqual((await right.boundingBox())!.y + 1);
+    // Il tetto è quello che le impedisce di mangiarsi le superfici di lavoro.
+    expect(headerBox.height).toBeLessThanOrEqual(drawerW.height * 0.6);
 
     // Due colonne sorelle: sinistra stretta e non comprimibile, destra larga.
     const session = drawer.getByTestId("task-session-column");

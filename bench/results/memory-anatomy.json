@@ -1,0 +1,100 @@
+{
+  "schema": "topics-memory-anatomy-v1",
+  "measured_at": "2026-08-16T18:46:00+02:00",
+  "domanda": "I ~450-630 MB che si vedono nella status bar: di cosa sono fatti, e c'è qualcosa da tagliare?",
+  "metrica": "phys_footprint via proc_pid_rusage (la colonna «Memoria» di Monitoraggio Attività), scomposto con vmmap --summary",
+  "strumento_validato": "mem-report.ts contro vmmap di Apple: 202,6M vs 203 MB e 63,6M vs 64 MB sugli stessi pid. Non è una stima nostra.",
+  "composizione": {
+    "DISPOSITIVO_451_MB": {
+      "WebContent": "210-448 MB su ~25 letture in due sessioni di misura (picco storico 660). NON e' un numero singolo: oscilla di suo, e ogni nuova serie ha allargato la banda invece di confermarla.",
+      "guscio app (Tauri)": "65 MB",
+      "WebKit.GPU": "33 MB — processo di SISTEMA, lo avrebbe qualunque app con una WebView",
+      "WebKit.Networking": "20 MB — idem",
+      "SafariPlatformSupport": "16 MB — idem"
+    },
+    "SERVER_154_MB": {
+      "bun principale": "36-78 MB DIRTY, oscillanti, su ~35 letture in una serata. Il footprint totale sta fra 113 e 152 MB. NON dipende dall'uptime: due serie a un minuto di vita danno 36-47 e 66-70, e un processo con 35 minuti passa da 73,2 a 46,1 in sei secondi. Il resto e' il binario bun (57 MB su disco) mappato in __TEXT piu' __LINKEDIT: pagine condivise, non heap. In nessuna serie cresce senza fermarsi.",
+      "pty-bridge (node)": "18-21 MB",
+      "ai-bridge (bun)": "17 MB"
+    },
+    "AGENTI": "0 MB — col runtime nativo non esistono processi agente"
+  },
+  "la_scoperta_che_conta": {
+    "titolo": "Il WebContent oscilla fra ~260 e ~450 MB, e la divisione fra «viva» e «compressa» non è una proprietà dell'app",
+    "misura": "Venti campioni in ~70 minuti: dirty 40-250 MB, compressa/swapped 54-296 MB, totale 257-344 (con letture di phys_footprint fino a 448 nei momenti di lavoro).",
+    "la_cosa_utile": [
+      "Le due colonne si scambiano il contenuto di continuo: il kernel comprime e",
+      "decomprime le stesse pagine mentre l'app lavora — in un campione dirty era",
+      "39,8 MB con 296 compressi, dodici secondi dopo 130,8 con 213. Quindi",
+      "«quanto è memoria viva» non descrive Topics, descrive dove si trova il",
+      "kernel in quell'istante.",
+      "Nemmeno la SOMMA è ferma: varia col lavoro dell'app. Ciò che si può dire",
+      "onestamente è che sta in una banda e non la sfonda — nessuna crescita",
+      "monotona su settanta minuti, cioè nessuna perdita in corso.",
+      "Il prezzo di base resta quello di una WebView che tiene l'intera UI, ed è",
+      "il pezzo che il task 91006de1 chiede di scomporre."
+    ],
+    "tre_correzioni_a_me_stesso": [
+      "Questa riga l'ho sbagliata TRE volte, sempre con la stessa dinamica:",
+      "  1. «l'80% è compressa»          — da UNO scatto",
+      "  2. «22%, dirty 182-250»         — da dieci campioni",
+      "  3. «totale FERMO a 257-308»     — da sedici campioni",
+      "Ogni volta più campioni, ogni volta ancora sbagliato, perché il problema",
+      "non era la numerosità: era pretendere un valore stabile da una grandezza",
+      "che stabile non è. La forma onesta di questo dato è una BANDA con il",
+      "numero di campioni accanto, non una cifra."
+    ]
+  },
+  "due_ipotesi_refutate": [
+    {
+      "ipotesi": "I 214 MB di WebKit Malloc sono i 222 MB di `tool_calls` che la UI carica caricando thread interi (HISTORY_FETCH_ALL = 0).",
+      "come_e_caduta": "La sonda `client/src/lib/devHeapProbe.ts`, armata sull'app viva, dice 150 sessioni ma 344 messaggi totali per 1,4 MB. Il thread più grosso servito da /api/history pesa 4,3 MB, non 214. E un ⌘R che azzera lo stato React lascia il footprint dov'era.",
+      "perche_importa": "Avrei tagliato le tool_calls dalla history senza che cambiasse nulla. La sonda esiste proprio perché indovinare qui era già costato due fix sbagliati."
+    },
+    {
+      "ipotesi": "Mandare la WebView in pressione quando la finestra è nascosta vale ~180 MB.",
+      "come_e_caduta": "Vale davvero 180 MB, ma WebKit li rilascia già da sé: misurato 244 → 202 MB senza alcun intervento.",
+      "perche_importa": "Era il mio consiglio numero uno. Sarebbe stato codice nel guscio Rust per un lavoro che il sistema fa gratis."
+    }
+  ],
+  "cosa_e_stato_davvero_corretto": {
+    "commit": "a485db99",
+    "difetto": "`byMem` divideva la RAM per 3 GB — il prezzo di un processo Node — anche col runtime nativo, dove una sessione costa 2,3 MB. Il pavimento sapeva distinguere i due runtime, il tetto no.",
+    "osservato": "Sul codice reale con os.totalmem() sostituito: una macchina da 8 GB / 8 core dà 2 posti con la CLI e 4 col nativo. Il default (nessun parametro) dà lo stesso 2 della versione pre-fix: nessuna regressione.",
+    "su_questa_macchina": "Nessun cambiamento: con 34 GB a mordere è `byCores` = round(12/3) = 4, non la memoria."
+  },
+  "conclusione": "Niente da tagliare nel server: 36-73 MB dirty oscillanti, il resto è binario mappato, e in nessuna serie cresce senza fermarsi. Il WebContent oscilla fra ~260 e ~450 MB senza crescita monotona su settanta minuti: non è una perdita, è il costo variabile di una WebView che tiene l'intera UI. Dare un nome a quei megabyte resta aperto (task 91006de1). L'unico difetto vero trovato era nel dimensionamento della concorrenza, ed è corretto; il vincolo residuo sui 4 posti è una politica sulla CPU.",
+  "il_confronto_che_manca": {
+    "cosa": "CLI contro nativo a PARITÀ di sessioni oltre N=3.",
+    "numero_onesto": "188x — 432,4 MB contro 2,3 MB, entrambi a N=3, stesso file, stesso modello, stesso turno banale (session-memory.json).",
+    "perche_non_di_piu": [
+      "Il nativo è stato spinto fino a 64 sessioni, la CLI no. Accostare i",
+      "0,25-0,9 MB del nativo a N=64 con i 432 MB della CLI a N=3 darebbe",
+      "un rapporto fino a 1730x che nessuna misura ha prodotto: è lo stesso",
+      "errore del «2,8x» di inizio serie, che confrontava Opus con Sonnet.",
+      "Per farlo davvero serve un server di prova con credenziali CLI valide:",
+      "`~/.claude/.credentials.json` su questa macchina è scaduto da 45 giorni",
+      "e un refresh ne RUOTA il token, rompendo il login dell'utente. Il buco",
+      "resta dichiarato invece di essere colmato con un numero che sembra."
+    ]
+  },
+  "metodo_una_nota_amara": [
+    "Sei numeri di questo file sono stati pubblicati sbagliati prima di essere",
+    "corretti. Non per distrazione: per una convinzione sbagliata, cioè che la",
+    "memoria di un processo vivo abbia un VALORE.",
+    "  · WebContent «197-244 MB»    → 292-448 su dieci campioni",
+    "  · «l'80% è compressa»        → 22% su dieci...",
+    "  · ...«22%, dirty 182-250»    → 29%, 122-250 su sedici...",
+    "  · ...«totale fermo 257-308»  → 257-344 su venti",
+    "  · server «58,9 MB dirty»     → 67-68 su cinque campioni...",
+    "  · ...«36-68 secondo l'uptime» → 36-73 e l'uptime NON lo spiega:",
+    "    due serie a un minuto di vita danno 36-47 e 66-70, e un processo",
+    "    con 35 minuti scende da 73,2 a 46,1 in sei secondi.",
+    "Ogni correzione ha aggiunto campioni, e ogni volta il numero cambiava",
+    "ancora. La forma giusta del dato non è una cifra e nemmeno una banda con",
+    "una spiegazione: è una banda, il numero di campioni, e la sola domanda a",
+    "cui serve rispondere — CRESCE SENZA FERMARSI? No. Il resto è rumore che",
+    "somiglia a un segnale.",
+    "Post-scriptum del giorno dopo: rimisurando, ENTRAMBE le bande pubblicate qui sono risultate strette. Il server e' arrivato a 78 (dichiarato max 73), il WebContent e' sceso a 210 (dichiarato min 257). Non e' un errore nuovo, e' la stessa proprieta' vista da un'altra angolazione: una banda misurata e' un LIMITE INFERIORE alla variabilita' vera, non il suo confine. Chi cita questi numeri scriva «almeno cosi' larga»."
+  ]
+}

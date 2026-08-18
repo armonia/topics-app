@@ -151,6 +151,28 @@ docs/*
 # controllo sui parametri documentati. Stessa malattia di board-vs-chat/. Gli
 # agenti dispatchati continuano a riceverlo dall'envelope, non da qui.
 !docs/board-protocol.md
+# perf-map.md dice quali superfici hanno un cancello sulle prestazioni e quali
+# no, con i numeri e la data in cui sono stati presi. Serve a chi sta per
+# ottimizzare qualcosa, cioè a decidere DOVE guardare invece di andare a naso —
+# e serve soprattutto a chi arriva dopo, quando i numeri di oggi saranno il
+# riferimento con cui confrontare i suoi. Su un disco solo sarebbe la memoria di
+# una persona; qui è la memoria del repo.
+!docs/perf-map.md
+# backup-pre-migration-policy.md e' la regola di scadenza dei backup creati prima
+# delle migration: dove vivono, quanti se ne tengono, chi li cancella.
+# Committata perche' e' una convenzione di squadra, non una nota personale.
+!docs/backup-pre-migration-policy.md
+# destinazioni.md dice DOVE va a finire il lavoro: le due destinazioni vere (gli
+# installer, che escono da soli a ogni push su main; la landing, a mano) e il
+# fatto che dev/stage/prod non esistono. Ignorato ha fatto il danno peggiore
+# della lista: `tests/unit/destinazioni.test.ts` lo legge con un `readFileSync`
+# a livello di modulo, quindi su un checkout pulito il file di test ESPLODE
+# (ENOENT), `test:unit` esce 1, il job `check` della CI e' rosso, e
+# `auto-bump.yml` — che parte su `workflow_run` e pretende `conclusion ==
+# success` — resta `skipped`. Risultato misurato il 18/08: CI rossa dal 17/08 e
+# 105 commit senza un installer, ultimo tag tauri-v2.2.158. Un documento
+# ignorato ha smesso di far uscire il prodotto.
+!docs/destinazioni.md
 
 # Reference repos (local only)
 .reference/
@@ -235,6 +257,13 @@ ui-state-backups/
 # ai-bridge broker store (ephemeral NDJSON session buffers)
 ai-bridge/
 
+# bench/results/ai-latency-latest.json e' un puntatore «ultimo run» rigenerato
+# a ogni passata con E2E_BENCH=1: non porta informazione che i file datati non
+# abbiano gia', e tracciarlo sporcava il checkout dopo ogni run E2E normale.
+# I file datati (ai-latency-darwin-YYYY-MM-DD.json) restano tracciati: sono la
+# memoria storica delle misure, confrontabili nel tempo.
+bench/results/ai-latency-latest.json
+
 # L'identificativo di QUESTA installazione. Lo genera il server al primo avvio e
 # vive in STATE_DIR — che sotto launchd è la radice del repo, ed è il motivo per
 # cui compare qui. Ci si lega la LICENZA (un gettone coniato per un'altra
@@ -258,3 +287,10 @@ artifacts/
 # I termini personali che il cancello `no-personal-data-tracked` cerca. Non
 # tracciato: committarlo pubblicherebbe proprio cio che deve restare fuori.
 .personal-terms
+
+# radici usa-e-getta dei test che hanno bisogno di un percorso NON nascosto
+# (vedi tasks.test.ts: la deduzione della cartella progetti scarta le dot-dir)
+tmp-tasks-router-*/
+.topics-claims.md
+.scrub-map.txt
+preview/

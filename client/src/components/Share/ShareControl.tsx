@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { componiLink } from '../../../../shared/relay-crypto';
-import { Share2, X, UserPlus, Globe, Copy, Check } from 'lucide-react';
+import { Share2, X, UserPlus, Globe, Copy, Check, Link2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { chiaveErroreAuth } from '../../lib/authErrors';
+import { copyText } from '../../lib/clipboard';
+import { Menu } from '../Shared/Menu';
+import { POPOVER_DIVIDER, POPOVER_ITEM } from '../../lib/popoverStyles';
 
 /**
  * Il gesto: dare a un ospite una scheda, o una chat.
@@ -21,7 +24,7 @@ import { chiaveErroreAuth } from '../../lib/authErrors';
  * provenienza che esiste: nessuna concessione è derivata da un contenitore
  * (vedi `GrantRow` in server/lib/grants-query.ts).
  */
-type ResourceType = 'task' | 'topic';
+type ResourceType = 'task' | 'topic' | 'project';
 
 /** Un destinatario possibile: un dispositivo ospite, una persona, un team.
  *  Arriva da `/api/auth/subjects` — che è una RUBRICA, non l'elenco dei
@@ -57,21 +60,44 @@ const ETICHETTA: Record<Subject['subjectType'], string> = {
   device: 'device', person: 'person', org: 'team',
 };
 
-/** Il titolo dice COSA si sta condividendo. «Share with a guest» su una chat e
- *  su una scheda è la stessa frase per due gesti diversi: chi la legge non sa
- *  quale delle due cose sta per uscire di casa. */
-const TITOLO_BOTTONE: Record<ResourceType, string> = {
-  task: 'Share this card with a guest',
-  topic: 'Share this chat with a guest',
+/** Il titolo dice COSA si sta condividendo. «Condividi con un ospite» su una
+ *  chat e su una scheda è la stessa frase per due gesti diversi: chi la legge
+ *  non sa quale delle due cose sta per uscire di casa. */
+const CHIAVE_TITOLO: Record<ResourceType, string> = {
+  task: 'share.title.task',
+  topic: 'share.title.topic',
+  // `Record` e non un indice parziale: aggiungere un tipo di risorsa e
+  // dimenticare il titolo qui e' un errore di compilazione, non una schermata
+  // con una chiave grezza al posto della frase.
+  project: 'share.title.project',
 };
 
 /** Cosa vedrà chi apre il link, detto per la risorsa giusta. */
-const OGGETTO_LINK: Record<ResourceType, string> = {
-  task: 'this card',
-  topic: 'this chat',
+const CHIAVE_OGGETTO: Record<ResourceType, string> = {
+  task: 'share.object.task',
+  topic: 'share.object.topic',
+  project: 'share.object.project',
 };
 
-export function ShareControl({ resourceType, resourceId }: { resourceType: ResourceType; resourceId: string }) {
+export function ShareControl({ resourceType, resourceId, deepLink }: {
+  resourceType: ResourceType;
+  resourceId: string;
+  /**
+   * Il link INTERNO alla risorsa — quello che riapre questa scheda in questa
+   * app, non l'invito cifrato per un ospite.
+   *
+   * Sta qui perché «dammi il link» è una domanda sola con due risposte, e prima
+   * viveva in due posti: un'icona a catena nella testata del drawer e un
+   * pannello di condivisione accanto. Chi cercava «il link» ne trovava uno dei
+   * due a caso. Quando il chiamante non ne ha uno la riga non si disegna.
+   *
+   * È una FUNZIONE, non una stringa, e non è pignoleria: comporre il permalink
+   * legge `window.location`, quindi un chiamante che lo calcolasse al proprio
+   * render obbligherebbe ogni suo test a montare un DOM per una riga che si
+   * disegna comunque. Qui si chiama solo quando qualcuno preme.
+   */
+  deepLink?: () => string | null;
+}) {
   const t = useT();
   const [aperto, setAperto] = useState(false);
   const [shares, setShares] = useState<Share[]>([]);
@@ -86,8 +112,23 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
    *  se serve di nuovo se ne fa un altro. */
   const [appenaCreato, setAppenaCreato] = useState<string | null>(null);
   const [copiato, setCopiato] = useState(false);
+  /** Il link INTERNO appena copiato: spia sua, separata da quella dell'invito
+   *  cifrato — due gesti diversi non possono accendere la stessa spunta. */
+  const [copiatoDeep, setCopiatoDeep] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
+  const ancoraRef = useRef<HTMLButtonElement>(null);
+  const timerCopia = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timerCopia.current) clearTimeout(timerCopia.current); }, []);
+
+  const copiaDeepLink = useCallback(async () => {
+    const url = deepLink?.();
+    if (!url) return;
+    if (!(await copyText(url))) return;
+    setCopiatoDeep(true);
+    if (timerCopia.current) clearTimeout(timerCopia.current);
+    timerCopia.current = setTimeout(() => setCopiatoDeep(false), 1400);
+  }, [deepLink]);
 
   const carica = useCallback(async () => {
     try {
@@ -109,9 +150,9 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
       setLinks((l.links ?? []).filter((x) => x.revokedAt === null && !x.scaduto));
       setErrore(null);
     } catch {
-      setErrore('Could not load sharing.');
+      setErrore(t('share.loadFailed'));
     }
-  }, [resourceType, resourceId]);
+  }, [resourceType, resourceId, t]);
 
   useEffect(() => { if (aperto) void carica(); }, [aperto, carica]);
 
@@ -188,21 +229,61 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
   return (
     <div className="relative">
       <button
+        ref={ancoraRef}
         onClick={() => setAperto((v) => !v)}
         data-testid="share-control"
         className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-app-text-secondary hover:bg-app-hover hover:text-app-text"
-        title={TITOLO_BOTTONE[resourceType]}
+        title={t(CHIAVE_TITOLO[resourceType])}
       >
         <Share2 size={12} />
-        {shares.length > 0 ? `Shared with ${shares.length}` : 'Share'}
+        {shares.length > 0 ? t('share.sharedWith', { n: shares.length }) : t('share.button')}
       </button>
 
-      {aperto && (
-        <div className="absolute right-0 z-50 mt-1 w-[280px] rounded-xl border border-app-border bg-surface p-2.5 shadow-lg">
-          {errore && <p className="mb-2 text-[11px] text-red-500">{errore}</p>}
+      {/* PORTALE, e non è un dettaglio di stile: il pannello era un
+          `absolute` dentro la testata del drawer, che è un flex con
+          `overflow-hidden`. Un antenato che ritaglia ritaglia anche un figlio
+          posizionato, quindi il pannello usciva alto quanto la riga della
+          testata — 41px — e di lui si vedeva una fetta. È il «share non
+          funziona»: funzionava, non si vedeva. Passando dalla primitiva `Menu`
+          eredita il portale, il posizionamento che rimbalza dentro la finestra,
+          la chiusura con Escape e l'esclusività fra popover, che sono le
+          quattro cose che un pannello scritto a mano non ha mai. */}
+      <Menu
+        open={aperto}
+        anchorRef={ancoraRef}
+        onClose={() => setAperto(false)}
+        align="right"
+        minWidth={280}
+        unmanagedFocus
+        ariaLabel={t(CHIAVE_TITOLO[resourceType])}
+        testId="share-panel"
+        className="w-[280px]"
+      >
+        <>
+          {errore && <p className="mb-2 px-2.5 text-[11px] text-red-500">{errore}</p>}
+
+          {/* IL LINK DI CASA, primo. «Dammi il link» è la domanda più comune di
+              questo pannello e finora non c'era: qui si condividevano permessi,
+              e il link per riaprire la scheda stava in un'icona a parte. */}
+          {deepLink && (
+            <>
+              <button
+                onClick={() => { void copiaDeepLink(); }}
+                data-testid="share-copy-link"
+                title={t('share.copyLinkTitle')}
+                className={POPOVER_ITEM}
+              >
+                {copiatoDeep
+                  ? <Check size={12} className="flex-shrink-0 text-green-500" />
+                  : <Link2 size={12} className="flex-shrink-0 text-app-text-tertiary" />}
+                <span className="min-w-0 flex-1 text-left">{copiatoDeep ? t('share.copyLinkDone') : t('share.copyLink')}</span>
+              </button>
+              <div className={POPOVER_DIVIDER} />
+            </>
+          )}
 
           {shares.length > 0 && (
-            <ul className="mb-2 space-y-1">
+            <ul className="mb-2 space-y-1 px-1">
               {shares.map((s) => (
                 <li key={chiave(s.subjectType, s.subjectId)} className="flex items-center gap-2 rounded px-1.5 py-1 text-[12px]">
                   <span className="min-w-0 flex-1">
@@ -217,7 +298,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                     </span>
                   </span>
                   <button
-                    aria-label={`Remove access for ${s.name}`}
+                    aria-label={t('share.removeAccess', { name: s.name })}
                     disabled={inCorso}
                     onClick={() => void togli(s)}
                     className="rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
@@ -237,7 +318,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                  DEVE sapere sta scritto sotto il link: che chi ce l'ha entra, e
                  quando smette di valere. */}
           {relay && (
-            <div className="mb-2 border-b border-app-border pb-2">
+            <div className="mx-2.5 mb-2 border-b border-app-border pb-2">
               {appenaCreato ? (
                 <>
                   <div className="flex items-center gap-1">
@@ -245,12 +326,12 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                       readOnly
                       value={appenaCreato}
                       onFocus={(e) => e.currentTarget.select()}
-                      aria-label="Link to share"
+                      aria-label={t('share.linkToShare')}
                       className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-1.5 py-1 font-mono text-[10px] text-app-text outline-none"
                     />
                     <button
                       onClick={() => { void navigator.clipboard?.writeText(appenaCreato); setCopiato(true); }}
-                      aria-label="Copy link"
+                      aria-label={t('share.copyGuestLink')}
                       className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text"
                     >
                       {copiato ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
@@ -259,9 +340,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                   {/* Le due cose che chi crea un link deve leggere ADESSO, non
                       scoprire dopo: che il link È la credenziale, e che scade. */}
                   <p className="mt-1.5 text-[10px] leading-snug text-app-text-muted">
-                    Anyone with this link can read {OGGETTO_LINK[resourceType]}. It expires in 7 days,
-                    and you can revoke it whenever you want. The content travels encrypted: whoever
-                    carries it cannot read it.
+                    {t('share.linkWarning', { object: t(CHIAVE_OGGETTO[resourceType]) })}
                   </p>
                 </>
               ) : (
@@ -272,12 +351,12 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                   className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] text-app-text hover:bg-app-hover disabled:opacity-50"
                 >
                   <Globe size={11} className="flex-shrink-0 text-app-text-tertiary" />
-                  <span className="flex-1">Create a link for someone off your network</span>
+                  <span className="flex-1">{t('share.createOffNetwork')}</span>
                   {/* Collegato o no: un link creato mentre il relay è giù è
                       valido lo stesso, ma non si apre finché non torna. Dirlo
                       prima è meglio che farlo scoprire a chi lo riceve. */}
                   {!relay.connected && (
-                    <span className="flex-shrink-0 text-[10px] text-amber-500">not connected</span>
+                    <span className="flex-shrink-0 text-[10px] text-amber-500">{t('share.notConnected')}</span>
                   )}
                 </button>
               )}
@@ -287,11 +366,11 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                   {links.map((l) => (
                     <li key={l.ref} className="flex items-center gap-2 px-1.5 text-[11px] text-app-text-muted">
                       <span className="min-w-0 flex-1 truncate">
-                        link · expires {new Date(l.expiresAt).toLocaleDateString()}
-                        {l.openedCount > 0 && ` · opened ${l.openedCount}×`}
+                        {t('share.linkExpires', { date: new Date(l.expiresAt).toLocaleDateString() })}
+                        {l.openedCount > 0 && t('share.linkOpened', { n: l.openedCount })}
                       </span>
                       <button
-                        aria-label="Revoke this link"
+                        aria-label={t('share.revokeLink')}
                         disabled={inCorso}
                         onClick={() => void revocaLink(l.ref)}
                         className="rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
@@ -307,8 +386,8 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
 
           {disponibili.length > 0 ? (
             <>
-              <div className="mb-1 px-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">Add</div>
-              <ul className="space-y-0.5">
+              <div className="mb-1 px-3 text-[10px] uppercase tracking-wide text-app-text-muted">{t('share.add')}</div>
+              <ul className="space-y-0.5 px-1">
                 {disponibili.map((o) => (
                   <li key={chiave(o.subjectType, o.subjectId)}>
                     <button
@@ -331,14 +410,12 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
               </ul>
             </>
           ) : (
-            <p className="px-1.5 py-1 text-[11px] leading-relaxed text-app-text-secondary">
-              {soggetti.length === 0
-                ? 'Nobody to share with yet. Approve a device as a guest from Settings → Account, and it will show up here.'
-                : 'Already shared with everyone.'}
+            <p className="px-2.5 py-1 text-[11px] leading-relaxed text-app-text-secondary">
+              {soggetti.length === 0 ? t('share.nobodyYet') : t('share.alreadyAll')}
             </p>
           )}
-        </div>
-      )}
+        </>
+      </Menu>
     </div>
   );
 }

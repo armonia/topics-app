@@ -28,6 +28,8 @@ import {
 } from './scrollAuthority';
 import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
+import type { QueuedTurn } from '../../state/chatQueue';
+import { useT } from '../../hooks/useT';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -84,6 +86,50 @@ const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
   },
 );
 
+/** Identità stabile per la coda assente: un `[]` nuovo a ogni render farebbe
+ *  ricostruire la mappa `components` di Virtuoso a ogni token di streaming. */
+const NO_QUEUED: QueuedTurn[] = [];
+
+/**
+ * QUELLO CHE HAI SCRITTO E NON È ANCORA PARTITO, dove finirà quando partirà.
+ *
+ * La coda del turno (`state/chatQueue.ts`) si vedeva solo aprendo il pannello
+ * del composer, cioè in un posto che bisogna decidere di guardare: nel
+ * trascritto non c'era traccia di righe già scritte, e il filo del discorso
+ * si leggeva a metà. Qui stanno in fondo, nell'ordine in cui partiranno.
+ *
+ * Si distinguono per SOTTRAZIONE, non per colore: stessa scocca e stessa tinta
+ * della bolla utente, inchiostro più tenue, bordo tratteggiato. Il tratteggio è
+ * la differenza che si legge senza leggere — un contorno interrotto è una cosa
+ * non ancora chiusa. La tinta resta `bg-app-user-bubble` e NON l'accento: in
+ * quest'app il blu è il colore delle azioni, e un messaggio non è un'azione
+ * (stessa regola della bolla utente, `MessageBubble`).
+ */
+function QueuedBubbles({ turns, isMobile }: { turns: QueuedTurn[]; isMobile: boolean }) {
+  const t = useT();
+  if (turns.length === 0) return null;
+  return (
+    <div data-testid="queued-bubbles" className={isMobile ? 'px-2' : 'px-4'}>
+      {turns.map((turn) => (
+        <div key={turn.id} className="flex justify-end mt-1.5">
+          <div
+            data-testid="queued-bubble"
+            className="max-w-[85%] min-w-0 px-3 py-2 rounded-2xl border border-dashed border-app-border bg-app-user-bubble/60 text-[13px] leading-relaxed text-app-text-secondary"
+            title={t('chat.queue.waitingTitle')}
+          >
+            <p className="whitespace-pre-wrap break-words">{turn.content}</p>
+            {/* Stessa parola del badge del composer («da inviare»), perché è la
+                stessa coda vista da un'altra parte. Chiamarla «in coda» qui la
+                confonderebbe con la lista di cose da fare dell'agente, che nel
+                blocco di fondo sta a due centimetri. */}
+            <p className="mt-0.5 text-right text-[11px] text-app-text-muted">{t('chat.queue.waiting')}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface MessageListProps {
   isMobile: boolean;
   topic: Topic;
@@ -130,6 +176,12 @@ interface MessageListProps {
    * current position on the pane so a later close+undo can restore it.
    */
   onScrollOffsetChange?: (scrollTop: number) => void;
+  /**
+   * I messaggi SCRITTI e non ancora partiti (`state/chatQueue.ts`), in coda
+   * dietro al turno in corso. Finiscono in fondo al trascritto con la faccia
+   * dell'attesa: vedi `QueuedBubbles`.
+   */
+  queuedTurns?: QueuedTurn[];
 }
 
 export function MessageList({
@@ -161,6 +213,7 @@ export function MessageList({
   composerCentered = false,
   initialScrollOffset,
   onScrollOffsetChange,
+  queuedTurns,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -177,6 +230,36 @@ export function MessageList({
    * si rilega nell'istante in cui l'elemento esiste.
    */
   const [scrollerEl, setScrollerEl] = useState<HTMLElement | null>(null);
+  /**
+   * La callback ref per Virtuoso, STABILE, e la stabilità è tutto il punto.
+   *
+   * Era una freccia scritta inline dentro il JSX. Una freccia inline è una
+   * funzione NUOVA a ogni render, e React tratta un cambio di identità della
+   * callback ref come uno scollegamento: chiama la vecchia con `null` e la nuova
+   * con l'elemento. Ogni render ne faceva quindi partire DUE, con il valore che
+   * alternava `null` e lo scroller — per cui la guardia `prev === el` qui sotto
+   * non poteva scattare mai, e ognuna delle due chiamate faceva un render.
+   *
+   * Fuori da una raffica non si vede: i render sono radi e il ciclo si spegne da
+   * solo. Dentro una raffica no. MISURATO il 2026-08-16: 120 messaggi da 4 KB
+   * versati in una chat a schermo uccidono la pane fra il messaggio 40 e il 70
+   * con React #185 «Maximum update depth exceeded», zero messaggi disegnati e la
+   * schermata «Questa pane si è rotta». Lo stack nomina `scrollerRef`. Ed è il
+   * caso d'uso centrale del prodotto: un agente che scarica output di tool in
+   * fretta fa esattamente questo.
+   *
+   * Con `useCallback` a dipendenze vuote l'identità non cambia più, quindi React
+   * la invoca solo quando il NODO cambia davvero. `scrollerElRef` è un oggetto
+   * ref e `setScrollerEl` un setter di stato: entrambi stabili per contratto,
+   * quindi le dipendenze vuote sono corrette e non catturano niente di stantio.
+   */
+  const scrollerRef = useCallback((ref: HTMLElement | Window | null) => {
+    const el = (ref as HTMLElement | null) ?? null;
+    scrollerElRef.current = el;
+    // Anche come stato: è l'unica via perché l'effetto dei listener si accorga
+    // che lo scroller è arrivato (vedi `scrollerEl` qui sopra).
+    setScrollerEl((prev) => (prev === el ? prev : el));
+  }, []);
   // UNA sola autorità sull'ancoraggio (1b.3). Prima erano tre ref che si
   // riparavano a vicenda — `isScrolledUpRef`, `userIntentUpRef`,
   // `scrollGuardRef` — e otto punti che pinnavano il fondo, ognuno con un
@@ -236,7 +319,10 @@ export function MessageList({
 
   // Stable Virtuoso `components` map: a fresh object + Footer fn identity every
   // render defeats Virtuoso's bailout, so the footer churned per streaming
-  // token. The footer only depends on inputAreaHeight.
+  // token. Il Footer dipende da `inputAreaHeight` e dalla coda, e nessuna delle
+  // due cambia per token: la coda arriva da `useChatQueue`, che tiene fermo lo
+  // stesso array finché nessuno la tocca.
+  const queued = queuedTurns ?? NO_QUEUED;
   const virtuosoComponents = useMemo(() => ({
     // Il Footer riserva l'altezza del composer PIÙ un varco fisso.
     //
@@ -252,7 +338,21 @@ export function MessageList({
     // l'ultima riga, e senza margine se lo mangia dal TESTO. Ventiquattro
     // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
     // abbastanza da non far mai toccare le due cose.
-    Footer: () => <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />,
+    //
+    // Qui dentro, SOPRA il varco, stanno anche le bolle di quello che è ancora
+    // in coda (`QueuedBubbles`). Il posto non è arbitrario: lo scroller di
+    // Virtuoso è alto quanto tutta la cella (`height: 100%` in `scrollerStyle`),
+    // quindi qualunque cosa appesa DOPO la lista nascerebbe sotto il bordo
+    // inferiore, in un secondo scroller che nessuno scorre. Dentro il Footer
+    // invece crescono attaccate all'ultima risposta, e la loro crescita passa
+    // da `totalListHeightChanged`, cioè dall'aggancio che tiene la vista in
+    // fondo.
+    Footer: () => (
+      <>
+        <QueuedBubbles turns={queued} isMobile={isMobile} />
+        <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
+      </>
+    ),
     // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
     // conversazione confina con del CHROME, non con il bordo della finestra.
     //
@@ -281,11 +381,46 @@ export function MessageList({
     // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
     Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
-  }), [inputAreaHeight]);
+  }), [inputAreaHeight, queued, isMobile]);
+
+  /**
+   * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
+   *
+   * Durante un turno arriva un array nuovo a ogni frame, ma dentro c'è UN solo
+   * oggetto diverso: la bolla in streaming, che è l'ultima ed è `partial`. Tutto
+   * il resto è identico per riferimento. Passando l'array intero ai tre memo qui
+   * sotto, però, ogni frame li invalidava tutti e tre: si rifiltrava il
+   * trascritto, si rifondevano tutte le corse di tool (coniando un portante
+   * nuovo per ognuna, quindi facendo ridisegnare ogni bolla di tool visibile) e
+   * si ri-posizionavano i marker. Sessanta volte al secondo, per un messaggio.
+   *
+   * Qui il prefisso «assestato» si tiene stabile a mano: stessa lunghezza e
+   * stessi oggetti = si restituisce l'array di prima. Il confronto costa dei
+   * puntatori; quello che evita costa allocazioni e render.
+   */
+  const settledRef = useRef<ChatMessage[]>(currentMessages);
+  const liveTail = (() => {
+    const last = currentMessages[currentMessages.length - 1];
+    return last?.role === 'assistant' && last.partial === true ? last : undefined;
+  })();
+  const settledMessages = (() => {
+    const fine = liveTail ? currentMessages.length - 1 : currentMessages.length;
+    const prev = settledRef.current;
+    if (prev.length === fine) {
+      let uguale = true;
+      for (let i = 0; i < fine; i++) {
+        if (prev[i] !== currentMessages[i]) { uguale = false; break; }
+      }
+      if (uguale) return prev;
+    }
+    const next = fine === currentMessages.length ? currentMessages : currentMessages.slice(0, fine);
+    settledRef.current = next;
+    return next;
+  })();
 
   // Memoize filtered messages
   const visibleMessages = useMemo(() =>
-    currentMessages.filter(msg => {
+    settledMessages.filter(msg => {
       // Keep partial assistant messages (streaming placeholder)
       if (msg.role === 'assistant' && msg.partial) return true;
       const c = msg.content?.trim();
@@ -304,7 +439,7 @@ export function MessageList({
       if (c.startsWith('Agent-to-agent announce step')) return false;
       return true;
     }),
-    [currentMessages]
+    [settledMessages]
   );
 
   /**
@@ -319,18 +454,44 @@ export function MessageList({
    * la corsa qui, il raggruppatore vede finalmente il gruppo e il vestito si
    * paga una volta. Vedi `coalesceToolRun.ts`.
    */
-  const { items: filteredMessages, carrierById } = useMemo(
+  const { items: settledItems, carrierById } = useMemo(
     () => coalesceToolRuns(visibleMessages),
     [visibleMessages],
+  );
+
+  /**
+   * La lista da renderizzare: il prefisso fuso più, in fondo, la bolla viva.
+   *
+   * La coda non passa dal fusore per costruzione — `coalesceToolRuns` non fonde
+   * mai un `partial`, perché rimescolare l'item che sta crescendo è proprio ciò
+   * che non si deve fare — quindi tenerla fuori non cambia il risultato: cambia
+   * solo chi paga. L'unica cosa che si alloca per frame è questo array di
+   * puntatori; gli ITEM restano gli stessi oggetti, ed è quello che fa saltare
+   * il render a `MessageBubble`, che è `memo`.
+   */
+  const filteredMessages = useMemo(
+    () => (liveTail ? [...settledItems, liveTail as CoalescedMessage] : settledItems),
+    [settledItems, liveTail],
   );
 
   // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
   // Sui messaggi VISIBILI, non sugli item: un marker ancorato a un messaggio
   // assorbito dev'essere ancora trovabile (altrimenti `partitionMarkers` lo
   // butta in cima, che è la sua rete di sicurezza, non il posto giusto).
+  //
+  // La coda viva rientra nell'insieme SOLO quando dei marker esistono davvero:
+  // senza marker `partitionMarkers` esce prima di guardare i messaggi, quindi
+  // aggiungerla costerebbe una concat per frame per un risultato vuoto — e
+  // renderebbe instabile un memo che invece deve restare fermo.
+  const markerSource = useMemo(
+    () => (liveTail && compactionMarkers && compactionMarkers.length > 0
+      ? [...visibleMessages, liveTail]
+      : visibleMessages),
+    [visibleMessages, compactionMarkers, liveTail],
+  );
   const markerPartition = useMemo(
-    () => partitionMarkers(visibleMessages, compactionMarkers),
-    [visibleMessages, compactionMarkers],
+    () => partitionMarkers(markerSource, compactionMarkers),
+    [markerSource, compactionMarkers],
   );
   /** I marker di un item = i suoi, più quelli dei messaggi che ha assorbito. */
   const markersAfter = useCallback((msg: CoalescedMessage) => {
@@ -728,15 +889,42 @@ export function MessageList({
   /**
    * Prima di tanto non si alza MAI, anche a geometria ferma.
    *
-   * Il primo dei tre controlli a scoppio ritardato dell'apertura
-   * (`OPEN_VERIFY_MS[0]`, 250ms) è l'ultima cosa che può ancora spostare la
-   * vista, e lo fa per davvero: misurato dopo il sipario a due frame, la lista
-   * stava ferma, si scopriva, e a 250ms dal montaggio quel controllo la portava
-   * al fondo vero — 190px di salto, in scena. Il pavimento sta appena oltre quel
-   * controllo, così il salto avviene dietro lo scheletro. È il prezzo dichiarato
-   * di questa card: la chat compare un terzo di secondo dopo, e compare FERMA.
+   * ERA 320, e il perché era questo: il primo dei tre controlli a scoppio
+   * ritardato dell'apertura (`OPEN_VERIFY_MS[0]`, 250ms) era l'ultima cosa che
+   * poteva ancora spostare la vista, e lo faceva — misurato dopo il sipario a due
+   * frame, la lista stava ferma, si scopriva, e a 250ms dal montaggio quel
+   * controllo la portava al fondo vero, 190px di salto in scena. Il pavimento
+   * stava appena oltre quel controllo così il salto avveniva dietro lo scheletro.
+   *
+   * QUEL SALTO NON SUCCEDE PIÙ, misurato il 2026-08-15 su un'apertura FREDDA vera
+   * (pane non montata prima: la stessa sonda con la pane già in DOM misurava un
+   * ritorno e diceva «nessun salto» per il motivo sbagliato). Traccia dello
+   * scroller a ogni frame, due scene, e in entrambe lo scroll si posa ESATTAMENTE
+   * al fondo — `scrollTop == scrollHeight - viewport` — entro 82-98ms e non si
+   * muove più:
+   *
+   *   scena                         pavimento   sipario a    CLS        salti dopo il reveal
+   *   60 messaggi, alcuni alti        320ms      t+329ms     0.00115    0 · 0px
+   *   60 messaggi, alcuni alti         80ms      t+125ms     0.00115    0 · 0px
+   *   + coda da 120 righe             320ms      t+329ms     0.00115    0 · 0px
+   *   + coda da 120 righe              80ms      t+105ms     0.00115    0 · 0px
+   *
+   * La seconda scena è quella che questa card temeva: la docstring di
+   * `OPEN_SETTLE_FRAMES` la nomina, «un ultimo messaggio lungo (120 righe, un
+   * turno pieno di blocchi tool) continua a crescere per parecchi frame». Non
+   * cambia niente. Il CLS è identico alla quinta cifra, quindi il sipario lungo
+   * non stava comprando stabilità: stava solo aspettando.
+   *
+   * 80 e non 0: il sipario si alza comunque solo a geometria FERMA per due frame
+   * (`LIST_REVEAL_STABLE_FRAMES`), e questo pavimento resta per non farlo alzare
+   * dentro il primo assestamento su una macchina molto più veloce di questa.
+   * Guadagno misurato: ~204-224ms su ogni apertura a freddo, che è il gesto più
+   * ripetuto dell'app.
+   *
+   * Se un giorno il salto torna, torna anche questo numero — ma con la misura
+   * accanto, non per prudenza.
    */
-  const LIST_REVEAL_FLOOR_MS = 320;
+  const LIST_REVEAL_FLOOR_MS = 80;
   /** Oltre questo, si alza comunque. Copre il caso in cui la geometria non stia
    *  ferma per un motivo legittimo (uno stream che scrive mentre apri): lì
    *  l'attesa non finirebbe mai, e vedere la lista muoversi è meglio che non
@@ -1487,13 +1675,7 @@ export function MessageList({
           data-testid="chat-message-list"
           key={topic.id}
           ref={virtuosoRef}
-          scrollerRef={(ref) => {
-            const el = (ref as HTMLElement | null) ?? null;
-            scrollerElRef.current = el;
-            // Anche come stato: è l'unica via perché l'effetto dei listener si
-            // accorga che lo scroller è arrivato (vedi `scrollerEl`).
-            setScrollerEl((prev) => (prev === el ? prev : el));
-          }}
+          scrollerRef={scrollerRef}
           data={filteredMessages}
           // CONGELATO al montaggio, e non è un dettaglio: questa prop dice a
           // Virtuoso da quale item partire, e ricalcolarla a ogni messaggio la

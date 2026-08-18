@@ -192,14 +192,38 @@ export function useBoardProjects(enabled = true): BoardProjectRef[] | null {
   );
 }
 
+/** Cosa si scrive quando il progetto non si sa quale sia. Una frase, non un
+ *  codice: chi legge deve capire che manca un dato, non decifrarlo. */
+export const UNKNOWN_PROJECT_NAME = 'Progetto sconosciuto';
+
+/** Un UUID: otto-quattro-quattro-quattro-dodici cifre esadecimali. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Il nome leggibile di un progetto PRIMA che l'indice arrivi (o quando quel
  * progetto non c'è più): l'id della board meno il suffisso di hash. Non è
  * l'icona — quella richiede il `path` e quindi l'indice — ma evita che il chip
  * mostri una stringa con l'hash attaccato.
+ *
+ * UN UUID NON HA UN NOME DENTRO, e togliergli l'ultimo pezzo non lo rende
+ * leggibile: `405fbb0d-6fdd-4874-b52d-ce96180f9e2a` diventava
+ * `405fbb0d-6fdd-4874-b52d`, che è lo stesso codice con quattro cifre in meno.
+ * Segnalato: «vedo nei filtri un progetto con un codice strano. Non dovrei mai
+ * vedere un codice, perché è incomprensibile».
+ *
+ * Un id del genere arriva da un task che punta a un progetto che l'indice non
+ * conosce (misurato: uno su quindici, un progetto mai registrato). In quel caso
+ * l'unica cosa onesta è dire che il progetto non si sa quale sia, invece di
+ * spacciare un frammento di esadecimale per un nome.
+ *
+ * `null` e non una stringa: il chiamante deve poter decidere COME dirlo, e
+ * `String(null)` a schermo sarebbe peggio dell'UUID.
  */
-export function projectNameFromId(projectId: string): string {
-  return projectId.replace(/-[^-]+$/, '');
+export function projectNameFromId(projectId: string): string | null {
+  if (UUID.test(projectId)) return null;
+  const senzaHash = projectId.replace(/-[^-]+$/, '');
+  // Un id tutto esadecimale anche dopo il taglio non è un nome: stessa ragione.
+  return /^[0-9a-f-]{12,}$/i.test(senzaHash) ? null : senzaHash;
 }
 
 /**
@@ -215,6 +239,14 @@ export function resolveProjectRefs(
 ): BoardProjectRef[] {
   const known = new Map((index ?? []).map((p) => [p.projectId, p]));
   return ids
-    .map((id) => known.get(id) ?? { projectId: id, name: projectNameFromId(id), path: '' })
+    .map((id) => {
+      const noto = known.get(id);
+      if (noto) return noto;
+      // Un progetto che l'indice non conosce resta FILTRABILE - sparire
+      // dall'elenco nasconderebbe i suoi task - ma non si inventa un nome:
+      // `null` diventa «Progetto sconosciuto» dove si disegna.
+      const nome = projectNameFromId(id);
+      return { projectId: id, name: nome ?? UNKNOWN_PROJECT_NAME, path: '' };
+    })
     .sort(byName);
 }

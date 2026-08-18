@@ -58,8 +58,24 @@ import {
 async function killLiveTerminalSessions(request: APIRequestContext): Promise<void> {
   const res = await request.get(`${E2E_BASE}/api/terminal/sessions`).catch(() => null);
   if (!res?.ok()) return;
-  const body = (await res.json().catch(() => null)) as { sessions?: Array<{ id?: string }> } | null;
-  const ids = (body?.sessions ?? []).map((s) => s.id).filter((id): id is string => !!id);
+  // La rotta risponde con un ARRAY NUDO, non con `{ sessions: [...] }`.
+  //
+  // La prima stesura leggeva `body.sessions`, che su un array e' `undefined`:
+  // `ids` era sempre vuoto e questa funzione non ha MAI ucciso niente, in
+  // silenzio, per tutto il tempo in cui e' esistita. Il costo si e' visto nella
+  // nightly (run 31970135356): `terminal-session-resume` creava due sessioni e
+  // il caso dopo non le trovava piu' nella lista, perche' la lista era piena di
+  // relitti dei file precedenti e il `reconcile` del server faceva pulizia a
+  // modo suo mentre la spec correva.
+  //
+  // Le due forme si accettano entrambe: se un giorno la rotta si avvolge in un
+  // oggetto, questa pulizia non torna muta senza dirlo.
+  const body = (await res.json().catch(() => null)) as
+    | { sessions?: Array<{ id?: string }> }
+    | Array<{ id?: string }>
+    | null;
+  const righe = Array.isArray(body) ? body : (body?.sessions ?? []);
+  const ids = righe.map((s) => s.id).filter((id): id is string => !!id);
   await Promise.all(
     ids.map((id) => request.delete(`${E2E_BASE}/api/terminal/sessions/${encodeURIComponent(id)}`).catch(() => {})),
   );

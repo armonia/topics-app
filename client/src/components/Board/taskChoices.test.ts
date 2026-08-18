@@ -2,12 +2,18 @@ import { describe, it, expect } from 'bun:test';
 import { taskChoices, taskChoiceState, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
 import { acceptWord, drawerSurfaceLabels, landWord, redoWord, reviewDecisionButtons, sendBackWord, stopWord, taskActionWord, unblockWord } from './taskActionWords';
 import { LAND_ACTION_LABEL } from '../../lib/board';
-import { t as translate } from '../../lib/i18n';
+import { t as translate, ensureLocaleLoaded } from '../../lib/i18n';
 import { buildNotifyActions } from '../../../../shared/notify-actions';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BoardTask } from '../../lib/board';
+
+// L'inglese vive in un chunk suo (`i18n-en.ts`, split del 15/08) e `t()` è
+// sincrona: senza attendere il catalogo questi casi leggono il fallback italiano
+// e falliscono per un motivo che non è quello che vogliono misurare.
+await ensureLocaleLoaded('en');
+
 
 type ChoiceInput = Parameters<typeof taskChoices>[0];
 

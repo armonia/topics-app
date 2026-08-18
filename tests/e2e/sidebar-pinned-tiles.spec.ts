@@ -85,6 +85,249 @@ async function boxOf(page: Page, name: string) {
 }
 
 test.describe("Sidebar — tessere fissate", () => {
+  test("TILE-ALLINEA: il chevron non sposta il nome di sei pixel", async ({ page, request }) => {
+    // Misurato nel DOM sulle tessere vere: quelle con il chevron avevano il
+    // testo a x=42, tutte le altre a x=36. Sei pixel su una colonna di righe
+    // identiche, cioe' il tipo di scarto che si vede senza riuscire a
+    // nominarlo. Segnalato come «assicuriamoci che le icone degli accordion
+    // siano tutte correttamente allineate con la giusta spaziatura vicino al
+    // testo».
+    //
+    // Perche' un test e non un'occhiata: il difetto e' GEOMETRIA, e un VLM o un
+    // occhio distratto lo perdono. Sei pixel non si vedono, si misurano.
+    const a = await createTopic(request, `E2E-Allinea-A-${Date.now()}`);
+    const b = await createTopic(request, `E2E-Allinea-B-${Date.now()}`);
+    created.push(a.id, b.id);
+    await setPins(page, [a.id, b.id], [[a.id], [b.id]]);
+    await gotoSidebar(page);
+
+    const misura = async (nome: string) => {
+      const tile = tileNamed(page, nome);
+      await expect(tile).toBeVisible({ timeout: 10000 });
+      return tile.evaluate((el) => {
+        const testo = [...el.querySelectorAll("span")]
+          .find((s) => s.textContent?.trim() && !s.querySelector("svg"));
+        if (!testo) return null;
+        // Relativa alla TESSERA, non alla finestra: due tessere su righe
+        // diverse hanno x assolute diverse per costruzione.
+        return +(testo.getBoundingClientRect().left - el.getBoundingClientRect().left).toFixed(1);
+      });
+    };
+
+    const xa = await misura(a.name);
+    const xb = await misura(b.name);
+    expect(xa, "la prima tessera deve avere un testo misurabile").not.toBeNull();
+    expect(xb).not.toBeNull();
+    // Lo SLOT del chevron c'e' sempre, quindi due tessere della stessa forma
+    // partono dalla stessa x, con o senza chevron dentro.
+    expect(Math.abs(xa! - xb!), "il nome parte dalla stessa colonna").toBeLessThanOrEqual(0.5);
+
+    // LA GARANZIA VERA: lo slot esiste ANCHE senza chevron, e ha una larghezza.
+    //
+    // Due topic fissati non sono mai espandibili (`renderExpanded` torna null
+    // per loro), quindi il confronto qui sopra da solo non distingue il codice
+    // corretto da quello rotto: entrambe le tessere passerebbero. La prova che
+    // regge e' che lo SPAZIO del chevron ci sia comunque — perche' e' quello
+    // che fa partire dalla stessa x una tessera espandibile e una no.
+    //
+    // Falsificato togliendo lo slot (chevron nel flusso, com'era prima): il
+    // riquadro sparisce e questa riga diventa rossa.
+    for (const nome of [a.name, b.name]) {
+      const slot = await tileNamed(page, nome).evaluate((el) => {
+        // Il testid, non `[aria-hidden]`: dentro una tessera ce ne sono altri
+        // (il glifo, il segnaposto dell'icona in volo) e il selettore generico
+        // ne pescava uno che c'e' comunque — il sabotaggio restava verde.
+        const s = el.querySelector('[data-testid="pinned-chevron-slot"]');
+        return s ? +s.getBoundingClientRect().width.toFixed(1) : null;
+      });
+      expect(slot, `lo slot del chevron manca su "${nome}": senza, il nome di una
+        tessera espandibile parte 6px piu' a destra delle vicine`).not.toBeNull();
+      expect(slot!).toBeGreaterThan(0);
+    }
+  });
+
+
+  test("TILE-CENTRO: il trigger non sposta cio' che e' centrato", async ({ page, request }) => {
+    // Segnalato: «quelle pinnate, icona o testo, devono essere ben centrate e
+    // il trigger non dovrebbe partecipare al peso per farlo centrato. Magari
+    // potremmo replicare il peso del trigger sulla destra, cosi' da mantenere
+    // spaziature, ingombri e allineamenti corretti».
+    //
+    // In forma STRETTA la tessera centra il suo contenuto. Ma nel flusso, di
+    // fianco al contenuto, ci sono anche lo slot del chevron a sinistra e lo
+    // slot del «+» a destra: ognuno che pesi in modo diverso dall'altro sposta
+    // il centro di meta' della propria larghezza. Il difetto non si vede su una
+    // tessera sola, si vede in COLONNA — tessere con e senza «+» mettono
+    // l'icona in due x diverse, e la fila sembra storta senza saper dire dove.
+    //
+    // Si misura il CENTRO del contenuto contro il CENTRO della tessera: e' la
+    // sola formulazione che non dipende da quanti ornamenti ci sono attorno.
+    const a = await createTopic(request, `E2E-Centro-A-${Date.now()}`);
+    const b = await createTopic(request, `E2E-Centro-B-${Date.now()}`);
+    created.push(a.id, b.id);
+    // UN PROGETTO SENZA FAVICON: il caso che contiene il difetto.
+    //
+    // Le chat un glifo ce l'hanno sempre (`TYPE_ICONS`), quindi tre chat
+    // misuravano solo tessere con qualcosa dentro il contenitore dell'icona.
+    // `project` NON e' in quella mappa: una cartella senza favicon rende il
+    // contenitore VUOTO, largo zero ma con il suo `gap` ancora nel flusso -
+    // ed e' li' che il 17/08 il nome stava a 16px da sinistra contro 8 a
+    // destra. Verificato: senza questa riga il sabotaggio resta verde.
+    const senzaIcona = `/tmp/e2e-centro-nudo-${Date.now()}`;
+    fs.mkdirSync(senzaIcona, { recursive: true });
+    // Tre su UNA riga: e' cosi' che la tessera diventa stretta abbastanza da
+    // passare in forma quadrata, che e' la forma in cui il centraggio esiste.
+    const chiaveNuda = `project:${senzaIcona}`;
+    await setPins(page, [a.id, b.id, chiaveNuda], [[a.id, b.id, chiaveNuda]]);
+    await gotoSidebar(page);
+
+    // L'INCHIOSTRO, non le scatole. Misurare i box dei figli non distingue il
+    // centrato dal non centrato: il nome e' `flex-1`, quindi la sua SCATOLA
+    // riempie la riga in tutti e due i casi e lascia sempre la stessa aria ai
+    // lati. Cio' che si sposta e' il TESTO dentro quella scatola, ed e' quello
+    // che si vede. Si prende con un `Range`, che da' il rettangolo dei glifi
+    // davvero disegnati. Verificato togliendo il centraggio: la misura sui box
+    // restava verde, questa diventa rossa.
+    // ANCHE UNA TESSERA SENZA GLIFO. Le chat un'icona ce l'hanno sempre
+    // (`TYPE_ICONS`), quindi tre chat non coprono il caso in cui il
+    // contenitore dell'icona resta nel flusso VUOTO: largo zero, ma il `gap`
+    // della riga pesa lo stesso, e il nome finisce fuori centro di meta' gap.
+    // Misurato il 17/08 sulla sidebar vera: 16px a sinistra contro 8 a destra
+    // su una tessera di progetto senza favicon, mentre le tre chat di questo
+    // caso restavano a zero. Un caso che non contiene il difetto non lo
+    // ferma, ed e' il modo in cui questo test e' stato verde mentre lo
+    // schermo era storto.
+    const senzaGlifo = await tiles(page).evaluateAll((els) =>
+      els.filter((el) => !el.querySelector('img, svg:not([data-testid="pinned-expand-hint"])'))
+         .map((el) => el.getAttribute("aria-label") ?? "?"),
+    );
+    // Non si asserisce che ce ne sia una (dipende da cosa e' fissato): si
+    // asserisce che se c'e', e' misurata come le altre - il ciclo sotto le
+    // prende tutte.
+    if (senzaGlifo.length) console.log(`[TILE-CENTRO] tessere senza glifo misurate: ${senzaGlifo.join(", ")}`);
+
+    const scarti = await tiles(page).evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        const pezzi: Array<{ left: number; right: number }> = [];
+        // Il testo vero, RITAGLIATO dalla scatola che lo contiene: il nome e'
+        // `truncate`, quindi il rettangolo del Range e' quello del testo
+        // intero, anche la parte che l'ellissi nasconde. Senza il ritaglio si
+        // misurerebbe inchiostro che nessuno vede.
+        const nodi = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = nodi.nextNode(); n; n = nodi.nextNode()) {
+          if (!n.textContent?.trim()) continue;
+          const rg = document.createRange();
+          rg.selectNodeContents(n);
+          const b = rg.getBoundingClientRect();
+          const clip = (n.parentElement as HTMLElement).getBoundingClientRect();
+          const left = Math.max(b.left, clip.left);
+          const right = Math.min(b.right, clip.right);
+          if (right > left) pezzi.push({ left, right } as DOMRect);
+        }
+        // Le icone: hanno una dimensione propria, la loro scatola E' inchiostro.
+        // Il chevron no, sta fuori dal flusso per scelta.
+        for (const g of el.querySelectorAll('img, svg:not([data-testid="pinned-expand-hint"])')) {
+          const b = g.getBoundingClientRect();
+          if (b.width > 0) pezzi.push(b);
+        }
+        if (!pezzi.length) return null;
+        const sinistra = Math.min(...pezzi.map((b) => b.left)) - r.left;
+        const destra = r.right - Math.max(...pezzi.map((b) => b.right));
+        return {
+          nome: el.getAttribute("aria-label") ?? "?",
+          larghezza: +r.width.toFixed(1),
+          sinistra: +sinistra.toFixed(2),
+          destra: +destra.toFixed(2),
+          // Positivo = l'inchiostro pende a destra.
+          scarto: +((sinistra - destra) / 2).toFixed(2),
+        };
+      }).filter(Boolean),
+    );
+
+    // Solo le tessere davvero STRETTE: sopra la soglia della container query
+    // la tessera e' una riga e parte da sinistra, che e' voluto.
+    type Scarto = { nome: string; larghezza: number; sinistra: number; destra: number; scarto: number };
+    const strette = (scarti as Scarto[]).filter((s) => s.larghezza < 104);
+    expect(strette.length, `nessuna tessera stretta da misurare: ${JSON.stringify(scarti)}`).toBeGreaterThan(0);
+    for (const s of strette) {
+      // Il numero OSSERVATO anche quando passa: un verde muto dice solo «non e'
+      // peggiorato», e non permette di rispondere a «di quanto era fuori?».
+      console.log(`[TILE-CENTRO] ${s.nome} larga ${s.larghezza}: sx ${s.sinistra} · dx ${s.destra} · fuori centro ${s.scarto}px`);
+      expect(
+        Math.abs(s.scarto),
+        `"${s.nome}" (larga ${s.larghezza}) ha ${s.sinistra}px a sinistra e ${s.destra}px a destra: il contenuto e' fuori centro di ${s.scarto}px`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  test("TILE-CENTRO-b: il centraggio non dipende dal FONT ne' dalla DENSITA'", async ({ page, request }) => {
+    // IL CONFINE CHE HA FATTO CADERE TILE-32 IN CI.
+    //
+    // Il centraggio si misura in frazioni di pixel, e quelle cambiano con la
+    // faccia montata: in locale la San Francisco di sistema, sul runner Linux
+    // un'altra. Un verde sul portatile non dice niente su cosa succede la'.
+    //
+    // La prova non e' «passa anche altrove» (i font del runner non li ho), ma
+    // «il centraggio non DIPENDE dal font»: `justify-center` divide lo spazio
+    // che avanza, e quanto ne avanza dipende dalla larghezza del contenuto,
+    // non dalle metriche verticali del carattere. Quello che poteva romperlo
+    // era un figlio VUOTO nel flusso, ed e' il difetto corretto oggi.
+    // QUATTRO su una riga: sui 244px della colonna due fanno ~118 (forma
+    // RIGA, che parte da sinistra e non si centra), quattro fanno ~56, cioe'
+    // sotto la soglia dei 104 in cui il centraggio esiste. Con due il caso
+    // misurava zero tessere e si fermava - che e' come deve fare, ma non
+    // provava niente.
+    const a = await createTopic(request, `E2E-Font-A-${Date.now()}`);
+    const b2 = await createTopic(request, `E2E-Font-B-${Date.now()}`);
+    const c2 = await createTopic(request, `E2E-Font-C-${Date.now()}`);
+    created.push(a.id, b2.id, c2.id);
+    const nudo = `/tmp/e2e-font-nudo-${Date.now()}`;
+    fs.mkdirSync(nudo, { recursive: true });
+    const chiave = `project:${nudo}`;
+    await setPins(page, [a.id, b2.id, c2.id, chiave], [[a.id, b2.id, c2.id, chiave]]);
+    await gotoSidebar(page);
+
+    const misura = async () => tiles(page).evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width >= 104) return null;
+        const pezzi: Array<{ left: number; right: number }> = [];
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = w.nextNode(); n; n = w.nextNode()) {
+          if (!n.textContent?.trim()) continue;
+          const rg = document.createRange(); rg.selectNodeContents(n);
+          const b = rg.getBoundingClientRect();
+          const clip = (n.parentElement as HTMLElement).getBoundingClientRect();
+          const L = Math.max(b.left, clip.left), R = Math.min(b.right, clip.right);
+          if (R > L) pezzi.push({ left: L, right: R });
+        }
+        for (const g of el.querySelectorAll('img, svg:not([data-testid="pinned-expand-hint"])')) {
+          const b = g.getBoundingClientRect();
+          if (b.width > 0) pezzi.push({ left: b.left, right: b.right });
+        }
+        if (!pezzi.length) return null;
+        const sx = Math.min(...pezzi.map((x) => x.left)) - r.left;
+        const dx = r.right - Math.max(...pezzi.map((x) => x.right));
+        return { nome: el.getAttribute("aria-label") ?? "?", scarto: +((sx - dx) / 2).toFixed(2) };
+      }).filter(Boolean),
+    );
+
+    for (const [family, che] of [
+      ["Georgia, serif", "serif"],
+      ['"Courier New", monospace', "monospazio"],
+      ['"Times New Roman", serif', "x-height bassa"],
+    ] as const) {
+      await page.addStyleTag({ content: `:root, body, * { font-family: ${family} !important; }` });
+      const m = (await misura()) as Array<{ nome: string; scarto: number }>;
+      expect(m.length, "servono tessere strette da misurare").toBeGreaterThan(0);
+      const peggio = Math.max(...m.map((x) => Math.abs(x.scarto)));
+      // eslint-disable-next-line no-console
+      console.log(`[TILE-CENTRO-b] ${che.padEnd(14)} ${m.length} tessere, peggiore ${peggio}px`);
+      expect(peggio, `con ${family} il centraggio salta: dipende dal font, e in CI la faccia e' un'altra`).toBeLessThanOrEqual(0.5);
+    }
+  });
+
   test.afterAll(async ({ request }) => {
     for (const id of created) await deleteTopic(request, id).catch(() => {});
     created.length = 0;
@@ -2001,12 +2244,19 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     const misura = await tessera.evaluate((t: HTMLElement) => {
       const b = t.getBoundingClientRect();
       const img = t.querySelector("img")!.getBoundingClientRect();
+      // A USCIRE DAL FLUSSO E' LO SLOT, non il glifo che ci sta dentro.
+      // Da quando il chevron ha uno slot di larghezza fissa (perche' il nome
+      // parta dalla stessa x con e senza chevron), `pinned-tile-lead` sta sul
+      // wrapper: il glifo dentro resta `static` ed e' giusto cosi'. Questo
+      // test leggeva la `position` del glifo e chiedeva `absolute`: misurava
+      // il posto sbagliato, quindi era rosso pur essendo tutto a posto.
       const chev = t.querySelector<HTMLElement>('[data-testid="pinned-expand-hint"]')!;
+      const slot = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-slot"]')!;
       const c = chev.getBoundingClientRect();
       return {
         larghezza: b.width,
         scarto: (img.left + img.right) / 2 - (b.left + b.right) / 2,
-        posizioneChevron: getComputedStyle(chev).position,
+        posizioneChevron: getComputedStyle(slot).position,
         chevronPrecede: c.right - img.left,
         chevronDentro: c.left - b.left,
       };
@@ -2023,7 +2273,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       Math.abs(misura.scarto),
       `l'icona sta al centro della tessera: ${JSON.stringify(misura)}`,
     ).toBeLessThanOrEqual(1);
-    expect(misura.posizioneChevron, "il chevron esce dal flusso").toBe("absolute");
+    expect(misura.posizioneChevron, "lo slot del chevron esce dal flusso").toBe("absolute");
     // Fuori dal flusso, ma non addosso all'icona ne' fuori dalla tessera: e'
     // esattamente la condizione che regge la soglia dei 54px.
     expect(misura.chevronPrecede, "il chevron non si sovrappone all'icona").toBeLessThanOrEqual(0);

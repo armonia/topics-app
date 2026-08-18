@@ -1,63 +1,123 @@
 # Topics
 
-> A desktop workspace for [Claude Code](https://claude.com/claude-code) and other CLI coding agents — organize your sessions into focused topics, each with its own project context, terminal, and browser.
->
-> An open, **agent-first** alternative to Cursor, Windsurf & co.: instead of wrapping an editor around a model, Topics is a home for the terminal AI agents you already run.
+**A desktop workspace for the coding agents you already run** — editor, diff
+viewer, terminal, browser and a task board, one topic at a time.
 
-<!-- Optional: drop a screenshot or short GIF here once available -->
-<!-- ![Topics screenshot](docs/screenshot.png) -->
+Agents run inside Topics instead of one process each, so
+**[200 sessions answering at once fit in 162 MB of RAM](#numbers)**.
 
-## Download
+[![Download](https://img.shields.io/github/v/release/armonia/topics-app?label=download&style=for-the-badge)](https://github.com/armonia/topics-app/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
+[![Platforms](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-lightgrey?style=for-the-badge)](https://github.com/armonia/topics-app/releases/latest)
 
-Grab the latest build for your platform from the **[latest release](https://github.com/armonia/topics-app/releases/latest)**:
-
-| Platform | File |
-|----------|------|
-| **macOS** (Universal: Apple Silicon + Intel) | `.dmg` |
-| **Windows** | `.exe` installer (also `.msi` on the Tauri channel) |
-| **Linux** | `.AppImage` · `.deb` (Tauri also ships `.rpm`) |
-
-All builds and their checksums live on the [Releases](https://github.com/armonia/topics-app/releases) page.
-
-> **v2 = Tauri.** Starting with **v2.0.0** the desktop app ships as a [Tauri](https://tauri.app) shell (`desktop-tauri/`), released from `tauri-vX.Y.Z` tags (release names "Topics (Tauri) …"). The older **Electron** shell was **archived in v2.0.0** — its source is preserved on the `electron-archive` branch and can be restored from there if ever needed. The legacy Electron installers (`v*` tags) remain downloadable on the Releases page but are no longer built or updated.
-
-> **macOS first launch.** Builds are not notarized yet, so macOS refuses the first launch with *"Apple could not verify Topics is free of malware"*. Since macOS Sequoia the Control-click → Open bypass **no longer works** — the path that does is: **System Settings → Privacy & Security →** scroll to **Security → Open Anyway →** authenticate → **Open** in the dialog that follows. You only do this once. Windows SmartScreen may ask you to confirm.
-
-## Auto-update
-
-Topics checks GitHub Releases for new versions. Use **menu → Check for Updates**: the app downloads the update once you confirm, then installs it on restart. Updates are never applied silently.
+![Topics: three topics, an agent answering](landing/public/img/readme-topics.jpg)
 
 ## What it does
 
-- **Topic-based organization** — group your Claude Code / agent sessions by project or context, in tabs
-- **Project integration** — file explorer, Git changes, an embedded terminal (run your agent here) and browser per topic
-- **Agent monitoring** — see every session's state and get notified when an agent finishes or needs you
-- **Context visualization** — see how much context each session is using
-- **Bring your own agent & keys** — works against the Anthropic API directly, or via an optional OpenClaw gateway
+**One topic per thing you are doing.** Each holds a chat, a file tree and code
+editor, a Git view with diffs, a terminal and a browser. Switching topic
+switches all of them at once, so you stop rebuilding context every time you
+change subject.
 
-## Configuration
+**The browser is part of the tool, not a link that opens elsewhere.** It runs
+inside the topic, an agent can drive it, and you watch the real DOM rather than
+a video of it: text stays sharp and selectable, and it costs a fraction of a
+pixel stream.
 
-Topics reads configuration from environment variables (or a `.env` file). Copy `.env.example` to `.env` and set what you need:
+**Close the lid and come back.** Sessions survive a restart with their whole
+scrollback, not just the last screen. Most embedded terminals lose everything
+that scrolled past while you were away, which is exactly what you need when an
+agent worked for twenty minutes without you.
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Local server port | `3333` |
-| `AI_PROVIDER` | `claude`, `openai`, or `openclaw` — when unset, auto-detected from available keys (`ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else `openclaw` only if `GATEWAY_URL` is set) | `claude` |
-| `GATEWAY_TOKEN` | OpenClaw gateway token (required when `AI_PROVIDER=openclaw`) | — |
-| `GATEWAY_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789` |
-| `ANTHROPIC_API_KEY` | Anthropic API key (required when `AI_PROVIDER=claude`) | — |
-| `CLAUDE_MODEL` | Model id for the `claude` provider | — |
-| `OPENAI_API_KEY` | OpenAI API key (required when `AI_PROVIDER=openai`) | — |
-| `OPENAI_MODEL` | Model id for the `openai` provider | — |
-| `ELEVENLABS_API_KEY` | ElevenLabs key — text-to-speech, and Scribe v2 dictation/speech-to-text (optional) | — |
-| `STT_PROVIDER` | Speech-to-text engine: `auto` tries ElevenLabs Scribe v2 → OpenAI `gpt-transcribe` → Deepgram Nova-3 → Groq Whisper turbo → local whisper.cpp, using whichever keys you have. Pin one (`openai`) or set an order (`openai,local`) | `auto` |
-| `STT_LANGUAGE` | ISO-639-1 dictation language; unset means the model auto-detects | auto |
-| `MOONDREAM_API_KEY` | Moondream key — enables browser vision grounding (optional) | — |
-| `APP_DATA_DIR` | Where conversations and app data are stored | `~/.openclaw` |
+**Go back to before it went wrong.** Long agent sessions rarely fail with an
+error; they take a wrong turn that is obvious only later, after the conversation
+has built on it. A checkpoint returns the session *and the working tree* to a
+saved point, so undoing is not an argument with the agent about what it did.
 
-You bring your own keys. Topics stores everything locally — see [PRIVACY.md](PRIVACY.md).
+![The board: two agents working, one waiting for review](landing/public/img/readme-board.jpg)
 
-## Build from source
+**Hand work to a board instead of babysitting it.** Describe a task, and an
+agent picks it up with everything it needs: working directory, model, effort
+level, and its own git worktree. Several agents can edit the same repository at
+once because each has a real checkout on its own branch.
+
+**Approving, landing and publishing are three buttons.** Accepting an agent's
+work is not the same as merging it into main, which is not the same as pushing
+it. Collapsing them into one is how code nobody read ends up on a remote.
+
+**Your agents, your keys.** It drives the `claude-code` and `codex` CLIs you
+already pay for, or talks to the APIs with your own key. No credential of ours
+in the middle, no proxy: your prompts go straight to the model vendor.
+
+## Install
+
+Grab the [latest release](https://github.com/armonia/topics-app/releases/latest):
+`.dmg` for macOS, `.exe` or `.msi` for Windows, `.deb` or `.rpm` for Linux.
+Updates install on restart, after you confirm.
+
+> **First launch on macOS.** Builds are not notarized yet, so macOS blocks them.
+> Go to **System Settings → Privacy & Security → Open Anyway**. Once only.
+
+## Free and paid
+
+Topics runs a small server on your machine. Your topics live there, which is why
+the app works with the network unplugged. Your phone on the same Wi-Fi can reach
+it after a one-time six-character approval.
+
+Getting in from *outside* your network needs a relay, and a relay is a machine
+somebody has to run.
+
+| Plan | What you get |
+|---|---|
+| **Free forever, no account** | Everything local, plus your home network. Unlimited topics, projects and agents. |
+| **Subscription** | Reachability from anywhere, and seats for your team. |
+
+The licence is verified offline, so a billing outage can never downgrade the
+machine in front of you. An expired or unreadable token falls back to the full
+free plan, never to a locked app.
+
+<a id="numbers"></a>
+
+## Numbers
+
+A session is an array of messages, not a process:
+
+| Sessions at once | All answered | Whole server | Wall clock |
+|---|---|---|---|
+| 8 | ✓ | | ~2 s |
+| 64 | ✓ | | ~4 s |
+| **200** | ✓ | **162 MB** | **5.6 s** |
+
+At equal counts a CLI session costs 432 MB against 2.3 MB native: **190x**.
+
+An IDE gives you one project per window, and the next window costs nearly as
+much as the first. Same three repositories, same machine:
+
+| | Each extra project |
+|---|---|
+| Cursor | +889 to +1039 MB |
+| VS Code | +261 MB |
+| **Topics** | **+0.07 MB** |
+
+Empty, Topics is 164 MB on disk against 1.3 GB for Cursor. Loaded with 22
+projects and ~1000 topics it sits at 440–745 MB.
+
+Method, the runs that contradicted my earlier claims, and what none of this
+proves: **[`bench/README.md`](bench/README.md)**.
+
+## Privacy
+
+Your conversations stay on your machine. No analytics, no crash reporting. The
+paid relay is the one thing that routes traffic through our infrastructure, and
+only if you turn it on — [PRIVACY.md](PRIVACY.md) has the detail.
+
+Don't put Topics on the public internet. Behind Tailscale or a tunnel, add your
+own authentication. Vulnerabilities: [SECURITY.md](SECURITY.md).
+
+## For developers
+
+<details>
+<summary>Build from source</summary>
 
 Requires [Bun](https://bun.sh/) and Node.js 20+.
 
@@ -65,60 +125,70 @@ Requires [Bun](https://bun.sh/) and Node.js 20+.
 git clone https://github.com/armonia/topics-app.git
 cd topics-app
 bun install
-
-# Client (Vite/React/Tailwind) → public/
-cd client && bun run build && cd ..
-
-# Run the server
-cp .env.example .env   # then edit
-bun run start          # http://localhost:3333
+cd client && bun run build && cd ..   # client → public/
+bun run start                          # http://localhost:3333
 ```
 
-### Desktop shell — Tauri (primary, v2)
-
-Requires the [Rust toolchain](https://rustup.rs/). Build the client first (above) — Tauri
-embeds `public/` as its `frontendDist` at compile time:
+The desktop shell needs the [Rust toolchain](https://rustup.rs/) and embeds
+`public/` at compile time, so build the client first:
 
 ```bash
-cd desktop-tauri/src-tauri && cargo run          # dev build, embeds public/
+cd desktop-tauri/src-tauri && cargo run   # dev
+cd desktop-tauri && cargo tauri build     # installers
 ```
 
-Package installers locally with the [Tauri CLI](https://tauri.app/reference/cli/)
-(`cargo install tauri-cli`):
+CI builds the official installers from `tauri-vX.Y.Z` tags. The pre-v2 Electron
+shell lives on the `electron-archive` branch. Dev workflow:
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-```bash
-cd desktop-tauri && cargo tauri build
-```
+</details>
 
-Official installers are built by CI from `tauri-vX.Y.Z` tags
-(`.github/workflows/tauri-release.yml`).
+<details>
+<summary>Environment variables</summary>
 
-### Desktop shell — Electron (archived)
+Nothing here is required: provider, model and keys are in **Settings**, and
+Settings wins over the environment. These exist for headless runs, CI and
+containers. Copy `.env.example` to `.env`.
 
-The Electron shell was **archived in v2.0.0** and its source (`electron-app/`) removed from
-`main`. It is fully recoverable on the `electron-archive` branch:
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | Local server port | `3333` |
+| `APP_DATA_DIR` | Where conversations and app data live | `~/.openclaw` |
+| `SERVER_HOST` | `127.0.0.1` keeps the server on this machine only | all interfaces |
+| `ANTHROPIC_API_KEY` | Only for the direct `claude` provider, not the CLI | — |
+| `OPENAI_API_KEY` | Only for the direct `openai` provider | — |
+| `ELEVENLABS_API_KEY` | Text-to-speech and Scribe v2 dictation | — |
+| `MOONDREAM_API_KEY` | Browser vision grounding | — |
+| `AI_PROVIDER` | Pins one provider | auto |
+| `CLAUDE_MODEL` · `OPENAI_MODEL` | Model ids | — |
+| `GATEWAY_URL` · `GATEWAY_TOKEN` | OpenClaw gateway | `http://127.0.0.1:18789` |
+| `STT_PROVIDER` · `STT_LANGUAGE` | Dictation engine and language | `auto` |
 
-```bash
-git checkout electron-archive -- electron-app   # restore the source, or
-git switch electron-archive                     # check out the whole pre-removal state
-```
+**Picking the default provider.** With `AI_PROVIDER` unset your keys decide:
+`ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else
+`GATEWAY_URL` → `openclaw`, else `claude`. That choice holds as long as it stays
+connected.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
+The order `claude-code` → `codex` → `claude` → `openai` → `openclaw` only picks
+the *replacement* once the current default goes offline, so with an API key set
+the CLIs above it never get a turn.
 
-## Security
+A pin beats connectivity. A pinned provider that is offline stays the target and
+its chats never answer, which is deliberate: a pin is an instruction.
 
-Topics runs a **local server** and by default listens on **every network interface** — not just localhost. That is what lets you open it from your phone on the same Wi-Fi.
+`STT_PROVIDER=auto` tries ElevenLabs Scribe v2 → OpenAI `gpt-transcribe` →
+Deepgram Nova-3 → Groq Whisper turbo → local whisper.cpp, using whichever keys
+you have.
 
-**Other devices must be authorized once.** Open Topics from the new device: it shows a six-character code, your computer shows the matching request, you approve it. Authorization is per device and revocable. The machine Topics runs on is trusted by transport, so you can never lock yourself out of your own computer.
-
-Authentication says who may use Topics — it does not make an untrusted network safe. Run it on a network you trust, and to restrict the server to your own machine set `SERVER_HOST=127.0.0.1`.
-
-**Do not expose Topics to the public internet.** If you use remote-access tooling (Tailscale, Cloudflare Tunnel, etc.), put your own authentication in front of it. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+</details>
 
 ## Legal
 
-Topics is open source under the [MIT License](LICENSE) — provided **"as is", without warranty of any kind**.
+MIT licensed, provided "as is" without warranty of any kind.
 
-Topics is an independent project by [Armonia](https://armonia.io). It is **not affiliated with or endorsed by** Anthropic, OpenClaw, or ElevenLabs. Those names and marks belong to their respective owners. Topics talks to third-party services using **keys and accounts you provide**, and your use of them is governed by each provider's own terms. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [PRIVACY.md](PRIVACY.md).
+Topics is an independent project by [Armonia](https://armonia.io), not
+affiliated with or endorsed by Anthropic, OpenClaw or ElevenLabs. It talks to
+third-party services with keys you provide, under each provider's own terms. See
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 MIT © [Armonia](https://armonia.io)

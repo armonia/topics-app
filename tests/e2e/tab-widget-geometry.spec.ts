@@ -111,6 +111,12 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
     // L'INCHIOSTRO di un testo, non la sua scatola: baseline dedotta dal box del
     // testo più le metriche del font, poi centro ottico dei glifi EFFETTIVI.
     // È l'unico modo di vedere il difetto — la scatola era centrata benissimo.
+    //
+    // La baseline dedotta è esatta, non una stima: verificata contro una sonda
+    // inline alta 0 su `vertical-align: baseline` su nove font (SF, Helvetica,
+    // Arial, Verdana, Georgia, Courier New, Times, Impact, Menlo) — scarto 0,000
+    // in tutti e nove. Vale perché Blink arrotonda ascent/descent agli interi in
+    // un posto solo, e canvas e layout leggono quel posto.
     const ink = (el: Element | null) => {
       if (!el) return null;
       const node = Array.from(el.childNodes).find((n) => n.nodeType === 3 && n.textContent?.trim());
@@ -132,14 +138,15 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
       };
     };
     const loader = tab.querySelector("[data-loader-state]");
+    const badge = tab.querySelector("span.rounded-full.bg-primary");
     return {
       tab: { w: r2(rt.width), h: r2(rt.height) },
       label: box(tab.querySelector('[data-testid="pane-tab-label"]')),
       labelInk: ink(tab.querySelector('[data-testid="pane-tab-label"]')),
       loader: box(loader),
       loaderGlifo: box(loader?.querySelector("span") ?? null),
-      badge: box(tab.querySelector("span.rounded-full.bg-primary")),
-      badgeInk: ink(tab.querySelector("span.rounded-full.bg-primary")),
+      badge: box(badge),
+      badgeInk: ink(badge),
       comando: box(tab.querySelector(".row-actions")),
     };
   }, paneId);
@@ -186,7 +193,144 @@ test.describe("I widget in coda a una tab", () => {
     // Mezzo pixel di tolleranza: sotto quella soglia non c'è niente da vedere
     // nemmeno su uno schermo a densità doppia. Prima erano 0,62px in basso.
     expect(Math.abs(m.badgeInk!.dCentro), "cifra rispetto al centro verticale").toBeLessThan(0.5);
-    expect(Math.abs(m.badgeInk!.inkSx - m.badgeInk!.inkDx), "cifra rispetto al centro orizzontale").toBeLessThan(0.5);
+    // L'asse ORIZZONTALE non ha la stessa soglia, e la ragione non è una resa:
+    // è che sulle due assi possiamo cose diverse.
+    //
+    // In verticale l'inchiostro si centra per costruzione, perché `text-box-edge`
+    // esiste e taglia la line box sulle cime delle maiuscole. In orizzontale non
+    // c'è nessun equivalente: qualunque centratura centra la SCATOLA DI AVANZAMENTO
+    // del glifo, e dentro quella scatola l'inchiostro sta dove le due spalle del
+    // font lo mettono. Lo scarto che resta vale (spalla sinistra − spalla destra) / 2,
+    // ed è una proprietà del font, non nostra: nessuna riga di CSS la toglie.
+    //
+    // Misurato: 0,00px con SF (macOS), 0,66px con DejaVu Sans, che è quello che il
+    // runner Linux risolve. Un pixel copre entrambi e resta sotto la soglia del
+    // visibile anche a densità doppia. NON è una tolleranza alzata per far passare
+    // il rosso: fino a oggi questa riga su Linux non era MAI stata valutata, perché
+    // l'asserzione verticale qui sopra falliva prima e portava via il test.
+    expect(Math.abs(m.badgeInk!.inkSx - m.badgeInk!.inkDx), "cifra rispetto al centro orizzontale").toBeLessThan(1);
+
+    // …E ADESSO LA STESSA MISURA CONTRO UN RIFERIMENTO CHE QUESTA STESSA RUN
+    // PRODUCE, perché con un font solo il numero qui sopra non dice se a
+    // centrare siamo noi o se ci va bene.
+    //
+    // Storia, per non ripeterla. Questo test è stato verde su macOS e rosso sul
+    // runner Linux per tre tentativi identici (−1,00px), e la lettura comoda era
+    // «è il rasterizzatore, alza la tolleranza». Non lo era, e non era nemmeno
+    // rasterizzazione. Qualunque centratura verticale centra la LINE BOX, e
+    // dentro la line box il testo si posa per BASELINE: l'inchiostro di una
+    // cifra — che sta tutto sopra la baseline — cade fuori asse di
+    //     floor((altezzaPastiglia − ascent − descent)/2) + ascent
+    //     − altezzaPastiglia/2 + (inkDescent − inkAscent)/2
+    // cioè di un numero che decide il FONT. Stessa identica CSS, Chromium 147,
+    // dieci font: da +2,01 (Georgia) a −1,00. Il −1,00 è DejaVu Sans (ascent 10,
+    // descent 3, cifra alta 8,16 a 11px), cioè proprio il font che il runner
+    // Linux risolve dalla pila UI: caricato via @font-face su questa macchina dà
+    // −1,004, che è al centesimo il rosso di CI. Con `cap-box` lo stesso font dà
+    // +0,043.
+    //
+    // Quella formula è calcolabile QUI, dalle metriche del font che la pagina
+    // sta usando: è «dove cadrebbe la cifra senza `cap-box`». Verificata contro
+    // la misura vera con la trim spenta su otto famiglie: coincide al
+    // millesimo. Serve a due cose: dà al controllo un riferimento deterministico
+    // invece di una seconda tolleranza a occhio, e dice se il controllo sta
+    // controllando qualcosa — con `sans-serif` (Helvetica su macOS, DejaVu su
+    // Linux) il riferimento è ostile di quasi un pixel, e se un giorno non lo
+    // fosse più questo test lo dice invece di passare a vuoto.
+    const supporta = await page.evaluate(() => CSS.supports("text-box-edge", "cap alphabetic"));
+    expect(supporta, "il motore del banco deve avere text-box-edge, o `cap-box` non fa nulla").toBe(true);
+
+    /**
+     * Il font di riferimento si CERCA, non si nomina.
+     *
+     * La prima stesura fissava `sans-serif` e pretendeva che fosse ostile. Su
+     * macOS lo è (Helvetica, previsione -0,67px) e la guardia funzionava; sul
+     * runner Linux la stessa riga ha misurato **0** ed è caduta, perché quale
+     * font concreto stia dietro una famiglia generica lo decide la macchina, e
+     * una macchina può benissimo risolverla in qualcosa di simmetrico o non
+     * averla affatto. Una guardia contro il verde a vuoto che diventa lei stessa
+     * un rosso dipendente dalla macchina non ha guadagnato niente: ha spostato
+     * il problema.
+     *
+     * Quindi si prova un elenco e si tiene la PIÙ ostile. La guardia cade solo
+     * se NESSUNA famiglia disponibile sposta la cifra, che è il vero caso in cui
+     * il controllo qui sotto non controllerebbe niente e va saputo.
+     */
+    /**
+     * Solo famiglie a CIFRE ALLINEATE, e l'esclusione è tecnica, non estetica.
+     *
+     * `text-box-edge: cap alphabetic` taglia la line box fra l'altezza delle
+     * maiuscole e la linea di base, e centra l'inchiostro **a patto che le cifre
+     * stiano lì dentro**. Georgia (e le altre con cifre di stile antico) disegna
+     * i numeri come minuscole: il 3 e il 9 scendono sotto la linea di base, il 6
+     * e l'8 salgono sopra l'altezza delle maiuscole. Con quelle il riferimento
+     * misura 1,83px e non è un difetto nostro: è una famiglia che rompe l'assunto
+     * che la regola CSS codifica, e nessun prodotto la centra senza cambiare
+     * regola. Metterla qui vorrebbe dire pretendere dall'app una cosa che non le
+     * si chiede, visto che il suo stack tipografico non la contiene.
+     */
+    const CANDIDATI = ["sans-serif", "serif", "monospace", "DejaVu Sans", "Liberation Sans", "Arial", "Verdana"];
+    const previsione = async (): Promise<number> => page.evaluate((id) => {
+      const el = document.querySelector(`[data-pane-id="${CSS.escape(id)}"]`)!
+        .querySelector("span.rounded-full.bg-primary") as HTMLElement;
+      const cs = getComputedStyle(el);
+      const ctx = document.createElement("canvas").getContext("2d")!;
+      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`;
+      const mm = ctx.measureText(el.textContent!.trim());
+      const h = el.getBoundingClientRect().height;
+      const A = mm.fontBoundingBoxAscent, D = mm.fontBoundingBoxDescent;
+      return Math.round((Math.floor((h - A - D) / 2) + A - h / 2
+        + (mm.actualBoundingBoxDescent - mm.actualBoundingBoxAscent) / 2) * 100) / 100;
+    }, a.id);
+
+    // Lo stack VERO dell'app entra in gara per primo, e senza di lui questa
+    // guardia non regge sui due sistemi. Su macOS il default è SF e non è ostile
+    // (+0,12px), quindi serve una famiglia imposta; sul runner Linux il default
+    // È il font ostile — DejaVu Sans, -1,00px, esattamente quello che ha fatto
+    // scoprire il difetto — mentre `sans-serif` lì ha misurato 0 e ha fatto
+    // cadere la guardia su un fatto che riguardava l'inventario di font della
+    // macchina e non il prodotto. Con il default in gara, su ogni macchina esiste
+    // almeno un candidato ostile per costruzione.
+    let ostile = { famiglia: "", scarto: await previsione() };
+    const provati: string[] = [`(stack dell'app)=${ostile.scarto}`];
+    for (const famiglia of CANDIDATI) {
+      await page.addStyleTag({ content: `[data-notification-count] { font-family: ${famiglia} !important; }` });
+      await expect
+        .poll(async () => page.evaluate(() => {
+          const d = document.querySelector("[data-notification-count]");
+          return d ? getComputedStyle(d).fontFamily : "";
+        }), { timeout: 5000 })
+        .toContain(famiglia.split(",")[0]!);
+      const s = await previsione();
+      provati.push(`${famiglia}=${s}`);
+      if (Math.abs(s) > Math.abs(ostile.scarto)) ostile = { famiglia, scarto: s };
+    }
+
+    expect(
+      Math.abs(ostile.scarto),
+      `nessuna famiglia disponibile sposta la cifra, quindi il controllo qui sotto non controllerebbe niente. Provate: ${provati.join(", ")}`,
+    ).toBeGreaterThan(0.5);
+
+    // …e ADESSO si misura con la più ostile addosso. `famiglia` vuota vuol dire
+    // che ha vinto lo stack dell'app: si toglie l'override e si misura quello.
+    await page.addStyleTag({
+      content: ostile.famiglia
+        ? `[data-notification-count] { font-family: ${ostile.famiglia} !important; }`
+        : `[data-notification-count] { font-family: revert !important; }`,
+    });
+    if (ostile.famiglia) {
+      await expect
+        .poll(async () => page.evaluate(() => {
+          const d = document.querySelector("[data-notification-count]");
+          return d ? getComputedStyle(d).fontFamily : "";
+        }), { timeout: 5000 })
+        .toContain(ostile.famiglia.split(",")[0]!);
+    }
+    const rif = await misura(page, a.id);
+    expect(
+      Math.abs(rif.badgeInk!.dCentro),
+      `cifra centrata anche con ${ostile.famiglia || "lo stack dell'app"}, che senza cap-box cadrebbe a ${ostile.scarto}. Provate: ${provati.join(", ")}`,
+    ).toBeLessThan(0.5);
   });
 
   test("GEO-4: il glifo del loader nasce su coordinate intere", async ({ page, request }) => {

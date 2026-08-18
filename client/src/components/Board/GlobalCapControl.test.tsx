@@ -203,7 +203,12 @@ describe('both surfaces mount it, and neither writes on its own', () => {
   // section/control, which is the single thing that would have to be deleted for
   // the cap to vanish from that surface.
   test('the board settings panel goes through the shared machine-wide section', () => {
-    const s = src('TaskDetail.tsx');
+    // `BoardSettingsPanel.tsx`, non piu' `TaskDetail.tsx`: il pannello e' uscito
+    // dal cassetto della card il 14/08 (configurava il PROGETTO, non un TASK).
+    // Il test guarda il sorgente e non il render perche' quel pannello qui non
+    // si monta: se un giorno diventasse montabile, questo controllo va sostituito
+    // da un render vero, che e' piu' forte.
+    const s = src('BoardSettingsPanel.tsx');
     expect(/<GlobalSettingsSection[\s/>]/.test(s)).toBe(true);
     expect(/from '\.\/BoardSettingsSections'/.test(s)).toBe(true);
   });

@@ -25,6 +25,9 @@ import {
   type OutputLanguage,
   DISCORD_DETAIL_LEVELS,
   type DiscordDetailLevel,
+  AGENT_RUNTIMES,
+  DEFAULT_AGENT_RUNTIME,
+  type AgentRuntime,
 } from "../../shared/types";
 
 /** Config dei provider AI. Omonimo ma NON parente dell'`AppSettings` del
@@ -51,6 +54,19 @@ export interface AppSettings {
   /** Quanto di quello stato si vede (`DiscordDetailLevel`). NULL = il default
    *  del codice, `activity`. */
   discordDetailLevel: string | null;
+  /** Con quale meccanica si esegue un agente: `cli` (una CLI per sessione) o
+   *  `jcode` (sessioni ACP dentro un demone condiviso). NULL = mai toccato =
+   *  `cli`, il sistema storico. Vedi la migration `agent-runtime` per i numeri
+   *  che giustificano l'esistenza dell'interruttore. */
+  agentRuntime: string | null;
+  /** Mostrare la spesa in dollari sulla pagina pubblica del profilo.
+   *  DEFAULT false: la spesa e' un dato personale e non compare senza consenso
+   *  esplicito. Chi la vuole visibile la attiva manualmente. */
+  profilePublishCost: boolean | null;
+  /** Token opaco nel percorso della pagina pubblica del profilo.
+   *  NULL = pagina spenta (404). Non-null = pagina attiva a /public/profile/<token>.
+   *  Generato dal server al primo click su «Pubblica», azzerato con «Revoca». */
+  profileShareToken: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -68,6 +84,9 @@ const EMPTY: AppSettings = {
   outputLanguage: null,
   discordPresenceEnabled: null,
   discordDetailLevel: null,
+  agentRuntime: null,
+  profilePublishCost: null,
+  profileShareToken: null,
 };
 
 interface Row {
@@ -85,6 +104,9 @@ interface Row {
   output_language: string | null;
   discord_presence_enabled: number | null;
   discord_detail_level: string | null;
+  agent_runtime: string | null;
+  profile_publish_cost: number | null;
+  profile_share_token: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -105,6 +127,10 @@ function rowToSettings(r: Row): AppSettings {
     discordPresenceEnabled:
       r.discord_presence_enabled == null ? null : r.discord_presence_enabled === 1,
     discordDetailLevel: r.discord_detail_level ?? null,
+    agentRuntime: r.agent_runtime ?? null,
+    profilePublishCost:
+      r.profile_publish_cost == null ? null : r.profile_publish_cost === 1,
+    profileShareToken: r.profile_share_token ?? null,
   };
 }
 
@@ -122,7 +148,8 @@ export function getAppSettings(): AppSettings {
         `SELECT ai_provider, claude_model, claude_max_tokens, claude_effort,
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
-                output_language, discord_presence_enabled, discord_detail_level
+                output_language, discord_presence_enabled, discord_detail_level,
+                agent_runtime, profile_publish_cost, profile_share_token
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -149,6 +176,9 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   outputLanguage: "output_language",
   discordPresenceEnabled: "discord_presence_enabled",
   discordDetailLevel: "discord_detail_level",
+  agentRuntime: "agent_runtime",
+  profilePublishCost: "profile_publish_cost",
+  profileShareToken: "profile_share_token",
 };
 
 /**
@@ -167,7 +197,7 @@ export function updateAppSettings(patch: Partial<AppSettings>): AppSettings {
     // I booleani vanno in colonne INTEGER: l'elenco è quello, e va tenuto
     // insieme al tipo — un `boolean` finito qui senza conversione entra in
     // SQLite come… niente, perché bun:sqlite non lega un bool.
-    if (key === "claudeCodeEnabled" || key === "discordPresenceEnabled") {
+    if (key === "claudeCodeEnabled" || key === "discordPresenceEnabled" || key === "profilePublishCost") {
       values.push(v == null ? null : v ? 1 : 0);
     } else {
       values.push((v as string | number | null) ?? null);
@@ -322,4 +352,45 @@ export function resolveDiscordDetailLevel(s = getAppSettings()): DiscordDetailLe
   return (DISCORD_DETAIL_LEVELS as readonly string[]).includes(raw)
     ? (raw as DiscordDetailLevel)
     : "activity";
+}
+
+/**
+ * Con quale meccanica si esegue un agente: `cli` o `jcode`.
+ *
+ * Ha un env di ripiego, al contrario dei due qui sopra, e la differenza è
+ * voluta: lingua e presence sono preferenze di PERSONA, questa è una scelta di
+ * MACCHINA. Un `TOPICS_AGENT_RUNTIME=jcode` nell'ambiente è esattamente ciò che
+ * serve per misurare le due meccaniche una contro l'altra (il bench lancia il
+ * server con il suo ambiente, non con il DB dell'utente) e per portare la
+ * scelta su una macchina piccola senza aprire la UI.
+ *
+ * L'impostazione VINCE sull'env: chi ha scelto in Impostazioni ha scelto dopo.
+ *
+ * DUE DOMANDE, DUE RISPOSTE DIVERSE, ed è il punto delicato di questa funzione.
+ *
+ *   • Nessuno ha scelto (colonna vuota, env assente) → `DEFAULT_AGENT_RUNTIME`,
+ *     cioè `jcode`. È il caso della stragrande maggioranza: chi non ha aperto
+ *     Impostazioni non sta chiedendo il sistema vecchio, semplicemente non ha
+ *     un'opinione, e su una macchina che fa pageout con otto agenti la risposta
+ *     giusta a «non ho un'opinione» è il gradino che costa due ordini di
+ *     grandezza in meno.
+ *
+ *   • Qualcuno ha scritto qualcosa che non capiamo (riga a mano, DB di un'altra
+ *     versione, env con un refuso) → `cli`, sempre. Qui c'è UNA VOLONTÀ, e non
+ *     si riesce a leggerla: promuovere un refuso al runtime nuovo significa
+ *     mandare agenti veri su una meccanica che nessuno ha chiesto. Sul dubbio
+ *     si torna al sistema che c'è sempre stato.
+ *
+ * Sembra un'incoerenza (due ripieghi opposti nella stessa funzione) ed è invece
+ * la differenza fra «scegli tu» e «ho scritto male»: la prima è una delega, la
+ * seconda un errore, e a un errore non si risponde alzando la posta.
+ */
+export function resolveAgentRuntime(s = getAppSettings()): AgentRuntime {
+  const written = s.agentRuntime ?? process.env.TOPICS_AGENT_RUNTIME ?? null;
+  // Nessuno ha scritto niente: è una delega, non un errore.
+  if (written === null || written.trim() === "") return DEFAULT_AGENT_RUNTIME;
+  const raw = written.trim().toLowerCase();
+  return (AGENT_RUNTIMES as readonly string[]).includes(raw)
+    ? (raw as AgentRuntime)
+    : "cli";
 }

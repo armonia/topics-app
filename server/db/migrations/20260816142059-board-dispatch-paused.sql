@@ -1,0 +1,29 @@
+-- `board_settings.dispatch_paused` — fermare UNA board lasciando girare le altre.
+--
+-- COSA MANCAVA. L'auto-dispatch e' un interruttore globale (`app_settings.auto_dispatch`
+-- dalla migration 20260816112635) e l'unico freno per progetto era `night_mode`,
+-- che e' condizionale e si spegne da solo a un orario. Se una board stava
+-- facendo danni, o si mangiava tutta la capacita' della macchina, l'unica leva
+-- era spegnere TUTTO — e con tutto spento si fermano anche le board che stavano
+-- lavorando bene.
+--
+-- PERCHE' UNA COLONNA NUOVA E NON QUELLA DI PRIMA. `board_settings` aveva gia'
+-- una colonna `auto_dispatch` per progetto, ed e' stata rimossa ieri proprio
+-- perche' NON voleva dire questo: era il `DEFAULT 0` dello schema, mai scritto
+-- da nessuno, e due volte e' stato letto come una scelta deliberata («sei board
+-- risultano spente»). Riciclare quel nome avrebbe rimesso in circolo
+-- l'ambiguita' che si era appena tolta. Questa nasce con un significato solo, e
+-- il nome lo dice: `paused`, non `enabled`.
+--
+-- IL VERSO E' UNO SOLO: puo' solo FERMARE. Il dispatch parte se il globale e'
+-- acceso E questa board non e' in pausa; una board «non in pausa» con il
+-- globale spento non dispaccia niente. Due interruttori che possono entrambi
+-- accendere sono due interruttori che si contraddicono, e chi guarda non sa
+-- quale dei due sta leggendo.
+--
+-- `DEFAULT 0` = nessuna board nasce in pausa, quindi chi aggiorna non trova
+-- niente di cambiato. E' anche il verso giusto in cui sbagliare: se una
+-- migrazione a meta' lasciasse la colonna illeggibile, il codice la tratta come
+-- «non in pausa» e la board continua a lavorare come prima — l'errore opposto
+-- fermerebbe in silenzio una coda che nessuno ha chiesto di fermare.
+ALTER TABLE board_settings ADD COLUMN dispatch_paused INTEGER NOT NULL DEFAULT 0;

@@ -11,7 +11,7 @@ import { useT } from '../../hooks/useT';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { KeyboardSensorGentile, MouseSensorGentile, TouchSensorGentile } from './dndSensors';
+import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
@@ -19,6 +19,7 @@ import { Menu } from '../Shared/Menu';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
+import { useBoardFeed } from '../../hooks/useBoardFeed';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
   CLOSER_LABELS, KIND_LABELS, STATUS_LABEL,
@@ -27,7 +28,7 @@ import {
 } from '../../lib/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { GlobalCapControl } from './GlobalCapControl';
-import { groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
+import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
@@ -35,6 +36,8 @@ import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectTaskCounts } from './atoms';
 import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { Tooltip } from '../Shared/Tooltip';
+import { homeTilde } from '../../lib/homeTilde';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
@@ -43,11 +46,16 @@ import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
-import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
+import { TaskDetail } from './TaskDetail';
+import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
+
+/** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
+ *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
+const EMPTY_WRITES: ReadonlyMap<string, Partial<BoardTask>> = new Map();
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -125,17 +133,17 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
     const shown = p.commits.slice(0, 8);
     const more = p.commits.length > 8 ? p.commits.length - 8 : 0;
     const ok = await confirm({
-      title: `Pubblicare "${p.name}"?`,
-      confirmLabel: `Push ${p.ahead} commit`,
+      title: tr('board.publish.confirmTitle', { name: p.name }),
+      confirmLabel: tr('board.publish.confirmLabel', { n: p.ahead }),
       body: (
         <div className="space-y-2">
-          <p>Push di {p.ahead} commit su <span className="font-mono">origin/{p.branch}</span>. Avvia il deploy dove configurato.</p>
+          <p>{tr('board.publish.confirmBodyStart', { n: p.ahead })}<span className="font-mono">origin/{p.branch}</span>{tr('board.publish.confirmBodyEnd')}</p>
           <ul className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-[11px]">
             {shown.map((c) => (
               <li key={c.hash} className="truncate">• {c.subject} ({c.hash}, {c.author})</li>
             ))}
           </ul>
-          {more > 0 && <p className="text-app-text-secondary">…e altri {more}</p>}
+          {more > 0 && <p className="text-app-text-secondary">{tr('board.publish.andMore', { n: more })}</p>}
         </div>
       ),
     });
@@ -143,7 +151,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
     setBusy(p.projectId); setMsg(null);
     try {
       const r = await boardApi.publish(p.projectId);
-      setMsg(r.ok ? `${p.name}: pubblicato ✓` : `${p.name}: ${r.error ?? 'errore'}`);
+      setMsg(r.ok ? tr('board.publish.done', { name: p.name }) : `${p.name}: ${r.error ?? tr('board.publish.error')}`);
       refresh();
     } catch (e) { setMsg(`${p.name}: ${(e as Error).message}`); }
     finally { setBusy(null); }
@@ -157,8 +165,8 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
       ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
       : 'bg-white/10 text-app-text-secondary hover:bg-white/15';
   const title = [
-    unlanded.length > 0 ? `${unlanded.length} task chiusi con lavoro non su main` : null,
-    total > 0 ? `${total} commit su main da pubblicare` : 'Niente da pubblicare',
+    unlanded.length > 0 ? tr('board.delivery.unlandedTitle', { n: unlanded.length }) : null,
+    total > 0 ? tr('board.delivery.toPublishTitle', { n: total }) : tr('board.delivery.nothingTitle'),
   ].filter(Boolean).join(' · ');
   return (
     <>
@@ -171,7 +179,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
            bersaglio, ed è quanto una riga di 36px può dare. */
         className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] transition-colors ${tone}`}
       >
-        <span>Consegna</span>
+        <span>{tr('board.toolbar.delivery')}</span>
         {unlanded.length > 0 && (
           <span data-testid="delivery-unlanded-count" className="flex items-center gap-0.5 rounded bg-rose-500/25 px-1 font-medium tabular-nums text-rose-200">
             <AlertTriangle className="h-3 w-3 shrink-0" />{unlanded.length}
@@ -210,6 +218,27 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
           )}
           {/* GRADINO 2 — su main, ma non ancora fuori. */}
           <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+          {/* COSA SUCCEDE DOPO IL PUSH, detto PRIMA del clic e non in un
+              tooltip: su questo repo main e' spedito, quindi «Pubblica» non e'
+              un salvataggio — fa uscire una release che arriva all'auto-updater
+              di chiunque abbia Topics aperta. Chi preme sta decidendo una
+              pubblicazione, e nessuna schermata gliela nominava: diceva solo
+              quali commit sarebbero usciti.
+              Compare solo quando c'e' qualcosa da pubblicare: su una lista
+              vuota sarebbe un avviso su un gesto che nessuno sta per fare. */}
+          {pending.length > 0 && (
+            <p
+              data-testid="publish-consequence"
+              title={tr('board.publish.consequenceTitle')}
+              /* amber-300/80 su tema chiaro dava 1,24:1 misurato sui pixel:
+                 un avviso che non si legge non e' un avviso. Stessa taratura
+                 dei segnali della status bar (amber-800 chiaro / amber-400
+                 scuro, 6,04 e 11,52), che l'ha gia' pagata una volta. */
+              className="px-3 pb-1 text-[11px] leading-snug text-amber-800 dark:text-amber-400"
+            >
+              {tr('board.publish.consequence')}
+            </p>
+          )}
           <div className="p-1 pt-0">
             {pending.length === 0 ? (
               <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{tr('board.publish.nothing')}</div>
@@ -237,7 +266,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                           <span className="shrink-0 text-app-text-faint">{c.author} · {c.when}</span>
                         </li>
                       ))}
-                      {p.commits.length >= 50 && <li className="text-[10px] text-app-text-faint">…troncato a 50</li>}
+                      {p.commits.length >= 50 && <li className="text-[10px] text-app-text-faint">{tr('board.publish.truncated')}</li>}
                     </ul>
                   )}
                   {isOpen && (
@@ -286,6 +315,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
   gcResult: string | null;
   onGc: () => void;
 }) {
+  const tr = useT();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   if (count === 0) return null;
@@ -299,19 +329,19 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
         className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] ${orphan > 0
           ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
           : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
-      >{count} cartelle di lavoro{orphan > 0 && <span className="tabular-nums">· {orphan} rami orfani</span>}</button>
+      >{tr('board.worktree.count', { n: count })}{orphan > 0 && <span className="tabular-nums">{tr('board.worktree.orphanBranches', { n: orphan })}</span>}</button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
         <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
-          <p className="text-[12px] font-medium text-app-text-heading">{count} cartelle di lavoro aperte</p>
-          <p>Ogni task dispacciato lavora su una COPIA del repo, in una cartella sua (un <span className="font-mono">git worktree</span>). Resta lì finché il lavoro non è su main o il task non è chiuso.</p>
+          <p className="text-[12px] font-medium text-app-text-heading">{tr('board.worktree.countOpen', { n: count })}</p>
+          <p>{tr('board.worktree.whatStart')}<span className="font-mono">git worktree</span>{tr('board.worktree.whatEnd')}</p>
           {branches && branches.total > 0 && (
             <p data-testid="worktree-branches-line">
-              Accanto ci sono <span className="text-app-text-heading">{branches.total} rami</span> non su main:
-              {branches.orphan > 0 && <> <span className="text-amber-300">{branches.orphan}</span> non li reclama nessun task, e quel lavoro non lo riprenderà nessuno;</>}
-              {branches.onOpenTasks > 0 && <> {branches.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.</>}
+              {tr('board.worktree.branchesStart')}<span className="text-app-text-heading">{tr('board.worktree.branchesCount', { n: branches.total })}</span>{tr('board.worktree.branchesMid')}
+              {branches.orphan > 0 && <> <span className="text-amber-300">{branches.orphan}</span>{tr('board.worktree.branchesOrphan')}</>}
+              {branches.onOpenTasks > 0 && <>{tr('board.worktree.branchesOpen', { n: branches.onOpenTasks })}</>}
             </p>
           )}
-          <p className="text-app-text-muted">Sono due accumuli diversi: un ramo landato libera la sua cartella, una cartella tenuta per un task aperto non ha niente da landare.</p>
+          <p className="text-app-text-muted">{tr('board.worktree.twoPiles')}</p>
         </div>
         <div className="flex items-center gap-2 border-t border-app-border px-3 py-2">
           <button
@@ -319,9 +349,9 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
             disabled={gcRunning}
             className="shrink-0 rounded bg-white/10 px-2 py-1 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
             data-testid="worktree-gc-button"
-          >{gcRunning ? 'Pulisco…' : 'Pulisci landati'}</button>
+          >{tr(gcRunning ? 'board.worktree.gcRunning' : 'board.worktree.gc')}</button>
           <span className="text-[10px] leading-snug text-app-text-muted">
-            Anticipa la passata automatica dei 30 minuti. Ripulisce SOLO ciò che è provabilmente sicuro: la stessa regola, non una più aggressiva.
+            {tr('board.worktree.gcHint')}
           </span>
         </div>
         {gcResult && (
@@ -363,6 +393,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
  * delle impostazioni.
  */
 function LoadAdviceChip() {
+  const tr = useT();
   const cap = useGlobalDispatchCap().capacity;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -386,23 +417,22 @@ function LoadAdviceChip() {
         className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
       >
         <AlertTriangle className="h-3 w-3 shrink-0" />
-        Fermane {over}
+        {tr('board.load.stopN', { n: over })}
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
         <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
           <p className="text-[12px] font-medium text-app-text-heading">
-            {cap.running} agent al lavoro, ne reggo {cap.recommended}
+            {tr('board.load.headline', { running: cap.running ?? 0, recommended: cap.recommended })}
           </p>
           {cap.oursCores != null ? (
             <p>
-              Gli agent tengono {cap.oursCores.toFixed(1)} core sui {cap.budgetCores.toFixed(0)} che
-              spettano loro, su {cap.cores}. Ogni agent in più si prende una fetta di quella quota.
+              {tr('board.load.cores', { ours: cap.oursCores.toFixed(1), budget: cap.budgetCores.toFixed(0), total: cap.cores })}
             </p>
           ) : (
-            <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è carica, e ogni agent in più rallenta anche gli altri.</p>
+            <p>{tr('board.load.loadAvg', { load: cap.load1.toFixed(1), cores: cap.cores })}</p>
           )}
           <p className="text-app-text-muted">{cap.reason}</p>
-          <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero sta nelle impostazioni della board, con quanti ne stanno girando.</p>
+          <p>{tr('board.load.adviceStart')}<span className="text-app-text-heading">{tr('board.load.adviceWord')}</span>{tr('board.load.adviceEnd')}</p>
         </div>
       </Menu>
     </>
@@ -427,6 +457,7 @@ function LoadAdviceChip() {
  *    testo vorrebbe dire sceglierla senza sapere quando finisce.
  */
 function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
+  const tr = useT();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   return (
@@ -435,9 +466,9 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         data-testid="missions-button"
-        title="Missioni: compiti in più per la sessione di progetto, accanto alla board. Il testo arriva nel suo composer: a mandarlo sei tu."
+        title={tr('board.toolbar.missionsTitle')}
         className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
-      ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">Missioni</span></button>
+      ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
         <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
           Alla sessione di progetto, accanto alla board
@@ -508,7 +539,7 @@ interface BoardFilters {
 interface FilterPanelProps {
   filters: BoardFilters;
   onFiltersChange: (filters: BoardFilters) => void;
-  tasks: BoardTask[];
+  tasks: readonly BoardTask[];
   mode: 'project' | 'all';
 }
 
@@ -585,9 +616,33 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
     () => projectTaskCounts(tasks, (t) => (isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId)),
     [tasks],
   );
+  /**
+   * Il contenuto del tooltip di un filtro. Prima era una riga sola dentro un
+   * `title=` nativo: il sistema operativo la mostrava dopo un secondo abbondante
+   * e senza struttura. Segnalato: «passando sui filtri dovrebbe dare un minimo
+   * di informazioni sul progetto, magari anche la location».
+   *
+   * Tre cose, in ordine di quanto servono: il NOME (che nel chip è troncato a
+   * 13rem), DOVE STA su disco (l'unica cosa che distingue due progetti chiamati
+   * uguale in cartelle diverse), e come stanno i task.
+   */
   const countsTitle = (p: BoardProjectRef) => {
     const c = projectCounts[p.projectId];
-    return c ? `${p.name}. ${countsSummary(c, STATUS_LABEL)}` : `Filtra per ${p.name}`;
+    return (
+      <div className="space-y-1">
+        <div className="font-medium">{p.name}</div>
+        {p.path ? (
+          // Monospazio e a capo sul percorso: un path lungo su una riga sola
+          // diventa illeggibile, ed è proprio il dato che si viene a cercare.
+          <div className="break-all font-mono text-[10px] text-app-text-muted">{homeTilde(p.path)}</div>
+        ) : (
+          // Perché non c'è: senza questa riga il tooltip di un progetto sparito
+          // sembra solo un tooltip a cui manca un pezzo.
+          <div className="text-[10px] text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
+        )}
+        {c && <div className="text-[10px] text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
+      </div>
+    );
   };
   const projectOptions = useMemo(() => {
     const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
@@ -664,10 +719,17 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       if (!row) return;
       const avail = strip.clientWidth;
       let fit = 0;
-      for (const child of Array.from(row.children) as HTMLElement[]) {
+      // I CHIP, non i figli della riga. Da quando ogni chip è avvolto nel
+      // `Tooltip`, i figli diretti sono wrapper `display: contents`: per il
+      // layout non esistono (ed è il motivo per cui si usa `contents`), ma nel
+      // DOM ci sono e hanno `offsetWidth` ZERO. La misura li vedeva larghi
+      // nulla, concludeva che ci stavano tutti, e i chip in eccesso finivano
+      // oltre il bordo destro invece che dentro il menu. `querySelectorAll`
+      // sul testid salta i wrapper e misura ciò che si vede davvero.
+      for (const chipEl of Array.from(row.querySelectorAll<HTMLElement>('[data-testid^="project-filter-chip-"]'))) {
         // +0.5: le larghezze sono frazionarie, e un mezzo pixel di
         // arrotondamento non è un chip che non ci sta.
-        if (child.offsetLeft + child.offsetWidth <= avail + 0.5) fit++;
+        if (chipEl.offsetLeft + chipEl.offsetWidth <= avail + 0.5) fit++;
         else break;
       }
       setInlineProjects((n) => (n === fit ? n : fit));
@@ -701,20 +763,20 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         <input
           value={filters.text}
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
-          placeholder="cerca…"
-          aria-label="Cerca nei task"
+          placeholder={tr('board.filter.searchPlaceholder')}
+          aria-label={tr('board.filter.searchLabel')}
           className="h-6 w-28 rounded-md bg-black/5 pl-6 pr-1.5 text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder focus:bg-black/10 dark:bg-white/5 dark:focus:bg-white/10 sm:w-40"
         />
       </div>
 
       {/* Priority — chip + Menu (multi-select, no "auto") */}
-      <button ref={prioBtnRef} onClick={() => setPrioOpen(true)} title="Filtra per priorità" className={chip(filters.priority.length > 0)}>
+      <button ref={prioBtnRef} onClick={() => setPrioOpen(true)} title={tr('board.filter.priorityTitle')} className={chip(filters.priority.length > 0)}>
         <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />
-        Priorità{filters.priority.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.priority.length}</span>}
+        {tr('board.task.priority')}{filters.priority.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.priority.length}</span>}
         <ChevronDown className="h-3 w-3 text-app-text-muted" />
       </button>
       <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
-        <p className={menuHeader}>Priorità</p>
+        <p className={menuHeader}>{tr('board.task.priority')}</p>
         {PRIORITY_ORDER.map((p) => (
           <FilterOption
             key={p} selected={filters.priority.includes(p)} onClick={() => togglePriority(p)}
@@ -726,7 +788,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       {/* Assignee — chip + Menu (only when there are assignees) */}
       {assignees.length > 0 && (
         <>
-          <button ref={asgBtnRef} onClick={() => setAsgOpen(true)} title="Filtra per assegnatario" className={chip(filters.assignedTo.length > 0)}>
+          <button ref={asgBtnRef} onClick={() => setAsgOpen(true)} title={tr('board.filter.assigneeTitle')} className={chip(filters.assignedTo.length > 0)}>
             Assegnatario{filters.assignedTo.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.assignedTo.length}</span>}
             <ChevronDown className="h-3 w-3 text-app-text-muted" />
           </button>
@@ -747,11 +809,11 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           <button
             ref={projBtnRef} onClick={() => setProjOpen(true)}
             data-testid="filter-project-chip"
-            title={soleProject ? `Filtro progetto: ${soleProject.name}` : 'Filtra per progetto'}
+            title={soleProject ? tr('board.filter.projectNamed', { name: soleProject.name }) : tr('board.filter.projectTitle')}
             className={`${chip(filters.projectId.length > 0)} min-w-0 max-w-[11rem]`}
           >
             {soleProject && <ProjectFavicon path={soleProject.path} size={12} />}
-            <span className="min-w-0 truncate">{soleProject ? soleProject.name : 'Progetto'}</span>
+            <span className="min-w-0 truncate">{soleProject ? soleProject.name : tr('common.project')}</span>
             {!soleProject && pickedProjects.length > 0 && (
               <span className="tabular-nums text-app-text-secondary">·{pickedProjects.length}</span>
             )}
@@ -776,27 +838,27 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       <button
         ref={lblBtnRef} onClick={() => setLblOpen(true)}
         data-testid="filter-labels-chip"
-        title="Filtra per etichetta"
+        title={tr('board.filter.labelsTitle')}
         className={chip(filters.labels.length > 0)}
       >
         <Tag className="h-3 w-3 shrink-0" />
-        {filters.labels.length === 1 ? filters.labels[0] : 'Etichette'}
+        {filters.labels.length === 1 ? filters.labels[0] : tr('board.filter.labels')}
         {filters.labels.length > 1 && <span className="tabular-nums text-app-text-secondary">·{filters.labels.length}</span>}
         <ChevronDown className="h-3 w-3 text-app-text-muted" />
       </button>
       <Menu open={lblOpen} anchorRef={lblBtnRef} onClose={() => setLblOpen(false)} minWidth={200} role="listbox">
-        <p className={menuHeader}>Chi la chiude</p>
+        <p className={menuHeader}>{tr('board.filter.whoCloses')}</p>
         {CLOSER_LABELS.map((l) => (
           <FilterOption
             key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l}
             title={l === 'visibile'
-              ? 'Tocca client/src: la guarda un umano prima di chiuderla'
+              ? tr('board.filter.labelVisibleTitle')
               : l === 'decisione'
-                ? 'Un piano, una ricerca, un documento, o nessun codice: la decide un umano, sempre'
-                : 'Non tocca niente che si veda: con la barra verde la chiude il conduttore'}
+                ? tr('board.filter.labelDecisionTitle')
+                : tr('board.filter.labelInvisibleTitle')}
           />
         ))}
-        <p className={menuHeader}>Genere</p>
+        <p className={menuHeader}>{tr('board.filter.kind')}</p>
         {KIND_LABELS.map((l) => (
           <FilterOption key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l} />
         ))}
@@ -804,7 +866,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 
       {/* Reset — only when something is active */}
       {anyActive && (
-        <button onClick={reset} title="Resetta filtri" className="rounded p-0.5 text-app-text-muted hover:bg-white/10 hover:text-app-text">
+        <button onClick={reset} title={tr('board.filter.reset')} className="rounded p-0.5 text-app-text-muted hover:bg-white/10 hover:text-app-text">
           <X className="h-3 w-3" />
         </button>
       )}
@@ -817,13 +879,13 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
               const on = selectedProjectIds.includes(p.projectId);
               const shown = i < inlineProjects;
               return (
+                // Il `key` sta sul Tooltip: è lui il figlio della lista ora.
+                <Tooltip key={p.projectId} content={countsTitle(p)}>
                 <button
-                  key={p.projectId}
                   onClick={() => toggleProject(p)}
                   aria-hidden={!shown}
                   tabIndex={shown ? 0 : -1}
                   data-testid={`project-filter-chip-${p.projectId}`}
-                  title={countsTitle(p)}
                   className={`${chip(on)} max-w-[13rem] ${shown ? '' : 'invisible'}`}
                 >
                   {p.path ? <ProjectFavicon path={p.path} size={12} /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />}
@@ -831,6 +893,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
                   {projectCounts[p.projectId] && <ProjectTaskCounts counts={projectCounts[p.projectId]!} />}
                   {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
+                </Tooltip>
               );
             })}
           </div>
@@ -860,8 +923,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const canRunMissions = hasProject && devInstall && !!onStartMission;
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
-  const [tasks, setTasks] = useState<BoardTask[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
   // in cima al pannello, mentre la card che ha rifiutato il click può essere
@@ -1012,20 +1073,25 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Solo su una board di progetto: il feed globale è `listAll`, che di archivio
   // non parla.
   const [showArchived, setShowArchived] = useState(false);
-  const refetch = useCallback(async () => {
-    try {
-      setTasks(mode === 'all'
-        ? await boardApi.listAll()
-        : await boardApi.list(projectId, undefined, undefined, { archived: showArchived }));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load board');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, mode, showArchived]);
+  // Le righe non le legge più questa pane: le legge `useBoardFeed`, che in
+  // modalità 'all' NON fetcha affatto (il feed globale ha già un proprietario,
+  // `useGlobalBoard`) e in modalità progetto raffredda la raffica e scarta le
+  // risposte superate. Vedi l'intestazione dell'hook per i numeri.
+  const {
+    tasks: feedTasks, loading, refetch, patchTask, beginDrag, endDrag, flushDeferredRead,
+  } = useBoardFeed({ mode, projectId, showArchived, onError: setError });
 
-  useEffect(() => { setLoading(true); refetch(); }, [refetch]);
+  // LE SCRITTURE ANCORA IN VOLO, sopra qualunque lista atterri.
+  //
+  // La lettura parcheggiata durante il drag riparte solo quando la PATCH ha
+  // risposto (vedi `dropTo`), ma non è l'unica lettura possibile: un evento WS
+  // di un altro client, un ritorno di visibilità, o il proprietario del feed
+  // globale che risponde a qualcun altro possono far atterrare una lista NEL
+  // MEZZO della scrittura. Quella lista è vecchia di un drop, e senza questo
+  // strato la card tornerebbe indietro fino alla lettura successiva.
+  // Le voci si tolgono quando la PATCH ha finito: da lì in poi il server sa.
+  const [pendingWrites, setPendingWrites] = useState<ReadonlyMap<string, Partial<BoardTask>>>(EMPTY_WRITES);
+  const tasks = useMemo(() => applyPendingWrites(feedTasks, pendingWrites), [feedTasks, pendingWrites]);
 
   // ── Un task appena NATO ────────────────────────────────────────────────────
   // Scrivevi nel composer, quello si svuotava, e la card atterrava in fondo a
@@ -1085,10 +1151,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // only events for this project (or project-less broadcasts) trigger a refetch.
   // board:settings keeps the header pill honest when another client toggles it.
   //
-  // While a card is being DRAGGED the refetch is deferred: replacing `tasks`
-  // mid-drag re-renders the columns under the pointer (chip flips, status
-  // events, other clients) and the drag stutters or drops — the queued refetch
-  // flushes at drag end.
+  // Che il refetch sia una raffica sola, che la risposta superata non vinca e
+  // che le righe restino ferme mentre una card è in mano lo garantisce
+  // `useBoardFeed`: qui si dice solo QUANDO rileggere.
   // Live per-turn usage (model · execution-time · tokens) keyed by task id,
   // fed by `task:usage-live` and dropped when the turn ends. Drives the ticking
   // chip on working cards; the persisted agent_ms/agent_tokens take over after.
@@ -1099,12 +1164,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // a server riavviato NON esiste piu'. Persisterla in dispatch_state la farebbe
   // sopravvivere a cio' che la sostiene — ed e' gia' costata un task congelato.
   const [awaitingHuman, setAwaitingHuman] = useState<Set<string>>(new Set());
-  const draggingRef = useRef(false);
-  const pendingRefetch = useRef(false);
-  const safeRefetch = useCallback(() => {
-    if (draggingRef.current) { pendingRefetch.current = true; return; }
-    refetch();
-  }, [refetch]);
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
@@ -1112,7 +1171,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null;
         waiting?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
-        if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) safeRefetch();
+        if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
         // Il lampo è il segnale «è nato un task», e non ha un autore
         // privilegiato: qui passano anche le creazioni remote (agent, MCP, un
         // altro device), che sono proprio quelle che altrimenti comparirebbero
@@ -1157,24 +1216,24 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       // una bugia proprio nell'istante in cui la guardi per vedere l'effetto.
       if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') {
         setDispatchOn(m.autoDispatch);
-        safeRefetch();
+        refetch();
       }
     });
-  }, [onMessage, projectId, safeRefetch, mode, flashCreated]);
+  }, [onMessage, projectId, refetch, mode, flashCreated]);
 
   // Wake-up refresh: a window coming back from sleep/background has yesterday's
   // board (WS events happened while it slept) — and the live "ci sta mettendo"
   // Ticker recomputes from Date.now(), so a stale 'working' card reads hours of
   // agent work that never happened. Any return to visibility refetches.
   useEffect(() => {
-    const onWake = () => { if (document.visibilityState === 'visible') safeRefetch(); };
+    const onWake = () => { if (document.visibilityState === 'visible') refetch(); };
     document.addEventListener('visibilitychange', onWake);
     window.addEventListener('focus', onWake);
     return () => {
       document.removeEventListener('visibilitychange', onWake);
       window.removeEventListener('focus', onWake);
     };
-  }, [safeRefetch]);
+  }, [refetch]);
 
   // Task chiusi la cui consegna NON risulta su main (verdetto dell'audit
   // periodico). Deliberatamente NON filtrato dai filtri di header: è un allarme
@@ -1549,10 +1608,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     [projectIndex],
   );
 
-  const patchLocal = useCallback((id: string, patch: Partial<BoardTask>) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-  }, []);
-
   /**
    * Persist a drop: status and/or position, optimistically. Routed by the
    * task's OWN projectId so it works identically in the global board.
@@ -1566,10 +1621,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
    */
   const dropTo = useCallback(async (task: BoardTask, plan: DropPlan) => {
     // A redirected drop onto a card that is already where the redirect sends it
-    // has nothing to write: the plan exists only to carry the notice.
-    if (Object.keys(plan.patch).length === 0 && !plan.renumber?.length) return;
-    for (const r of plan.renumber ?? []) patchLocal(r.id, { kanbanOrder: r.kanbanOrder });
-    patchLocal(task.id, plan.patch); // optimistic
+    // has nothing to write: the plan exists only to carry the notice. Niente da
+    // scrivere = niente da aspettare, quindi la lettura parcheggiata parte qui.
+    if (Object.keys(plan.patch).length === 0 && !plan.renumber?.length) { flushDeferredRead(); return; }
+    for (const r of plan.renumber ?? []) patchTask(r.id, { kanbanOrder: r.kanbanOrder });
+    patchTask(task.id, plan.patch); // optimistic
+    // Le stesse patch, ma marcate IN VOLO: `patchTask` scrive nella lista di
+    // adesso, questo strato le riappoggia su quelle che arriveranno prima che il
+    // server confermi (vedi `pendingWrites`).
+    const inFlight = new Map<string, Partial<BoardTask>>();
+    for (const r of plan.renumber ?? []) inFlight.set(r.id, { kanbanOrder: r.kanbanOrder });
+    inFlight.set(task.id, plan.patch);
+    setPendingWrites((prev) => new Map([...prev, ...inFlight]));
     try {
       // `renumber` esiste solo nello scope `board` (nella board generale la
       // posizione non si scrive affatto), quindi le card riscritte sono per
@@ -1591,8 +1654,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       // con la colonna scrollata non lo leggeva nessuno.
       onCardError(task.id, taskActionErrorMessage(e, 'spostamento non riuscito'));
       refetch();
+    } finally {
+      // La scrittura ha risposto (bene o male): da qui in poi comanda il
+      // server, quindi lo strato ottimistico si toglie e SOLO ADESSO parte la
+      // lettura che il drag aveva parcheggiato. Mandarla prima significava
+      // chiedere lo stato a chi non l'aveva ancora ricevuto, e riprendersi in
+      // risposta la colonna di partenza.
+      setPendingWrites((prev) => {
+        const next = new Map(prev);
+        for (const id of inFlight.keys()) next.delete(id);
+        return next.size === 0 ? EMPTY_WRITES : next;
+      });
+      flushDeferredRead();
     }
-  }, [patchLocal, refetch, onCardError]);
+  }, [patchTask, refetch, onCardError, flushDeferredRead]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
@@ -1628,41 +1703,54 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Sensori SORDI ai campi e ai comandi: un click nell'input di risposta non
   // deve diventare un trascinamento (vedi `dndSensors.ts` per il perché).
   const sensors = useSensors(
-    useSensor(MouseSensorGentile, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensorGentile, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(KeyboardSensorGentile, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(PoliteMouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PoliteTouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(PoliteKeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  const flushDrag = useCallback(() => {
-    draggingRef.current = false;
-    if (pendingRefetch.current) { pendingRefetch.current = false; refetch(); }
-  }, [refetch]);
   const onDragStart = useCallback((e: DragStartEvent) => {
-    draggingRef.current = true;
+    // Le righe si congelano qui e si scongelano in `endDrag`: fin quando la card
+    // è in mano nessuna rilettura (di questa pane o dello store condiviso) può
+    // rifare le colonne sotto il puntatore.
+    beginDrag();
     setActiveId(String(e.active.id));
     // A new gesture retires the previous one's explanation, whatever this drag
     // turns out to do (including being cancelled, or ending on a card that is
     // no longer in the list).
     setDropNotice(null);
-  }, []);
+  }, [beginDrag]);
   // Cosa produce un drop sta in `lib/boardOrder` — puro e testato (bun:test):
   // qui resta solo il raccordo fra dnd-kit e la PATCH.
   const onDragEnd = useCallback((e: DragEndEvent) => {
     setActiveId(null);
-    flushDrag();
+    // Scongela le righe, e SOLO quello: la lettura che il drag ha parcheggiato
+    // partirebbe prima della PATCH del drop e risponderebbe con lo stato di
+    // partenza — la card tornava nella colonna di prima per un giro di rete
+    // intero. La rilascia `dropTo`, quando la scrittura ha risposto.
+    endDrag();
     const task = tasks.find((t) => t.id === e.active.id);
-    if (!task) return;
+    if (!task) { flushDeferredRead(); return; }
     const plan = planDrop({
       task,
       overId: e.over ? String(e.over.id) : null,
       byStatus,
+      // I numeri li decide la colonna INTERA, non quella filtrata: vedi
+      // `planDrop`. Con un filtro attivo erano la stessa lista, e la
+      // rinumerazione riscriveva 1..N sopra le card nascoste.
+      //
+      // Si raggruppa QUI e non in un memo del render: serve una volta per drop,
+      // e un memo lo ricalcolerebbe a ogni arrivo di righe — cioè nel percorso
+      // caldo che questa tornata sta cercando di alleggerire.
+      byStatusAll: groupByStatus(tasks, orderScope),
       scope: orderScope,
     });
     // The card did not land where the hand let it go: say it, or the gesture
     // reads as a bug. `onDragStart` already cleared the previous one, so this
     // only ever adds.
     if (plan?.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
-    if (plan) dropTo(task, plan);
-  }, [tasks, byStatus, dropTo, flushDrag, orderScope, tr]);
+    // Nessun piano = nessuna scrittura da aspettare: la lettura parcheggiata
+    // non ha più niente dietro cui mettersi in fila.
+    if (plan) dropTo(task, plan); else flushDeferredRead();
+  }, [tasks, byStatus, dropTo, endDrag, flushDeferredRead, orderScope, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
 
   const create = useCallback(async (status: TaskStatus, text: string) => {
@@ -1715,7 +1803,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // si apre. Rigira a ogni cambio di `tasks` — la board rifetcha su ogni evento
   // `task:*`, quindi è anche il battito che tiene fresco `updatedAt` (il `bump`
   // con cui il drawer ricarica il suo thread) per un task che nel feed non c'è.
-  const resolvedRef = useRef<{ id: string; feed: BoardTask[] } | null>(null);
+  const resolvedRef = useRef<{ id: string; feed: readonly BoardTask[] } | null>(null);
   useEffect(() => {
     if (!wantId) { setOutsider(null); resolvedRef.current = null; return; }
     if (inFeed) return; // il feed ce l'ha: nessuna porta da aprire
@@ -1823,14 +1911,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             <button
               onClick={() => setMode('project')}
               className={`rounded px-2 py-0.5 text-xs ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-            >Questo progetto</button>
+            >{tr('board.toolbar.thisProject')}</button>
             <button
               onClick={() => setMode('all')}
               className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-            >Tutti i progetti</button>
+            >{tr('board.toolbar.allProjects')}</button>
           </>
         ) : (
-          <span className="text-xs font-semibold text-app-text">Board<span className="hidden sm:inline"> generale</span></span>
+          <span className="text-xs font-semibold text-app-text">{tr('board.toolbar.general')}<span className="hidden sm:inline">{tr('board.toolbar.generalSuffix')}</span></span>
         )}
         <GlobalSettingsMenu />
         <LoadAdviceChip />
@@ -1884,7 +1972,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <button
             onClick={() => setShowSettings((s) => !s)}
             className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-            title="Impostazioni auto-dispatch"
+            title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
         </div>
       </div>
@@ -1936,7 +2024,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); setDropNotice(null); }}>
+          <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
             <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column

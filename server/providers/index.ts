@@ -30,6 +30,7 @@ import {
   resolveClaudeCodePermissionMode,
   resolveCodexApprovalMode,
   resolveClaudeCodeEnabled,
+  resolveAgentRuntime,
   type AppSettings,
 } from "../services/app-settings";
 
@@ -87,6 +88,12 @@ export function createProvider(config: ProviderConfig): AIProvider {
       const { AcpProvider } = require("./acp");
       return new AcpProvider(config);
     }
+    case "native": {
+      // Il runtime di casa: nessun processo da spawnare, la sessione vive
+      // dentro questo server. Si registra col nome `topics`.
+      const { NativeProvider } = require("./native/provider");
+      return new NativeProvider(config);
+    }
     default:
       throw new Error(`Unknown provider type: ${(config as any).type}`);
   }
@@ -107,6 +114,33 @@ export function getProvider(name?: string): AIProvider {
     throw new Error(`Provider "${key}" not found. Available: ${[..._providers.keys()].join(', ')}`);
   }
   return p;
+}
+
+/**
+ * The provider if it is registered, `undefined` if it is not.
+ *
+ * `getProvider` THROWS on an unknown name, and seven call sites in `server.ts`
+ * believed otherwise: they were written as
+ * `getProvider("claude-code") as { ... } | undefined`, a cast that describes a
+ * return value this function has never had. On this machine the lie was
+ * invisible, because the claude-code CLI is installed and therefore registered.
+ *
+ * It stopped being invisible on 2026-08-15: on a CI runner the only registered
+ * provider is `openclaw`, the stale-stream sweeper called it from inside a
+ * `setInterval`, and an uncaught throw in a timer callback takes the whole
+ * process down. The test server died with `Provider "claude-code" not found.
+ * Available: openclaw` and every test after it failed at 0 ms with
+ * ECONNREFUSED. The same thing would happen to any USER without that CLI, once
+ * a stream went quiet for three minutes.
+ *
+ * So: one accessor for "ask, and cope with no", next to the one that means
+ * "this must exist". The optional-method casts at those call sites are then
+ * honest, because the object really can be absent.
+ */
+export function tryGetProvider(name?: string): AIProvider | undefined {
+  const key = name ?? _defaultName;
+  if (!key) return undefined;
+  return _providers.get(key);
 }
 
 /** Get the default provider */
@@ -169,10 +203,32 @@ export function recomputeDefault(): boolean {
   const preferred = PROVIDER_PREFERENCE_ORDER.find(
     (name) => _providers.get(name)?.connected === true,
   );
+  // Il runtime `jcode` (oggi il default: vedi DEFAULT_AGENT_RUNTIME) è già una
+  // risposta alla domanda «con quale meccanica»: se quel provider è registrato
+  // ed è connesso, viene PRIMA dell'ordine dei noti. Senza questa riga
+  // l'interruttore si accende a metà — jcode nel picker, ma il default
+  // automatico ancora `claude-code`, cioè i ~790 MB per sessione da cui si sta
+  // scappando.
+  //
+  // È ANCHE LA RETE, ed è il motivo per cui la condizione guarda `connected` e
+  // non solo il nome. Su una macchina senza `jcode` nel PATH il provider non si
+  // registra nemmeno (il ciclo qui sopra salta gli agenti ACP senza eseguibile),
+  // quindi questa riga non scatta e si cade nell'ordine dei noti: chi aggiorna e
+  // non ha jcode installato NON resta senza default, si ritrova `claude-code`
+  // esattamente come prima. Il default nuovo è un'offerta, non un requisito.
+  //
+  // Il nome del runtime e il nome del provider non coincidono per il nativo:
+  // il runtime si chiama `topics` e il provider pure, ma la mappa esplicita
+  // evita che il giorno che divergono qualcuno lo scopra da un default che non
+  // scatta più senza dire niente.
+  const RUNTIME_PROVIDER: Record<string, string> = { jcode: "jcode", topics: "topics" };
+  const wanted = RUNTIME_PROVIDER[resolveAgentRuntime()];
+  const runtimePreferred =
+    wanted && _providers.get(wanted)?.connected === true ? wanted : undefined;
   const unknownConnected = [..._providers.entries()].find(
     ([name, p]) => p.connected === true && !PROVIDER_PREFERENCE_ORDER.includes(name),
   )?.[0];
-  const chosen = preferred ?? unknownConnected;
+  const chosen = runtimePreferred ?? preferred ?? unknownConnected;
   if (chosen) {
     _defaultName = chosen;
   } else {
@@ -353,6 +409,31 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
+  // Il runtime NATIVO. Si registra quando su questa macchina c'è una
+  // credenziale Claude, cioè quando può davvero servire un turno: un provider
+  // che non può rispondere riempirebbe il picker di una voce morta, come per
+  // gli agenti ACP senza eseguibile.
+  //
+  // Non spawna niente e non apre connessioni: registrarlo costa un oggetto in
+  // memoria, quindi non c'è un cancello d'ambiente da attraversare. Diventa il
+  // DEFAULT solo se il runtime lo chiede (vedi `recomputeDefault`).
+  if (!_providers.has("topics")) {
+    try {
+      const { hasCredentials } = require("./native/auth");
+      if (hasCredentials()) {
+        const p = createProvider({
+          type: "native",
+          defaultWorkspace: process.env.TOPICS_WORKSPACE || undefined,
+        });
+        p.start();
+        _providers.set(p.name, p);
+        started.push(p);
+      }
+    } catch (err: any) {
+      console.warn(`[Providers] Failed to init native runtime: ${err?.message ?? err}`);
+    }
+  }
+
   // OpenAI — init if OPENAI_API_KEY is set
   if (!_providers.has("openai") && process.env.OPENAI_API_KEY) {
     try {
@@ -417,13 +498,31 @@ export async function initProviders(): Promise<AIProvider[]> {
  * dichiarati che vincono a parità di nome. Una variabile malformata NON deve
  * impedire al server di partire — si logga quante voci si sono scartate e si va
  * avanti con quelle buone.
+ *
+ * Esportata per una ragione sola: qui dentro vive il CANCELLO del runtime, e
+ * l'alternativa per provarlo sarebbe far partire `initProviders` intero — cioè
+ * spawnare CLI vere per misurare una decisione che è una riga di filtro.
  */
-function resolveAcpAgents(): ReturnType<typeof mergeAcpAgents> {
+export function resolveAcpAgents(): ReturnType<typeof mergeAcpAgents> {
   const { agents, skipped } = parseAcpAgentsEnv(process.env.ACP_AGENTS);
   if (skipped > 0) {
     console.warn(`[Providers] ACP_AGENTS: ${skipped} voce/i illeggibile/i, ignorate`);
   }
-  return mergeAcpAgents(KNOWN_ACP_AGENTS, agents);
+  const merged = mergeAcpAgents(KNOWN_ACP_AGENTS, agents);
+  // Il cancello del runtime, e vale SOLO sulla riga che mettiamo noi in
+  // tabella. Dal 2026-08-16 il verso è invertito: `jcode` è il runtime di chi
+  // non ha scelto, quindi il cancello è aperto quasi sempre e si CHIUDE solo
+  // per chi ha chiesto `cli` esplicitamente. Chi l'ha chiesto sta dicendo
+  // «voglio una CLI per sessione», e trovarsi comunque il provider ACP nel
+  // picker — eleggibile come default appena una CLI risulta disconnessa —
+  // sarebbe esattamente la cosa che ha appena escluso.
+  //
+  // Chi lo dichiara a mano in `ACP_AGENTS` passa lo stesso: quella variabile è
+  // il modo esplicito di dire «voglio questo agente», e un interruttore di
+  // meccanica non deve sovrascrivere una richiesta nominale.
+  if (resolveAgentRuntime() === "jcode") return merged;
+  const declaredByHand = new Set(agents.map((a) => a.name));
+  return merged.filter((spec) => spec.name !== "jcode" || declaredByHand.has("jcode"));
 }
 
 async function detectClaudeCodeCli(): Promise<boolean> {
@@ -491,4 +590,43 @@ export function initProvider(config?: ProviderConfig): AIProvider {
   // We can't await here, so bootstrap and return whatever we can synchronously.
   initProviders().catch((err) => console.warn(`[Providers] Deferred init failed: ${err?.message ?? err}`));
   return getDefaultProvider();
+}
+
+/**
+ * «Il turno di questa sessione è ancora vivo?» — chiesto al provider GIUSTO.
+ *
+ * Tre risposte e non due: `true` vivo, `false` morto, `null` non lo so. La
+ * distinzione è tutto il senso della funzione, perché il dispatcher seppellisce
+ * un turno solo sul `false` — l'ignoranza non deve leggersi come morte, e un
+ * turno sepolto per sbaglio è lavoro vero buttato (fix 1790f859).
+ *
+ * Perché esiste. La sonda in `server.ts` chiedeva sempre a `claude-code`, che
+ * per le sessioni ALTRUI guarda una mappa dove non le ha mai messe e risponde
+ * `false`: «l'ho guardato ed è morto», che è una bugia — la verità è «non è roba
+ * mia». Finché ogni agente dispacciato era claude-code il ramo non si vedeva;
+ * col runtime `jcode` di default ogni sessione dispacciata è di un altro
+ * provider, quindi il caso passa da impossibile a normale.
+ *
+ * Come si sceglie a chi chiedere: si guarda CHI possiede quella sessione. Un
+ * provider che non riconosce la sessione o che non ha la sonda risponde `null`,
+ * ed è la risposta onesta: nessuno viene sepolto sull'ignoranza di nessuno.
+ */
+export function resolveTurnAlive(sessionKey: string): boolean | null {
+  for (const [, p] of _providers) {
+    const probe = p as unknown as {
+      ownsSession?: (sk: string) => boolean;
+      isTurnProcessAlive?: (sk: string) => boolean;
+    };
+    if (typeof probe.isTurnProcessAlive !== "function") continue;
+    // Chi non sa dire se la sessione è sua non può parlare per lei: la vecchia
+    // sonda faceva esattamente questo e rispondeva «morto» per tutti.
+    if (typeof probe.ownsSession !== "function") continue;
+    try {
+      if (!probe.ownsSession(sessionKey)) continue;
+      return probe.isTurnProcessAlive(sessionKey);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }

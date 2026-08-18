@@ -578,10 +578,13 @@ test.describe("Sidebar col dito — audit misurato", () => {
     await openSidebarOnPhone(page);
     const row = page.getByRole("treeitem", { name: topicName });
     await expect(row).toBeVisible({ timeout: 10_000 });
-    // La tab della chat è l'altra metà del campione (vedi il blocco sopra) e va
-    // aspettata: `resetPaneStore` l'ha aperta lato server, ma qui si misurano
-    // rettangoli e un elemento non ancora montato non ne ha uno.
-    await expect(page.locator(TAB_CLOSE)).toHaveCount(1, { timeout: 10_000 });
+    // LA STRISCIA DELLE TAB SUL TELEFONO NON C'E' PIU'. Era l'altra metà del
+    // campione; da quando la colonna a schermo intero È l'elenco delle superfici
+    // aperte, una seconda copia in cima ripeteva destinazioni che ci sono già e
+    // si prendeva 46px su 844. Qui si misura ciò che c'è: le righe dell'albero.
+    // La spunta-cerchio della tab resta col mouse (`row-actions-overlay`), e il
+    // suo posto sul telefono lo prendono le quattro porte in basso, misurate
+    // in `mobile-chrome-bar.spec.ts` (MOBILE-CHROME-02, soglia 44px).
 
     // LE DUE FAMIGLIE NON SI POSSONO MISURARE NELLO STESSO ISTANTE, e non è una
     // pignoleria di test: sotto i 768px la colonna è un DRAWER a tutto schermo e
@@ -618,35 +621,16 @@ test.describe("Sidebar col dito — audit misurato", () => {
       .filter((t) => t.w > 0 && t.h > 0);
     }, selettori);
 
-    const nellaColonna = await misura([`${SIDEBAR} [role="treeitem"] button`]);
+    const verdict = await misura([`${SIDEBAR} [role="treeitem"] button`]);
     await closeSidebarOnPhone(page);
-    const nelleTab = await misura([TAB_CLOSE]);
-    const verdict = [...nellaColonna, ...nelleTab];
+    // E la striscia non ricompare a colonna chiusa: è la meta' del brief che
+    // questo test tiene ferma, non un effetto collaterale della sidebar aperta.
+    await expect(page.locator(TAB_CLOSE)).toHaveCount(0);
 
     expect(verdict.length, "nessun bersaglio misurato: il test sarebbe verde per vuoto").toBeGreaterThan(0);
     const stolen = verdict.filter((v) => !v.ownsItsCentre);
     expect(stolen, `bersagli il cui centro è rubato da un altro: ${JSON.stringify(verdict)}`).toEqual([]);
 
-    // LA SPUNTA-CERCHIO HA UN BOX VERO. È la parte che il «…» non copre più:
-    // il glifo è un cerchio da 14px e la misura arrivava da uno `style` inline
-    // SUL BOTTONE, quindi nessuna classe poteva allargarlo — il bersaglio era
-    // 14px in largo ovunque, meno di un terzo della soglia iOS, sull'asse in cui
-    // il pollice sbaglia di più. `boxClassName` in `PendingActionRing` è ciò che
-    // ha rotto quel vincolo; qui si pretende il risultato, non l'attributo.
-    //
-    // Il numero è 28 e non 44 di proposito, e vale solo per la X della TAB: la
-    // tab è larga 150 FISSE e l'etichetta è l'unico `flex-1`, quindi ogni pixel
-    // dato alla X lo paga lei (88 → 80). A 36 scenderebbe a 72 e, mentre la chat
-    // streama, il vicino di destra è il bottone Stop da 16px. I 44 lì non ci
-    // sono senza rubarli allo Stop — vedi il conto in `PaneTabBar.tsx`.
-    const rings = verdict.filter((v) => /^(Chiudi tab|Annulla chiusura)/.test(v.label));
-    expect(rings.length, `nessuna spunta-cerchio misurata fra ${JSON.stringify(verdict)}`).toBeGreaterThan(0);
-    for (const ring of rings) {
-      expect(
-        Math.min(ring.w, ring.h),
-        `la spunta «${ring.label}» è ${ring.w}×${ring.h}: il lato corto sta sotto i 28px`,
-      ).toBeGreaterThanOrEqual(28);
-    }
   });
 
   /**
@@ -750,85 +734,6 @@ test.describe("Sidebar col dito — audit misurato", () => {
   });
 
   /**
-   * LA SPUNTA-CERCHIO SI TOCCA, E SI ANNULLA — col dito, non col mouse.
-   *
-   * SIDEBAR-TOUCH-03 misura il rettangolo di LAYOUT, e su questi bersagli quel
-   * numero è metà della storia: `.tap-expand-y` allarga l'area sensibile con un
-   * `::after`, che in `getBoundingClientRect()` non compare. Il box dice 28×28
-   * mentre il dito ne trova 28×36 — e se domani qualcuno togliesse la classe dal
-   * componente, il box resterebbe identico e TOUCH-03 resterebbe verde mentre
-   * l'altezza utile crolla a 28. Qui si misura l'area VERA (vedi
-   * `misuraBersagli`: si cresce dal centro finché `elementFromPoint` risponde
-   * ancora «sono io»), che è l'unico numero che il pollice conosce.
-   *
-   * E poi si fa la cosa che nessuna misura può sostituire: SI TOCCA. Un
-   * bersaglio può essere largo, alto, possedere il suo centro — e non funzionare
-   * lo stesso, perché il tocco viene mangiato da un antenato, o perché lo
-   * `stopPropagation` manca e sotto al comando si attiva anche la tab. Il giro
-   * completo è la prova: si tocca la spunta vuota (parte la chiusura differita,
-   * il cerchio diventa la spunta piena), si misura ANCHE quella — è un secondo
-   * ramo del componente, con un secondo `style` inline, e nasceva col difetto
-   * identico — e poi si annulla toccandola. Se alla fine la spunta vuota è
-   * tornata, i due tocchi sono finiti dove dovevano; se fosse finito sulla tab,
-   * la chiusura sarebbe andata fino in fondo e la tab non ci sarebbe più.
-   *
-   * I 3 secondi del countdown sono il tempo che c'è per fare tutto: le misure
-   * stanno in una `evaluate` sola apposta.
-   */
-  test("SIDEBAR-TOUCH-05: la spunta-cerchio ha l'area di un dito, e col dito si chiude e si annulla", async ({ page }) => {
-    await openSidebarOnPhone(page);
-    const chiudi = page.locator(TAB_CLOSE);
-    await expect(chiudi, "la tab della chat non è montata: non c'è spunta da misurare").toHaveCount(1, { timeout: 10_000 });
-    // La colonna se ne va PRIMA di ogni misura e di ogni tocco: sul telefono è
-    // un drawer che copre la barra delle tab, e un `tap()` mandato lì sotto
-    // finirebbe sulla sidebar (vedi `closeSidebarOnPhone`).
-    await closeSidebarOnPhone(page);
-
-    const [vuota] = await misuraBersagli(page, [TAB_CLOSE]);
-    expect(vuota, "la spunta di chiusura non è sullo schermo").toBeTruthy();
-    expect(vuota.suoCentro, `il centro della spunta è coperto da un vicino: ${JSON.stringify(vuota)}`).toBe(true);
-    // 28 in largo: è il box che lo slot della tab riservava da sempre e che il
-    // bottone non usava (14 inline). 36 in alto: sono i `tap-expand-y` tagliati
-    // dall'`overflow-hidden` della tab, cioè tutta la tab. Sotto questi due
-    // numeri il bersaglio è tornato a essere il glifo.
-    expect(vuota.tap.w, `la spunta vuota è larga ${vuota.tap.w}px di area toccabile`).toBeGreaterThanOrEqual(28);
-    expect(vuota.tap.h, `la spunta vuota è alta ${vuota.tap.h}px di area toccabile — senza tap-expand-y sarebbero 28`).toBeGreaterThanOrEqual(36);
-
-    // IL DISEGNO NON CRESCE COL BERSAGLIO. È metà del contratto di
-    // `boxClassName`: `size` resta il diametro del cerchio, il box è un'altra
-    // cosa. Senza questa riga, «bersaglio più grande» si potrebbe soddisfare
-    // gonfiando il glifo, che è proprio ciò che non si vuole.
-    //
-    // Il numero è 16 dal 07/08 (era 14): un comando di riga ha ora UNA misura in
-    // tutta la sidebar, e dentro un box da 36 un cerchio da 14 era un pallino —
-    // «il tasto per spuntare una tab e chiuderla è troppo piccolo». Quello che
-    // il test protegge non è il 16: è che il glifo resti MOLTO più piccolo del
-    // suo bersaglio, cioè che nessuno soddisfi «più grande» gonfiando il disegno.
-    const cerchio = await chiudi.locator("span").first().boundingBox();
-    const disegnato = Math.round(cerchio?.width ?? 0);
-    expect(disegnato, "il cerchio DISEGNATO deve restare un glifo, non un bottone").toBe(16);
-
-    // ── e adesso lo si tocca davvero ────────────────────────────────────────
-    await chiudi.tap();
-    const annulla = page.locator('[aria-label="Annulla chiusura"]');
-    await expect(
-      annulla,
-      "toccare la spunta non ha avviato la chiusura differita: il tocco è finito altrove",
-    ).toBeVisible({ timeout: 5_000 });
-
-    const [piena] = await misuraBersagli(page, ['[aria-label="Annulla chiusura"]']);
-    expect(piena.suoCentro, `il centro dell'annullo è coperto da un vicino: ${JSON.stringify(piena)}`).toBe(true);
-    expect(piena.tap.w, `l'annullo è largo ${piena.tap.w}px di area toccabile`).toBeGreaterThanOrEqual(28);
-    expect(piena.tap.h, `l'annullo è alto ${piena.tap.h}px di area toccabile`).toBeGreaterThanOrEqual(36);
-
-    await annulla.tap();
-    await expect(
-      chiudi,
-      "l'annullo non ha ripreso: o il tocco è finito sulla tab, o la chiusura è andata fino in fondo",
-    ).toBeVisible({ timeout: 5_000 });
-  });
-
-  /**
    * DOVE STANNO LE COSE NELLA COLONNA, col dito — RISCRITTA IL 12/08.
    *
    * Ha girato per un giorno intero, e la storia resta scritta perché il test
@@ -856,9 +761,15 @@ test.describe("Sidebar col dito — audit misurato", () => {
     const titolo = (await page.getByTestId("sidebar-topics-menu").boundingBox())!;
     const colonna = (await page.locator(SIDEBAR).boundingBox())!;
 
-    // In cima c'è UN comando solo, ed è il menu.
+    // In cima ci sono DUE comandi, e si nominano invece di contarli: il menu
+    // «Topics» a sinistra e la campanella a destra. Erano uno solo fino al
+    // 12/08 («da un lato topics, cliccabile; dall'altro nient'altro»); il 14/08
+    // la forma si è allargata e la campanella è salita lì — è la stessa cosa
+    // che misura MOBILE-CHROME-01. Cerca e «+» restano giù, nella fila in fondo:
+    // quello è il pezzo che questo test difende, e non è cambiato.
     const testata = page.locator(`${SIDEBAR} .app-drag-region`).first();
-    await expect(testata.locator("button")).toHaveCount(1);
+    await expect(testata.getByTestId("sidebar-topics-menu")).toHaveCount(1);
+    await expect(testata.locator("button")).toHaveCount(2);
     expect(titolo.y, "il titolo deve stare sopra l'albero").toBeLessThan(albero.y);
     expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
     expect(Math.round(titolo.height), `il titolo è alto ${titolo.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
@@ -867,21 +778,27 @@ test.describe("Sidebar col dito — audit misurato", () => {
     await expect(page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`)).toHaveCount(0);
     await expect(page.locator(`${SIDEBAR} [data-testid="device-identity"]`)).toHaveCount(0);
 
-    // I comandi stanno in fondo allo SCHERMO, sotto l'albero, e sono tre.
+    // I comandi stanno in fondo allo SCHERMO, sotto l'albero. Erano tre il
+    // 12/08 (cerca · aggiungi · board); dal 14/08 sono QUATTRO — la quarta è il
+    // profilo, che ha portato via l'account dal menu «Topics». Il numero si
+    // aggiorna insieme ai nomi, non da solo: contare e basta lascerebbe passare
+    // una porta sostituita da un'altra.
     const fila = page.locator('[data-testid="mobile-chrome-bar"]');
-    await expect(fila.locator("button")).toHaveCount(3);
+    await expect(fila.locator("button")).toHaveCount(4);
     const cerca = (await fila.locator('[data-testid="mobile-chrome-search"]').boundingBox())!;
     const piu = (await fila.locator('[data-testid="pane-add-menu-trigger"]').boundingBox())!;
     const board = (await fila.locator('[data-testid="mobile-chrome-board"]').boundingBox())!;
+    const profilo = (await fila.locator('[data-testid="mobile-chrome-profile"]').boundingBox())!;
 
-    for (const [nome, b] of [["il cerca", cerca], ["l'aggiungi", piu], ["la board", board]] as const) {
+    for (const [nome, b] of [["il cerca", cerca], ["l'aggiungi", piu], ["la board", board], ["il profilo", profilo]] as const) {
       expect(b.y, `${nome} deve stare sotto l'albero, in fondo allo schermo`).toBeGreaterThan(albero.y);
       expect(Math.round(b.height), `${nome} è alto ${b.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
       expect(Math.round(b.width), `${nome} è largo ${b.width}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
     }
-    // L'ordine della fila: cerca · aggiungi · board.
+    // L'ordine della fila: cerca · aggiungi · board · profilo.
     expect(cerca.x).toBeLessThan(piu.x);
     expect(piu.x).toBeLessThan(board.x);
+    expect(board.x).toBeLessThan(profilo.x);
   });
 
   /**

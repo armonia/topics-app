@@ -275,7 +275,7 @@ export function buildSafeEnv(): Record<string, string> {
 const MCP_CONFIG_DIR = join(tmpdir(), "topics-mcp");
 const MCP_SERVER_SCRIPT = join(import.meta.dir, "..", "mcp", "topics-mcp-server.ts");
 
-function topicsAppBaseUrl(): string {
+export function topicsAppBaseUrl(): string {
   const port = process.env.PORT || "3333";
   // The MCP subprocess always runs on the same host as topics-app (spawned
   // by the same Bun process), so localhost is sufficient and avoids
@@ -2208,6 +2208,20 @@ export class ClaudeCodeProvider implements AIProvider {
   isTurnProcessAlive(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
     return !!pp && pp.alive;
+  }
+
+  /**
+   * Questa sessione è nostra? (vedi `resolveTurnAlive`)
+   *
+   * Distingue «l'ho guardato ed è morto» da «non è roba mia», che
+   * `isTurnProcessAlive` da solo NON sa fare: una sessione mai vista e una
+   * sessione il cui figlio è morto danno la stessa risposta, `false`. Finché
+   * ogni agente dispacciato era claude-code i due casi coincidevano; con un
+   * altro runtime di default no, e il secondo caso letto come il primo fa
+   * seppellire al dispatcher turni vivi di un altro provider.
+   */
+  ownsSession(sessionKey: string): boolean {
+    return this.processes.has(sessionKey);
   }
 
   /**

@@ -1,0 +1,43 @@
+-- 20260815012042-push-subscription-auth-device.sql
+--
+-- Il prefisso è un timestamp UTC (YYYYMMDDHHMMSS), non un contatore: è quello
+-- che rende impossibile la collisione fra card in parallelo. Non rinominarlo.
+--
+-- REVOCARE UN DISPOSITIVO NON GLI TOGLIEVA LE PUSH.
+--
+-- `sendPushToAll` spediva a `WHERE enabled = 1` e basta: nessuna JOIN su
+-- `devices`, nessuna lettura di `revoked_at`. Un telefono revocato continuava a
+-- ricevere titoli di task, domande degli agenti e descrizioni di approvazione
+-- per sempre — cioè proprio i contenuti per cui si revoca un dispositivo.
+--
+-- PERCHÉ UNA COLONNA NUOVA E NON `device_id`. `device_id` (migration 101) NON è
+-- l'identità appaiata: è un UUID che il CLIENT si genera nel proprio
+-- localStorage (`client/src/lib/push/environment.ts`), e serve a tenere insieme
+-- le righe di uno stesso browser attraverso le rotazioni dell'endpoint e a dire
+-- «questo sei tu» nell'elenco delle impostazioni. Non è mai stato un
+-- identificatore di sicurezza: arriva dal corpo della richiesta, quindi chi
+-- scrive la richiesta lo sceglie. Riusarlo per la revoca avrebbe fatto due
+-- danni in una riga sola: le iscrizioni ESISTENTI (che portano l'id del
+-- localStorage) non avrebbero trovato nessun dispositivo nella JOIN e le push
+-- si sarebbero spente per tutti, e sul Mac — dove l'identità è loopback e non
+-- ha un id — la riga avrebbe perso la continuità che le serve per non
+-- duplicarsi a ogni rotazione delle chiavi.
+--
+-- `auth_device_id` è invece timbrata dal SERVER con l'identità della richiesta
+-- (`devices.id`), mai dal corpo. NULL vuol dire due cose, entrambe volute:
+-- «riga scritta prima di oggi» e «iscritta da questa macchina» (loopback: il
+-- proprietario, che non ha una riga in `devices` e non si revoca). In tutti e
+-- due i casi non c'è nessun dispositivo da controllare, quindi la riga continua
+-- a ricevere: chiudere fuori il proprio Mac sarebbe stato un esito peggiore del
+-- buco.
+--
+-- Nessuna FOREIGN KEY: `devices` conserva le righe revocate (lapide, non
+-- DELETE), e la regola che conta non è «esiste» ma «è viva» — la esprime la
+-- query di invio, non il vincolo.
+ALTER TABLE push_subscriptions ADD COLUMN auth_device_id TEXT;
+
+-- La revoca cancella per dispositivo: senza indice è una scansione della
+-- tabella a ogni revoca. Piccola oggi, ma è la stessa query che gira quando si
+-- cancella un'organizzazione intera, cioè una volta per ogni suo dispositivo.
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_auth_device
+  ON push_subscriptions(auth_device_id);

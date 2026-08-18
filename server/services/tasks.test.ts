@@ -1,11 +1,9 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
 import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock } from "../../shared/board";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { freshDb, svc, PID } from "./tasks-test-db";
 
 describe("reserved action labels", () => {
   test("isLandActionLabel matches its label tolerantly, and NOT the publish one", () => {
@@ -96,58 +94,6 @@ describe("commentAsksHuman", () => {
   });
 });
 
-// La DDL di `tasks` non si ricopia più qui: è TASKS_DDL, cioè la catena delle
-// migration, verificata colonna per colonna da test-schema.test.ts. PRAGMA
-// foreign_keys e la FK su assigned_topic_id sono fedeli alla produzione
-// apposta: il guasto del segnaposto "pending:<taskId>" si riproduceva solo con
-// le FK accese, e con le FK accese le tabelle-genitore devono esistere.
-function freshDb(): Database {
-  const db = new Database(":memory:");
-  db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
-  db.run(TASKS_DDL);
-  db.run(TASKS_FK_STUBS_DDL);
-  db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
-  db.run(`CREATE TABLE board_settings (
-    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
-    require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
-    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
-    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
-    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
-    dispatch_mcp TEXT,
-    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER, review_checks TEXT,
-    dispatch_fanout INTEGER,
-    -- migration 053: mancava qui, e senza di lei ogni lettura del tetto VERO
-    -- (riga '*', readGlobalCap) esplode invece di misurare.
-    max_agents_auto INTEGER
-  )`);
-  db.run(`CREATE TABLE task_comments (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
-  )`);
-  // migration 100 — le etichette. `rowToTask` la legge per OGNI riga, quindi
-  // senza questa tabella non fallisce il test delle etichette: falliscono tutti.
-  db.run(TASK_LABELS_DDL);
-  db.run(`CREATE TABLE approvals (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
-    approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
-    rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
-    reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
-  )`);
-  return db;
-}
-
-// Controllable clock + counter uuid → deterministic rows.
-function svc(db: Database, clock = { t: Date.parse("2026-07-09T10:00:00.000Z") }): TaskService {
-  let n = 0;
-  return createTaskService(db, {
-    now: () => new Date(clock.t).toISOString(),
-    uuid: () => `id-${++n}`,
-  });
-}
-
-const PID = "topics-app-abc123";
 
 describe("projectIdForPath", () => {
   test("basename + 6-char base36 hash, deterministic", () => {
@@ -157,10 +103,10 @@ describe("projectIdForPath", () => {
     expect(a.startsWith("topics-app-")).toBe(true);
     expect(a.slice("topics-app-".length)).toMatch(/^[0-9a-z]{1,6}$/);
   });
-  // Exact-value lock: pins the format byte-for-byte so any drift from the
-  // canonical algorithm in routes/topics.ts:getProjectIdForTopic breaks here.
-  // (The raw path is hashed, so a trailing slash DOES change the id — matches
-  // the original; topic.projectPath is stored normalized, so it never bites.)
+  // Regression lock: la funzione ora vive in shared/board.ts e questo modulo
+  // la ri-esporta. Il test pinna che il re-export non sia un alias silenzioso
+  // verso un'implementazione derivata.
+  // (Il trailing slash cambia l'hash: topic.projectPath e' normalizzato, non morde.)
   test("exact output is stable (regression lock)", () => {
     expect(projectIdForPath("/x/proj")).toBe("proj-xwac8t");
   });
@@ -296,6 +242,36 @@ describe("review gate (KANBAN-05)", () => {
     db.prepare("UPDATE tasks SET dispatch_attempts = 3, status = 'backlog' WHERE id = ?").run(t.id);
     const agentMove = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "todo" } });
     expect(agentMove.dispatchAttempts).toBe(3);
+  });
+
+  /**
+   * IL BUDGET NON ERA L'UNICA COSA CHE TENEVA FERMA LA CARD.
+   *
+   * `dispatch_deferred_until` è la finestra d'attesa che l'agente dichiara, e il
+   * CAS del claim la rifiuta finché non è passata: fino a 24 ore. Il bottone
+   * «rimetti in Todo» azzerava i tentativi e lasciava lì la finestra — la card
+   * tornava in una colonna dove nessuno la prendeva, con il chip del parcheggio
+   * ancora sopra a raccontare la storia di prima.
+   */
+  test("rimettere in Todo azzera anche la finestra di rinvio e il chip, non solo i tentativi", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "backlog" });
+    db.prepare(
+      "UPDATE tasks SET dispatch_attempts = 3, dispatch_deferred_until = '2099-01-01T00:00:00.000Z', " +
+        "dispatch_state = 'failed', dispatch_error = 'budget finito' WHERE id = ?",
+    ).run(t.id);
+
+    const back = s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "todo" } });
+
+    expect(back.dispatchAttempts).toBe(0);
+    expect(back.dispatchDeferredUntil).toBeNull();
+    expect(back.dispatchState).toBeNull();
+    expect(back.dispatchError).toBeNull();
+    // La controprova sull'asse dei permessi: un AGENTE non si ridà niente.
+    db.prepare(
+      "UPDATE tasks SET status = 'backlog', dispatch_deferred_until = '2099-01-01T00:00:00.000Z' WHERE id = ?",
+    ).run(t.id);
+    const agente = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "todo" } });
+    expect(agente.dispatchDeferredUntil).toBe("2099-01-01T00:00:00.000Z");
   });
 
   test("human drag review → done clears the lingering dispatch chip", () => {
@@ -450,6 +426,38 @@ describe("review gate (KANBAN-05)", () => {
     s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { text: "work rinominato" } });
     const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
     expect(ap.status).toBe("pending");
+  });
+
+  /**
+   * LE DUE STRADE CHE LASCIAVANO LA RICHIESTA APPESA.
+   *
+   * Il land chiude la card a SQL grezzo (`settleLanded`) e l'archiviazione la
+   * toglie dalla board: nessuna delle due passava da `update`, quindi la riga
+   * `pending` restava lì per sempre — il task non è più in review e
+   * `reviewDecision` la rifiuterebbe. Misurate il 13/08: 13 appese su 48, 9 su
+   * card già `done`. È la stessa perdita che la migration 068 aveva ripulito.
+   */
+  test("il LAND chiude l'approvazione pendente: approved, che è ciò che chiedeva", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    s.settleLanded({ taskId: t.id, by: "system", reason: "il land è riuscito" });
+
+    const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
+    expect(ap.status).toBe("approved");
+    expect(ap.reviewed_at).not.toBeNull();
+  });
+
+  test("l'ARCHIVIAZIONE la fa scadere: expired, perché nessuno ha detto di no", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    s.archive({ taskId: t.id });
+
+    const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
+    expect(ap.status).toBe("expired");
   });
 
   test("human reject → in_progress + comment + approval rejected", () => {
@@ -1165,236 +1173,7 @@ describe("board settings", () => {
   });
 });
 
-/**
- * 1.3 — in colonna Review una consegna dell'agente e un task che il sistema ha
- * portato lì a fine turno avevano lo stesso aspetto. Sono due domande diverse:
- * nella prima c'è un deliverable, nella seconda può non esserci niente.
- */
-describe("deliveredBy (chi ha portato il task in review)", () => {
-  let db: Database; let s: TaskService;
-  beforeEach(() => { db = freshDb(); s = svc(db); });
 
-  /** Agente pronto alla consegna: il gate del sommario vuole un commento suo. */
-  function readyForDelivery() {
-    const t = s.create({ projectId: PID, text: "x" });
-    s.addComment({ taskId: t.id, author: "agent-1", content: "fatto, guarda demo/" });
-    return t;
-  }
-
-  test("un task nasce senza consegna", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    expect(t.deliveredBy).toBeNull();
-    expect(t.deliveredReason).toBeNull();
-  });
-
-  test("l'agente che consegna si firma", () => {
-    const t = readyForDelivery();
-    const rev = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review" } });
-    expect(rev.deliveredBy).toBe("agent");
-    expect(rev.deliveredReason).toBeNull();
-  });
-
-  test("l'umano che trascina in review non è l'agente", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "review" } }).deliveredBy).toBe("human");
-  });
-
-  test("il sistema si firma 'system' e dice PERCHÉ", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    const d = s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
-    expect(d.status).toBe("review");
-    expect(d.deliveredBy).toBe("system");
-    expect(d.deliveredReason).toBe("retries_exhausted");
-    // Le due cause restano distinte: si decide diversamente nei due casi.
-    const t2 = s.create({ projectId: PID, text: "y" });
-    expect(s.deliverToReviewBySystem({ taskId: t2.id, reason: "rifiuto", cause: "model_refused" }).deliveredReason).toBe("model_refused");
-  });
-
-  test("un padre con sottotask aperti torna in CODA, non in review", () => {
-    // In review sarebbe una card su cui l'umano non puo' decidere niente (il
-    // gate su `done` rifiuta un padre con figli attivi) e ci tornerebbe a ogni
-    // turno esaurito. Misurato il 10/08: quattro rimbalzi in un'ora.
-    const p = s.create({ projectId: PID, text: "epic" });
-    const kid = s.create({ projectId: PID, text: "passo aperto", parentTaskId: p.id });
-    // «Aperto» vuol dire che qualcuno lo sta lavorando o sta per farlo: in coda.
-    // Un figlio lasciato in backlog è parcheggiato e non blocca (test qui sotto).
-    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "todo" } });
-    const d = s.deliverToReviewBySystem({ taskId: p.id, reason: "budget finito", cause: "retries_exhausted" });
-    expect(d.status).toBe("todo");
-    // La ragione resta scritta nel thread: sparire in silenzio sarebbe peggio.
-    const thread = s.get(p.id)!.comments.filter((c) => c.author === "system");
-    expect(thread.some((c) => c.content.includes("budget finito"))).toBe(true);
-  });
-
-  test("un padre coi figli TUTTI chiusi consegna in review come chiunque altro", () => {
-    // Il controllo del test qui sopra: il rinvio in coda non deve diventare
-    // "un padre non consegna mai".
-    const p = s.create({ projectId: PID, text: "epic" });
-    const kid = s.create({ projectId: PID, text: "passo", parentTaskId: p.id });
-    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "done" } });
-    expect(s.deliverToReviewBySystem({ taskId: p.id, reason: "fine", cause: "retries_exhausted" }).status).toBe("review");
-  });
-
-  test("figli SOLO parcheggiati: non è un'attesa, è una DOMANDA — e la fa", () => {
-    // Nessuno dispaccia dal backlog: rimandare il padre in coda lo farebbe
-    // girare ogni 10 minuti per sempre (misurati 20 padri così l'11/08). Ma
-    // parcheggiare anche lui lo nascondeva nella colonna del riposo (cinque card
-    // ferme il 12/08, nessuna lo diceva): la card va dove si vedono le domande,
-    // con le due risposte possibili. Il resto in `tasks.parked-stall.test.ts`.
-    const p = s.create({ projectId: PID, text: "epic" });
-    s.create({ projectId: PID, text: "seguito rimandato", parentTaskId: p.id });
-    const d = s.deliverToReviewBySystem({ taskId: p.id, reason: "fine" });
-    expect(d.status).toBe("review");
-    expect(d.dispatchState).toBe("needs_input");
-    expect(d.deliveredReason).toBe("parked_children");
-    const notes = s.get(p.id)!.comments.map((c) => c.content).join("\n");
-    expect(notes).toContain("seguito rimandato");
-  });
-
-  test("senza causa nota resta 'system' e basta — mai una causa inventata", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    const d = s.deliverToReviewBySystem({ taskId: t.id, reason: "boh" });
-    expect(d.deliveredBy).toBe("system");
-    expect(d.deliveredReason).toBeNull();
-  });
-
-  test("consegna vera DOPO una di sistema: la causa se ne va con la firma", () => {
-    const t = readyForDelivery();
-    s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
-    // Rifiutato → l'agent riparte → questa volta consegna lui.
-    s.reviewDecision({ taskId: t.id, by: "u", decision: "reject" });
-    s.addComment({ taskId: t.id, author: "agent-1", content: "ora sì" });
-    const again = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review" } });
-    expect(again.deliveredBy).toBe("agent");
-    // Una causa di sistema rimasta appiccicata direbbe "non l'ha consegnato
-    // l'agent" su una consegna dell'agent.
-    expect(again.deliveredReason).toBeNull();
-  });
-
-  test("la firma sopravvive all'approvazione: su done resta scritto com'è arrivato", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
-    const done = s.reviewDecision({ taskId: t.id, by: "u", decision: "approve" });
-    expect(done.status).toBe("done");
-    expect(done.deliveredBy).toBe("system");
-  });
-
-  test("un aggiornamento che NON entra in review non riscrive la firma", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
-    const same = s.update({ taskId: t.id, actor: "human", by: "u", patch: { priority: 1 } });
-    expect(same.deliveredBy).toBe("system");
-    // …e nemmeno un re-ingresso in review da già-in-review (non è una transizione).
-    const still = s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "review" } });
-    expect(still.deliveredBy).toBe("system");
-  });
-});
-
-describe("recordChecks (evidenza dei checks pre-review)", () => {
-  let db: Database; let s: TaskService;
-  beforeEach(() => { db = freshDb(); s = svc(db); });
-
-  const read = (id: string) => s.get(id, { projectId: PID })!.task;
-
-  test("un task nasce SENZA esito: null non è un verde", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    expect(t.checksState).toBeNull();
-    expect(t.checksAt).toBeNull();
-    expect(t.checksCommit).toBeNull();
-    expect(t.checks).toBeNull();
-  });
-
-  test("pass: stato, commit ed evidenza comando-per-comando rileggibili", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    const runs = [{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 1200, timedOut: false, tail: "" }];
-    s.recordChecks({ taskId: t.id, state: "pass", commit: "abc1234", runs });
-    const got = read(t.id);
-    expect(got.checksState).toBe("pass");
-    expect(got.checksCommit).toBe("abc1234");
-    expect(got.checksAt).toBeTruthy();
-    expect(got.checks).toEqual(runs);
-  });
-
-  test("running: nessun 'quando è finito', perché non è finito", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    s.recordChecks({ taskId: t.id, state: "running", commit: "abc1234", runs: null });
-    const got = read(t.id);
-    expect(got.checksState).toBe("running");
-    expect(got.checksAt).toBeNull();
-    expect(got.checks).toBeNull();
-  });
-
-  test("fail: la coda dell'output sopravvive al giro in DB (è l'unica prova che resta)", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    s.recordChecks({
-      taskId: t.id, state: "fail", commit: "deadbee",
-      runs: [
-        { name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 900, timedOut: false, tail: "" },
-        { name: "test", cmd: "bun test", ok: false, code: 1, ms: 4200, timedOut: false, tail: "1 fail\nexpected true" },
-      ],
-    });
-    const got = read(t.id);
-    expect(got.checksState).toBe("fail");
-    expect(got.checks).toHaveLength(2);
-    expect(got.checks![1].ok).toBe(false);
-    expect(got.checks![1].tail).toContain("expected true");
-  });
-
-  test("un giro nuovo SOSTITUISCE il precedente: niente verde scaduto appiccicato", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    s.recordChecks({ taskId: t.id, state: "fail", commit: "old", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
-    s.recordChecks({ taskId: t.id, state: "pass", commit: "new", runs: [{ name: "t", cmd: "true", ok: true, code: 0, ms: 5, timedOut: false, tail: "" }] });
-    const got = read(t.id);
-    expect(got.checksState).toBe("pass");
-    expect(got.checksCommit).toBe("new");
-    expect(got.checks).toHaveLength(1);
-    expect(got.checks![0].ok).toBe(true);
-  });
-
-  test("reset a null: 'mai girati' è uno stato raggiungibile", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    s.recordChecks({ taskId: t.id, state: "fail", commit: "abc", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
-    s.recordChecks({ taskId: t.id, state: null, commit: null, runs: null });
-    const got = read(t.id);
-    expect(got.checksState).toBeNull();
-    expect(got.checksCommit).toBeNull();
-    expect(got.checks).toBeNull();
-  });
-
-  test("un JSON storto in colonna vale 'nessuna evidenza', non un'eccezione a ogni lettura", () => {
-    const t = s.create({ projectId: PID, text: "x" });
-    db.prepare("UPDATE tasks SET checks_state = 'fail', checks_json = ? WHERE id = ?").run("{non json", t.id);
-    const got = read(t.id);
-    expect(got.checksState).toBe("fail");
-    expect(got.checks).toBeNull();
-  });
-
-  test("task inesistente → not_found, non una UPDATE a vuoto", () => {
-    expect(() => s.recordChecks({ taskId: "nope", state: "pass", commit: null, runs: null })).toThrow(TaskServiceError);
-  });
-
-  /**
-   * «running» è una promessa che qualcuno scriverà l'esito, e chi la mantiene è
-   * una corsa che vive nel processo. Un riavvio la porta via: senza questa
-   * pulizia la card fila per sempre, che è il guasto misurato il 13/08.
-   */
-  test("al boot le spie 'running' si spengono, e SOLO quelle", () => {
-    const gira = s.create({ projectId: PID, text: "sta girando" });
-    const verde = s.create({ projectId: PID, text: "verde" });
-    const rosso = s.create({ projectId: PID, text: "rosso" });
-    s.recordChecks({ taskId: gira.id, state: "running", commit: "abc", runs: null });
-    s.recordChecks({ taskId: verde.id, state: "pass", commit: "abc", runs: [{ name: "t", cmd: "true", ok: true, code: 0, ms: 5, timedOut: false, tail: "" }] });
-    s.recordChecks({ taskId: rosso.id, state: "fail", commit: "abc", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
-
-    expect(s.clearStaleChecksRuns()).toBe(1);
-    expect(read(gira.id).checksState).toBeNull();
-    expect(read(verde.id).checksState).toBe("pass");
-    expect(read(rosso.id).checksState).toBe("fail");
-    // L'ultima misura vera resta: si spegne la spia, non l'evidenza.
-    expect(read(rosso.id).checks).toHaveLength(1);
-    expect(s.clearStaleChecksRuns()).toBe(0);
-  });
-});
 
 describe("blocked-by dependency", () => {
   let db: Database; let s: TaskService;
@@ -1529,74 +1308,6 @@ describe("priorità automatica", () => {
   });
 });
 
-describe("review-evidence promotion — preview_image garantita dal commento di consegna", () => {
-  let db: Database;
-  const mk = (exists: (p: string) => boolean) => {
-    let n = 500;
-    return createTaskService(db, {
-      now: () => new Date().toISOString(),
-      uuid: () => `pv-${++n}`,
-      fileExists: exists,
-    });
-  };
-  beforeEach(() => { db = freshDb(); });
-
-  const preview = (id: string) =>
-    (db.prepare("SELECT preview_image FROM tasks WHERE id = ?").get(id) as any)?.preview_image ?? null;
-
-  test("comment-first: il media del commento diventa preview al passaggio in review", () => {
-    const s = mk(() => true);
-    const t = s.create({ projectId: PID, text: "fix ui" });
-    s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/evidenza.png"] });
-    expect(preview(t.id)).toBeNull(); // non ancora in review: nessuna promozione
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe("/Users/x/.topics/media/evidenza.png");
-  });
-
-  test("evidenza arrivata DOPO la review (commento di consegna solo testo) riempie la preview", () => {
-    const s = mk(() => true);
-    const t = s.create({ projectId: PID, text: "fix ui" });
-    s.addComment({ taskId: t.id, author: "claude", content: "fatto, evidenza a seguire" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBeNull();
-    s.addComment({ taskId: t.id, author: "claude", content: "evidenza", media: ["/Users/x/.topics/media/clip.webm"] });
-    expect(preview(t.id)).toBe("/Users/x/.topics/media/clip.webm");
-  });
-
-  test("una preview esplicita non viene mai sovrascritta", () => {
-    const s = mk(() => true);
-    const t = s.create({ projectId: PID, text: "fix ui" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: "/Users/x/.topics/media/scelta.png" } });
-    s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/altra.png"] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe("/Users/x/.topics/media/scelta.png");
-  });
-
-  test("file inesistente o non-previewable (pdf/log) non viene promosso", () => {
-    const s = mk((p) => p.endsWith(".png") === false ? true : false); // il png "non esiste", il resto sì
-    const t = s.create({ projectId: PID, text: "fix ui" });
-    s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/morto.png", "/Users/x/.topics/media/report.pdf"] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBeNull(); // png inesistente, pdf non previewable
-  });
-
-  test("più commenti: vince il media del commento più recente", () => {
-    const clock = { t: Date.parse("2026-07-20T10:00:00.000Z") };
-    let n = 900;
-    const s = createTaskService(db, {
-      now: () => new Date(clock.t).toISOString(),
-      uuid: () => `pv2-${++n}`,
-      fileExists: () => true,
-    });
-    const t = s.create({ projectId: PID, text: "fix ui" });
-    s.addComment({ taskId: t.id, author: "claude", content: "progress", media: ["/m/vecchia.png"] });
-    clock.t += 60_000;
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: ["/m/finale.png"] });
-    clock.t += 60_000;
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe("/m/finale.png");
-  });
-});
 
 // ── Il park deve essere autoritativo ───────────────────────────────────────
 //
@@ -1681,381 +1392,7 @@ describe("il park è autoritativo: l'agente scartato non si riprende il task", (
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Il ramo DIAGRAMMA, e i due controlli che lo accompagnano.
-//
-// `PREVIEW_RULE` ha un terzo ramo per le consegne senza superficie renderizzata
-// (un piano, un'architettura, una migrazione): si consegna un diagramma `.svg`.
-// Senza `svg` fra le estensioni promuovibili quel ramo nasceva morto — l'agente
-// allegava il diagramma e la card restava cieca. Qui i file sono VERI su disco:
-// il gate di forma legge l'header, e con path finti non misurerebbe niente.
-// ─────────────────────────────────────────────────────────────────────────────
-describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
-  let db: Database;
-  let dir: string;
-  let n = 0;
-  const mk = () => createTaskService(db, { now: () => new Date().toISOString(), uuid: () => `dg-${++n}` });
-  beforeEach(() => { db = freshDb(); dir = mkdtempSync(join(tmpdir(), "task-preview-")); });
 
-  const preview = (id: string) =>
-    (db.prepare("SELECT preview_image FROM tasks WHERE id = ?").get(id) as any)?.preview_image ?? null;
-  const notes = (id: string) =>
-    (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'review-note'").all(id) as any[])
-      .map((r) => r.content as string);
-
-  const write = (name: string, bytes: Buffer | string): string => {
-    const p = join(dir, name);
-    writeFileSync(p, bytes);
-    return p;
-  };
-  /** Header PNG (firma + IHDR): è tutto ciò che il gate di forma legge. */
-  const png = (name: string, w: number, h: number): string => {
-    const b = Buffer.alloc(33);
-    b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4);
-    b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
-    b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20); b[24] = 8; b[25] = 6;
-    return write(name, b);
-  };
-  const svg = (name: string, w: number, h: number): string =>
-    write(name, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><rect width="40" height="20"/></svg>`);
-
-  // ── Il ritiro è uno STATO, non un messaggio ───────────────────────────────
-  // La bonifica delle anteprime false ha scritto «⚠️ Anteprima RITIRATA…» nel
-  // thread di 23 card. Un messaggio non invecchia: dove l'anteprima è tornata
-  // continua a dire il contrario. Il fatto vive in colonna, e quello che si
-  // prova qui è che si SPEGNE da solo — perché è quella la differenza fra uno
-  // stato e una nota.
-  const retired = (id: string) =>
-    db.prepare("SELECT preview_retired_at AS at, preview_retired_reason AS why FROM tasks WHERE id = ?").get(id) as
-      { at: string | null; why: string | null };
-
-  test("ritirare l'anteprima toglie l'immagine E scrive il motivo sulla card", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "consegna con evidenza falsa" });
-    const shot = png("schermata.png", 1440, 760);
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: shot } });
-    expect(preview(t.id)).toBe(shot);
-
-    const dopo = s.retirePreview({ taskId: t.id, reason: "identica a quella di altre 12 card" });
-    expect(preview(t.id)).toBeNull();
-    expect(dopo.previewImage).toBeNull();
-    expect(dopo.previewRetiredAt).not.toBeNull();
-    expect(dopo.previewRetiredReason).toBe("identica a quella di altre 12 card");
-    expect(retired(t.id).why).toBe("identica a quella di altre 12 card");
-  });
-
-  test("un'anteprima NUOVA spegne il ritiro: lo stato non sopravvive al fatto", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "riconsegna" });
-    s.retirePreview({ taskId: t.id, reason: "placeholder, non evidenza" });
-    expect(retired(t.id).at).not.toBeNull();
-
-    const buona = png("vera.png", 1440, 760);
-    const dopo = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: buona } });
-    expect(dopo.previewImage).toBe(buona);
-    expect(dopo.previewRetiredAt).toBeNull();
-    expect(dopo.previewRetiredReason).toBeNull();
-  });
-
-  test("anche l'adozione automatica dal commento di consegna spegne il ritiro", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "consegna via allegato" });
-    s.retirePreview({ taskId: t.id, reason: "503, non evidenza" });
-    const buona = png("consegnata.png", 1440, 760);
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [buona] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe(buona);
-    expect(retired(t.id).at).toBeNull();
-  });
-
-  // Azzerare a mano NON è un ritiro: chi toglie l'immagine senza dare un motivo
-  // non sta dicendo «era falsa», e la card non deve inventarsi una spiegazione.
-  test("azzerare l'anteprima con una stringa vuota non accende nessuno stato", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "ripensamento" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: png("a.png", 1440, 760) } });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: "" } });
-    expect(preview(t.id)).toBeNull();
-    expect(retired(t.id).at).toBeNull();
-  });
-
-  test("un .svg allegato al commento di consegna DIVENTA l'anteprima della card", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "piano di migrazione" });
-    const diagram = svg("piano.svg", 900, 420);
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna: lo schema del piano", media: [diagram] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe(diagram);
-    expect(s.get(t.id)!.task.previewImage).toBe(diagram); // e arriva fino al client
-  });
-
-  test("un'immagine più alta che larga (h/w > 0.7) non viene promossa e lascia una nota", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "piano fotografato" });
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [png("intero-piano.png", 1200, 4000)] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-
-    expect(preview(t.id)).toBeNull();
-    expect(notes(t.id)[0]).toContain("1200×4000");
-    expect(notes(t.id)[0]).toContain("DIAGRAMMA");
-  });
-
-  test("il rifiuto NON blocca la consegna: il task resta in review, l'allegato nel thread", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "piano fotografato" });
-    const tall = png("alta.png", 1000, 3000);
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
-    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-
-    expect(after.status).toBe("review");
-    const thread = s.get(t.id)!.comments;
-    expect(thread.some((c) => (c.media ?? []).includes(tall))).toBe(true);
-  });
-
-  test("la nota non si ripete: la promozione ripassa dallo stesso file a ogni commento", () => {
-    // Clock che avanza: la promozione legge i commenti ORDER BY created_at DESC,
-    // e con timestamp identici l'ordine è arbitrario (visto: il test passava da
-    // solo e cadeva nella suite intera).
-    const clock = { t: Date.parse("2026-08-10T09:00:00.000Z") };
-    let k = 0;
-    const s = createTaskService(db, { now: () => new Date(clock.t).toISOString(), uuid: () => `dgn-${++k}` });
-    const t = s.create({ projectId: PID, text: "piano" });
-    const tall = png("alta.png", 800, 2400);
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
-    clock.t += 60_000;
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    clock.t += 60_000;
-    s.addComment({ taskId: t.id, author: "claude", content: "e ancora", media: [tall] });
-    expect(notes(t.id).length).toBe(1);
-    // Un file DIVERSO è un rifiuto diverso, e quello si dice.
-    clock.t += 60_000;
-    s.addComment({ taskId: t.id, author: "claude", content: "un'altra", media: [png("alta2.png", 800, 2400)] });
-    expect(notes(t.id).length).toBe(2);
-  });
-
-  test("appena sotto la soglia passa: il gate taglia il documento fotografato, non il quasi-quadrato", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "un pannello" });
-    const ok = png("pannello.png", 1000, 690); // 0.69
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [ok] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe(ok);
-    expect(notes(t.id)).toEqual([]);
-  });
-
-  test("forma non misurabile (un video, un formato che non si legge) ⇒ si promuove lo stesso", () => {
-    const s = mk();
-    const t = s.create({ projectId: PID, text: "comportamento" });
-    const clip = write("clip.webm", Buffer.alloc(2048)); // nessun header leggibile
-    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [clip] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe(clip);
-  });
-
-  test("anteprima byte-identica a quella di un altro task: SEGNALE, non blocco", () => {
-    const s = mk();
-    const a = s.create({ projectId: PID, text: "il primo task" });
-    const b = s.create({ projectId: PID, text: "il secondo task" });
-    const one = svg("uno.svg", 600, 300);
-    const clone = write("due.svg", readFileSync(one)); // stesso contenuto, altro path
-
-    s.update({ taskId: a.id, actor: "agent", by: "claude", patch: { previewImage: one } });
-    const after = s.update({ taskId: b.id, actor: "agent", by: "claude", patch: { previewImage: clone } });
-
-    expect(after.previewImage).toBe(clone);      // messa comunque: è un segnale
-    expect(notes(b.id)[0]).toContain("IDENTICA");
-    expect(notes(b.id)[0]).toContain(a.id);
-    expect(notes(a.id)).toEqual([]);             // il primo non c'entra niente
-  });
-
-  test("anteprime diverse: nessun rumore nel thread", () => {
-    const s = mk();
-    const a = s.create({ projectId: PID, text: "primo" });
-    const b = s.create({ projectId: PID, text: "secondo" });
-    s.update({ taskId: a.id, actor: "agent", by: "claude", patch: { previewImage: svg("a.svg", 600, 300) } });
-    s.update({ taskId: b.id, actor: "agent", by: "claude", patch: { previewImage: svg("b.svg", 640, 300) } });
-    expect(notes(b.id)).toEqual([]);
-  });
-});
-
-/**
- * L'esito di un land è un FATTO, e lo stato della card lo deve dire in ENTRAMBI
- * i versi. Misurato l'11/08: land fallito → card in `done` col codice fuori da
- * main; land riuscito → card `in_progress` con un agente sopra a rifarlo.
- */
-describe("settleLanded / verdetto testimoniato", () => {
-  let db: Database; let svc: TaskService;
-  beforeEach(() => { db = freshDb(); svc = createTaskService(db); });
-
-  const nuovo = (patch = "") => {
-    const t = svc.create({ projectId: "pX", text: "feature" });
-    if (patch) db.prepare(`UPDATE tasks SET ${patch} WHERE id = ?`).run(t.id);
-    return t.id;
-  };
-
-  test("una card viva chiusa dal land: done, chip spento, e la riga di storico dice perché", () => {
-    const id = nuovo("status = 'in_progress', dispatch_state = 'working'");
-    const after = svc.settleLanded({ taskId: id, by: "system", reason: "il land è riuscito: il codice è su main" });
-    expect(after?.status).toBe("done");
-    // Il chip spento è ciò che toglie la card dalla presa del dispatcher.
-    expect(after?.dispatchState).toBe(null);
-    const ev = svc.get(id)!.comments.filter((c) => c.kind === "status").at(-1)!;
-    expect(ev.author).toBe("system");
-    expect(ev.content).toContain("il codice è su main");
-  });
-
-  test("su una card già chiusa e ferma non scrive NIENTE: nessuna riga done→done", () => {
-    const id = nuovo("status = 'done'");
-    const before = svc.get(id)!.comments.length;
-    svc.settleLanded({ taskId: id, by: "system", reason: "x" });
-    expect(svc.get(id)!.comments.length).toBe(before);
-    expect(svc.get(id)!.task.status).toBe("done");
-  });
-
-  test("una card chiusa ma col chip ANCORA acceso si ripulisce, senza una nuova transizione", () => {
-    // Il caso in mezzo: `done` con `dispatch_state` vivo è claimabile-adiacente
-    // e mostra un chip che mente. Si spegne, ma la card non è "ri-chiusa".
-    const id = nuovo("status = 'done', dispatch_state = 'working'");
-    const before = svc.get(id)!.comments.filter((c) => c.kind === "status").length;
-    const after = svc.settleLanded({ taskId: id, by: "system", reason: "x" });
-    expect(after?.dispatchState).toBe(null);
-    expect(svc.get(id)!.comments.filter((c) => c.kind === "status").length).toBe(before);
-  });
-
-  test("chiudere è chiudere: la card non resta «riaperta» sopra un done, e dice CHI l'ha chiusa", () => {
-    // Questa porta scrive `done` a SQL grezzo: senza le due colonne messe a mano
-    // resterebbe `reopened_actor` acceso e `done_actor` vuoto, cioè «riaperta da
-    // attilio» stampato sopra una card chiusa. Uno stato che `update()` non
-    // produce mai.
-    const id = nuovo("status = 'in_progress', dispatch_state = 'working'");
-    db.prepare("UPDATE tasks SET reopened_at = '2026-08-12T00:00:00Z', reopened_by = 'attilio', reopened_actor = 'human' WHERE id = ?").run(id);
-
-    const dopo = svc.settleLanded({ taskId: id, by: "system", reason: "il land è riuscito" })!;
-
-    expect(dopo.status).toBe("done");
-    expect(dopo.reopenedActor).toBeNull();
-    expect(dopo.reopenedAt).toBeNull();
-    expect(dopo.reopenedBy).toBeNull();
-    expect(dopo.doneActor).toBe("system");
-  });
-
-  test("un verdetto umano NON si riscrive a nome del sistema", () => {
-    // La controprova del COALESCE: se una persona aveva già chiuso questa card,
-    // il verdetto è suo. Sovrascriverlo sarebbe la stessa bugia al contrario.
-    const id = nuovo("status = 'done', dispatch_state = 'working', done_actor = 'human'");
-    const dopo = svc.settleLanded({ taskId: id, by: "system", reason: "il land è riuscito" })!;
-    expect(dopo.doneActor).toBe("human");
-  });
-
-  test("un ATTERRAGGIO testimoniato esce dai candidati della passata: non lo si rideduce", () => {
-    const dedotto = nuovo();
-    const visto = nuovo();
-    for (const id of [dedotto, visto]) {
-      svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "c".repeat(40) });
-      db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
-    }
-    svc.recordLandingState({ taskId: dedotto, state: "unlanded", checkedAt: "2026-08-11T00:00:00Z" });
-    svc.recordLandingState({ taskId: visto, state: "landed", checkedAt: "2026-08-11T00:00:00Z", witnessed: true });
-
-    const candidati = svc.listLandingAuditCandidates().map((c) => c.id);
-    expect(candidati).toContain(dedotto);   // dedotto: si può riprovare
-    expect(candidati).not.toContain(visto); // visto: non c'è niente da aggiungere
-  });
-
-  /**
-   * L'ALTRA METÀ DELLA TESTIMONIANZA, e non è simmetrica.
-   *
-   * «È atterrato» è un fatto che non scade: quel contenuto su main ci resta.
-   * «NON è atterrato» è un fatto su un ISTANTE — il land che non è riuscito — e
-   * il giorno dopo qualcuno può aver cherry-piccato quel lavoro a mano. Tenendo
-   * fuori dall'audit anche questo verdetto, l'accusa si congelava: misurate il
-   * 13/08 due card in Done che dicevano «non su main» con il commit di consegna
-   * ANTENATO di main.
-   */
-  test("un MANCATO atterraggio testimoniato torna fra i candidati: il mondo va avanti", () => {
-    const id = nuovo();
-    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "d".repeat(40) });
-    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
-    svc.recordLandingState({ taskId: id, state: "unlanded", checkedAt: "2026-08-11T00:00:00Z", witnessed: true });
-
-    expect(svc.listLandingAuditCandidates().map((c) => c.id)).toContain(id);
-    // La testimonianza resta, ed è giusto: dice ancora CHI ha risposto. A
-    // cadere è solo l'esenzione dal ricontrollo.
-    expect(atterraggio(id).w).toBe(1);
-  });
-
-  test("una CONSEGNA nuova fa cadere la testimonianza: era su un'altra consegna", () => {
-    const id = nuovo();
-    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "a".repeat(40) });
-    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
-    svc.recordLandingState({ taskId: id, state: "landed", checkedAt: "2026-08-11T00:00:00Z", witnessed: true });
-    expect(svc.listLandingAuditCandidates().map((c) => c.id)).not.toContain(id);
-
-    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "b".repeat(40) });
-    expect(svc.listLandingAuditCandidates().map((c) => c.id)).toContain(id);
-  });
-
-  /**
-   * Lo scatto della consegna descrive un lavoro CONSEGNATO. Una card che rientra
-   * in coda non lo sta più consegnando: o è stata rifiutata, o qualcuno l'ha
-   * riaperta per chiedere dell'altro. Tenerlo la fa parlare di un frutto che non
-   * è più suo — e il dispatcher su quel campo ci CHIUDE la card («è già su main»),
-   * quindi la richiesta nuova morirebbe sul commit vecchio senza via d'uscita:
-   * solo una consegna nuova riscrive quel campo, e per consegnare serve il
-   * dispatch che il cancello blocca.
-   */
-  const conConsegna = (stato: string) => {
-    const id = nuovo();
-    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "a".repeat(40) });
-    svc.recordLandingState({ taskId: id, state: "landed", checkedAt: "2026-08-12T00:00:00Z", witnessed: true });
-    db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(stato, id);
-    return id;
-  };
-  const atterraggio = (id: string) =>
-    db.prepare("SELECT landing_state AS s, landing_checked_at AS c, landing_witnessed AS w FROM tasks WHERE id = ?").get(id) as any;
-
-  test("una card riaperta da done torna in coda SENZA la consegna di prima", () => {
-    const id = conConsegna("done");
-    expect(svc.get(id)!.task.deliveryCommit).toBe("a".repeat(40));
-
-    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
-
-    expect(dopo.deliveryCommit).toBeNull();
-    expect(dopo.deliveryBranch).toBeNull();
-    // Il verdetto sull'atterraggio cade col suo commit: senza, il prossimo
-    // giudizio nascerebbe già «visto» su una consegna che non esiste più.
-    expect(atterraggio(id)).toEqual({ s: null, c: null, w: 0 });
-  });
-
-  test("stessa cosa uscendo da review: un rifiuto non lascia in mano il frutto rifiutato", () => {
-    // La stessa strada di `done`, da un'altra porta: chi trascina una card da
-    // Review a Todo sta chiedendo di rifarla, esattamente come chi la riapre.
-    const id = conConsegna("review");
-    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
-    expect(dopo.deliveryCommit).toBeNull();
-    expect(atterraggio(id).w).toBe(0);
-  });
-
-  test("verso done e verso review lo scatto RESTA: è ciò che il reviewer guarda", () => {
-    // La controprova, e non è pedanteria: azzerare qui cancellerebbe la sola
-    // descrizione di ciò che è stato approvato, cioè quello che il land legge.
-    const inReview = conConsegna("review");
-    const approvata = svc.update({ taskId: inReview, actor: "human", by: "attilio", patch: { status: "done" } });
-    expect(approvata.deliveryCommit).toBe("a".repeat(40));
-    expect(atterraggio(inReview).w).toBe(1);
-
-    const chiusa = conConsegna("done");
-    const riletta = svc.update({ taskId: chiusa, actor: "human", by: "attilio", patch: { status: "review" } });
-    expect(riletta.deliveryCommit).toBe("a".repeat(40));
-  });
-
-  test("una card che non è mai stata consegnata non perde niente: il campo era già vuoto", () => {
-    const id = nuovo("status = 'done'");
-    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
-    expect(dopo.deliveryCommit).toBeNull();
-    expect(dopo.status).toBe("todo");
-  });
-});
 
 /**
  * Il segnale «chi lavora questo sottotask» esce da `rowToTask`, cioè da OGNI
@@ -2173,256 +1510,6 @@ describe("subtaskWork: chi lavora un sottotask senza agente suo", () => {
   });
 });
 
-// L'11/08 Attilio: «avevo visto il task fatto nella tab kanban, ora non lo vedo
-// più». Misurato: undici card uscite da `done` in sei ore, nessuna persa — ma la
-// board non lo diceva. Il motivo viveva nel thread; chi guarda la colonna vedeva
-// un buco. Due fatti sulla card, entrambi leggibili dall'API della board: chi ha
-// chiuso (`doneActor`) e che è stata riaperta (`reopened*`).
-describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
-  let db: Database; let s: TaskService;
-  beforeEach(() => { db = freshDb(); s = svc(db); });
-
-  /** Una card chiusa da un UMANO che approva la review (il caso di Attilio). */
-  function doneByHuman(): string {
-    const t = s.create({ projectId: PID, text: "consegna", status: "in_progress" });
-    s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    s.reviewDecision({ taskId: t.id, by: "attilio", decision: "approve" });
-    return t.id;
-  }
-
-  /** Una card `done` senza passare da una review: `create` rifiuta `done` diretto. */
-  function doneByDrag(text: string): { id: string } {
-    const t = s.create({ projectId: PID, text, status: "review" });
-    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "done" } });
-    return { id: t.id };
-  }
-
-  test("chi ha chiuso resta scritto: approvazione umana → 'human', step chiuso dall'agent → 'agent'", () => {
-    const approved = doneByHuman();
-    expect(s.get(approved)!.task.doneActor).toBe("human");
-
-    // Lo step di checklist di un agent: lo chiude lui, non passa da una review.
-    db.run("INSERT INTO topics (id) VALUES ('top-1')");
-    const root = s.create({ projectId: PID, text: "task dell'agent", status: "in_progress" });
-    s.bindTopic({ taskId: root.id, topicId: "top-1" });
-    const step = s.create({ projectId: PID, text: "passo 1", parentTaskId: root.id });
-    s.update({ taskId: step.id, actor: "agent", by: "claude", patch: { status: "done" }, agentTopicId: "top-1" });
-    expect(s.get(step.id)!.task.doneActor).toBe("agent");
-  });
-
-  test("una card che esce da done lo DICE sulla card: reopenedAt/By/Actor, leggibili da get e list", () => {
-    const id = doneByHuman();
-    const before = s.get(id)!.task;
-    expect(before.reopenedAt).toBeNull();
-
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "in_progress" } });
-
-    const after = s.get(id)!.task;
-    expect(after.status).toBe("in_progress");
-    expect(after.reopenedAt).not.toBeNull();
-    expect(after.reopenedBy).toBe("attilio");
-    expect(after.reopenedActor).toBe("human");
-    // …e sulla LISTA della board, che è ciò che disegna la colonna.
-    const listed = s.list({ scope: "project", projectId: PID }).find((t) => t.id === id)!;
-    expect(listed.reopenedAt).toBe(after.reopenedAt);
-    expect(listed.reopenedBy).toBe("attilio");
-    // Chiudere il ciclo azzera il segno: una card di nuovo `done` non è «riaperta».
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "done" } });
-    const redone = s.get(id)!.task;
-    expect(redone.reopenedAt).toBeNull();
-    expect(redone.reopenedBy).toBeNull();
-    expect(redone.doneActor).toBe("human");
-  });
-
-  test("un agent NON riapre un done deciso da un umano (approvazione o trascinamento)", () => {
-    const approved = doneByHuman();
-    expect(() => s.update({ taskId: approved, actor: "agent", by: "claude", patch: { status: "in_progress" } }))
-      .toThrow(/decisione umana/);
-    expect(s.get(approved)!.task.status).toBe("done"); // la card non si è mossa
-    expect(s.get(approved)!.task.reopenedAt).toBeNull(); // e nessuna traccia falsa
-
-    // Stessa cosa per un done messo a mano trascinando sulla board.
-    const dragged = s.create({ projectId: PID, text: "chiusa a mano", status: "review" });
-    s.update({ taskId: dragged.id, actor: "human", by: "attilio", patch: { status: "done" } });
-    expect(() => s.update({ taskId: dragged.id, actor: "agent", by: "claude", patch: { status: "todo" } }))
-      .toThrow(/decisione umana/);
-
-    // L'umano invece riapre sempre: il cancello è sull'agent, non sulla board.
-    expect(s.update({ taskId: approved, actor: "human", by: "attilio", patch: { status: "review" } }).status).toBe("review");
-  });
-
-  test("il proprio sottotask, chiuso dall'agent e mai passato da una review, resta riapribile", () => {
-    db.run("INSERT INTO topics (id) VALUES ('top-2')");
-    const root = s.create({ projectId: PID, text: "task dell'agent", status: "in_progress" });
-    s.bindTopic({ taskId: root.id, topicId: "top-2" });
-    const step = s.create({ projectId: PID, text: "passo 1", parentTaskId: root.id });
-    s.update({ taskId: step.id, actor: "agent", by: "claude", patch: { status: "done" }, agentTopicId: "top-2" });
-
-    const back = s.update({ taskId: step.id, actor: "agent", by: "claude", patch: { status: "in_progress" }, agentTopicId: "top-2" });
-    expect(back.status).toBe("in_progress");
-    // Anche questa riapertura lascia il segno: è comunque una cosa fatta che sparisce.
-    expect(back.reopenedActor).toBe("agent");
-    expect(back.reopenedBy).toBe("claude");
-  });
-
-  test("storico senza prova (done_actor NULL): l'agent la riapre, e la traccia si scrive lo stesso", () => {
-    // Le card chiuse PRIMA della migration che non portano un'approvazione
-    // approvata restano «non si sa». Il cancello le lascia passare di proposito:
-    // murare a posteriori bloccherebbe proprio i sottotask che gli agenti
-    // chiudono da soli. Ciò che NON si perde è il segno — questo è il punto
-    // della card, e vale anche qui.
-    const legacy = doneByDrag("chiusa nel 2025");
-    db.run("UPDATE tasks SET done_actor = NULL WHERE id = ?", [legacy.id]);
-
-    const back = s.update({ taskId: legacy.id, actor: "agent", by: "claude", patch: { status: "todo" } });
-    expect(back.status).toBe("todo");
-    expect(back.reopenedActor).toBe("agent");
-    expect(back.reopenedAt).not.toBeNull();
-  });
-
-  test("anche le porte di SISTEMA lasciano il segno: requeue, attesa dichiarata, consegna forzata", () => {
-    // Non passano da `update()` — scrivono lo status a SQL grezzo. Erano tre
-    // modi di far uscire una card da `done` senza che la board lo dicesse.
-    const requeued = doneByDrag("rimessa in coda");
-    s.release({ taskId: requeued.id, requeue: true, reason: "server ripartito", by: "dispatcher" });
-    const r = s.get(requeued.id)!.task;
-    expect(r.status).toBe("todo");
-    expect(r.reopenedActor).toBe("system");
-    expect(r.reopenedAt).not.toBeNull();
-    expect(r.doneActor).toBeNull();
-
-    const waiting = doneByDrag("in attesa");
-    s.deferForWait({ taskId: waiting.id, reason: "aspetto il server", minutes: 5, by: "claude" });
-    expect(s.get(waiting.id)!.task.reopenedActor).toBe("agent");
-
-    const forced = doneByDrag("consegna di sistema");
-    s.deliverToReviewBySystem({ taskId: forced.id, reason: "tentativi esauriti", cause: "retries_exhausted" });
-    const f = s.get(forced.id)!.task;
-    expect(f.status).toBe("review");
-    expect(f.reopenedActor).toBe("system");
-    expect(f.reopenedBy).toBe("dispatcher");
-  });
-
-  test("il ritiro della MACCHINA non si firma «da te»: attore = permesso, firma = chi", () => {
-    // Il land in conflitto (routes/tasks.ts, ramo "conflict") ritira la card da
-    // `done` con `actor: "human"` — è l'asse dei PERMESSI, l'unico che può
-    // riportare indietro una card chiusa — ma `by: "system"`. Leggendo l'attore,
-    // il chip avrebbe detto «riaperta da te» di una cosa che l'umano non ha
-    // deciso: la stessa bugia che questa card toglie, un livello più giù.
-    const landata = doneByDrag("consegna landata");
-    const back = s.update({
-      taskId: landata.id, actor: "human", by: "system",
-      patch: { status: "in_progress" }, statusReason: "il land ha fatto conflitto con main",
-    });
-    expect(back.reopenedActor).toBe("system");
-    expect(back.reopenedBy).toBe("system");
-  });
-
-  test("una card che NON era done non prende una traccia falsa da nessuna porta", () => {
-    const vivo = s.create({ projectId: PID, text: "mai chiusa", status: "in_progress" });
-    s.update({ taskId: vivo.id, actor: "human", by: "attilio", patch: { status: "todo" } });
-    expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
-    s.release({ taskId: vivo.id, requeue: false, by: "dispatcher" });
-    expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
-    s.deliverToReviewBySystem({ taskId: vivo.id, reason: "boh", cause: "retries_exhausted" });
-    expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
-  });
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // USCIRE DA REVIEW VALE QUANTO USCIRE DA DONE
-  //
-  // Il 12/08 alle 18:26 Attilio ha chiesto un cambio di rotta e ha trascinato
-  // `d6baaf5e` da `review` a `in corso`. Il segno di riapertura si accendeva
-  // solo uscendo da `done`, quindi per il campo nessuno aveva riaperto niente:
-  // il mattino dopo la chiusura automatica del dispatcher ha chiuso la card
-  // sopra la consegna di CINQUE GIORNI prima, e la richiesta è finita
-  // archiviata dentro una card `done`. Il segnale non può dipendere da quale
-  // casella ha attraversato il dito.
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /** Una card in review con una consegna registrata: lo stato di `d6baaf5e`. */
-  function inReviewConConsegna(text: string): string {
-    const t = s.create({ projectId: PID, text, status: "in_progress" });
-    s.addComment({ taskId: t.id, author: "claude", content: "consegnato" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    s.recordDelivery({ taskId: t.id, branch: "topics/x", commit: "f".repeat(40) });
-    return t.id;
-  }
-
-  test.each(["in_progress", "todo", "backlog"] as const)(
-    "trascinata da review a %s: è una riapertura umana, e la consegna vecchia non la segue",
-    (destinazione: "in_progress" | "todo" | "backlog") => {
-      const id = inReviewConConsegna(`review → ${destinazione}`);
-      expect(s.get(id)!.task.deliveryCommit).not.toBeNull();
-
-      s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: destinazione } });
-
-      const after = s.get(id)!.task;
-      expect(after.status).toBe(destinazione);
-      expect(after.reopenedActor).toBe("human");
-      expect(after.reopenedBy).toBe("attilio");
-      expect(after.reopenedAt).not.toBeNull();
-      expect(after.deliveryCommit).toBeNull();
-    },
-  );
-
-  test("il rifiuto in review lascia lo stesso segno: è la quarta uscita umana", () => {
-    const id = inReviewConConsegna("rifiutata");
-    // Un commento umano su una card in review arriva qui come reject-con-testo
-    // (routes/tasks.ts): è LA porta da cui è passato Attilio alle 18:25.
-    const rejected = s.reviewDecision({ taskId: id, by: "attilio", decision: "reject", comment: "cambia rotta" });
-    expect(rejected.status).toBe("in_progress");
-
-    const after = s.get(id)!.task;
-    expect(after.reopenedActor).toBe("human");
-    expect(after.reopenedBy).toBe("attilio");
-    expect(after.deliveryCommit).toBeNull();
-    expect(after.landingState).toBeNull();
-  });
-
-  test("uscire da review non spegne un done_actor che quel salto non tocca", () => {
-    // `done_actor` racconta chi ha CHIUSO. Una card in review non ne ha uno, e
-    // azzerarlo da qui riscriverebbe una decisione presa da un'altra parte.
-    const id = doneByHuman();
-    expect(s.get(id)!.task.doneActor).toBe("human");
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "review" } });
-    expect(s.get(id)!.task.doneActor).toBeNull(); // uscita da done: quello sì
-
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "done" } });
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "review" } });
-    db.run("UPDATE tasks SET done_actor = 'human' WHERE id = ?", [id]);
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
-    expect(s.get(id)!.task.doneActor).toBe("human"); // review → todo non lo tocca
-  });
-
-  test("consegnare di nuovo chiude il ciclo: rientrare in review spegne il segno", () => {
-    const id = inReviewConConsegna("riconsegnata");
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "in_progress" } });
-    expect(s.get(id)!.task.reopenedActor).toBe("human");
-
-    s.addComment({ taskId: id, author: "claude", content: "rifatto" });
-    s.update({ taskId: id, actor: "agent", by: "claude", patch: { status: "review" } });
-    // Il rientro non riaccende il segno su sé stesso…
-    expect(s.get(id)!.task.reopenedActor).toBe("human");
-    s.reviewDecision({ taskId: id, by: "attilio", decision: "approve" });
-    // …e l'approvazione lo spegne: il ciclo si è chiuso.
-    expect(s.get(id)!.task.reopenedAt).toBeNull();
-  });
-
-  test("un rientro in coda deciso dalla MACCHINA non si firma «umano» e tiene la consegna", () => {
-    // È l'altro errore, e costa quanto il primo: la chiusura automatica esiste
-    // proprio per riconoscere il lavoro già atterrato quando una card rientra da
-    // sola (orfana rilasciata). Cancellarle il commit sotto le mani la
-    // spegnerebbe su tutte le strade della macchina.
-    const id = inReviewConConsegna("orfana rilasciata");
-    s.release({ taskId: id, requeue: true, reason: "server ripartito", by: "dispatcher" });
-    const after = s.get(id)!.task;
-    expect(after.status).toBe("todo");
-    expect(after.reopenedActor).toBe("system");
-    expect(after.deliveryCommit).not.toBeNull();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // L'ATTESA DICHIARATA HA UN CONTATORE SUO
@@ -2577,5 +1664,807 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(dopo.dispatchAttempts).toBe(1);  // NON rimborsato: qui il freno serve
     expect(dopo.waitStreak).toBe(0);        // e non era un'attesa
     expect(dopo.waitSince).toBeNull();
+  });
+});
+
+/**
+ * IL COSTO DI UNA LISTA, MISURATO IN STATEMENT E IN BYTE.
+ *
+ * Misurato il 15/08 su `GET /api/all-boards/tasks` contro il database vivo
+ * (2.135 task, 651 MB): 467 radici, 1.435.735 byte, 145 ms. Il mappatore faceva
+ * da 4 a 7 query PER RIGA — etichette, bloccante, topic, dipendenti, stato del
+ * padre, e per ogni card in `todo` due COUNT correlati sull'intera coda — cioè
+ * O(N) statement più O(Q²) scansioni: ~1.500 statement per una lista sola.
+ *
+ * Due cancelli, e sono su due grandezze diverse apposta. Il primo conta gli
+ * STATEMENT: è la forma del guasto (per riga invece che per lotto), e va rosso
+ * il giorno in cui qualcuno rimette una lettura dentro il ciclo, qualunque sia
+ * la sua durata su questa macchina. Il secondo conta i BYTE per task: è il
+ * grasso nuovo, quello che nessun invariante conosce ancora.
+ */
+describe("il costo di una lista non cresce con le righe", () => {
+  /**
+   * Conta le COMPILAZIONI, non le esecuzioni. È la grandezza giusta: una query
+   * dentro il ciclo si vede qui anche quando SQLite se la cava in un
+   * microsecondo, mentre un tempo misurato su questa macchina direbbe cose
+   * diverse su un'altra.
+   *
+   * Si intercetta `prepare` e BASTA: in `bun:sqlite` è `db.query` a chiamarlo
+   * (e a tenersi il risultato in cache per la stessa SQL), quindi contare
+   * entrambi conterebbe due volte ogni `query` e nasconderebbe proprio il
+   * risparmio della cache.
+   */
+  function countStatements<T>(db: Database, run: () => T): { n: number; out: T } {
+    const raw = db.prepare.bind(db);
+    let n = 0;
+    (db as unknown as { prepare: unknown }).prepare =
+      (...a: unknown[]) => { n++; return (raw as unknown as (...x: unknown[]) => unknown)(...a); };
+    try {
+      const out = run();
+      return { n, out };
+    } finally {
+      (db as unknown as { prepare: unknown }).prepare = raw;
+    }
+  }
+
+  /** 300 righe, 100 delle quali radici in coda: la forma del feed vero. */
+  function seed(db: Database, opts: { description?: string; rows?: number } = {}): void {
+    const totale = opts.rows ?? 300;
+    const ins = db.prepare(
+      `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, created_at, updated_at, checks_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const checks = JSON.stringify([
+      { name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 4210, timedOut: false, tail: "x".repeat(600) },
+    ]);
+    for (let i = 0; i < totale; i++) {
+      const status = i < totale / 3 ? "todo" : i < (2 * totale) / 3 ? "review" : "done";
+      ins.run(
+        `t-${i}`, `board-${i % 5}`, `task numero ${i}`, opts.description ?? null,
+        status, i % 5, i, `2026-08-${String((i % 27) + 1).padStart(2, "0")}T10:00:00.000Z`,
+        "2026-08-15T10:00:00.000Z", checks,
+      );
+    }
+  }
+
+  test("300 task, 100 in coda: una lista sta sotto i 25 statement (ne faceva ~1500)", () => {
+    const db = freshDb();
+    const s = svc(db);
+    seed(db);
+    const { n, out } = countStatements(db, () => s.list({ scope: "all", rootsOnly: true }));
+    expect(out.length).toBe(300);
+    expect(n).toBeLessThan(25);
+  });
+
+  test("e non cresce: dieci volte le righe, lo STESSO numero di statement", () => {
+    // La controprova che rende il numero sopra un INVARIANTE e non una soglia
+    // calibrata: stessa forma, dieci volte le righe. Se una lettura tornasse
+    // dentro il ciclo questo conto si moltiplicherebbe, anche lasciando il primo
+    // cancello verde su una board piccola.
+    const piccolo = freshDb(); seed(piccolo, { rows: 30 });
+    const grande = freshDb(); seed(grande, { rows: 300 });
+    const a = countStatements(piccolo, () => svc(piccolo).list({ scope: "all", rootsOnly: true })).n;
+    const b = countStatements(grande, () => svc(grande).list({ scope: "all", rootsOnly: true })).n;
+    expect(b).toBe(a);
+  });
+
+  /**
+   * IL BUDGET IN BYTE, e il numero non è quello che sembrava.
+   *
+   * La descrizione da 2.500 caratteri è la coda misurata sul database vivo
+   * (massimo 5.140 byte, 470 KB sul feed); i `checks` sono l'altra metà del
+   * grasso (217 KB). Nessuno dei due viaggia nella proiezione magra.
+   *
+   * Il tetto è 1.700 e non 700 perché 700 sta SOTTO IL PAVIMENTO: un task con
+   * ogni campo a null pesa già ~1.500 byte, che sono i nomi delle chiavi e i
+   * loro `null`. Il tetto è salito da 1.600 il 16/08, quando le tre colonne
+   * dell'entità della consegna (`deliveryFilesChanged`/`Insertions`/`Deletions`,
+   * migration 20260816174500) hanno aggiunto ~53 byte per task: misurato 1.653.
+   * Rialzato a 1.750 il 18/08, quando `urlProbeStatus` e `urlProbeCheckedAt`
+   * (migration 20260818164410) hanno aggiunto ~40 byte per task: misurato 1.716.
+   * Alzarlo è legittimo SOLO perché il pavimento è cresciuto per una ragione
+   * dichiarata — due campi che la card in review usa per decidere se mostrare
+   * il link all'anteprima viva — e non perché il payload si è ingrassato di
+   * nascosto. La controprova sotto, che è la parte che non si ricalibra, resta
+   * identica. Restano poi due campi che non sono grasso ma contenuto:
+   * l'anteprima (263 byte, ed è ciò che la card disegna) e `queueReason`
+   * (242 byte, la frase che dice perché la card non parte). Sotto i 700 non ci
+   * si arriva accorciando: ci si arriva togliendo chiavi, che è un altro
+   * cambio, con un altro client da avvisare.
+   *
+   * La CONTROPROVA sotto è la parte che non si può ricalibrare: il payload
+   * magro non deve contenere né la descrizione intera né la coda dell'output
+   * dei check, e quella condizione va rossa il giorno in cui uno dei due torna,
+   * qualunque soglia si scriva sopra.
+   */
+  test("proiezione magra: sotto i 1750 byte per task, con descrizioni da 2500 caratteri", () => {
+    const db = freshDb();
+    const s = svc(db);
+    seed(db, { description: "d".repeat(2500) });
+    const magra = s.list({ scope: "all", rootsOnly: true });
+    expect(magra.length).toBe(300);
+    const testo = JSON.stringify({ tasks: magra });
+    expect(testo.length / magra.length).toBeLessThan(1750);
+    // Strutturale: i due pesi che questo cambio toglie non sono nel payload.
+    expect(testo).not.toContain("d".repeat(300));  // la descrizione intera
+    expect(testo).not.toContain("x".repeat(300));  // la coda dei check
+    // E il confronto con la proiezione di prima, che li portava entrambi.
+    // `withDescription` è l'interruttore che resta acceso per le due letture
+    // che il testo intero lo LEGGONO (proposta di collegamento, lista di un
+    // agente): la lista che disegna card non lo accende mai.
+    const grassa = s.list({ scope: "all", rootsOnly: true, withDescription: true });
+    expect(JSON.stringify({ tasks: grassa }).length / grassa.length).toBeGreaterThan(2500);
+  });
+
+  test("la lista porta l'anteprima della descrizione, il dettaglio la porta intera", () => {
+    const db = freshDb();
+    const s = svc(db);
+    seed(db, { description: "d".repeat(2500) });
+    const [primo] = s.list({ scope: "all", rootsOnly: true });
+    expect(primo!.descriptionPreview!.length).toBe(240);
+    expect(primo!.checks).toBeNull();          // fuori dalla proiezione della lista
+    const dettaglio = s.get(primo!.id)!.task;
+    expect(dettaglio.description!.length).toBe(2500);
+    expect(dettaglio.checks!.length).toBe(1);  // il dettaglio li porta
+  });
+});
+
+describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  /**
+   * IL PREDICATO DI AUTORIZZAZIONE ARRIVA FINO A SQL.
+   *
+   * Il feed dell'ospite idratava OGNI task del database — etichette, bloccante,
+   * ragione di coda, commenti — per poi tenere in JS i due condivisi con lui.
+   * Pagava l'intera board per rispondere «due card».
+   */
+  test("`ids` taglia in SQL, e l'insieme VUOTO vale «nessuna riga»", () => {
+    const a = s.create({ projectId: PID, text: "condivisa" });
+    s.create({ projectId: PID, text: "privata" });
+
+    expect(s.list({ scope: "all", rootsOnly: true, ids: [a.id] }).map((t) => t.text)).toEqual(["condivisa"]);
+    // Vuoto = niente, non «nessun filtro»: sbagliare qui vorrebbe dire mostrare
+    // a un ospite l'intera board.
+    expect(s.list({ scope: "all", rootsOnly: true, ids: [] })).toEqual([]);
+    // E si compone con gli altri tagli invece di sostituirli.
+    expect(s.list({ scope: "all", rootsOnly: true, status: "done", ids: [a.id] })).toEqual([]);
+  });
+
+  /**
+   * UNO STATO CHE NON ESISTE È UN ERRORE, NON UNA BOARD VUOTA. Il filtro
+   * arrivava dal query string con un `as any` e finiva in `WHERE status = ?`,
+   * dove non matcha niente: 200 con zero card, cioè una risposta perfettamente
+   * plausibile sopra un refuso.
+   */
+  test("uno stato inesistente è invalid_input, non una lista vuota", () => {
+    s.create({ projectId: PID, text: "c'è" });
+    expect(() => s.list({ scope: "all", status: "in-progress" as never }))
+      .toThrow(TaskServiceError);
+    expect(s.list({ scope: "all", status: "backlog" }).length).toBe(1); // il caso buono resta
+  });
+
+  /**
+   * I COMMENTI DELLA CARD VIAGGIANO CON LA LISTA. Senza, la board apriva un
+   * `GET /api/tasks/:id` per ogni card in review solo per leggere il fondo del
+   * thread — e quel dettaglio carica l'INTERO thread.
+   */
+  /**
+   * LA PAROLA DELL'AGENTE ARRIVA SEMPRE, ANCHE SE E' LONTANA DAL FONDO.
+   *
+   * La finestra `rn <= 3` prendeva le ultime tre righe parlate, e il client poi
+   * scarta le note di macchina per trovare la parola vera. Funziona finche' le
+   * note dopo una consegna sono meno di tre. Non lo sono: dopo ogni ingresso in
+   * review ne arrivano di norma TRE — l'esito dei checks, la nota
+   * sull'anteprima, «Non e' su main: <sha>» — e il riassunto dell'agente esce
+   * dalla finestra prima ancora di partire. Il client filtrava correttamente e
+   * non trovava niente: ripiegava sulle note, e la card apriva con «Non e' su
+   * main», identica su tre card su quattro.
+   *
+   * Misurato il 2026-08-18 sulla board vera: delle 26 card in review/done
+   * lavorate davvero da un agente, 23 avevano il riassunto nel thread e ZERO lo
+   * mostravano. Segnalato: «parecchi task non hanno un commento utile, hanno
+   * soltanto un commento di sistema».
+   */
+  test("recentComments: il riassunto dell'agente entra anche con quattro note di sistema dopo", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    s.addComment({ taskId: t.id, author: "claude", content: "Consegna: ramo topics/x, 5 file +100 -20" });
+    // Le quattro che il sistema scrive davvero dopo ogni consegna.
+    s.addComment({ taskId: t.id, author: "system", content: "L'agent ha lavorato 4 turni…" });
+    s.addComment({ taskId: t.id, author: "system", kind: "review-note", content: "Consegna SENZA anteprima…" });
+    s.addComment({ taskId: t.id, author: "system", content: "**Checks pre-review verdi** su abc1234…" });
+    s.addComment({ taskId: t.id, author: "system", content: "Non è su main: `abc1234` — landa il ramo…" });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true, ids: [t.id] });
+    const testi = card!.recentComments.map((c) => c.content);
+    expect(
+      testi.some((x) => x.startsWith("Consegna: ramo topics/x")),
+      `la parola dell'agente non e' arrivata alla card: ${JSON.stringify(testi)}`,
+    ).toBe(true);
+    // …ed e' la PRIMA: le righe viaggiano dal piu' vecchio al piu' recente.
+    expect(testi[0]!.startsWith("Consegna: ramo topics/x")).toBe(true);
+  });
+
+  /**
+   * UNA DOMANDA DEL SISTEMA E' UNA PAROLA VERA, e non deve essere promossa due
+   * volte ne' scartata: il recinto ```question e' la firma di qualcosa che
+   * aspetta una risposta, ed e' l'unica nota di macchina che tiene ferma la
+   * card. Il predicato SQL deve dire esattamente quello che dice `contorno()`
+   * nel client — se fosse piu' largo, la finestra trasporterebbe righe che il
+   * client scarta e la card resterebbe muta come prima.
+   */
+  test("recentComments: una domanda del sistema conta come parola, una nota no", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    s.addComment({ taskId: t.id, author: "system", content: "```question\nRimetto in coda?\n- Si\n- No\n```" });
+    for (const n of [1, 2, 3, 4]) s.addComment({ taskId: t.id, author: "system", content: `nota ${n}` });
+
+    const testi = s.list({ scope: "all", rootsOnly: true, ids: [t.id] })[0]!.recentComments.map((c) => c.content);
+    expect(testi.some((x) => x.includes("```question"))).toBe(true);
+  });
+
+  test("recentComments: gli ultimi tre PARLATI, senza cronologia né contabilità", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    for (const n of [1, 2, 3, 4]) s.addComment({ taskId: t.id, author: "claude", content: `parola ${n}` });
+    // `status` (transizioni) e `service` (contabilità del dispatcher) non sono
+    // le parole di nessuno: stesso taglio di `isThreadSpeech`.
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { priority: 1 } });
+    s.addComment({ taskId: t.id, author: "system", kind: "service", content: "in coda" });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true });
+    expect(card!.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
+    // E su OGNI payload, anche su quelli che le scritture ribaltano sul WS: un
+    // campo riempito solo in lettura si spegnerebbe al primo giro di WS.
+    const dopoScrittura = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { priority: 3 } });
+    expect(dopoScrittura.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
+  });
+
+  /**
+   * I COMMENTI VIAGGIANO SOLO DOVE LA CARD LI DISEGNA.
+   *
+   * Misurato il 15/08 su `GET /api/all-boards/tasks`: 731 KB di commenti
+   * attaccati a 455 schede su 467, per le 11 in review che li leggono. Il
+   * predicato è lo stesso del client (`showsCardThread`), e il verso conta:
+   * allargarlo qui è peso che non serve, stringerlo è una card muta.
+   */
+  test("fuori dalla review i commenti non partono, e tornano appena la card ci entra", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "todo" });
+    s.addComment({ taskId: t.id, author: "claude", content: "una parola" });
+
+    const inCoda = s.list({ scope: "all", rootsOnly: true })[0]!;
+    expect(inCoda.recentComments).toEqual([]);
+    // Il thread c'è, ed è il dettaglio a portarlo: la lista non lo nasconde,
+    // semplicemente non è lei a doverlo spedire.
+    expect(s.get(t.id)!.comments.map((c) => c.content)).toContain("una parola");
+
+    // Entrare in review fa scrivere al servizio la sua nota di evidenza: la
+    // parola dell'agente è quella davanti, e la nota è la coda del thread.
+    const inReview = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "review" } });
+    expect(inReview.recentComments.map((c) => c.content)).toContain("una parola");
+  });
+
+  /**
+   * IL TESTO È TAGLIATO, MA NON DENTRO UNA ```question.
+   *
+   * Il blocco domanda non è prosa: la card ne ricava i bottoni di risposta
+   * rapida. Tagliato a metà `parseQuestionBlock` torna `null` e la card perde i
+   * bottoni stampando il recinto grezzo, senza che niente diventi rosso.
+   */
+  test("il contenuto viaggia tagliato, e i tre campi sono quelli che la card legge", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    s.addComment({ taskId: t.id, author: "user", content: `chiedo: ${"x".repeat(3000)}` });
+    s.addComment({ taskId: t.id, author: "claude", content: `rispondo: ${"y".repeat(3000)}` });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true });
+    const [contesto, ultima] = card!.recentComments;
+    // L'ultima parola la card la stampa intera: 1.200 caratteri. Quelle prima
+    // stanno in una riga sola già tagliata dal CSS: 200 bastano.
+    expect(ultima!.content.length).toBe(1201);
+    expect(contesto!.content.length).toBe(201);
+    expect(Object.keys(ultima!).sort()).toEqual(["author", "content", "kind"]);
+  });
+
+  test("una ```question più lunga del tetto viaggia INTERA: i bottoni sopravvivono", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    const domanda = `Ho finito.\n${"prosa lunga. ".repeat(90)}\n\`\`\`question\nChe faccio?\n- Vai\n- Fermati\n\`\`\`\ncoda`;
+    expect(domanda.length).toBeGreaterThan(1200);
+    s.addComment({ taskId: t.id, author: "claude", content: domanda });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true });
+    const testo = card!.recentComments[0]!.content;
+    expect(testo).toContain("```question");
+    expect(testo).toContain("- Fermati");
+    // Il recinto è chiuso: è la condizione che `parseQuestionBlock` chiede.
+    expect(testo.split("```").length - 1).toBe(2);
+    // E il taglio c'è comunque: la coda dopo il recinto non viaggia.
+    expect(testo).not.toContain("coda");
+  });
+});
+
+/**
+ * IL LOTTO DEVE DIRE ESATTAMENTE CIÒ CHE DICEVA LA RIGA-PER-RIGA.
+ *
+ * Il rischio di questo cambio non è la lentezza, è il SILENZIO: una query di
+ * lotto che dimentica una colonna, o una `JOIN` che perde la riga senza legame,
+ * non fa fallire niente — spegne un campo su una card, e chi la guarda pensa
+ * che il dato non ci sia. Nessuno dei test sopra lo vedrebbe: guardano un campo
+ * alla volta, quindi coprono i campi a cui qualcuno ha già pensato.
+ *
+ * Qui il confronto è STRUTTURALE, chiave per chiave, fra le due porte che il
+ * lotto ha separato: `list` (proiezione + mappatore a lotti) e `get`
+ * (`SELECT *` + lotto da una riga). L'unica differenza ammessa è dichiarata e
+ * pinzata sotto: `checks`, che la lista non porta apposta.
+ */
+describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () => {
+  /** Il valore che ogni colonna nullable riceve, per tipo: vedi `tuttoPieno`. */
+  const TS = "2026-07-09T09:00:00.000Z";
+
+  /**
+   * Un task con OGNI colonna di `tasks` valorizzata, più tutto ciò che il
+   * mappatore va a cercare FUORI dalla riga: etichette, bloccante, topic,
+   * padre, un figlio aperto, dipendenti e commenti.
+   *
+   * `dispatch_deferred_until` è nel PASSATO di proposito: sul futuro la ragione
+   * di coda porta i minuti che mancano, arrotondati, e le due letture avvengono
+   * a due istanti diversi — un confronto che fallisce una volta su ventimila
+   * non è un cancello, è un rumore.
+   */
+  function tuttoPieno(db: Database, s: TaskService): { id: string; altri: string[] } {
+    db.run("INSERT INTO topics (id, effort) VALUES ('top-1', 'xhigh')");
+    db.run("INSERT INTO agent_profiles (id) VALUES ('ap-1')");
+    const bloccante = s.create({ projectId: PID, text: "prima questo" });
+    const padre = s.create({ projectId: PID, text: "il padre" });
+    const t = s.create({ projectId: PID, text: "tutto pieno", parentTaskId: padre.id });
+    const passo = s.create({ projectId: PID, text: "un passo ancora aperto", parentTaskId: t.id });
+    // Una radice in coda: è l'unica forma per cui la ragione di coda calcola la
+    // FILA, cioè il ramo che il lotto ha riscritto con la ricerca binaria.
+    const inCoda = s.create({ projectId: PID, text: "in coda", status: "todo" });
+    // Un dipendente vivo, così `waitingOnCount` non è zero da entrambe le parti.
+    const dipendente = s.create({ projectId: PID, text: "aspetta il pieno" });
+    db.run("UPDATE tasks SET blocked_by_task_id = ? WHERE id = ?", [t.id, dipendente.id]);
+    for (const label of ["visibile", "bugfix"]) {
+      db.run("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'human', ?)", [t.id, label, TS]);
+    }
+    s.addComment({ taskId: t.id, author: "user", content: "una parola" });
+    s.addComment({ taskId: t.id, author: "claude", content: "un'altra parola" });
+
+    db.run(
+      `UPDATE tasks SET
+         description = ?, status = 'review', priority = 3, kanban_order = 7,
+         assigned_to = 'il-reviewer', fingerprint = 'fp-1', due_date = ?, chat_id = 'chat-1',
+         created_at = ?, completed_at = ?, updated_at = ?, assigned_agent_id = 'ap-1',
+         in_progress_at = ?, archived = 0, assigned_topic_id = 'top-1', claude_task_id = 'ct-1',
+         dispatch_attempts = 2, dispatch_state = 'working', dispatch_error = 'un errore',
+         output_url = 'https://example.invalid/x', plan_first = 1, agent_ms = 1234,
+         agent_tokens = 5678, model = 'claude-opus-5', blocked_by_task_id = ?,
+         reuse_blocker_context = 1, priority_auto = 0, agent_cache_read_tokens = 90,
+         preview_image = '/tmp/x.png', dispatch_deferred_until = ?, delivery_branch = 'topics/x',
+         delivery_commit = 'abc1234', landing_state = 'landed', landing_checked_at = ?,
+         checks_state = 'green', checks_at = ?, checks_commit = 'abc1234', checks_json = ?,
+         delivered_by = 'claude', delivered_reason = 'finito', dispatch_weight = 'heavy',
+         created_by_topic_id = 'top-1', plan_comment_id = 'id-9', done_actor = 'human',
+         reopened_at = ?, reopened_by = 'il-reviewer', reopened_actor = 'human',
+         landing_witnessed = 1, wait_streak = 2, wait_reason = 'aspetto il gate',
+         wait_since = ?, preview_retired_at = ?, preview_retired_reason = 'sostituita',
+         interrupt_claimed_at = ?,
+         -- L'entita' della consegna (migration 20260816174500). Il cancello
+         -- sotto ha preso questa dimenticanza da solo, che e' il motivo per cui
+         -- esiste: senza, lista e dettaglio avrebbero potuto divergere sui tre
+         -- campi nuovi senza che nessuno se ne accorgesse.
+         -- (Niente backtick nei commenti SQL: questo DDL vive in un template
+         -- literal e un backtick apre un'interpolazione JS. Seconda volta oggi.)
+         delivery_files_changed = 7, delivery_insertions = 120, delivery_deletions = 30,
+         -- 20260816214500: da quando la card aspetta una risposta umana.
+         review_at = ?,
+         -- 20260818164410: esito sonda server-side sull'output_url.
+         url_probe_status = 'live', url_probe_checked_at = ?
+       WHERE id = ?`,
+      [
+        // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
+        // conta CARATTERI, `String.slice` conta unità UTF-16: su un'emoji le due
+        // porte tagliavano in due punti diversi, ed è esattamente la forma di
+        // divergenza che questo confronto esiste per prendere.
+        `🎯${"d".repeat(400)}`,
+        TS, TS, TS, TS, TS, bloccante.id, "2020-01-01T00:00:00.000Z",
+        TS, TS, JSON.stringify([{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "ok" }]),
+        TS, TS, TS, TS, TS, TS, t.id,
+      ],
+    );
+    return { id: t.id, altri: [padre.id, passo.id, bloccante.id, inCoda.id, dipendente.id] };
+  }
+
+  test("nessuna colonna resta a NULL: «tutti i campi» è verificato, non promesso", () => {
+    const db = freshDb();
+    const { id } = tuttoPieno(db, svc(db));
+    const riga = db.query("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown>;
+    // Una colonna aggiunta domani entra in questo cancello da sola: se la
+    // migration non la valorizza qui, il confronto sotto non la copre e questo
+    // test lo dice invece di passare in silenzio.
+    expect(Object.entries(riga).filter(([, v]) => v === null).map(([k]) => k)).toEqual([]);
+  });
+
+  test("list() e get() concordano su OGNI chiave, tranne le due dichiarate", () => {
+    const db = freshDb();
+    const s = svc(db);
+    const { id, altri } = tuttoPieno(db, s);
+    const listati = new Map(s.list({ scope: "all" }).map((x) => [x.id, x]));
+
+    for (const each of [id, ...altri]) {
+      const dallaLista = listati.get(each);
+      const dalDettaglio = s.get(each)?.task;
+      expect(dallaLista).toBeDefined();
+      expect(dalDettaglio).toBeDefined();
+      // `checks` e `description` fuori dal confronto e pinzate a parte: sono le
+      // DUE differenze volute fra le due porte, quindi vanno nominate invece
+      // che tollerate. Tutto il resto deve coincidere, campo per campo.
+      const senzaGrasso = { checks: null, description: null };
+      expect({ ...dallaLista!, ...senzaGrasso }).toEqual({ ...dalDettaglio!, ...senzaGrasso });
+    }
+
+    expect(listati.get(id)!.checks).toBeNull();          // la lista non li porta
+    expect(s.get(id)!.task.checks!.length).toBe(1);      // il dettaglio sì
+    // La descrizione: sulla lista solo l'anteprima, sul dettaglio il testo.
+    expect(listati.get(id)!.description).toBeNull();
+    expect(listati.get(id)!.descriptionPreview).toBe(s.get(id)!.task.descriptionPreview);
+    expect(s.get(id)!.task.description!.length).toBe(402); // 400 «d» + l'emoji, che sono due unità UTF-16
+    // E la prova che il confronto ha davvero guardato dei valori, non due
+    // oggetti vuoti che si somigliano.
+    expect(listati.get(id)!.labels.map((l) => l.label)).toEqual(["bugfix", "visibile"]);
+    expect(listati.get(id)!.blockedBy?.text).toBe("prima questo");
+    expect(listati.get(id)!.waitingOnCount).toBe(1);
+    expect(listati.get(id)!.recentComments.length).toBe(2);
+    expect(listati.get(id)!.effort).toBe("xhigh");
+    expect(listati.get(id)!.model).toBe("claude-opus-5");
+  });
+});
+
+describe("bindTopic: una sessione nuova e' un tentativo nuovo", () => {
+  // `dispatch_attempts` frena un agente che gira in tondo DENTRO una
+  // conversazione. Fra un dispatch e l'altro invece restava, e la card
+  // ripartiva su una sessione vergine col budget gia' speso: moriva al primo
+  // turno annunciando di averne fatti quattro. Misurato il 18/08 su `eef64e32`
+  // — tre dispatch, tre topic, e al terzo la sessione aveva DUE messaggi.
+  test("una sessione NUOVA riparte da 1: il turno che comincia conta, quelli di prima no", () => {
+    const db = freshDb(); const s = svc(db);
+    db.prepare("INSERT INTO topics (id) VALUES ('t-uno')").run();
+    db.prepare("INSERT INTO topics (id) VALUES ('t-due')").run();
+    const t = s.create({ projectId: PID, text: "Un task" });
+    s.bindTopic({ taskId: t.id, topicId: "t-uno", freshSession: true });
+    db.prepare("UPDATE tasks SET dispatch_attempts = 4 WHERE id = ?").run(t.id);
+
+    s.bindTopic({ taskId: t.id, topicId: "t-due", freshSession: true });
+
+    expect(s.get(t.id)!.task.dispatchAttempts).toBe(1);
+  });
+
+  test("senza `freshSession` il freno resta dov'e'", () => {
+    // E' il caso della ripresa e del riuso del topic del bloccante: stessa
+    // conversazione, stesso budget. Ed e' anche il primo attacco di un
+    // tentativo normale, che la rivendicazione ha gia' contato.
+    const db = freshDb(); const s = svc(db);
+    db.prepare("INSERT INTO topics (id) VALUES ('t-uno')").run();
+    const t = s.create({ projectId: PID, text: "Un task" });
+    db.prepare("UPDATE tasks SET dispatch_attempts = 3 WHERE id = ?").run(t.id);
+
+    s.bindTopic({ taskId: t.id, topicId: "t-uno" });
+
+    expect(s.get(t.id)!.task.dispatchAttempts, "stessa conversazione, stesso budget").toBe(3);
+  });
+});
+
+// ── re-dispatch: il tentativo muore, la checklist no ─────────────────────
+//
+// Misurato il 18/08 su `eef64e32`: il task era passato a `stellar-weasel` ma
+// i quattro sottotask creati dal topic `groovy-frond` erano rimasti attaccati,
+// tre con status `done` e uno `in_progress`. L'agent nuovo leggeva una
+// checklist di un tentativo morto — tre su quattro falsi positivi — e il
+// quarto mandava il padre in attesa di nessuno (deadlock silenzioso).
+//
+// La prima cura archiviava TUTTO, e curava metà del male facendo l'altra metà:
+// un `done` che descrive lavoro buttato è una bugia e se ne deve andare, ma un
+// aperto è il PIANO — l'unica cosa buona che il tentativo morto lascia — e
+// archiviarlo faceva ripartire il nuovo agente dal foglio bianco.
+//
+// La regola di adesso: i `done` si archiviano, gli aperti cambiano PADRONE
+// (`status` a `todo`, `created_by_topic_id` al topic nuovo), e la nota dice
+// quale dei due è successo a quanti.
+describe("bindTopic: al cambio di topic i `done` si archiviano e gli aperti si ereditano", () => {
+  function setup() {
+    const db = freshDb();
+    db.prepare("INSERT INTO topics (id) VALUES ('topic-a')").run();
+    db.prepare("INSERT INTO topics (id) VALUES ('topic-b')").run();
+    return { db, s: svc(db) };
+  }
+
+  /** Come farebbe il `create_task` MCP reale: la provenienza è del topic vivo. */
+  function daTopic(db: Database, id: string, topic: string, status?: string): void {
+    db.prepare("UPDATE tasks SET created_by_topic_id = ? WHERE id = ?").run(topic, id);
+    if (status) db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, id);
+  }
+  const rigaDi = (db: Database, id: string) =>
+    db.prepare("SELECT archived, status, created_by_topic_id AS topic FROM tasks WHERE id = ?").get(id) as
+      { archived: number; status: string; topic: string | null };
+
+  test("tre `done` e un `in_progress`: i done spariscono, l'aperto resta e passa al topic nuovo", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    const c1 = s.create({ projectId: PID, text: "Step 1", parentTaskId: parent.id });
+    const c2 = s.create({ projectId: PID, text: "Step 2", parentTaskId: parent.id });
+    const c3 = s.create({ projectId: PID, text: "Step 3", parentTaskId: parent.id });
+    const c4 = s.create({ projectId: PID, text: "Step 4", parentTaskId: parent.id });
+    daTopic(db, c1.id, "topic-a", "done");
+    daTopic(db, c2.id, "topic-a", "done");
+    daTopic(db, c3.id, "topic-a", "done");
+    daTopic(db, c4.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    for (const c of [c1, c2, c3]) {
+      expect(rigaDi(db, c.id).archived, `${c.text}: un done buttato non resta a mentire`).toBe(1);
+    }
+    const superstite = rigaDi(db, c4.id);
+    expect(superstite.archived, "l'aperto non si archivia: è il piano").toBe(0);
+    expect(superstite.status, "l'`in_progress` era di un turno che non gira più").toBe("todo");
+    expect(superstite.topic, "cambia padrone: ora è del topic nuovo").toBe("topic-b");
+  });
+
+  test("il piano SOPRAVVIVE: il padre resta con la sua checklist aperta, non col foglio bianco", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Quel che restava da fare", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const aperti = (
+      db.prepare(
+        "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
+      ).get(parent.id) as any
+    ).c;
+    expect(aperti, "lo step resta nella checklist del padre").toBe(1);
+    // E si vede anche dal drawer, non solo a SQL.
+    expect(s.get(parent.id)!.children.map((c) => c.id)).toEqual([step.id]);
+  });
+
+  test("l'agente NUOVO può chiudere lo step ereditato, anche dopo che `release` ha azzerato il legame", () => {
+    // È il deadlock del 18/08 preso di petto. `assigned_topic_id` è stato di
+    // DISPATCH e `release` lo azzera mentre il turno gira ancora: se la
+    // provenienza restasse al topic morto, `isOwnStep` direbbe di no e l'agente
+    // nuovo prenderebbe 409 sul proprio step. È la provenienza a scioglierlo.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step ereditato", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+    // Il dispatcher rilascia il padre mentre il turno di topic-b continua.
+    db.prepare("UPDATE tasks SET assigned_topic_id = NULL, dispatch_state = 'queued' WHERE id = ?").run(parent.id);
+
+    const chiuso = s.update({
+      taskId: step.id, actor: "agent", by: "topic-b",
+      patch: { status: "done" }, agentTopicId: "topic-b",
+    });
+    expect(chiuso.status).toBe("done");
+  });
+
+  test("la nota nel thread dice quale dei due è successo, e a quanti", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const fatto = s.create({ projectId: PID, text: "Step finito", parentTaskId: parent.id });
+    const aperto = s.create({ projectId: PID, text: "Step rimasto a meta", parentTaskId: parent.id });
+    daTopic(db, fatto.id, "topic-a", "done");
+    daTopic(db, aperto.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const nota = s.get(parent.id)!.comments.find((c) => c.author === "system" && c.content.includes("topic-a"));
+    expect(nota, "nota di sistema con il topic vecchio").toBeTruthy();
+    expect(nota!.content).toContain("topic-b");
+    expect(nota!.content, "un archiviato, al singolare").toContain("1 sottotask completato archiviato");
+    expect(nota!.content, "un ereditato, al singolare").toContain("1 sottotask incompleto ereditato");
+    expect(nota!.content, "e QUALE step si eredita, non solo quanti").toContain("- Step rimasto a meta");
+    expect(nota!.content, "lo step archiviato non si rielenca: è cronaca chiusa").not.toContain("- Step finito");
+  });
+
+  test("solo `done`: la nota parla di archiviazione e basta", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const fatto = s.create({ projectId: PID, text: "Solo questo", parentTaskId: parent.id });
+    daTopic(db, fatto.id, "topic-a", "done");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const nota = s.get(parent.id)!.comments.find((c) => c.author === "system" && c.content.includes("topic-a"))!;
+    expect(nota.content).toContain("archiviato");
+    expect(nota.content, "niente eredità: non c'era niente di aperto").not.toContain("ereditat");
+  });
+
+  test("niente sottotask del topic morto: nessuna nota (la board non si sporca per niente)", () => {
+    const { s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre senza step" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const note = s.get(parent.id)!.comments.filter((c) => c.author === "system" && c.content.includes("Sessione cambiata"));
+    expect(note.length, "nessun figlio, nessuna nota").toBe(0);
+  });
+
+  test("senza freshSession (ripresa) non si tocca niente", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Task ripreso" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const child = s.create({ projectId: PID, text: "Step", parentTaskId: parent.id });
+    daTopic(db, child.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a" });
+
+    const r = rigaDi(db, child.id);
+    expect(r.archived ?? 0, "stesso topic: figlio non toccato").toBe(0);
+    expect(r.status, "e nemmeno lo stato: il turno è LO STESSO").toBe("in_progress");
+  });
+
+  test("figli creati da altri topic non vengono toccati, né archiviati né riassegnati", () => {
+    const { db, s } = setup();
+    db.prepare("INSERT INTO topics (id) VALUES ('topic-c')").run();
+    const parent = s.create({ projectId: PID, text: "Task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    const daA = s.create({ projectId: PID, text: "Da topic A", parentTaskId: parent.id });
+    const daC = s.create({ projectId: PID, text: "Da topic C / umano", parentTaskId: parent.id });
+    daTopic(db, daA.id, "topic-a", "in_progress");
+    daTopic(db, daC.id, "topic-c", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const a = rigaDi(db, daA.id);
+    expect(a.status, "il proprio: ereditato").toBe("todo");
+    expect(a.topic).toBe("topic-b");
+    const c = rigaDi(db, daC.id);
+    expect(c.archived, "l'altrui non si archivia").toBe(0);
+    expect(c.status, "e non gli si tocca lo stato").toBe("in_progress");
+    expect(c.topic, "né la provenienza: non è roba del tentativo morto").toBe("topic-c");
+  });
+
+  test("il TASK non è uno step: la sua provenienza non si riscrive mai", () => {
+    // Se il padre stesso portasse `created_by_topic_id = topic-a` (l'ha aperto
+    // un agente su quel topic), il taglio sull'albero se lo prenderebbe e gli
+    // riscriverebbe stato e provenienza: sarebbe il deliverable rimesso in
+    // `todo` da un bind. L'esclusione della radice è quella riga.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre nato da un agente" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    daTopic(db, parent.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const r = rigaDi(db, parent.id);
+    expect(r.status, "il deliverable non torna in todo").toBe("in_progress");
+    expect(r.topic, "e resta figlio di chi l'ha aperto").toBe("topic-a");
+    expect(r.archived).toBe(0);
+  });
+
+  test("la riga di stato la scrive chi sposta: lo step ereditato non cambia colonna da solo", () => {
+    // Ogni altra porta che sposta un task scrive l'evento. Senza, il drawer
+    // dello step (che È navigabile) mostra una colonna cambiata e nessuno che
+    // l'abbia cambiata. Il `from` è quello VERO, come in `resolveParkedChildren`.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step al lavoro", parentTaskId: parent.id });
+    const fermo = s.create({ projectId: PID, text: "Step gia' in todo", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+    daTopic(db, fermo.id, "topic-a", "todo");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const eventiDi = (id: string) =>
+      (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'status'").all(id) as any[])
+        .map((r) => r.content);
+    expect(eventiDi(step.id).join(" "), "in_progress -> todo, scritto").toContain("todo");
+    expect(eventiDi(step.id).length).toBe(1);
+    expect(
+      eventiDi(fermo.id),
+      "gia' in todo: non si e' mosso, e non deve inventarsi un passaggio",
+    ).toEqual([]);
+  });
+
+  test("uno step in `review` non lascia dietro un'approvazione che nessuno puo' piu' chiudere", () => {
+    // `reviewDecision` rifiuta un task che in review non c'e' piu': se la riga
+    // resta `pending`, resta pendente per sempre. È la perdita che la migration
+    // 068 ha dovuto ripulire una volta.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step consegnato", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a");
+    // Il cancello sulla consegna muta vuole il riassunto del turno: e' la
+    // strada vera, e senza non si arriva nemmeno a `review`.
+    s.addComment({ taskId: step.id, author: "topic-a", content: "Fatto, guarda qui." });
+    s.update({
+      taskId: step.id, actor: "agent", by: "topic-a",
+      patch: { status: "review" }, agentTopicId: "topic-a",
+    });
+    const pendenti = () =>
+      (db.prepare(
+        "SELECT COUNT(*) AS c FROM approvals WHERE task_id = ? AND approval_type = 'review' AND status = 'pending'",
+      ).get(step.id) as any).c;
+    expect(pendenti(), "premessa: l'approvazione c'e' davvero").toBe(1);
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    expect(rigaDi(db, step.id).status, "lo step torna lavorabile").toBe("todo");
+    expect(pendenti(), "e l'approvazione e' chiusa, non abbandonata").toBe(0);
+  });
+
+  test("lo step ereditato non porta con se' il parcheggio del tentativo morto", () => {
+    // Le stesse colonne che `resolveParkedChildren` azzera rimettendo in coda un
+    // figlio: un mandato nuovo, non un residuo. Una finestra di rinvio rimasta
+    // sopra vuol dire uno step che dice «in coda» dentro una coda che non lo serve.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step incagliato", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+    db.prepare(
+      "UPDATE tasks SET dispatch_state = 'failed', dispatch_error = 'esploso', " +
+        "dispatch_attempts = 4, dispatch_deferred_until = '2099-01-01T00:00:00.000Z' WHERE id = ?",
+    ).run(step.id);
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const r = db.prepare(
+      "SELECT dispatch_state, dispatch_error, dispatch_attempts, dispatch_deferred_until AS until FROM tasks WHERE id = ?",
+    ).get(step.id) as any;
+    expect(r.dispatch_state).toBe(null);
+    expect(r.dispatch_error).toBe(null);
+    expect(r.dispatch_attempts).toBe(0);
+    expect(r.until, "la finestra di rinvio del tentativo morto non vincola quello nuovo").toBe(null);
+  });
+
+  test("annidati: anche lo step DELLO step cambia padrone, non solo il primo livello", () => {
+    // Il buco che il taglio sui figli diretti lascerebbe: il nipote resterebbe
+    // col topic morto, e sarebbe l'unico che nessuno può chiudere — un livello
+    // più sotto, lo stesso deadlock.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step", parentTaskId: parent.id });
+    const sotto = s.create({ projectId: PID, text: "Sotto-step", parentTaskId: step.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+    daTopic(db, sotto.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    for (const id of [step.id, sotto.id]) {
+      const r = rigaDi(db, id);
+      expect(r.archived).toBe(0);
+      expect(r.status).toBe("todo");
+      expect(r.topic, "a ogni profondità").toBe("topic-b");
+    }
+  });
+
+  test("un aperto appeso a uno step `done` se ne va con lui: non resta a pendere dal vuoto", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const fatto = s.create({ projectId: PID, text: "Step chiuso", parentTaskId: parent.id });
+    const sotto = s.create({ projectId: PID, text: "Sotto-step aperto", parentTaskId: fatto.id });
+    daTopic(db, fatto.id, "topic-a", "done");
+    daTopic(db, sotto.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    expect(rigaDi(db, fatto.id).archived).toBe(1);
+    expect(rigaDi(db, sotto.id).archived, "la cascata se lo porta: il suo passo non esiste più").toBe(1);
+    // E la nota non lo elenca fra gli ereditati.
+    const nota = s.get(parent.id)!.comments.find((c) => c.author === "system" && c.content.includes("Sessione cambiata"))!;
+    expect(nota.content).not.toContain("- Sotto-step aperto");
   });
 });

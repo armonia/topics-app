@@ -86,7 +86,7 @@ function spaceAttentionTier(
 
 /** Separatore dello snapshot: un carattere di controllo che nessun titolo
  *  contiene, così encode/decode è totale. */
-const SEP = '';
+const SEP = '\u0001';
 
 /** Una card della sidebar: un gruppo, con quello che serve per disegnarlo. */
 export interface SpaceCard {

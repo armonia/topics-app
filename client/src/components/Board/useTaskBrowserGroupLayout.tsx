@@ -71,6 +71,14 @@ export interface TaskDrawerLayoutInput {
    * chi sta guardando il task dall'altro dispositivo.
    */
   threadInline?: boolean;
+  /**
+   * «Apri nel progetto» sul tasto destro di UNA tab del task.
+   *
+   * Il hook non sa niente di progetti: sa solo che una pane `browser:<ctx>` ha
+   * un url. Chi promuove è il drawer, che ha il progetto della card e la porta
+   * per aprirlo — qui passa solo il paneId su cui si è premuto.
+   */
+  openPaneInProject?: (paneId: string) => void;
 }
 
 export interface TaskBrowserGroupLayout {
@@ -115,6 +123,7 @@ export interface TaskBrowserGroupLayout {
      *  porta `?task=<id>` e chi lo apre torna QUI (apre il task) invece di
      *  cercare una pane che nessuna superficie possiede. */
     linkContext: { taskId: string };
+    onOpenPaneInProject?: (paneId: string) => void;
     nonClosablePaneIds: Set<string>;
     onActivatePane: (groupId: string, paneId: string) => void;
     onClosePane: (groupId: string, paneId: string) => void;
@@ -133,7 +142,7 @@ export interface TaskBrowserGroupLayout {
 }
 
 export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayoutInput): TaskBrowserGroupLayout {
-  const { planActive, mediaPaths, renderSurface, threadInline = false } = input;
+  const { planActive, mediaPaths, renderSurface, threadInline = false, openPaneInProject } = input;
   const tabsState = useTaskBrowserTabs(taskId);
   const persisted = usePersistedTaskLayout(taskId);
 
@@ -307,6 +316,7 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
       focusedGroupId: view.focusedGroupId,
       dndScope: `task:${taskId}`,
       linkContext: { taskId },
+      onOpenPaneInProject: openPaneInProject,
       nonClosablePaneIds,
       onActivatePane,
       onClosePane,

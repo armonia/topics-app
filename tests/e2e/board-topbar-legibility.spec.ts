@@ -42,6 +42,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
@@ -54,18 +55,6 @@ const STAMP = Date.now();
 const ROOT = `/tmp/e2e-topbar-${STAMP}`;
 const PROJECTS = ["alfa", "beta", "gamma", "delta"] as const;
 const dirOf = (name: string) => `${ROOT}/${name}`;
-
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 
 const topicIds: string[] = [];
 const createdTasks: string[] = [];
@@ -436,8 +425,29 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     // review 1 · in corso 1 · in coda 1 (il «todo» seminato nel beforeAll).
     await expect(conteggi).toHaveText("111");
     // I due chiusi non sono fra gli aperti, ma il dettaglio c'è nel tooltip.
-    await expect(chipAlfa).toHaveAttribute("title", /Review: 1/);
-    await expect(chipAlfa).toHaveAttribute("title", /Done: 2/);
+    // NON un `title` nativo: quello lo disegna il sistema operativo, arriva
+    // dopo oltre un secondo e sta su una riga sola. Ora è un componente, e il
+    // test lo apre davvero col mouse invece di leggere un attributo.
+    await expect(chipAlfa).not.toHaveAttribute("title", /./);
+    await chipAlfa.hover();
+    const tip = page.getByTestId("app-tooltip");
+    await expect(tip).toBeVisible({ timeout: 3000 });
+    await expect(tip).toContainText("Review: 1");
+    await expect(tip).toContainText("Done: 2");
+    // La LOCATION del progetto: è ciò che distingue due progetti con lo stesso
+    // nome, e nel tooltip vecchio non c'era proprio. I progetti di test stanno
+    // in /tmp, quindi qui `homeTilde` non accorcia niente e il path esce intero:
+    // va bene, l'asserzione è che il percorso CI SIA.
+    await expect(tip).toContainText(dirOf(PROJECTS[0]));
+    // Sta dentro la finestra: un tooltip mezzo fuori schermo non si legge.
+    const box = await tip.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(1440);
+    // E se ne va da solo quando il mouse esce: un tooltip appiccicato copre
+    // la board.
+    await page.mouse.move(720, 700);
+    await expect(tip).toBeHidden({ timeout: 3000 });
 
     // 2. Lo stesso conteggio, con la stessa forma, dentro il menu «Progetto».
     await page.getByTestId("filter-project-chip").click();
@@ -471,6 +481,113 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       await expect(pannello.getByText(titolo, { exact: true })).toBeVisible();
     }
     await page.screenshot({ path: join(SHOTS, "impostazioni-sezioni.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
+  });
+
+  test("TOPBAR-11: chi sta per pubblicare legge che la release esce a tutti", async ({ page }) => {
+    // Su questo repo main e' spedito: il push fa scattare la CI e, se e' verde,
+    // gli installer arrivano all'auto-updater di chiunque abbia Topics aperta.
+    // Il pannello elencava i commit e offriva «Pubblica» senza dirlo: chi
+    // premeva decideva una pubblicazione che nessuna schermata nominava.
+    await stubProbes(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Il gradino «da pubblicare» legge questa rotta: senza un progetto avanti
+    // la riga non deve comparire, quindi per vederla serve dichiararne uno.
+    await page.route((url) => url.pathname.endsWith("/all-boards/publish-status"), (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          projects: [{
+            projectId: "topics-app", name: "topics-app", branch: "main", ahead: 3,
+            commits: [{ hash: "abc1234", subject: "cancello CI prima della release", author: "jarvis", when: "2h fa" }],
+          }],
+        }),
+      }));
+
+    await page.getByTestId("delivery-badge").click();
+    const riga = page.getByTestId("publish-consequence");
+    await expect(riga).toBeVisible();
+    // Nomina CHI la riceve: «pubblica il ramo» sarebbe vero e inutile.
+    await expect(riga).toContainText(/tutti/i);
+
+    // E sta SOPRA il bottone: una conseguenza scritta sotto il gesto si legge
+    // dopo averlo fatto.
+    const yRiga = (await riga.boundingBox())!.y;
+    const yBottone = (await page.getByRole("button", { name: "Pubblica" }).first().boundingBox())!.y;
+    expect(yRiga).toBeLessThan(yBottone);
+
+    // E deve essere LEGGIBILE: un avviso ambra su fondo chiaro e' esattamente
+    // il posto dove il contrasto se ne va, e un avviso che non si legge non e'
+    // un avviso. Misurato contro il colore davvero dipinto dietro (un antenato
+    // con sfondo cambia il risultato), non contro quello del foglio di stile.
+    const contrasto = await riga.evaluate((el) => {
+      // I colori dell'app sono in oklch: una regex sui numeri li legge come se
+      // fossero rgb e restituisce un contrasto inventato (la prima stesura di
+      // questo caso diceva 11.7 su un ambra chiaro dipinto su bianco, e
+      // passava). L'unico modo onesto e' farli dipingere al browser e rileggere
+      // i pixel: spazio colore, alpha e composizione li fa chi li disegna.
+      const dipingi = (colore: string, sotto?: string) => {
+        const c = document.createElement("canvas"); c.width = c.height = 1;
+        const g = c.getContext("2d")!;
+        if (sotto) { g.fillStyle = sotto; g.fillRect(0, 0, 1, 1); }
+        g.fillStyle = colore; g.fillRect(0, 0, 1, 1);
+        const d = g.getImageData(0, 0, 1, 1).data;
+        return [d[0], d[1], d[2]];
+      };
+      const canale = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      const lum = (p: number[]) =>
+        0.2126 * canale(p[0] / 255) + 0.7152 * canale(p[1] / 255) + 0.0722 * canale(p[2] / 255);
+      // Lo sfondo e' quello davvero dipinto dietro: un antenato con background
+      // cambia il risultato, quindi si risale finche' non se ne trova uno opaco.
+      let sfondo = "rgb(255,255,255)";
+      for (let n: Element | null = el; n; n = n.parentElement) {
+        const c = getComputedStyle(n).backgroundColor;
+        if (c && c !== "transparent" && !c.startsWith("rgba(0, 0, 0, 0)")) { sfondo = c; break; }
+      }
+      const bg = dipingi(sfondo);
+      const fg = dipingi(getComputedStyle(el).color, sfondo);
+      const l = [lum(fg), lum(bg)].sort((x, y) => y - x);
+      return { rapporto: (l[0] + 0.05) / (l[1] + 0.05), fg, bg };
+    });
+    expect(contrasto.rapporto, "l'avviso di pubblicazione deve reggere WCAG AA su testo piccolo").toBeGreaterThanOrEqual(4.5);
+
+    await page.screenshot({ path: join(SHOTS, "pubblica-conseguenza.png"), clip: { x: 0, y: 0, width: 1440, height: 460 } });
+  });
+
+  test("TOPBAR-10: il freno di QUESTA board sta nelle sue impostazioni, non fra le globali", async ({ page }) => {
+    // Il pannello ha due leve che si somigliano e non sono la stessa cosa:
+    // l'auto-dispatch GLOBALE (vale per tutte) e la pausa di questa board. Se
+    // finissero nella stessa sezione, la seconda si leggerebbe come un doppione
+    // della prima — che e' il difetto che questo pannello evita di proposito
+    // tenendo la sezione «Vale per tutte le board» separata dal resto.
+    await stubProbes(page, { running: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    await page.getByTitle("Impostazioni auto-dispatch").click();
+
+    const pannello = page.getByTestId("board-settings-panel");
+    await expect(pannello).toBeVisible();
+    const pausa = page.getByTestId("board-dispatch-paused");
+    await expect(pausa).toBeVisible();
+
+    // Nasce NON in pausa: nessuna board si mette in pausa da sola.
+    await expect(pausa).not.toBeChecked();
+
+    // E sta sotto «Come lavora l'agente», non sotto le globali: si misura la
+    // POSIZIONE, perche' e' la posizione a dire di chi e' la leva.
+    const globali = pannello.getByText("Vale per tutte le board", { exact: true });
+    const agente = pannello.getByText("Come lavora l'agente", { exact: true });
+    const yGlobali = (await globali.boundingBox())!.y;
+    const yAgente = (await agente.boundingBox())!.y;
+    const yPausa = (await pausa.boundingBox())!.y;
+    expect(yPausa).toBeGreaterThan(yGlobali);
+    expect(yPausa).toBeGreaterThan(yAgente);
+
+    await page.screenshot({ path: join(SHOTS, "board-pausa.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
   });
 
   test("TOPBAR-07: audit di layout alle tre larghezze (niente overflow, niente sovrapposizioni)", async ({ page }) => {

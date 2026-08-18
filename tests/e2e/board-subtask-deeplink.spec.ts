@@ -25,23 +25,13 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-subdeep-${Date.now()}`;
 
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const EPICA = "Rifare la scheda prodotto";
@@ -154,7 +144,10 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     await expect(drawer.getByText(STEP, { exact: true })).toBeVisible({ timeout: 10000 });
     // Il drawer è DAVVERO quello dello step, non l'epica con un titolo simile:
     // il link copiabile è l'identità del task che ha sotto.
-    await drawer.getByTestId("task-copy-link").click();
+    // Il link non è più un'icona a catena nella testata: vive dentro il
+    // pannello di condivisione, che è l'unico posto dove si chiede un link.
+    await drawer.getByTestId("share-control").click();
+    await page.getByTestId("share-copy-link").click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
       .toBe(`${BASE}/task/${step.id}`);

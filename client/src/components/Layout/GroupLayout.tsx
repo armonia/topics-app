@@ -112,6 +112,9 @@ interface GroupLayoutProps {
    * vedi TabLinkContext, che spiega perché non è un campo del Pane.
    */
   linkContext?: TabLinkContext;
+  /** «Apri nel progetto» sul tasto destro di una tab: la cabla il drawer del
+   *  task, e senza di lei la voce non esiste. Inoltrata a ogni PaneTabBar. */
+  onOpenPaneInProject?: (paneId: string) => void;
   /**
    * UN NODO DA OSPITARE IN TESTA ALLA PRIMA BARRA.
    *
@@ -193,7 +196,7 @@ export function GroupLayout({
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, onContextRingClick, onStopStreaming,
-  onSettings, onPopOut, onPinPane, onToggleFissato, isFissato, projectPinKey, onRenameChat, onRenameBrowser, nonClosablePaneIds, linkContext,
+  onSettings, onPopOut, onPinPane, onToggleFissato, isFissato, projectPinKey, onRenameChat, onRenameBrowser, nonClosablePaneIds, linkContext, onOpenPaneInProject,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1016,6 +1019,7 @@ export function GroupLayout({
             tabNotifications={groupNotifications}
             nonClosablePaneIds={nonClosablePaneIds}
             linkContext={linkContext}
+            onOpenPaneInProject={onOpenPaneInProject}
           />
           </div>
         </div>
@@ -1246,6 +1250,7 @@ export function GroupLayout({
               tabNotifications={notifications}
               nonClosablePaneIds={nonClosablePaneIds}
               linkContext={linkContext}
+              onOpenPaneInProject={onOpenPaneInProject}
             />
           </div>
         </div>

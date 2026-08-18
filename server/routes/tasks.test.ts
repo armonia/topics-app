@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
@@ -13,79 +13,7 @@ import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schem
 // label cannot leave the note pointing at something the user cannot find.
 // Aliased: `t` is already a local name for a task in half this file.
 import { t as label } from "../../client/src/lib/i18n";
-
-function freshDb(): Database {
-  const db = new Database(":memory:");
-  db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
-  db.run(TASKS_DDL);
-  db.run(TASKS_FK_STUBS_DDL);
-  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
-  db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
-  db.run(`CREATE TABLE board_settings (
-    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
-    require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
-    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
-    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
-    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
-    dispatch_auto_merge INTEGER NOT NULL DEFAULT 0,
-    max_agents_auto INTEGER, review_checks TEXT
-  )`);
-  db.run(`CREATE TABLE task_comments (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
-  )`);
-  db.run(`CREATE TABLE approvals (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
-    approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
-    rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
-    reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
-  )`);
-  return db;
-}
-
-// Faithful copy of server/utils.ts:matchRoute (length-strict, decodes params).
-function matchRoute(pathname: string, pattern: string): Record<string, string> | null {
-  const pp = pattern.split("/"), xp = pathname.split("/");
-  if (pp.length !== xp.length) return null;
-  const params: Record<string, string> = {};
-  for (let i = 0; i < pp.length; i++) {
-    if (pp[i].startsWith(":")) params[pp[i].slice(1)] = decodeURIComponent(xp[i]);
-    else if (pp[i] !== xp[i]) return null;
-  }
-  return params;
-}
-
-// Map known session keys → project path, so resolveSession takes the topic branch.
-// `topicId` feeds the own-steps carve-out (agent may close subtasks of the task
-// bound to its topic).
-const SESSIONS: Record<string, { projectPath: string; name: string; topicId?: string }> = {
-  s1: { projectPath: "/proj/one", name: "topic-one", topicId: "top-s1" },
-  s2: { projectPath: "/proj/two", name: "topic-two" },
-  // A catch-all ("generale") dispatch: the topic's cwd is a per-task private dir
-  // that maps to NO real board — the agent's own task lives on a different
-  // project_id, reachable only via assigned_topic_id.
-  sCatch: { projectPath: "/home/.openclaw/workspace/tasks/abc123", name: "generale-agent", topicId: "top-catch" },
-};
-
-function makeCtx(db: Database, broadcasts: any[]) {
-  return {
-    db,
-    json: (data: any, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
-    readJSON: (req: Request) => req.json(),
-    matchRoute,
-    broadcastToAll: (m: any) => { broadcasts.push(m); },
-    getTopicBySessionKey: (sk: string) => (SESSIONS[sk] ? ({ id: SESSIONS[sk].topicId, projectPath: SESSIONS[sk].projectPath, name: SESSIONS[sk].name } as any) : null),
-  } as unknown as AppContext;
-}
-
-function call(router: any, method: string, path: string, body?: any) {
-  const init: RequestInit = { method };
-  if (body !== undefined) init.body = JSON.stringify(body);
-  const req = new Request(`http://x${path}`, init);
-  return router(req, new URL(req.url), new URL(req.url).pathname, method) as Promise<Response | null>;
-}
+import { freshDb, makeCtx, call, SESSIONS, matchRoute } from "./tasks-test-support";
 
 describe("tasks router (session-scoped)", () => {
   let db: Database; let broadcasts: any[]; let router: any;
@@ -758,9 +686,39 @@ describe("board router (human, project-scoped)", () => {
   test("un progetto creato per nome nasce nella CARTELLA DEI PROGETTI, non nel workspace", async () => {
     const { mkdtempSync, mkdirSync, existsSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const ws = mkdtempSync(join(tmpdir(), "tasks-router-ws-"));
-    const home = mkdtempSync(join(tmpdir(), "tasks-router-home-"));
+    const { join, resolve } = await import("node:path");
+    // LA HOME FINTA NON PUO' STARE IN UNA DOT-DIR, e sceglierla e' meta' del
+    // test. La regola che si verifica SCARTA le cartelle nascoste (un progetto
+    // creato a mano non nasce in una dot-dir, ed e' cosi' che
+    // `~/.topics/worktrees` non vince la conta): una radice con un segmento che
+    // inizia per punto fa fallire il test denunciando il codice GIUSTO.
+    //
+    // Due candidati sbagliati, tutti e due gia' costati un rosso:
+    //  · `tmpdir()` — con `TMPDIR` dentro una dot-dir (`~/.jcode/scratch` su
+    //    questa macchina) la home finta e' nascosta in partenza;
+    //  · ACCANTO AL REPO — che era la correzione precedente, e funziona solo
+    //    nel checkout principale. Nel worktree di un agente il repo VIVE sotto
+    //    `~/.topics/worktrees/<repo>/<ramo>`: la radice nasce nascosta, la
+    //    deduzione ricade sul workspace e il test e' rosso. Misurato il 18/08 in
+    //    tre worktree diversi, su rami diversi: sempre rosso li', sempre verde
+    //    nel checkout principale. Costo vero: la barra di review di OGNI agente
+    //    portava questo rosso, e chi consegnava lo trovava addosso senza
+    //    averlo causato.
+    //
+    // Quindi la radice si SCEGLIE e si VERIFICA: il primo candidato senza
+    // segmenti nascosti vince, e se non ce n'e' nessuno il test lo dice invece
+    // di misurare l'ambiente.
+    const nascosta = (p: string) => p.includes("/.");
+    const candidati = [resolve(import.meta.dir, "../.."), tmpdir(), "/tmp"];
+    const radice = candidati.find((c) => !nascosta(c));
+    if (!radice) throw new Error(
+      `nessuna radice senza segmenti nascosti fra ${candidati.join(", ")}: ` +
+      "il test misurerebbe l'ambiente invece della deduzione",
+    );
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tasks-router-ws-"));
+    const visibleRoot = mkdtempSync(join(radice, "tmp-tasks-router-"));
+    const ws = tmpRoot;
+    const home = visibleRoot;
     const projects = join(home, "Projects");
     mkdirSync(join(projects, "alpha"), { recursive: true });
     mkdirSync(join(projects, "beta"), { recursive: true });
@@ -1031,660 +989,6 @@ describe("board settings route", () => {
   });
 });
 
-describe("approve decoupled from landing", () => {
-  let db: Database; let broadcasts: any[];
-  let merges: string[]; let resumed: Array<[string, string]>; let router: any;
-  let stamped: Array<[string, string]>;
-  /** Same router over the same db, with a different landing stamp. */
-  let withStamp: (fn: (taskId: string, verdict: string) => Promise<void>) => any;
-
-  beforeEach(() => {
-    db = freshDb(); broadcasts = []; merges = []; resumed = []; stamped = [];
-    const autoMerge = {
-      tryMerge: async (taskId: string) => { merges.push(taskId); return { status: "nothing" }; },
-      buildClient: async () => ({ code: 0, stderr: "" }),
-    } as any;
-    const dispatcher = {
-      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
-      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
-    } as any;
-    withStamp = (stampLanding) => createTasksRouter(makeCtx(db, broadcasts), dispatcher, { autoMerge, stampLanding });
-    router = withStamp(async (taskId, verdict) => { stamped.push([taskId, verdict]); });
-  });
-
-  async function reviewTask(): Promise<string> {
-    db.run("INSERT INTO topics (id) VALUES ('top-1')");
-    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1', status = 'review' WHERE id = ?").run(t.id);
-    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c1', ?, 'claude', 'consegna', 'comment', ?)")
-      .run(t.id, new Date().toISOString());
-    return t.id;
-  }
-
-  /** The land (and the landing verdict behind it) is fire-and-forget: let the
-   *  microtasks drain before reading what it left behind. */
-  const flushLand = () => new Promise((r) => setTimeout(r, 0));
-  const systemNote = (id: string) => createTaskService(db).get(id)!.comments
-    .filter((c) => c.author === "system").map((c) => c.content).join("\n");
-
-  /** Turns the board switch on: without it, reaching Done does not merge. */
-  const autoMergeOn = () => call(router, "PATCH", "/api/boards/pX/settings", { dispatchAutoMerge: true });
-
-  test("trascinare una card in Done LANDA: `done` deve voler dire atterrato", async () => {
-    // Il land era un'azione a parte, e il gesto piu' naturale — trascinare la
-    // card in Done — chiudeva il lavoro lasciandolo sul suo ramo, in silenzio.
-    // Misurato il 10/08: 17 card chiuse in otto ore col contenuto NON su main.
-    const id = await reviewTask();
-    await autoMergeOn();
-    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
-    await new Promise((r) => setTimeout(r, 0)); // il land e' fire-and-forget
-    expect(merges).toContain(id);
-  });
-
-  test("una card SENZA ramo di consegna non tenta nessun land", async () => {
-    // Il controllo del test qui sopra: una nota chiusa a mano non deve svegliare
-    // git, o ogni gesto sulla board diventerebbe un'operazione sul repo.
-    const id = await reviewTask();
-    await autoMergeOn();
-    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(merges).not.toContain(id);
-  });
-
-  // ── THE BOARD SWITCH, which nobody read on this path ──────────────────────
-  //
-  // Every entry into Done of a card carrying a branch queued a merge: not just
-  // approval, the drag and the "Sposta in" menu too. The comment next to it
-  // claimed the board had already decided via `dispatchAutoMerge`, but the
-  // field was never read. Measured on 13/08 against the live board db: of the
-  // 137 "Mergiato su main" notes, 8 sit on boards whose switch is off today.
-
-  test("auto-merge OFF: Done does not merge, and the card says why", async () => {
-    const id = await reviewTask();   // board pX has no settings row: off by default
-    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
-    await flushLand();
-
-    expect(merges).toEqual([]);
-    // A MUTE closure with the code still on the branch is the 10/08 fault in
-    // its silent form: the note has to name the branch and the way out.
-    const note = systemNote(id);
-    expect(note).toContain("SENZA fondere");
-    expect(note).toContain("topics/x");
-    // Both quoted controls are pinned against the words actually printed next
-    // to them: a note naming a control the reader cannot find gets ignored, and
-    // that is the whole reason this note exists. Rename either label in i18n.ts
-    // and this test falls.
-    expect(note).toContain(label("board.settings.autoMerge", "it"));
-    // `board.action.land` and NOT the retired `board.task.landOnMain`: the
-    // branch that gave every action one word moved the button's text into the
-    // single action table. Reading the dead key made this assertion pass on
-    // nothing, which is how a note could start quoting a control that no longer
-    // says that.
-    expect(note).toContain(label("board.action.land", "it"));
-  });
-
-  test("the skipped-merge note reaches the LIVE card without waiting for git", async () => {
-    // The PATCH broadcasts `task:updated` with the task as it was BEFORE the
-    // note, and `addComment` bumps `updated_at` precisely so a live client
-    // refetches the thread (Card.tsx keys its comment effect on
-    // `task.updatedAt`). Without a broadcast of its own the note exists only in
-    // the db: a closure as mute on screen as the one this code exists to stop.
-    //
-    // The stamp here NEVER RESOLVES, which is what makes this test able to
-    // fail. The landing verdict shells out to git, so the broadcast that
-    // carries the note cannot be the one sitting behind it: a slow repo would
-    // hold the note back for as long as git takes. Wire the note's broadcast
-    // after the await and this goes red.
-    const r = withStamp(() => new Promise<void>(() => { /* git, still thinking */ }));
-    const id = await reviewTask();
-    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    const before = broadcasts.length;
-    await call(r, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
-    await flushLand();
-
-    // Exactly two: the PATCH's own (the task as it was BEFORE the note) and
-    // this one. Drop the note's broadcast and it is one — the hung stamp means
-    // the deferred broadcast behind it never fires, so nothing else can cover.
-    const updates = broadcasts.slice(before).filter((b) => b.type === "task:updated" && b.task?.id === id);
-    expect(updates.length).toBe(2);
-    // And the second is a FRESH read, not a stale copy of the first: its
-    // updatedAt is the one `addComment` just wrote, which is the change signal
-    // the card refetches its thread on.
-    const got = createTaskService(db).get(id)!;
-    expect(updates[1].task.updatedAt).toBe(got.task.updatedAt);
-    expect(got.comments.filter((c) => c.author === "system").at(-1)!.createdAt).toBe(got.task.updatedAt);
-  });
-
-  test("the way out the note names is REACHABLE: the landing verdict is asked for", async () => {
-    // "Landa su main" on a `done` card is drawn by exactly one surface, the
-    // "chiuso ma non su main" banner, behind `landingState === 'unlanded'` —
-    // and `recordDelivery` blanks that column, so it sits at NULL until the
-    // periodic audit runs (LANDING_AUDIT_INTERVAL_MS, 30 min). "ask" is the
-    // house verb for "compute the verdict from the repo now": asserting
-    // `unlanded` outright would be a guess, since the branch may already be in
-    // main by somebody else's hand.
-    const id = await reviewTask();
-    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
-    await flushLand();
-    expect(stamped).toEqual([[id, "ask"]]);
-  });
-
-  test("with the switch ON nothing is skipped: no note, no verdict to ask for", async () => {
-    // The control for the three above: the note and the stamp belong to the
-    // SKIPPED path only. On the merging path `landTask` writes its own outcome.
-    const id = await reviewTask();
-    await autoMergeOn();
-    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
-    await flushLand();
-    expect(merges).toContain(id);
-    expect(systemNote(id)).not.toContain("SENZA fondere");
-  });
-
-  test("the «Landa su main» button merges with the switch off: it is a human's choice", async () => {
-    const id = await reviewTask();
-    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {});
-    await flushLand();
-    expect(merges).toEqual([id]);
-  });
-
-  test("…and so does the «Landa su main» quick reply, switch on or off", async () => {
-    const id = await reviewTask();
-    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: LAND_ACTION_LABEL });
-    await flushLand();
-    expect(merges).toEqual([id]);
-  });
-
-  test("approve accepts the task WITHOUT merging (no azioni da sotto)", async () => {
-    const id = await reviewTask();
-    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "approve" }))!.json();
-    expect(t.status).toBe("done");
-    expect(merges).toEqual([]); // approve no longer merges
-  });
-
-  test("picking the 'Landa su main' option lands, non è un reject, e NON chiude la card in anticipo", async () => {
-    const id = await reviewTask();
-    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: LAND_ACTION_LABEL }))!.json();
-    // `review`, non `done`: la scelta è «landa», e la card la chiude il land
-    // quando main lo conferma. Non è nemmeno un rifiuto (nessun resume).
-    expect(t.status).toBe("review");
-    expect(merges).toEqual([id]);  // e il land parte
-    expect(resumed).toEqual([]);   // NOT resumed as a rejection
-  });
-
-  test("POST /land merges on demand e lascia la card in review finché non è atterrata", async () => {
-    const id = await reviewTask();
-    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!.json();
-    expect(t.status).toBe("review");
-    expect(merges).toEqual([id]);
-  });
-
-  test("un land in CONFLITTO ritira la card da done dicendo perché, e firma la macchina", async () => {
-    // La riga di storico diceva «user → In corso»: identica a quella che scrive
-    // un umano quando ritira una consegna a mano — mentre qui l'umano aveva
-    // cliccato «Landa su main» e il ritiro è del merge. Chi rivede leggeva un
-    // dietrofront senza causa e senza il suo autore vero.
-    db = freshDb(); broadcasts = []; resumed = [];
-    const autoMerge = {
-      tryMerge: async () => ({ status: "conflict" }),
-      buildClient: async () => ({ code: 0, stderr: "" }),
-    } as any;
-    const dispatcher = {
-      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
-      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
-    } as any;
-    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, { autoMerge });
-
-    const id = await reviewTask();
-    await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {});
-    await new Promise((r) => setTimeout(r, 10)); // il land gira fire-and-forget
-
-    const svc = createTaskService(db);
-    const t = svc.get(id)!;
-    expect(t.task.status).toBe("in_progress");     // mai chiusa: mandata a riconciliare
-    const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
-    expect(ev.author).toBe("system");              // non «user»: non l'ha mossa l'umano
-    // `from: "review"` e non più `from: "done"`: il land non approva prima di
-    // atterrare, quindi la card il `done` non lo tocca proprio.
-    expect(parseStatusEvent(ev.content)).toEqual({
-      from: "review", to: "in_progress", reason: "il land ha fatto conflitto con main",
-    });
-    // E l'agent riparte con l'istruzione, come prima.
-    expect(resumed.length).toBe(1);
-    expect(resumed[0]![1]).toContain("conflitto");
-    // L'istruzione dice il gesto GIUSTO: rifare la base del proprio ramo. Diceva
-    // «git merge main, oppure rebase», e il merge non toglieva il conflitto —
-    // tre card ci sono rimaste incastrate finché non gliel'ho spiegato a mano.
-    expect(resumed[0]![1]).toContain("git rebase main");
-    expect(resumed[0]![1]).not.toContain("git merge main");
-  });
-
-  /**
-   * Il guasto dell'11/08 (card `2e6964cb`): il land NON è riuscito, il thread lo
-   * scriveva onestamente — «⚠️ Land NON riuscito … Il branch del task NON è su
-   * main» — e lo STATO diceva il contrario. Sulla board la card stava in Done
-   * come tutte le altre, cioè nell'unica colonna che nessuno riapre, col codice
-   * fuori da main e un GC dei worktree che può potare quel ramo.
-   */
-  async function landSkipping(code: string | undefined): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
-    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
-    const autoMerge = {
-      tryMerge: async () => ({ status: "skipped", reason: "non so quali commit siano suoi", code }),
-      buildClient: async () => ({ code: 0, stderr: "" }),
-    } as any;
-    const dispatcher = {
-      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
-      resume: async (id: string, msg: string) => { r.push([id, msg]); },
-    } as any;
-    const rt = createTasksRouter(makeCtx(d, b), dispatcher, { autoMerge });
-    d.run("INSERT INTO topics (id) VALUES ('top-s')");
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET assigned_topic_id='top-s', status='review' WHERE id = ?").run(t.id);
-    d.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('cs', ?, 'claude', 'consegna', 'comment', ?)")
-      .run(t.id, new Date().toISOString());
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((res) => setTimeout(res, 20)); // il land gira fire-and-forget
-    return { id: t.id, db: d, resumed: r };
-  }
-
-  test("un land che NON isola i commit ritira la card da done, con la ragione nello STATO", async () => {
-    const { id, db: d, resumed: r } = await landSkipping("unisolable");
-    const t = createTaskService(d).get(id)!;
-    expect(t.task.status).toBe("in_progress");          // NON resta in Done
-    const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
-    expect(ev.author).toBe("system");                   // l'ha ritirata la macchina, non l'umano
-    // La ragione sta nella riga di storico, non solo nel thread: il thread lo si
-    // legge aprendo la card, lo stato si vede dalla board.
-    expect(parseStatusEvent(ev.content)).toEqual({
-      from: "review", to: "in_progress", reason: "il land non ha saputo isolare i commit della card",
-    });
-    // E l'agente riparte con il gesto che ripara il ramo.
-    expect(r.length).toBe(1);
-    expect(r[0]![1]).toContain("git rebase main");
-  });
-
-  test("un land fallito per colpa dell'OSPITE torna in review (l'agente non può ripararlo)", async () => {
-    const { id, db: d, resumed: r } = await landSkipping("dirty-checkout");
-    expect(createTaskService(d).get(id)!.task.status).toBe("review");
-    expect(r).toEqual([]);
-  });
-
-  /**
-   * Il terzo verso dello stesso difetto, misurato il 12/08 su `ee5ebbb4`: la
-   * card DICHIARAVA un ramo (`delivery_branch`, esistente) ma il land non
-   * riusciva a risolvere dove atterrarlo. Finché quel caso rispondeva
-   * `no-branch` la card restava chiusa col codice fuori da main; adesso ha un
-   * codice suo, e il codice suo la ritira.
-   */
-  test("ramo dichiarato ma checkout introvabile: la card NON resta in done", async () => {
-    const { id, db: d, resumed: r } = await landSkipping("repo-unresolved");
-    expect(createTaskService(d).get(id)!.task.status).toBe("review");
-    expect(r).toEqual([]);
-  });
-
-  test("«non c'era niente da atterrare» NON chiude la card: lo dice e la lascia in review", async () => {
-    // Il controllo dei due test qui sopra: nessun rimbalzo all'agente, perché
-    // non c'è niente da riparare. Ma nemmeno una chiusura: un land che non ha
-    // portato niente da nessuna parte non è una prova che il lavoro sia su
-    // main, e solo un merge confermato toglie una card da review. Se il lavoro è
-    // già di là per mano di qualcun altro, a dirlo è l'umano che approva.
-    const { id, db: d } = await landSkipping("no-branch");
-    const t = createTaskService(d).get(id)!;
-    expect(t.task.status).toBe("review");
-    expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
-  });
-
-  /** Un merge andato a buon fine, nella forma che `tryMerge` restituisce. */
-  const MERGED = {
-    status: "merged", commit: "a5f83e0e", branch: "topics/wooly-saunter", repoPath: "/repo",
-    touchedClient: false, touchedServer: false, touchedNative: false,
-    landedNotLive: false, checkoutBranch: "main", deliveryDrift: null, realigned: null,
-  };
-
-  /**
-   * L'ALTRO verso, misurato l'11/08 su `4ec47331`: il land è RIUSCITO — il
-   * thread scrive «Mergiato su main (commit a5f83e0e)» e il contenuto è dentro
-   * — e la card è rimasta `in_progress` con il chip `working` e un agente
-   * sopra, che ha speso un turno intero a rifare lavoro già atterrato. Il land
-   * promuoveva a `done` solo passando da `review`; da ogni altro stato
-   * mergiava e lasciava la card dov'era.
-   */
-  test("un land RIUSCITO da in_progress chiude la card: done, nessun agente dispacciato", async () => {
-    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
-    const dispatcher = {
-      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
-      resume: async (id: string, msg: string) => { r.push([id, msg]); },
-    } as any;
-    const rt = createTasksRouter(makeCtx(d, b), dispatcher, {
-      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
-    });
-    d.run("INSERT INTO topics (id) VALUES ('top-l')");
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    // Lo stato in cui è finita la card vera: in corso, agente al lavoro.
-    d.prepare("UPDATE tasks SET assigned_topic_id='top-l', status='in_progress', dispatch_state='working' WHERE id = ?").run(t.id);
-
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((res) => setTimeout(res, 20));
-
-    const svc = createTaskService(d);
-    const after = svc.get(t.id)!;
-    expect(after.task.status).toBe("done");
-    // «Nessun agente dispacciato»: il chip spento è ciò che toglie la card dalla
-    // presa del dispatcher — è il gesto che l'umano ha dovuto fare a mano.
-    expect(after.task.dispatchState).toBe(null);
-    expect(r).toEqual([]);
-    // E la riga di storico dice PERCHÉ si è chiusa, non solo che si è chiusa.
-    const ev = after.comments.filter((c) => c.kind === "status").at(-1)!;
-    expect(parseStatusEvent(ev.content)?.to).toBe("done");
-    expect(parseStatusEvent(ev.content)?.reason).toContain("il codice è su main");
-  });
-
-  /**
-   * Dove vanno i soldi. Chiudere la card la toglie dalla coda, ma NON taglia il
-   * turno già partito: l'11/08 due land di fila hanno pagato $5,64 (`4ec47331`)
-   * e $8,24 (`56677242`, fermata entro un minuto) a un agente che rifaceva
-   * lavoro già su main. Il turno si taglia, e si taglia DOPO aver chiuso la
-   * card — `onTurnEnd` su una card ancora `in_progress` riprenderebbe l'agente.
-   */
-  test("un land riuscito FERMA l'agente che sta ancora lavorando su quella card", async () => {
-    const aborted: string[] = [];
-    let statusAlloStop: string | undefined;
-    let taskId = "";
-    const d = freshDb(); const b: any[] = [];
-    const rt = createTasksRouter(makeCtx(d, b), undefined, {
-      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
-      // Si registra ANCHE lo stato della card nell'istante dello stop: l'ordine
-      // non è un dettaglio di stile. `onTurnEnd` su una card ancora
-      // `in_progress` riprende l'agente, quindi tagliare prima di chiuderla lo
-      // farebbe ripartire — cioè ripagherebbe il turno che si stava evitando.
-      abortTurn: async (key: string) => {
-        aborted.push(key);
-        statusAlloStop = (d.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId) as any)?.status;
-      },
-    });
-    d.run("INSERT INTO topics (id) VALUES ('485cb19a-993f-4e36-9823-687ee4235aae')");
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    taskId = t.id;
-    d.prepare(
-      "UPDATE tasks SET assigned_topic_id='485cb19a-993f-4e36-9823-687ee4235aae', status='in_progress', dispatch_state='working' WHERE id = ?",
-    ).run(t.id);
-
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((res) => setTimeout(res, 20));
-
-    // La chiave della sessione è `topic:<primi 8>` — la stessa che usa «Ferma».
-    expect(aborted).toEqual(["topic:485cb19a"]);
-    const after = createTaskService(d).get(t.id)!;
-    expect(after.task.status).toBe("done");
-    // E il thread dice che qualcuno è stato fermato, altrimenti l'agente
-    // sparisce a metà frase senza spiegazione.
-    expect(after.comments.some((c) => c.content.includes("Fermato l'agente"))).toBe(true);
-    // L'ordine: quando lo stop parte, la card è GIÀ chiusa.
-    expect(statusAlloStop).toBe("done");
-  });
-
-  test("il ramo riallineato dal land finisce nel thread, PRIMA del «Mergiato»", async () => {
-    // Sul ramo compare un commit di fusione che nessun umano ha fatto: se il
-    // thread non lo dice, chi rilegge la storia del ramo non sa da dove venga.
-    const d = freshDb(); const b: any[] = [];
-    const rt = createTasksRouter(makeCtx(d, b), undefined, {
-      autoMerge: {
-        tryMerge: async () => ({ ...MERGED, realigned: "il ramo era indietro di 2 commit su 'main': ci ho riportato main dentro" }),
-        buildClient: async () => ({ code: 0, stderr: "" }),
-      } as any,
-    });
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET status='review' WHERE id = ?").run(t.id);
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((res) => setTimeout(res, 20));
-
-    const comments = createTaskService(d).get(t.id)!.comments.map((c) => c.content);
-    const riallineato = comments.findIndex((c) => c.includes("Riallineato prima del land"));
-    const mergiato = comments.findIndex((c) => c.includes("Mergiato su main"));
-    expect(riallineato).toBeGreaterThanOrEqual(0);
-    expect(riallineato).toBeLessThan(mergiato);
-    expect(comments[riallineato]).toContain("indietro di 2 commit");
-  });
-
-  test("conflitto nel RIALLINEAMENTO: nomina i file e chiede una fusione, non una rebase", async () => {
-    // Due conflitti diversi, due lavori diversi. Dire «rifai la base sul main
-    // aggiornato» a chi ha appena visto fallire quel merge lo manda a rifare a
-    // mano il tentativo che la macchina ha già fatto — senza dirgli su cosa.
-    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
-    const dispatcher = {
-      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
-      resume: async (id: string, msg: string) => { r.push([id, msg]); },
-    } as any;
-    const rt = createTasksRouter(makeCtx(d, b), dispatcher, {
-      autoMerge: {
-        tryMerge: async () => ({
-          status: "conflict", branch: "topics/ramo-vecchio",
-          realignConflict: { behind: 3, files: ["server/db.ts", "client/src/App.tsx"] },
-        }),
-        buildClient: async () => ({ code: 0, stderr: "" }),
-      } as any,
-    });
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET status='review' WHERE id = ?").run(t.id);
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((res) => setTimeout(res, 20));
-
-    const after = createTaskService(d).get(t.id)!;
-    expect(after.task.status).toBe("in_progress");
-    // Il thread dice quali file, e che NON è stato landato niente.
-    const thread = after.comments.map((c) => c.content).join("\n");
-    expect(thread).toContain("server/db.ts");
-    expect(thread).toContain("client/src/App.tsx");
-    expect(thread).toContain("Non ho landato niente");
-    // La riga di storico distingue le due cause.
-    const ev = after.comments.filter((c) => c.kind === "status").at(-1)!;
-    expect(parseStatusEvent(ev.content)?.reason).toContain("riportare main nel ramo");
-    // E l'istruzione all'agente parla di `git merge main`, non di rebase.
-    expect(r).toHaveLength(1);
-    expect(r[0][1]).toContain("git merge main");
-    expect(r[0][1]).toContain("server/db.ts");
-    expect(r[0][1]).not.toContain("git rebase main");
-  });
-
-  test("nessun agente vivo → il land non chiama nessuno stop", async () => {
-    // Il controllo del test qui sopra: il percorso normale (card già consegnata
-    // e ferma) non deve mandare un abort a una sessione che non lavora.
-    const aborted: string[] = [];
-    const d = freshDb(); const b: any[] = [];
-    const rt = createTasksRouter(makeCtx(d, b), undefined, {
-      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
-      abortTurn: async (key: string) => { aborted.push(key); },
-    });
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET status='done' WHERE id = ?").run(t.id);
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((res) => setTimeout(res, 20));
-    expect(aborted).toEqual([]);
-  });
-
-  test("un land riuscito su una card GIÀ chiusa non aggiunge righe di storico", async () => {
-    // Il controllo del test qui sopra: il percorso normale (review → «Landa su
-    // main» → done → merge) non deve guadagnare una transizione done→done.
-    const d = freshDb(); const b: any[] = [];
-    const rt = createTasksRouter(makeCtx(d, b), undefined, {
-      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
-    });
-    d.run("INSERT INTO topics (id) VALUES ('top-d')");
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET assigned_topic_id='top-d', status='review' WHERE id = ?").run(t.id);
-    d.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('cd', ?, 'claude', 'consegna', 'comment', ?)")
-      .run(t.id, new Date().toISOString());
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((res) => setTimeout(res, 20));
-    const svc = createTaskService(d);
-    const events = svc.get(t.id)!.comments.filter((c) => c.kind === "status");
-    expect(events.map((e) => parseStatusEvent(e.content)?.to)).toEqual(["done"]);
-  });
-
-  /**
-   * Il verdetto di atterraggio si REGISTRA quando il land succede, mentre il
-   * ramo esiste ancora: dedurlo dopo, dal solo commit di consegna, sbaglia
-   * (provato a mano su 108 card: 20 falsi allarmi con la patch inversa, 5 con
-   * la riga distintiva). Il land che ha visto il merge non chiede a nessuno.
-   */
-  async function landStamping(
-    merge: any,
-    confirm?: (repoPath: string, commit: string) => Promise<boolean | null>,
-  ): Promise<Array<[string, string]>> {
-    const stamped: Array<[string, string]> = [];
-    const d = freshDb(); const b: any[] = [];
-    const rt = createTasksRouter(makeCtx(d, b), undefined, {
-      autoMerge: { tryMerge: async () => merge, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
-      stampLanding: async (taskId: string, verdict: string) => { stamped.push([taskId, verdict]); },
-      ...(confirm ? { confirmLandedOnMain: confirm } : {}),
-    });
-    d.run("INSERT INTO topics (id) VALUES ('top-a')");
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET assigned_topic_id='top-a', status='review' WHERE id = ?").run(t.id);
-    d.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('ca', ?, 'claude', 'consegna', 'comment', ?)")
-      .run(t.id, new Date().toISOString());
-    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    await new Promise((r) => setTimeout(r, 20));
-    return stamped.map(([, v]) => [t.id, v] as [string, string]);
-  }
-
-  test("merge riuscito E CONFERMATO su main → l'esito si REGISTRA come 'landed'", async () => {
-    const [[, v]] = await landStamping(MERGED, async () => true) as any;
-    expect(v).toBe("landed");
-  });
-
-  /**
-   * LA BARRA DEL 13/08, secondo sintomo: `landing_state` diceva `landed` su
-   * card che su main non c'erano (viste quel giorno: `2d3d6051`, `8f1f1b95`).
-   * Il campo non era una misura — copiava il resoconto di `git merge`, che dice
-   * che una fusione è riuscita e NON su quale ramo.
-   *
-   * Qui il merge dice di sì e main dice di no: `landed` non si può scrivere.
-   * Rimettendo l'ordine vecchio (verdetto dedotto dallo stato di `tryMerge`)
-   * questo test è rosso.
-   */
-  test("il merge dice sì ma main dice di no: non si scrive MAI 'landed'", async () => {
-    const [[, v]] = await landStamping(MERGED, async () => false) as any;
-    expect(v).toBe("unlanded");
-  });
-
-  /**
-   * LA BARRA DEL 13/08, primo sintomo, nella sua forma peggiore: il land CREDE
-   * di essere riuscito. `git merge` è uscito zero, il thread scrive «Mergiato su
-   * main», la card si chiude — e su main non c'è niente (checkout parcheggiato
-   * su un altro ramo, worktree usa-e-getta mai ricucito). Il 13/08 sono andate
-   * così `92d61427`, `274d5425` e `95a6794f`: `done` coi rami mai atterrati, e
-   * la potatura delle worktree pronta a portarli via.
-   *
-   * Tre cose insieme, e servono tutte e tre: la card non si chiude, il worktree
-   * (unica copia del lavoro) non si pota, e il thread dice perché.
-   */
-  test("merge non confermato da main: la card NON si chiude e il worktree resta", async () => {
-    const d = freshDb(); const b: any[] = []; const reaped: string[] = [];
-    const rt = createTasksRouter(makeCtx(d, b), undefined, {
-      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
-      confirmLandedOnMain: async () => false,
-      deleteTaskWorktree: async (taskId: string) => { reaped.push(taskId); return true; },
-      taskBranchStatus: async () => "unmerged" as const,
-      taskWorktreeDirt: async () => [],
-    });
-    d.run("INSERT INTO topics (id) VALUES ('top-nc')");
-    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET assigned_topic_id='top-nc', status='review' WHERE id = ?").run(t.id);
-
-    const res = await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    expect(res!.status).toBe(202);
-    await new Promise((r) => setTimeout(r, 20));
-
-    const after = createTaskService(d).get(t.id)!;
-    expect(after.task.status).toBe("review");     // NON done: il land non è avvenuto
-    expect(reaped).toEqual([]);                   // e il ramo resta: è l'unica copia
-    expect(after.comments.some((c) => c.content.includes("Land NON confermato"))).toBe(true);
-  });
-
-  test("main non risponde: il verdetto è «non verificabile», mai 'landed'", async () => {
-    // Il no e il non-lo-so restano due cose diverse: `null` non accusa nessuno,
-    // ma nemmeno assolve — e `landed` è un'assoluzione.
-    const [[, v]] = await landStamping(MERGED, async () => null) as any;
-    expect(v).toBe("unverifiable");
-    // Stesso esito quando la verifica non esiste proprio su questo host: una
-    // capacità non cablata è assenza di prova, non prova d'assenza di problemi
-    // (il cablaggio mancante è precisamente come nascono questi guasti).
-    const [[, v2]] = await landStamping(MERGED) as any;
-    expect(v2).toBe("unverifiable");
-  });
-
-  test("land fallito → si registra 'unlanded': anche il no è un fatto osservato", async () => {
-    const [[, v]] = await landStamping({ status: "skipped", reason: "x", code: "unisolable" }) as any;
-    expect(v).toBe("unlanded");
-    const [[, v2]] = await landStamping({ status: "conflict" }) as any;
-    expect(v2).toBe("unlanded");
-  });
-
-  test("dove il land NON sa (niente ramo, niente da portare) si CHIEDE al repo", async () => {
-    // Il controllo dei due test qui sopra: se registrasse sempre un fatto,
-    // scriverebbe una testimonianza su una cosa che non ha visto.
-    const [[, v]] = await landStamping({ status: "nothing" }) as any;
-    expect(v).toBe("ask");
-    const [[, v2]] = await landStamping({ status: "skipped", reason: "x", code: "no-branch" }) as any;
-    expect(v2).toBe("ask");
-  });
-
-  test("picking 'Landa e pubblica' lands (routes to land+publish, not a reject)", async () => {
-    const id = await reviewTask();
-    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: PUBLISH_ACTION_LABEL }))!.json();
-    // Deterministic routing: the publish label lands, and does NOT resume the
-    // agent (the publish PUSH itself runs in the fire-and-forget chain — no git
-    // in this harness — but the interception routes correctly).
-    // `review`: pubblicare è landare + spingere, e chiudere la card resta
-    // compito del land, quando main lo conferma.
-    expect(t.status).toBe("review");
-    expect(merges).toEqual([id]);  // land ran first (merges.push is synchronous)
-    expect(resumed).toEqual([]);   // NOT resumed as a rejection
-  });
-
-  /**
-   * Il land riceve lo SCATTO della consegna, e ciò che non coincide finisce nel
-   * thread. Senza questa riga chi ha aggiunto un commit dopo la consegna — o chi
-   * ha consegnato da un ramo che la card non usa più — crede di aver pubblicato
-   * quello che ha visto: è così che l'11/08 `lint` è tornato rosso su main senza
-   * che nessuno collegasse le due cose.
-   */
-  test("land: la consegna arriva al merge, e la deriva viene detta nel thread", async () => {
-    const seen: any[] = [];
-    const am = {
-      tryMerge: async (_id: string, _t: string, delivery: any) => {
-        seen.push(delivery);
-        return { status: "merged", commit: "cafe123", branch: "topics/consegnato", repoPath: "/repo",
-          touchedClient: false, touchedServer: false, touchedNative: false,
-          landedNotLive: false, checkoutBranch: "main",
-          deliveryDrift: "il ramo porta 1 commit aggiunto DOPO la consegna", realigned: null };
-      },
-      buildClient: async () => ({ code: 0, stderr: "" }),
-    } as any;
-    const r2 = createTasksRouter(makeCtx(db, broadcasts), undefined, { autoMerge: am });
-    db.run("INSERT INTO topics (id) VALUES ('top-2')");
-    const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    db.prepare(
-      "UPDATE tasks SET assigned_topic_id='top-2', status='review', delivery_branch='topics/consegnato', delivery_commit='bdfcf0cb' WHERE id = ?",
-    ).run(t.id);
-    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c9', ?, 'claude', 'consegna', 'comment', ?)")
-      .run(t.id, new Date().toISOString());
-
-    await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
-    // Il land gira staccato dalla risposta: si aspetta che la catena dreni.
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(seen).toEqual([{ branch: "topics/consegnato", commit: "bdfcf0cb" }]);
-    const said = db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(t.id) as Array<{ content: string }>;
-    expect(said.some((c) => c.content.includes("Land ≠ consegna") && c.content.includes("DOPO la consegna"))).toBe(true);
-  });
-});
 
 /**
  * Gate 1.2 — checks pre-review. Terzo cancello strutturale dopo
@@ -1872,7 +1176,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
   // nothing to merge), but "it is a question" exempted it, and the single
   // option "Landa su main" was enough to make it look like one.
   test("a dirty delivery offering «Landa su main»: 409 review_needs_commit", async () => {
-    const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts", "server/services/tasks.ts"] });
+    const r = mk({ taskWorktreeDirtProbe: async () => ({ ok: true, paths: ["server/routes/tasks.ts", "server/services/tasks.ts"] }) });
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
       content: "Fatto: rifatto il gate.", options: [LAND_ACTION_LABEL],
@@ -1885,7 +1189,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
   });
 
   test("MIXED question with a dirty worktree: legitimate, no 409", async () => {
-    const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts"] });
+    const r = mk({ taskWorktreeDirtProbe: async () => ({ ok: true, paths: ["server/routes/tasks.ts"] }) });
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
       content: "Ho finito, ma il nome del flag non mi convince.",
@@ -2069,14 +1373,44 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
   let broadcasts: any[];
   beforeEach(() => { db = freshDb(); broadcasts = []; });
 
+  /**
+   * FILE VERI, per i casi che devono PASSARE.
+   *
+   * `acceptPreview` ha tre cancelli in fila — allowlist del path, estensione
+   * mostrabile, e il file DEVE esistere sul disco (`existsSync`). L'ultimo e'
+   * arrivato dopo, perche' due card puntavano a preview cancellate e la PATCH
+   * rispondeva 200: giusto cosi', e la sua prova sta in
+   * `tests/integration/preview-image-nonexistent.test.ts`.
+   *
+   * Ma i casi qui sotto provano ALTRO: che l'anteprima si scriva, che una forma
+   * non misurabile non sia un rifiuto, che i tre rami del protocollo passino.
+   * Con dei path inventati (`/allowed/x.png`) misuravano soltanto l'ultimo
+   * cancello, e sono diventati rossi il giorno in cui e' nato — tre rossi che
+   * non nominavano la propria ragione, addosso a CINQUE card della colonna
+   * review che non li avevano causati.
+   *
+   * Quindi i path buoni sono file veri in una cartella temporanea: cosi' il
+   * caso arriva davvero dove voleva arrivare. I casi che devono FALLIRE non ne
+   * hanno bisogno — il loro cancello scatta prima.
+   */
+  let mediaDir = "";
+  const media = (nome: string) => join(mediaDir, nome);
+  beforeAll(() => {
+    mediaDir = mkdtempSync(join(tmpdir(), "topics-preview-"));
+    for (const nome of ["diagramma.svg", "x.png", "schermata.png", "schema.svg", "clip.webm"]) {
+      writeFileSync(join(mediaDir, nome), "x");
+    }
+  });
+  afterAll(() => { if (mediaDir) rmSync(mediaDir, { recursive: true, force: true }); });
+
   test("PATCH /api/sessions/:sk/tasks/:id con previewImage la SCRIVE (prima spariva in silenzio)", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts));
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "un piano" }))!.json();
     const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
-      previewImage: "/allowed/diagramma.svg",
+      previewImage: media("diagramma.svg"),
     }))!;
     expect(resp.status).toBe(200);
-    expect((await resp.json()).previewImage).toBe("/allowed/diagramma.svg");
+    expect((await resp.json()).previewImage).toBe(media("diagramma.svg"));
   });
 
   // Il path fuori allowlist non passa, e ora lo DICE: prima il 200 con la card
@@ -2111,9 +1445,20 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     expect(got.task.previewImage).toBeNull();
   });
 
+  test("senza saper leggere la forma l'anteprima passa: «non lo so» non e' «troppo alta»", async () => {
+    // Un file che non si riesce a misurare (formato ignoto, lettura fallita)
+    // non va rifiutato: bloccherebbe consegne buone per un difetto di sonda.
+    const ctx = makeCtx(db, broadcasts) as any;
+    ctx.imageShapeOf = () => null;
+    const r = createTasksRouter(ctx);
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: media("x.png") }))!;
+    expect(resp.status).toBe(200);
+  });
+
   test("e non travolge i tre rami del protocollo: png, svg e webm entrano", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts));
-    for (const p of ["/allowed/schermata.png", "/allowed/schema.svg", "/allowed/clip.webm"]) {
+    for (const p of [media("schermata.png"), media("schema.svg"), media("clip.webm")]) {
       const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: p }))!.json();
       const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: p }))!;
       expect((await resp.json()).previewImage).toBe(p);
@@ -2340,6 +1685,101 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     const b = bench();
     const [id] = await b.seed(1);
     expect((await call(b.router, "GET", `/api/boards/pX/tasks/${id}/land`))!.status).toBe(404);  });
+
+  /**
+   * BOARD_LAND HONESTY — il guasto del 18/08.
+   *
+   * Il tool MCP `board_land` rispondeva «landed» anche quando il land era stato
+   * RIFIUTATO: il server accodava, rispondeva 202, e il tool tornava subito
+   * senza aspettare l'esito reale. Riprodotto tre volte in venti minuti su card
+   * con checkout sporco: thread del task diceva RIFIUTATO, tool diceva «landed».
+   *
+   * Adesso il tool fa poll su GET /land finche' il ticket non e' settled, poi
+   * legge `landingState` dal task come fallback per capire COSA e' successo.
+   * Questo test verifica che il server esponga le informazioni corrette in
+   * entrambi i casi — sono quelle che il tool MCP usa per produrre la risposta.
+   *
+   * Sporco = `tryMerge` con status "skipped" (checkout sporco, commit non
+   * isolabili): la semantica e' la stessa di un land rifiutato per WIP.
+   * Pulito = `tryMerge` con status "merged": il caso normale che deve dire
+   * «landato» e non un altro «landed» inventato.
+   */
+  test("sporco → ticket settled + stampLanding unlanded; pulito → landed", async () => {
+    // CASO 1: land rifiutato (checkout sporco / commit non isolabili)
+    const db1 = freshDb();
+    const b1: any[] = [];
+    const stamped1: Array<[string, string]> = [];
+    const router1 = createTasksRouter(
+      makeCtx(db1, b1),
+      { onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {}, resume: async () => {} } as any,
+      {
+        autoMerge: {
+          tryMerge: async () => ({ status: "skipped", reason: "checkout sporco: file non committati", code: "dirty-checkout" }),
+          buildClient: async () => ({ code: 0, stderr: "" }),
+        } as any,
+        stampLanding: async (taskId: string, verdict: string) => { stamped1.push([taskId, verdict]); },
+      } as any,
+    );
+    const t1 = await (await call(router1, "POST", "/api/boards/pX/tasks", { text: "sporco" }))!.json();
+    db1.prepare("UPDATE tasks SET status='review', delivery_branch='topics/sporco' WHERE id = ?").run(t1.id);
+    db1.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c1', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t1.id, new Date().toISOString());
+    await call(router1, "POST", `/api/boards/pX/tasks/${t1.id}/land`, {});
+    // Aspetta che il ticket sia settled
+    let ticket1: any = null;
+    for (let i = 0; i < 500; i++) {
+      const r = await (await call(router1, "GET", `/api/boards/pX/tasks/${t1.id}/land`))!.json();
+      ticket1 = r.landing;
+      if (ticket1?.phase === "settled" || ticket1?.phase === "failed") break;
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    // Il ticket e' settled (non failed: la "skipped" non e' un'eccezione)
+    expect(ticket1?.phase, "land rifiutato: ticket deve essere settled").toBe("settled");
+    // Il server ha chiamato stampLanding con 'unlanded'
+    expect(stamped1, "land rifiutato: deve produrre stamp unlanded").toContainEqual([t1.id, "unlanded"]);
+    // La card NON e' passata a done
+    expect(createTaskService(db1).get(t1.id)!.task.status, "land rifiutato: card rimane in review").toBe("review");
+
+    // CASO 2: land riuscito
+    const db2 = freshDb();
+    const b2: any[] = [];
+    const stamped2: Array<[string, string]> = [];
+    const router2 = createTasksRouter(
+      makeCtx(db2, b2),
+      { onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {}, resume: async () => {} } as any,
+      {
+        autoMerge: {
+          tryMerge: async (_id: string, _text: string, mergeOpts: { branch: string | null }) => ({
+            status: "merged", commit: "abc123", branch: mergeOpts.branch ?? "topics/pulito",
+            repoPath: "/repo", touchedClient: false, touchedServer: false, touchedNative: false,
+            landedNotLive: false, checkoutBranch: "main", deliveryDrift: null, realigned: null,
+          }),
+          buildClient: async () => ({ code: 0, stderr: "" }),
+        } as any,
+        // confermato su main = proof true → verdict "landed" (non "unverifiable")
+        confirmLandedOnMain: async () => true,
+        stampLanding: async (taskId: string, verdict: string) => { stamped2.push([taskId, verdict]); },
+      } as any,
+    );
+    const t2 = await (await call(router2, "POST", "/api/boards/pX/tasks", { text: "pulito" }))!.json();
+    db2.prepare("UPDATE tasks SET status='review', delivery_branch='topics/pulito' WHERE id = ?").run(t2.id);
+    db2.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c2', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t2.id, new Date().toISOString());
+    await call(router2, "POST", `/api/boards/pX/tasks/${t2.id}/land`, {});
+    let ticket2: any = null;
+    for (let i = 0; i < 500; i++) {
+      const r = await (await call(router2, "GET", `/api/boards/pX/tasks/${t2.id}/land`))!.json();
+      ticket2 = r.landing;
+      if (ticket2?.phase === "settled" || ticket2?.phase === "failed") break;
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    // Il ticket e' settled
+    expect(ticket2?.phase, "land riuscito: ticket deve essere settled").toBe("settled");
+    // Il server ha chiamato stampLanding con 'landed'
+    expect(stamped2, "land riuscito: deve produrre stamp landed").toContainEqual([t2.id, "landed"]);
+    // La card e' passata a done
+    expect(createTaskService(db2).get(t2.id)!.task.status, "land riuscito: card diventa done").toBe("done");
+  });
 });
 
 // Un campo che la PATCH non sa applicare non si ignora. Misurato: `archived`
@@ -2727,5 +2167,178 @@ describe("doppioni: il cancello alla creazione e la fusione", () => {
     // Lettura: le due card sono ancora tutte e due sulla board.
     const dopo = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
     expect(dopo.tasks.length).toBe(2);
+  });
+});
+
+/**
+ * LA SCELTA DEL FAN-OUT SI FA UNA VOLTA SOLA.
+ *
+ * `attempts.select` è atomico dentro di sé (una transazione, mai due
+ * `selected`), ma non aveva una PRECONDIZIONE. La potatura dei perdenti gira
+ * fuori dalla transazione, quindi una seconda scelta su un tentativo diverso
+ * ripuntava `assigned_topic_id` su un worktree che la prima aveva già buttato —
+ * e su quell'indirezione viaggiano diff, checks, land, anteprima e reap. Due
+ * schede aperte, o un doppio invio, e il lavoro scelto per primo diventava
+ * irraggiungibile senza che nessuna riga lo dicesse.
+ */
+describe("fan-out: la scelta del vincitore", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  /** Due tentativi finiti, ciascuno con la sua chat: la forma alla chiusura del fan-out. */
+  async function conDueTentativi(): Promise<{ taskId: string; a1: string; a2: string }> {
+    const task = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "due strade" }))!.json();
+    for (const n of [1, 2]) {
+      db.run("INSERT INTO topics (id) VALUES (?)", [`top-${n}`]);
+      db.run(
+        `INSERT INTO task_attempts (id, task_id, idx, topic_id, branch, state, created_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, 'delivered', '2026-08-15T10:00:00.000Z', '2026-08-15T11:00:00.000Z')`,
+        [`att-${n}`, task.id, n, `top-${n}`, `topics/strada-${n}`],
+      );
+    }
+    return { taskId: task.id, a1: "att-1", a2: "att-2" };
+  }
+
+  const pick = (taskId: string, attemptId: string) =>
+    call(router, "POST", `/api/boards/pX/tasks/${taskId}/attempts/${attemptId}/select`);
+
+  test("una seconda scelta su un ALTRO tentativo è 409 fanout_already_decided, e nomina il vincitore", async () => {
+    const { taskId, a1, a2 } = await conDueTentativi();
+
+    expect((await pick(taskId, a1))!.status).toBe(200);
+    // Il task punta al vincitore: è l'indirezione su cui viaggia tutto il resto.
+    expect(db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(taskId)).toEqual({ t: "top-1" });
+
+    const secondo = (await pick(taskId, a2))!;
+    expect(secondo.status).toBe(409);
+    const body = await secondo.json();
+    expect(body.code).toBe("fanout_already_decided");
+    expect(body.attemptId).toBe(a1);
+    // E il ri-puntamento NON è avvenuto: il worktree del primo è ancora quello del task.
+    expect(db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(taskId)).toEqual({ t: "top-1" });
+    expect(db.query("SELECT state FROM task_attempts WHERE id = ?").get(a2)).toEqual({ state: "discarded" });
+  });
+
+  test("ripremere sullo STESSO tentativo resta idempotente", async () => {
+    // La controprova: un cancello che rifiutasse anche questo trasformerebbe un
+    // doppio click innocuo in un errore da leggere.
+    const { taskId, a1 } = await conDueTentativi();
+    expect((await pick(taskId, a1))!.status).toBe(200);
+    expect((await pick(taskId, a1))!.status).toBe(200);
+    expect(db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(taskId)).toEqual({ t: "top-1" });
+  });
+
+  test("un tentativo ANCORA VIVO blocca la scelta prima di tutto il resto", async () => {
+    // Il 409 che c'era già: si pinza qui perché il cancello nuovo gli sta
+    // accanto, e l'ordine dei due conta (un fan-out non chiuso non è «deciso»).
+    const { taskId, a1 } = await conDueTentativi();
+    db.run("UPDATE task_attempts SET state = 'running' WHERE id = 'att-2'");
+    const resp = (await pick(taskId, a1))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("fanout_running");
+  });
+});
+
+// ── Cancello review_needs_commit: porta che fallisce aperta ──────────────────
+//
+// Incidente 18/08, card `171b787d`: worktree con 279 righe non committate,
+// `deliveryFilesChanged: 0`, card passata in review. La catena:
+// 1. dispatcher rilascia la card (assigned_topic_id = NULL);
+// 2. l'agente ancora vivo sposta la card in todo → review;
+// 3. `taskWorktreeDirt` torna null (worktreeOfTask non trovava il worktree);
+// 4. il cancello legge null come «pulito».
+//
+// Questi test verificano:
+// (a) null dalla sonda + task con ramo → 409, non silenzio;
+// (b) null dalla sonda + task senza ramo (in-place) → passa;
+// (c) sonda che risponde ok:false → 409 (git status fallita, non «pulito»);
+// (d) worktree sporco ma worktreeOfTask risolve via task_attempts → 409.
+describe("cancello review_needs_commit: null = non so, non = pulito", () => {
+  let db: Database;
+  let broadcasts: any[];
+
+  beforeEach(() => {
+    db = freshDb();
+    broadcasts = [];
+    // Riga topics richiesta dalla FK di assigned_topic_id
+    db.run("INSERT INTO topics (id) VALUES ('top-s1')");
+  });
+
+  // Crea un task dal lato agente e aggiunge un commento di consegna
+  // (senza comment l'agente va in 409 "review_needs_summary" prima del gate).
+  async function makeTaskProntoPerReview() {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "feat" }))!.json();
+    // Il task viene assegnato al topic dell'agente (come farebbe il dispatcher).
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-s1', status = 'in_progress' WHERE id = ?").run(t.id);
+    // Commento di consegna: sblocca il gate "review_needs_summary".
+    await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "fatto" });
+    return t.id;
+  }
+
+  test("(a) sonda null + task con branch attempt → 409 review_needs_commit", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    // Simula un record di tentativo con worktree: il task aveva un ramo ma
+    // l'agente è stato rilasciato (state = 'failed', non 'running'): il gate
+    // fan-out non scatta, e siamo nella situazione dell'incidente 18/08.
+    db.run(`INSERT INTO task_attempts (id, task_id, idx, worktree_id, state, created_at)
+            VALUES ('att-1', '${taskId}', 1, 'wt-abc', 'failed', datetime('now'))`);
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      // La sonda torna null: worktreeOfTask non ha trovato il worktree
+      // (scenario: dispatcher ha rilasciato la card, assigned_topic_id = NULL).
+      taskWorktreeDirtProbe: async () => null,
+      // taskHasBranchAttempt deve riconoscere che il task aveva un ramo.
+      taskHasBranchAttempt: (_id) => true,
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("review_needs_commit");
+  });
+
+  test("(b) sonda null + task in-place (nessun branch attempt) → passa", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    // Nessun record di tentativo con worktree: task non ha mai avuto un ramo.
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => null,
+      taskHasBranchAttempt: (_id) => false,
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("review");
+  });
+
+  test("(c) sonda ok:false (git status ha fallito) → 409 review_needs_commit", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => ({ ok: false, paths: [] }),
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("review_needs_commit");
+  });
+
+  test("(d) worktree sporco → 409 review_needs_commit con nomi file", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => ({ ok: true, paths: ["server/foo.ts", "client/bar.ts"] }),
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    const body = await resp.json();
+    expect(body.code).toBe("review_needs_commit");
+    expect(body.error).toContain("server/foo.ts");
+  });
+
+  test("(e) worktree pulito (sonda ok, paths vuoti) → review concessa", async () => {
+    const taskId = await makeTaskProntoPerReview();
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskWorktreeDirtProbe: async () => ({ ok: true, paths: [] }),
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("review");
   });
 });

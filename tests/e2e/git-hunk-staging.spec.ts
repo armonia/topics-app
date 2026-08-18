@@ -35,7 +35,9 @@ function scriviTreBlocchi() {
 }
 
 function git(args: string[]): string {
-  return execFileSync("git", args, { cwd: PROJ, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+  // Identita' via `-c`: vedi la nota in `helpers/file-project.ts:initGitRepo`.
+  // Senza, su CI ogni `commit` muore con «Please tell me who you are».
+  return execFileSync("git", ["-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", ...args], { cwd: PROJ, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
 }
 
 test.describe("stage di un blocco alla volta", () => {

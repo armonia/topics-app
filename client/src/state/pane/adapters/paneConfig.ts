@@ -77,6 +77,7 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   // distingueva da una cosa che non era mai lì accanto.
   board:         { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['standalone'] },
   cron:          { icon: 'Clock',         label: 'Cron',         color: '#f59e0b', singleton: true, addableScopes: ['standalone'], requires: 'openclaw' },
+  profile:       { icon: 'UserRound',     label: 'Profilo',      color: '#0066ff', singleton: true, addableScopes: ['standalone'] },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
 };

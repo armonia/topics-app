@@ -108,6 +108,30 @@ export function fmtUpdatedAt(iso: string): string {
   return commentTime(iso);
 }
 
+/**
+ * DA QUANTO ASPETTA, con la precisione che serve a decidere.
+ *
+ * Non e' `fmtUpdatedAt`: quello scivola sull'orario assoluto dopo mezza
+ * giornata («14:32»), che risponde a «quando» e non a «da quanto» - e in una
+ * colonna di revisione la domanda e' la seconda. Una card ferma da tre giorni
+ * deve dire TRE GIORNI, non l'ora di martedi'.
+ *
+ * Sotto l'ora resta muto: una richiesta appena arrivata non sta aspettando, sta
+ * succedendo. Un chip su ogni card nuova sarebbe rumore, e il rumore su una
+ * colonna che si legge di fretta si impara a saltare.
+ */
+export function fmtAttesa(iso: string | null, now = Date.now()): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const min = Math.floor((now - t) / 60_000);
+  if (min < 60) return null;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  const g = Math.floor(h / 24);
+  return `${g}g`;
+}
+
 /** Compact duration: 42s · 7m · 1h12m. */
 export const fmtMs = (ms: number): string => {
   const s = Math.round(ms / 1000);

@@ -32,6 +32,7 @@ import { creaRelayClient } from "../../../server/services/relay-client";
 import {
   creaPonte, macchinaSpenta, PERCORSO_PONTE, upgradeRifiutato, type SocketPonte,
 } from "../../../relay/src/ponte";
+import { openSocketWithHeaders } from "./node-websocket";
 
 const INSTALLAZIONE = "e2e-relay";
 
@@ -180,6 +181,25 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
     serviRisorsa: async () => ({ status: 404, body: {} }),
     segnaApertura: () => {},
     apriSocket: () => filo as unknown as WebSocket,
+    // Il socket verso l'ascoltatore del tunnel lo apre il PROXY vero, e qui il
+    // proxy vero gira dentro Node — non dentro Bun, come in produzione. Il suo
+    // valore di serie è `new WebSocket(url, { headers })`, che su Bun è l'unico
+    // modo di portare il biscotto dell'ospite fino alla stretta di mano; su Node
+    // 20 (il runner CI) `WebSocket` globale non esiste, la riga solleva, il
+    // proxy trasforma il guasto nel rifiuto che sa dire — `502` — e la spec
+    // legge «l'upgrade non si apre» senza sapere che manca un globale. È il giro
+    // che ha tinto di rosso RELAY-E2E-03/08/09 il 2026-08-15, verdi su ogni
+    // macchina di sviluppo.
+    //
+    // Non si tocca la produzione per un runtime che la produzione non ha: il
+    // cardine iniettabile esiste apposta, e ciò che ci si mette è lo STESSO
+    // socket quando la piattaforma ce l'ha (quindi su un portatile si continua a
+    // misurare la strada vera), `ws` quando non c'è — l'unico client di qua che
+    // accetta intestazioni senza dipendere da un globale.
+    apriSocketLocale: (url, o) => openSocketWithHeaders(url, {
+      headers: Object.fromEntries(o.intestazioni),
+      protocols: o.protocolli,
+    }) as WebSocket,
     portaTunnel,
   });
   client.avvia();

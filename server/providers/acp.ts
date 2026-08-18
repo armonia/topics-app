@@ -34,6 +34,7 @@
  */
 
 import { spawn, type ChildProcess } from "child_process";
+import { existsSync } from "fs";
 import type {
   AcpProviderConfig,
   AIProvider,
@@ -57,6 +58,21 @@ import {
   type AcpSessionUpdate,
   type AcpTranslateState,
 } from "./acp/translate";
+import { buildDiagnostic } from "./acp/diagnostic";
+import {
+  applyEffort,
+  applyModel,
+  currentModelFrom,
+  parseModelOptions,
+} from "./acp/config-options";
+import {
+  errText,
+  findOption,
+  flattenMessages,
+  isMethodNotFound,
+  readTopicEffort,
+  withTimeout,
+} from "./acp/helpers";
 import {
   forgetProviderSession,
   readProviderSession,
@@ -105,6 +121,12 @@ const ENV_ALLOWLIST = new Set([
   "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
   "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+  // Credenziali degli agenti ACP noti. Senza queste il child parte e muore al
+  // primo turno con un errore di autenticazione: `gemini` legge la chiave da
+  // `GEMINI_API_KEY` (o dalle credenziali Google se si è fatto il login
+  // interattivo, che invece stanno in ~/.gemini e passano già da HOME).
+  "GEMINI_API_KEY", "GOOGLE_API_KEY",
+  "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT",
 ]);
 
 // ============ Stato per sessione ============
@@ -120,6 +142,16 @@ interface AcpSessionState {
   /** Qualcuno ha chiesto lo stop: il `cancelled` che tornerà è nostro. */
   aborting?: "user" | "watchdog";
   promptInFlight: boolean;
+  /**
+   * L'ultimo modello che abbiamo CHIESTO all'agente per questa sessione.
+   *
+   * Serve a non rifare la stessa richiesta a ogni turno: la sessione ACP vive
+   * dentro un demone condiviso e il modello, una volta impostato, ci resta.
+   * `null` = non l'abbiamo mai toccato, quindi vale quello scelto dall'agente.
+   */
+  model: string | null;
+  /** L'ultimo effort di ragionamento che abbiamo chiesto per questa sessione. */
+  effort: string | null;
 }
 
 // ============ Provider ============
@@ -146,6 +178,27 @@ export class AcpProvider implements AIProvider {
   private agentCapabilities: Record<string, unknown> = {};
   private stopped = false;
   private binaryMissingLogged = false;
+  /**
+   * Cosa questo agente ha gia' dichiarato di non saper fare: `session/set_model`
+   * o `session/set_reasoning_effort` assenti. E' una proprieta' dell'AGENTE e
+   * non del turno, quindi la si ricorda invece di ripetere la domanda (e
+   * l'avviso) a ogni singolo prompt. Le legge `acp/config-options.ts`, che le
+   * scrive quando l'agente risponde -32601: sta in un oggetto solo perche' le
+   * due leve degradano nello stesso modo e passano insieme.
+   */
+  private readonly unsupported = { model: false, effort: false };
+  /**
+   * I modelli annunciati dall'agente, presi dai `configOptions` di
+   * `session/new`. Vive sul PROVIDER e non sulla sessione: è una proprietà
+   * dell'agente, e il selettore la chiede senza avere una sessione in mano.
+   */
+  private knownModels: string[] = [];
+  /**
+   * Il modello su cui l'agente dice di girare ADESSO. Alimenta `defaultModel()`,
+   * cioè il badge del contesto: si tiene aggiornato da ciò che l'agente rimanda,
+   * mai da ciò che gli abbiamo chiesto.
+   */
+  private activeModel: string | null = null;
   /**
    * L'agente ha risposto con una versione di protocollo che non sappiamo
    * parlare. Non è uno stato transitorio da riprovare: finché il binario resta
@@ -221,7 +274,16 @@ export class AcpProvider implements AIProvider {
 
   private resolveBinary(): string | null {
     const cmd = this.config.command;
-    if (cmd.includes("/")) return cmd;
+    // Un percorso (`/opt/jcode/bin/jcode`, `./agente`) si prende per buono solo
+    // se il file c'è DAVVERO. Prima bastava che contenesse una barra: il
+    // provider si dichiarava `connected`, entrava nella graduatoria del default
+    // e la prima chat moriva su `ACP_BINARY_NOT_FOUND` — un guasto che si vede
+    // solo quando qualcuno prova a parlarci, cioè nel momento peggiore.
+    //
+    // Il caso non è teorico: `ACP_AGENTS` esiste apposta per puntare a un
+    // binario in un posto suo, e un percorso vecchio dopo un aggiornamento è il
+    // modo normale in cui quella riga smette di essere vera.
+    if (cmd.includes("/")) return existsSync(cmd) ? cmd : null;
     return Bun.which(cmd) ?? null;
   }
 
@@ -397,8 +459,21 @@ export class AcpProvider implements AIProvider {
     })) ?? {};
     const id = typeof res.sessionId === "string" ? res.sessionId : "";
     if (!id) throw new Error("ACP_NO_SESSION_ID");
+    this.absorbConfigOptions(res);
     this.rememberSession(sessionKey, id, cwd);
     return this.registerSession(sessionKey, id, cwd);
+  }
+
+  /**
+   * Prende dai `configOptions` di una risposta cio' che l'agente dice di se'.
+   * La lettura vive in `acp/config-options.ts`: qui resta solo il posto dove
+   * il risultato si deposita, che e' stato del provider e non della risposta.
+   */
+  private absorbConfigOptions(res: Record<string, unknown> | undefined): void {
+    const names = parseModelOptions(res);
+    if (names) this.knownModels = names;
+    const cur = currentModelFrom(res);
+    if (cur) this.activeModel = cur;
   }
 
   private registerSession(sessionKey: string, acpSessionId: string, cwd: string | null): AcpSessionState {
@@ -408,10 +483,41 @@ export class AcpProvider implements AIProvider {
       translate: newTranslateState(),
       fullText: "",
       promptInFlight: false,
+      model: null,
+      effort: null,
     };
     this.sessions.set(sessionKey, state);
     this.bySessionId.set(acpSessionId, sessionKey);
     return state;
+  }
+
+  /**
+   * Porta la sessione sul modello chiesto da chi apre il turno, e sull'effort
+   * scelto per il topic. Il perche' di entrambe (e del loro degrado quando
+   * l'agente non le conosce) sta in `acp/config-options.ts`.
+   */
+  private async applyModel(
+    peer: JsonRpcPeer,
+    state: AcpSessionState,
+    model: string | undefined,
+  ): Promise<void> {
+    await applyModel(peer, state, model, {
+      name: this.name,
+      unsupported: this.unsupported,
+      // Cio' che l'agente ha dichiarato di saper fare, letto da `absorbConfigOptions`.
+      knownModels: this.knownModels,
+      // La risposta INTERA, non i soli nomi: porta anche il `currentValue`, cioe'
+      // il modello su cui l'agente dice di girare adesso, che alimenta il badge.
+      onConfig: (res) => this.absorbConfigOptions(res),
+    });
+  }
+
+  private async applyEffort(
+    peer: JsonRpcPeer,
+    state: AcpSessionState,
+    sessionKey: string,
+  ): Promise<void> {
+    await applyEffort(peer, state, sessionKey, { name: this.name, unsupported: this.unsupported });
   }
 
   private canLoadSession(): boolean {
@@ -517,12 +623,17 @@ export class AcpProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    _options?: { model?: string; history?: ChatMessage[] },
+    options?: { model?: string; history?: ChatMessage[] },
   ): Promise<{ runId?: string }> {
     let state: AcpSessionState | undefined;
     try {
       const peer = await this.ensureConnection();
       state = await this.ensureSession(peer, sessionKey);
+      // Il modello si applica PRIMA del prompt: dopo sarebbe il turno
+      // successivo, e chi ha scelto «questo task su haiku» avrebbe pagato
+      // comunque il modello grosso su questo.
+      await this.applyModel(peer, state, options?.model);
+      await this.applyEffort(peer, state, sessionKey);
       state.handler = handler;
       state.fullText = "";
       state.aborting = undefined;
@@ -566,6 +677,28 @@ export class AcpProvider implements AIProvider {
     this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
   }
 
+  /**
+   * Questa sessione è nostra?
+   *
+   * Serve a `resolveTurnAlive`: la domanda «il turno è vivo?» va fatta al
+   * provider che quella sessione la sta servendo, e chiunque altro deve dire
+   * «non lo so» invece di tirare a indovinare. Senza questo cancello un
+   * provider ACP risponderebbe sulla salute del PROPRIO processo anche per una
+   * sessione di claude-code — e viceversa, che è il bug da cui questa funzione
+   * nasce.
+   */
+  ownsSession(sessionKey: string): boolean {
+    return this.sessions.has(sessionKey);
+  }
+
+  /**
+   * Il processo che serve questa sessione è vivo?
+   *
+   * Il `sessionKey` non si guarda ed è corretto così: in ACP le sessioni
+   * vivono TUTTE dentro lo stesso figlio (è il senso del demone condiviso), e
+   * la salute del figlio è la salute di tutte. A filtrare per proprietà ci
+   * pensa `ownsSession`, che il chiamante interroga prima.
+   */
   isTurnProcessAlive(_sessionKey: string): boolean {
     return !!this.child && this.child.exitCode === null && !this.child.killed;
   }
@@ -575,7 +708,7 @@ export class AcpProvider implements AIProvider {
    * servizio (titoli, digest): mandarle nella sessione della chat le farebbe
    * entrare nel contesto del turno vero.
    */
-  async complete(messages: ChatMessage[], _options?: { model?: string }): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
     const peer = await this.ensureConnection();
     const cwd = this.config.defaultWorkspace || process.env.HOME || "/tmp";
     const res = (await peer.request<Record<string, unknown>>("session/new", {
@@ -584,9 +717,14 @@ export class AcpProvider implements AIProvider {
     })) ?? {};
     const sessionId = typeof res.sessionId === "string" ? res.sessionId : "";
     if (!sessionId) throw new Error("ACP_NO_SESSION_ID");
+    this.absorbConfigOptions(res);
 
     const key = `__complete__:${sessionId}`;
     const state = this.registerSession(key, sessionId, cwd);
+    // Vale anche qui, e qui il risparmio è il punto: titoli e digest sono il
+    // lavoro che si vuole mandare sul modello PICCOLO. Ignorare la richiesta
+    // significava pagarli sul modello di default dell'agente.
+    await this.applyModel(peer, state, options?.model);
     let text = "";
     state.handler = {
       onTextDelta: (chunk) => { text += chunk; },
@@ -613,81 +751,52 @@ export class AcpProvider implements AIProvider {
 
   // ── Diagnostica ──────────────────────────────────────────────────────────
 
+  /** La traduzione in requisiti sta in `acp/diagnostic.ts`: qui si MISURA soltanto. */
   async diagnose(): Promise<ProviderDiagnostic> {
     const bin = this.resolveBinary();
     const probe = bin ? await probeBinaryPath(bin) : { available: false, path: undefined, version: undefined };
-    const requirements: ProviderRequirement[] = [
-      {
-        key: `${this.name}-binary`,
-        label: `Eseguibile "${this.config.command}" disponibile`,
-        present: probe.available || !!bin,
-        hint: bin ? undefined : `Installa "${this.config.command}" o dichiaralo in ACP_AGENTS`,
-      },
-      {
-        key: `${this.name}-handshake`,
-        label: "Handshake ACP completato",
-        present: !!this.peer && !this.peer.isClosed,
-        hint: this.peer ? undefined : "Si negozia al primo messaggio",
-      },
-      {
-        key: `${this.name}-protocol`,
-        label: `Protocollo ACP v${ACP_PROTOCOL_VERSION}`,
-        present: !this.versionMismatch,
-        hint: this.versionMismatch
-          ? `L'agente parla ACP v${this.versionMismatch.agentVersion}: aggiorna Topics o installa una versione dell'agente che parli v${ACP_PROTOCOL_VERSION}`
-          : undefined,
-      },
-    ];
-    return {
+    return buildDiagnostic({
       name: this.name,
-      // L'handshake avviene al primo turno: non averlo ancora fatto non è un
-      // guasto. Conta solo l'eseguibile — e la versione, quando l'agente ne ha
-      // già dichiarata una che non sappiamo parlare: lì l'eseguibile c'è ed è
-      // proprio il motivo per cui non serve a niente.
-      status: this.versionMismatch ? "unavailable" : bin ? "ready" : "unavailable",
-      binaryPath: probe.path ?? bin ?? undefined,
-      version: probe.version,
-      requirements,
-      lastError: this.versionMismatch?.reason,
-    };
+      command: this.config.command,
+      bin,
+      probe,
+      connected: !!this.peer && !this.peer.isClosed,
+      protocolVersion: ACP_PROTOCOL_VERSION,
+      versionMismatch: this.versionMismatch,
+    });
   }
 
   /**
-   * ACP v1 non ha un metodo per elencare i modelli: la scelta la fa l'agente,
-   * eventualmente via `session/set_mode`. Meglio una lista vuota (il selettore
-   * non mostra niente) che una lista inventata.
+   * I modelli che l'agente dice di avere.
+   *
+   * ACP v1 non ha un metodo per elencarli, ed era il motivo per cui qui si
+   * tornava una lista vuota: meglio niente che una lista inventata. Ma non
+   * inventarli non vuol dire non SAPERLI — `session/new` risponde con i suoi
+   * `configOptions`, e lì dentro c'è l'opzione `model` con l'elenco completo
+   * (jcode ne annuncia 105). Quella lista arriva dall'agente, non da noi.
+   *
+   * Resta vuota finché non si è aperta almeno una sessione: senza aver mai
+   * parlato con l'agente non abbiamo niente di suo da riportare, e riempirla di
+   * ipotesi sarebbe di nuovo inventare. Il selettore la ripesca al giro dopo —
+   * lo snapshot dei provider si ricalcola.
    */
   async listModels(): Promise<string[]> {
-    return [];
+    return [...this.knownModels];
   }
-}
 
-// ============ Helper ============
-
-function findOption(options: unknown[], kind: string): Record<string, unknown> | undefined {
-  return options.find(
-    (o): o is Record<string, unknown> =>
-      !!o && typeof o === "object" && (o as Record<string, unknown>).kind === kind,
-  );
-}
-
-function flattenMessages(messages: ChatMessage[]): string {
-  return messages
-    .map((m) => (m.role === "user" ? m.content : `[${m.role}] ${m.content}`))
-    .join("\n\n");
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, marker: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(marker)), ms);
-    timer.unref?.();
-    promise.then(
-      (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e); },
-    );
-  });
-}
-
-function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err ?? "errore sconosciuto");
+  /**
+   * Su quale modello gira davvero questo agente, se l'ha detto.
+   *
+   * Non è cosmetica: il badge del contesto e il conto dei token partono da qui
+   * (`routes/context.ts`, `routes/chat.ts`), e senza una risposta la UI tira a
+   * indovinare — mostra il primo della lista, che è un modello qualunque. Su
+   * jcode il primo della lista e quello attivo sono cose diverse, quindi la
+   * finestra dichiarata sarebbe quella di un altro modello.
+   *
+   * `null` finché l'agente non l'ha detto: è la risposta onesta, e chi la
+   * riceve sa già come trattarla.
+   */
+  defaultModel(): string | null {
+    return this.activeModel;
+  }
 }

@@ -302,7 +302,7 @@ test.describe.serial("Coda dei messaggi", () => {
   });
 
   test("un comando col cancelletto non si accoda: agisce subito", async ({ page, chatPage }) => {
-    const { sent } = await interceptSends(page);
+    const { sent, state } = await interceptSends(page);
     await openChat(page, chatPage);
 
     await chatPage.messageInput.fill("primo");
@@ -314,13 +314,24 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.fill("/help ");
     await chatPage.messageInput.press("Enter");
 
-    // Il comando ha risposto sul posto…
-    await expect(page.getByText("/status — Show session status").first())
+    // Il comando ha risposto sul posto. La riga è quella che `/help` stampa
+    // davvero (`SLASH_COMMANDS_HELP` in ChatPane): la si cita per intero, così
+    // un elenco che smette di nominare `/status` fa rumore.
+    await expect(page.getByText("/status: mostra lo stato della sessione").first())
       .toBeVisible({ timeout: 10_000 });
     // …e non è finito in coda, dove sarebbe poi partito come testo verso il modello.
     await expect(queueBadge(page)).toBeHidden();
-    await page.waitForTimeout(500);
-    expect(sent).toEqual(["primo"]);
+
+    // Che non sia partito NEMMENO PIÙ TARDI non si prova aspettando mezzo
+    // secondo e sperando: si lascia finire il turno e si manda un messaggio
+    // vero. Gli invii sono in ordine, quindi un `/help` accodato comparirebbe
+    // prima di «secondo» — o fuso dentro il suo prompt.
+    state.hang = false;
+    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
+    await chatPage.messageInput.fill("secondo");
+    await chatPage.messageInput.press("Enter");
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["primo", "secondo"]);
   });
 
   /**

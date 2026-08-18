@@ -1,3 +1,4 @@
+import { costTokens, partsFromMessage } from '../../../shared/token-cost';
 import { useEffect, useState } from 'react';
 import { WaveLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
@@ -169,8 +170,14 @@ export function TurnActivityIndicator({
     setUsageTurn(since);
     setCalls(0);
   }
-  // I totali di adesso, come li porta la riga.
-  const liveTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
+  // I totali di adesso, come li porta la riga — e il numero mostrato è QUANTO
+  // È COSTATO, la stessa regola della card, del grafico e del piede di un
+  // messaggio (`shared/token-cost.ts`). Qui c'era `prompt + completion`, cioè
+  // la rilettura di cache a prezzo pieno: la stessa formula che rendeva questa
+  // striscia e la card due numeri diversi per lo stesso turno.
+  const liveTokens = costTokens(partsFromMessage({
+    usagePromptTokens: promptTokens, usageCompletionTokens: completionTokens, cacheReadTokens,
+  }));
 
   // Da quando aspetta noi, e quanto ha aspettato in tutto in questo turno.
   //

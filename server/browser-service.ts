@@ -425,6 +425,36 @@ export interface BrowserService {
   ): Promise<ElementDescription | null>;
 }
 
+/**
+ * The CDP port the headless Chromium listens on, derived from the server port.
+ *
+ * 19222 is the production number and stays the production number: it is what the
+ * OpenClaw `topics` browser profile answers on, and the probe at
+ * `/json/list` below reaches an already-running browser through it.
+ *
+ * A TEST server must not take it. The number used to be a hard-coded constant
+ * shared by every server on the machine, so a spec that launched a server-side
+ * Chromium while the production one held 19222 died with
+ * `bind() failed: Address already in use (48)` and Playwright SIGKILLed the
+ * launch. Observed on 2026-08-15 during a four-shard run, on a spec that has
+ * nothing to do with browsers. The DB directory, the PTY socket and the
+ * ai-bridge socket all already derive from `BUN_PORT`
+ * (scripts/start-test-server.sh); this was the fourth of that family and the
+ * only one still shared.
+ *
+ * Mapping: 13334 -> 19334, 13400 -> 19400. One CDP port per server port, inside
+ * a band nothing else on this machine claims. Production (3333) and any server
+ * that does not declare a port keep 19222, so nothing about the shipped app
+ * changes.
+ */
+export function defaultCdpPort(env: Record<string, string | undefined> = process.env): number {
+  const explicit = Number(env.TOPICS_CDP_PORT);
+  if (Number.isInteger(explicit) && explicit > 0) return explicit;
+  const serverPort = Number(env.BUN_PORT || env.PORT || 0);
+  if (!Number.isInteger(serverPort) || serverPort <= 0 || serverPort === 3333) return 19222;
+  return 19000 + (serverPort % 1000);
+}
+
 export async function createBrowserService(opts: BrowserServiceOptions = {}): Promise<BrowserService> {
   const {
     maxContexts = 20,
@@ -433,7 +463,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     browserIdleTimeoutMs = 5 * 60 * 1000,
     defaultViewport = { width: 1280, height: 720 },
     screenshotQuality = 70,
-    cdpPort = 19222,
+    cdpPort = defaultCdpPort(),
   } = opts;
 
   const cookieDir = join(process.env.HOME || "/tmp", ".openclaw", "workspace", "topics-app", ".browser-cookies");
@@ -1683,7 +1713,38 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // first, capped. Everything else still restores LAZILY on first use —
       // createContext loads storageState + last-url exactly the same way — so no
       // login or URL is lost, it's just paid for on demand instead of at boot.
-      const RESTORE_MAX = 8;
+      // ZERO, e il numero prima era 8. Misurato sul server vivo il 2026-08-15,
+      // e le tre righe del log raccontano tutto da sole:
+      //
+      //   restoreAllContexts: 8 restored ............ 254 volte
+      //   Auto-closing inactive context ............. 89 volte
+      //   Reaping idle Chromium ..................... 0 volte
+      //
+      // Mai una. Il reap dell'INTERO Chromium (browser + GPU + rete + utility,
+      // «~hundreds of MB» dice il commento del reaper stesso) pretende
+      // `contexts.size === 0` per cinque minuti, e questo giro di riscaldamento
+      // ne rimette otto a ogni avvio: la condizione non si verifica MAI, per
+      // costruzione. Il riscaldamento affamava il proprio riscossore, e il
+      // processo restava su per l'intera vita del server esattamente come quel
+      // commento temeva.
+      //
+      // Il prezzo che pagava, misurato a riposo con l'app non toccata (finestra
+      // di 15 s, tempo CPU cumulativo a delta e non `%cpu` di ps): 13 processi,
+      // 957 MB, 8,8% di un core in perpetuo. Per pagine che nessuno sta
+      // guardando: la scelta di CHI scaldare non guardava le pane aperte, ma la
+      // data di ultima scrittura su disco, che con 29 pane browser sparse su 46
+      // finestre di progetto non ha alcun rapporto con cosa hai davanti.
+      //
+      // E non si perde niente, perche' lo dice il commento qui sopra: tutto
+      // ripristina comunque PIGRO al primo uso, con `createContext` che carica
+      // storageState e last-url allo stesso identico modo. Il riscaldamento
+      // comprava solo la latenza del primo clic, ed era gia' cosi' per la nona
+      // pane in poi.
+      //
+      // Resta una manopola perche' la scelta sia rifiutabile con una misura e
+      // non con un'opinione: `TOPICS_BROWSER_RESTORE_MAX=8` rimette il vecchio
+      // comportamento senza ricompilare.
+      const RESTORE_MAX = Math.max(0, Number(process.env.TOPICS_BROWSER_RESTORE_MAX ?? 0) || 0);
       const RESTORE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
       const now = Date.now();
 

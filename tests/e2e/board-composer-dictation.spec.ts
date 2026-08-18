@@ -104,6 +104,12 @@ async function openProjectBoard(page: Page) {
     await page.keyboard.press("Escape");
   }
   if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
+  // E POI SI CLICCA. Il ciclo qui sopra cerca il «+» giusto e si ferma appena
+  // la voce «Board» è a schermo: aprire il menu non apre la board. Mancava
+  // questa riga, ed è il motivo per cui questa spec non era mai passata — era
+  // stata scritta e mai eseguita (il global-setup rifiuta di partire senza un
+  // bundle fresco, e il build non era entrato in quel turno).
+  await item.click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
@@ -112,14 +118,28 @@ const beat = (page: Page, ms = 1000) =>
   process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
 
 /** Preme il tasto e lo TIENE per `ms`, poi molla: il gesto del walkie-talkie. */
-async function holdMic(page: Page, ms: number) {
-  const mic = page.getByTestId("task-composer-dictation");
-  const box = await mic.boundingBox();
-  if (!box) throw new Error("il microfono non ha un rettangolo: non è sullo schermo");
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(ms);
-  await page.mouse.up();
+/**
+ * Il gesto, con la durata MISURATA NELLA PAGINA.
+ *
+ * Il gesto decide tap-o-tenuto dal tempo fra `pointerdown` e `pointerup`
+ * (`HOLD_TO_TALK_MS`, 350). Guidando il mouse da fuori, quel tempo lo decide il
+ * round trip di Playwright, non il test: su un avvio freddo un tap da 80ms
+ * arrivava alla pagina come un TENUTO, il microfono si spegneva al rilascio e
+ * l'asserzione «resta acceso» leggeva `false`. Era la flake di questa spec, e
+ * non era del prodotto.
+ *
+ * Qui i due eventi partono dallo stesso `evaluate`: fra loro c'è solo un
+ * `setTimeout`, quindi la durata è quella chiesta a qualunque velocità giri la
+ * macchina. Sono `pointer*` e non `mouse*` perché è ciò che il gesto ascolta.
+ */
+async function holdMic(page: Page, ms: number, testId = "task-composer-dictation") {
+  const mic = page.getByTestId(testId);
+  await expect(mic).toBeVisible();
+  await mic.evaluate((el, durata) => new Promise<void>((res) => {
+    const opts = { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0, isPrimary: true };
+    el.dispatchEvent(new PointerEvent("pointerdown", opts));
+    setTimeout(() => { el.dispatchEvent(new PointerEvent("pointerup", opts)); res(); }, durata);
+  }), ms);
 }
 
 test.describe("Board: dettare il task invece di scriverlo", () => {
@@ -168,6 +188,40 @@ test.describe("Board: dettare il task invece di scriverlo", () => {
     // Il contenitore vuoto sta sotto il chilobyte: qui dentro c'è audio vero.
     expect(audioBytes[0]).toBeGreaterThan(2000);
     await beat(page, 1500);
+  });
+
+  test("il microfono c'e' ANCHE nel thread di un task, non solo nel composer", async ({ page }) => {
+    // Segnalato: «tutti quanti gli input AI devono essere consistenti in
+    // termini di funzionalita, dal microfono al caricamento di file».
+    //
+    // Il thread di un task ha graffetta e incolla, quindi non e' un campo
+    // minore: e' un campo pieno a cui mancava una cosa sola. Chi dettava il
+    // task e poi voleva rispondere all'agente trovava il gesto sparito.
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Un task su cui aprire il drawer: quello del composer basta.
+    const field = page.getByTestId("board-task-composer").locator("textarea");
+    await field.click();
+    await field.fill(`Task con thread ${Date.now()}`);
+    await page.getByTestId("composer-send").click();
+
+    const card = page.locator("[data-task-card]").first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await card.click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+
+    const mic = page.getByTestId("task-thread-dictation");
+    await expect(mic, "il thread deve avere lo stesso gesto del composer").toBeVisible({ timeout: 10000 });
+    await expect(mic).toHaveAttribute("data-listening", "false");
+
+    // E FUNZIONA, non e' solo disegnato: tenuto premuto trascrive nel campo
+    // del thread. Un bottone presente che non fa niente sarebbe peggio della
+    // sua assenza, perche' chi lo preme non impara che manca, impara che
+    // l'app non risponde.
+    await holdMic(page, 1500, "task-thread-dictation");
+    await expect(drawer.locator("textarea").last()).toHaveValue(new RegExp(PRIMA), { timeout: 15000 });
   });
 
   test("un tocco lo lascia acceso, il tocco dopo lo chiude", async ({ page }) => {

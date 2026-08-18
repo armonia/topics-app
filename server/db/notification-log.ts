@@ -189,6 +189,47 @@ export function countUnseenNotifications(): number {
  *
  * Torna quante righe ha cambiato.
  */
+/**
+ * Le notifiche di UN BERSAGLIO, segnate viste tutte insieme.
+ *
+ * LEGGERE LA COSA E' AVERLA VISTA. Aprire una chat azzerava il suo non-letto
+ * nella sidebar ma lasciava accesa la campanella: due contatori sullo stesso
+ * fatto che dicevano cose diverse, e quello che restava acceso era quello che
+ * nessun gesto naturale spegneva - si spegneva solo aprendo il pannello della
+ * cronologia, che e' un posto in cui non si passa mai apposta.
+ *
+ * Riusa la chiave di gruppo (`topic:<id>`), che e' gia' l'unita' con cui la
+ * cascata di `markNotificationsSeen` ragiona: una sola nozione di «queste
+ * notifiche parlano della stessa cosa», non una seconda scritta qui.
+ *
+ * Torna quante righe ha toccato: zero e' il caso normale (niente da segnare) e
+ * il chiamante lo usa per non svegliare i client con un broadcast inutile.
+ */
+export function markTargetNotificationsSeen(
+  targetKind: string,
+  targetId: string,
+  now = Date.now(),
+): number {
+  const groupKey = defaultNotificationGroupKey(
+    targetKind as NotificationRecordInput["targetKind"],
+    targetId,
+  );
+  if (!groupKey) return 0;
+  try {
+    const db = getDatabase();
+    const r = db.run(
+      "UPDATE notification_log SET seen_at = ? WHERE seen_at IS NULL AND group_key = ?",
+      [new Date(now).toISOString(), groupKey],
+    );
+    return Number(r?.changes ?? 0);
+  } catch (err) {
+    // Best-effort come il resto del registro: una campanella che resta accesa
+    // e' un fastidio, una lettura che fallisce per colpa sua sarebbe un guasto.
+    console.warn("[notification-log] mark target seen failed:", (err as Error)?.message || err);
+    return 0;
+  }
+}
+
 export function markNotificationsSeen(opts: { ids?: string[]; upTo?: string }, now = Date.now()): number {
   try {
     const db = getDatabase();

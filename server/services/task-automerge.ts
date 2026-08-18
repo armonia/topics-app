@@ -26,7 +26,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
+import { landedMergeRange } from "./task-diff-range";
+import { gitEnvFor } from "../lib/git-identity";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
+import { makeSerialQueue } from "../lib/serial-queue";
 
 export type AutoMergeResult =
   | {
@@ -284,7 +287,11 @@ export interface AutoMergeDeps {
 
 async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   try {
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    // L'identità di chi firma, e solo dove manca: il land CREA commit (i due
+    // merge e i cherry-pick), e git senza identità esce 128 prima di toccare
+    // l'albero. Il perché e la regola del ripiego stanno in `git-identity.ts`.
+    const env = await gitEnvFor(cwd);
+    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -323,16 +330,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const log = deps.log ?? (() => {});
 
   // Serialize per repo path so two approvals on the same project never run
-  // overlapping git operations against the same working tree.
-  const queues = new Map<string, Promise<unknown>>();
+  // overlapping git operations against the same working tree (task e33820da).
+  const repoQueue = makeSerialQueue();
   function chain<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const prev = queues.get(key) ?? Promise.resolve();
-    const next = prev.catch(() => undefined).then(fn);
-    const tail = next.finally(() => {
-      if (queues.get(key) === tail) queues.delete(key);
-    });
-    queues.set(key, tail);
-    return next;
+    return repoQueue.enqueue(key, fn);
   }
 
   /**
@@ -739,6 +740,30 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           if (sha && (await commitIsIn(repoPath, sha, defaultBranch, { runGit })) === true) {
             return { status: "nothing", branch, deliveryDrift: drift };
           }
+          // LA SECONDA PROVA, per le card che il commit di consegna non ce l'hanno.
+          //
+          // Il controllo qui sopra è giusto ma pretende `delivery.commit`, e fino
+          // al 18/08 quella colonna restava vuota su 9 card su 10 (vedi il fix in
+          // `landing-audit.ts`). Senza sha la domanda non si faceva nemmeno: si
+          // cadeva dritti su `branch-missing`, cioè su un'accusa.
+          //
+          // Misurato su `171b787d`: il merge `a89990ecb` è su main da giorni, il
+          // ramo `topics/rippling-fort` è stato potato DOPO — e la card è stata
+          // rispedita in review DUE VOLTE, ogni volta che qualcuno la chiudeva,
+          // con addosso «⚠️ Land NON riuscito». Riaprire una card chiusa è il
+          // danno peggiore che questo codice possa fare: dice al reviewer che il
+          // suo lavoro non è servito.
+          //
+          // Il merge che il land scrive porta il NOME della card, non lo pota
+          // nessuno, e sopravvive a entrambe le altre maniglie. Si chiede solo
+          // qui, dove il ramo NON esiste più: se il ramo è sparito e il merge
+          // c'è, non è rimasto niente fuori da main per definizione — nessun
+          // lavoro successivo sarebbe raggiungibile. La stessa funzione che usa
+          // il drawer per mostrare il diff di un land, non una seconda copia
+          // della regola.
+          if ((await landedMergeRange(repoPath, taskId, { runGit, mainRef: defaultBranch })) !== null) {
+            return { status: "nothing", branch, deliveryDrift: drift };
+          }
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
@@ -971,22 +996,57 @@ export type TaskAutoMerge = ReturnType<typeof createTaskAutoMerge>;
 const WORKTREE_JUNK = [/^\.topics-daemon\//, /^graphify-out\//, /^\.claude-task-summary\.md$/];
 
 /**
+ * Come `worktreeRealDirt`, ma dice anche SE ha potuto guardare.
+ *
+ * `worktreeRealDirt` collassa due fatti diversi nella stessa risposta: «l'albero
+ * è pulito» e «non sono riuscito a chiederlo». Per il cancello della review va
+ * bene fallire aperto — un singhiozzo di git non deve bloccare una consegna. Per
+ * il GC no: lì la stessa risposta vuota diventa il permesso di CANCELLARE una
+ * cartella che, per quel che ne sappiamo, contiene l'unica copia di un lavoro.
+ * Un `git status` che esce non-zero (repo bloccato da un index.lock, filesystem
+ * che non risponde, cartella smontata a metà) apriva il reap invece di fermarlo.
+ *
+ * Chi distrugge usa questa e tratta `ok: false` come sporco; chi solo consiglia
+ * continua a usare `worktreeRealDirt`.
+ */
+export async function worktreeDirtProbe(
+  path: string,
+  runGit: (cwd: string, args: string[]) => Promise<GitRunResult> = defaultRunGit,
+): Promise<{ ok: boolean; paths: string[] }> {
+  let st: GitRunResult;
+  try {
+    st = await runGit(path, ["status", "--porcelain"]);
+  } catch {
+    return { ok: false, paths: [] };
+  }
+  if (st.code !== 0) return { ok: false, paths: [] };
+  return { ok: true, paths: parseDirtLines(st.stdout) };
+}
+
+function parseDirtLines(stdout: string): string[] {
+  return stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3).replace(/^"|"$/g, ""))
+    .filter((p) => !WORKTREE_JUNK.some((rx) => rx.test(p)));
+}
+
+/**
  * Paths with REAL uncommitted changes in `path` (tracked modifications plus
  * non-junk untracked files). Empty array = the worktree's work is fully
  * committed (or the status call failed — the caller must not hard-fail on a
  * git hiccup). Used as the structural review gate: an agent that "delivers"
  * with work still sitting uncommitted in its worktree gets a 409 coaching it
  * to commit first — the failure mode prompts alone never fixed.
+ *
+ * FALLISCE APERTO di proposito, ed e' il motivo per cui chi CANCELLA non deve
+ * usarla: per quello c'e' `worktreeDirtProbe`, che distingue «pulito» da «non
+ * ho potuto guardare».
  */
 export async function worktreeRealDirt(
   path: string,
   runGit: (cwd: string, args: string[]) => Promise<GitRunResult> = defaultRunGit,
 ): Promise<string[]> {
-  const st = await runGit(path, ["status", "--porcelain"]);
-  if (st.code !== 0) return [];
-  return st.stdout
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3).replace(/^"|"$/g, ""))
-    .filter((p) => !WORKTREE_JUNK.some((rx) => rx.test(p)));
+  const probe = await worktreeDirtProbe(path, runGit);
+  return probe.paths;
 }

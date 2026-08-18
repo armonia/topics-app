@@ -190,6 +190,15 @@ export interface ChatRequest {
   provider?: string;
   /** Per-message model override. Ignored by providers without per-call model selection. */
   model?: string;
+  /**
+   * Chiave di idempotenza dell'invio: il server la ricorda appena ha scritto la
+   * riga utente e risponde 409 `duplicate_message` a chi la ripete. Serve a un
+   * caso solo, ma è quello che perdeva i messaggi: la connessione che muore
+   * prima che la risposta cominci. Da qui «il server non l'ha ricevuto» e «l'ha
+   * ricevuto e poi è caduto» sono identici, e chiedono l'opposto — rispedire o
+   * non rispedire. Con la chiave si rispedisce sempre, e decide il server.
+   */
+  clientMessageId?: string;
 }
 
 // ============ Providers ============
@@ -375,7 +384,21 @@ export interface WSPresenceWindowsMessage {
 export interface WSStreamStartMessage {
   type: 'stream:start';
   sessionKey: string;
-  messageId?: string;
+  /**
+   * OBBLIGATORIO SUL FILO, e adesso anche qui.
+   *
+   * Lo schema condiviso lo dichiara richiesto (`shared/ws-outbound.ts`,
+   * `streamStartSchema: messageId: z.string()`), e il commento in `useChat` lo
+   * dava per scontato — «ce lo dice sempre». Questo tipo, riscritto a mano,
+   * diceva il contrario: opzionale. La differenza non era teorica, teneva in
+   * vita un ripiego (`event.messageId || generateMessageId()`) che ricrea un
+   * difetto gia' chiuso — la riga in DB e la bolla a schermo con due nomi
+   * diversi, quindi un `loadHistory` a meta' turno che disegna la stessa
+   * risposta DUE volte.
+   *
+   * Un tipo che mente non fallisce: fa prendere in silenzio il ramo rotto.
+   */
+  messageId: string;
   /**
    * Il turno RIPRENDE dopo un riavvio del server: `messageId` è la bolla che
    * abbiamo già a schermo, piena, e il replay sta per ridettarla da capo. Va

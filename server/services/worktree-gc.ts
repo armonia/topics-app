@@ -215,6 +215,12 @@ export interface PostLandInput {
   branchAfter: BranchStatus;
   /** Non-junk uncommitted paths still in the worktree AFTER the land. */
   dirtAfter: string[];
+  /**
+   * La sonda ha potuto leggere l'albero? `false` = `git status` non ha risposto,
+   * e allora `dirtAfter` vuoto non significa «pulito» ma «non lo so». Qui si
+   * distrugge: non sapere vale quanto sporco.
+   */
+  dirtReadable?: boolean;
 }
 
 /**
@@ -249,6 +255,9 @@ export function decidePostLandReap(input: PostLandInput): WorktreeReapDecision {
   // Nessun esito del land può autorizzare a toccarla. (Stava dopo il controllo
   // su conflict/skipped, che restituiva comunque `keep`: lì l'ordine non si
   // vedeva, qui sì, perché adesso quel ramo può liberare la cartella.)
+  if (input.dirtReadable === false) {
+    return { action: "keep", reason: "stato dell'albero illeggibile dopo il land (git status non ha risposto)" };
+  }
   if (input.dirtAfter.length > 0) {
     return { action: "keep", reason: `modifiche non committate dopo il land (${input.dirtAfter.length} file)` };
   }
@@ -296,8 +305,17 @@ export interface WorktreeGcDeps {
   isBusy: (taskId: string) => boolean;
   /** Whether the worktree directory still exists on disk. */
   diskPresent: (absPath: string) => boolean;
-  /** Non-junk uncommitted paths (worktreeRealDirt). Only meaningful when disk present. */
-  realDirt: (absPath: string) => Promise<string[]>;
+  /**
+   * Non-junk uncommitted paths, PIU' il fatto di aver potuto guardare
+   * (`worktreeDirtProbe`). Ha senso solo a cartella presente.
+   *
+   * `ok: false` — `git status` uscito non-zero, o esploso — NON vale «pulito»:
+   * qui si decide se cancellare, e una cartella su cui non si e' potuto leggere
+   * niente va trattata come se contenesse lavoro. Prima la sonda restituiva un
+   * array vuoto in entrambi i casi e un singhiozzo di git (index.lock, volume
+   * che non risponde) SBLOCCAVA il reap invece di fermarlo.
+   */
+  realDirt: (absPath: string) => Promise<{ ok: boolean; paths: string[] }>;
   /**
    * The branch's state relative to main, read from the project repo (so it's
    * correct even after the worktree dir was removed): `gone` (branch deleted),
@@ -356,7 +374,7 @@ export interface WorktreeGcDeps {
    * because its content never reached main is exactly the failure that went
    * unnoticed for 8 days — it must be visible where the human looks.
    */
-  noteOnTask?: (taskId: string, message: string) => void;
+  noteOnTask?: (taskId: string, message: string, opts?: { kind?: "service"; once?: boolean }) => void;
   /**
    * TIMBRA IL RAMO SULLA CARD prima che la cartella sparisca.
    *
@@ -577,14 +595,21 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // A removed worktree dir can hold no uncommitted work; only inspect the
       // tree for dirt when it actually exists.
       const present = deps.diskPresent(wt.absPath);
-      const dirt = present ? await deps.realDirt(wt.absPath).catch(() => [] as string[]) : [];
+      // Cartella assente = niente lavoro non committato, ed e' un fatto letto,
+      // non un default. Cartella presente ma sonda muta (`ok: false`, incluso il
+      // reject) = SPORCA: chi non ha potuto guardare non ha il diritto di
+      // distruggere.
+      const probe = present
+        ? await deps.realDirt(wt.absPath).catch(() => ({ ok: false, paths: [] as string[] }))
+        : { ok: true, paths: [] as string[] };
+      const dirt = probe.paths;
       const taskStatus = taskId ? (t as { status: TaskStatus }).status : null;
       const taskArchived = taskId ? (t as { archived: boolean }).archived : false;
 
       const decision = decideWorktreeReap({
         taskStatus,
         taskArchived,
-        hasRealDirt: dirt.length > 0,
+        hasRealDirt: !probe.ok || dirt.length > 0,
         mergedIntoMain: branch === "merged",
         branchGone: branch === "gone",
         autoMergeEnabled: deps.autoMergeEnabled(wt.projectId),
@@ -601,6 +626,30 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
 
       if (decision.action === "keep") {
         keep(decision.reason);
+        // Modifiche non committate: il worktree sopravvive, ma l'umano deve
+        // saperlo — altrimenti non sa dove cercare il lavoro. Senza questa
+        // nota la card era silenziosa anche quando il suo worktree conteneva
+        // l'unica copia del lavoro non committato (misurato il 18/08 su
+        // `eef64e32`: `groovy-frond` era vivo ma nessuno sapeva dove guardare).
+        //
+        // La condizione legge la ragione, non un flag a parte: "modifiche non
+        // committate" è l'unica nota che `decideWorktreeReap` aggiunge quando
+        // si ferma per sporco, e nient'altro usa quella stringa.
+        if (taskId && decision.reason.includes("non committate")) {
+          const dirtNote = (!probe.ok)
+            ? `⚠️ Worktree \`${wt.branchName ?? wt.id}\` tenuto: la sonda git non ha risposto (path: \`${wt.absPath}\`). ` +
+              "Verificare a mano: potrebbe contenere lavoro non committato."
+            : `⚠️ Worktree \`${wt.branchName ?? wt.id}\` tenuto per modifiche non committate (path: \`${wt.absPath}\`). ` +
+              "Il lavoro non si perde, ma non e' su nessun commit: committare o salvare prima di eliminare il worktree.";
+          // SERVICE E UNA VOLTA SOLA. La condizione «worktree sporco» dura finche'
+          // qualcuno non tocca quella cartella, e il GC ripassa ogni 30 minuti:
+          // senza questi due flag la stessa frase da 244 caratteri si riscrive
+          // per giorni. Misurato il 18/08: 108 copie su 12 card in quattro ore,
+          // dieci-dodici byte-per-byte sulla stessa card. Il testo poi e'
+          // un'ISTRUZIONE PER L'AGENTE («committare o salvare prima di eliminare
+          // il worktree») recapitata nel thread di chi deve solo decidere.
+          deps.noteOnTask?.(taskId, dirtNote, { kind: "service", once: true });
+        }
         await slimKept(wt, taskStatus, taskArchived, present);
         continue;
       }
@@ -642,13 +691,14 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
 
         // VERIFY BEFORE DESTROY. Re-read the repo — the land's own verdict is
         // not evidence (see `decidePostLandReap`).
-        const [branchAfter, dirtAfter] = await Promise.all([
+        const [branchAfter, probeAfter] = await Promise.all([
           deps.branchStatus(wt).catch(() => "unmerged" as BranchStatus),
           deps.diskPresent(wt.absPath)
-            ? deps.realDirt(wt.absPath).catch(() => [] as string[])
-            : Promise.resolve([] as string[]),
+            ? deps.realDirt(wt.absPath).catch(() => ({ ok: false, paths: [] as string[] }))
+            : Promise.resolve({ ok: true, paths: [] as string[] }),
         ]);
-        const post = decidePostLandReap({ outcome, branchAfter, dirtAfter });
+        const dirtAfter = probeAfter.paths;
+        const post = decidePostLandReap({ outcome, branchAfter, dirtAfter, dirtReadable: probeAfter.ok });
         // Il land non è passato (quasi sempre: il cancello di `03ca44c3` rifiuta
         // un branch che porta commit di un'altra sessione), ma l'albero è pulito
         // e il branch c'è. I commit restano dove sono; la cartella no.
@@ -669,7 +719,10 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
             const branchNote = branchAfter === "gone"
               ? `Il branch \`${wt.branchName ?? wt.id}\` NON è più nel repo: quello che resta è nel worktree, controllalo prima che sparisca.`
               : `Il branch \`${wt.branchName ?? wt.id}\` è stato conservato. Verifica a mano prima di cancellarlo.`;
-            deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`);
+            // Stessa famiglia: si riscrive a ogni passata finche' il worktree
+            // resta li'. Il FATTO conta (il ramo puo' non esserci piu'), la
+            // ripetizione no.
+            deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`, { once: true });
           }
           keep(post.reason);
           await slimKept(wt, taskStatus, taskArchived, deps.diskPresent(wt.absPath));

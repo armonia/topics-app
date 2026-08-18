@@ -6,14 +6,15 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
+import { createTaskAttemptStore } from "./task-attempts";
 
 // Lo schema di `tasks` arriva da TASKS_DDL: è la catena delle migration, e una
 // colonna nuova non fa più rosso QUI alla fusione. PRAGMA foreign_keys e la FK
@@ -35,7 +36,25 @@ function freshDb(): Database {
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
-    max_agents_auto INTEGER
+    -- I comandi che l'envelope nomina alla consegna. Senza questa colonna il
+    -- ramo dei check del kickoff non era raggiungibile da qui, cioe' proprio
+    -- le righe che nessun test leggeva.
+    review_checks TEXT,
+    max_agents_auto INTEGER, dispatch_fanout INTEGER,
+    -- Il freno di QUESTA board (migration 20260816142059): senza la colonna il
+    -- ramo che la legge non e' raggiungibile da qui.
+    dispatch_paused INTEGER NOT NULL DEFAULT 0
+  )`);
+  // I tentativi in parallelo: servono al fan-out, che è l'unico posto in cui
+  // DUE sessioni vive convivono sullo stesso task.
+  db.run(`CREATE TABLE task_attempts (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL, topic_id TEXT, worktree_id TEXT, branch TEXT, model TEXT,
+    state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
+    insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT,
+    UNIQUE (task_id, idx)
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -83,6 +102,10 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
 
   const deps: DispatcherDeps = {
     svc,
+    // Lo store dei tentativi c'è sempre: senza, il fan-out non è nemmeno
+    // raggiungibile da un test, ed è l'unico posto in cui due sessioni vive
+    // convivono su un task.
+    attempts: createTaskAttemptStore(db),
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
     createTopic: (opts) => {
       topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort, model: opts.model, standalone: opts.standalone });
@@ -152,7 +175,7 @@ describe("task-dispatcher", () => {
     expect(h.topicsCreated[0].worktreeId).toBe("wt-store-1");
     expect(h.turns.length).toBe(1);
     expect(h.turns[0].sessionKey).toBe("topic:sk1");
-    expect(h.turns[0].content).toContain("owner esclusivo del task");
+    expect(h.turns[0].content).toContain("exclusive owner of task");
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
   });
 
@@ -545,6 +568,155 @@ describe("task-dispatcher", () => {
     expect(h.events.some((e) => e.type === "task:updated" && e.task?.agentTokens === 1234)).toBe(true);
   });
 
+  // ── Il conto dei token: assoluto, monotono, per sessione ──────────────────
+  //
+  // I tre casi qui sotto sono quelli che un avversario ha MISURATO sul primo
+  // tentativo di correzione, e che l'hanno mandato indietro. Sono scritti come
+  // comportamento (che numero deve avere la card) e non come meccanismo, così
+  // restano validi se il meccanismo cambia ancora.
+
+  /** Una lettura di transcript, con i soli campi che il conto guarda. */
+  const reading = (billable: number, cacheRead = 0) => ({
+    inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0,
+    cacheReadTokens: cacheRead, billableTokens: billable,
+  });
+
+  it("un turno SEPOLTO a metà non porta via i suoi token: li recupera il turno dopo", async () => {
+    // Il guasto misurato: 884 token in tabella contro 188.936 nel transcript.
+    // Un run che la rete di liveness seppellisce esce PRIMA di contabilizzare,
+    // e il turno dopo si ri-ancora su una lettura più avanti — quindi quei
+    // token non li scrive più nessuno. Col totale assoluto il buco si richiude
+    // da solo: il secondo turno porta un totale che li contiene già.
+    let usage = reading(0);
+    const h = harness({ livenessGraceMs: 0, isTurnAlive: () => false, getSessionUsage: () => usage });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    usage = reading(40_000);            // il primo turno ha bruciato 40k…
+    await h.dispatcher.reconcile();     // …e la rete lo seppellisce (due sweep)
+    await flush();
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.task("t1")!.agentTokens).toBe(40_000);
+
+    usage = reading(90_000);            // il turno di recupero ne brucia altri 50k
+    h.finishTurn();
+    await flush();
+    // 90k, non 50k: il totale è quello della sessione, non la somma dei delta
+    // che qualcuno è riuscito a scrivere.
+    expect(h.task("t1")!.agentTokens).toBe(90_000);
+  });
+
+  it("una lettura che CROLLA a zero non azzera il conto e non lo raddoppia", async () => {
+    // `getSessionUsage` che non riesce a leggere (transcript ruotato, riga
+    // assente) rispondeva zero, indistinguibile da «non ha consumato niente».
+    // Col delta e il clamp, il crollo valeva 0 e la risalita valeva TUTTO da
+    // capo: 40k + 90k = 130k su 90k davvero bruciati.
+    let usage: ReturnType<typeof reading> | undefined = reading(0);
+    const h = harness({ livenessGraceMs: 0, isTurnAlive: () => false, getSessionUsage: () => usage as never });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // La rete chiude un turno ogni due sweep, sempre sulla STESSA sessione.
+    const chiudiUnTurno = async () => {
+      await h.dispatcher.reconcile(); await flush();
+      await h.dispatcher.reconcile(); await flush();
+    };
+
+    usage = reading(40_000);
+    await chiudiUnTurno();
+    expect(h.task("t1")!.agentTokens).toBe(40_000);
+
+    usage = undefined;                 // la lettura non c'è: non si sa
+    await chiudiUnTurno();
+    expect(h.task("t1")!.agentTokens).toBe(40_000);   // non azzerato
+
+    usage = reading(90_000);           // e quando torna, il totale è quello vero
+    await chiudiUnTurno();
+    expect(h.task("t1")!.agentTokens).toBe(90_000);   // non 130.000
+  });
+
+  it("DUE sessioni vive sullo stesso task si SOMMANO (il fan-out), non si sovrascrivono", async () => {
+    // Il caso che ha demolito il primo tentativo: con UNA sola ancora per task,
+    // la seconda sessione riusa l'ancoraggio della prima e il totale collassa
+    // sul massimo invece di essere la somma — 40.000 bruciati che spariscono.
+    // Il fan-out è il posto in cui la situazione è NORMALE e non un incidente:
+    // N agenti, N sessioni, un task solo.
+    const usage = new Map<string, ReturnType<typeof reading>>([
+      ["topic:sk1", reading(0)], ["topic:sk2", reading(0)],
+    ]);
+    const finiti: (() => void)[] = [];
+    const h = harness({
+      getSessionUsage: (k) => usage.get(k) as never,
+      runTurn: (sessionKey) => new Promise<void>((res) => {
+        finiti.push(() => res());
+        // Ogni tentativo brucia sulla SUA sessione, e i due numeri sono diversi
+        // apposta: se uno soppiantasse l'altro, il totale sarebbe 50.000.
+        usage.set(sessionKey, reading(sessionKey.endsWith("1") ? 40_000 : 50_000));
+      }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchFanOut: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(finiti.length).toBe(2);          // due sessioni vive insieme
+    for (const f of finiti) f();
+    await flush(20);
+
+    expect(h.task("t1")!.agentTokens).toBe(90_000);
+  });
+
+  it("un ancoraggio non si prende su una lettura FALLITA: sarebbe un doppio conteggio", async () => {
+    // 80.000 al posto di 40.000, misurato dall'avversario sul primo tentativo.
+    // La card porta già 40.000 (turni di prima, in tabella). Se l'ancoraggio si
+    // prende mentre il transcript non si legge — e la lettura fallita valeva
+    // ZERO, indistinguibile da «non ha consumato niente» — l'offset resta 0 su
+    // una base che quei token li contiene già, e alla lettura buona il conto li
+    // somma una seconda volta. Il pavimento MAX non protegge: il numero gonfio
+    // è il più grande, quindi vince.
+    let usage: ReturnType<typeof reading> | undefined;   // il transcript non si legge
+    const h = harness({ livenessGraceMs: 0, isTurnAlive: () => false, getSessionUsage: () => usage as never });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    h.svc.recordAgentUsage({ taskId: "t1", addMs: 0, addTokens: 40_000, addCacheReadTokens: 0 });
+
+    await h.dispatcher.tick(PID);      // il turno parte SENZA poter leggere
+    await flush();
+    usage = reading(40_000);           // la lettura torna: è il totale di sempre
+    await h.dispatcher.reconcile(); await flush();
+    await h.dispatcher.reconcile(); await flush();
+
+    expect(h.task("t1")!.agentTokens).toBe(40_000);   // non 80.000
+  });
+
+  it("anche un turno ADOTTATO dal broker scrive i suoi token", async () => {
+    // Il reattach è uno dei tre posti in cui si contabilizza, ed era quello
+    // senza nessun test: toglierne la scrittura lasciava la suite verde.
+    let usage = reading(0);
+    let closeReattach: (() => void) | null = null;
+    const h = harness({
+      topicExists: () => true,
+      hasLiveSession: async () => true,
+      getSessionUsage: () => usage,
+      reattach: () => new Promise<void>((res) => { closeReattach = () => res(); }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+    usage = reading(12_345, 6_000);
+    closeReattach!();
+    await flush();
+
+    expect(h.task("t1")!.agentTokens).toBe(12_345);
+    expect(h.task("t1")!.agentCacheReadTokens).toBe(6_000);
+  });
+
   it("leaves a task alone when the turn ends in review", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
@@ -662,7 +834,7 @@ describe("task-dispatcher", () => {
     expect(h.topicsCreated.length).toBe(1); // no fresh topic
     expect(h.turns.length).toBe(2);
     expect(h.turns[1].sessionKey).toBe("topic:topic-1"); // same tab resumed (prod sessionKey convention)
-    expect(h.turns[1].content).toContain("interrotto");
+    expect(h.turns[1].content).toContain("was interrupted");
     // Kickoff turn carries the FULL context envelope; the continuation is LEAN
     // (the persistent session already has CLAUDE.md/README/awareness — resending
     // them only compounds cache write/read).
@@ -828,7 +1000,7 @@ describe("task-dispatcher", () => {
     h.finishTurn(); await flush(); // attempt 1 → continuation (attempt 2 = cap)
     // The single continuation is already the LAST chance (deliver-what-you-have).
     expect(h.turns.length).toBe(2);
-    expect(h.turns[1].content).toContain("ULTIMO TURNO");
+    expect(h.turns[1].content).toContain("LAST TURN");
     h.finishTurn(); await flush(); // attempt 2 at cap → park, no 3rd turn
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");
@@ -1398,7 +1570,7 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);                 // one continuation turn on the SAME session
     expect(h.turns[0].sessionKey).toBe("topic:" + "topic-live".slice(0, 8));
     expect(h.turns[0].contextMode).toBe("lean");    // envelope already in the session history
-    expect(h.turns[0].content).toContain("Riprendi da dove eri");
+    expect(h.turns[0].content).toContain("Resume where you were");
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((c) => c.author === "system" && c.content.includes("riprendo la stessa sessione"))).toBe(true);
   });
@@ -1488,7 +1660,7 @@ describe("task-dispatcher", () => {
     expect(t.assignedTopicId).toBe("topic-1");                    // FRESH topic, not the dead one
     expect(t.dispatchAttempts).toBe(1);                            // rolled back to 0, re-claim bumped to 1
     expect(h.turns.length).toBe(1);
-    expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff da capo
+    expect(h.turns[0].content).toContain("exclusive owner of task"); // kickoff da capo
   });
 
   it("reconcile with the global switch OFF requeues without resuming and without a stranded chip", async () => {
@@ -1552,7 +1724,7 @@ describe("task-dispatcher", () => {
     expect(t.assignedTopicId).toBe("topic-1");                       // topic NUOVO, il fantasma era sbindato
     expect(t.dispatchAttempts).toBe(1);                              // rimborsato (1→0) e riclaimato (0→1)
     expect(h.turns.length).toBe(1);                                  // lo slot lavora davvero
-    expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff, non un turno fantasma
+    expect(h.turns[0].content).toContain("exclusive owner of task"); // kickoff, non un turno fantasma
   });
 
   it("un'attesa di slot VIVA non è un orfano: reconcile la lascia stare, il riavvio no", async () => {
@@ -1666,7 +1838,7 @@ describe("task-dispatcher", () => {
     expect(t.status).toBe("in_progress");     // resumed, not parked
     expect(t.dispatchAttempts).toBe(2);       // still no burn
     expect(h.turns.length).toBe(1);
-    expect(h.turns[0].content).toContain("ULTIMO TURNO"); // budget exhausted → deliver-now nudge
+    expect(h.turns[0].content).toContain("LAST TURN"); // budget exhausted → deliver-now nudge
   });
 
   it("launch parks (not requeues) when setup fails and attempts are exhausted", async () => {
@@ -1743,12 +1915,12 @@ describe("task-dispatcher", () => {
     const kickoff = h.turns[0].content;
     expect(kickoff).toContain('parent_task_id="t1"');
     expect(kickoff).toContain('status="done"'); // marca ogni step done
-    expect(kickoff).toContain("TUTTI i tuoi step devono essere done");
+    expect(kickoff).toContain("ALL your steps must be done");
     // Consegna = tab del task + file consegnati, niente concetto "Output":
     // l'agente deve sapere che una pagina viva si apre come TAB, non si dichiara
     // come url in un campo a parte.
     expect(kickoff).toContain("open_browser_pane");
-    expect(kickoff).toContain("FILE CONSEGNATI");
+    expect(kickoff).toContain("DELIVERED FILES");
     expect(kickoff).not.toContain("output_url");
   });
 
@@ -1800,7 +1972,7 @@ describe("task-dispatcher", () => {
     const kickoff = h.turns[0].content;
     expect(kickoff).toContain("cassetto cookie al contrario");
     expect(kickoff).toContain("[kid1]");
-    expect(kickoff).toContain("1 sottotask aperti");
+    expect(kickoff).toContain("1 open subtask(s)");
     // I figli chiusi sono storia: ripassarli invita a rifarli.
     expect(kickoff).not.toContain("già chiuso");
   });
@@ -1888,7 +2060,7 @@ describe("blocked-by + context reuse", () => {
     expect(h.worktreesCreated.length).toBe(0);          // topic carries its own cwd
     expect(h.turns.length).toBe(1);
     expect(h.turns[0].sessionKey).toBe("topic:topic-bl"); // topic:<id8>
-    expect(h.turns[0].content).toContain("STESSA sessione");
+    expect(h.turns[0].content).toContain("SAME session as the previous one");
   });
 
   it("passes the task's model override to the fresh agent topic", async () => {
@@ -1987,14 +2159,14 @@ describe("priority", () => {
     const auto = h.svc.create({ projectId: PID, status: "todo", text: "senza priorità" });
     await h.dispatcher.tick(PID);
     await flush();
-    expect(h.turns[0].content).toContain("Priorità automatica");
+    expect(h.turns[0].content).toContain("AUTOMATIC PRIORITY");
     h.finishTurn(); await flush();
     const h2 = harness();
     h2.svc.updateBoardSettings(PID, { autoDispatch: true });
     h2.svc.create({ projectId: PID, status: "todo", text: "scelta umana", priority: 3 });
     await h2.dispatcher.tick(PID);
     await flush();
-    expect(h2.turns[0].content).not.toContain("Priorità automatica");
+    expect(h2.turns[0].content).not.toContain("AUTOMATIC PRIORITY");
     expect(auto.priorityAuto).toBe(true);
   });
 
@@ -2334,16 +2506,17 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     await flush();
 
     const kickoff = h.turns[0].content;
-    // Estratta per STRUTTURA (dalla riga «EVIDENZA DI REVIEW» a «Cancello
-    // unico»), non cercando la costante: un test che cerca la stringa che ha
+    // Estratta per STRUTTURA (dalla riga «REVIEW EVIDENCE» a «One single
+    // gate»), non cercando la costante: un test che cerca la stringa che ha
     // appena interpolato non può fallire.
     const kickoffPreviewRule = extractPreviewRule(kickoff);
     expect(kickoffPreviewRule).toBe(PREVIEW_RULE);
     // E una sola volta: due blocchi nello stesso envelope sarebbero già la
     // divergenza che ricomincia.
     expect(kickoff.split(PREVIEW_RULE).length - 1).toBe(1);
-    expect(kickoff).toContain("· DIAGRAMMA");
-    expect(kickoff).not.toContain("UI STATICA"); // il vecchio ramo a due vie è sparito
+    expect(kickoff).toContain("· DIAGRAM");
+    expect(kickoff).not.toContain("UI STATICA");   // il vecchio ramo a due vie è sparito
+    expect(kickoff).not.toContain("· DIAGRAMMA");  // e nemmeno la versione italiana
   });
 
   it("il resume porta la STESSA regola, non un riassunto che perde un ramo", async () => {
@@ -2372,7 +2545,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.7, 3);
     expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(2));
     expect(PREVIEW_RULE).toContain("≤20s");        // il tetto del video
-    expect(PREVIEW_RULE).toContain("DUE O PIÙ STATI"); // il criterio del ramo video
+    expect(PREVIEW_RULE).toContain("TWO OR MORE STATES"); // il criterio del ramo video
   });
 
   it("la soglia del protocollo È il CSS della card, non un numero che gli somiglia", () => {
@@ -2402,10 +2575,29 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(src).toContain("@container");
   });
 
+  it("promoteReviewPreview non scrive piu' il paragrafo istruttivo nel thread", () => {
+    // Prima scriveva «Consegna SENZA anteprima» nel thread dell'umano:
+    // 39 copie nel DB (18/08), 26 card distinte. Il pubblico era sbagliato:
+    // istruzioni operative recapitate a chi decide, che non puo' eseguirle.
+    // La regola vive ora nell'envelope dell'agente (PREVIEW_RULE).
+    const db = freshDb();
+    const PID_LOCAL = "proj-preview-test";
+    db.run("INSERT INTO topics (id) VALUES ('topic-x')");
+    const svc = createTaskService(db, { now: () => new Date().toISOString(), uuid: () => `upr-${Math.random()}` });
+    const t = svc.create({ projectId: PID_LOCAL, text: "consegna senza allegati" });
+    svc.addComment({ taskId: t.id, author: "claude", content: "cinque cancelli verdi" });
+    svc.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    const notes = (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'review-note'").all(t.id) as Array<{ content: string }>)
+      .map((r) => r.content);
+    expect(notes.some((n) => n.includes("Consegna SENZA anteprima"))).toBe(false);
+    expect(notes).toHaveLength(0);
+  });
+
   it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
     // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
     // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
-    const MARK = "· DIAGRAMMA .svg";
+    const MARK = "· DIAGRAM .svg";
     const roots = ["server", "scripts", "shared", "client/src"];
     const repo = join(import.meta.dir, "..", "..");
     const hits: string[] = [];
@@ -2786,8 +2978,15 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // `done` con figli aperti è uno stato che la board non sa raccontare, e le
     // porte normali lo rifiutano (`update` e l'approvazione in review lanciano
     // `open_subtasks`). La chiusura del cancello passa da `settleLanded`, che
-    // scrive SQL grezzo e non ripassa da lì: senza guardia il padre finiva `done`
-    // col figlio ancora in Todo.
+    // scrive SQL grezzo e non ripassava da lì: senza guardia il padre finiva
+    // `done` col figlio ancora in Todo.
+    //
+    // La guardia adesso sta DENTRO `settleLanded`, cioè nella stessa porta che
+    // la applica all'approvazione e al trascinamento. Perciò a git si chiede
+    // eccome — un predicato solo, e sta a valle della sonda — e la card, non
+    // essendosi chiusa, prosegue fino al claim: ha una checklist da muovere, e
+    // saltarla la lascerebbe ferma per sempre. Il conto della sonda è UNA
+    // chiamata, non una per tick per card.
     const { h, chieste } = conSonda(true);
     seedTask(h.db, { id: "padre", status: "todo", deliveryCommit: "cccc3333".repeat(5) });
     seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
@@ -2796,8 +2995,9 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     await flush();
 
     expect(h.task("padre")!.status).not.toBe("done");
+    expect(h.task("padre")!.status).toBe("in_progress");
     expect(h.task("figlio")!.status).toBe("todo");
-    expect(chieste).toEqual([]);
+    expect(chieste.length).toBe(1);
     // …e la porta normale la pensa uguale, sulla stessa riga di DB.
     expect(() => h.svc.update({ taskId: "padre", actor: "human", by: "attilio", patch: { status: "done" } }))
       .toThrow(/open subtasks/i);
@@ -2903,5 +3103,539 @@ describe("chip at delivery: delivery versus question", () => {
     await consegna(h, "Quale approccio uso?", ["JWT in cookie", "Bearer token"]);
     expect(h.task("t1")!.dispatchState).toBe("needs_input");
     h.dispatcher.shutdown();
+  });
+});
+
+/**
+ * IL PAVIMENTO DI CPU DEL RECONCILE.
+ *
+ * Gira ogni 10 secondi, sempre, e il suo primo gesto era: idrata OGNI todo di
+ * OGNI board — payload completo per riga: etichette, bloccante, ragione di coda,
+ * commenti recenti — poi leggine solo `projectId` e butta il resto. Con
+ * l'interruttore globale SPENTO quel lavoro finiva comunque nel cestino, perché
+ * ogni `tick` esce alla seconda riga.
+ *
+ * Si misura in STATEMENT e non in millisecondi apposta: è la FORMA del guasto
+ * (per riga invece che per lotto, e prima dell'interruttore invece che dopo), e
+ * il numero non cambia da una macchina all'altra.
+ */
+describe("il reconcile non idrata la board per contare le board", () => {
+  function contaStatement<T>(db: Database, run: () => Promise<T>): Promise<number> {
+    const raw = db.prepare.bind(db);
+    let n = 0;
+    (db as unknown as { prepare: unknown }).prepare =
+      (...a: unknown[]) => { n++; return (raw as unknown as (...x: unknown[]) => unknown)(...a); };
+    return run().then(
+      () => { (db as unknown as { prepare: unknown }).prepare = raw; return n; },
+      (e) => { (db as unknown as { prepare: unknown }).prepare = raw; throw e; },
+    );
+  }
+
+  /** 100 radici in coda su 5 board, che è la forma della coda vera. */
+  function seedCoda(db: Database): void {
+    for (let i = 0; i < 100; i++) {
+      const ts = new Date(Date.UTC(2026, 7, 15, 0, 0, i)).toISOString();
+      db.run(
+        `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'todo', ?, ?)`,
+        [`q-${i}`, `board-${i % 5}`, `card ${i}`, ts, ts],
+      );
+    }
+  }
+
+  it("interruttore SPENTO: un reconcile sta sotto i 15 statement (ne faceva centinaia)", async () => {
+    const h = harness();
+    seedCoda(h.db);
+    // L'interruttore è la riga globale `*`, e di serie è spento.
+    expect(h.svc.getGlobalAutoDispatch()).toBe(false);
+
+    const n = await contaStatement(h.db, () => h.dispatcher.reconcile());
+
+    expect(n).toBeLessThan(15);
+    h.dispatcher.shutdown();
+  });
+
+  it("e non cresce con la coda: dieci volte le card, lo stesso conto", async () => {
+    // La controprova che rende il numero un INVARIANTE e non una soglia
+    // calibrata su questo seed.
+    const piccola = harness();
+    for (let i = 0; i < 10; i++) {
+      const ts = new Date(Date.UTC(2026, 7, 15, 0, 0, i)).toISOString();
+      piccola.db.run(
+        "INSERT INTO tasks (id, project_id, text, status, created_at, updated_at) VALUES (?, ?, ?, 'todo', ?, ?)",
+        [`q-${i}`, `board-${i % 5}`, `card ${i}`, ts, ts],
+      );
+    }
+    const grande = harness();
+    seedCoda(grande.db);
+
+    const a = await contaStatement(piccola.db, () => piccola.dispatcher.reconcile());
+    const b = await contaStatement(grande.db, () => grande.dispatcher.reconcile());
+
+    expect(b).toBe(a);
+    piccola.dispatcher.shutdown();
+    grande.dispatcher.shutdown();
+  });
+
+  it("acceso, la coda si guarda ancora: il risparmio non è «non fare niente»", async () => {
+    // Il cancello sopra passerebbe anche se il reconcile fosse rotto. Questa dice
+    // che con l'interruttore acceso le board con roba in coda vengono servite.
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    h.dispatcher.shutdown();
+  });
+});
+
+/**
+ * L'ENVELOPE È IN INGLESE, TUTTO, E QUESTO È IL CANCELLO CHE LO TIENE.
+ *
+ * È un contratto di runtime letto da un modello, sta nel codice, e in questo
+ * repo il codice è in inglese (`docs/board-protocol.md` §DUE LINGUE). La ragione
+ * per cui serve un cancello e non una lettura attenta: l'envelope si compone da
+ * quattro funzioni e tre costanti condivise, e ognuna ha rami che si accendono
+ * solo su una certa forma di task (plan-first, priorità automatica, sottotask
+ * aperti, cancelli della board). Un envelope mezzo tradotto è peggio di
+ * entrambe le lingue: il modello imita quella che vede per ultima.
+ *
+ * Le ETICHETTE DEI BOTTONI restano italiane ed escono dal confronto: il server
+ * le scrive, il client e le rotte le confrontano PER VALORE
+ * (`isLandActionLabel`, `hasPlanApproveOption`), quindi tradurne una sola parte
+ * romperebbe la app. Si tolgono prima, per nome, invece di allargare il
+ * dizionario: così restano visibili come eccezione dichiarata.
+ */
+describe("l'envelope non parla italiano", () => {
+  /**
+   * Parole funzione italiane che NON sono anche parole inglesi. `per`, `come`,
+   * `in`, `a` e `no` restano fuori apposta: compaiono in inglese («one tab per
+   * surface»), e un cancello che urla su un testo giusto lo si spegne.
+   */
+  const ITALIANO = /\b(?:il|lo|la|le|gli|un|una|uno|del|dello|della|dei|delle|degli|che|non|con|sul|sulla|nel|nella|dal|dalla|alla|questo|questa|quello|quella|quando|perché|perche|già|gia|senza|sempre|anche|ancora|adesso|quindi|invece|oppure|ogni|tutti|tutte|nessuno|niente|appena|subito|mentre|sotto|sono|essere|fare|fatto|deve|devi|puoi|può|puo|cosa|dove|più|piu|sei|tuo|tua|tuoi|suo|sua)\b|è/i;
+
+  /** L'envelope meno le etichette che il resto della app confronta per valore. */
+  function senzaEtichette(envelope: string): string {
+    return [LAND_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, "Pubblica"]
+      .reduce((testo, etichetta) => testo.split(etichetta).join("<label>"), envelope);
+  }
+
+  /** Le righe che tradiscono la lingua, per poterle NOMINARE quando è rosso. */
+  const righeItaliane = (envelope: string): string[] =>
+    senzaEtichette(envelope).split("\n").filter((r) => ITALIANO.test(r));
+
+  /**
+   * Un task fatto apposta per accendere OGNI ramo dell'envelope: plan-first,
+   * priorità non scelta, un sottotask aperto, i cancelli della board. Testo e
+   * descrizione in inglese perché sono DATI, e il dato lo scrive una persona
+   * nella sua lingua: il cancello guarda le istruzioni, non il task.
+   */
+  async function envelopeDiKickoff(fanOut?: number): Promise<{ h: ReturnType<typeof harness>; kickoff: string }> {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, {
+      autoDispatch: true,
+      reviewChecks: [{ name: "types", cmd: "bun run typecheck" }],
+      ...(fanOut ? { dispatchFanOut: fanOut } : {}),
+    });
+    if (fanOut) h.svc.setGlobalCap({ auto: false, max: 5 });
+    const t = h.svc.create({
+      projectId: PID, status: "todo", text: "Rename the stale flag",
+      description: "The gate reads the old name.", planFirst: true,
+    });
+    h.svc.create({ projectId: PID, text: "Find every reader", parentTaskId: t.id });
+    await h.dispatcher.tick(PID);
+    await flush();
+    return { h, kickoff: h.turns[0]!.content };
+  }
+
+  it("il kickoff, con TUTTI i suoi rami accesi", async () => {
+    const { h, kickoff } = await envelopeDiKickoff();
+    // I rami che devono essere davvero nel testo: senza questa riga il cancello
+    // sotto passerebbe anche su un envelope a cui manca metà.
+    for (const ramo of ["PLAN FIRST", "AUTOMATIC PRIORITY", "open subtask(s)", "PRE-REVIEW CHECKS", "REVIEW EVIDENCE", "THE FIVE CODE GATES", "A VERSION BUMP IS ONE COMMAND", "Start now."]) {
+      expect(kickoff).toContain(ramo);
+    }
+    expect(righeItaliane(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("il kickoff di fan-out, che è un contratto diverso e quindi un testo diverso", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(2);
+    expect(kickoff).toContain("ATTEMPT 1 of 2");
+    expect(righeItaliane(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("il resume: l'unico testo davanti a un agente che riparte", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live" });
+    // Non si aspetta la promessa: il turno finto dell'harness si chiude a
+    // comando, quindi attenderla qui vorrebbe dire attendere per sempre.
+    void h.dispatcher.resume("t1", "also rename the docs");
+    await flush();
+
+    const testo = h.turns[0]!.content;
+    expect(testo).toContain("Human update on task");
+    expect(righeItaliane(testo)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  /**
+   * Il sollecito automatico dopo un turno finito senza consegna. Ha DUE forme, e
+   * la seconda (budget finito) si accende solo al tetto dei tentativi: il modo
+   * di raggiungerle è il turno vero che si chiude, non una chiamata diretta.
+   */
+  async function envelopeDiSollecito(retryCap: number): Promise<{ h: ReturnType<typeof harness>; testo: string }> {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: retryCap });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn();
+    await flush();
+    return { h, testo: h.turns[1]!.content };
+  }
+
+  it("il sollecito, in ENTRAMBE le forme: quella normale e quella col budget finito", async () => {
+    const normale = await envelopeDiSollecito(3);
+    expect(normale.testo).toContain("was interrupted");
+    expect(righeItaliane(normale.testo)).toEqual([]);
+    normale.h.dispatcher.shutdown();
+
+    const ultimo = await envelopeDiSollecito(2);
+    expect(ultimo.testo).toContain("LAST TURN");
+    expect(righeItaliane(ultimo.testo)).toEqual([]);
+    ultimo.h.dispatcher.shutdown();
+  });
+
+  it("e il cancello sa dire di no: una riga italiana la vede", () => {
+    // La controprova. Senza, «nessuna riga italiana» potrebbe voler dire
+    // «il filtro non guarda niente», e passerebbe su qualunque testo.
+    expect(righeItaliane("- Lavora SOLO questo task, in questa working directory.")).toHaveLength(1);
+    expect(righeItaliane("- Work ONLY this task, in this working directory.")).toEqual([]);
+  });
+});
+
+/**
+ * PERCHÉ LA CODA È FERMA, detto dove qualcuno lo legge.
+ *
+ * Il pavimento di risorse (RAM/disco sotto la soglia) blocca ogni claim, ed è
+ * giusto: sotto quella riga la macchina va in swap. Il problema era che non lo
+ * diceva a NESSUNO — il chip sulla card scrive «in coda», il commento accanto
+ * rimanda «il perché sta nel log del server», e nel log non finiva niente. Il
+ * messaggio composto da `dispatchResourceBlock`, numeri compresi, moriva in un
+ * `return`.
+ *
+ * Una coda ferma senza motivo visibile da nessuna parte è indistinguibile da un
+ * dispatcher rotto: ci ho perso mezz'ora a cercare un bug che non esisteva,
+ * escludendo a mano auto_dispatch, capacità, task pesanti, id del board e
+ * project store — mentre la risposta era «8,7 GB liberi, ne servono 12».
+ */
+/**
+ * L'interruttore dell'auto-dispatch vive in `app_settings` (una riga per
+ * MACCHINA) dalla migration del 2026-08-16, non piu' sulla riga `'*'` di
+ * `board_settings`. Scriverlo nel posto vecchio non accende piu' niente e il
+ * tick esce al primo controllo, muto.
+ */
+function accendiDispatch(db: Database): void {
+  db.run(APP_SETTINGS_DDL);
+  db.run("UPDATE app_settings SET auto_dispatch = 1 WHERE id = 1");
+}
+
+describe("il pavimento delle risorse si spiega", () => {
+  it("dice il motivo UNA volta, non a ogni tick", async () => {
+    const righe: string[] = [];
+    let bloccato = true;
+    // I GB CAMBIANO A OGNI LETTURA, ed è il motivo per cui la prima versione
+    // di questo fix non deduplicava niente: confrontava il testo intero, e il
+    // testo intero è sempre diverso. Provato sul server vero — tre righe in
+    // trenta secondi, identiche nel senso e diverse nei decimali.
+    let gb = 8.7;
+    const h = harness({
+      log: (m: string) => righe.push(m),
+      resourceBlock: () => (bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+    });
+    accendiDispatch(h.db);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(PID);
+
+    const blocchi = righe.filter((r) => r.includes("coda ferma"));
+    expect(blocchi.length).toBe(1);
+    // Il motivo c'è per intero, numeri compresi: senza, la riga non aiuta più
+    // del chip che c'era già.
+    expect(blocchi[0]).toContain("GB disponibili");
+    expect(blocchi[0]).toContain("pavimento");
+    // E nessun agente è partito: il pavimento fa il suo lavoro.
+    expect(h.topicsCreated).toHaveLength(0);
+  });
+
+  it("dice anche quando riparte, o l'ultima riga resterebbe un allarme per sempre", async () => {
+    const righe: string[] = [];
+    let bloccato = true;
+    const h = harness({
+      log: (m: string) => righe.push(m),
+      resourceBlock: () => (bloccato ? "Disco quasi pieno: 2 GB liberi." : null),
+    });
+    accendiDispatch(h.db);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    expect(righe.filter((r) => r.includes("coda ferma"))).toHaveLength(1);
+
+    bloccato = false;
+    await h.dispatcher.tick(PID);
+    expect(righe.filter((r) => r.includes("coda ripartita"))).toHaveLength(1);
+
+    // E un secondo blocco DOPO il rientro si dice di nuovo: è un episodio
+    // nuovo, non la ripetizione del vecchio.
+    bloccato = true;
+    await h.dispatcher.tick(PID);
+    expect(righe.filter((r) => r.includes("coda ferma"))).toHaveLength(2);
+  });
+});
+
+/**
+ * FERMARE UNA BOARD LASCIANDO GIRARE LE ALTRE.
+ *
+ * Prima l'unica leva su una board che faceva danni era spegnere l'interruttore
+ * GLOBALE — e con quello spento si fermano anche le board che stavano lavorando
+ * bene. L'unico freno per progetto era `nightMode`, che e' condizionale e si
+ * spegne da solo a un orario: non e' «ferma questa».
+ *
+ * I due versi sono entrambi qui di proposito. Un freno che ferma sempre non e'
+ * un freno, e' il dispatch spento; e un freno che puo' ACCENDERE quando il
+ * globale e' spento sarebbe un secondo interruttore che contraddice il primo.
+ */
+describe("dispatchPaused: il freno di una board sola", () => {
+  it("in pausa: questa board non dispaccia", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchPaused: true });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(0);
+    expect(h.task("t1")?.status).toBe("todo");
+  });
+
+  it("NON in pausa: dispaccia come sempre", async () => {
+    // Il caso che tiene onesto l'altro: senza, «in pausa non parte» sarebbe
+    // verde anche con il dispatch rotto del tutto.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchPaused: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+  });
+
+  it("puo' solo FERMARE: col globale spento, non-in-pausa non accende niente", async () => {
+    // Il verso che rende i due interruttori compatibili invece che rivali.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: false, dispatchPaused: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(0);
+  });
+
+  it("una board in pausa non ferma le ALTRE", async () => {
+    // E' tutto il motivo per cui questa colonna esiste.
+    const h = harness();
+    const ALTRA = "altra-board-xyz";
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchPaused: true });
+    h.svc.updateBoardSettings(ALTRA, { dispatchPaused: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    // `seedTask` semina sempre su PID: la card dell'altra board si sposta a
+    // mano, che e' anche l'unico modo di avere DUE board nello stesso caso.
+    seedTask(h.db, { id: "t2", status: "todo" });
+    h.db.run("UPDATE tasks SET project_id = ? WHERE id = 't2'", [ALTRA]);
+
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(ALTRA);
+    await flush();
+
+    // Ne parte UNO: quello della board non in pausa.
+    expect(h.turns.length).toBe(1);
+    expect(h.task("t1")?.status).toBe("todo");
+    expect(h.task("t2")?.status).not.toBe("todo");
+  });
+});
+
+/**
+ * IL RITENTATIVO DICE 60 SECONDI E IL POLL NE ASPETTA 10.
+ *
+ * Quando un turno cade su un guasto ricuperabile, `onTurnEnd` programma il
+ * ritentativo con un `setTimeout(backoff)` e lo ANNUNCIA sulla card. Ma il timer
+ * non trattiene lo slot: il `finally` del chiamante libera `inFlight` subito
+ * dopo, e da quel momento la card e' una riga `in_progress` con chip `working` e
+ * nessun turno vivo — cioe' identica a un orfano di riavvio per il giro di
+ * `reconcile`, che in produzione gira ogni 10 secondi (`DISPATCH_POLL_MS`).
+ *
+ * Misurato il 18/08 sul DB vivo: 504 note «La sessione stava gia' rispondendo:
+ * turno non avviato: riprovo tra 60s» su 12 card. Gli istanti di quattro
+ * consecutive su `d636cfbf`: 12:43:46, 12:43:59, 12:44:09, 12:44:19 — 13, 10, 10
+ * secondi. E' il poll, non il backoff. Ogni giro sveglia una sessione che sta
+ * davvero rispondendo, incassa un 409, scrive la nota e programma un ALTRO
+ * timer.
+ *
+ * Il costo non e' il thread: e' una chiamata alla front-door ogni dieci secondi,
+ * per card, pagata per farsi dire di no — e sale col numero di agenti.
+ */
+describe("un ritentativo programmato non si fa svegliare dal poll", () => {
+  it("reconcile NON riprende una card che sta aspettando il backoff", async () => {
+    // `retryBackoffMs` VERO, non lo zero del banco: senza un'attesa che dura,
+    // il registro e' gia' vuoto quando arriva il poll e la guardia non viene
+    // esercitata — il caso passerebbe verde anche disarmandola (verificato).
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    // Il turno non parte: la sessione stava gia' rispondendo. Non e' un guasto
+    // dell'agent e non brucia un tentativo — si riprova, fra `backoff`.
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+
+    // Il poll passa piu' volte DENTRO la finestra di attesa. Prima, ognuno di
+    // questi giri faceva partire un turno nuovo contro la stessa sessione.
+    // Il turno di partenza e basta: il ritentativo e' programmato fra 60s e non
+    // e' ancora scattato. Ogni turno in piu' da qui e' opera del poll.
+    expect(h.turns.length).toBe(1);
+    const primaDelPoll = h.turns.length;
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(
+      h.turns.length - primaDelPoll,
+      "il poll ha svegliato la sessione: e' il difetto delle 504 note",
+    ).toBe(0);
+  });
+
+  it("e la card non si riempie della stessa nota a ogni giro", async () => {
+    // La meta' visibile dello stesso guasto: 504 righe identiche nel thread.
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    const note = (h.svc.get("t1")?.comments ?? [])
+      .filter((c) => c.content.includes("stava già rispondendo"));
+    expect(note.length, "una nota per attesa, non una per giro di poll").toBeLessThanOrEqual(1);
+  });
+
+  it("il controllo: un orfano VERO reconcile lo riprende ancora", async () => {
+    // Senza questo caso, la guardia potrebbe diventare «non riprendere mai
+    // niente» e passerebbe verde: un riavvio a meta' turno lascerebbe la card
+    // ferma per sempre. Il riavvio azzera il registro insieme al timer, ed e'
+    // esattamente cio' che distingue un fantasma da un'attesa viva.
+    const h = harness({ retryBackoffMs: 60_000 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
+    await flush();
+
+    const primaDelRiavvio = h.turns.length;
+    const dopoRiavvio = h.restart();
+    await dopoRiavvio.reconcile();
+    await flush();
+    expect(
+      h.turns.length - primaDelRiavvio,
+      "dopo un riavvio il registro e' vuoto: la card e' orfana davvero e va ripresa",
+    ).toBeGreaterThan(0);
+    dopoRiavvio.shutdown();
+  });
+});
+
+
+/**
+ * NIENTE NELLA STORIA DI GIT NON VUOL DIRE NIENTE SUL DISCO.
+ *
+ * La fotografia di consegna legge ramo, commit e diffstat: la STORIA. Un turno
+ * ucciso prima del commit non ne lascia, quindi la card concludeva «nessun ramo
+ * e nessun file toccato» e mandava chi rivede a chiudere o rilanciare una card
+ * il cui lavoro era li', sul disco, intatto.
+ *
+ * Misurato il 18/08/2026 su due card in colonna review, entrambe con zero
+ * commit e la stessa frase addosso: una aveva QUATTRO file modificati (367
+ * righe, test verdi), l'altra TRE — e le ultime parole del suo agente,
+ * recuperate dalla sessione, erano «Changes are staged but not committed».
+ */
+describe("una consegna senza commit guarda anche il worktree", () => {
+  /**
+   * Porta una card fino alla consegna forzata: l'agente PARLA (cosi' la card
+   * arriva all'umano invece di essere fallita) ma non si sposta mai in review,
+   * ed esaurisce i tentativi. E' lo stesso percorso di «HANDS an
+   * exhausted-but-worked task to review».
+   */
+  async function finoAllaConsegnaForzata(h: ReturnType<typeof harness>) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "agent", content: "Ecco il piano: 1) … 2) …" });
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    expect(h.task("t1")!.status, "il banco non e' arrivato alla consegna forzata").toBe("review");
+    return (h.svc.get("t1")?.comments ?? []).map((c) => c.content).join("\n---\n");
+  }
+
+  it("i file non committati si NOMINANO, e la mossa cambia", async () => {
+    const h = harness({
+      uncommittedInWorktree: async () => ["server/services/tasks.ts", "server/mcp/topics-mcp-server.ts"],
+    });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("2 file modificati");
+    expect(thread).toContain("server/services/tasks.ts");
+    // La mossa non e' «non c'e' un diff da guardare»: c'e' qualcosa da salvare.
+    expect(thread).toContain("non e' perduto");
+  });
+
+  it("un worktree davvero pulito resta il caso storico", async () => {
+    // L'elenco VUOTO e' una misura — il worktree c'e' ed e' pulito — e deve
+    // portare al testo di prima, non a «0 file modificati».
+    const h = harness({ uncommittedInWorktree: async () => [] });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
+    expect(thread).not.toContain("file modificati");
+  });
+
+  it("non misurabile (`null`) non inventa niente", async () => {
+    // Nessun worktree, o git muto: `null` non e' «pulito». Il testo storico e'
+    // un silenzio onesto, e senza questo caso la sonda potrebbe tornare `null`
+    // per sempre senza che nessuno se ne accorga.
+    const h = harness({ uncommittedInWorktree: async () => null });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
+  });
+
+  it("senza la sonda il comportamento e' quello di prima", async () => {
+    const h = harness();
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
   });
 });

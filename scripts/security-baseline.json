@@ -1,0 +1,331 @@
+{
+  "$schema": "security-baseline-v1",
+  "_comment": [
+    "Gli avvisi di sicurezza sulle dipendenze che questo albero si porta OGGI, per lockfile.",
+    "E un cricchetto, non una barra assoluta: al 14/08 i tre lockfile ne hanno 44 in tutto,",
+    "quasi tutti nella catena di build del client (babel, ajv, webpack-dev-server). Una barra",
+    "assoluta nascerebbe rossa e verrebbe spenta entro la settimana; questa nasce verde e",
+    "diventa rossa quando compare un avviso che qui NON e elencato.",
+    "Si riscrive con `bun run check:security --update-baseline`, e va fatto NELLO STESSO",
+    "commit che accetta o cura l avviso: e il diff a dire cosa si e deciso di tenersi.",
+    "Che un avviso sparisca non fa mai rosso, ma il comando lo dice: quello e il momento di",
+    "riscrivere la baseline, o marcisce."
+  ],
+  "updated": "2026-08-14",
+  "advisories": {
+    ".": [
+      {
+        "package": "@anthropic-ai/sdk",
+        "id": 1119428,
+        "severity": "moderate",
+        "title": "Claude SDK for TypeScript has Insecure Default File Permissions in Local Filesystem Memory Tool",
+        "url": "https://github.com/advisories/GHSA-p7fg-763f-g4gf"
+      }
+    ],
+    "client": [
+      {
+        "package": "@babel/core",
+        "id": 1123528,
+        "severity": "low",
+        "title": "@babel/core: Arbitrary File Read via sourceMappingURL Comment",
+        "url": "https://github.com/advisories/GHSA-4x5r-pxfx-6jf8"
+      },
+      {
+        "package": "ajv",
+        "id": 1113714,
+        "severity": "moderate",
+        "title": "ajv has ReDoS when using `$data` option",
+        "url": "https://github.com/advisories/GHSA-2g4f-4pwh-qvx6"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1115540,
+        "severity": "moderate",
+        "title": "brace-expansion: Zero-step sequence causes process hang and memory exhaustion",
+        "url": "https://github.com/advisories/GHSA-f886-m6hf-6m8v"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1115541,
+        "severity": "moderate",
+        "title": "brace-expansion: Zero-step sequence causes process hang and memory exhaustion",
+        "url": "https://github.com/advisories/GHSA-f886-m6hf-6m8v"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1123896,
+        "severity": "high",
+        "title": "brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups",
+        "url": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1123897,
+        "severity": "high",
+        "title": "brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups",
+        "url": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1130588,
+        "severity": "high",
+        "title": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+        "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1130589,
+        "severity": "high",
+        "title": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+        "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1130736,
+        "severity": "high",
+        "title": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+        "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+      },
+      {
+        "package": "brace-expansion",
+        "id": 1130737,
+        "severity": "high",
+        "title": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+        "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+      },
+      {
+        "package": "dompurify",
+        "id": 1124022,
+        "severity": "low",
+        "title": "DOMPurify: `CUSTOM_ELEMENT_HANDLING` bypasses `afterSanitizeElements` for allowed custom elements.",
+        "url": "https://github.com/advisories/GHSA-c2j3-45gr-mqc4"
+      },
+      {
+        "package": "dompurify",
+        "id": 1138538,
+        "severity": "moderate",
+        "title": "DOMPurify: IN_PLACE hook removal leaves a detached subtree executable, causing XSS",
+        "url": "https://github.com/advisories/GHSA-55q2-fjhq-7xh7"
+      },
+      {
+        "package": "flatted",
+        "id": 1114526,
+        "severity": "high",
+        "title": "flatted vulnerable to unbounded recursion DoS in parse() revive phase",
+        "url": "https://github.com/advisories/GHSA-25h7-pfq9-p65f"
+      },
+      {
+        "package": "flatted",
+        "id": 1115357,
+        "severity": "high",
+        "title": "Prototype Pollution via parse() in NodeJS flatted",
+        "url": "https://github.com/advisories/GHSA-rf6f-7fwh-wjgh"
+      },
+      {
+        "package": "js-yaml",
+        "id": 1121860,
+        "severity": "moderate",
+        "title": "JS-YAML: Quadratic-complexity DoS in merge key handling via repeated aliases",
+        "url": "https://github.com/advisories/GHSA-h67p-54hq-rp68"
+      },
+      {
+        "package": "js-yaml",
+        "id": 1123911,
+        "severity": "high",
+        "title": "js-yaml: YAML merge-key chains can force quadratic CPU consumption",
+        "url": "https://github.com/advisories/GHSA-52cp-r559-cp3m"
+      },
+      {
+        "package": "js-yaml",
+        "id": 1138115,
+        "severity": "high",
+        "title": "JS-YAML: Quadratic CPU consumption in !!omap resolution (3.x and 4.x) — CVE-2026-59870 fix not backported",
+        "url": "https://github.com/advisories/GHSA-5p4m-2wfm-xmqj"
+      },
+      {
+        "package": "mermaid",
+        "id": 1138097,
+        "severity": "low",
+        "title": "Mermaid configuration APIs allow prototype pollution",
+        "url": "https://github.com/advisories/GHSA-c4c3-pg64-4m4v"
+      },
+      {
+        "package": "mermaid",
+        "id": 1138099,
+        "severity": "moderate",
+        "title": "Mermaid allows CSS injection applying to sibling elements of the diagram",
+        "url": "https://github.com/advisories/GHSA-6x64-9x62-f2gx"
+      },
+      {
+        "package": "mermaid",
+        "id": 1138100,
+        "severity": "moderate",
+        "title": "Mermaid Architecture diagrams are vulnerable to prototype pollution",
+        "url": "https://github.com/advisories/GHSA-3rrr-jr9j-h3q3"
+      },
+      {
+        "package": "mermaid",
+        "id": 1138101,
+        "severity": "moderate",
+        "title": "Mermaid XY Charts are vulnerable to an infinite loop DoS",
+        "url": "https://github.com/advisories/GHSA-2v8p-3f2j-5mp7"
+      },
+      {
+        "package": "mermaid",
+        "id": 1138113,
+        "severity": "moderate",
+        "title": "Mermaid radar diagrams are vulnerable to DoS",
+        "url": "https://github.com/advisories/GHSA-rhh3-jpg6-66xh"
+      },
+      {
+        "package": "minimatch",
+        "id": 1113459,
+        "severity": "high",
+        "title": "minimatch has a ReDoS via repeated wildcards with non-matching literal in pattern",
+        "url": "https://github.com/advisories/GHSA-3ppc-4f35-3m26"
+      },
+      {
+        "package": "minimatch",
+        "id": 1113465,
+        "severity": "high",
+        "title": "minimatch has a ReDoS via repeated wildcards with non-matching literal in pattern",
+        "url": "https://github.com/advisories/GHSA-3ppc-4f35-3m26"
+      },
+      {
+        "package": "minimatch",
+        "id": 1113538,
+        "severity": "high",
+        "title": "minimatch has ReDoS: matchOne() combinatorial backtracking via multiple non-adjacent GLOBSTAR segments",
+        "url": "https://github.com/advisories/GHSA-7r86-cg39-jmmj"
+      },
+      {
+        "package": "minimatch",
+        "id": 1113544,
+        "severity": "high",
+        "title": "minimatch has ReDoS: matchOne() combinatorial backtracking via multiple non-adjacent GLOBSTAR segments",
+        "url": "https://github.com/advisories/GHSA-7r86-cg39-jmmj"
+      },
+      {
+        "package": "minimatch",
+        "id": 1113546,
+        "severity": "high",
+        "title": "minimatch ReDoS: nested *() extglobs generate catastrophically backtracking regular expressions",
+        "url": "https://github.com/advisories/GHSA-23c5-xmqv-rm74"
+      },
+      {
+        "package": "minimatch",
+        "id": 1113552,
+        "severity": "high",
+        "title": "minimatch ReDoS: nested *() extglobs generate catastrophically backtracking regular expressions",
+        "url": "https://github.com/advisories/GHSA-23c5-xmqv-rm74"
+      },
+      {
+        "package": "nanoid",
+        "id": 1138811,
+        "severity": "high",
+        "title": "nanoid: non-secure generators can loop indefinitely with negative size",
+        "url": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv"
+      },
+      {
+        "package": "nanoid",
+        "id": 1139427,
+        "severity": "high",
+        "title": "nanoid: custom generators can loop indefinitely when size is zero",
+        "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8"
+      },
+      {
+        "package": "picomatch",
+        "id": 1115551,
+        "severity": "moderate",
+        "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+        "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p"
+      },
+      {
+        "package": "picomatch",
+        "id": 1115554,
+        "severity": "high",
+        "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+        "url": "https://github.com/advisories/GHSA-c2c7-rcm5-vvqj"
+      },
+      {
+        "package": "postcss",
+        "id": 1117015,
+        "severity": "moderate",
+        "title": "PostCSS has XSS via Unescaped </style> in its CSS Stringify Output",
+        "url": "https://github.com/advisories/GHSA-qx2v-qp2m-jg93"
+      },
+      {
+        "package": "postcss",
+        "id": 1124252,
+        "severity": "high",
+        "title": "PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments",
+        "url": "https://github.com/advisories/GHSA-6g55-p6wh-862q"
+      },
+      {
+        "package": "postcss",
+        "id": 1130709,
+        "severity": "moderate",
+        "title": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset",
+        "url": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp"
+      },
+      {
+        "package": "postcss",
+        "id": 1139510,
+        "severity": "high",
+        "title": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure",
+        "url": "https://github.com/advisories/GHSA-r28c-9q8g-f849"
+      },
+      {
+        "package": "rollup",
+        "id": 1113515,
+        "severity": "high",
+        "title": "Rollup 4 has Arbitrary File Write via Path Traversal",
+        "url": "https://github.com/advisories/GHSA-mw96-cpmx-2vgc"
+      },
+      {
+        "package": "vite",
+        "id": 1116230,
+        "severity": "moderate",
+        "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling",
+        "url": "https://github.com/advisories/GHSA-4w7w-66w2-5vf9"
+      },
+      {
+        "package": "vite",
+        "id": 1116232,
+        "severity": "high",
+        "title": "Vite: `server.fs.deny` bypassed with queries",
+        "url": "https://github.com/advisories/GHSA-v2wj-q39q-566r"
+      },
+      {
+        "package": "vite",
+        "id": 1116235,
+        "severity": "high",
+        "title": "Vite Vulnerable to Arbitrary File Read via Vite Dev Server WebSocket",
+        "url": "https://github.com/advisories/GHSA-p9ff-h696-f583"
+      },
+      {
+        "package": "vite",
+        "id": 1120785,
+        "severity": "moderate",
+        "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+        "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3"
+      },
+      {
+        "package": "vite",
+        "id": 1123526,
+        "severity": "high",
+        "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+        "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff"
+      }
+    ],
+    "landing": [
+      {
+        "package": "nanoid",
+        "id": 1139427,
+        "severity": "high",
+        "title": "nanoid: custom generators can loop indefinitely when size is zero",
+        "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8"
+      }
+    ]
+  }
+}

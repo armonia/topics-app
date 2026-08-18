@@ -1,0 +1,128 @@
+{
+  "schema": "bench-ai-latency-v1",
+  "bench": "ai-latency",
+  "measured_at": "2026-08-17T16:34:57.456Z",
+  "mode": "injected",
+  "platform": "darwin arm64",
+  "machine": "Apple M2 Max, 12 cores, darwin 25.2.0",
+  "shell": "chromium headless 1280x800",
+  "samples": {
+    "send": 7,
+    "delivery": 7
+  },
+  "injected_stalls_ms": {
+    "send": 0,
+    "deliver": 0,
+    "accept": 0
+  },
+  "providers_reporting_ready": {
+    "names": [
+      "openclaw",
+      "gemini"
+    ],
+    "what": "what /api/providers/snapshot claims. 'ready' means configured, not logged in: on the isolated E2E server all three answer 'Not logged in'. Read models_that_answered instead."
+  },
+  "models_that_answered": {
+    "seen": [
+      "none"
+    ],
+    "what": "the model named on stream:end for every send-leg turn. '<synthetic>' or 'none' means no model was called and the run cost nothing. A real model id here means this run spent tokens."
+  },
+  "metrics": {
+    "composerToWire": {
+      "label": "Enter -> request leaves the client",
+      "what": "composer handler, state update and the request body build",
+      "ours": true,
+      "measurable": true,
+      "unit": "ms",
+      "samples": [
+        0.4,
+        0.4,
+        0.3,
+        0.5,
+        0.7,
+        0.4,
+        0.4
+      ],
+      "medianMs": 0.4,
+      "minMs": 0.3,
+      "maxMs": 0.7
+    },
+    "wireToAccepted": {
+      "label": "request leaves the client -> the turn exists",
+      "what": "in-flight gate, the SQLite write of the user row, the broadcast and one WebSocket hop back",
+      "ours": true,
+      "measurable": true,
+      "unit": "ms",
+      "samples": [
+        44.5,
+        10.9,
+        9,
+        14.7,
+        12,
+        9.1,
+        21
+      ],
+      "medianMs": 12,
+      "minMs": 9,
+      "maxMs": 44.5
+    },
+    "firstTokenToInk": {
+      "label": "first provider event -> first token readable",
+      "what": "placeholder bubble, reducer, React and paint",
+      "ours": true,
+      "measurable": true,
+      "unit": "ms",
+      "samples": [
+        21,
+        13.8,
+        15.1,
+        22.5,
+        10.8,
+        38,
+        24
+      ],
+      "medianMs": 21,
+      "minMs": 10.8,
+      "maxMs": 38
+    },
+    "midStreamTokenToInk": {
+      "label": "mid-stream event -> that token readable",
+      "what": "the same path with the bubble already on screen, which is the one that runs hundreds of times a turn",
+      "ours": true,
+      "measurable": true,
+      "unit": "ms",
+      "samples": [
+        18.5,
+        35.2,
+        119.7,
+        37.3,
+        30,
+        59.5,
+        55.3
+      ],
+      "medianMs": 37.3,
+      "minMs": 18.5,
+      "maxMs": 119.7
+    },
+    "acceptedToFirstProviderEvent": {
+      "label": "accepted -> first provider event",
+      "what": "time the model and the network take before the first token exists",
+      "ours": false,
+      "measurable": false,
+      "reason": "not measured by construction: the default mode never calls a model, so this leg is absent rather than fast. Re-run with BENCH_AI_REAL=1 against a logged-in provider to measure it. It belongs to the provider and the network and moves for reasons this repo does not control."
+    }
+  },
+  "request_body_chars": {
+    "median": 1403,
+    "min": 599,
+    "max": 2207,
+    "budget": 65536,
+    "what": "size of the POST /api/chat body in UTF-16 code units. The whole transcript used to travel on every turn; today it is a BOUNDED tail, so within one run it still grows message by message and then stops. The invariant is the ceiling (REQUEST_TAIL_BUDGET_CHARS in client/src/hooks/chatRequestPayload.ts), not a constant."
+  },
+  "caveats": [
+    "The four 'ours' intervals are never summed. They are separate paths and two of them overlap in wall clock: the client is already painting its own bubble while the server is still writing the row.",
+    "The shell is Chromium (Playwright), not the Tauri WKWebView the product ships. The paint legs are Chromium paint legs.",
+    "ink-latency.spec.ts measures a different thing on the same keystroke: Enter until the USER's own message is readable, median 12.4 ms in tests/e2e/ink-budget.json. That bubble is painted optimistically by the client and says nothing about the AI's answer."
+  ]
+}

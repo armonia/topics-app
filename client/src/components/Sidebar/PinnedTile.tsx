@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, RESTING_SURFACE, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
@@ -38,25 +38,23 @@ const TYPE_ICONS: Partial<Record<SidebarItem['type'], LucideIcon>> = {
  *  PANE_CONFIG — la stessa mappa che usano la riga nell'albero e la tab, così
  *  la tessera non può mostrare una chiave inglese al posto della board. */
 const UTILITY_ICONS: Record<string, LucideIcon> = {
-  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, UserRound, LayoutGrid,
 };
 
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
  *  stessa rotazione, così «si apre» si legge uguale ovunque.
  *
- *  `floating`: quando la tessera è un quadrato e mostra la sola icona, il
- *  chevron esce dal flusso e si appoggia al bordo sinistro, così non pesa nel
- *  centraggio (`pinned-tile-lead` in `index.css`, che è anche dove sta scritto
- *  fin dove c'è spazio per farlo). */
-function ExpandChevron({ expanded, floating }: { expanded: boolean; floating?: boolean }) {
+ *  Lo SLOT (larghezza fissa) e l'uscita dal flusso sulle tessere quadrate
+ *  (`pinned-tile-lead`) stanno sul wrapper, non qui: sono decisioni di LAYOUT
+ *  della riga, e tenerle sul glifo faceva sì che il nome partisse da una x
+ *  diversa a seconda che la tessera fosse espandibile o no. */
+function ExpandChevron({ expanded }: { expanded: boolean }) {
   return (
     <ChevronRight
       size={12}
       aria-hidden="true"
       data-testid="pinned-expand-hint"
-      className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${
-        floating ? 'pinned-tile-lead' : ''
-      } ${expanded ? 'rotate-90' : ''}`}
+      className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
     />
   );
 }
@@ -448,9 +446,59 @@ export function PinnedTile({
           «Senza ripetere il titolo se non c'entra» voleva dire proprio questo:
           se non ci sta. In una riga larga ci sta, troncato, e allora c'è — la
           soglia la misura la container query qui sotto. */}
-      {expandable && <ExpandChevron expanded={expanded} floating={hasRealIcon} />}
+      {/* IL CHEVRON NON SPOSTA IL NOME.
+          Misurato nel DOM sulle tessere vere: quelle con il chevron avevano il
+          testo a x=42, tutte le altre a x=36. Sei pixel su una colonna di righe
+          identiche, cioè il tipo di scarto che si vede senza riuscire a
+          nominarlo - segnalato come «assicuriamoci che le icone degli accordion
+          siano tutte correttamente allineate».
+          Larghezza FISSA anche da vuoto: se lo spazio comparisse solo per le
+          tessere espandibili, il nome ballerebbe fra una riga e l'altra, che è
+          lo stesso difetto al contrario. */}
+      {/* MA UNO SLOT VUOTO NON DEVE PESARE DOVE IL CONTENUTO È CENTRATO.
+          Sotto i 104px il contenitore passa a `justify-center`: lì non c'è più
+          una colonna da cui far partire i nomi, c'è un centro. Uno slot vuoto
+          di 12px più 8 di gap continuava a spingere tutto a destra — misurato
+          su una tessera larga 77: 28px di aria a sinistra contro 8 a destra,
+          il contenuto fuori centro di 10px. Segnalato: «quelle pinnate, icona
+          o testo, devono essere ben centrate e il trigger non dovrebbe
+          partecipare al peso per farlo centrato».
+          Sparisce solo da VUOTO: con un chevron dentro resta, e a centrarsi è
+          il gruppo intero — che è ciò che si vede. */}
+      <span
+        data-testid="pinned-chevron-slot"
+        aria-hidden={!expandable || undefined}
+        className={`w-3 flex-shrink-0 items-center justify-center ${
+          expandable ? 'flex' : 'hidden @min-[104px]/tile:flex'
+        } ${hasRealIcon ? 'pinned-tile-lead' : ''}`}
+      >
+        {expandable && <ExpandChevron expanded={expanded} />}
+      </span>
 
-      <span className="relative flex flex-shrink-0 items-center justify-center">
+      {/* IL CONTENITORE DELL'ICONA SPARISCE QUANDO NON C'E' UN'ICONA.
+          Un riquadro largo ZERO non occupa spazio, ma il `gap-2` della riga
+          SI': lo spazio si mette fra due figli, e un figlio vuoto e' comunque
+          un figlio. Misurato su una tessera stretta senza icona: 16px di aria
+          a sinistra contro 8 a destra, cioe' il nome fuori centro di 4 - lo
+          stesso difetto dello slot del chevron, un elemento piu' in la'.
+          `hidden` e non `w-0`: toglie il figlio dal flusso, e con lui il suo
+          gap. Il segnaposto mentre la sonda gira resta, perche' li' un
+          ingombro c'e' e serve (tiene il posto che l'icona avra'). */}
+      {/* IN FORMA RIGA IL POSTO DELL'ICONA C'E' SEMPRE, anche vuoto.
+          Le due forme vogliono cose opposte, ed e' il motivo per cui questa
+          classe ha due rami:
+           · QUADRATA (< 104px): il contenuto si CENTRA, e un riquadro vuoto
+             col suo gap sposterebbe il centro - va tolto dal flusso.
+           · RIGA (>= 104px): i nomi si incolonnano, e un progetto senza icona
+             partirebbe 22px prima degli altri. Misurato sulle tessere vere il
+             17/08: chat a x=50, progetto senza favicon a x=28, uno con favicon
+             a x=54 - TRE colonne per la stessa lista. Segnalato: «c'e' ancora
+             spazio a sinistra delle icone chat e manca icona project».
+          E' la stessa correzione fatta stamattina sulle RIGHE dell'albero
+          (`TopicTree`): superficie diversa, difetto identico. */}
+      <span className={`relative flex-shrink-0 items-center justify-center ${
+        hasRealIcon || Glyph || iconProbing ? 'flex' : 'hidden @min-[104px]/tile:flex'
+      }`}>
         {hasRealIcon
           ? <ProjectFavicon path={projectPath} size={18} />
           : Glyph
@@ -461,7 +509,13 @@ export function PinnedTile({
             // icona torna a zero ingombro, che è la decisione già presa.
             : iconProbing
               ? <span aria-hidden="true" className="block w-[18px]" />
-              : null}
+              // IL SEGNAPOSTO DELLA FORMA RIGA: largo quanto un glifo (14px),
+              // cosi' il nome parte dalla stessa x di chi un'icona ce l'ha.
+              // Non disegna niente - la decisione «solo icone vere, nessun
+              // monogramma» (16/07) resta intatta: qui si tiene una colonna,
+              // non si inventa un'identita'. In forma quadrata il genitore e'
+              // `hidden`, quindi questo non esiste e il centro resta il centro.
+              : <span aria-hidden="true" className="block w-[14px]" />}
       </span>
 
       {/* IL NOME LO DECIDE LA FORMA DELLA TESSERA, NON IL CARICAMENTO.

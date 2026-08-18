@@ -57,7 +57,7 @@ const jsonLd = {
       "releaseNotes": "https://topics.armonia.io/changelog",
       "isAccessibleForFree": true,
       "publisher": { "@id": "https://topics.armonia.io/#org" },
-      "description": "A desktop workspace for CLI coding agents. Several agents work the same repository at once, each task in its own git worktree, and you review and land their work from one window. Free, MIT, runs on your machine, no account and no telemetry.",
+      "description": "A desktop workspace for CLI coding agents. Several agents work the same repository at once, each task in its own git worktree, and you review and land their work from one window. Free, MIT, runs on your machine, no account and no analytics.",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
     }
   ]
@@ -107,7 +107,7 @@ const jsonLd = {
         </div>
         <p class="hero__meta reveal" style="--d:3">
           <span class="dot-live"></span>
-          Free and MIT. Your machine, your subscription or key, no account, no telemetry.
+          Free and MIT. Your machine, your subscription or key, no account, no analytics.
         </p>
       </div>
     </section>
@@ -203,13 +203,19 @@ const jsonLd = {
     </section>
 
     {/* PROOF. Not stars (0) and not downloads (54) — for a project this young
-         those are an own goal. Commits and releases are the true signal, read
-         from the repository at build time so the page cannot drift from it. */}
+         those are an own goal. Commits and the shipped version are the true
+         signal, read from the repository at build time so the page cannot drift
+         from it.
+
+         Every number here is conditional because every number here is derived.
+         A build with no git history (shallow clone, tarball) prints fewer items
+         rather than the last ones somebody measured by hand: the release count
+         used to sit in this row as a literal 78, beside a literal v2.2.11 that
+         stayed on the page for a hundred and twenty releases. */}
     <section class="proof reveal" aria-label="Project activity">
       <div class="proof__row">
-        <span class="proof__item"><b class="proof__n">{fmt(stats.commits)}</b> commits</span>
-        <span class="proof__item"><b class="proof__n">{fmt(stats.commitsLast7)}</b> in the last 7 days</span>
-        <span class="proof__item"><b class="proof__n">{stats.releases}</b> releases</span>
+        {stats.commits !== null && <span class="proof__item"><b class="proof__n">{fmt(stats.commits)}</b> commits</span>}
+        {stats.commitsLast7 !== null && <span class="proof__item"><b class="proof__n">{fmt(stats.commitsLast7)}</b> in the last 7 days</span>}
         <span class="proof__item">
           <b class="proof__n"><a id="pillRelease" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">v{stats.version}</a></b>
           on macOS, Windows and Linux
@@ -217,7 +223,8 @@ const jsonLd = {
         <span class="proof__item"><b class="proof__n">MIT</b> licence</span>
       </div>
       <p class="proof__note">
-        Counted from the public repository when this page was built. First commit {longDate(stats.since)}.
+        {stats.commits !== null && 'Counted from the public repository when this page was built. '}
+        {stats.since !== null && `First commit ${longDate(stats.since)}. `}
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">Check them yourself</a>.
       </p>
     </section>
@@ -453,7 +460,7 @@ const jsonLd = {
             <ul class="flist">
               <li><b>MIT licensed.</b> Read it, fork it, ship it.</li>
               <li><b>Local first.</b> Conversations and project data sit on your disk.</li>
-              <li><b>No telemetry.</b> Nothing phones home.</li>
+              <li><b>No analytics.</b> Nothing is collected about how you use it.</li>
               <li><b>Your key or your subscription.</b> Point it at an Anthropic or OpenAI API key, or run the CLI you already sign in to and keep using the plan you pay for.</li>
               <li><b>MCP built in.</b> The same tools your agents already use.</li>
               <li><b>A native shell.</b> A small desktop app, not a browser wearing a costume.</li>
@@ -535,7 +542,7 @@ const jsonLd = {
         </article>
         <article class="limits__item">
           <h3>You need accounts, roles or a shared board</h3>
-          <p>There is no authentication layer at all. Not a weak one: none. Boards sync between <em>your</em> machines. Exposing one over a tunnel means putting your own auth in front of it.</p>
+          <p>There are no accounts and no team roles. What exists is device pairing: the machine Topics runs on is the owner, and any other device is approved once from that machine, then carries its own token that you can revoke. That covers your laptop and your phone. It is not a board your team shares.</p>
         </article>
         <article class="limits__item">
           <h3>macOS will say the developer cannot be verified</h3>
@@ -543,7 +550,7 @@ const jsonLd = {
         </article>
         <article class="limits__item">
           <h3>It is young, and macOS gets the most use</h3>
-          <p>First commit {longDate(stats.since)}. Windows and Linux are built and released every time, and are used far less than macOS, which is exactly where you should expect to find the rough edges.</p>
+          <p>{stats.since !== null && `First commit ${longDate(stats.since)}. `}Windows and Linux are built and released every time, and are used far less than macOS, which is exactly where you should expect to find the rough edges.</p>
         </article>
       </div>
     </section>
@@ -587,7 +594,7 @@ const jsonLd = {
         </p>
         <div class="wedge__row">
           <div><b>Open source</b><span>MIT, on GitHub</span></div>
-          <div><b>Local first</b><span>no cloud, no telemetry</span></div>
+          <div><b>Local first</b><span>your disk, no analytics</span></div>
           <div><b>Any agent</b><span>your CLI, your account</span></div>
         </div>
       </div>
@@ -624,7 +631,7 @@ const jsonLd = {
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Dashboard, monitoring, context inspector</span></li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Remote access and mobile over your own tunnel</span></li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>Your subscription or your key.</b> We are never in the path</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>No telemetry, no account</b>, data on your disk</span></li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>No analytics, no account</b>, data on your disk</span></li>
           </ul>
           <a class="btn btn--primary btn--block" id="planFreeCta" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
             <svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span>

@@ -353,11 +353,29 @@ page but are no longer built, signed, or updated.
 **I quattro cancelli** — verdi tutti e quattro prima di consegnare, non tre su quattro:
 
 ```bash
-bun run typecheck        # client + server + e2e (~20s)
-bun run lint             # eslint (client) (~17s)
-bun run check:deadcode   # knip — un file che nessuno importa È codice morto (~5s)
-bun run test:unit        # bun:test — moduli puri (~70s, ~4100 test)
+bun run typecheck        # client + server + e2e + relay (~15s)
+bun run lint             # eslint (client + relay) (~17s)
+bun run check:deadcode   # knip — un file che nessuno importa È codice morto (~30s)
+bun run test:unit        # bun:test — moduli puri (~260s, 10.650 test)
 ```
+
+**I numeri sono misurati il 2026-08-18, e uno era diventato una bugia comoda.**
+`test:unit` diceva «~70s, ~4100 test»: erano 322s e 10.619 test, cioè quattro
+volte il tempo dichiarato. Sceso a **261s** lo stesso giorno rendendo iniettabili
+i timer delle tre suite peggiori (misurate 120,2s → 40,1s sui soli file toccati),
+e misurato con tre agenti della board al lavoro: su macchina ferma è meno. Non è un dettaglio da changelog — quel comando sta anche
+nella **barra di review della board** (`reviewChecks`), quindi ogni card in review
+lo paga per intero, e cinque card insieme portano una macchina da 12 core a
+loadavg 36. Se lo rimisuri e non torna, aggiorna la riga: una barra che costa il
+quadruplo di quanto dichiara è una barra che si impara a saltare.
+
+Dove andava il tempo, misurato con `--reporter=junit`: **il 50% in sette suite**,
+e le prime quattro dormivano su timer veri (`pty-bridge-orphan` 42,6s per 3 test;
+`ai-bridge orphan monitor` 42,3s; `ai-bridge-ack-deadline` 23,8s). Non era volume,
+era attesa d'orologio — e quei quattro adesso leggono i loro tempi
+dall'ambiente (`TOPICS_*_MS`, default identici in produzione). Le suite restanti
+della lista non sono state toccate: se il numero deve scendere ancora, il metodo
+è quello, e la misura si rifà con `--reporter=junit` prima di scegliere dove.
 
 ```bash
 bun run test             # E2E Playwright, seriale (~35 min)

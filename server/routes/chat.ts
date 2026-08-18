@@ -36,6 +36,7 @@ import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from 
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
+import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
 import { accumulateTurnUsage, emptyTurnUsage, turnUsageParts, turnUsageWire } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
 import type { BrowserService } from "../browser-service";
@@ -85,6 +86,24 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
+import { createIdempotencyCache } from "../lib/idempotency-cache";
+
+/**
+ * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
+ *
+ * TTL lungo (mezz'ora) perche' non costa niente sbagliare da questa parte: la
+ * chiave e' un uuid coniato UNA volta per invio, non un'impronta del testo.
+ * Rimandare due volte «ok» resta due messaggi distinti, con due chiavi diverse;
+ * l'unica cosa che una chiave ripetuta puo' significare e' «e' lo stesso invio
+ * che ci riprova». Tenerla in memoria a lungo copre una riconnessione lenta,
+ * scaderla presto rimetterebbe in gioco il doppione che vogliamo evitare.
+ *
+ * Vive nel processo, quindi un riavvio la perde: e' un limite accettato, non un
+ * difetto nascosto. Il caso che protegge (client che ritenta subito una richiesta
+ * caduta) si consuma in secondi, e la finestra dopo un riavvio e' coperta dalla
+ * riga utente gia' scritta, che il client rilegge dalla history.
+ */
+const chatIdempotency = createIdempotencyCache({ ttlMs: 30 * 60_000 });
 
 /**
  * Closure-local helpers from createTopicsRouter that the /api/chat block needs,
@@ -223,6 +242,49 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       if (!body) return json({ error: "body required" }, 400);
       const sessionKey = body.sessionKey;
+
+      /**
+       * LO STESSO MESSAGGIO NON SI PRENDE DUE VOLTE.
+       *
+       * Il client aveva una regola sola per sapere se un messaggio era partito:
+       * `streamStarted`, che diventa vero quando la `fetch` restituisce la
+       * risposta. Se la connessione muore PRIMA — e muore, perché su questa
+       * macchina il server si ricarica a ogni salvataggio in `server/` — per lui
+       * il server non l'ha mai ricevuto. Ma le due cose che possono essere
+       * successe sono opposte e da fuori identiche: (a) siamo morti prima di
+       * scrivere la riga, e allora il messaggio è perso e va rispedito;
+       * (b) siamo morti dopo, e allora rispedirlo lo duplica.
+       *
+       * Non potendo distinguerle, il client sceglieva: teneva il messaggio in
+       * coda e sperava. Il commento del suo drain lo dice in chiaro — «tenerlo
+       * qui significherebbe rispedirlo a un server che potrebbe averlo già
+       * preso». Misurato il 2026-08-18: un messaggio scritto durante un reload
+       * non è mai arrivato (zero righe, zero turni) e la pagina è rimasta a
+       * girare; poco prima, un altro aveva mostrato «Message queued» pur essendo
+       * arrivato benissimo.
+       *
+       * Con una chiave il dubbio sparisce: il client rispedisce SEMPRE, e siamo
+       * noi a dire se l'avevamo già preso. La chiave si ricorda solo DOPO che la
+       * riga utente è scritta (più sotto), perché è quello il momento in cui il
+       * messaggio esiste davvero: se cadiamo prima, la ripetizione deve poter
+       * ripartire pulita.
+       *
+       * Stessa meccanica di `POST /api/terminal/sessions`, stesso modulo.
+       */
+      const idempotencyKey =
+        req.headers.get("x-idempotency-key")
+        ?? (typeof body.clientMessageId === "string" && body.clientMessageId.trim() ? body.clientMessageId.trim() : null);
+      const idempotencySlot = idempotencyKey ? `${sessionKey} ${idempotencyKey}` : null;
+      if (idempotencySlot) {
+        const already = chatIdempotency.lookup(idempotencySlot);
+        if (already) {
+          console.log(`[HTTP] POST /api/chat: ripetizione di ${idempotencyKey} su ${sessionKey} — già preso come ${already}, non lo rifaccio`);
+          return json(
+            { error: "message already accepted", code: "duplicate_message", messageId: already },
+            409,
+          );
+        }
+      }
       // Turno guidato dalla board (runHeadlessTurn), non una chat umana: si
       // propaga sul `stream:end` di completamento così la push di fine risposta
       // lo esclude (vedi server/push-triggers.ts). Decine di turni d'agente = spam.
@@ -314,6 +376,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
         );
+        // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
+        // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
+        // l'unica cosa giusta da fare.
+        if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
         if (matchedTopic) {
           broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
           // Bump the topic's own timestamp on every real message, not just
@@ -500,6 +566,86 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       } else {
         topicProvider = resolveProvider(matchedTopic);
       }
+
+      /**
+       * UN RIATTACCO NON SCEGLIE IL PROVIDER: LO EREDITA.
+       *
+       * `resolveProvider` risponde alla domanda «con chi vorrebbe parlare
+       * questa topic?». Un riattacco fa una domanda diversa — «chi possiede il
+       * turno che sta GIÀ girando?» — e le due risposte possono divergere: il
+       * turno vivo è un figlio della CLI (`claude-code`, store del broker,
+       * `claude_code_sessions`), mentre la preferenza cade sul default della
+       * macchina, che qui è il runtime nativo (`topics`,
+       * providers/native/provider.ts:89, DEFAULT_AGENT_RUNTIME in shared/types.ts).
+       *
+       * Il provider nativo non ha `reattach`, e più sotto il ternario cadeva su
+       * `sendChat` con `userContent` = solo il preambolo `<context>` e NESSUNA
+       * domanda (`messages: []` è il formato del riattacco, riga ~267). Il
+       * risultato non era un degrado: era un turno FABBRICATO, pagato all'API
+       * Anthropic, che rispondeva «Ciao! Come posso aiutarti con <nome del
+       * topic>?» e si sedeva in chat al posto della risposta vera. Misurato il
+       * 2026-08-18 su topic:9fe7a291: nove saluti, uno per riavvio del server,
+       * mentre il turno CLI vero girava indisturbato e la sua risposta non
+       * arrivava mai in `messages`.
+       *
+       * Due cose lo rendevano possibile insieme, e valgono come promemoria:
+       * `isReattach` salta anche il cancello 409 «un turno per sessione» (riga
+       * ~296, ed è giusto: adottare il turno vivo è il suo mestiere), quindi il
+       * turno fantasma partiva su una sessione che ne aveva già uno in volo.
+       *
+       * Qui la regola è secca: chi non sa riattaccarsi non riattacca, e non
+       * manda niente al suo posto. Il rifiuto arriva PRIMA della riga parziale,
+       * dello stream e di qualunque chiamata al modello — non lascia traccia in
+       * chat. 501 e non 409: un 409 `rejectedTurn` (server.ts:711) lo tradurrebbe
+       * in «stream già in volo», che è un'altra storia; questo è un guasto di
+       * cablaggio e deve leggersi come tale nel log del chiamante.
+       */
+      if (isReattach && typeof (topicProvider as unknown as { reattach?: unknown }).reattach !== "function") {
+        console.warn(
+          `[Chat] riattacco RIFIUTATO su ${sessionKey}: il provider "${topicProvider.name}" non sa riattaccarsi. ` +
+          `Chi chiama un reattach deve dichiarare il provider che POSSIEDE il turno vivo (body.provider), ` +
+          `altrimenti si cade sul default della macchina. Nessun messaggio inviato.`,
+        );
+        return json(
+          { error: `provider "${topicProvider.name}" cannot reattach`, code: "reattach_unsupported", provider: topicProvider.name },
+          501,
+        );
+      }
+
+      /**
+       * UNA CONVERSAZIONE TIENE IL CERVELLO CON CUI È NATA.
+       *
+       * `topics.provider` vuoto non vuol dire «qualunque»: vuol dire «non
+       * l'abbiamo mai scritto». E siccome `resolveProvider` cade sul default
+       * della MACCHINA, e il default si ricalcola a ogni boot
+       * (`recomputeDefault`, providers/index.ts — dipende da quali provider
+       * risultano `connected` in quel momento), una chat a metà può cambiare
+       * runtime da sola, senza che nessuno abbia toccato niente.
+       *
+       * Non è teorico. Il 2026-08-18 su topic:9fe7a291: il primo turno gira su
+       * `claude-code` (JSONL, store del broker, riga in `claude_code_sessions`,
+       * modello claude-opus-5[1m]) e produce una risposta lunga e documentata;
+       * venti minuti e una ventina di riavvii dopo, il runtime nativo `topics`
+       * risulta connesso, si prende il default, e i messaggi successivi
+       * dell'utente finiscono su un provider la cui memoria è una Map in RAM
+       * azzerata a ogni riavvio. Alla domanda «fammi il report di fine
+       * giornata» ha risposto «Non ho trovato messaggi nel topic "New Chat"»:
+       * non era un guasto del modello, era un altro modello, senza la
+       * conversazione.
+       *
+       * Quindi il primo turno vero SCRIVE la scelta. Da lì la chat è stabile
+       * per costruzione, e resta modificabile a mano: il picker per-topic
+       * (`ProviderModelPicker` → PATCH /api/topics/:id) è l'unica cosa che
+       * cambia questo campo. Un riattacco non pinna niente — non è una scelta,
+       * è un'eredità.
+       */
+      if (!isReattach && matchedTopic && !matchedTopic.provider && topicProvider.name) {
+        matchedTopic.provider = topicProvider.name;
+        saveSingleTopic(matchedTopic);
+        broadcastToAll({ type: "topic:updated", topic: matchedTopic });
+        console.log(`[Chat] ${sessionKey}: runtime fissato su "${topicProvider.name}" al primo turno (era il default della macchina, che si ricalcola a ogni boot)`);
+      }
+
       // Per-message override wins; otherwise the topic's persisted model is
       // used (set by the picker via PUT /api/topics/:id and broadcast as
       // topic:updated). Falls through to the provider default when both unset.
@@ -677,7 +823,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let turnStartMs = requestStartMs;
           let fullContent = "";
           let fullThinking = "";
-          let lastTextDelta = ""; // track cumulative text from delta events
           // Carry-over tail for the localhost auto-nav scan: instead of
           // re-scanning the whole accumulated fullContent every delta (O(n²) over
           // a stream), we scan only `carry + newDelta` where `carry` holds the
@@ -960,12 +1105,27 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
           };
 
+          /**
+           * Suspend while ≥1 tool call is `running`. The next resetStreamTimer
+           * (fired on onToolResult / new event) will re-arm if needed.
+           *
+           * INVARIANT — this reads `trackedToolCallIds` as it is AT CALL TIME, so
+           * every caller must have already applied the event it is reacting to.
+           * Push before reset in `onToolStart`, splice before reset in every
+           * completion path. Getting it backwards broke both ends of a turn:
+           *
+           *   - last tool result: the splice ran AFTER the reset, so the reset
+           *     still saw one tool running, set `softTimer = null`, and nothing
+           *     re-armed it. The watchdog stayed off for the rest of the turn —
+           *     no soft timeout, no grace, no `stream:slow`.
+           *   - first tool start: the push ran AFTER the reset, so the reset saw
+           *     an empty set and armed a 60 s timer against a turn that was, by
+           *     design, waiting on a tool. One minute later the user got a
+           *     spurious "slowing down" banner on a perfectly healthy turn.
+           */
           const armSoftTimer = () => {
             if (streamState !== "streaming") return;
             if (softTimer) clearTimeout(softTimer);
-            // Suspend while ≥1 tool call is `running`. The next
-            // resetStreamTimer (fired on onToolResult / new event) will
-            // re-arm if needed.
             if (trackedToolCallIds.length > 0) { softTimer = null; return; }
             softTimer = setTimeout(handleSoftTimeout, STREAM_TIMEOUT_MS);
           };
@@ -1165,6 +1325,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           };
 
           /**
+           * Un tool ha finito: PRIMA esce dall'insieme, POI si riarma il timer.
+           *
+           * L'ordine è la regola scritta su `armSoftTimer`, e questo è l'unico
+           * posto in cui si toglie un id: i cinque siti che facevano
+           * `indexOf`+`splice` a mano (risultato del tool, i due esiti della
+           * dispatch dei tool `browser_*`, i due dei control tool) erano cinque
+           * occasioni di dimenticarsene — e tre di loro se n'erano già
+           * dimenticate, lasciando il watchdog spento dopo l'ultimo tool.
+           */
+          const settleTrackedTool = (toolCallId: string) => {
+            const idx = trackedToolCallIds.indexOf(toolCallId);
+            if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+            resetStreamTimer();
+          };
+
+          /**
            * Tiene vive nel pannello Processi le shell che l'agente lascia in
            * background (3.5). Il transcript le mostra una volta e le dimentica;
            * qui diventano stato: si contano, si leggono, si fermano.
@@ -1227,6 +1403,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           externalAbort.signal.addEventListener("abort", () => {
             if (streamState === "finalized") return;
             console.warn(`[StreamWS] finalizzazione esterna su ${sessionKey} — chiudo l'SSE`);
+            // I BLOCCHI si salvano PRIMA di dichiarare finito il turno, ed è
+            // l'ultimo momento in cui si può: da qui in poi `streamState` è
+            // `finalized`, quindi `finalizeStream` esce subito e chi finalizza da
+            // fuori scrive `content` ma non li tocca — `/api/chat/abort` passa a
+            // `updateLastMessage` solo content/thinking, e il COALESCE tiene la
+            // colonna vecchia (server/utils.ts).
+            //
+            // `content` lo tiene lo stream in memoria a ogni delta, i blocchi si
+            // persistono ogni SAVE_INTERVAL=10: fermare un turno al quindicesimo
+            // delta lasciava la riga con quindici delta in `content` e dieci in
+            // `blocks` — e chi disegna legge `blocks`. Il finale della risposta
+            // c'era, in una colonna che nessuno guarda.
+            //
+            // Solo i blocchi, non il testo: sulla via dello sweeper StaleStream la
+            // riga porta già il cartello «Risposta interrotta» scritto in
+            // `content`, e riscriverci sopra cancellerebbe la spiegazione. E i
+            // flag di controllo non si toccano — `persistTurnBody` non passa
+            // `partial`, quindi resta quello della riga.
+            try { persistBlocks(); }
+            catch (err) { console.warn(`[StreamWS] salvataggio dei blocchi su abort esterno fallito:`, err); }
             streamState = "finalized";
             clearAllTimers();
             topicProvider.unregisterStreamHandler?.(sessionKey);
@@ -1608,16 +1804,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const handler: StreamHandler = {
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
-              // Gateway sends cumulative text in delta events
-              // Extract the new portion by comparing with what we've seen
-              let newText = text;
-              if (text.length > lastTextDelta.length && text.startsWith(lastTextDelta)) {
-                newText = text.slice(lastTextDelta.length);
-              } else if (text === lastTextDelta) {
-                return; // No new content
-              }
-              lastTextDelta = text;
-
+              // Il primo argomento È il pezzo nuovo, sempre: lo dice il contratto
+              // su `StreamHandler.onTextDelta` e lo rispettano tutti e cinque i
+              // provider. L'unico cumulativo — il gateway OpenClaw — si
+              // normalizza da sé con `nextTextDelta` (server/providers/text-delta.ts).
+              //
+              // Qui prima si indovinava: prefisso tagliato se il testo cominciava
+              // per quello di prima, evento SCARTATO se era identico. Su quattro
+              // provider su cinque quella seconda regola perdeva un token ripetuto
+              // — «the the», due `\n` di fila, un `= =` in una tabella — e la
+              // perdita era muta, perché la riga salvata e lo schermo dicevano
+              // esattamente la stessa cosa sbagliata.
+              const newText = text;
               if (newText) {
                 fullContent += newText;
                 appendTextBlock(newText);
@@ -1675,7 +1873,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             },
 
             onToolStart: (toolCallId: string, name: string, args?: Record<string, unknown>) => {
-              resetStreamTimer();
               console.log(`[StreamWS] Tool start: ${name} (${toolCallId.slice(0,8)}) for ${sessionKey}`);
               // Build a typed `detail` at the boundary so the renderer doesn't
               // have to JSON-grovel `args`. Bash → shell, Read → read, Task →
@@ -1705,6 +1902,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // raro a quotidiano. Una tool call È attività: si dichiara qui.
               updateStreamActivity(sessionKey);
               trackedToolCallIds.push(toolCallId);
+              // DOPO la push, mai prima: `armSoftTimer` si sospende sull'insieme
+              // che vede in questo istante. Vedi l'invariante su `armSoftTimer`.
+              resetStreamTimer();
               addToolCallToLastMessage(sessionKey, toolCall);
               appendToolBlock(toolCall);
               broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
@@ -1737,8 +1937,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
 
                     // Close the tool→UI loop: browser_open navigates Playwright server-side,
                     // but until now nothing opened the user-visible pane. Broadcast the same
@@ -1773,8 +1972,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: browserErrEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
                   });
               }
 
@@ -1794,8 +1992,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'success', result: confirmation, endedAt: controlEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: confirmation } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
                   })
                   .catch((err: unknown) => {
                     const msg = err instanceof ControlToolError ? err.message : (err instanceof Error ? err.message : String(err));
@@ -1806,8 +2003,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: controlErrEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
-                    const idx = trackedToolCallIds.indexOf(toolCallId);
-                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                    settleTrackedTool(toolCallId);
                   });
               }
 
@@ -1909,18 +2105,30 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 ...(snapshot.result ? { result: snapshot.result } : {}),
               };
               updateBlockTool(parentToolCallId, { detail });
-              broadcastToAll({
+              // Alla topic, non a tutti. Questo è lo snapshot INTERO del
+              // sotto-agente — actions[] ricostruito a ogni colpo, i frame più
+              // grossi del turno — ed era l'unico callback di tool rimasto su
+              // `broadcastToAll` mentre i vicini passavano già da
+              // `broadcastStreamToTopic`. Ogni finestra aperta su un'altra topic
+              // li riceveva tutti per instradarli su `topicId` e buttarli.
+              broadcastStreamToTopic({
                 type: "stream:tool_detail",
                 sessionKey,
                 topicId: matchedTopic?.id,
                 toolCallId: parentToolCallId,
                 detail,
                 finished: snapshot.finished,
-              });
+              }, matchedTopic?.id);
             },
 
             onToolResult: (toolCallId: string, result: string, isError?: boolean) => {
-              resetStreamTimer();
+              // IL TURNO È VIVO, e lo si dichiara SUBITO — come in `onToolStart`,
+              // e per la stessa ragione: lo spazzino degli stream fermi guarda
+              // `lastActivity`, e un risultato di tool è attività. Il riarmo del
+              // watchdog invece va in fondo, con `settleTrackedTool`: farlo qui
+              // vorrebbe dire riarmarlo mentre questo tool risulta ancora in
+              // corso, cioè non riarmarlo affatto (vedi `armSoftTimer`).
+              updateStreamActivity(sessionKey);
               // Se questo tool stava aspettando una risposta, l'attesa finisce
               // qui: da adesso è di nuovo lavoro. Sui tool che non hanno mai
               // chiesto niente non fa nulla.
@@ -1963,9 +2171,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // solo nel transcript. Vedi `providers/claude/background-shell.ts`.
               trackBackgroundShell(detail, result, isError === true);
 
-              // Remove from tracked list (it's already finalized)
-              const idx = trackedToolCallIds.indexOf(toolCallId);
-              if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+              // Fuori dall'insieme dei tool in corso, e solo ORA il watchdog
+              // torna armato: era l'ultimo, e il silenzio che segue è silenzio.
+              settleTrackedTool(toolCallId);
             },
 
             onToolUsage: (toolCallId, u) => {
@@ -2490,11 +2698,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Reattach mode (ai-bridge restart recovery): adopt the turn still
             // running in the broker and drive it to completion, instead of
             // starting a new one. No user message is sent; everything else
-            // (handler, partial row, SSE, finalize) is reused. Falls back to a
-            // normal send when the provider has no reattach (flag off / other providers).
+            // (handler, partial row, SSE, finalize) is reused.
+            //
+            // NIENTE RIPIEGO SU `sendChat`. Qui c'era un ternario che, se il
+            // provider non sapeva riattaccarsi, mandava un turno normale — e su
+            // un riattacco `userContent` è il solo preambolo `<context>` con
+            // NESSUNA domanda (`messages: []` è il suo formato). Non era un
+            // degrado, era un turno fabbricato: una chiamata pagata al modello
+            // che rispondeva «Ciao! Come posso aiutarti con <nome del topic>?»
+            // e finiva in chat al posto della risposta vera, su una sessione
+            // che aveva già un turno in volo (il cancello 409 è disattivato per
+            // i riattacchi, ed è giusto così). Il caso ora è respinto a monte,
+            // prima della riga parziale e di qualunque stream: vedi la guardia
+            // `reattach_unsupported` alla risoluzione del provider. `!` qui è
+            // sostenuto da quella guardia, non da un'assunzione.
             const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
-            const drive = (isReattach && typeof reattachFn === "function")
-              ? reattachFn.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
+            const drive = isReattach
+              ? reattachFn!.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,
                   userContent,
@@ -2663,15 +2883,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
           // Streaming fallback — simplified version (no tool visibility)
           const originalBody = resp.body!;
-          let fullContent = "";
-          let fullThinking = "";
-          let isInThinking = false;
-          let chunkCount = 0;
-          let lastSaveChunk = 0;
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id, abortController);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+
+          // Mutable state via refs so that both the WS onToolStart callback and
+          // the shared SSE processor read from the same up-to-date value.
+          const contentRef = { value: "" };
+          const thinkingRef = { value: "" };
+          const inThinkingRef = { value: false };
+          const chunkCountRef = { value: 0 };
 
           // Always register WS handler for tool events — even if WS appears disconnected,
           // it may reconnect during the HTTP request. Tool events arrive via WS agent events.
@@ -2681,7 +2903,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               onTextDelta() {},  // Handled by HTTP SSE processLine
               onThinkingDelta() {},
               onToolStart(toolCallId: string, name: string, args?: Record<string, unknown>) {
-                const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: fullContent.length };
+                const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: contentRef.value.length };
                 addToolCallToLastMessage(sessionKey, toolCall);
                 broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
               },
@@ -2705,134 +2927,52 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const forwardToClient = async (chunk: Uint8Array) => { if (clientDisconnected) return; try { await writer.write(chunk); } catch { clientDisconnected = true; } };
           const closeClient = async () => { if (clientDisconnected) return; try { await writer.close(); } catch { clientDisconnected = true; } };
 
-          const processLine = (line: string) => {
-            if (!line.startsWith("data: ")) return;
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") {
-              // CHAT-REL-01: Detect empty response and surface error
-              if (!fullContent.trim()) {
-                fullContent = "⚠️ No response received. The AI service may be overloaded. Please try again.";
-                console.warn(`[Stream] Empty response for ${sessionKey} — surfacing error to client`);
-              }
-              updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-              endStream(sessionKey);
+          const { consumeGateway } = makeGatewaySseProcessor({
+            sessionKey,
+            matchedTopic,
+            partialMsgId: partialMsg.id,
+            contentRef,
+            thinkingRef,
+            inThinkingRef,
+            chunkCountRef,
+            forwardToClient,
+            closeClient,
+            isClientDisconnected: () => clientDisconnected,
+            encoder,
+            writeExtra: (payload: string) => {
+              if (!clientDisconnected) { try { writer.write(encoder.encode(payload)); } catch { clientDisconnected = true; } }
+            },
+            broadcastToAll,
+            broadcastToTopicSubscribers,
+            updateStreamContent,
+            updateLastMessage,
+            endStream,
+            isStreaming,
+            addToolCallToLastMessage,
+            updateToolCallResult: (sk, id, result) => updateToolCallResult(sk, id, result),
+            saveInterval: SAVE_INTERVAL,
+            onDone: () => {
+              // chat.ts-specific: unregister handler, broadcast message:new,
+              // and mark stream:end as completed (overrides the shared broadcast).
               topicProvider.unregisterStreamHandler?.(sessionKey);
               if (matchedTopic) {
-                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
-                // Fallback SSE: il `[DONE]` è la fine pulita del turno (l'errore
-                // esce dal ramo catch/finally, non da qui). Stesso marcatore del
-                // path WS per la push di fine risposta.
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: contentRef.value, preview: contentRef.value.slice(0, 100) });
+                // The shared module already broadcast stream:end; re-broadcast
+                // with the chat-specific completed/dispatched fields.
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id, completed: true, ...(dispatched ? { dispatched: true } : {}) });
                 finalizeTurnActivity(matchedTopic);
               }
-              return;
-            }
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta;
-              if (delta?.content) {
-                const content = delta.content;
-                if (content.includes('<thinking>')) { isInThinking = true; broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
-                if (content.includes('</thinking>')) { isInThinking = false; broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
-                if (isInThinking) { const cleaned = content.replace(/<\/?thinking>/g, ''); fullThinking += cleaned; const tc = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, tc); else broadcastToAll(tc); }
-                else { const cleaned = content.replace(/<\/?thinking>/g, ''); if (cleaned) { fullContent += cleaned; const cc = { type: "stream:content_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cc); else broadcastToAll(cc); } }
-                chunkCount++;
-                updateStreamContent(sessionKey, fullContent, fullThinking);
-                if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) { lastSaveChunk = chunkCount; updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined }); }
-              }
-              // Tool calls from SSE stream (if gateway includes them in HTTP response)
-              if (delta?.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  if (tc.function?.name) {
-                    const toolCall = {
-                      id: tc.id || `tool-${Date.now()}`,
-                      name: tc.function.name,
-                      args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
-                      status: 'running' as const,
-                      contentOffset: fullContent.length,
-                    };
-                    addToolCallToLastMessage(sessionKey, toolCall);
-                    broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
-                    // Also forward as SSE for the HTTP client
-                    const sseToolPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCall.id, function: { name: toolCall.name, arguments: JSON.stringify(toolCall.args) }, contentOffset: toolCall.contentOffset }] } }] });
-                    if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseToolPayload}\n\n`)); } catch {} }
-                  }
-                }
-              }
-              if (delta?.tool_result) {
-                const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
-                if (trId) {
-                  updateToolCallResult(sessionKey, trId, trResult || 'completed');
-                  broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: trId, status: trStatus || 'success', result: trResult }, matchedTopic?.id);
-                  const sseResultPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: trId, status: trStatus || 'success', result: trResult } } }] });
-                  if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseResultPayload}\n\n`)); } catch {} }
-                }
-              }
-            } catch {}
-          };
-
-          const consumeGateway = async () => {
-            const reader = originalBody.getReader();
-            const onAbort = () => reader.cancel();
-            abortController.signal.addEventListener("abort", onAbort, { once: true });
-            const decoder = new TextDecoder();
-            let sseBuffer = "";
-            let streamError: string | null = null;
-
-            // CHAT-REL-03: Inactivity timeout (60s per chunk)
-            const INACTIVITY_TIMEOUT_MS = 60000;
-            let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-            const resetInactivityTimer = () => {
-              if (inactivityTimer) clearTimeout(inactivityTimer);
-              inactivityTimer = setTimeout(() => {
-                console.warn(`[Stream] Inactivity timeout (${INACTIVITY_TIMEOUT_MS / 1000}s) for ${sessionKey}`);
-                streamError = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
-                abortController.abort();
-              }, INACTIVITY_TIMEOUT_MS);
-            };
-            resetInactivityTimer();
-
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                resetInactivityTimer();
-                await forwardToClient(value);
-                sseBuffer += decoder.decode(value, { stream: true });
-                const lines = sseBuffer.split("\n");
-                sseBuffer = lines.pop() || "";
-                for (const line of lines) processLine(line);
-              }
-              if (sseBuffer.trim()) processLine(sseBuffer);
-            } catch (err: any) {
-              // CHAT-REL-02: Propagate errors to client via SSE
-              const isAbort = err?.name === "AbortError" || abortController.signal.aborted;
-              const errorMsg = streamError || (isAbort
-                ? "⚠️ Response timed out. Please try again."
-                : "⚠️ Connection lost during response. Please try again.");
-              console.warn(`[Stream] Gateway read error for ${sessionKey}:`, err?.message || err);
-              if (!fullContent.trim()) fullContent = errorMsg;
-              else fullContent += `\n\n---\n*${errorMsg}*`;
-              // Send error to client SSE
-              const errPayload = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `\n\n${errorMsg}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-              if (!clientDisconnected) { try { await writer.write(encoder.encode(errPayload)); } catch {} }
-            }
-            finally {
-              if (inactivityTimer) clearTimeout(inactivityTimer);
-              abortController.signal.removeEventListener("abort", onAbort);
-              reader.releaseLock();
-              await closeClient();
+            },
+            onStreamEnd: () => {
+              // chat.ts-specific: unregister handler + finalize activity (abrupt end).
               topicProvider.unregisterStreamHandler?.(sessionKey);
-              if (isStreaming(sessionKey)) {
-                updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-                endStream(sessionKey);
-                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-                if (matchedTopic) finalizeTurnActivity(matchedTopic);
-              }
-            }
-          };
+              if (matchedTopic) finalizeTurnActivity(matchedTopic);
+            },
+            logTag: "[Stream]",
+            abortController,
+          });
 
-          consumeGateway().catch(err => console.error('[consumeGateway:chat] error:', err));
+          consumeGateway(originalBody).catch(err => console.error('[consumeGateway:chat] error:', err));
           return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
         } catch (err: any) {
           if (err.name === "AbortError") return json({ error: "Request timeout (5 min)" }, 504);

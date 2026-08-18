@@ -211,4 +211,35 @@ describe("tetto pieno: la riga sulla card", () => {
     expect(nota).toMatch(/ne vuole \d+ insieme/);
     expect(nota).toMatch(/(c'è 1 posto libero|ci sono \d+ posti liberi)/);
   });
+
+  it("una barra di check in volo riduce i posti disponibili come un agente", async () => {
+    // IL DIFETTO CHE QUESTO TEST PRESIDIA.
+    // Con tetto=1 e checksRunning()=1, non deve partire nessun nuovo dispatch:
+    // la barra di check satura la stessa CPU che l'agente userebbe, e il freno
+    // deve contarla. Prima del fix il tetto contava solo gli agenti, e sei card
+    // che consegnavano insieme lanciavano sei barre in parallelo (loadavg 78/12).
+    const h = harness({ checksRunning: () => 1 });
+    board(h, 1);
+    seedTask(h.db, "q1");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Niente parte: il posto è occupato dalla barra di check in volo.
+    expect(h.task("q1")!.status).toBe("todo");
+    // La card riceve la riga del tetto (non un silenzio muto).
+    expect(h.righeTetto("q1")).toBe(1);
+  });
+
+  it("con tetto=2 e una barra in volo, un agente puo' ancora partire", async () => {
+    // Un gate che occupa 1 slot su 2 non deve bloccare tutto.
+    const h = harness({ checksRunning: () => 1 });
+    board(h, 2);
+    seedTask(h.db, "q1");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("q1")!.status).toBe("in_progress");
+  });
 });

@@ -64,3 +64,35 @@ export const MODAL_BACKDROP = 'fixed inset-0 bg-black/30 dark:bg-black/50 backdr
  */
 export const MODAL_PANEL =
   'native-occlude bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter';
+
+/**
+ * La variante MOBILE delle superfici di ricerca: una PAGINA, non una scheda che
+ * galleggia. Sotto i 768px una scheda centrata e' il peggio dei due mondi. Il
+ * `pt-[12vh]` della palette e il `pt-[10vh]` di FileSearch regalavano un decimo
+ * di schermo al velo proprio dove lo schermo non c'e', il `max-h` tagliava la
+ * lista a due terzi, e con la tastiera software aperta restavano poche righe
+ * visibili. A schermo pieno la lista prende tutto quello che c'e'.
+ *
+ * Niente raggio, niente ombra, niente bordo: una pagina non ha spigoli da
+ * mostrare, li ha lo schermo. Resta `native-occlude`, perche' la ragione per cui
+ * c'e' non cambia con la larghezza: sotto una superficie modale la pane nativa
+ * del browser Tauri deve congelarsi, altrimenti una WKWebView si compone SOPRA
+ * il DOM e la pagina di ricerca finisce sotto.
+ *
+ * `command-palette-enter` resta anche qui: l'entrata e' la stessa, cambia la
+ * geometria.
+ */
+export const MODAL_PAGE_CONTAINER = `fixed inset-0 ${MODAL_LAYER} flex flex-col`;
+
+/** Il corpo della pagina a schermo pieno. Gemello mobile di `MODAL_PANEL`. */
+export const MODAL_PAGE_PANEL =
+  'native-occlude bg-surface overflow-hidden command-palette-enter flex flex-col flex-1 min-h-0';
+
+/**
+ * Una pagina a schermo pieno scavalla la tacca: il contenitore e' `fixed inset-0`,
+ * quindi parte da y=0 e nessun padding di pagina la protegge. Va sul CORPO della
+ * pagina, cosi' la striscia sotto la tacca la dipinge la sua stessa superficie.
+ * `--sat` (index.css) vale 0 dove la tacca non c'e', quindi si applica sempre e
+ * non serve chiedersi se il dispositivo ne ha una.
+ */
+export const MODAL_PAGE_INSET = { paddingTop: 'var(--sat, 0px)' } as const;

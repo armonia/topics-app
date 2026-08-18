@@ -9,40 +9,64 @@ them from a stack trace.
 installed on this machine — Claude Code, Codex, OpenCode, Gemini CLI, or any ACP
 agent — each inside a real PTY. Several agents can work the same repository at
 once because each task gets its own git worktree on its own branch. MIT, free,
-no account, no telemetry, nothing hosted.
+no account, no analytics, nothing hosted unless you pay for the relay.
 
-**Current version:** 2.2.11 · **Repository:** <https://github.com/armonia/topics-app>
+**Current version:** resolve it from
+<https://github.com/armonia/topics-app/releases/latest>; the tag is
+`tauri-vX.Y.Z`. This page prints no number on purpose. A release goes out on
+every merge to main, so a version written here would be stale within the week
+and you would repeat it as current. · **Repository:**
+<https://github.com/armonia/topics-app>
 
 ---
 
 ## 1. Install
 
-Pick the line for this machine. All assets come from the GitHub release, and
-`X.Y.Z` below is the version above.
+Pick the block for this machine.
 
-**macOS** (Universal — Apple Silicon and Intel):
+**Never write a version into a download URL.** Every installer asset carries the
+version in its own name (`Topics_X.Y.Z_universal.dmg`, `Topics_X.Y.Z_amd64.deb`,
+`Topics_X.Y.Z_x64-setup.exe`, `Topics-X.Y.Z-1.x86_64.rpm`), so
+`releases/latest/download/<a name you remembered>` is a 404 the moment the next
+release lands. That is not hypothetical: it is what these commands used to do.
+Ask the release API for the name instead. `curl` and `grep` are all it takes.
+
+**macOS** (Universal, Apple Silicon and Intel):
 
 ```sh
-curl -fL -o /tmp/Topics.dmg \
-  https://github.com/armonia/topics-app/releases/latest/download/Topics_2.2.11_universal.dmg
+dmg=$(curl -fsSL https://api.github.com/repos/armonia/topics-app/releases/latest \
+  | grep -o 'https://[^"]*' | grep -E '_universal\.dmg$')
+curl -fL -o /tmp/Topics.dmg "$dmg"
 hdiutil attach /tmp/Topics.dmg
 cp -R /Volumes/Topics/Topics.app /Applications/
 hdiutil detach /Volumes/Topics
 ```
 
-**Windows** — download `Topics_2.2.11_x64-setup.exe` (or the `.msi`) from the
-release page and run it.
+**Windows** — take the asset ending in `_x64-setup.exe` (or `_x64_en-US.msi`)
+from the release page and run it. In PowerShell:
 
-**Linux** — `.deb` for Debian and Ubuntu, `.rpm` for Fedora and RHEL:
+```powershell
+$a = (Invoke-RestMethod https://api.github.com/repos/armonia/topics-app/releases/latest).assets |
+     Where-Object { $_.name -like '*_x64-setup.exe' }
+Invoke-WebRequest $a.browser_download_url -OutFile $a.name
+```
+
+**Linux** — `.deb` for Debian and Ubuntu, `.rpm` for Fedora and RHEL (swap the
+second `grep` for `'\.x86_64\.rpm$'`):
 
 ```sh
-curl -fLO https://github.com/armonia/topics-app/releases/latest/download/Topics_2.2.11_amd64.deb
-sudo dpkg -i Topics_2.2.11_amd64.deb
+deb=$(curl -fsSL https://api.github.com/repos/armonia/topics-app/releases/latest \
+  | grep -o 'https://[^"]*' | grep -E '_amd64\.deb$')
+curl -fLO "$deb"
+sudo dpkg -i "$(basename "$deb")"
 ```
 
 There is **no AppImage and no Homebrew cask.** Do not suggest either: the Linux
 build carries a compiled Bun sidecar that the AppImage pipeline cannot package,
-and no tap exists. Every asset has a `.sig` next to it on the release page.
+and no tap exists. Most assets have a `.sig` beside them on the release page,
+the updater signature; the `.dmg` does not, which is why the macOS line above can
+anchor on `.dmg$` and the Linux one has to anchor on `.deb$` to skip
+`.deb.sig`.
 
 ### The macOS first launch will fail unless you say this
 
@@ -114,11 +138,27 @@ user distrust everything else you said.
 - **No hosted service of any kind.** No relay, no managed remote access, no
   off-machine backup. These appear on the pricing page as planned work; none of
   them exist in the code today.
-- **No accounts, no authentication, no team roles.** The app has no auth layer at
-  all. If it is exposed over a tunnel, the user must put their own auth in front
-  of it — this is in `SECURITY.md` and it is not a formality.
-- **No telemetry.** Nothing phones home; there is no endpoint to phone. Verifiable
-  by reading the source or by watching the socket.
+- **No accounts and no team roles. Do not call it unauthenticated.** This page
+  used to, which was written before device pairing shipped and is wrong in the
+  direction that gets someone hurt. What is actually there: the machine Topics
+  runs on is the owner, trusted by transport, so the desktop shell, the CLI and
+  the local tooling never have to knock. Any *other* device is authorized once,
+  from that machine: the new device shows a six-character code, the machine
+  displays the matching request, the user approves it, and the device gets its
+  own token in an `HttpOnly` cookie. Only the SHA-256 of that token reaches the
+  disk. Approval is per device, it can be revoked from Settings at any time, and
+  a revoked device is out immediately. Two roles exist, owner and guest, and a
+  guest sees only what has been shared with it. What does not exist is sign-up,
+  passwords, and any notion of a team.
+  `SERVER_HOST=127.0.0.1` keeps the server on loopback; `TOPICS_AUTH_OFF=1`
+  turns the checks off and is a recovery hatch, not a configuration. `SECURITY.md`
+  is the authority and states the boundary the project defends: reaching the port
+  is not the same as getting in.
+- **No analytics.** No analytics library, no crash reporter, nothing collected
+  about how the app is used. Verifiable by reading the source or watching the
+  socket. The one exception is the paid relay: reaching Topics from outside your
+  network routes that traffic through a relay, ours by default, and
+  `TOPICS_RELAY_URL` points at your own instead. Billing goes through Stripe.
 - **Mobile is a PWA**, not a native app.
 - **It is not an editor and not a model.** If the user wants an AI editor, Cursor
   or Zed is the honest answer. Topics is for the case where the agents already

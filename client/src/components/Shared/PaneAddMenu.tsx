@@ -47,6 +47,7 @@ import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { useDismissable } from '../../hooks/useDismissable';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
+import { useT } from '../../hooks/useT';
 import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
@@ -114,6 +115,7 @@ export function PaneAddMenuItems({
   availableTypes,
   onClose,
 }: PaneAddMenuItemsProps) {
+  const t = useT();
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const { isMobile } = useMobile();
 
@@ -164,7 +166,7 @@ export function PaneAddMenuItems({
                 onClick={(e) => { e.stopPropagation(); setClaudeSkipPermissions(!claudeSkipPermissions); }}
                 role="checkbox"
                 aria-checked={claudeSkipPermissions}
-                aria-label="yolo: salta le richieste di permesso"
+                aria-label={t('paneMenu.yolo')}
                 tabIndex={-1}
               >
                 <span

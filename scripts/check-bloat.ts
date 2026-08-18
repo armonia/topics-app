@@ -129,13 +129,26 @@ interface CloneGroup {
 // ---------------------------------------------------------------------------
 
 /**
- * Tracked files only, from git. Walking the filesystem instead would have to
- * re-implement `.gitignore`, and the first thing it would swallow is
- * `node_modules` (200k files) and `public/assets` (a minified bundle, which is
- * one enormous "duplicated block" against itself).
+ * Files git knows about: tracked, PLUS untracked ones that are not ignored.
+ * Walking the filesystem instead would have to re-implement `.gitignore`, and
+ * the first thing it would swallow is `node_modules` (200k files) and
+ * `public/assets` (a minified bundle, which is one enormous "duplicated block"
+ * against itself).
+ *
+ * `--others --exclude-standard` is the half that was missing, and its absence
+ * cost a red build on 2026-08-15. A new 906-line file
+ * (`client/src/lib/i18n-en.ts`) was created, this gate was run locally and said
+ * OK, the commit landed, and CI went red on the same file the same minute. The
+ * gate had been blind to it for exactly as long as it was untracked, which is
+ * precisely the window in which somebody is deciding whether to commit it. A
+ * gate that only sees a file after it lands cannot stop it from landing.
  */
 function trackedSources(root: string): string[] {
-  const res = spawnSync("git", ["-C", root, "ls-files", "-z"], { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 });
+  const res = spawnSync(
+    "git",
+    ["-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 },
+  );
   if (res.status !== 0) {
     console.error(`[check-bloat] cannot list tracked files under ${root}: git exited ${res.status}`);
     process.exit(2);

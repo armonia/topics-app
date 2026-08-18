@@ -208,7 +208,7 @@ const SHELL_WRITERS = new Set([
 const GIT_READ_VERBS = new Set([
   "rev-list", "rev-parse", "show", "log", "diff", "status", "for-each-ref",
   "worktree", "symbolic-ref", "cat-file", "branch", "describe", "blame", "shortlog",
-  "check-ignore",
+  "check-ignore", "merge-base",
 ]);
 const SQL_WRITERS = /\b(insert|update|delete|drop|alter|create|replace|attach|vacuum)\b/i;
 
@@ -381,6 +381,19 @@ export interface BranchFacts {
    * di chi sia la consegna non si sa: nessun allarme.
    */
   ownShas: readonly string[] | null;
+  /**
+   * La consegna registrata e' RAGGIUNGIBILE dalla punta di questo branch.
+   *
+   * Esiste perche' `ownShas` risponde a «cosa main non ha», e quella domanda
+   * cambia risposta quando il lavoro ATTERRA: da quel momento `main..branch` e'
+   * vuoto, il commit della card sparisce dall'insieme, e il controllo 8
+   * concludeva «questa card non ha committato niente, il commit e' di
+   * qualcun altro» — cioe' accusava di furto proprio le consegne andate a buon
+   * fine. Un commit che sta nella storia del branch e' suo, atterrato o no.
+   *
+   * `null` = non c'era una consegna da verificare, o git non ha risposto.
+   */
+  deliveryInHistory: boolean | null;
   /** Gli altri branch (`refs/heads/…`) da cui si e' sottratto: servono alla prova. */
   otherBranches: readonly string[];
 }
@@ -718,6 +731,11 @@ const checkDeliveryCommitNotOwn: DoctorCheck = {
       const sha = t.deliveryCommit;
       const isOwn = b.ownShas.some((own) => sha.startsWith(own) || own.startsWith(sha));
       if (isOwn) continue;
+      // Il lavoro ATTERRATO esce da `ownShas` — `main..branch` si svuota — e
+      // senza questa riga il controllo accusava di furto le consegne riuscite.
+      // Un commit nella storia del branch e' suo: che main ce l'abbia gia' e'
+      // il successo, non la prova del contrario.
+      if (b.deliveryInHistory === true) continue;
       out.push(finding({
         check: "delivery-commit-not-own",
         taskId: t.id,
@@ -957,6 +975,7 @@ export async function branchFacts(
   branch: string,
   defaultBranch: string,
   runGit: GitRunner = doctorGitRunner,
+  deliveryCommit: string | null = null,
 ): Promise<BranchFacts | null> {
   // Le liste, non i conteggi: dalla differenza esce anche QUALE commit
   // estraneo e' il piu' recente, cioe' l'impronta della causa condivisa.
@@ -964,6 +983,14 @@ export async function branchFacts(
   if (split === null) return null;
   const mine = new Set(split.own);
   const head = await runGit(repoPath, ["rev-parse", "--short", refShort(branch)]);
+  // La domanda si fa a git una volta sola, qui, perche' i controlli lavorano
+  // su fatti gia' raccolti e non possono chiamarlo.
+  let deliveryInHistory: boolean | null = null;
+  if (deliveryCommit) {
+    const r = await runGit(repoPath, ["merge-base", "--is-ancestor", deliveryCommit, refShort(branch)]);
+    // Solo 0 e 1 sono risposte: 128 e' «commit sconosciuto», e allora non si sa.
+    deliveryInHistory = r.code === 0 ? true : r.code === 1 ? false : null;
+  }
   return {
     taskId,
     branch,
@@ -973,6 +1000,7 @@ export async function branchFacts(
     ownCount: mine.size,
     foreignHead: split.ahead.find((sha) => !mine.has(sha)) ?? null,
     ownShas: split.own,
+    deliveryInHistory,
     otherBranches: split.others,
   };
 }
@@ -1132,7 +1160,7 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
       };
 
       if (r.delivery_branch) {
-        const facts = await branchFacts(repoPath, r.id, r.delivery_branch, defaultBranch);
+        const facts = await branchFacts(repoPath, r.id, r.delivery_branch, defaultBranch, undefined, r.delivery_commit);
         if (facts === null) {
           skipped.push(`${r.id.slice(0, 8)}: branch ${r.delivery_branch} non confrontabile con ${defaultBranch} — controllo land saltato`);
           continue;

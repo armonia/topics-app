@@ -1019,7 +1019,7 @@ export function ProjectSidebar({
               onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
               // Doppio clic: la sezione torna ad adattarsi al contenuto.
               onDoubleClick={active ? resetBottomAuto(firstBottom!) : undefined}
-              title={active ? 'Trascina per ridimensionare · doppio clic per adattare al contenuto' : undefined}
+              title={active ? tr('project.sidebar.resizeFit') : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
             </div>
@@ -1103,7 +1103,7 @@ export function ProjectSidebar({
               // quando lo si alza. Qui c'era `('git','processes')`.
               onMouseDown={active ? startBottomResize('processes', 'git') : undefined}
               onDoubleClick={active ? resetBottomAuto('processes', 'git') : undefined}
-              title={active ? 'Trascina per ridimensionare · doppio clic per adattare al contenuto' : undefined}
+              title={active ? tr('project.sidebar.resizeFit') : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
             </div>

@@ -28,7 +28,7 @@ export type Locale = 'it' | 'en';
 /** La preferenza dell'utente: `auto` segue il browser. */
 export type LocalePreference = Locale | 'auto';
 
-type Dict = Record<string, string>;
+import type { Dict } from './i18n-types';
 
 /**
  * Le stringhe. Le chiavi sono `superficie.cosa`, e la superficie è quella
@@ -88,6 +88,15 @@ const IT: Dict = {
   'board.task.awaitingYouTitle': "Il turno è vivo ma aspetta te: apri la sessione dell'agente per rispondere",
   'board.task.loadingDiff': 'carico il diff…',
   'board.task.diffUnreadable': 'Diff non leggibile.',
+  // IL THREAD VUOTO DICE COSA SUCCEDERA', non che e' vuoto.
+  // «Nessun commento» constata un'assenza che si vede gia' da sola: la riga
+  // sotto a un task senza thread e' l'unico posto in cui dire dove arriveranno
+  // la consegna e le domande, e a chi. Cambia col posto in cui la card sta,
+  // perche' un task in coda e uno in backlog aspettano cose diverse.
+  'board.task.emptyTodo': "In coda: quando parte, l'agente scrive qui cosa fa, cosa chiede, e la consegna alla fine.",
+  'board.task.emptyBacklog': 'In backlog: nessuno lo prendera\' finche\' non lo sposti in «Da fare». Qui compariranno il lavoro dell\'agente e le sue domande.',
+  'board.task.emptyProgress': "In lavorazione: l'agente scrive qui mentre lavora, e qui chiede quando non puo' decidere da solo.",
+  'board.task.emptyDone': 'Chiuso senza che nessuno abbia scritto niente.',
   'board.task.noComments': 'Nessun commento.',
   'board.task.moveTo': 'Sposta in…',
   'board.task.options': 'Opzioni task',
@@ -117,11 +126,11 @@ const IT: Dict = {
   //    belongs in this table too, as a second key pair: the de-duplicator can
   //    only subtract words the table knows.
   'board.action.land': 'Landa su main',
-  'board.action.land.title': "Accetta il task e fondi il suo ramo su main (locale, nessun push). L'esito arriva nel thread.",
+  'board.action.land.title': "Accetta il task e fondi il suo ramo su main LOCALE: nessun push, quindi nessuna release. Da main il lavoro esce agli utenti solo quando qualcuno preme «Pubblica». L'esito arriva nel thread.",
   // Stessa azione su una card che NESSUN agent ha consegnato: il ramo c'è, ma
   // nessuno ha detto che è finito. La parola cambia perché la promessa cambia.
   'board.action.land.anyway': 'Landa comunque',
-  'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Locale, nessun push.",
+  'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Main LOCALE: nessun push, e quindi nessuna release finche' non pubblichi.",
   'board.action.accept': 'Approva',
   // `{land}` is the `land` label taken from this same table: naming the other
   // button by copying its text by hand is how two words drift apart again.
@@ -182,7 +191,21 @@ const IT: Dict = {
   'board.task.reuseBlockerTitle': "Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo",
   'board.task.blockedByText': 'Bloccato da: {text}',
   'board.task.blockedByUnknown': 'Bloccato da un altro task',
-  'board.task.openResultWorkspaceTitle': 'Apri il risultato come tab nel workspace del progetto',
+  // «Apri il task», non «apri il risultato»: i risultati di una scheda sono
+  // tanti e cambiano mentre l'agent lavora, quindi il gesto promuove il TASK
+  // nel workspace del progetto e si porta dietro quello che ha in quel momento.
+  'board.task.openInProject': 'Apri il task nel progetto',
+  'board.task.openInProjectTitle': 'Porta le tab di questo task nel workspace del progetto ({n})',
+  'board.task.openTabInProject': 'Apri nel progetto',
+  'board.task.openTabInProjectTitle': 'Sposta questa scheda nel workspace del progetto',
+  // Chi ha parlato. L'identità resta quella scritta sul disco; questi sono i
+  // NOMI che si leggono al suo posto (vedi lib/authorDisplay.ts).
+  'board.task.author.you': 'Tu',
+  'board.task.author.app': 'Topics',
+  'board.task.author.verifier': 'Verifica',
+  'board.task.author.agent': 'Agent',
+  'board.task.statusTrail': 'Passaggi di stato',
+  'board.task.statusTrailTitle': '{who} · {when}',
   'board.task.copyText': 'Copia il task',
   'board.task.copyTextTitle': 'Copia il task (titolo + descrizione) negli appunti',
   'board.task.copyTextDone': 'Task copiato',
@@ -219,11 +242,46 @@ const IT: Dict = {
   'board.task.addSubtaskPlaceholder': '+ sottotask…',
   'board.task.removeAttachmentTitle': 'Rimuovi allegato',
   'board.task.attachFileTitle': "Allega file (o incolla un'immagine nel campo)",
+  'board.task.sessionWorking': 'Sta lavorando',
+  'board.task.land': 'Land',
+  'board.task.landQueued': 'in coda',
+  'board.task.landQueuedRestOne': ': 1 fusione davanti su questa board (toccano tutte main nello stesso checkout).',
+  'board.task.landQueuedRestMany': ': {n} fusioni davanti su questa board (toccano tutte main nello stesso checkout).',
+  'board.task.landRunning': 'in corso',
+  'board.task.landRunningRest': ": la fusione su main sta girando adesso. L'esito arriva nel thread.",
+  'board.task.landFailed': 'fallito',
+  'board.task.landUnknownError': 'errore sconosciuto',
+  'board.task.reopened': 'Riaperta',
+  'board.task.reopenedRest': '{detail}. Aveva consegnato, e il motivo è nel thread qui sotto.',
+  'board.task.labelsChip': 'etichette',
+  'board.task.modelAutoOption': 'Auto',
   // La riga di ritorno in cima alla chat di una sessione di board: da dove si
   //    LAVORA a dove si DECIDE. Il verso opposto della board.
+  // IL CONTESTO DI UNA CHAT VUOTA. Un topic porta addosso scelte che decidono
+  // come rispondera' — modello, effort, autonomia, file di contesto, MCP — e
+  // fino al 16/08 nel vuoto non se ne vedeva nessuna: si leggeva il nome e si
+  // scriveva al buio. Sono le stesse etichette che la card di board usa per le
+  // stesse cose, di proposito: due nomi diversi per la stessa scelta sono il
+  // modo in cui una UI comincia a mentire.
+  'chat.empty.contextTitle': 'Come risponde questa chat',
+  'chat.empty.model': 'modello {model}',
+  'chat.empty.effort': 'effort {effort}',
+  'chat.empty.provider': 'via {provider}',
+  'chat.empty.autonomyAsk': 'chiede prima di agire',
+  'chat.empty.autonomyAutoApply': 'applica da sé',
+  'chat.empty.autonomyYolo': 'agisce senza chiedere',
+  'chat.empty.contextFiles': '{n} file di contesto',
+  'chat.empty.mcpBridge': 'solo gli strumenti di Topics',
+  'chat.empty.project': 'nel progetto {name}',
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
+  // La coda del turno: le stesse parole del badge del composer, perché è la
+  // stessa coda vista da due parti (il pannello e il trascritto).
+  'chat.queue.waiting': 'da inviare',
+  'chat.queue.waitingTitle': 'Non è ancora partito. Parte quando il turno finisce.',
+  'chat.queue.sendNow': 'Invia subito',
+  'chat.queue.sendNowTitle': 'Interrompi il turno in corso e fai partire la coda adesso',
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.collapse': 'Comprimi',
   'board.task.showSteps': 'Mostra i passaggi che la sessione ha fatto qui',
@@ -247,9 +305,15 @@ const IT: Dict = {
    * bottone si chiama «Rimandalo avanti».
    */
   'board.task.replyPlaceholder': "Scrivi un'indicazione: «{sendBack}» la porta all'agent, «Nota» la lascia sulla card.",
-  /** La CARD ha ancora i suoi due bottoni accanto al campo, quindi qui la frase
-   *  resta quella: i nomi che cita sono a un centimetro di distanza. */
-  'board.task.replyPlaceholderShort': '…nota: «Rimanda» risveglia, «Nota» no',
+  /**
+   * Anche la CARD ha perso il suo gemello di «Rimanda indietro» (era la stessa
+   * `review('reject', testo)` del bottone nella riga sopra, col medesimo testo
+   * preso dal campo). Quindi la frase non nomina piu' due bottoni accanto: dice
+   * cosa fa QUESTA casella — una nota che resta — e per l'altro gesto indica la
+   * riga sopra, chiamando il bottone col suo nome vero, che su una card mai
+   * consegnata e' «Rimandalo avanti».
+   */
+  'board.task.replyPlaceholderShort': 'Una nota, che resta qui: «{sendBack}» qui sopra la porta all\'agent.',
   'board.task.sendBackReply': 'Rimanda',
   'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
   'board.task.quietNote': 'Nota',
@@ -287,6 +351,7 @@ const IT: Dict = {
   'board.task.checks.hintLead': 'La strada normale è',
   'board.task.checks.hintTail': ": l'agent riparte con questo output. Approvare qui significa accettarlo rosso.",
   'board.task.changes': 'Modifiche',
+  'board.task.changes.openTitle': 'Apri il diff di questa scheda (si apre sopra, non spinge giù la decisione)',
   'board.task.changes.files.one': '{n} file',
   'board.task.changes.files.many': '{n} file',
   'board.task.changes.pending': '{n} in sospeso',
@@ -323,11 +388,52 @@ const IT: Dict = {
   'board.task.attempt.stat.noChangesError': 'nessuna modifica ({error})',
   'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
   'board.task.attempt.stat.files.many': '{n} file · +{ins} −{del}',
+  // LE VOCI DELLE IMPOSTAZIONI. Erano scritte in inglese dentro il componente:
+  // cinque parole che in un'app italiana fanno fallire la scansione della
+  // lista, e la conclusione di chi cerca diventa «non c'e'». Segnalato:
+  // «tutta la parte di settings ancora non le vedo ben divise. Non vedo le
+  // organizzazioni» - le organizzazioni c'erano, sotto una voce che si
+  // chiamava «Profile».
+  'settings.section.appearance': 'Aspetto',
+  'settings.section.notifications': 'Notifiche',
+  'settings.section.providers': 'Provider AI',
+  'settings.section.profile': 'Profilo',
+  'settings.section.devices': 'Dispositivi',
+  'settings.section.plan': 'Piano',
+  // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
+  // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
+  'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
+  'board.card.systemNote': 'Nota di sistema',
+  'board.card.commentMore': 'Mostra tutto',
+  'board.card.commentLess': 'Mostra meno',
+  /**
+   * NIENTE CONSEGNATO, detto dalla colonna.
+   *
+   * Prima questa card portava «Lavorata qui», che promette commit su main
+   * impossibili da attribuire: su una card dove l'agent non ha prodotto nulla
+   * quella frase manda a cercare un lavoro che non esiste. Misurato il 17/08 su
+   * `5cf58e29`: nessun ramo, zero file, ogni turno morto su un errore del
+   * provider. Segnalato: «non capisco che succede».
+   */
+  'board.card.uncommitted': 'ramo senza commit',
+  'board.card.uncommittedTitle': 'C\'e\' un ramo ma non porta un solo commit: l\'agent ha lavorato nel worktree senza committare. Il land si rifiutera\' finche\' quel lavoro non e\' committato, perche\' i file in piedi bloccano il riallineamento.',
+  'board.card.nothingDelivered': 'Niente consegnato',
+  'board.card.nothingDeliveredTitle': "L'agent non ha prodotto niente: nessun ramo, nessun file toccato, e ce l'ha portata qui il sistema a tentativi finiti. Non c'e' un diff da guardare. Il thread dice come e' finito l'ultimo turno: rimandalo avanti e riparte, oppure prendilo in mano tu.",
+  'board.card.inPlace': 'Lavorata qui',
+  'board.card.inPlaceTitle': "Un agente ha lavorato sul checkout condiviso, non su un ramo suo. I commit ci sono ma stanno su main insieme a quelli degli altri, quindi non si puo' dire quali siano di questa card: la misura manca per questo, non perche' non sia stato fatto niente.",
+  'board.card.movedByHand': 'Spostata a mano',
+  'board.card.movedByHandTitle': "Nessun agente e nessun ramo: questa card l'ha portata in review una persona. Quello che c'e' da rivedere sta nei commenti, non in un diff.",
   'board.settings.close': 'Chiudi le impostazioni della board',
   // Il rinvio al «▾ accanto al titolo» è sparito da qui: era un tooltip, e un
   // tooltip su un telefono non esiste. Il tetto di agent in parallelo ora si
   // vede e si cambia in questo stesso pannello.
   'board.settings.dispatchOnTitle': 'Interruttore globale, vale per tutte le board.',
+  // IL FRENO DI QUESTA BOARD, accanto a quello globale ma in un'altra sezione:
+  // sono due leve diverse e il testo lo deve dire, o si ricade nel «due nomi
+  // per la stessa cosa» che questo pannello evita di proposito.
+  'board.settings.paused': 'Metti in pausa questa board',
+  'board.settings.pausedTitle': "Ferma il dispatch di QUESTA board e lascia girare le altre. L'interruttore globale qui sopra vale per tutte: se e' spento, non parte niente comunque.",
+  'board.settings.pausedActive': 'In pausa: i task di questa board restano in coda. Le altre board continuano.',
   'board.settings.effort': 'Effort',
   'board.settings.model': 'Modello',
   'board.settings.modelTitle': 'Auto: un classificatore sceglie il modello per ogni task. Un modello fisso forza OGNI dispatch di questa board su quel modello (un task con modello esplicito vince comunque).',
@@ -362,6 +468,14 @@ const IT: Dict = {
   'board.settings.sec.when': 'Quando parte',
   'board.settings.sec.delivery': 'Alla consegna',
   'board.publish.toPublish': 'Su main, non ancora pubblicato',
+  // COSA SUCCEDE DOPO IL PUSH, detto PRIMA del clic.
+  // Su questo repo il push su main non e' un salvataggio: fa scattare la CI, e
+  // se e' verde l'auto-bump costruisce gli installer e li manda all'auto-updater
+  // di CHIUNQUE abbia Topics aperta, in un quarto d'ora. Chi preme «Pubblica»
+  // sta prendendo una decisione di pubblicazione, e finora nessuna schermata
+  // gliela nominava: diceva solo quali commit sarebbero usciti.
+  'board.publish.consequence': 'Il push fa uscire una release: CI verde, poi gli installer arrivano a tutti (~15 min).',
+  'board.publish.consequenceTitle': 'main e\' spedito: auto-bump della patch, build degli installer e auto-updater. Il cancello e\' la CI, non un\'approvazione.',
   'board.publish.nothing': 'Niente da pubblicare. Tutto è già sul remoto.',
   'board.publish.diffTitle': 'Diff che verrà pubblicato',
   'board.publish.loadingDiff': 'Carico il diff…',
@@ -390,6 +504,181 @@ const IT: Dict = {
   // è «di questa board», è quello di tutta la macchina.
   'board.dispatch.oneMachine': 'Un tetto solo, per tutta la macchina: vale su ogni board.',
   'board.filter.assignee': 'Assegnatario',
+  'board.publish.confirmTitle': 'Pubblicare "{name}"?',
+  'board.publish.confirmLabel': 'Push {n} commit',
+  'board.publish.confirmBodyStart': 'Push di {n} commit su ',
+  'board.publish.confirmBodyEnd': '. Avvia il deploy dove configurato.',
+  'board.publish.andMore': '…e altri {n}',
+  'board.publish.done': '{name}: pubblicato ✓',
+  'board.publish.error': 'errore',
+  'board.publish.truncated': '…troncato a 50',
+  'board.delivery.unlandedTitle': '{n} task chiusi con lavoro non su main',
+  'board.delivery.toPublishTitle': '{n} commit su main da pubblicare',
+  'board.delivery.nothingTitle': 'Niente da pubblicare',
+  'board.worktree.count': '{n} cartelle di lavoro',
+  'board.worktree.orphanBranches': '· {n} rami orfani',
+  'board.worktree.countOpen': '{n} cartelle di lavoro aperte',
+  'board.worktree.whatStart': 'Ogni task dispacciato lavora su una COPIA del repo, in una cartella sua (un ',
+  'board.worktree.whatEnd': '). Resta lì finché il lavoro non è su main o il task non è chiuso.',
+  'board.worktree.branchesStart': 'Accanto ci sono ',
+  'board.worktree.branchesCount': '{n} rami',
+  'board.worktree.branchesMid': ' non su main:',
+  'board.worktree.branchesOrphan': ' non li reclama nessun task, e quel lavoro non lo riprenderà nessuno;',
+  'board.worktree.branchesOpen': ' {n} sono di task ancora aperti: quel lavoro esiste già.',
+  'board.worktree.twoPiles': 'Sono due accumuli diversi: un ramo landato libera la sua cartella, una cartella tenuta per un task aperto non ha niente da landare.',
+  'board.worktree.gcRunning': 'Pulisco…',
+  'board.worktree.gc': 'Pulisci landati',
+  'board.worktree.gcHint': 'Anticipa la passata automatica dei 30 minuti. Ripulisce SOLO ciò che è provabilmente sicuro: la stessa regola, non una più aggressiva.',
+  'board.load.stopN': 'Fermane {n}',
+  'board.load.headline': '{running} agent al lavoro, ne reggo {recommended}',
+  'board.load.cores': 'Gli agent tengono {ours} core sui {budget} che spettano loro, su {total}. Ogni agent in più si prende una fetta di quella quota.',
+  'board.load.loadAvg': 'Load {load} su {cores} core: la macchina è carica, e ogni agent in più rallenta anche gli altri.',
+  'board.load.adviceStart': 'È un ',
+  'board.load.adviceWord': 'consiglio',
+  'board.load.adviceEnd': ', non un tetto: puoi lasciarli girare tutti. Il tetto vero sta nelle impostazioni della board, con quanti ne stanno girando.',
+  // ── LE SUPERFICI KANBAN: colonna, card, barra dei filtri, composer,
+  //    anteprima della consegna. Stessa regola del blocco del drawer più su, e
+  //    per la stessa ragione: i valori IT sono IDENTICI ai letterali che
+  //    stavano nel JSX, così l'app in italiano non sposta un byte e le spec e2e
+  //    che ancorano quel testo restano verdi; l'inglese è il nuovo.
+  //
+  //    Una parte del lavoro qui è stata TOGLIERE, non aggiungere: la card
+  //    teneva una seconda copia scritta a mano di chiavi che esistevano già
+  //    («Apri la scheda», «Apri la sessione», «Sessione finita», «non su
+  //    main», «fermato», «Chiudi l'errore»), e una delle due copie aveva pure
+  //    perso l'accento («Il turno e' vivo»). È lo stesso difetto che
+  //    `taskActionWords.ts` racconta per le AZIONI, un gradino più in giù: due
+  //    testi per una porta sola divergono, e a divergere è quello che nessuno
+  //    rilegge.
+  //
+  //    NON stanno qui, di proposito: i nomi delle etichette (`visibile`,
+  //    `decisione`, `invisibile`) e i valori di stato. Sono DATI, li scrive
+  //    anche il server e `whoCloses` ci confronta sopra: tradurne un lato solo
+  //    romperebbe il confronto, non l'estetica.
+  'board.column.newTaskPlaceholder': 'Task…',
+  'board.column.cancel': 'Annulla',
+  'board.column.add': 'Aggiungi',
+  'board.column.showMore': 'Mostra altri {n} · ne restano {left}',
+  'board.card.actionFailed': '{action}: non è riuscito',
+  'board.card.archiveRunning': 'Archiviare un task in corso?',
+  'board.card.archiveRunningConfirm': 'Archivia e ferma',
+  'board.card.archiveRunningBody': "Su questo task c'è un agent al lavoro: archiviandolo il suo turno viene interrotto e non riprende.",
+  'board.card.messageNotSent': 'Il messaggio non è partito',
+  'board.card.awaitingYou': 'aspetta te',
+  'board.card.effortTitle': "Effort dell'agent: {work} di lavoro{cost}{cache} · modello {model}",
+  'board.card.effortCost': ', {cost} token di costo',
+  'board.card.effortCache': ' ({context} di contesto passato, di cui {cache} riletti dalla cache: contano un decimo)',
+  'board.card.modelTitle': 'Modello: {model}',
+  'board.card.liveEffortTitle': 'In esecuzione · modello {model}, {work} di lavoro{tokens} (aggiornamento live)',
+  'board.card.liveEffortTokens': ', {n} token',
+  'board.card.priorityTitle': 'Priorità: {label}',
+  'board.card.seeAll': 'Vedi tutti',
+  'board.card.openSubtaskTitle': '{status} · apri il sottotask',
+  'board.card.fullChecklistTitle': 'Apri la scheda del task: la checklist per intero',
+  'board.card.subtasksDone': '{done}/{total} sottotask completati',
+  'board.card.lastUpdate': 'Ultimo aggiornamento: {when}',
+  'board.card.openParentNamedTitle': 'Apri la scheda del padre: {title}',
+  'board.card.parent': 'padre',
+  'board.card.yourMessagesOne': "{n} tuo messaggio nel thread (esclusa l'AI)",
+  'board.card.yourMessagesMany': "{n} tuoi messaggi nel thread (esclusa l'AI)",
+  'board.card.notLandedTitle': 'Il lavoro consegnato ({commit}{branch}) NON risulta su main. Apri il task per landarlo prima che il branch venga potato.',
+  'board.card.notLandedBranch': ' su {branch}',
+  // QUANTO LAVORO C'E' DENTRO UNA CONSEGNA, detto dove si decide.
+  // DA QUANTO aspetta: una card che marcisce in review deve essere
+  // distinguibile da una appena arrivata.
+  'board.card.reviewAge': 'in attesa da {t}',
+  'board.card.reviewAgeTitle': 'E\' in review dal {when}, e nessuno ha ancora deciso.',
+  'board.card.deliveryFiles': '{n} file',
+  'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
+  // Il VERDE si dice: senza, una card senza chip poteva voler dire «passati»
+  // oppure «mai eseguiti», due situazioni opposte davanti allo stesso gesto.
+  'board.card.checksGreen': 'check verdi',
+  'board.card.checksGreenTitle': 'I controlli sono passati su questa consegna. Approvare non aspetta altro.',
+  'board.card.checksRunning': 'check in corso',
+  'board.card.checksRunningTitle': 'I controlli stanno girando: l\'esito non c\'e\' ancora. Approvare adesso vuol dire non aspettarlo.',
+  'board.card.checksUnknown': 'check non misurati',
+  'board.card.checksUnknownTitle': 'I comandi non sono arrivati in fondo (quasi sempre il tetto dei 20 minuti su una macchina carica). Non e\' un fallimento: e\' un\'assenza di misura. Rilanciali quando c\'e\' meno traffico, oppure guarda il diff.',
+  'board.card.checksRed': 'checks rossi',
+  'board.card.checksRedTitle': 'Checks pre-review ROSSI: {commands}',
+  'board.card.checksRedUnknown': 'un comando è fallito',
+  'board.card.plan': 'piano',
+  'board.card.planTitle': "L'agent consegna prima un piano da approvare",
+  'board.card.conductorCloses': 'la chiude il conduttore',
+  'board.card.conductorClosesTitle': 'Invisibile e barra verde: questa card la può chiudere il conduttore senza passare da te.',
+  'board.card.steerPlaceholder': "…oppure scrivi all'agent",
+  'board.card.steerSendTitle': "Invia all'agent. Lo riceve al prossimo turno, come Claude Code.",
+  'board.card.turnActions': 'Azioni su questo turno',
+  'board.card.yourRequest': 'La tua richiesta: {text}',
+  'board.card.commentPlaceholder': '…oppure commenta',
+  'board.card.comment': 'Commenta',
+  'board.card.copyTask': 'Copia task',
+  'board.preview.label': 'Anteprima',
+  'board.preview.close': 'Chiudi (Esc)',
+  'board.preview.evidenceAlt': 'Evidenza della consegna',
+  'board.preview.deliveryAlt': 'Anteprima della consegna',
+  'board.preview.openAsTab': "Apri l'anteprima in una tab",
+  'board.preview.openFullSize': 'Apri a grandezza piena',
+  'board.filter.searchPlaceholder': 'cerca…',
+  'board.filter.searchLabel': 'Cerca nei task',
+  'board.filter.priorityTitle': 'Filtra per priorità',
+  'board.filter.assigneeTitle': 'Filtra per assegnatario',
+  'board.filter.projectTitle': 'Filtra per progetto',
+  'board.filter.projectNamed': 'Filtro progetto: {name}',
+  'board.filter.labels': 'Etichette',
+  'board.filter.labelsTitle': 'Filtra per etichetta',
+  'board.filter.whoCloses': 'Chi la chiude',
+  'board.filter.kind': 'Genere',
+  'board.filter.reset': 'Resetta filtri',
+  'board.filter.labelVisibleTitle': 'Tocca client/src: la guarda un umano prima di chiuderla',
+  'board.filter.labelDecisionTitle': 'Un piano, una ricerca, un documento, o nessun codice: la decide un umano, sempre',
+  'board.filter.labelInvisibleTitle': 'Non tocca niente che si veda: con la barra verde la chiude il conduttore',
+  'board.toolbar.delivery': 'Consegna',
+  'board.toolbar.missions': 'Missioni',
+  'board.toolbar.missionsTitle': 'Missioni: compiti in più per la sessione di progetto, accanto alla board. Il testo arriva nel suo composer: a mandarlo sei tu.',
+  'board.toolbar.thisProject': 'Questo progetto',
+  'board.toolbar.allProjects': 'Tutti i progetti',
+  'board.toolbar.general': 'Board',
+  'board.toolbar.generalSuffix': ' generale',
+  'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
+  'board.composer.placeholder': "Descrivi un task per l'agent…",
+  'board.composer.subtaskOf': 'Sottotask di',
+  'board.composer.chainedStart': 'Parte quando chiude',
+  'board.composer.chainedEnd': ', riprendendo quel filo',
+  'board.composer.unlinkTitle': 'Togli il collegamento: il task nasce libero',
+  'board.composer.looksLinkedTo': 'Sembra legato a',
+  'board.composer.chain': 'Incatena',
+  'board.composer.chainTitle': 'Non parte finché quella card non chiude, poi riprende il suo filo',
+  'board.composer.subtask': 'Sottotask',
+  'board.composer.subtaskTitle': 'Diventa un pezzo di quella card (compare nel suo elenco)',
+  'board.composer.dismissTitle': 'No: task nuovo, senza collegamenti',
+  'board.composer.projectAutoTitle': 'Progetto automatico: risolto dal testo del task (nome citato); se non è chiaro va nel progetto generale',
+  'board.composer.projectNamedTitle': 'Progetto: {label}',
+  'board.composer.projectPickTitle': 'Scegli il progetto del task',
+  'board.composer.projectPlaceholder': 'Progetto…',
+  'board.composer.model': 'Modello',
+  'board.composer.modelNamedTitle': 'Modello: {label}',
+  'board.composer.modelAutoTitle': 'Modello: intelligenza automatica (sceglie il provider)',
+  'board.composer.modelAutoChip': 'Modello auto',
+  'board.composer.modelAuto': 'Intelligenza automatica',
+  'board.composer.modelAutoOptionTitle': 'Lascia scegliere il provider',
+  'board.composer.priorityNamedTitle': 'Priorità: {label}',
+  'board.composer.priorityAutoTitle': "Priorità automatica: la valuta l'agent appena inquadra il task",
+  'board.composer.priorityAutoChip': 'Priorità auto',
+  'board.composer.priorityAuto': 'Automatica',
+  'board.composer.priorityAutoOptionTitle': "La valuta l'agent al primo turno; la coda serve prima le priorità alte",
+  'board.composer.start': 'Avvio',
+  'board.composer.startTodoTitle': 'Nasce in Todo: un agent la prende dalla coda',
+  'board.composer.startBacklogTitle': 'Nasce in Backlog: resta ferma finché non la promuovi',
+  'board.composer.startPlanFirstTitle': " · piano prima: l'agent consegna un piano da approvare",
+  'board.composer.startTodoHint': 'Parte subito: un agent la prende dalla coda.',
+  'board.composer.startBacklogHint': 'Resta ferma finché non la promuovi tu.',
+  'board.composer.planFirstHint': 'Consegna un piano da approvare. Implementa dopo il tuo ok.',
+  'board.composer.dictationTranscribing': 'Trascrivo…',
+  'board.composer.dictationStop': 'Ferma la dettatura',
+  'board.composer.dictate': 'Detta il task',
+  'board.composer.dictateTitle': 'Detta il task. Tocca per accendere, tieni premuto per parlare e mollare{model}',
+  'board.composer.sendTodoTitle': "Crea il task in Todo (l'agent parte da lì)",
+  'board.composer.sendBacklogTitle': 'Crea il task in Backlog (non parte nessun agent)',
   'common.project': 'Progetto',
   'chat.turnStopped': 'Turno interrotto',
   'chat.turnStopped.detail': "L'hai fermato tu. Il messaggio è ancora qui.",
@@ -535,6 +824,18 @@ const IT: Dict = {
   'account.linkedTo': 'Agganciato a {nome}, la persona che era già qui.',
   'account.offline': 'Il servizio degli account non risponde adesso. Il collegamento resta valido e nulla, qui, cambia.',
   'account.footnote': 'Collegare un account non crea una seconda persona: aggancia la tua identità remota a quella che questa installazione ha già. Non serve per installare, per il primo avvio, per usare l’app o per raggiungerla dalla tua rete.',
+  // ── Il runtime degli agenti: con quale MECCANICA gira un agente, che è una
+  //    domanda diversa da CHI risponde. Il numero sta nel testo perché è tutta
+  //    la ragione della scelta, ed è misurato, non stimato.
+  'runtime.label': 'Runtime degli agenti',
+  'runtime.hint': 'Vale dal prossimo avvio del server.',
+  'runtime.topicsDefault': 'Topics (predefinito)',
+  'runtime.topics': 'Topics (nativo, nessun programma esterno)',
+  'runtime.cli': 'CLI (un processo per sessione)',
+  'runtime.jcode': 'jcode (demone condiviso)',
+  'runtime.blurb': 'Una CLI per sessione costa circa 200 MB per agente: otto agenti sono quasi 2 GB di soli processi. Il runtime nativo di Topics parla direttamente col modello e tiene la sessione in memoria, senza nessun programma esterno da installare: usa il login che hai già fatto con la CLI di Claude. Se quel login manca, gli agenti restano sulla CLI come prima.',
+  'runtime.missing': 'Scelto, ma non ancora fra i provider: serve un riavvio del server, e l’eseguibile jcode dev’essere nel PATH.',
+  'runtime.defaultUnavailable': 'Il runtime nativo è il predefinito, ma non trova un login Claude su questa macchina: gli agenti girano sulla CLI, come prima. Esegui `claude` e fai /login una volta.',
   // ── Il profilo: le tue statistiche d'uso, lette da ciò che è successo qui.
   'profile.stats.title': 'Le tue statistiche',
   'profile.stats.blurb': 'Contate su ciò che è successo davvero qui: sessioni, messaggi, task della board. Restano su questa macchina.',
@@ -556,7 +857,23 @@ const IT: Dict = {
   'profile.banner.label': 'Banner',
   'profile.banner.open': 'Apri (scuro)',
   'profile.banner.light': 'Chiaro',
-  'profile.banner.hint': 'SVG con questi numeri, da salvare e mettere in un README.',
+  'profile.banner.copy': 'Copia per il README',
+  'profile.banner.copied': 'Copiato',
+  'profile.banner.hint': 'SVG con questi numeri, sempre aggiornato: il link va nel README, non il file.',
+  // ── Profilo pubblico: la pagina condivisibile.
+  'profile.public.label': 'Pagina pubblica',
+  'profile.public.hint': 'Un URL senza login. Chi lo raggiunge vede queste statistiche, senza la spesa.',
+  'profile.public.open': 'Apri',
+  'profile.public.copy': 'Copia link',
+  'profile.public.copied': 'Copiato',
+  'profile.public.publish': 'Pubblica',
+  'profile.public.revoke': 'Revoca',
+  'profile.public.publishing': 'Pubblicazione…',
+  'profile.public.revoking': 'Revoca…',
+  'profile.public.notPublished': 'Non pubblicata. Clicca «Pubblica» per generare il link.',
+  'profile.public.showCost': 'Mostra anche la spesa in dollari',
+  'profile.public.showCostHint': "La spesa \u00e8 un dato personale. Di default non compare sulla pagina pubblica.",
+  'profile.public.hintLanOnly': 'Raggiungibile solo sulla rete locale. Per un URL pubblico, attiva il relay nelle impostazioni.',
   // ── Discord: cosa dice di te questa app, e con quanto dettaglio.
   'discord.title': 'Stato su Discord',
   'discord.blurb': 'Topics può mostrare sul tuo profilo Discord cosa sta lavorando. I numeri sono quelli esatti di questa installazione, non una stima sui processi.',
@@ -708,547 +1025,340 @@ const IT: Dict = {
   // in chiaro, bilingui, perché è l'unico posto che si deve poter leggere anche
   // quando la lingua scelta è quella sbagliata. Chiavi che nessuno risolve non
   // sono un dizionario pronto: sono due traduzioni da tenere allineate a mano.
+  // ── Terminale: i tre stati in cui la pane non sta scrivendo niente. I valori
+  //    IT sono IDENTICI ai letterali di prima, così l'app in italiano non
+  //    cambia una virgola e `terminal-tab-reload.spec.ts` (che ancora
+  //    `/^Riavvia la sessione/`) resta verde; l'inglese è il nuovo.
+  'terminal.stale.title': 'Sessione scaduta',
+  'terminal.dormant.title': 'Sessione terminata',
+  'terminal.copyResume': 'Copia negli appunti: claude --resume {id}',
+  'terminal.reloadTitle': 'Riavvia la sessione in-place (riprende la conversazione per claude/codex)',
+  'terminal.resumeTitle': 'Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente',
+  'terminal.reload': 'Ricarica',
+  'terminal.resume': 'Riprendi',
+  'terminal.restarting': 'Riavvio…',
+  'terminal.restartingSession': 'Riavvio sessione…',
+  // ── Le tre parole che ogni superficie riscriveva per conto suo.
+  'common.close': 'Chiudi',
+  'common.retry': 'Riprova',
+  'common.loading': 'Carico…',
+  // ── Editor: le schede e il file che non si è caricato.
+  'editor.tab.close': 'Chiudi {name}',
+  'editor.loadFailed': 'Il file non è stato caricato, quindi non è modificabile da qui.',
+  // ── Git: cronologia dei commit e blocchi del diff. `git.hunk.stageTitle`
+  //    tiene il valore IT alla lettera: `git-hunk-staging.spec.ts` lo ancora.
+  'git.history.noCommits': 'Nessun commit',
+  'git.history.noFilesHere': 'Nessun file di questo progetto in questo commit',
+  'git.history.showMore': 'Mostra altri {n}',
+  'git.hunk.discardTitle': 'Scarta questo blocco',
+  'git.hunk.stageTitle': 'Metti in stage questo blocco',
+  'git.hunk.unstageTitle': 'Togli dall’indice questo blocco',
+  'git.hunk.discardConfirmTitle': 'Scarta il blocco',
+  'git.hunk.discardConfirmLabel': 'Scarta',
+  'git.hunk.discardConfirmBody': 'Le righe di questo blocco tornano com’erano nell’indice. Non è recuperabile.',
+  // ── Palette dei comandi.
+  'palette.searchProjects': 'Cerca progetti…',
+  'palette.searchWithFiles': 'Cerca file, topic, messaggi…',
+  'palette.search': 'Cerca topic, messaggi…',
+  'palette.recentProjects': 'Ultimi progetti',
+  'palette.projects': 'Progetti',
+  'palette.create': 'Crea',
+  'palette.recentlyClosed': 'Chiuse di recente',
+  'palette.noProject': 'Nessun progetto',
+  'palette.noClosedTab': 'Nessuna tab chiusa',
+  'palette.noResults': 'Nessun risultato',
+  'palette.results': 'Risultati',
+  // ── Altre superfici condivise.
+  'shortcuts.close': 'Chiudi le scorciatoie da tastiera',
+  'paneMenu.yolo': 'yolo: salta le richieste di permesso',
+  'minimap.position': 'Posizione nel layout',
+  // ── Ricerca file (⌘P / ⌘F). Il `placeholder` non è un ancoraggio: lo dice il
+  //    commento nel componente, e per quello c'è `data-testid`.
+  'fileSearch.modeGroup': 'Modo di ricerca',
+  'fileSearch.byNameTitle': 'Per nome (⌘P)',
+  'fileSearch.byName': 'nome',
+  'fileSearch.inContentTitle': 'Nel contenuto (⌘F)',
+  'fileSearch.inContent': 'contenuto',
+  'fileSearch.dialogOpen': 'Apri un file',
+  'fileSearch.dialogSearch': 'Cerca nei file',
+  'fileSearch.placeholderOpen': 'Apri un file in {scope}…',
+  'fileSearch.placeholderSearch': 'Cerca in {scope}…',
+  'fileSearch.failed': 'Ricerca non riuscita. Il progetto è ancora raggiungibile?',
+  'fileSearch.noResults': 'Nessun risultato',
+  'fileSearch.truncated': 'Ricerca interrotta al tempo massimo, i risultati sono parziali',
+  'fileSearch.first100': 'Primi 100 risultati',
+  // ── Modifiche git.
+  'git.binaryNoLines': 'File binario: git non conta le righe',
+  'git.history.title': 'Cronologia dei commit',
+  'git.commitMsg.nothingStaged': 'Niente in stage da descrivere',
+  'git.commitMsg.writeFromStaged': 'Scrivi il messaggio dalle modifiche in stage',
+  'git.commitFailed': 'Commit non riuscito, niente è stato committato.',
+  'git.dismiss': 'Nascondi',
+  'git.msgFromRules': 'dalle regole, nessun modello collegato',
+  // ── Esplora file: il cestino di sistema, che NON è una cancellazione.
+  'files.trash': 'Sposta nel cestino',
+  'files.trashOneLead': 'Sposto ',
+  'files.trashOneTail': ' nel cestino di sistema. Da lì puoi rimetterlo a posto.',
+  'files.trashMany': 'Sposto {n} elementi nel cestino di sistema. Da lì puoi rimetterli a posto.',
+  // ── Script del progetto. `scripts.noManifest` tiene il valore IT alla
+  //    lettera: `project-scripts.spec.ts` lo ancora.
+  'scripts.noManifest': 'Nessun manifest di script in questa cartella.',
+  'scripts.noneDeclared': 'Nessuno script dichiarato in {files}.',
+  'scripts.lookedIn': 'Guardo: {files}',
+  'scripts.shellFromAgent': "Shell lasciata in background dall'agente. L'output arriva dai suoi BashOutput.",
+  'scripts.noPid': 'Processo non ancora individuato. Fermala dalla chat con KillShell.',
+  'project.sidebar.resizeFit': 'Trascina per ridimensionare · doppio clic per adattare al contenuto',
+  // ── Pannello Performance. È tutto testo di diagnosi, quindi ogni pezzo è una
+  //    chiave: i titoli si compongono per concatenazione e mescolare pezzi
+  //    tradotti con pezzi in chiaro darebbe una frase mezza e mezza.
+  'perf.na': 'n/d',
+  'perf.cpuShellTitle': 'CPU del processo shell di Topics · non include i processi WKWebView dei pannelli · può superare 100% (per core)',
+  'perf.cpuAllTitle': 'CPU di TUTTI i processi di Topics ({n}) · somma per-core, può superare 100% come in Activity Monitor',
+  'perf.cpuSampled': 'misura su {sampled}/{pids} processi: gli altri sono appena comparsi e non hanno ancora un delta',
+  'perf.cpuRendererTitle': 'CPU dei processi WKWebView di contenuto · uno per pannello browser',
+  'perf.cpuGpuTitle': 'CPU del processo GPU/compositor di Topics',
+  'perf.cpuServerTitle': 'CPU del server e di tutto ciò che ne dipende, sui {cores} core della macchina',
+  'perf.cpuServerRoot': ' · {kind} {pct}%',
+  'perf.cpuServerSideLabel': 'CPU lato server ×{n}',
+  'perf.serverTitleFleet': 'Somma RSS dei {n} processi lato server: server Bun',
+  'perf.serverTitleRoot': ' + {kind} ({procs} proc., {mb} MB)',
+  'perf.serverTitleHeap': ' · heap del server {mb} MB',
+  'perf.serverTitleSingle': 'RSS del processo server Bun',
+  'perf.serverTitleHeapShort': ' · heap {mb} MB',
+  // IL PANNELLO PERFORMANCE RISPONDE A TRE DOMANDE, in quest'ordine. Prima
+  // erano nove blocchi di numeri con etichette diverse per la stessa cosa:
+  // «troppa informazione messa in maniera confusionaria», ed era vero.
+  'perf.q1': 'Va veloce?',
+  'perf.q2': 'Quanto costa',
+  'perf.fpsAvg': 'media {n}',
+  'perf.procCount': '{n} processi',
+  // Due tessere e non cinque: sono le uniche due meta' che si chiudono in modo
+  // diverso - una chiudendo pannelli, l'altra fermando sessioni.
+  'perf.tileApp': "L'app",
+  'perf.tileAppTitle': "La finestra che stai guardando e i suoi processi. Si alleggerisce chiudendo pannelli e schede.",
+  'perf.tileAgents': 'Agenti e servizi ({n})',
+  'perf.residentInline': 'Di cui in RAM adesso: {mb} MB (il resto e\' compresso o in swap).',
+  'perf.compressedInline': 'Compressi o in swap: {n} MB.',
+  'perf.cpuInline': 'CPU dell\'app: {pct}% della macchina.',
+  'perf.cpuServerInline': 'CPU di agenti e servizi: {pct}% della macchina.',
+  'perf.memLabel': 'Memoria',
+  'perf.memShellTitle': 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli).',
+  'perf.memFootprintTitle': 'Footprint di TUTTI i {n} processi della shell (finestra + WKWebView dei pannelli) · lo stesso valore della colonna "Memoria" di Activity Monitor.',
+  'perf.memRssTitle': 'Memoria residente (RSS) dei processi della shell. Activity Monitor mostra un valore più alto (footprint).',
+  'perf.memPlus': ' PIÙ {rest}.',
+  'perf.memShellPlusServer': 'shell + {n} lato server',
+  'perf.memProcesses': '{n} processi · {metric} + RSS',
+  'perf.residentTitle': "Quanta di quella memoria è davvero nella RAM fisica adesso. Il resto lo ha compresso o spostato in swap il sistema: rientrarci costa tempo, ed è quello che fa scattare l'interfaccia.",
+  'perf.residentLabel': 'di cui in RAM',
+  'perf.compressed': '{n} MB compressi',
+  'perf.shellRssTitle': 'RSS del processo shell di Topics · i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)',
+  'perf.serverSideLabel': 'Lato server ×{n}',
+  'perf.serverBun': 'Server Bun',
+  'perf.server': 'Server',
+  'perf.serverN': 'Server ×{n}',
+  'perf.memRendererTitle': 'Memoria dei processi renderer · finestre e ogni pannello browser nativo',
+  'perf.memGpuTitle': 'Memoria del processo GPU/compositor',
+  'perf.otherLabel': 'Altri',
+  'perf.memOtherTitle': 'Processo main + utility (network, storage, audio)',
+  'perf.webNoShellMem': ' · in modalità web la memoria della shell non è disponibile',
+  'perf.webNoPerProcess': "In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server",
+  'perf.hwAccel': 'Accelerazione hardware',
+  'perf.hwAccelOn': 'attiva',
+  'perf.softwareRendering': 'Rendering software',
+  'perf.noGpu': 'no GPU',
+  'perf.topCpuScope': 'sistema · per core',
+  'perf.verdict.noAccel': 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.',
+  'perf.verdict.compressed': '{gb} GB compressi o in swap. Chiudi qualche pannello browser.',
+  'perf.verdict.loaded': 'Processo Topics sotto carico',
+  // ── Gruppi (spaces) nella barra laterale. Il nome accessibile della freccia
+  //    tiene il valore IT alla lettera: `sidebar-group-lifecycle.spec.ts` lo
+  //    ancora come `/^(Apri|Chiudi) Gruppo 2$/`.
+  'space.collapse': 'Chiudi {name}',
+  'space.expand': 'Apri {name}',
+  'space.detachedTitle': '{name} · in una finestra sua (clic per portarla davanti)',
+  'space.currentTitle': '{name}: è il gruppo che stai usando',
+  'space.switchTo': 'Passa a {name}',
+  'space.detachedLabel': 'in una finestra sua',
+  'space.detachedOwnWindow': '{name} vive in una finestra sua',
+  'space.detachedChip': 'finestra',
+  'space.tier.input': 'richiede input',
+  'space.tier.done': 'attività completata',
+  'space.renamePlaceholder': 'Nome del gruppo',
+  'space.renameLabel': 'Rinomina gruppo',
+  'space.rename': 'Rinomina',
+  'space.alreadyDetached': 'È già in una finestra sua: la porto davanti',
+  'space.detach': 'Il gruppo si apre in una finestra sua; le sue tab restano queste',
+  'space.goToWindow': 'Vai alla sua finestra',
+  'space.moveToWindow': 'Sposta in una finestra',
+  'space.reattachTitle': 'Chiude la sua finestra e riporta il gruppo qui',
+  'space.reattach': 'Riporta in questa finestra',
+  'space.dissolveTitle': 'Le tab tornano tutte nel gruppo principale; niente si chiude',
+  'space.dissolve': 'Sciogli nel principale',
+  // ── Barra di stato in fondo alla colonna. `statusBar.agents.awaitingInput`
+  //    tiene il valore IT alla lettera: `turn-awaiting-input.spec.ts` ancora
+  //    «in attesa di una tua risposta» nel `title`.
+  'statusBar.perfTitle': 'Performance e stato sistema · apri per FPS live',
+  'statusBar.agents.heading': 'Agenti Claude Code',
+  'statusBar.agents.working': '· {n} al lavoro',
+  'statusBar.agents.awaitingInput': '· {n} in attesa di una tua risposta',
+  'statusBar.agents.toLookAt': '· {n} da guardare (turno finito o in pausa)',
+  'statusBar.agents.notCounted': 'Non contano le chat archiviate e le sessioni chiuse: non hanno una riga dove andarle a spegnere.',
+  'statusBar.wsTitle': 'Stato connessione realtime al server Topics',
+  'statusBar.versionTitle': 'Info versione e aggiornamenti',
+  'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
+  'statusBar.lastCodeUpdateAgo': ' Ultimo aggiornamento codice: {t} fa.',
+  'statusBar.lastCodeUpdate': 'Ultimo aggiornamento codice: {t} fa',
+  // Il nome dello stato, per chi non vede l'icona: da quando il badge e' solo
+  // un glifo, questa e' la sua unica voce per uno screen reader.
+  'statusBar.autoUpdate': 'Auto-aggiornamento attivo',
+  'statusBar.autoUpdateTitle': 'Auto-aggiornamento attivo: le finestre si ricaricano da sole ai nuovi build, senza popup. (Spegni rimuovendo topics-dev.json dallo STATE_DIR e riavviando il server.)',
+  'statusBar.restartApp': "Riavvia l'app",
+  'statusBar.updateAvailable': 'Aggiornamento disponibile',
+  'statusBar.reload': 'Ricarica',
+  // LA PRESENCE DELL'ORGANIZZAZIONE nella riga dell'identita'. «Chi altro c'e'»
+  // era una domanda senza risposta: la barra diceva solo chi sei tu e quanti
+  // ferri hai. Compare solo quando c'e' davvero qualcun altro visto di recente,
+  // perche' «0 online» e' rumore che si impara a saltare.
+  'statusBar.orgPresence': '{n} della tua organizzazione {verbo} online',
+  'statusBar.orgPresenceOne': 'e',
+  'statusBar.orgPresenceMany': 'sono',
+  'statusBar.orgPresenceTitle': 'Membri della tua organizzazione visti negli ultimi cinque minuti',
+  'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
+  // ── Popover della versione e aggiornamenti.
+  // «Quanto tempo fa» accanto alla data: una data assoluta dice QUANDO, il
+  // tempo trascorso dice se e' vecchia - ed e' la domanda vera.
+  'version.agoNow': 'adesso',
+  'version.agoMin': '{n} min fa',
+  'version.agoHours': '{n} h fa',
+  'version.agoDays': '{n} g fa',
+  'version.builtAt': 'Compilato',
+  'version.platform': 'Piattaforma',
+  'version.nativeApp': 'App nativa',
+  'version.whatsNew': 'Novità di questa versione',
+  'version.updates': 'Aggiornamenti',
+  'version.swReady': 'Aggiornamento pronto, ricarica',
+  'version.webUpToDate': 'Sei sulla versione web più recente.',
+  'version.checking': 'Controllo aggiornamenti…',
+  'version.autoArriving': 'Arriva da se\'{v}: le finestre si ricaricano quando e\' pronta.',
+  'version.available': 'Disponibile{v}.',
+  'version.download': 'Scarica aggiornamento',
+  'version.downloading': 'Download… {pct}',
+  'version.ready': 'Nuova versione pronta.',
+  'version.installRestart': 'Riavvia e installa',
+  'version.checkFailed': 'Controllo fallito',
+  'version.check': 'Controlla aggiornamenti',
+  // ── Cronologia notifiche. Queste due etichette NON sono più congelate: il
+  //    locator che le teneva ferme (`[aria-label$='non viste']`, in
+  //    `notification-history.spec.ts`) ora legge `data-notification-count` sul
+  //    badge. Si possono riscrivere — restano solo ciò che dice uno screen
+  //    reader.
+  'notifications.historyTitle': 'Cronologia notifiche',
+  'notifications.historyUnseen': 'Cronologia notifiche. {n} non viste',
+  'notifications.badgeUnseen': '{n} notifiche non viste',
+  'notifications.panelTitle': 'Notifiche',
+  'notifications.settings': 'Impostazioni notifiche',
+  'notifications.empty': 'Nessuna notifica',
+  'notifications.logStartsHere': 'Da qui in poi ogni notifica mandata lascia una riga.',
+  // ── Barra dei progetti sotto la board.
+  'board.projects.more': 'Altri {n} progetti con task aperti',
+  // ── Righe della barra laterale.
+  'sidebar.noTabs': 'Nessuna tab',
+  'sidebar.closeBrowser': 'Chiudi browser',
+  'topic.cloudSession': 'Sessione cloud (OpenClaw)',
+  'topic.openElsewhere': "Aperto in un'altra finestra",
+  // ── Condivisione. Il pannello era scritto a mano in inglese dentro un'app
+  //    che parla italiano: qui le sue parole entrano nel dizionario come tutte
+  //    le altre, e con loro il «copia il link» che prima viveva in un'icona a
+  //    parte nella testata del drawer.
+  'share.button': 'Condividi',
+  'share.sharedWith': 'Condivisa con {n}',
+  // Condividere un PROGETTO apre i suoi task: una riga sola, non una per
+  // ciascuno (migration 20260816230500).
+  'share.title.project': 'Condividi il progetto',
+  'share.object.project': 'i task di questo progetto',
+  'sidebar.shareProject': 'Condividi progetto',
+  'share.title.task': 'Condividi questa scheda con un ospite',
+  'share.title.topic': 'Condividi questa chat con un ospite',
+  'share.object.task': 'questa scheda',
+  'share.object.topic': 'questa chat',
+  'share.copyLink': 'Copia il link',
+  'share.copyLinkDone': 'Link copiato',
+  'share.copyLinkTitle': 'Copia il link che riapre questa scheda nell’app',
+  'share.copyGuestLink': "Copia il link d'invito",
+  'share.linkToShare': 'Link da condividere',
+  'share.linkWarning': 'Chiunque abbia questo link può leggere {object}. Scade fra 7 giorni e puoi revocarlo quando vuoi. Il contenuto viaggia cifrato: chi lo trasporta non può leggerlo.',
+  'share.createOffNetwork': 'Crea un link per chi non è sulla tua rete',
+  'share.notConnected': 'non collegato',
+  'share.linkExpires': 'link · scade il {date}',
+  'share.linkOpened': ' · aperto {n}×',
+  'share.revokeLink': 'Revoca questo link',
+  'share.removeAccess': "Togli l'accesso a {name}",
+  'share.add': 'Aggiungi',
+  'share.nobodyYet': 'Ancora nessuno con cui condividere. Approva un dispositivo come ospite da Impostazioni → Account e comparirà qui.',
+  'share.alreadyAll': 'Già condivisa con tutti.',
+  'share.loadFailed': 'Non riesco a caricare la condivisione.',
 };
 
-const EN: Dict = {
-  'board.night.title': 'Night mode',
-  'board.night.blurb':
-    'While you are away, the queue only starts on an idle machine. It switches itself off at the end time instead of staying armed over whoever is working.',
-  'board.night.until': 'Stops at',
-  'board.night.state.off': 'Off',
-  'board.night.state.off.detail': 'The board dispatches as usual, ignoring machine load.',
-  'board.night.state.go': 'Dispatching',
-  'board.night.state.go.detail': 'Machine is idle: queued tasks start.',
-  'board.night.state.wait': 'Waiting',
-  'board.night.state.expired': 'Expired',
-  'board.night.state.expired.detail': 'End time reached: it switches off on the next pass.',
-  'board.night.state.checking': 'Checking…',
-  'board.night.state.unknown': 'Status unavailable',
-  'board.night.state.unknown.detail': 'The server did not answer: retrying shortly.',
-  'board.night.load': 'Load',
-  'board.night.cores': '{n} cores',
-  'board.night.nobodyAttached': 'Nobody attached to a session',
-  'board.night.sessions.one': '1 active session',
-  'board.night.sessions.many': '{n} active sessions',
-  'board.night.endsIn': 'Switches off in {t}',
-  'time.lessThanAMinute': 'less than a minute',
-  'time.minutes': '{n} min',
-  'time.hours': '{n}h',
-  'time.hoursMinutes': '{h}h {m}min',
-  'tab.menu.rename': 'Rename',
-  'tab.menu.copyUrl': 'Copy page URL',
-  'tab.menu.closeNow': 'Close now',
-  'tab.menu.closeCountdown': 'Close (with countdown)',
-  'tab.menu.closeOthers': 'Close the others',
-  'tab.menu.splitRight': 'Split right',
-  'tab.menu.splitDown': 'Split down',
-  'tab.menu.pin': 'Pin',
-  'tab.menu.unpin': 'Unpin',
-  'board.task.movedToReviewBySystem': 'Moved to review by the system.',
-  // CARD vs SESSION — see the Italian block for the rule. The card is where you
-  // decide and always exists; the session is the agent's live chat, where the
-  // work happens, and it can be gone.
-  'board.task.openCard': 'Open the card',
-  'board.task.openCardTitle': "Open the task card: description, checklist, delivery, thread",
-  'board.task.openParentCardTitle': 'Open the parent task card',
-  'board.task.openSubtaskCardTitle': 'Open the subtask card',
-  'board.task.openSession': 'Open the session',
-  'board.task.openSessionTitle': "Open the agent's session: the chat it is working in (closing it does NOT stop it)",
-  'board.task.sessionGone': 'Session ended',
-  'board.task.sessionGoneTitle': "The agent is no longer alive: its session is gone. What it did stays here, on the card.",
-  'board.task.awaitingYouTitle': "The turn is alive but waiting on you: open the agent's session to answer",
-  'board.task.loadingDiff': 'loading the diff…',
-  'board.task.diffUnreadable': 'Diff not readable.',
-  'board.task.noComments': 'No comments.',
-  'board.task.moveTo': 'Move to…',
-  'board.task.options': 'Task options',
-  'board.task.planFirst': 'Plan first',
-  'board.task.reuseBlockerContext': "Reuse the blocker's context",
-  'board.task.addSubtask': 'Add subtask',
-  'board.task.notOnMain': 'not on main',
-  'board.task.openProject': 'Open project',
-  'board.task.priority': 'Priority',
-  'board.task.agentModel': 'Agent model',
-  'board.task.blockedBy': 'Blocked by…',
-  'common.none': 'None',
-  'board.task.noOtherTasks': 'No other task on this board.',
-  'board.task.deliveredFiles': 'Delivered files',
-  'board.task.proposedPlan': 'Proposed plan',
-  'board.task.noPreviewForType': 'No preview for this file type.',
-  'board.task.openInBrowser': 'Open in the browser',
-  'board.action.land': 'Land on main',
-  'board.action.land.title': 'Accept the task and merge its branch into main (local, no push). The result shows up in the thread.',
-  'board.action.land.anyway': 'Land it anyway',
-  'board.action.land.anyway.title': 'No agent delivered this branch: merging it puts work nobody called finished onto main. Look at the diff first. Local, no push.',
-  'board.action.accept': 'Approve',
-  'board.action.accept.title': 'Accept the delivery and close the task. It does NOT merge: to bring the branch onto main use «{land}».',
-  'board.action.accept.anyway': 'Approve anyway',
-  'board.action.accept.anyway.title': 'The pre-review checks are red: approving accepts it anyway. The normal path is «{sendBack}», which sends the output back to the agent.',
-  'board.action.accept.unfinished.title': 'Nobody delivered: approving closes the task as it stands, and there may be nothing under it. The normal path is «{sendBack}», which lets it carry on.',
-  'board.action.sendBack': 'Send it back',
-  'board.action.sendBack.title': 'Back to the agent, which restarts on the same tab. Write in the field below to give it a direction.',
-  'board.action.sendBack.noAgent.title': 'No agent to resume: the task goes back to In Progress, in your hands. Write in the field below to leave a note.',
-  'board.action.sendBack.unfinished': 'Send it onward',
-  'board.action.sendBack.unfinished.title': 'The agent did not finish its turn: it restarts on the same tab and carries on from where it stopped. Write in the field below to tell it where to look.',
-  'board.action.redo': 'Redo it like this…',
-  'board.action.redo.title': 'Back to the agent with a direction: puts the cursor in the comment below.',
-  'board.action.redo.noAgent.title': 'No agent to resume: the task goes back to In Progress with your direction. Puts the cursor in the comment below.',
-  'board.action.takeOver': 'I take it',
-  'board.action.takeOver.title': 'Leaves the agent loop: the task goes back in progress, assigned to you.',
-  'board.action.stop': 'Stop',
-  'board.action.stop.title': 'Interrupts the agent turn and parks the task in Backlog: it does not restart until you put it back in Todo.',
-  'board.action.stop.queued.title': 'Takes the task out of the queue and parks it in Backlog. No agent has started yet, so there is no turn to interrupt.',
-  'board.action.deliverNow': 'Deliver what you have',
-  'board.action.deliverNow.title': 'Asks the agent to close now with what it already did and move the task to review.',
-  'board.action.drop': 'Archive',
-  'board.action.drop.title': 'Archives the task: it leaves the board and stays among the archived ones, where it can be restored.',
-  'board.action.restore': 'Restore',
-  'board.action.restore.title': 'Puts the task back on the board, in its column, with its subtasks.',
-  'board.archive.show': 'Show archived tasks',
-  'board.archive.hide': 'Back to the board',
-  'board.archive.banner': 'Archive: {count} tasks, in their columns. Card menu (right click, or long press) → «{restore}».',
-  'board.action.unblock': 'Unblock',
-  'board.action.unblock.title': 'Remove the link and send the task to Todo, so it can start.',
-  'board.action.unblock.named': 'Unblock: {name}',
-  'board.action.unblock.namedTitle': 'It no longer waits for «{name}»: remove the link and send the task to Todo, so it can start.',
-  'board.action.unlink': 'Remove the link',
-  'board.action.unlink.title': 'Removes the wait, leaving the task where it is (it stays put until you move it).',
-  'board.task.dispatch.queued': 'queued…',
-  'board.task.dispatch.starting': 'starting agent…',
-  'board.task.dispatch.working': 'agent working…',
-  'board.task.loading': 'Loading…',
-  'board.task.changeStatusTitle': 'Change the task status',
-  'board.task.optionsTitle': 'More options: plan first, blocked by, subtasks…',
-  'board.task.reuseBlockerTitle': "When it starts, the agent gets the blocking task's session context instead of a cold start",
-  'board.task.blockedByText': 'Blocked by: {text}',
-  'board.task.blockedByUnknown': 'Blocked by another task',
-  'board.task.openResultWorkspaceTitle': 'Open the result as a tab in the project workspace',
-  'board.task.copyText': 'Copy the task',
-  'board.task.copyTextTitle': 'Copy the task (title + description) to the clipboard',
-  'board.task.copyTextDone': 'Task copied',
-  'board.task.copyLink': 'Copy the link',
-  'board.task.copyLinkTitle': 'Copy the link to the task (openable deep-link, for debug/sharing)',
-  'board.task.copyLinkDone': 'Link copied',
-  'board.task.closeDetail': 'Close the task detail',
-  'board.task.closeError': 'Close the error',
-  'board.task.parentTask': 'Parent task',
-  'board.task.projectChipTitle': 'Project: {label}. Move, open, or create a new one.',
-  'board.task.moveProjectTo': 'Move to…',
-  'board.task.openProjectWindow': 'Open the {name} window',
-  'board.task.projectUnresolvable': 'Project path not resolvable',
-  'board.task.stopped': 'stopped',
-  'board.task.editTitleTitle': 'Click to edit the title',
-  'board.task.priorityAuto': 'Auto priority',
-  'board.task.descPlaceholder': 'Description…',
-  'board.task.descLabel': 'Description',
-  'board.task.editDescTitle': 'Click to edit the description',
-  'board.task.addDesc': '+ description…',
-  'board.task.descChars': '{n} characters',
-  'board.task.descExpandTitle': 'Open the description',
-  'board.task.previewRetired': 'Preview withdrawn',
-  'board.task.previewMissing': 'No evidence on this delivery. «{recapture}» shoots it again from the task worktree.',
-  'board.task.openAsTabTitle': 'Open as a tab in the task workspace',
-  'board.task.downloadFileTitle': 'Download the file',
-  'board.task.newTab': 'New tab',
-  'board.task.closedTab': 'closed',
-  'board.task.reopenTabTitle': 'Reopen this tab',
-  'board.task.removeTabTitle': 'Remove the tab',
-  'board.task.subtasksLabel': 'Subtasks',
-  'board.task.addSubtaskPlaceholder': '+ subtask…',
-  'board.task.removeAttachmentTitle': 'Remove attachment',
-  'board.task.attachFileTitle': 'Attach a file (or paste an image into the field)',
-  'chat.session.taskLabel': 'Task',
-  'chat.session.openTaskCard': 'Open the card',
-  'chat.session.openTaskCardTitle': 'Back to the task card: description, checklist, delivery, thread',
-  'board.task.pdfPreviewTitle': 'PDF preview',
-  'board.task.collapse': 'Collapse',
-  'board.task.showSteps': 'Show the steps this session took here',
-  'board.task.steps': 'Steps',
-  'board.task.serviceNotes': 'service notes',
-  'board.task.serviceNotesTitle': 'Dispatcher bookkeeping (restarts, queue holds, retries). Open to read them all, in order.',
-  'board.task.streamPreviewTitle': 'Live preview of what it is streaming now',
-  'board.task.recapturePreview': 'Recapture evidence',
-  'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
-  'board.task.replyPlaceholder': 'Write a direction: «{sendBack}» takes it to the agent, «Note» leaves it on the card.',
-  'board.task.replyPlaceholderShort': '…note: «Send back» wakes it up, «Note» does not',
-  'board.task.sendBackReply': 'Send back',
-  'board.task.sendBackReplyTitle': 'Send the task back to the agent with this note. It restarts and the card returns to In Progress.',
-  'board.task.quietNote': 'Note',
-  'board.task.quietNoteTitle': 'Save the note on the card. The agent does not restart and the task stays in Review.',
-  'board.task.steerPlaceholder': 'Write to the agent while it works. It gets it on the next turn.',
-  'board.task.commentPlaceholder': 'Comment…',
-  'board.task.workspaceLabel': 'Workspace',
-  'board.task.deliveryLabel': 'Delivery',
-  'board.task.noWorkspaceTabs': 'No tab open on this task.',
-  'board.task.openTab': 'Open a tab',
-  'board.task.reviewPreview': 'Preview',
-  // ── TaskDetail: the three CONDITIONAL sub-panels (Checks, Changes, Attempts).
-  'board.task.checks.running': 'Pre-review checks running…',
-  'board.task.checks.pass': 'Checks green',
-  'board.task.checks.fail': 'Checks RED',
-  'board.task.checks.at': 'at {t}',
-  'board.task.checks.notStarted': 'did not start',
-  'board.task.checks.timedOut': 'past the time limit',
-  'board.task.checks.hintLead': 'The normal path is',
-  'board.task.checks.hintTail': ': the agent restarts with this output. Approving here means accepting it red.',
-  'board.task.changes': 'Changes',
-  'board.task.changes.files.one': '{n} file',
-  'board.task.changes.files.many': '{n} files',
-  'board.task.changes.pending': '{n} pending',
-  'board.task.changes.notes.one': '{n} comment on the diff, not sent yet',
-  'board.task.changes.notes.many': '{n} comments on the diff, not sent yet',
-  'board.task.changes.discard': 'Discard',
-  'board.task.changes.send': 'Send to the agent',
-  'board.task.changes.sendFailed': 'sending failed',
-  'board.task.changes.sendFailedInline': 'Sending failed: {msg}: the notes are still here, try again.',
-  'board.task.changes.empty': 'No code produced: this card left no changes.',
-  'board.task.changes.unreadable': 'Diff not reconstructible: the worktree is gone and no durable reference was found on main.',
-  'board.task.changes.notDispatched': 'No agent worked on this card: there is no code to show.',
-  'board.task.changes.fromMerge': 'from the merge on main',
-  'board.task.changes.fromDelivery': 'from the delivery commit',
-  'board.task.attempts': 'Attempts',
-  'board.task.attempts.parallel': '{n} in parallel',
-  'board.task.attempts.running': '{n} running',
-  'board.task.attempts.pickHint': 'Pick one: the task takes its branch, the others (worktree and chat) are thrown away.',
-  'board.task.attempts.pickFailed': 'the pick failed',
-  'board.task.attempt.n': 'Attempt {n}',
-  'board.task.attempt.selected': 'picked',
-  'board.task.attempt.discarded': 'discarded',
-  'board.task.attempt.openDiff': 'See the diff',
-  'board.task.attempt.closeDiff': 'Close the diff',
-  'board.task.attempt.pick': 'Pick this one',
-  'board.task.attempt.emptyTitle': 'This attempt changed nothing: keeping it means delivering an empty branch.',
-  'board.task.attempt.stat.running': 'running…',
-  'board.task.attempt.stat.noChanges': 'no changes',
-  'board.task.attempt.stat.noChangesError': 'no changes ({error})',
-  'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
-  'board.task.attempt.stat.files.many': '{n} files · +{ins} −{del}',
-  'board.settings.close': 'Close the board settings',
-  'board.settings.dispatchOnTitle': 'Global switch, applies to every board.',
-  'board.settings.effort': 'Effort',
-  'board.settings.model': 'Model',
-  'board.settings.modelTitle': 'Auto: a classifier picks the model for each task. A fixed model forces EVERY dispatch on this board onto that model (a task with an explicit model still wins).',
-  'board.settings.modelAuto': 'Auto (the classifier picks)',
-  'board.settings.responseLanguage': 'Response language',
-  'board.settings.responseLanguageTitle': 'What language the agents dispatched on this board answer in. «As in Settings» follows the global preference, the same as chat and terminal. It applies from the next dispatch: the language goes into the system prompt, and changing it under a live session is worse than the delay.',
-  'board.settings.langInherit': 'As in Settings',
-  'board.settings.isolateWorktree': 'Isolate each agent in a git worktree',
-  'board.settings.fanout': 'Parallel attempts',
-  'board.settings.fanoutTitle': 'How many agents work the SAME task in parallel, each in its own worktree. At the end the task enters review with the attempts side by side and you pick which to keep: the others (worktree, branch and chat) are thrown away. It costs N times over: N real agents, N slots of the concurrency cap. Requires the worktree active.',
-  'board.settings.fanoutWarn': 'Each task in Todo starts {n} times and takes {n} slots of the cap: the token bill multiplies by {n}.',
-  'board.settings.notRepoWarn': 'This project is not a git repo: with «isolated worktree» on, every task will be blocked. Turn it off to run in-place, or initialize a repo in the project folder.',
-  'board.settings.autoMerge': 'Merge into main when a card reaches Done',
-  'board.settings.autoMergeTitle': "When a card carrying a delivery branch enters Done (dragged, moved from the menu, or closed by the system), merges its branch into main in the primary checkout. Clean merge → lands locally (no push); conflict → sends it back to the task's agent; dirty checkout or not on main → skips with a comment. Off: the card closes and a note in the thread says where the work stayed. Approve never merges either way: the \"Landa su main\" button is what does that. Requires the worktree active.",
-  'board.settings.fullMcp': 'Full Fleet MCP for the agents',
-  'board.settings.fullMcpTitle': "Bridge only: the agent has only Topics' tools (task + browser), so fewer tokens per turn. Full fleet: inherits all of the user's MCPs (exa, gateway and the rest), useful only if the tasks use those tools.",
-  'board.settings.dispatchOnActive': 'Active: moving a task to Todo will start an agent with full permissions.',
-  'board.settings.checks': 'Pre-review checks',
-  'board.settings.checksTitle': "Run by the server in the task's worktree when the agent delivers. One red = review rejected, with the output sent back to the agent. Empty = no checks. Keep them fast: a twenty-minute gate gets turned off on day one.",
-  'board.settings.autoDispatch': 'Auto-dispatch',
-  'board.settings.title': 'Board settings',
-  'board.settings.sec.global': 'Applies to every board',
-  'board.settings.sec.agent': 'How the agent works',
-  'board.settings.sec.where': 'Where it works',
-  'board.settings.sec.when': 'When it starts',
-  'board.settings.sec.delivery': 'On delivery',
-  'board.publish.toPublish': 'On main, not published yet',
-  'board.publish.nothing': 'Nothing to publish. Everything is already on the remote.',
-  'board.publish.diffTitle': 'Diff that will be published',
-  'board.publish.loadingDiff': 'Loading the diff…',
-  'board.publish.diffError': 'Could not load the diff.',
-  'board.drop.inProgressRedirected': 'In Progress has no queue: the task works from Todo, which is where the dispatcher picks it up.',
-  'board.dispatch.allBoards': 'Dispatch for every board',
-  'board.dispatch.parallel': 'Agents in parallel',
-  'board.dispatch.parallelAuto': 'Automatic count',
-  'board.dispatch.fixed': 'Fixed number',
-  'board.dispatch.recommended': 'recommended {n}',
-  'board.dispatch.running': '{running} of {cap} agents working right now',
-  'board.dispatch.runningOver': '{running} working, cap {cap}',
-  'board.dispatch.runningNoLimit': '{running} working, no ceiling',
-  'board.dispatch.noLimit': 'No limit',
-  'board.dispatch.noLimitHint': 'Everything queued starts. The real weight is not the agents (they wait on the API): it is their gates, and those stay throttled separately.',
-  'board.dispatch.runningLoading': 'Reading the limit…',
-  'board.dispatch.capFull': 'Cap is full: tasks in Todo are waiting for a slot.',
-  'board.dispatch.capOver': 'Over the cap: no turn is cut short, it comes back down as the running ones finish.',
-  'board.dispatch.oneMachine': 'One cap for the whole machine: it applies to every board.',
-  'board.filter.assignee': 'Assignee',
-  'common.project': 'Project',
-  'chat.turnStopped': 'Turn stopped',
-  'chat.turnStopped.detail': 'You stopped it. The message is still here.',
-  'chat.noAnswer': 'No answer',
-  'chat.noAnswer.detail': 'The connection may have dropped',
-  'git.noRepoInitialized': 'No git repository initialized',
-  'git.noRepo': 'No git repository',
-  'git.cleanTree': 'Clean working tree',
-  'git.folderUntracked': 'This folder is not tracked by git',
-  'git.folderUntrackedIn': 'Not tracked by the «{repo}» repo: the branch shown belongs to it, not to this folder.',
-  'git.initHere': 'Create a repository here',
-  'git.refreshAndFetch': 'Refresh (and fetch from remote)',
-  'git.nothingToCommit': 'No changes to commit',
-  'git.originalHead': 'Original (HEAD)',
-  'git.modifiedWorking': 'Modified (Working)',
-  'git.selectFile': 'Select a changed file to view its diff',
-  'git.discardWarning': 'This will permanently discard uncommitted changes.',
-  'git.discardUntrackedOnly': 'These are not tracked by git, so they go to the system trash. You can put them back from there.',
-  'git.discardUntrackedSome': '{n} of these are not tracked by git: those go to the system trash.',
-  'chat.panel.close': 'Close panel',
-  'chat.panel.contextInspector': 'Context Inspector',
-  'chat.panel.topicSettings': 'Topic settings',
-  'chat.panel.moveToWindow': 'Move to a new window',
-  'chat.panel.goToBrowser': 'Go to the browser',
-  'chat.panel.goToBrowserTitle': 'Go to the browser this chat opened',
-  'chat.linkProject.question': 'Link to a project?',
-  'chat.linkProject.link': 'Link',
-  'chat.linkProject.skip': 'Skip',
-  'project.sidebar.collapseAll': 'Collapse all',
-  'project.sidebar.expand': 'Expand sidebar',
-  'project.sidebar.hide': 'Hide sidebar',
-  'project.sidebar.files': 'Files',
-  'project.sidebar.gitChanges': 'Git changes',
-  'project.sidebar.processes': 'Processes',
-  'project.sidebar.sections': 'Project sections',
-  'project.sidebar.newFile': 'New file',
-  'project.sidebar.newFolder': 'New folder',
-  'project.sidebar.refresh': 'Refresh',
-  'project.sidebar.resize': 'Drag to resize · double-click to reset',
-  'project.sidebar.changedFiles.one': '1 changed file',
-  'project.sidebar.changedFiles.many': '{n} changed files',
-  'project.sidebar.clean': 'No changes',
-  'project.sidebar.processesRunning.one': '1 process running',
-  'project.sidebar.processesRunning.many': '{n} processes running',
-  'project.sidebar.processesFailed.one': '1 process exited with an error',
-  'project.sidebar.processesFailed.many': '{n} processes exited with an error',
-  'processes.openFailedLog': 'Open the log for this failed run',
-  'sidebar.tree': 'Sidebar',
-  'sidebar.pinned': 'Pinned',
-  'sidebar.moreOptions': 'More options',
-  'sidebar.newInProject': 'Add in project',
-  'sidebar.restoreProject': 'Restore project',
-  'sidebar.markAllRead': 'Mark all as read',
-  'sidebar.openAsProject': 'Open as project',
-  'sidebar.unpinVanishes': '{nome} leaves Pinned and keeps no row in the list',
-  'sidebar.unpinnedGone': '{nome} is no longer pinned, and has no row in the list',
-  'sidebar.undo': 'Undo',
-  'identity.title': 'People',
-  'identity.blurb.solo': 'For now it’s just you. Add someone to be able to share with them, even before they connect a device of their own.',
-  'identity.blurb.group': 'Sharing with the organization reaches every member, without doing it one by one.',
-  'identity.groupNameLabel': 'Group name',
-  'identity.renameGroup': 'Rename',
-  'identity.installationGroup': 'This installation’s group: it cannot be deleted',
-  'identity.deleteGroup': 'Delete {nome}',
-  'identity.deleteGroupConfirm': 'Delete “{nome}”? Whatever was shared with this group stops being visible to its members.',
-  'identity.newGroup': 'New group',
-  'identity.newGroupNameLabel': 'Name of the new group',
-  'identity.create': 'Create',
-  'identity.notAdmin': 'You are a member of this group: only its admins can change it.',
-  'identity.roleOf': 'Role of {nome}',
-  'identity.role.owner': 'Owner',
-  'identity.role.admin': 'Admin',
-  'identity.role.member': 'Member',
-  'identity.save': 'Save',
-  'identity.cancel': 'Cancel',
-  'pair.title.new': 'Authorise this device',
-  'pair.title.revoked': 'Access revoked',
-  'pair.title.expired': 'Session expired',
-  'pair.blurb.new': 'A request will appear on the computer where Topics is already open: confirm it and this device is in.',
-  'pair.blurb.revoked': 'This device was removed from Topics. You can ask for access again.',
-  'pair.unreachable': 'I can’t reach Topics. Is the computer switched on?',
-  'pair.denied': 'The computer turned the request down.',
-  'pair.retry': 'Ask again',
-  'pair.codeHint': 'A request with this code will appear on the computer.',
-  'identity.add': 'Add',
-  'identity.addPerson': 'Add a person',
-  'identity.noSeats': 'The free plan has one seat, and it is yours. Putting someone in the group needs a paid plan. You can already share with them by authorising one of their devices.',
-  'identity.addFailed': 'That did not work. Try again.',
-  'identity.nameLabel': 'Name',
-  'identity.emailLabel': 'Email',
-  'identity.emailPlaceholder': 'Email (optional)',
-  'identity.personName': 'Person’s name',
-  'identity.personEmail': 'Person’s email',
-  'identity.editPerson': 'Change name or email',
-  'identity.you': 'you',
-  'identity.notConnectedYet': 'not connected yet',
-  'identity.devices.one': '1 device',
-  'identity.devices.many': '{n} devices',
-  'identity.removePerson': 'Remove {nome}',
-  'identity.removedHeading': 'Removed',
-  'identity.deletePerson': 'Delete {nome}',
-  'identity.deletePersonConfirm': 'Delete “{nome}” from the address book? Removing from a group can be undone, this cannot: they disappear from every list and cannot be put back.',
-  'identity.footnote': 'Adding a person does not give them access to this machine: it gives them a name to share with. To get in they still have to connect a device of their own and you have to approve it. They stay a guest and see only what you shared with them. The email is a label, not a login.',
-  // ── The account: attaching a remote identity to the person already here.
-  'account.title': 'Account',
-  'account.blurb': 'An account is for being reached from OUTSIDE your network, and for finding the same people again on another installation. Everything you do on this machine and from your home network keeps working without one.',
-  'account.notLinked': 'No account linked',
-  'account.emailLabel': 'Email',
-  'account.emailPlaceholder': 'Your email',
-  'account.sendCode': 'Send me a code',
-  'account.codeLabel': 'Code received by email',
-  'account.codePlaceholder': '6-digit code',
-  'account.codeSent': 'We sent a code to {email}. Paste it here.',
-  'account.confirm': 'Confirm',
-  'account.cancel': 'Cancel',
-  'account.unlink': 'Unlink',
-  'account.unlinkConfirm': 'Unlink the account? This machine keeps working exactly as it is: you only lose reachability from outside your network.',
-  'account.linkedAs': 'Linked as {email}',
-  'account.linkedTo': 'Attached to {nome}, the person who was already here.',
-  'account.offline': 'The account service is not answering right now. The link still holds and nothing changes here.',
-  'account.footnote': 'Linking an account does not create a second person: it attaches your remote identity to the one this installation already has. It is not needed to install, to start up the first time, to use the app, or to reach it from your own network.',
-  // ── The profile: your usage stats, counted from what actually happened here.
-  'profile.stats.title': 'Your stats',
-  'profile.stats.blurb': 'Counted from what actually happened here: sessions, messages, board tasks. They stay on this machine.',
-  'profile.stats.blurbSince': 'Since {data}, counted from what actually happened here: sessions, messages, board tasks. They stay on this machine.',
-  'profile.stats.loading': 'Counting…',
-  'profile.stats.unavailable': 'Stats are not available right now.',
-  'profile.stats.sessions': 'Sessions',
-  'profile.stats.open': '{n} open',
-  'profile.stats.tasksDone': 'Tasks done',
-  'profile.stats.ofTotal': 'of {n}',
-  'profile.stats.tokens': 'Tokens',
-  'profile.stats.cacheIncluded': 'cache included',
-  'profile.stats.agentHours': 'Agent hours',
-  'profile.stats.activeDays': '{n} active days',
-  'profile.stats.projects': 'Projects',
-  'profile.stats.streak': '{n}-day streak',
-  'profile.stats.spend': 'Measured spend: ${v}',
-  'profile.stats.uncertain': '{n} rows excluded: cost not trustworthy (written before cache was split out)',
-  'profile.banner.label': 'Banner',
-  'profile.banner.open': 'Open (dark)',
-  'profile.banner.light': 'Light',
-  'profile.banner.hint': 'An SVG with these numbers, to save and drop into a README.',
-  // ── Discord: what this app says about you, and in how much detail.
-  'discord.title': 'Discord status',
-  'discord.blurb': 'Topics can show on your Discord profile what it is working on. The numbers are this installation’s exact counts, not a guess based on processes.',
-  'discord.toggle': 'Show my status on Discord',
-  'discord.level': 'How much shows',
-  'discord.level.minimal': 'Only that Topics is open',
-  'discord.level.minimal.hint': 'No numbers, no names.',
-  'discord.level.activity': 'Also how many sessions, and how many working',
-  'discord.level.activity.hint': 'Numbers, which name no client.',
-  'discord.level.detailed': 'Also the project name',
-  'discord.level.detailed.hint': 'The only level that lets out a word you did not choose for that audience.',
-  'discord.preview': 'What others see',
-  'discord.previewEmpty': 'With no session open the presence is cleared: it does not stay hanging.',
-  'discord.previewNote': 'This is the very thing that gets published, not an imitation. The language follows the app’s.',
-  'discord.state.off': 'Off',
-  'discord.state.connecting': 'Connecting…',
-  'discord.state.connected': 'Connected',
-  'discord.state.no_discord': 'Discord desktop is not running',
-  'discord.state.error': 'Discord refused the connection',
-  'discord.unreachable': 'The server is not responding.',
-  'discord.saveFailed': 'Could not save. Try again.',
-  'account.err.generic': 'That did not work. Try again.',
-  'account.err.not_configured': 'This installation has no account service.',
-  'account.err.service_unreachable': 'The service is not answering. Try again later: nothing changes here.',
-  'account.err.service_refused': 'The service refused the request.',
-  'account.err.rate_limited': 'Too many attempts. Wait a few minutes.',
-  'account.err.bad_response': 'The service answered something we cannot read.',
-  'account.err.invalid_email': 'That does not look like an email address.',
-  'account.err.bad_code': 'Wrong or expired code.',
-  'account.err.no_person': 'There is no person to attach the account to on this installation.',
-  'account.err.already_linked_other': 'This person already has another account. Unlink it first.',
-  'account.err.belongs_to_other_person': 'That address already belongs to another person in this machine’s address book. Fix that entry under People, then try again.',
-  'account.err.person_revoked': 'That address belongs to a person who was removed from here.',
-  'account.err.unavailable': 'Accounts are not available on this database.',
-  // ── The plan. Free is not a lack: the paid line is ORG-08, i.e. everything local
-  // and everything on your own network is free, forever and without an account.
-  'plan.title': 'Plan',
-  'plan.blurb': 'On your machine and from your own network everything works, forever and without an account. What you pay for is being reached from ANOTHER network, and seats for the people who work with you.',
-  'plan.current.free': 'Free plan · 1 seat',
-  'plan.current.team': 'Team plan · {posti} seats',
-  'plan.remote.on': 'This installation can be reached from outside your network.',
-  'plan.remote.off': 'Reachable from your machine and your own network. Not from outside.',
-  'plan.expiresIn': 'The licence expires in {giorni} days.',
-  'plan.expiredSince': 'The licence expired {giorni} days ago. Everything local keeps working.',
-  'plan.seatsLabel': 'Seats',
-  'plan.subscribe': 'Subscribe',
-  'plan.tokenHint': 'Got a licence? Paste it here.',
-  'plan.tokenLabel': 'Licence token',
-  'plan.tokenPlaceholder': 'Paste the token',
-  'plan.install': 'Install',
-  'plan.installationId': 'Installation',
-  'plan.copyId': 'Copy the identifier',
-  'plan.remove': 'Remove the licence',
-  'plan.removeConfirm': 'Remove the licence from this machine? This is how you move it to another one. You go back to the free plan: local work is unchanged, you lose reachability from outside your network.',
-  'plan.footnote': 'The licence is checked here, without calling anyone: it works offline too. Removing it is how you move it to another machine.',
-  'plan.reason.valid': 'Licence valid.',
-  'plan.reason.no_token': 'No licence installed.',
-  'plan.reason.no_verification_key': 'This build of the app has nothing to verify a licence with, so no token can work here. This is not your mistake: write to us.',
-  'plan.reason.malformed': 'This token does not have the shape of a licence. Check you copied all of it.',
-  'plan.reason.bad_signature': 'The signature on this token does not check out. Either we did not issue it, or it was damaged in the copy.',
-  'plan.reason.other_installation': 'This licence is for another installation. You need a token issued for this machine: the identifier is below.',
-  'plan.reason.expired': 'This licence has expired. Local work keeps running exactly as it is.',
-  'plan.checkoutErr.generic': 'That did not work. Try again.',
-  'plan.checkoutErr.not_configured': 'Payment is not configured on this installation.',
-  'plan.checkoutErr.no_installation': 'We do not know which installation we would be buying for.',
-  'plan.checkoutErr.bad_seats': 'That seat count is not valid.',
-  'plan.checkoutErr.upstream_error': 'The payment service answered badly. Try again shortly.',
-  'plan.checkoutErr.unreachable': 'We cannot reach the payment service. Nothing changes here.',
-  'auth.err.generic': 'That did not work. Try again.',
-  'auth.err.db_unavailable': 'This installation does not have the tables this action needs yet.',
-  'auth.err.unknown_device': 'That device no longer exists, or it was revoked.',
-  'auth.err.device_not_guest': 'That device already sees everything: it is yours, not a guest’s.',
-  'auth.err.unknown_person': 'That person does not exist.',
-  'auth.err.person_revoked': 'That person was removed from here.',
-  'auth.err.person_is_owner': 'That person already sees everything: they are an owner, not a guest.',
-  'auth.err.person_removed': 'You removed them from every group. Put them back in a group to share with them.',
-  'auth.err.unknown_org': 'That group does not exist.',
-  'auth.err.org_revoked': 'That group was deleted.',
-  'auth.err.not_org_admin': 'You do not administer this group.',
-  'auth.err.installation_org_undeletable': 'This installation’s group cannot be deleted.',
-  'auth.err.cannot_remove_self': 'You cannot remove yourself from your own group.',
-  'auth.err.not_a_member': 'That person is not a member of this group.',
-  'auth.err.last_owner': 'A group needs at least one owner.',
-  'auth.err.no_person_for_org': 'There is nobody to put the group under.',
-  'auth.err.still_a_member': 'Remove them from their groups first: deleting them now would silently take away what was shared with those groups.',
-  'auth.err.still_has_devices': 'They still have a device connected. Revoke that device, then delete them.',
-  'auth.err.plan_required': 'This action needs a paid plan.',
-  'auth.err.no_seats_left': 'There are no seats left on the plan.',
-  'auth.err.public_sharing_off': 'Sharing off your network is turned off on this installation.',
-  'auth.err.pairing_expired': 'The request expired. Try again from the device.',
-  'auth.err.too_many_requests': 'Too many requests from this device. Wait a moment.',
-  'auth.err.name_required': 'A name is required.',
-  'auth.err.person_required': 'A person is required.',
-  'auth.err.unknown_role': 'That role does not exist.',
-  'auth.err.unknown_resource_type': 'That kind of thing cannot be shared.',
-  'auth.err.unknown_subject_kind': 'That kind of recipient cannot be shared with.',
-  'auth.err.resource_id_required': 'The thing to share is missing.',
-  'auth.err.subject_required': 'The recipient is missing.',
-  'auth.err.bad_person_id': 'The person given is not in a valid shape.',
-  'devices.title': 'Authorised devices',
-  'devices.blurb': 'Every device other than this computer has to be authorised once. The green dot marks who is connected right now.',
-  'devices.loadFailed': 'I cannot read the list of devices.',
-  'devices.retry': 'Try again',
-  'devices.loading': 'Loading…',
-  'devices.none': 'No other authorised device. Open Topics on your phone on the same network and a request to approve will show up here.',
-  'devices.youAreHere': 'you are here',
-  'devices.thisComputerNote': 'access does not go through a session',
-  'devices.connectedNow': 'connected now',
-  'devices.seen': 'seen {quando}',
-  'devices.fromIp': 'from {ip}',
-  'devices.ofPerson': 'of {nome}',
-  'devices.rename': 'Rename',
-  'devices.newNameFor': 'New name for {nome}',
-  'devices.guest': 'guest',
-  'devices.guestTitle': 'Sees only what was shared with them, read-only',
-  'devices.whose': 'Whose is it?',
-  'devices.you': '(you)',
-  'devices.cancel': 'cancel',
-  'devices.cancelLabel': 'Cancel',
-  'devices.otherPerson': 'it belongs to someone else',
-  'devices.revokeQuestion': 'Revoke?',
-  'devices.confirmRevoke': 'Confirm revocation',
-  'devices.revokeName': 'Revoke {nome}',
-  'devices.revokeTitle': 'Revoke this device’s access',
-  'devices.revokedHeading': 'Revoked',
-  'devices.revokedWhen': 'revoked {quando}',
-  'devices.when.never': 'never',
-  'devices.when.now': 'just now',
-  'devices.when.min': '{n} min ago',
-  'devices.when.hours': '{n} h ago',
-  'devices.when.days': '{n} d ago',
-};
 
-const DICTS: Record<Locale, Dict> = { it: IT, en: EN };
+/**
+ * Only Italian is here. English is fetched on demand by `ensureLocaleLoaded`
+ * (see `i18n-en.ts` for why), so this map starts with one entry and grows to
+ * two the first time somebody asks for English.
+ */
+const DICTS: Partial<Record<Locale, Dict>> = { it: IT };
+
+let enPending: Promise<void> | null = null;
+
+const catalogueListeners = new Set<() => void>();
+
+/**
+ * Le lingue gia' in memoria, come stringa stabile ("it" oppure "it,en").
+ *
+ * E' una STRINGA e non un array perche' `useSyncExternalStore` confronta gli
+ * snapshot per identita': un array nuovo a ogni lettura sarebbe un ciclo di
+ * render infinito, una stringa uguale a se stessa non lo e'.
+ */
+export function loadedLocales(): string {
+  return DICTS.en ? 'it,en' : 'it';
+}
+
+/** Avvisa quando un catalogo atterra. */
+export function subscribeCatalogues(cb: () => void): () => void {
+  catalogueListeners.add(cb);
+  return () => { catalogueListeners.delete(cb); };
+}
+
+/**
+ * Makes sure `locale`'s catalogue is in memory, and resolves when it is.
+ *
+ * Idempotent and safe to call on every render: the second caller gets the first
+ * caller's promise. A failed load is NOT cached as a failure, because the next
+ * attempt may well be online; it just leaves the app in Italian, which is the
+ * same state it is in for a key English does not have.
+ */
+export function ensureLocaleLoaded(locale: Locale): Promise<void> {
+  if (locale !== 'en' || DICTS.en) return Promise.resolve();
+  if (!enPending) {
+    // `const { default: … } = await import(…)` e non `import(…).then((m) => m.default)`.
+    // Non è stile: è la differenza fra un modulo che knip sa leggere e uno che
+    // diventa un punto cieco. Con la forma `.then((m) => …)` il risolutore perde
+    // il legame fra il modulo e i nomi che ne escono, e da lì dentro `i18n-en.ts`
+    // un export morto non lo vedrebbe più nessuno — `check:deadcode-blindspots`
+    // l'ha colto come REGRESSIONE il giorno stesso in cui il catalogo inglese è
+    // stato spostato nel suo chunk. La destrutturazione ridà la vista.
+    enPending = (async () => {
+      try {
+        const { default: EN } = await import('./i18n-en');
+        DICTS.en = EN;
+        catalogueListeners.forEach((cb) => cb());
+      } catch (err) {
+        enPending = null;
+        console.warn('[i18n] English catalogue failed to load, staying in Italian:', err);
+      }
+    })();
+  }
+  return enPending;
+}
 
 /** La lingua di ripiego: quella in cui le chiavi esistono per prime. */
 export const FALLBACK_LOCALE: Locale = 'it';
@@ -1297,9 +1407,17 @@ export function t(key: string, locale: Locale, vars?: Record<string, string | nu
 /**
  * Le chiavi che una lingua non ha. Serve a un test: una lingua incompleta è un
  * fatto che si scopre in fretta, non guardando l'interfaccia a caso.
+ *
+ * ASINCRONA da quando l'inglese si carica su richiesta: senza l'attesa
+ * risponderebbe «mancano tutte», che è vero e inutile. Chiedere il catalogo è
+ * l'unico modo di distinguere «questa lingua è incompleta» da «questa lingua
+ * non è ancora arrivata», e sono due difetti diversi.
  */
-export function missingKeys(locale: Locale): string[] {
-  const all = new Set([...Object.keys(IT), ...Object.keys(EN)]);
+export async function missingKeys(locale: Locale): Promise<string[]> {
+  await ensureLocaleLoaded(locale);
+  await ensureLocaleLoaded(FALLBACK_LOCALE);
+  const en = DICTS.en ?? {};
+  const all = new Set([...Object.keys(IT), ...Object.keys(en)]);
   return [...all].filter((k) => !(k in (DICTS[locale] ?? {}))).sort();
 }
 

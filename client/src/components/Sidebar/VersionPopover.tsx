@@ -4,14 +4,16 @@
  * user can check / download / install updates from one place. In web mode it
  * falls back to the service-worker update hint.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { isDesktop } from '@/lib/shell';
+import { useT } from '@/hooks/useT';
 
 function platformLabel(): string {
   // The desktop shell (Tauri) exposes no native platform field — derive it from
@@ -50,6 +52,7 @@ export function VersionPopover({
   /** Open the full "Novità" changelog modal (and close this popover). */
   onOpenChangelog: () => void;
 }) {
+  const tr = useT();
   const ref = useRef<HTMLDivElement>(null);
   // Ref view of the raw anchor element so it counts as "inside" for dismissal
   // and acts as the focus-restore trigger (refs[0]).
@@ -59,6 +62,34 @@ export function VersionPopover({
   // runs after this one.
   useEffect(() => { anchorRef.current = anchorEl; });
   const { available, status, check, download, install } = useUpdater();
+  // Quanto tempo fa e' stata costruita: si ricava dalla data che il pannello
+  // gia' riceve, senza una seconda fonte da tenere allineata.
+  //
+  // L'orologio si legge al MONTAGGIO, non nel corpo del render: `Date.now()`
+  // durante il render e' una funzione impura (il lint lo marca, e ha ragione -
+  // due render darebbero due risposte). Il pannello vive quanto resta aperto,
+  // quindi un valore fissato all'apertura e' anche quello giusto: nessuno tiene
+  // aperto un dropdown abbastanza da vedere «2 min fa» diventare «3 min fa».
+  const [buildAgo] = useState(() => {
+    const t = Date.parse(buildDate ?? '');
+    if (!Number.isFinite(t)) return null;
+    const min = Math.floor((Date.now() - t) / 60_000);
+    if (min < 1) return tr('version.agoNow');
+    if (min < 60) return tr('version.agoMin', { n: min });
+    const h = Math.floor(min / 60);
+    if (h < 24) return tr('version.agoHours', { n: h });
+    return tr('version.agoDays', { n: Math.floor(h / 24) });
+  });
+  // «AUTO» VUOL DIRE CHE NON DEVI FARE NIENTE, e allora non si chiede niente.
+  //
+  // Col flag `topics-dev.json` acceso le finestre si ricaricano DA SOLE a ogni
+  // build (`startDevBundleReload`): l'aggiornamento arriva senza gesti. Il
+  // pannello pero' continuava a mostrare «nuova versione disponibile» con il
+  // suo bottone «Scarica», cioe' chiedeva di fare a mano una cosa che stava
+  // gia' succedendo. Segnalato: «mi esce una nuova versione disponibile anche
+  // se sono in modalita' automatica».
+  const { status: sistema } = useSystemStatus(true, 60000);
+  const autoUpdate = !!sistema?.server?.devReload;
   const { updateAvailable: swUpdate } = useServiceWorkerUpdate();
 
   // Close on outside pointer / Escape via the shared contract. The component is
@@ -105,14 +136,25 @@ export function VersionPopover({
         </span>
       </div>
       <div className="space-y-1 text-[11px] text-app-text-muted">
-        <div className="flex justify-between"><span>Compilato</span><span className="text-app-text-secondary">{buildDate || '-'}</span></div>
+        {/* LA DATA CON IL SUO «QUANTO TEMPO FA», ed e' qui che sta bene: la
+            riga di stato la mostrava di continuo, competendo con gli fps e la
+            memoria, per rispondere a una domanda che si fa una volta ogni
+            tanto. Una data assoluta dice QUANDO, il tempo trascorso dice se e'
+            vecchia - e la seconda e' la domanda vera. */}
+        <div className="flex justify-between">
+          <span>{tr('version.builtAt')}</span>
+          <span className="text-app-text-secondary" data-testid="version-built-at">
+            {buildDate || '-'}
+            {buildAgo && <span className="ml-1 opacity-60">({buildAgo})</span>}
+          </span>
+        </div>
         <div className="flex justify-between"><span>Build</span><span className="text-app-text-secondary font-mono">{buildSha || '-'}</span></div>
-        <div className="flex justify-between"><span>Piattaforma</span><span className="text-app-text-secondary">{platformLabel()}{isDesktop ? ' · desktop' : ''}</span></div>
+        <div className="flex justify-between"><span>{tr('version.platform')}</span><span className="text-app-text-secondary">{platformLabel()}{isDesktop ? ' · desktop' : ''}</span></div>
         {/* Native shell version — surfaced ONLY when it lags the client (a
             client hot-deploy landed but the .app binary hasn't been released
             yet), so the two numbers never look like a contradiction. */}
         {isDesktop && shellVersion && shellVersion !== appVersion && (
-          <div className="flex justify-between"><span>App nativa</span><span className="text-app-text-secondary tabular-nums">v{shellVersion}</span></div>
+          <div className="flex justify-between"><span>{tr('version.nativeApp')}</span><span className="text-app-text-secondary tabular-nums">v{shellVersion}</span></div>
         )}
       </div>
 
@@ -124,14 +166,14 @@ export function VersionPopover({
           className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
         >
           <Sparkles size={12} />
-          <span>Novità di questa versione</span>
+          <span>{tr('version.whatsNew')}</span>
           <ChevronRight size={12} className="ml-auto" />
         </button>
       </div>
 
       {/* Auto-update box */}
       <div className="border-t border-app-border pt-2.5">
-        <div className="text-[9px] uppercase tracking-wide text-app-text-muted mb-1.5">Aggiornamenti</div>
+        <div className="text-[9px] uppercase tracking-wide text-app-text-muted mb-1.5">{tr('version.updates')}</div>
         <UpdateBox
           available={available}
           state={status.state}
@@ -139,6 +181,7 @@ export function VersionPopover({
           error={status.error}
           newVersion={status.version}
           swUpdate={swUpdate}
+          autoUpdate={autoUpdate}
           onCheck={check}
           onDownload={download}
           onInstall={install}
@@ -150,7 +193,7 @@ export function VersionPopover({
 }
 
 function UpdateBox({
-  available, state, progress, error, newVersion, swUpdate, onCheck, onDownload, onInstall,
+  available, state, progress, error, newVersion, swUpdate, autoUpdate, onCheck, onDownload, onInstall,
 }: {
   available: boolean;
   state: 'idle' | 'checking' | 'update-available' | 'downloading' | 'ready' | 'error';
@@ -158,10 +201,13 @@ function UpdateBox({
   error?: string;
   newVersion?: string;
   swUpdate: boolean;
+  /** Le finestre si ricaricano da sole: non c'e' niente da chiedere all'utente. */
+  autoUpdate: boolean;
   onCheck: () => void;
   onDownload: () => void;
   onInstall: () => void;
 }) {
+  const tr = useT();
   // Web (no Electron updater): surface the service-worker update if any.
   if (!available) {
     return swUpdate ? (
@@ -169,35 +215,46 @@ function UpdateBox({
         onClick={() => window.location.reload()}
         className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
       >
-        <Download size={12} /> Aggiornamento pronto, ricarica
+        <Download size={12} /> {tr('version.swReady')}
       </button>
     ) : (
-      <div className="text-[11px] text-app-text-muted">Sei sulla versione web più recente.</div>
+      <div className="text-[11px] text-app-text-muted">{tr('version.webUpToDate')}</div>
     );
   }
 
   if (state === 'checking') {
-    return <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><RefreshCw size={12} className="animate-spin" /> Controllo aggiornamenti…</div>;
+    return <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><RefreshCw size={12} className="animate-spin" /> {tr('version.checking')}</div>;
   }
   if (state === 'update-available') {
+    // In automatico si DICE che sta arrivando, non si chiede di scaricarla: il
+    // bottone «Scarica» accanto a un aggiornamento che si installa da solo fa
+    // credere che senza quel clic non succeda niente.
+    if (autoUpdate) {
+      return (
+        <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+          <RefreshCw size={12} />
+          {tr('version.autoArriving', { v: newVersion ? ` v${newVersion}` : '' })}
+        </div>
+      );
+    }
     return (
       <div className="space-y-1.5">
-        <div className="text-[11px] text-app-text">Disponibile{newVersion ? ` v${newVersion}` : ''}.</div>
+        <div className="text-[11px] text-app-text">{tr('version.available', { v: newVersion ? ` v${newVersion}` : '' })}</div>
         <button onClick={onDownload} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
-          <Download size={12} /> Scarica aggiornamento
+          <Download size={12} /> {tr('version.download')}
         </button>
       </div>
     );
   }
   if (state === 'downloading') {
-    return <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><Download size={12} /> Download… {progress !== undefined ? `${Math.round(progress)}%` : ''}</div>;
+    return <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><Download size={12} /> {tr('version.downloading', { pct: progress !== undefined ? `${Math.round(progress)}%` : '' })}</div>;
   }
   if (state === 'ready') {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-emerald-500"><Check size={12} /> Nuova versione pronta.</div>
+        <div className="flex items-center gap-1.5 text-[11px] text-emerald-500"><Check size={12} /> {tr('version.ready')}</div>
         <button onClick={onInstall} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25 transition-colors">
-          <Rocket size={12} /> Riavvia e installa
+          <Rocket size={12} /> {tr('version.installRestart')}
         </button>
       </div>
     );
@@ -205,9 +262,9 @@ function UpdateBox({
   if (state === 'error') {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-red-500"><AlertCircle size={12} /> {error || 'Controllo fallito'}</div>
+        <div className="flex items-center gap-1.5 text-[11px] text-red-500"><AlertCircle size={12} /> {error || tr('version.checkFailed')}</div>
         <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
-          <RefreshCw size={12} /> Riprova
+          <RefreshCw size={12} /> {tr('common.retry')}
         </button>
       </div>
     );
@@ -215,7 +272,7 @@ function UpdateBox({
   // idle
   return (
     <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
-      <RefreshCw size={12} /> Controlla aggiornamenti
+      <RefreshCw size={12} /> {tr('version.check')}
     </button>
   );
 }

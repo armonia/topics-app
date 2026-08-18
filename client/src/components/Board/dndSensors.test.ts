@@ -19,7 +19,7 @@
  * porta va provata. È il motivo per cui questi test esistono per tutte e tre.
  */
 import { describe, expect, test } from 'bun:test';
-import { KeyboardSensorGentile, MouseSensorGentile, TouchSensorGentile } from './dndSensors';
+import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 
 /**
  * Sotto `bun test` non c'è un DOM, e i sensori chiedono due cose sole al
@@ -43,35 +43,35 @@ function bersaglio(selettoreCheCombacia: string | null): EventTarget {
   return new ElementoFinto(selettoreCheCombacia) as unknown as EventTarget;
 }
 
-function attivatore(sensore: { activators: Array<{ handler: (...a: never[]) => boolean }> }) {
-  return sensore.activators[0]!.handler;
+function activatorOf(sensor: { activators: Array<{ handler: (...a: never[]) => boolean }> }) {
+  return sensor.activators[0]!.handler;
 }
 
 describe('i sensori non partono da un campo di testo', () => {
   test('mouse: premere dentro una textarea non è una presa', () => {
-    const h = attivatore(MouseSensorGentile as never);
+    const h = activatorOf(PoliteMouseSensor as never);
     expect(h({ nativeEvent: { target: bersaglio('textarea') } } as never)).toBe(false);
   });
 
   test('mouse: premere sul corpo della card lo è', () => {
-    const h = attivatore(MouseSensorGentile as never);
+    const h = activatorOf(PoliteMouseSensor as never);
     expect(h({ nativeEvent: { target: bersaglio(null) } } as never)).toBe(true);
   });
 
   test('dito: il long-press dentro un input resta dell input', () => {
-    const h = attivatore(TouchSensorGentile as never);
+    const h = activatorOf(PoliteTouchSensor as never);
     expect(h({ nativeEvent: { target: bersaglio('input') } } as never)).toBe(false);
   });
 
   test('tastiera: lo SPAZIO dentro la textarea di risposta non trascina', () => {
     // Il caso vero: si sta scrivendo una risposta e si separa una parola.
-    const h = attivatore(KeyboardSensorGentile as never);
+    const h = activatorOf(PoliteKeyboardSensor as never);
     const evento = { nativeEvent: { code: 'Space', target: bersaglio('textarea') } };
     expect(h(evento as never, {} as never, { active: { activatorNode: { current: null } } } as never)).toBe(false);
   });
 
   test('tastiera: l INVIO su un comando resta del comando', () => {
-    const h = attivatore(KeyboardSensorGentile as never);
+    const h = activatorOf(PoliteKeyboardSensor as never);
     const evento = { nativeEvent: { code: 'Enter', target: bersaglio('button') } };
     expect(h(evento as never, {} as never, { active: { activatorNode: { current: null } } } as never)).toBe(false);
   });
@@ -79,7 +79,7 @@ describe('i sensori non partono da un campo di testo', () => {
   test('tastiera: sulla card, invece, lo spazio prende ancora la card', () => {
     // Il controllo dei due test qui sopra: togliere un caso non deve spegnere
     // il sensore. Chi naviga da tastiera deve poter ancora afferrare una card.
-    const h = attivatore(KeyboardSensorGentile as never);
+    const h = activatorOf(PoliteKeyboardSensor as never);
     const evento = {
       nativeEvent: { code: 'Space', target: bersaglio(null) },
       preventDefault() {},
