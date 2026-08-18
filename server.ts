@@ -60,7 +60,7 @@ import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
-import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees } from "./server/routes/processes";
+import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
@@ -689,6 +689,10 @@ ctx.setGuestBroadcastFilter({
   },
 });
 const processesRouter = createProcessesRouter(ctx);
+// PUNTO 1 (task e3240a22): inietta le closure nel manager DOPO che processes.ts
+// e' pronto. La closure viene letta solo alla chiamata, non alla costruzione.
+ctx.worktreeGcDeps.killTree = (pid, graceMs) => killProcessTree(pid, graceMs);
+ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
 // The dispatcher is the ONLY place that starts a headless agent turn from a
 // board gesture. All its host-specific wiring — the in-process turn runtime,
@@ -1590,6 +1594,8 @@ const worktreeGc = createWorktreeGcRunner({
   tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+  // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
+  listOwnedScripts: () => listOwnedScripts(),
 });
 
 
