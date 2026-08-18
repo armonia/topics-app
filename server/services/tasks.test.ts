@@ -2120,6 +2120,42 @@ describe("settleLanded / verdetto testimoniato", () => {
   });
 
   /**
+   * L'ACCUSA CHE NON POTEVA PIÙ ESSERE RITIRATA.
+   *
+   * `markLandPending` timbra `unlanded` quando il land viene CHIESTO, e il suo
+   * commento dice che la passata periodica «resta libera di correggerlo». Non lo
+   * era: il filtro `delivery_commit IS NOT NULL` teneva fuori dai candidati
+   * proprio le card senza commit, cioè quelle su cui quel timbro resta l'unica
+   * cosa scritta. Misurate il 18/08 sulla board di topics-app: 13 card in
+   * review/done dicevano «non è su main» senza consegna registrata, la più
+   * vecchia da sei giorni, e due di loro erano su main con tanto di merge.
+   *
+   * Il filtro serve ancora, e resta: senza consegna non c'è niente da VERIFICARE.
+   * Ma un'accusa in piedi è qualcosa da RITIRARE, ed è lavoro dell'audit.
+   */
+  test("una card senza consegna che porta un'accusa torna fra i candidati", () => {
+    const accusata = nuovo("status = 'done', delivery_branch = 'topics/potato'");
+    svc.recordLandingState({ taskId: accusata, state: "unlanded", checkedAt: "2026-08-13T00:00:00Z" });
+
+    expect(svc.listLandingAuditCandidates().map((c) => c.id)).toContain(accusata);
+    // E ci arriva con l'unico indirizzo che le resta, o l'audit non saprebbe
+    // dove guardare.
+    const riga = svc.listLandingAuditCandidates().find((c) => c.id === accusata)!;
+    expect(riga.deliveryBranch).toBe("topics/potato");
+    expect(riga.deliveryCommit).toBeNull();
+  });
+
+  test("una card senza consegna e senza accusa resta fuori: non c'è niente da dire", () => {
+    const muta = nuovo("status = 'done'");
+    const assolta = nuovo("status = 'done'");
+    svc.recordLandingState({ taskId: assolta, state: "unverifiable", checkedAt: "2026-08-13T00:00:00Z" });
+
+    const candidati = svc.listLandingAuditCandidates().map((c) => c.id);
+    expect(candidati).not.toContain(muta);
+    expect(candidati).not.toContain(assolta);
+  });
+
+  /**
    * Lo scatto della consegna descrive un lavoro CONSEGNATO. Una card che rientra
    * in coda non lo sta più consegnando: o è stata rifiutata, o qualcuno l'ha
    * riaperta per chiedere dell'altro. Tenerlo la fa parlare di un frutto che non

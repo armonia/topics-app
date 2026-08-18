@@ -4296,10 +4296,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // cui una persona può aver cherry-piccato quel lavoro a mano. Escluderlo
       // per sempre dall'audit congela l'accusa: misurate il 13/08 due card che
       // dicevano «non su main» col commit ANTENATO di main, e in Done da giorni.
+      //
+      // E POI C'È IL SECONDO INSIEME, che è l'opposto del primo: le card senza
+      // consegna registrata che portano GIÀ un'accusa. Senza commit non c'è
+      // niente da verificare, ed era il motivo del filtro; ma `markLandPending`
+      // timbra `unlanded` appena il land viene CHIESTO, e conta su questa
+      // passata per correggersi. Finché il filtro le teneva fuori, quel timbro
+      // era definitivo: misurate il 18/08 su topics-app 13 card ferme su «non è
+      // su main» senza consegna, la più vecchia da sei giorni, due delle quali
+      // avevano il merge del land su main. Un'accusa che nessuno può più
+      // sostenere si RITIRA, ed è lavoro dell'audit tanto quanto scriverla.
       return db.prepare(
         `SELECT id, project_id, delivery_branch, delivery_commit
            FROM tasks
-          WHERE archived = 0 AND delivery_commit IS NOT NULL
+          WHERE archived = 0
+            AND (delivery_commit IS NOT NULL OR landing_state = 'unlanded')
             AND status IN ('review', 'done')
             AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
       ).all().map((r: any) => ({

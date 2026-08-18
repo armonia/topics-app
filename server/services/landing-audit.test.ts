@@ -19,6 +19,7 @@ function harness(opts: {
   repo?: (projectId: string) => string | null;
   previous?: Record<string, LandingState>;
   debt?: (task: AuditTask) => LandingState | Promise<LandingState>;
+  landedMerge?: (task: AuditTask) => boolean | null | Promise<boolean | null>;
 }) {
   const recorded: Array<{ id: string; state: LandingState; at: string }> = [];
   const alerts: AuditTask[] = [];
@@ -28,6 +29,7 @@ function harness(opts: {
     repoPath: opts.repo ?? (() => "/repo"),
     commitStatus: async (_repo, commit) => (opts.status ? opts.status(commit) : "merged"),
     ...(opts.debt ? { debtVerdict: async (t: AuditTask) => opts.debt!(t) } : {}),
+    ...(opts.landedMerge ? { landedMerge: async (t: AuditTask) => opts.landedMerge!(t) } : {}),
     record: (id, state, at) => { recorded.push({ id, state, at }); },
     previousState: (id) => opts.previous?.[id] ?? null,
     onNewlyUnlanded: (t) => { alerts.push(t); },
@@ -157,6 +159,116 @@ describe("auditLandings", () => {
     const s = await auditLandings(h.deps);
     expect(s.checked).toBe(0);
     expect(h.recorded).toHaveLength(0);
+  });
+
+  /**
+   * L'ACCUSA NON PUÒ SOPRAVVIVERE ALLA SUA PROVA.
+   *
+   * Senza consegna registrata non c'è niente da verificare, e infatti il test
+   * qui sopra dice che si tace. Ma quando sulla card c'è già scritto «non è su
+   * main», tacere non è neutrale: è lasciare in piedi un'accusa che nessuno può
+   * più sostenere. `markLandPending` scrive quel timbro appena il land viene
+   * CHIESTO, e la sua unica via d'uscita è questa passata. Misurate il 18/08
+   * sulla board di topics-app: 13 card ferme su «non è su main» senza consegna,
+   * la più vecchia da sei giorni, e almeno due con il merge del land su main.
+   */
+  it("un'accusa senza prova viene RITIRATA, non lasciata in piedi", async () => {
+    const h = harness({
+      tasks: [task("a", { deliveryCommit: null })],
+      previous: { a: "unlanded" },
+      status: () => "unmerged",
+    });
+    const s = await auditLandings(h.deps);
+    expect(h.recorded).toEqual([{ id: "a", state: "unverifiable", at: "2026-07-28T10:00:00.000Z" }]);
+    expect(s).toEqual({ checked: 1, landed: 0, unlanded: 0, unverifiable: 1 });
+    expect(h.alerts).toHaveLength(0);
+  });
+
+  it("ritirando un'accusa non si tocca git: non c'è niente da chiedere", async () => {
+    let chiesto = 0;
+    const h = harness({
+      tasks: [task("a", { deliveryCommit: null })],
+      previous: { a: "unlanded" },
+      status: () => { chiesto += 1; return "unmerged"; },
+      debt: () => { chiesto += 1; return "unlanded"; },
+    });
+    await auditLandings(h.deps);
+    expect(chiesto).toBe(0);
+  });
+
+  /**
+   * LA TERZA MANIGLIA DUREVOLE. Il land scrive su main un merge che porta il
+   * nome della card (`merge task <id>: …`, vedi `task-automerge.ts`), e quel
+   * commit resta anche quando il ramo è potato e il commit di consegna non è
+   * mai stato registrato. È la stessa prova che un umano guarda a mano, e
+   * l'unica che risponde quando le altre due sono sparite.
+   */
+  it("il merge del land su main prova l'atterraggio quando non resta altro", async () => {
+    const h = harness({
+      tasks: [task("a", { deliveryCommit: null })],
+      previous: { a: "unlanded" },
+      landedMerge: () => true,
+    });
+    const s = await auditLandings(h.deps);
+    expect(h.recorded[0]!.state).toBe("landed");
+    expect(s.landed).toBe(1);
+  });
+
+  it("il merge assolve anche un commit che il repo non ha più", async () => {
+    const h = harness({ tasks: [task("a")], status: () => "gone", landedMerge: () => true });
+    expect((await auditLandings(h.deps)).landed).toBe(1);
+  });
+
+  /**
+   * Il merge risponde solo dove le altre prove TACCIONO. Un `unlanded` provato
+   * dal commit resta: se dopo il land la card ha prodotto altro lavoro, quel
+   * lavoro è ancora fuori, e il merge di ieri non lo copre.
+   */
+  it("il merge non ribalta un `unlanded` provato dal commit", async () => {
+    let chiesto = 0;
+    const h = harness({
+      tasks: [task("a")],
+      status: () => "unmerged",
+      landedMerge: () => { chiesto += 1; return true; },
+    });
+    await auditLandings(h.deps);
+    expect(h.recorded[0]!.state).toBe("unlanded");
+    expect(chiesto).toBe(0); // e non lo si paga nemmeno
+  });
+
+  it("il merge non ribalta un `landed`: non si paga una prova già data", async () => {
+    let chiesto = 0;
+    const h = harness({
+      tasks: [task("a")],
+      status: () => "merged",
+      landedMerge: () => { chiesto += 1; return true; },
+    });
+    await auditLandings(h.deps);
+    expect(chiesto).toBe(0);
+  });
+
+  it("nessun merge trovato: si resta su «non lo so», mai su un'accusa", async () => {
+    const h = harness({
+      tasks: [task("a", { deliveryCommit: null })],
+      previous: { a: "unlanded" },
+      landedMerge: () => null,
+    });
+    const s = await auditLandings(h.deps);
+    expect(h.recorded[0]!.state).toBe("unverifiable");
+    expect(s.unlanded).toBe(0);
+  });
+
+  it("un progetto non risolto non fa cercare nessun merge", async () => {
+    let chiesto = 0;
+    const h = harness({
+      tasks: [task("a", { deliveryCommit: null })],
+      previous: { a: "unlanded" },
+      repo: () => null,
+      landedMerge: () => { chiesto += 1; return true; },
+    });
+    await auditLandings(h.deps);
+    expect(chiesto).toBe(0);
+    expect(h.recorded[0]!.state).toBe("unverifiable");
   });
 
   // REGRESSIONE: il wiring cercava `tasks.project_id` (l'id di BOARD, un hash
