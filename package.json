@@ -97,7 +97,7 @@
     "test:unit": "bun run scripts/slot.ts test:unit -- 'bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./client/src ./server/ ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli'",
     "test:heavy": "TOPICS_HEAVY_TESTS=1 bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./server/browser-dom-cobrowse.test.ts ./server/browser-focused-field.test.ts ./server/browser-session-handoff.heavy.test.ts ./server/browser-site-data.heavy.test.ts",
     "evidence:handoff": "bun run scripts/handoff-evidence.ts",
-    "lint": "bun run scripts/slot.ts lint -- '(cd client && bun run lint) && ./client/node_modules/.bin/eslint --config client/eslint.config.js relay'",
+    "lint": "bun run scripts/slot.ts lint -- 'bun run scripts/check-client-deps.ts && (cd client && bun run lint) && ./client/node_modules/.bin/eslint --config client/eslint.config.js relay'",
     "lint:relay": "./client/node_modules/.bin/eslint --config client/eslint.config.js relay",
     "lint:gherkin": "test -d spec-flow || { echo \"lint:gherkin: manca spec-flow/ — è in .gitignore:129, quindi assente da OGNI checkout pulito (clone: armonia/spec-flow). Per questo NON può stare in un workflow.\" >&2; exit 1; }; find tests/features -name '*.feature' -type f 2>/dev/null | grep -q . || { echo \"lint:gherkin: zero .feature sotto tests/features/, non c'è niente da controllare — un verde a vuoto è peggio di nessun cancello (b8092abe). I 5 .feature sono morti con Master (dd1c3f28) e claude-event (9e5516d1); la cartella resta pronta, vedi tests/features/.gitkeep.\" >&2; exit 1; }; bun --bun spec-flow/scripts/lint-gherkin.ts",
     "tag:scenarios": "bun --bun spec-flow/scripts/tag-scenarios.ts",
