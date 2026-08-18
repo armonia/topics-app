@@ -300,6 +300,17 @@ export function isSilenceArtifact(text: string): boolean {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+/**
+ * L'estensione con cui l'audio va scritto su disco.
+ *
+ * Conta piu' di quanto sembri: `ffmpeg` sceglie il demuxer dal nome del file, e
+ * un `.webm` che dentro e' un MP4 (quello che registra WebKit) si apre male o
+ * non si apre. Il nome arriva dal client, quindi e' la sua parola sul formato.
+ */
+function estensioneDi(audio: SttAudio): string {
+  return audio.filename.includes(".") ? audio.filename.split(".").pop()! : "webm";
+}
+
 function fileOf(audio: SttAudio): File {
   // `Buffer.from(...)` produce una copia con byteOffset 0: passare la view nuda
   // rischia di caricare l'intero ArrayBuffer sottostante quando l'audio è una
@@ -458,8 +469,7 @@ async function transcribeLocal(audio: SttAudio, cfg: LocalConfig): Promise<{ tra
   // chiude la finestra symlink/TOCTOU su una macchina multiutente.
   const tmpDir = mkdtempSync(join(tmpdir(), "stt-"));
   try {
-    const ext = audio.filename.includes(".") ? audio.filename.split(".").pop()! : "webm";
-    const src = join(tmpDir, `in.${ext}`);
+    const src = join(tmpDir, `in.${estensioneDi(audio)}`);
     const wav = join(tmpDir, "out.wav");
     writeFileSync(src, audio.bytes);
 
@@ -539,6 +549,42 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
       // Il silenzio non è un messaggio: un artefatto da titoli di coda vale
       // come vuoto, non come testo da incollare nel composer.
       const transcript = isSilenceArtifact(out.transcript) ? "" : out.transcript;
+      // UN VUOTO HA DUE CAUSE OPPOSTE, e da fuori si vedono uguali.
+      //
+      // O il motore non ha restituito niente — l'audio non è arrivato al
+      // modello, il contenitore non si è decodificato, la traccia è muta — o ha
+      // restituito una delle sue allucinazioni da silenzio («Sottotitoli e
+      // revisione a cura di QTSS»), che questo filtro azzera. La prima è un
+      // guasto della catena, la seconda è la prova che il microfono ha
+      // registrato ZERO ma il giro funziona.
+      //
+      // Senza questa riga le due erano lo stesso schermo bianco, e la caccia
+      // ripartiva da capo ogni volta. Il testo grezzo si tronca a 80 caratteri:
+      // serve a riconoscere l'artefatto, non a conservare quello che uno dice.
+      if (!transcript) {
+        // L'audio si conserva SOLO se qualcuno ha acceso l'interruttore.
+        //
+        // Il pannello del permesso promette che l'audio non viene conservato, e
+        // quella promessa vale. `STT_DUMP_DIR` è la deroga esplicita di chi sta
+        // riparando sulla propria macchina: senza il file non c'è modo di
+        // distinguere «traccia muta» da «contenitore che non si decodifica»,
+        // perché entrambe arrivano qui come zero parole.
+        const dump = deps.env.STT_DUMP_DIR;
+        if (dump) {
+          try {
+            const nome = join(dump, `stt-vuoto-${now()}.${estensioneDi(audio)}`);
+            writeFileSync(nome, audio.bytes);
+            console.warn(`[stt] audio del vuoto conservato in ${nome}`);
+          } catch (e) {
+            console.warn(`[stt] STT_DUMP_DIR non scrivibile: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        const grezzo = out.transcript.trim();
+        console.warn(
+          `[stt] trascrizione VUOTA da ${provider.id} (${out.model}) su ${audio.bytes.byteLength} byte ` +
+            `di ${audio.mimeType}: ${grezzo ? `il motore ha risposto ${JSON.stringify(grezzo.slice(0, 80))}, filtrato come silenzio` : "il motore non ha risposto NIENTE"}`,
+        );
+      }
       return {
         transcript,
         provider: provider.id,
@@ -547,7 +593,18 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
         durationMs: now() - started,
       };
     } catch (err) {
-      attempts.push({ provider: provider.id, error: err instanceof Error ? err.message : String(err) });
+      const motivo = err instanceof Error ? err.message : String(err);
+      attempts.push({ provider: provider.id, error: motivo });
+      // UN PROVIDER CHE CADE SI DICE, anche quando il successivo salva il giro.
+      //
+      // Questo `catch` teneva l'errore dentro `attempts`, che viene mostrato
+      // SOLO se falliscono tutti. Con una cascata che funziona, il primo
+      // provider poteva essere rotto per giorni senza che nessuno lo sapesse:
+      // misurato il 14/08, `capabilities` annunciava `elevenlabs/scribe_v2` e
+      // ogni trascrizione veniva servita da whisper locale, cioe' 4,6 secondi
+      // al posto di uno. Il fallback aveva nascosto il guasto invece di
+      // segnalarlo, ed e' il modo in cui una app diventa lenta senza una causa.
+      console.warn(`[stt] provider ${provider.id} caduto, passo al successivo: ${motivo.slice(0, 200)}`);
     }
   }
   throw new SttError(

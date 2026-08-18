@@ -25,23 +25,13 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-notif-${Date.now()}`;
 
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 let projectTopicId: string | null = null;
@@ -67,8 +57,10 @@ async function wipeRegistry(request: APIRequestContext): Promise<void> {
 const bell = (page: Page) => page.getByTestId("notification-history-button");
 const panel = (page: Page) => page.getByTestId("notification-history-panel");
 const rows = (page: Page) => page.getByTestId("notification-history-row");
-/** Il numero sul tastino: il badge condiviso, che si nasconde a zero. */
-const badge = (page: Page) => bell(page).locator("[aria-label$='non viste']");
+/** Il numero sul tastino: il badge condiviso, che si nasconde a zero.
+ *  Agganciato a `data-notification-count`, non all'`aria-label`: quello è una
+ *  frase tradotta, e un locator che ci si appende congela la frase. */
+const badge = (page: Page) => bell(page).locator("[data-notification-count]");
 
 test.describe("Cronologia notifiche", () => {
   test.describe.configure({ timeout: 60_000 });
@@ -221,6 +213,92 @@ test.describe("Cronologia notifiche", () => {
     // La riga però c'è ancora: vista non vuol dire sparita.
     await bell(page).click();
     await expect(rows(page).first()).toBeVisible();
+  });
+
+  test("NH-05: il contatore non torna indietro quando il fronte arriva TARDI", async ({ page }) => {
+    // NH-04 prova la stessa regola, ma solo se la rete è lenta abbastanza da
+    // sfasare le cose: su questa macchina non lo è mai, sul runner Linux lo era
+    // circa una volta su tre — un rosso mobile che accusava il prodotto solo
+    // quando gli girava. Qui lo sfasamento è FATTO, non sperato: il fronte
+    // `notification:new` viene trattenuto 2,5s, cioè consegnato ben dopo che la
+    // cronologia è stata aperta e il «visto» è già andato a buon fine.
+    //
+    // Sono due ordini, e il difetto era in tutti e due:
+    //  · aprendo, la rilettura e il «visto» partivano INSIEME. Il «visto» ricava
+    //    il suo istante dall'elenco in mano, che senza il fronte è vuoto: non
+    //    partiva nessuna POST e il contatore restava acceso per sempre.
+    //  · il fronte in ritardo porta un `unseen` fotografato PRIMA del «visto»:
+    //    applicato al suo arrivo, riaccendeva un contatore già spento.
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => {
+        const testo = typeof m === "string" ? m : "";
+        if (testo.includes("notification:new")) {
+          setTimeout(() => ws.send(m), 2500);
+          return;
+        }
+        ws.send(m);
+      });
+    });
+
+    // La sonda che rende l'attesa una CONDIZIONE e non un sonno.
+    //
+    // Qui non basta sapere che il ritardatore ha fatto partire il fronte: serve
+    // sapere che la PAGINA l'ha ricevuto, perche' l'asserzione che segue dice
+    // «e nonostante quello il contatore e' rimasto spento». Un `waitForTimeout`
+    // di tre secondi e mezzo diceva solo «e' passato abbastanza tempo», che e'
+    // un'altra cosa: su una macchina carica scade prima che il fronte arrivi e
+    // il test passa senza aver mai provato niente. Contare i fronti alla porta
+    // del client e' il modo onesto, ed e' quello che chiede CONVENTIONS.md.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __frontiNotifica?: number };
+      w.__frontiNotifica = 0;
+      window.WebSocket = new Proxy(window.WebSocket, {
+        construct(target, args: ConstructorParameters<typeof WebSocket>) {
+          const ws = new target(...args);
+          ws.addEventListener("message", (e: MessageEvent) => {
+            if (typeof e.data === "string" && e.data.includes("notification:new")) {
+              w.__frontiNotifica = (w.__frontiNotifica ?? 0) + 1;
+            }
+          });
+          return ws;
+        },
+      });
+    });
+
+    await page.goto("/");
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+    // La lettura di montaggio è finita: quello che segue è solo il ritardo.
+    await expect(badge(page)).toHaveCount(0);
+
+    await postNotification(page.request, {
+      kind: "task-review",
+      title: "Consegna in ritardo",
+      targetKind: "task",
+      targetId: taskId,
+      dedupeKey: `nh05:${taskId}:${Date.now()}`,
+    });
+
+    // Si apre SENZA aspettare il contatore: è il caso vero — chi guarda non sa
+    // che c'è un fronte per strada, e apre perché gli va.
+    await bell(page).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(badge(page)).toHaveCount(0, { timeout: 10_000 });
+
+    // Il fronte arriva ADESSO, in ritardo: la sonda lo conta quando entra dal
+    // socket, quindi da qui in poi «e' arrivato» e' un fatto, non un'ipotesi.
+    // Non deve riaccendere niente, e il server deve dire la stessa cosa dello
+    // schermo.
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __frontiNotifica?: number }).__frontiNotifica ?? 0), {
+        timeout: 15_000,
+        message: "il fronte notification:new trattenuto non e' mai arrivato alla pagina",
+      })
+      .toBeGreaterThanOrEqual(1);
+    await expect(badge(page)).toHaveCount(0);
+    const dopo = await page.request.get(`${BASE}/api/notifications`);
+    expect(((await dopo.json()) as { unseen: number }).unseen).toBe(0);
   });
 });
 

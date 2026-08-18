@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
 import { Check, X, AlertTriangle, Info } from 'lucide-react';
 import { generateUUID } from '../../utils/uuid';
 
@@ -26,13 +26,28 @@ interface Toast {
   action?: ToastAction;
 }
 
-interface ToastContextType {
+/**
+ * DUE CONTEXT, E IL MOTIVO STA NEL COSTO.
+ *
+ * Chi manda un toast (17+ componenti, `ChatPane` compreso) e chi DISEGNA la
+ * lista sono due popoli diversi: i primi vogliono solo delle funzioni, il
+ * secondo vuole lo stato. Con un context solo il valore cambiava identità a
+ * ogni render del provider — cioè a ogni render di App, perché l'oggetto era un
+ * letterale nudo — e React sveglia OGNI consumatore quando l'identità cambia.
+ * Quel risveglio attraversa `React.memo` e la bailout di `PaneKeepAlive`, quindi
+ * arrivava dentro pane congelate e invisibili: `chatPanePropsEqual` esiste
+ * proprio per fermare quel traffico, e questo lo scavalcava.
+ *
+ * Da qui la separazione: `ToastApiContext` non cambia MAI dopo il mount (i
+ * mittenti non si ri-renderizzano più per colpa di un toast altrui), e la lista
+ * viaggia su `ToastStateContext`, che ha un solo consumatore, l'outlet.
+ */
+interface ToastApi {
   toast: (type: ToastType, message: string, duration?: number, action?: ToastAction) => void;
   success: (message: string, duration?: number, action?: ToastAction) => void;
   error: (message: string, duration?: number, action?: ToastAction) => void;
   info: (message: string, duration?: number, action?: ToastAction) => void;
   warning: (message: string, duration?: number, action?: ToastAction) => void;
-  toasts: Toast[];
   removeToast: (id: string) => void;
   /** Mounted-outlet bookkeeping. Used by the root-level fallback outlet
    *  in App.tsx so we don't double-render the same toast list when a
@@ -40,23 +55,30 @@ interface ToastContextType {
    *  non-fallback outlet to mount wins; the fallback shows up only when
    *  it has no scoped peer. */
   registerOutlet: () => () => void;
+}
+
+interface ToastState {
+  toasts: Toast[];
   scopedOutletCount: number;
 }
 
-const ToastContext = createContext<ToastContextType | null>(null);
+const ToastApiContext = createContext<ToastApi | null>(null);
+const EMPTY_STATE: ToastState = { toasts: [], scopedOutletCount: 0 };
+const ToastStateContext = createContext<ToastState>(EMPTY_STATE);
+
+/** Fuori da `<ToastProvider>` (App stessa, che è chi lo renderizza) il toast è
+ *  muto. È una COSTANTE di modulo e non un letterale nuovo a ogni chiamata: chi
+ *  mette `toast` fra le dipendenze di un `useCallback` deve poterlo fare anche
+ *  qui, senza che l'assenza del provider gli rifaccia le callback a ogni render. */
+const NO_TOAST_API: ToastApi = {
+  toast: () => {}, success: () => {}, error: () => {}, info: () => {}, warning: () => {},
+  removeToast: () => {},
+  registerOutlet: () => () => {},
+};
 
 // eslint-disable-next-line react-refresh/only-export-components -- idiomatic Context hook colocated with its ToastProvider/ToastOutlet components; splitting it out would fragment the toast module for no runtime benefit
-export function useToast(): ToastContextType {
-  const ctx = useContext(ToastContext);
-  if (!ctx) {
-    return {
-      toast: () => {}, success: () => {}, error: () => {}, info: () => {}, warning: () => {},
-      toasts: [], removeToast: () => {},
-      registerOutlet: () => () => {},
-      scopedOutletCount: 0,
-    };
-  }
-  return ctx;
+export function useToast(): ToastApi {
+  return useContext(ToastApiContext) ?? NO_TOAST_API;
 }
 
 const styles: Record<ToastType, { bg: string; icon: React.ReactNode }> = {
@@ -123,22 +145,27 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     return () => setScopedOutletCount((n) => Math.max(0, n - 1));
   }, []);
 
-  const contextValue: ToastContextType = {
+  // Le tre callback qui sopra hanno dipendenze vuote, quindi questo oggetto si
+  // costruisce UNA volta per mount e non cambia mai più: è tutta la promessa di
+  // `ToastApiContext`, e il test che la tiene è `Toast.test.ts`.
+  const api = useMemo<ToastApi>(() => ({
     toast: addToast,
     success: (msg, dur, action) => addToast('success', msg, dur, action),
     error: (msg, dur, action) => addToast('error', msg, dur || 5000, action),
     info: (msg, dur, action) => addToast('info', msg, dur, action),
     warning: (msg, dur, action) => addToast('warning', msg, dur || 4000, action),
-    toasts,
     removeToast,
     registerOutlet,
-    scopedOutletCount,
-  };
+  }), [addToast, removeToast, registerOutlet]);
+
+  const state = useMemo<ToastState>(() => ({ toasts, scopedOutletCount }), [toasts, scopedOutletCount]);
 
   return (
-    <ToastContext.Provider value={contextValue}>
-      {children}
-    </ToastContext.Provider>
+    <ToastApiContext.Provider value={api}>
+      <ToastStateContext.Provider value={state}>
+        {children}
+      </ToastStateContext.Provider>
+    </ToastApiContext.Provider>
   );
 }
 
@@ -153,7 +180,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
  * double-rendering when ProjectWindow's scoped outlet is also visible.
  */
 export function ToastOutlet({ fixed = false, fallback = false }: { fixed?: boolean; fallback?: boolean }) {
-  const { toasts, removeToast, registerOutlet, scopedOutletCount } = useToast();
+  // L'UNICO consumatore della lista. Tenerlo l'unico è il punto della
+  // separazione dei due context: se un mittente tornasse a leggere di qui, ogni
+  // toast lo sveglierebbe di nuovo.
+  const { toasts, scopedOutletCount } = useContext(ToastStateContext);
+  const { removeToast, registerOutlet } = useToast();
 
   // Only scoped (= non-fallback) outlets register. The fallback then
   // checks the count and bows out if a scoped outlet is mounted.

@@ -74,6 +74,37 @@ export function worktreeIsolationHome(baseDir: string, home: string): string | n
   return norm.startsWith(worktreesRoot) ? join(baseDir, ".topics-daemon") : null;
 }
 
+/**
+ * COSA CAMBIA NELL'AMBIENTE UN SERVER PARTITO DA UN WORKTREE.
+ *
+ * `worktreeIsolationHome` dice SE isolare; questa dice COSA spostare, e sta qui
+ * per una ragione precisa: la decisione viveva dentro `server.ts`, dove nessun
+ * test la raggiunge, ed era INCOMPLETA. Spostava la casa e la porta principale
+ * e lasciava indietro la porta del TUNNEL, che e' un numero a parte letto da
+ * `TOPICS_TUNNEL_PORT`.
+ *
+ * Il conto, misurato il 2026-08-18: un `bun run start` partito da un worktree
+ * si isolava correttamente sulla 3333 (porta effimera) e si prendeva lo stesso
+ * la 3334; la produzione e' rimasta GIU' in crash-loop per minuti, con
+ * `Failed to start server. Is port 3334 in use?` ripetuto nel log. E' la stessa
+ * «board vuota / kanban rotto» che l'isolamento esiste per impedire, entrata
+ * dalla porta di servizio.
+ *
+ * `null` come valore vuol dire «togli questa variabile». Un server isolato non
+ * ha nessuna ragione di servire il tunnel: quello e' il canale del relay verso
+ * l'installazione VERA.
+ */
+export function worktreeIsolationEnv(
+  env: Record<string, string | undefined>,
+  isoHome: string,
+): Record<string, string | null> {
+  const patch: Record<string, string | null> = {};
+  if (!env.TOPICS_HOME) patch.TOPICS_HOME = isoHome;
+  if (!env.PORT && !env.BUN_PORT) patch.PORT = "0";
+  if (env.TOPICS_TUNNEL_PORT) patch.TOPICS_TUNNEL_PORT = null;
+  return patch;
+}
+
 function statePath() { return join(topicsHome(), "daemon-state.json"); }
 function lockPath()  { return join(topicsHome(), "daemon-process.lock"); }
 function logsDir()   { return join(topicsHome(), "logs"); }

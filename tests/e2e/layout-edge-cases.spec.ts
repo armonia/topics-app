@@ -127,6 +127,29 @@ async function countTabBars(page: Page): Promise<number> {
 
 // ─── Test Data ───────────────────────────────────────────────────────────────
 
+/**
+ * Chiude una tab dal suo tasto in coda, che esiste solo mentre ci passi sopra.
+ *
+ * `PaneTabBar.tsx` lo dice in testa: «hovering the X reveals an empty "mark as
+ * done" circle, clicking it starts the 3 s L->R progress fill». Senza il passaggio
+ * del mouse quel tasto non e' mai «visible, enabled and stable», e un click ci
+ * resta appeso.
+ *
+ * Prima queste otto chiamate cliccavano e basta. Finche' `actionTimeout` era
+ * infinito il risultato era il rosso meno utile che esista, il test scaduto a 30 s
+ * senza null'altro: **tutti e sedici** i rossi di questo file nella nightly del
+ * 2026-08-15 sono quella riga, in otto test diversi, e la spec accusava il layout
+ * di un difetto che stava nel gesto.
+ *
+ * `force`: qui non si sta verificando la raggiungibilita' del tasto, si sta
+ * azionando un comando che l'hover ha appena scoperto. La verifica di cosa
+ * succede DOPO la fa l'asserzione che segue ogni chiamata.
+ */
+async function chiudiTab(tab: import("@playwright/test").Locator): Promise<void> {
+  await tab.hover({ timeout: 10_000 });
+  await tab.locator("button").last().click({ force: true, timeout: 10_000 });
+}
+
 const TS = Date.now();
 const TOPIC_NAMES = [
   `EC-Alpha-${TS}`,
@@ -339,8 +362,8 @@ test.describe("C: Grid Collapse and Resize", () => {
 
     // Close the middle panel (solo:B)
     const middleBar = page.locator('[data-testid="panel-tab-bar"]').nth(1);
-    const closeBtn = middleBar.locator('[draggable="true"]').first().locator("button").last();
-    await closeBtn.click();
+    const closeTab = middleBar.locator('[draggable="true"]').first();
+    await chiudiTab(closeTab);
 
     // After closing, should have 2 tab bars
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(2);
@@ -373,8 +396,8 @@ test.describe("C: Grid Collapse and Resize", () => {
 
     // Close the bottom panel (solo:B)
     const bottomBar = page.locator('[data-testid="panel-tab-bar"]').last();
-    const closeBtn = bottomBar.locator('[draggable="true"]').first().locator("button").last();
-    await closeBtn.click();
+    const closeTab = bottomBar.locator('[draggable="true"]').first();
+    await chiudiTab(closeTab);
 
     // After closing, no more row dividers
     await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
@@ -399,7 +422,7 @@ test.describe("C: Grid Collapse and Resize", () => {
     // Close solo panels one by one (always close the last tab bar's tab)
     for (let expectedBars = 3; expectedBars >= 1; expectedBars--) {
       const lastBar = page.locator('[data-testid="panel-tab-bar"]').last();
-      await lastBar.locator('[draggable="true"]').first().locator("button").last().click();
+      await chiudiTab(lastBar.locator('[draggable="true"]').first());
       await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(expectedBars);
     }
 
@@ -507,7 +530,7 @@ test.describe("E: Un-solo Mechanism", () => {
     const soloBar = page.locator('[data-testid="panel-tab-bar"]').last();
     const soloTab = soloBar.locator('[draggable="true"]').first();
     await expect(soloTab).toBeVisible({ timeout: 3000 });
-    await soloTab.locator("button").last().click();
+    await chiudiTab(soloTab);
 
     // After closing the solo panel, should collapse to 1 tab bar
     // The topic A is removed from openPanels, leaving only B in standalone
@@ -599,7 +622,7 @@ test.describe("F: Cross-Position Operations", () => {
 
     // Close the solo panel's tab
     const soloBar = page.locator('[data-testid="panel-tab-bar"]').last();
-    await soloBar.locator('[draggable="true"]').first().locator("button").last().click();
+    await chiudiTab(soloBar.locator('[draggable="true"]').first());
 
     // Solo panel should disappear
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
@@ -653,7 +676,7 @@ test.describe("G: Persistence Edge Cases", () => {
 
     // Close solo panel
     const soloBar = page.locator('[data-testid="panel-tab-bar"]').last();
-    await soloBar.locator('[draggable="true"]').first().locator("button").last().click();
+    await chiudiTab(soloBar.locator('[draggable="true"]').first());
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
 
     // Reload
@@ -681,7 +704,7 @@ test.describe("G: Persistence Edge Cases", () => {
 
     // 2. Close the split (solo:B)
     const soloBar = page.locator('[data-testid="panel-tab-bar"]').last();
-    await soloBar.locator('[draggable="true"]').first().locator("button").last().click();
+    await chiudiTab(soloBar.locator('[draggable="true"]').first());
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
 
     // 3. Re-split via context menu — standalone still has A and C
@@ -817,9 +840,9 @@ test.describe("I: Full Lifecycle Regression", () => {
     const currentBars = await countTabBars(page);
     if (currentBars > 1) {
       const lastBar = page.locator('[data-testid="panel-tab-bar"]').last();
-      const lastTabClose = lastBar.locator('[draggable="true"]').first().locator("button").last();
+      const lastTabClose = lastBar.locator('[draggable="true"]').first();
       if (await lastTabClose.isVisible().catch(() => false)) {
-        await lastTabClose.click();
+        await chiudiTab(lastTabClose);
         await expect.poll(() => countTabBars(page), { timeout: 8000 }).toBeLessThan(currentBars);
       }
     }

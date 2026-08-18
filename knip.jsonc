@@ -37,7 +37,16 @@
         "server.ts",
         "server/ai-bridge.mjs!", // spawned as a detached daemon
         "server/pty-bridge.mjs!", // idem
+        "server/lib/serial-queue-survivor.ts!", // spawned as a child process by serial-queue.test.ts
         "cli/topics.ts!", // the `topics` CLI binary
+        // Il Worker del relay: è il `main` di `relay/wrangler.jsonc`, cioè
+        // codice che sta IN PRODUZIONE su Cloudflare. Knip ha un plugin
+        // `wrangler` che leggerebbe quel `main` da solo, e qui non si accende
+        // per due motivi indipendenti: si abilita solo se `wrangler` è una
+        // dipendenza dichiarata (il deploy usa `bunx wrangler@latest`, quindi
+        // non lo è) e cerca il config nella RADICE del workspace, dove sta
+        // l'altro `wrangler.jsonc` — quello del sito. Scritto a mano, allora.
+        "relay/src/worker.ts!",
         // Entrypoints are invoked as `bun <path>`, never imported, so knip
         // can't reach them — but the `!` must be NARROW. A blanket
         // `scripts/**/*.ts!` amnestied the whole folder: any dead script there
@@ -46,6 +55,12 @@
         // entrypoints and let everything else in `scripts/` be checked.
         "scripts/check-*.ts!",            // wired to package.json / CI
         "scripts/typecheck-*.ts!",
+        // I banchi: uno per asse, si lanciano a mano (`bun run bench` li chiama
+        // tutti, ma ognuno vive anche da solo) e nessuno li importa, quindi per
+        // knip sarebbero file morti. Stessa forma delle due famiglie qui sopra e
+        // altrettanto stretta: `scripts/bench/*.ts` e non `scripts/**`, così un
+        // file morto dentro bench/ resta visibile.
+        "scripts/bench/*.ts!",
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",
@@ -73,6 +88,10 @@
         // (o da un cron) e non la importa nessuno tranne il suo test.
         "scripts/stalled-parents.ts!",
         "scripts/effort-variance.ts!",
+        // `bun run scripts/mem-report.ts [--json]` — dove stanno i megabyte che
+        // la status bar riassume in due numeri: si lancia a mano quando uno dei
+        // due sembra alto, legge e basta, nessuno lo importa.
+        "scripts/mem-report.ts!",
         // Il banco del freno del dispatch: `bun run scripts/dispatch-brake-bench.ts
         // [--warmup=60] [--json=<path>]`. Carica la macchina due volte (carico
         // altrui fuori dal nostro albero di processi, carico nostro dentro) e
@@ -176,15 +195,52 @@
         "server/**/*.fixture.ts!",
         "server/**/*.test.ts",
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
-        "tests/**/*.{test,spec}.ts"
+        "relay/*.test.ts",     // idem, via `./relay` in `test:unit`
+        "cli/**/*.test.ts",    // idem, via `./cli` in `test:unit`
+        "tests/**/*.{test,spec}.ts",
+        // UN BANCO DI PROVA CHE SI LANCIA COME PROCESSO, non si importa.
+        //
+        // `files.git-commit-identity.test.ts` deve mettersi nella condizione
+        // del runner (nessun `~/.gitconfig`), e `Bun.spawn` passa al figlio
+        // l'ambiente FOTOGRAFATO all'avvio, non `process.env` di adesso:
+        // ripulire l'ambiente e chiamare la route in-process non tocca il git
+        // che la route lancia, e il banco passa anche col fix rimosso
+        // (misurato il 16/08, prima versione di quel test). Da qui l'harness,
+        // lanciato come processo separato con l'ambiente pulito dalla nascita.
+        //
+        // Il test lo raggiunge con un percorso costruito a runtime
+        // (`join(import.meta.dir, ...)`), che knip non puo' seguire: senza
+        // questa riga risulta «file morto» e tiene rosso il cancello per
+        // tutti. Il `!` dice «e' un entrypoint anche se nessuno lo importa».
+        "server/routes/files.git-commit-harness.ts!"
       ],
       "project": [
         "server/**/*.{ts,mjs}",
         "shared/**/*.ts",
         "cli/**/*.ts",
         "scripts/**/*.ts",
+        // `relay/` è un Worker DEPLOYATO, e fino al 15/08/2026 stava fuori da
+        // qui, fuori da ogni tsconfig e fuori da eslint: 1.703 righe in
+        // produzione senza un cancello che le guardasse. Un export morto lì
+        // dentro non aveva modo di risultare morto.
+        "relay/**/*.ts",
         "server.ts"
       ],
+      // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
+      // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
+      // CI gira su 20, le macchine che scrivono le spec su 25). Knip non arriva a
+      // vederlo: gli `entry` includono `tests/**/*.{test,spec}.ts`, ma il suo
+      // risolutore attribuisce le dipendenze solo ai file di `project`, e provate
+      // tutte e tre le forme — `tests/**/*.ts`, `tests/e2e/helpers/**/*.ts`,
+      // quest'ultima piu' `tests/e2e/*.spec.ts` — la riga «Unused devDependencies»
+      // non si e' mossa, mentre le prime due aggiungevano falsi positivi
+      // (`global-setup.ts` e `global-teardown.ts` li monta playwright.config.ts,
+      // non un import, quindi risultavano «file morti»).
+      // Quindi qui: non e' una dipendenza morta nascosta, e' un limite del tool
+      // scritto con la prova. Se un giorno knip la vede, questa riga va tolta e
+      // il cancello resta verde da solo.
+      "ignoreDependencies": ["ws", "@types/ws"],
+
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec
       // e2e risultava morto, e chi leggeva il report doveva verificarli a mano
@@ -221,7 +277,10 @@
   // sotto Bun; sta qui accanto a `git`, `cp`, `lsof` e `ps`, che le altre spec
   // spawnano per la stessa ragione. È preinstallato sia su macOS sia sull'immagine
   // ubuntu-latest che esegue il job `e2e`.
-  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg"],
+  // `vm_stat` e' la sonda della memoria disponibile del pavimento sul dispatch
+  // (server/services/dispatch-capacity.ts): esiste solo su macOS e li' e' di
+  // sistema, quindi non e' una dipendenza da dichiarare da nessuna parte.
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

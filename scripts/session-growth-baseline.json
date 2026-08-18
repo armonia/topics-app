@@ -1,0 +1,76 @@
+{
+  "$schema": "session-growth-baseline-v1",
+  "surface": "chat panes, tab switching and streamed messages",
+  "recorded": true,
+  "updated": "2026-08-15",
+  "why": [
+    "The goal asks for no meaningful progressive heap, DOM node, listener or process growth during long sessions, and this app IS a long session: it is left open for days while panes are opened and closed, topics are switched and messages stream in. Every other gate in this repo takes ONE sample (bundle bytes at build time, the latency of one gesture, the frames of one scroll), and a leak is invisible to all of them by construction, because a leak is a derivative.",
+    "The bar is a RATIO between cycle 5 and cycle 50, not an absolute number. An absolute megabyte figure is a fact about the machine that took it and would have to be refitted on every laptop and every runner; a ratio is a fact about the code. Cycle 5 and not cycle 1 because the first cycles are warm-up (lazy chunks, first paint of each pane type, caches filling), and measuring against cycle 1 would call warm-up a leak.",
+    "The bench is tests/e2e/long-session-growth.spec.ts, the judge is scripts/check-session-growth.ts. Heap and listeners come from CDP (`Performance.getMetrics` after `HeapProfiler.collectGarbage`), DOM nodes from `document.getElementsByTagName('*').length` in the page, so the headline number is one anybody can reproduce in a console."
+  ],
+  "recorded_why": "`recorded: false` means NO measurement has ever been taken on any machine, so the ratios in `budget` are a reading of the goal and not of this app. While it is false the gate exits 2 (not measurable) instead of green: a budget that has never seen a real number cannot tell 'the app is flat' from 'the bench measured nothing'. ATTEMPTED 2026-08-15 on an idle machine and the BENCH ITSELF is what failed, not the app: `bun run check:growth -- --update-baseline` ran 41 minutes without writing a sample, and cutting it to TOPICS_GROWTH_CYCLES=6 still hung past 10 minutes, so the stall is in one cycle and not in the cycle count. The two steps the author flagged as unverified are the suspects, in this order: the pane close is a 3 s SOFT CONFIRM (client/src/components/Layout/PaneTabBar.tsx) and the reopen goes through the command palette's 'recently closed', so a cycle that misses either waits on a locator that will never appear. Fix the harness first, one cycle at a time with --reporter=line and no pipe (a piped reporter hides the per-step progress that would name the stuck locator), then record. The sibling gate `check:drag` WAS recorded the same day and is armed, so the shape of this pair is proven; it is this bench's DOM choreography that is not.",
+  "protocol": {
+    "cycles": 50,
+    "baseline_cycle": 5,
+    "final_cycle": 50,
+    "burst_per_cycle": 2,
+    "cycle": "switch to B, back to A, close B and reopen it from the command palette, stream a burst into A",
+    "gc": "HeapProfiler.collectGarbage before every sample"
+  },
+  "known_growth": "MISURATO, e corregge quello che questa riga diceva prima. Il banco streama 2 messaggi per ciclo in A, 100 su una corsa piena, e quelli il prodotto DEVE tenerli. La versione precedente aggiungeva pero' «e il DOM non cresce con loro perche' il transcript e' virtualizzato», ed e' FALSO: misurato il 2026-08-15 con una sonda che rifa lo stesso ciclo SENZA il burst, 22 cicli di apri/chiudi/cambia lasciano il DOM a 414 nodi esatti, zero crescita; con il burst gli stessi 22 cicli vanno da 510 a 635, +125. Tutta la crescita del DOM viene dai messaggi, non dal ciclo di vita delle pane. La ripartizione lo nomina: gli attributi degli item di react-virtuoso (data-index, data-item-index, data-known-size, data-role) passano da 8 a 23, cioe' il virtualizzatore tiene montati piu' item man mano che la lista cresce, a viewport identica: 8 item con 7 messaggi, 23 con 51. Non e' una perdita, ed e' comunque una domanda aperta sulle prestazioni: una finestra di render COSTANTE lascerebbe il DOM piatto.",
+  "measured": {
+    "heap": 1.356,
+    "dom_nodes": 1.181,
+    "listeners": 1.09,
+    "retained_nodes": 1.128,
+    "first_heap_bytes": 13345928,
+    "first_dom_nodes": 558,
+    "first_listeners": 546
+  },
+  "budget": {
+    "_": "Maximum ratio of the cycle-50 sample over the cycle-5 sample. 1.00 means perfectly flat. Until `recorded` is true these are a reading of the goal, not a measurement.",
+    "heap": 1.51,
+    "dom_nodes": 1.3,
+    "listeners": 1.2
+  },
+  "budget_why": {
+    "heap": "1.51, and the honest reading is that this is a ceiling ABOVE what the app does, not a description of a flat app. First real run (2026-08-15, 50 cycles, Mac14,6): heap went 13.35 MB -> 18.1 MB, ratio 1.356. Part of that is legitimate and named in `known_growth` (the bench streams 100 messages into a transcript the app is supposed to keep) and part is V8 keeping arenas warm after a forced collection. The budget sits above the measurement with room for machine-to-machine spread, so what it catches from here is a REGRESSION, not today's state.",
+    "dom_nodes": "1,30, con DUE misure sotto (x1,181 su questo Mac, x1,229 sul runner Linux) invece di una: il primo tentativo, 1,21, era tarato sul solo numero locale ed e' uscito rosso su CI al primo giro. COSA MISURA DAVVERO, corretto dopo averlo falsificato: non una perdita. Una sonda che rifa lo stesso ciclo senza streamare messaggi lascia il DOM identico su 22 cicli (414 -> 414); tutta la crescita viene dai 100 messaggi che il banco stesso inietta, e sono item che react-virtuoso tiene montati. Quindi questo numero e' un tetto sulla RESIDENZA DEL VIRTUALIZZATORE sotto un transcript che cresce, non su un sottoalbero orfano. Resta utile e resta armato: se un giorno una pane smette di smontarsi, il rapporto sale comunque e questo lo prende. Ma la frase «un sottoalbero e' sopravvissuto al suo proprietario» qui non descrive quello che succede oggi.",
+    "listeners": "1,20, misurato x1,09 qui e x1,11 sul runner. Stessa correzione del DOM: la crescita segue i messaggi streamati, non il ciclo di vita delle pane, perche' piu' item montati vogliono dire piu' listener. Resta la metrica che coglierebbe la perdita classica di React — un effetto che si sottoscrive e la cui cleanup ha smesso di girare — perche' i listener non calano da soli; semplicemente oggi non e' quello che sta vedendo. Il suo posto, con una finestra di render costante, sarebbe 1,05.",
+    "_debito": "Le tre righe sopra descrivono una perdita MISURATA, non un'app piatta. Il cancello e' armato per fermare il peggioramento, non per dire che va bene. Prova collaterale presa lo stesso giorno sulla app spedita: il processo WebContent di Topics.app passa da 158,3 MB appena aperta a 233,8 MB dopo 7h41m, +48%, mentre server e ponte PTY non si muovono di un megabyte. La perdita e' nel renderer, e questi sono i primi numeri che la inquadrano."
+  },
+  "guards": {
+    "_": "Not quality thresholds: the conditions under which the ratio MEANS anything. Outside them the gate exits 2 instead of a red that speaks about the bench rather than the product.",
+    "cycles_completed_floor": 40,
+    "panes_reopened_floor": 40,
+    "messages_streamed_floor": 80,
+    "first_heap_bytes_floor": 5000000,
+    "first_dom_nodes_floor": 300,
+    "witness_why": "A ratio is a fraction, and both halves can lie. If the run stopped after five cycles the ratio is 1.00 and means nothing, so the cycle counters have floors. If the denominator is tiny (a page that never loaded, a heap reading of a few hundred kilobytes) then any noise becomes a huge ratio, so the first sample has floors too. `gc_forced` must be true: without a forced collection the heap number is whatever V8 had not bothered to reclaim, which moves by tens of megabytes between two identical states."
+  },
+  "update_rule": {
+    "_": "How `--update-baseline` recomputes the budgets. The margin is ADDED, not multiplied: these are ratios near 1, and multiplying 1.02 by two would write a budget of 2.04, which is not a budget. The FLOOR keeps a perfectly flat measurement from writing a budget of 1.00 that ordinary noise would break.",
+    "heap": {
+      "floor": 1.35,
+      "margin": 0.15
+    },
+    "dom_nodes": {
+      "floor": 1.05,
+      "margin": 0.03
+    },
+    "listeners": {
+      "floor": 1.05,
+      "margin": 0.03
+    }
+  },
+  "how_to_see_it_red": "TOPICS_GROWTH_LEAK_NODES=120 bun run check:growth. It appends 120 retained nodes, listeners and payload strings per cycle, held by a global array so a forced collection cannot reclaim them: a real leak of exactly the shape this bench claims to catch, moving all three metrics at once. Lowering the budget instead would only prove that a comparison operator works.",
+  "measured_second_machine": {
+    "_": "Seconda misura, presa dal runner Linux della CI il 2026-08-15 (ubuntu-latest, chromium headless). Serve perche' un budget tarato su UNA macchina e' una congettura: il primo giro su CI ha misurato dom x1.229 contro il x1.181 di questo Mac, e con il budget a 1.21 - scelto sul solo numero locale - il cancello e' uscito rosso su una variazione che e' del banco, non del prodotto.",
+    "machine": "ubuntu-latest (GitHub Actions), chromium headless",
+    "heap": 1.35,
+    "dom_nodes": 1.229,
+    "listeners": 1.11,
+    "first_dom_nodes": 564,
+    "first_listeners": 546
+  }
+}

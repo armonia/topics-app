@@ -16,23 +16,13 @@ import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjec
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-copytask-${Date.now()}`;
 
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const TITOLO = "Rifare la scheda prodotto";
@@ -128,21 +118,42 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
 
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
-    const copia = drawer.getByTestId("task-copy-text");
-    await expect(copia).toBeVisible();
+    // Da agosto 2026 «Copia il task» non è più un'icona nella testata: sta nel
+    // menu ⋯, col suo nome scritto. La testata ne teneva sette senza parole, e
+    // questo è uno dei due gesti che nessuno fa MENTRE decide su una scheda.
+    await drawer.getByTestId("task-options-menu").click();
+    const copia = page.getByTestId("task-copy-text");
+    await expect(copia).toBeVisible({ timeout: 5000 });
     await beat(page, 1800);
 
     await copia.click();
     expect(await clipboard(page)).toBe(ATTESO);
+    await beat(page, 1500);
 
-    // La spunta è la sola cosa che l'utente vede: c'è, e poi se ne va da sola.
-    await expect(copia.locator("svg.text-emerald-400")).toBeVisible({ timeout: 2000 });
-    await beat(page, 1800);
-    await expect(copia.locator("svg.text-emerald-400")).toHaveCount(0, { timeout: 4000 });
+    // E il LINK: non è più il gemello a catena qui accanto, è dentro il
+    // pannello di condivisione — un posto solo per «dammi il link».
+    await drawer.getByTestId("share-control").click();
+    const link = page.getByTestId("share-copy-link");
+    await expect(link).toBeVisible({ timeout: 5000 });
 
-    // Il vicino «Copia link» non è stato mangiato: copia ancora un URL, non il testo.
-    await drawer.getByTestId("task-copy-link").click();
+    // IL PANNELLO NON DEVE ESSERE RITAGLIATO. Share non era rotta, era tagliata:
+    // un `absolute` dentro una testata `overflow-hidden`, quindi si vedeva alta
+    // 41px (ffca1289). `toBeVisible` da solo NON lo prende - un elemento alto
+    // 41px con dentro tre voci e' visibile per Playwright ed e' inservibile per
+    // una persona. Serve misurare l'altezza VERA e il ritaglio del contenitore.
+    const pannello = page.getByTestId("share-panel");
+    const box = await pannello.boundingBox();
+    expect(box, "il pannello di condivisione deve avere una geometria").not.toBeNull();
+    expect(box!.height, "un pannello alto 41px e' il difetto originale").toBeGreaterThan(80);
+    // E dev'essere DENTRO la finestra: un pannello che esce dal bordo e' tagliato
+    // dallo schermo invece che da un overflow, con lo stesso esito per chi guarda.
+    const vp = page.viewportSize()!;
+    expect(box!.y + box!.height, "il pannello deve stare dentro la finestra").toBeLessThanOrEqual(vp.height + 1);
+    expect(box!.x, "…e non sbordare a sinistra").toBeGreaterThanOrEqual(-1);
+    await link.click();
     expect(await clipboard(page)).toContain(`/task/${task.id}`);
+    // La spunta è la sola cosa che l'utente vede: c'è, e poi se ne va da sola.
+    await expect(link.locator("svg.text-green-500")).toBeVisible({ timeout: 2000 });
     await beat(page, 1500);
   });
 

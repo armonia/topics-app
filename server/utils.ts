@@ -8,7 +8,7 @@ import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
 import type {
   WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
-  ActiveStream, ErrorResponseOptions, AppContext, Project,
+  ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts,
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
@@ -23,14 +23,16 @@ import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-tr
 import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
-import { createWorktreeManager } from "./services/worktree-manager";
+import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "../shared/tool-call-detail";
+import { shouldCompressFrame } from "./lib/ws-compression";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
 import { releaseHumanHold } from "./lib/human-hold";
 import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
+import { imageShape } from "./services/image-shape";
 
 /**
  * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
@@ -221,22 +223,96 @@ export function createAppContext(baseDir: string): AppContext {
 
     // Messages
     getMessages: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order ASC`),
+    /**
+     * Like `getMessages`, minus the TWO fat columns: `blocks` and `tool_calls`.
+     *
+     * It exists for context assembly, which runs on EVERY turn of every agent
+     * and reads only role/content/partial/id off the thread (the comment above
+     * the call in `server/context/assemble.ts` says so). Those two columns are
+     * 98% of the table: 353 MB and 220 MB against 13 MB of message text, on this
+     * machine's database as of 2026-08-14.
+     *
+     * Measured on a copy of that database, topic 6b99e9cf, 118 rows (4.11 MB of
+     * `tool_calls` and 7.17 MB of `blocks`), median of 7 runs:
+     *
+     *   SELECT *                                 6.1 ms
+     *   SELECT * plus JSON.parse of tool_calls  14.5 ms   <- what was being paid
+     *   SELECT without blocks/tool_calls         0.5 ms
+     *
+     * `withBlocks: false` on its own skipped the parse of `blocks` but not the
+     * one of `tool_calls`, so half the cost stayed, and the bytes of both came
+     * over from SQLite regardless. Here they never leave the table.
+     */
+    getMessagesLean: db.prepare(
+      `SELECT id, session_key, role, content, thinking, media, partial, streamed_at,
+              plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms,
+              usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
+              cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
+              author_device_id
+       FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
+    ),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     /**
      * Come `getLastMessage`, ma SENZA la colonna `blocks`.
      *
-     * I mutatori dei tool call leggono e riscrivono solo `tool_calls`: con
+     * I due mutatori caldi dei tool call — `addToolCallToLastMessage` e
+     * `updateToolCallResult` — leggono e riscrivono solo `tool_calls`: con
      * `SELECT *` il messaggio in corso viaggia dal DB con la timeline intera
      * appresso — su un turno lungo è ~1,3 MB per evento di tool, letti e
-     * immediatamente scartati. Le colonne qui sono esattamente quelle che quei tre
+     * immediatamente scartati. Le colonne qui sono esattamente quelle che quei due
      * mutatori leggono o riscrivono.
      */
-    // `blocks` c'è perché `updateToolCallFields` deve patchare ANCHE quelli:
-    // quando un messaggio ha blocchi, chi disegna legge quelli e ignora
-    // `tool_calls`. Senza questa colonna nella SELECT la patch ai blocchi
-    // sarebbe partita su un `undefined` e non avrebbe scritto niente — un
-    // aggiornamento che gira, non fallisce, e non si vede.
-    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    /**
+     * La variante CON `blocks`, per il solo `updateToolCallFields`.
+     *
+     * `blocks` serve lì e solo lì: quando un messaggio ha blocchi, chi disegna
+     * legge quelli e ignora `tool_calls`, quindi la patch deve toccare entrambe
+     * le colonne. Senza questa SELECT la patch ai blocchi partirebbe su un
+     * `undefined` e non scriverebbe niente — un aggiornamento che gira, non
+     * fallisce, e non si vede (visto il 7 agosto: tre chiamate ferme in attesa
+     * di un permesso, il piede della chat che lo diceva, e NESSUN pannello).
+     *
+     * È separata dalla statement qui sopra perché le frequenze non c'entrano
+     * niente l'una con l'altra: `updateToolCallFields` gira quando un tool si
+     * ferma a chiedere qualcosa a una persona (unità per turno, se va bene),
+     * gli altri due a ogni start e a ogni risultato (decine). Far pagare a
+     * questi ultimi la timeline intera era il grosso del costo per evento.
+     */
+    getLastMessageForToolFields: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    /**
+     * Per `updateLastMessage`: SOLO ciò che quella funzione riscrive.
+     *
+     * Né `blocks` né `tool_calls`. `updateLastMessage` non li legge mai — scrive
+     * `tool_calls` unicamente quando il chiamante glielo passa, e `blocks` passa
+     * per `metaParams(updates)`, cioè dal chiamante e basta — eppure con
+     * `SELECT *` si portava dal DB le due colonne più pesanti della tabella a
+     * ogni scrittura del corpo del turno.
+     *
+     * Al posto loro due sonde: la riga ha tool call? ha blocchi? Servono a
+     * `discardIfEmptyTurn`, che deve poter distinguere un segnaposto vuoto da un
+     * turno che ha prodotto SOLO tool o SOLO blocchi — cancellare quello sarebbe
+     * perdita di dati. La domanda è booleana, e si risponde in SQL invece di
+     * trascinare megabyte fin qui per farne un `length > 0`.
+     *
+     * `'[]'` e `'null'` contano come vuote, come in `hasItems`
+     * (shared/empty-turn.ts). Una colonna con dentro qualcos'altro conta come
+     * piena: nel dubbio si tiene la riga, non si cancella.
+     */
+    getLastMessageForBodyUpdate: db.prepare(
+      `SELECT id, session_key, role, content, thinking, media, partial, streamed_at,
+              plan_status, timestamp, parent_id, branch_index, latency_ms,
+              usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
+              cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
+              author_device_id
+       FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`,
+    ),
+    /** Le due sonde di `getLastMessageForBodyUpdate`, per id. Vedi `discardIfEmptyTurn`. */
+    messageBodyPresence: db.prepare(
+      `SELECT CASE WHEN tool_calls IS NULL OR tool_calls IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_tool_calls,
+              CASE WHEN blocks     IS NULL OR blocks     IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_blocks
+       FROM messages WHERE id = ?`,
+    ),
     getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
@@ -475,9 +551,16 @@ export function createAppContext(baseDir: string): AppContext {
    * turno, sul thread unico di Bun — e la chat si impunta a scatti proprio quando
    * l'agente sta lavorando di più.
    *
-   * Default `true`: nessun altro chiamante cambia comportamento.
+   * `withToolCalls: false` fa lo stesso per `tool_calls`. Finora quel parse era
+   * INCONDIZIONATO: chi passava `withBlocks: false` — cioè chi ha dichiarato di
+   * non voler nemmeno il grosso — si ritrovava comunque il secondo parse addosso,
+   * e sui turni agentici `tool_calls` è la seconda colonna più pesante della
+   * tabella. Ora la scelta è simmetrica, e chi legge dalle statement magre (che
+   * la colonna non la chiedono nemmeno) non paga niente in ogni caso.
+   *
+   * Default `true` per entrambe: nessun altro chiamante cambia comportamento.
    */
-  function rowToMessage(row: any, opts?: { withBlocks?: boolean }): StoredMessage {
+  function rowToMessage(row: any, opts?: { withBlocks?: boolean; withToolCalls?: boolean }): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
       role: row.role,
@@ -485,7 +568,7 @@ export function createAppContext(baseDir: string): AppContext {
       timestamp: row.timestamp,
     };
     if (row.thinking) msg.thinking = row.thinking;
-    if (row.tool_calls) {
+    if (row.tool_calls && opts?.withToolCalls !== false) {
       try {
         const parsed = JSON.parse(row.tool_calls);
         msg.toolCalls = Array.isArray(parsed)
@@ -573,6 +656,29 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Broadcast helpers ---
+  /**
+   * One frame out on one socket, compressed only when it is worth it.
+   *
+   * Every fan-out below used to call `ws.send(payload)` inside its own
+   * try/catch, six copies of the same three lines. They are one function now
+   * because the compression decision has to be made in ONE place: six copies of
+   * a rule are five chances for it to drift, and the one that drifts is always
+   * the least used path.
+   *
+   * The decision itself lives in `server/lib/ws-compression.ts`, with the
+   * measurements behind it. In short: compress toward a peer with a network in
+   * between, leave everything under one MTU alone (which is what keeps every
+   * keystroke of a terminal off the compressor), and never touch a screencast
+   * frame, which is base64 of an already compressed JPEG.
+   */
+  function sendFrame(ws: ServerWebSocket<WSData>, payload: string, type: string): void {
+    try {
+      ws.send(payload, shouldCompressFrame({ type, bytes: payload.length, remote: ws.data.remote === true }));
+    } catch (err) {
+      console.error(`[WS] Send error to ${ws.data.id}:`, err);
+    }
+  }
+
   function broadcast(message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
@@ -591,9 +697,7 @@ export function createAppContext(baseDir: string): AppContext {
     for (const ws of wsClients) {
       if (ws !== exclude && ws.readyState === 1) {
         if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
-        try { ws.send(payload); } catch (err) {
-          console.error(`[WS] Send error to ${ws.data.id}:`, err);
-        }
+        sendFrame(ws, payload, message.type);
       }
     }
   }
@@ -627,9 +731,7 @@ export function createAppContext(baseDir: string): AppContext {
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
       if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
     // Trigger push notifications for meaningful events
     try { maybeSendPush(message as Record<string, any>); } catch (err) {
@@ -695,9 +797,7 @@ export function createAppContext(baseDir: string): AppContext {
         payload = JSON.stringify(message);
         serializzati.set(message.type, payload);
       }
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
   }
 
@@ -715,9 +815,7 @@ export function createAppContext(baseDir: string): AppContext {
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
       if (ws.readyState !== 1 || ws.data.deviceId !== deviceId) continue;
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
   }
 
@@ -750,9 +848,7 @@ export function createAppContext(baseDir: string): AppContext {
         // Qui l'entità è l'argomento, non un campo del frame: si chiede il
         // permesso sul TOPIC, che è la cosa che si sta per consegnare.
         if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
-        try { ws.send(payload); } catch (err) {
-          console.error(`[WS] Send error to ${ws.data.id}:`, err);
-        }
+        sendFrame(ws, payload, message.type);
       }
     }
   }
@@ -778,9 +874,7 @@ export function createAppContext(baseDir: string): AppContext {
       // gli scorreva addosso mentre l'allowlist dei frame guardava altrove.
       if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
       if (!clientReceivesTopicDelta(ws.data, topicId)) continue;
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
   }
 
@@ -791,9 +885,17 @@ export function createAppContext(baseDir: string): AppContext {
   // async git materialise step transitions a row from `pending` → `ready|error`.
   const projectStore = createProjectStore(db);
   const worktreeStore = createWorktreeStore(db);
+  // Le gcDeps sono closure deliberate: processes.ts nasce DOPO il manager,
+  // e queste funzioni vengono lette ALLA CHIAMATA, non alla costruzione.
+  // Lo stesso schema usato per previewManager in worktree-gc-runner.ts.
+  const _worktreeGcDeps: WorktreeManagerGcDeps = {
+    killTree: undefined,   // iniettato da server.ts dopo createProcessesRouter
+    listOwnedScripts: undefined, // idem
+  };
   const worktreeManager = createWorktreeManager(
     { broadcastToAll } as AppContext,
     { projectStore, worktreeStore },
+    _worktreeGcDeps,
   );
   // Phase D — machines (heartbeat ticker is wired in server.ts).
   const machineStore = createMachineStore(db, baseDir);
@@ -960,9 +1062,12 @@ export function createAppContext(baseDir: string): AppContext {
    * Walk the message tree following active branch selections.
    * Returns a linear thread representing the currently active conversation path.
    */
-  function loadActiveThread(sessionKey: string, opts?: { withBlocks?: boolean }): StoredMessage[] {
-    // Get all messages for this session
-    const allRows = stmts.getMessages.all(sessionKey) as any[];
+  function loadActiveThread(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
+    // Get all messages for this session. A caller that wants neither the blocks
+    // nor the tool calls gets the lean read: those two columns are never asked
+    // of SQLite at all, instead of arriving only to be thrown away.
+    const lean = opts?.withBlocks === false && opts?.withToolCalls === false;
+    const allRows = (lean ? stmts.getMessagesLean : stmts.getMessages).all(sessionKey) as any[];
     if (allRows.length === 0) return [];
 
     // Build parent→children map
@@ -1039,13 +1144,20 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   /**
-   * `opts.withBlocks: false` carica il ramo attivo SENZA idratare la timeline
-   * `blocks` — un `JSON.parse` di ~1,3 MB per messaggio agentico, buttato via
-   * dai consumatori che leggono solo role/content/partial/id (assemblaggio del
-   * contesto, ultima frase dell'agente). Default `true`: chi renderizza la chat
-   * ha bisogno dei blocchi.
+   * `opts.withBlocks: false` loads the active branch WITHOUT hydrating the
+   * `blocks` timeline: a `JSON.parse` of roughly 1.3 MB per agentic message,
+   * thrown away by consumers that read only role/content/partial/id (context
+   * assembly, the agent's last sentence). Defaults to `true`, because whoever
+   * renders the chat does need the blocks.
+   *
+   * `opts.withToolCalls: false` does the same for `tool_calls`, and it is the
+   * half that was missing: a caller that skips the blocks almost never reads the
+   * tool calls, yet paid for them anyway. On the heaviest topic of this machine
+   * that is 4.11 MB of JSON parsed and discarded on every turn. With BOTH set to
+   * `false` the two columns are not even requested from SQLite
+   * (`getMessagesLean`), and 14.5 ms become 0.5.
    */
-  function loadLocalMessages(sessionKey: string, opts?: { withBlocks?: boolean }): StoredMessage[] {
+  function loadLocalMessages(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
     return loadActiveThread(sessionKey, opts);
   }
 
@@ -1111,8 +1223,12 @@ export function createAppContext(baseDir: string): AppContext {
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
   ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
-    // Find the last message in the active thread to set as parent
-    const activeThread = loadActiveThread(sessionKey);
+    // Find the last message in the active thread to set as parent.
+    // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
+    // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
+    // JSON — e la paga OGNI riga scritta, cioè ogni prompt umano e ogni
+    // segnaposto assistente aperto a inizio turno.
+    const activeThread = loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false });
     const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
     const parentId = lastMsg?.id || null;
     const stored: StoredMessage = {
@@ -1180,8 +1296,12 @@ export function createAppContext(baseDir: string): AppContext {
 
   function createPartialMessage(sessionKey: string, role: "user" | "assistant"): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
-    // Find the last message in the active thread to set as parent
-    const activeThread = loadActiveThread(sessionKey);
+    // Find the last message in the active thread to set as parent.
+    // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
+    // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
+    // JSON — e la paga OGNI riga scritta, cioè ogni prompt umano e ogni
+    // segnaposto assistente aperto a inizio turno.
+    const activeThread = loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false });
     const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
     const parentId = lastMsg?.id || null;
     const stored: StoredMessage = {
@@ -1246,28 +1366,22 @@ export function createAppContext(baseDir: string): AppContext {
     return { ...createPartialMessage(sessionKey, "assistant"), reusedBody: false };
   }
 
-  /** Get the last message in the active thread (or by sort_order as fallback for streaming). */
-  function getLastActiveMessage(sessionKey: string): any | null {
-    // During streaming, the last message by sort_order is the partial assistant message
-    // which is always the correct one to update.
-    return stmts.getLastMessage.get(sessionKey) as any;
-  }
-
   function updateLastMessage(sessionKey: string, updates: Partial<StoredMessage>): StoredMessage | null {
-    const row = getLastActiveMessage(sessionKey);
+    // Lettura magra: `blocks` e `tool_calls` non arrivano nemmeno da SQLite.
+    // Questa funzione non li legge — riscrive `tool_calls` solo se glielo passa
+    // il chiamante, e `blocks` passa da `metaParams(updates)`, cioè sempre dal
+    // chiamante — ma con `SELECT *` se li portava dietro comunque, a ogni
+    // salvataggio periodico e a ogni finalizzazione. Sul DB vero sono decine di
+    // KB per riga, e su un turno agentico lungo arrivano ai megabyte.
+    //
+    // Il valore di ritorno finisce in `discardIfEmptyTurn`, che senza quelle due
+    // colonne prenderebbe per vuoto un turno fatto di SOLI tool o SOLI blocchi e
+    // lo cancellerebbe. Le colonne non gli servono: gli serve sapere se ci sono,
+    // e quello se lo chiede lui con `messageBodyPresence`.
+    const row = stmts.getLastMessageForBodyUpdate.get(sessionKey) as any;
     if (!row) return null;
-    // Salta il parse di `blocks` (il grosso del costo — ~1,3 MB di JSON sul
-    // turno peggiore, letto e buttato via a ogni evento di tool). Il valore di
-    // ritorno finisce in `discardIfEmptyTurn`, che cancella la riga se il turno
-    // è vuoto e — via `isEmptyAssistantTurn` — guarda anche `blocks`. Per non
-    // far passare per vuoto un turno di SOLI blocchi (perdita di dati)
-    // portiamo la STRINGA grezza della colonna: `AssistantTurnShape` accetta
-    // `blocks` come stringa JSON e la valuta senza che noi la si parsi.
-    const msg = rowToMessage(row, { withBlocks: false });
+    const msg = rowToMessage(row, { withBlocks: false, withToolCalls: false });
     Object.assign(msg, updates);
-    if (!('blocks' in updates) && row.blocks) {
-      (msg as { blocks?: unknown }).blocks = row.blocks;
-    }
     // Only overwrite the body fields the caller actually passed. Fields absent
     // from `updates` go in as null so the COALESCE in updateMessage keeps the
     // existing column — a partial update (e.g. flipping `partial` on timeout)
@@ -1407,7 +1521,10 @@ export function createAppContext(baseDir: string): AppContext {
    * SQLite row so a reload renders the pending form correctly.
    */
   function updateToolCallFields(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>): StoredMessage | null {
-    const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
+    // L'UNICA statement che porta `blocks`: qui servono davvero (vedi sotto), e
+    // questa via si percorre quando un tool si ferma a chiedere qualcosa a una
+    // persona, non a ogni evento di tool.
+    const row = stmts.getLastMessageForToolFields.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: true });
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
@@ -2117,6 +2234,17 @@ export function createAppContext(baseDir: string): AppContext {
    */
   function discardIfEmptyTurn(sessionKey: string, msg: StoredMessage | null): string | null {
     if (!msg || !isEmptyAssistantTurn(msg)) return null;
+    // Il predicato ha detto «vuoto» su ciò che il chiamante gli ha messo in mano,
+    // e chi arriva da `updateLastMessage` legge magro: `blocks` e `tool_calls`
+    // NON sono su `msg`, quindi «assenti» qui vuol dire «non li ho guardati»,
+    // non «non ci sono». Prima di cancellare una riga si guardano — è una
+    // domanda booleana, e la risponde SQLite senza portare qui le due colonne
+    // più pesanti della tabella. Senza questo controllo un turno fatto di soli
+    // tool, o di soli blocchi, verrebbe scartato come segnaposto vuoto: lavoro
+    // fatto, cancellato in silenzio.
+    const presence = stmts.messageBodyPresence.get(msg.id) as
+      { has_tool_calls?: number; has_blocks?: number } | undefined;
+    if (presence && (presence.has_tool_calls || presence.has_blocks)) return null;
     return deleteMessageSubtree(sessionKey, msg.id) ? msg.id : null;
   }
 
@@ -2132,6 +2260,8 @@ export function createAppContext(baseDir: string): AppContext {
   return {
     db,
     projectStore, worktreeStore, worktreeManager,
+    /** Iniettato da server.ts dopo createProcessesRouter (lazy closure). */
+    worktreeGcDeps: _worktreeGcDeps,
     machineStore,
     PORT, GATEWAY_URL,
     get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },
@@ -2149,6 +2279,10 @@ export function createAppContext(baseDir: string): AppContext {
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveSafePath, resolveProjectPath, resolveTopicCwd, getMimeType, isPathAllowed,
+    // La FORMA di un'immagine, per il cancello dell'anteprima: vedi `acceptPreview`.
+    imageShapeOf: imageShape,
+    // Delegato al contesto per permettere ai test di iniettare uno stub.
+    fileExistsSync: existsSync,
     findNewMediaFiles, updateLastMessageWithMedia, atomicWriteJSON, logRequest,
     searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,

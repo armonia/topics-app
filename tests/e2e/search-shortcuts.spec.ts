@@ -48,12 +48,13 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     await page.keyboard.press("Escape");
 
     await page.keyboard.press("Meta+Shift+p");
-    await expect(page.getByTestId("command-palette")).toBeVisible();
-    // Scope 'projects' e non 'all': il placeholder del campo lo dice senza
-    // ambiguità (in scope 'all' parla di topic e messaggi).
-    await expect(page.getByTestId("command-palette").locator("input")).toHaveAttribute(
-      "placeholder", /project/i,
-    );
+    const palette = page.getByTestId("command-palette");
+    await expect(palette).toBeVisible();
+    // Scope 'projects' e non 'all'. Lo diceva il placeholder del campo, ma
+    // quello è una FRASE TRADOTTA: con la app in italiano diventa «Cerca
+    // progetti…», e la stessa schermata giusta faceva rosso il cancello. Lo
+    // scope adesso sta nel DOM (`data-scope`), e non cambia con la lingua.
+    await expect(palette).toHaveAttribute("data-scope", "projects");
     await page.keyboard.press("Escape");
   });
 

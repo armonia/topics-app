@@ -316,6 +316,17 @@ jobs:
               echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET"
             } >> "$GITHUB_ENV"
           else
+            # `::warning::` e non un `echo`, ed e' tutta la differenza fra un
+            # problema noto e un problema invisibile. Il cablaggio della
+            # notarizzazione e' completo da quando esiste questo passo: mancano
+            # solo i tre valori, che stanno nell'account sviluppatore Apple e
+            # non li puo' recuperare nessun automatismo. Finche' mancano, ogni
+            # build macOS esce firmata ma NON notarizzata, e con una release
+            # ogni pochi minuti l'utente paga l'attrito di Gatekeeper a
+            # ripetizione — in silenzio, perche' una riga di log in fondo a un
+            # job verde non la legge nessuno. Un avviso invece compare nel
+            # riepilogo della run.
+            echo "::warning title=macOS non notarizzata::Mancano APPLE_ID, APPLE_PASSWORD (app-specific) e/o APPLE_TEAM_ID. La build esce FIRMATA ma NON NOTARIZZATA: Gatekeeper avvisa a ogni aggiornamento. Il cablaggio c'e' gia': aggiungere i tre secret e' l'unico passo mancante."
             echo "Notarizzazione non configurata: firma sì, notarizzazione no."
           fi
 
@@ -363,14 +374,60 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-  # Flip the draft to published — only reached if every matrix build succeeded, so
-  # a partially-built version never goes live to the auto-updater.
+  # Porta la draft in pubblicata. IL CANCELLO SONO GLI ASSET, non l'exit code
+  # dei build.
+  #
+  # Prima era `needs: [create-release, build]` e basta, cioe' «pubblica se tutti
+  # e tre i job sono usciti zero». Il 2026-08-14 la tauri-v2.2.131 ha caricato
+  # tutti e dodici i suoi asset e POI il job Windows ha preso un
+  # `##[error]Server Error` dall'API di GitHub UNDICI SECONDI dopo l'ultimo
+  # upload riuscito: tauri-action e' uscito non-zero, questo job e' stato
+  # saltato, e una build completa su tre OS e' rimasta draft per sempre —
+  # nessun tag, un buco nella catena di versioni, l'updater fermo.
+  #
+  # L'exit code risponde a «il processo e' finito bene». La domanda vera e' «c'e'
+  # tutto quello che serve a un utente per aggiornare», e a quella rispondono
+  # gli asset presenti sulla release.
+  #
+  # NON E' UN ALLENTAMENTO. Il gate vecchio proteggeva da una cosa reale — una
+  # release PARZIALE che va live e' peggio di una mancata, perche' l'updater la
+  # serve a tutti e chi la scarica trova meta' dei formati. Quel controllo resta
+  # e diventa piu' stretto: si contano i dodici asset uno per uno, firme
+  # comprese, e ne basta uno mancante per non pubblicare. Cambia solo cosa si
+  # misura.
+  #
+  # `if: always()` insieme a `needs: build`: senza `always()` il job non
+  # partirebbe proprio quando un build e' rosso, che e' precisamente il caso da
+  # recuperare. `create-release` deve invece essere riuscito davvero — senza la
+  # sua `release_id` non c'e' niente da misurare ne' da pubblicare.
   publish:
     needs: [create-release, build]
+    if: ${{ always() && needs.create-release.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Esce 0 completa, 1 incompleta (e dice QUALE manca), 2 non misurabile.
+      # Il 2 e' distinto apposta: «non lo so» non e' «no», e qui si e' scelto di
+      # non pubblicare comunque — a differenza dei pavimenti sulle risorse, dove
+      # non sapere lascia passare, qui l'errore costa un aggiornamento rotto su
+      # tutte le macchine invece di una card che aspetta.
+      - name: Gli asset attesi ci sono tutti?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ID: ${{ needs.create-release.outputs.release_id }}
+        run: bun run scripts/check-release-assets.ts "$ID"
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

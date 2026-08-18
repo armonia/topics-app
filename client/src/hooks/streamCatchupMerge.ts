@@ -32,6 +32,59 @@
 
 import type { ChatMessage, ContentBlock, ToolCall } from '../types';
 
+/**
+ * Il prefisso degli id CONIATI DAL CLIENT.
+ *
+ * Il server usa `crypto.randomUUID()` (`createPartialMessage`, server/utils.ts),
+ * quindi un id che comincia così non è mai stato in DB: è un segnaposto che
+ * questa finestra si è disegnata da sola in attesa di sapere il nome vero della
+ * riga. Serve saperlo distinguere perché quel segnaposto DEVE farsi da parte
+ * quando l'id durevole arriva: due nomi per lo stesso turno significano due
+ * bolle non appena la storia si ricarica.
+ */
+export const CLIENT_MESSAGE_ID_PREFIX = 'msg_';
+
+export function isClientGeneratedMessageId(id: string | undefined): boolean {
+  return !!id && id.startsWith(CLIENT_MESSAGE_ID_PREFIX);
+}
+
+/**
+ * Un `message:new` che arriva mentre un turno è in volo: È la sua fine, o è
+ * un'altra riga?
+ *
+ * IL DIFETTO CHE CHIUDE. La risposta si dava per POSIZIONE: «l'ultimo messaggio
+ * è un assistant parziale, quindi questa riga persistita è lui». Ma a turno
+ * aperto il server scrive e trasmette anche righe che con quel turno non
+ * c'entrano — l'uscita di un sotto-agente, che `server/lib/subagent-watch.ts`
+ * consegna come un `message:new` qualunque. Quella riga si prendeva id, testo e
+ * bandiera della bolla viva; il turno continuava a scrivere DENTRO il rapporto
+ * del sotto-agente, e il resto della risposta usciva incollato sotto di lui.
+ *
+ * La risposta giusta è per IDENTITÀ: `stream:start` annuncia l'id della riga che
+ * il turno sta scrivendo, il segnaposto lo porta, e la riga che chiude il turno
+ * ha quello stesso id. Tutto il resto si accoda.
+ *
+ * `streamingMessageId` è la seconda rete, indipendente dalla prima: copre il
+ * segnaposto rimasto senza nome (un server che non annuncia `messageId`), dove
+ * l'unica cosa che sappiamo è che l'id in volo NON è quello che sta arrivando.
+ */
+export function shouldAdoptIntoPlaceholder(args: {
+  incomingId: string | undefined;
+  incomingRole: ChatMessage['role'];
+  last: ChatMessage | undefined;
+  streamingMessageId: string | undefined;
+}): boolean {
+  const { incomingId, incomingRole, last, streamingMessageId } = args;
+  // Senza id è una aggiunta sintetica (i marcatori `agents:spawned`): non deve
+  // poter toccare un segnaposto in volo.
+  if (!incomingId) return false;
+  if (incomingRole !== 'assistant') return false;
+  if (last?.role !== 'assistant' || !last.partial) return false;
+  if (!isClientGeneratedMessageId(last.id)) return incomingId === last.id;
+  if (streamingMessageId && streamingMessageId !== incomingId) return false;
+  return true;
+}
+
 export interface CatchupPayload {
   messageId?: string;
   content?: string;
@@ -60,6 +113,14 @@ export function mergeCatchupIntoPartial(
     // event that arrived between WS open and catchup delivery isn't lost.
     return {
       ...lastMessage,
+      // L'id durevole si ADOTTA, ma solo sopra un segnaposto coniato qui. Un id
+      // che viene dal DB non si tocca mai (ci sono già dei marker ancorati, e il
+      // server non cambia idea sul nome di una riga a metà turno); un `msg_…`
+      // invece è provvisorio per costruzione, e tenerlo vuol dire che il
+      // prossimo `loadHistory` non riconoscerà la bolla che ha davanti.
+      ...(payload.messageId && isClientGeneratedMessageId(lastMessage.id)
+        ? { id: payload.messageId }
+        : {}),
       content: payload.content || lastMessage.content || '',
       thinking: payload.thinking || lastMessage.thinking,
       toolCalls: payload.toolCalls ?? lastMessage.toolCalls,

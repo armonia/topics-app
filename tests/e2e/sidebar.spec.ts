@@ -804,7 +804,11 @@ test.describe("Sidebar — Project icons", () => {
       "la riga della chat tenuta altrove resta nella lista",
     ).toBeVisible({ timeout: 15000 });
     await expect(
-      sidebar.locator('[aria-label="Aperto in un\'altra finestra"]').first(),
+      // `data-elsewhere` e non l'`aria-label`: ancorarsi alla frase tradotta
+      // CONGELAVA quella frase — non si poteva piu' riscrivere senza far rosso, e
+      // quindi smetteva di essere migliorata. Vedi la tabella dei letterali
+      // bloccati in CONVENTIONS.md; questa riga e' una di quelle, tolta.
+      sidebar.locator("[data-elsewhere]").first(),
       "e porta il glifo della finestra che la tiene",
     ).toBeVisible({ timeout: 10000 });
 

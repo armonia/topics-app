@@ -92,6 +92,7 @@ import { spaceWindowId } from '../lib/windowRole';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
+import { shouldFillFromBroadcast } from './liveTurn';
 import { tabAckReleasesIntent } from '../lib/tabLink';
 import {
   armFocusIntent,
@@ -288,7 +289,10 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
-    handleOpenAsPage: (type: 'dashboard' | 'cron' | 'board') => void;
+    // L'INSIEME canonico, non tre literal a mano: l'implementazione qui sotto
+    // accetta già `UtilityPanelType`, e questa firma la restringeva — un tipo
+    // nuovo (`profile`) compilava nel modulo e veniva rifiutato a chi chiama.
+    handleOpenAsPage: (type: UtilityPanelType) => void;
     handleExternalDrop: () => void;
     handleReopenClosedTab: (record: ClosedTabRecord) => Promise<void>;
     handleProjectActiveTopicChange: (projectPath: string, topicId: string | null) => void;
@@ -1198,7 +1202,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (!fullContent) return;
         const id = msg.messageId;
         const existingMessages = chatHandlersRef.current.getSessionMessages(msg.sessionKey);
-        if (id && existingMessages.some(m => m.id === id)) return;
+        // Lo stesso id non vuol dire più «ce l'abbiamo già»: il segnaposto della
+        // bolla viva porta l'id durevole da `stream:start`, e per una finestra
+        // che non è iscritta alla topic questa riga persistita è l'UNICO
+        // contenuto che le arriverà (le delta le vengono filtrate). Si esce solo
+        // se non c'è niente da riempire. Vedi `hooks/liveTurn.ts`.
+        const held = id ? existingMessages.find(m => m.id === id) : undefined;
+        if (held && !shouldFillFromBroadcast(held, fullContent)) return;
         if (!id) {
           // Legacy fallback: dedupe by last-of-role content match.
           const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === msg.role);

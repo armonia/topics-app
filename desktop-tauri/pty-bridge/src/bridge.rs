@@ -32,7 +32,24 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use serde_json::{json, Value};
 
 const MAX_BUFFER_SIZE: usize = 100 * 1024; // 100 KB ring buffer per session
-const ORPHAN_GRACE: Duration = Duration::from_secs(90);
+const DEFAULT_ORPHAN_GRACE: Duration = Duration::from_secs(90);
+// Backstop for the bridges no parent check can retire: recycled pid, worktree
+// reaped from under us, a spawner that never comes back. Their signature is
+// always "no clients, no sessions, indefinitely". Much longer than ORPHAN_GRACE
+// because it fires on a LIVE parent too, and must never race a server that is
+// merely idle between turns.
+const DEFAULT_IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
+// How long a connection must persist before it counts as "the server came back"
+// rather than a single-instance probe. See spawn_orphan_monitor().
+const DEFAULT_REAL_CLIENT: Duration = Duration::from_secs(5);
+// How long a killed child gets to honour SIGHUP before the process GROUP is
+// SIGKILLed. `kill` used to be one SIGHUP and nothing else: a child that traps
+// or ignores HUP (a shell script, a CLI with its own handler) simply stayed,
+// and since the entry was removed from the map on the spot it was invisible to
+// `list`, to reconcile and to shutdown. Two seconds is well past what a healthy
+// TUI needs to save and exit, and far under the 5 s ack window the server gives
+// a create.
+const DEFAULT_KILL_GRACE: Duration = Duration::from_secs(2);
 
 // A trivially-exiting program used by the self-test and single-instance spawn-probe.
 // `/bin/sh -c :` is the most portable choice on unix — /bin/sh is guaranteed on
@@ -85,7 +102,11 @@ fn real_home() -> String {
 
 struct Shared {
     clients: Mutex<HashMap<u64, UnixStream>>, // write-capable clones, keyed by client id
+    connected_at: Mutex<HashMap<u64, Instant>>, // when each client attached: a probe is not a server
     sessions: Mutex<HashMap<String, Session>>,
+    /// Monotonic stamp handed to each new session, so a reader thread can tell
+    /// its own entry from a later one that reused the id. See Session.generation.
+    next_generation: Mutex<u64>,
     socket_path: PathBuf,
     pid_path: PathBuf,
 }
@@ -96,6 +117,17 @@ struct Session {
     killer: Box<dyn ChildKiller + Send + Sync>,
     buffer: Arc<Mutex<VecDeque<u8>>>,
     pid: Option<u32>,
+    /// Which incarnation of this id this entry is. The reader thread outlives
+    /// its own session by however long the child takes to reap, and it used to
+    /// `remove(&id)` unconditionally: a late exit could therefore evict a
+    /// NEWER entry that had taken the same id, leaving a live PTY in no map at
+    /// all. Every remove is now guarded on this stamp.
+    generation: u64,
+    /// A `kill` has been signalled and we are waiting for the reader loop to
+    /// confirm the death. The entry deliberately STAYS in the map until then:
+    /// removing it on the spot is what made a HUP-ignoring survivor invisible
+    /// to `list`, to reconcile and to `shutdown`.
+    killing: bool,
 }
 
 // ── Wire I/O ────────────────────────────────────────────────────────────────
@@ -143,7 +175,7 @@ fn build_env(over: &[(String, Option<String>)]) -> Vec<(String, String)> {
     // Ensure a UTF-8 locale so accented output doesn't mojibake (à → √†). Under
     // launchd LANG is unset. Only fill in if the caller didn't pass a UTF-8 locale.
     let has_utf8 = ["LC_ALL", "LC_CTYPE", "LANG"].iter().any(|k| {
-        m.get(*k).map_or(false, |v| {
+        m.get(*k).is_some_and(|v| {
             let l = v.to_lowercase();
             l.contains("utf8") || l.contains("utf-8")
         })
@@ -248,10 +280,31 @@ fn handle_message(shared: &Arc<Shared>, cid: u64, msg: &Value) -> Result<(), Str
         }
         "kill" => {
             if let Some(id) = msg["id"].as_str() {
-                let removed = shared.sessions.lock_ok().remove(id);
-                if let Some(mut s) = removed {
-                    let _ = s.killer.kill();
+                // THE ENTRY STAYS. It used to be removed here, before anything
+                // confirmed the child was dead, and the signal was a single
+                // SIGHUP: a child that traps or ignores HUP survived a `kill`
+                // and was then in no map at all, so `list`, reconcile and
+                // `shutdown` could not see it and nothing ever reaped it. Now
+                // the reader loop's remove plus its `exit` broadcast are the
+                // ONE place a session disappears, and an escalation thread
+                // guarantees the child gets there.
+                let mut escalate: Option<(Box<dyn ChildKiller + Send + Sync>, Option<u32>, u64)> = None;
+                {
+                    let mut sessions = shared.sessions.lock_ok();
+                    if let Some(s) = sessions.get_mut(id) {
+                        let first = !s.killing;
+                        s.killing = true;
+                        let _ = s.killer.kill();
+                        if first {
+                            escalate = Some((s.killer.clone_killer(), s.pid, s.generation));
+                        }
+                    }
                 }
+                if let Some((killer, pid, generation)) = escalate {
+                    spawn_kill_escalation(shared.clone(), id.to_string(), generation, pid, killer);
+                }
+                // `killed` still goes out immediately: it acks the request, not
+                // the death. The death is the `exit` frame.
                 broadcast(shared, &json!({ "type": "killed", "id": id }));
             }
             Ok(())
@@ -294,8 +347,116 @@ fn handle_message(shared: &Arc<Shared>, cid: u64, msg: &Value) -> Result<(), Str
     }
 }
 
+/// Is the entry under `id` still the one stamped `generation`?
+fn generation_present(shared: &Shared, id: &str, generation: u64) -> bool {
+    shared
+        .sessions
+        .lock_ok()
+        .get(id)
+        .is_some_and(|s| s.generation == generation)
+}
+
+/// SIGKILL a process GROUP, falling back to the single pid.
+///
+/// The group, not the pid, is what has to go: portable_pty puts the child in
+/// its own session (setsid + TIOCSCTTY), so `sh -c 'trap "" HUP; sleep 300'`
+/// leaves `sleep` in the same group holding the slave tty. Killing only `sh`
+/// leaves that fd open, the master read never sees EOF, and the reader loop
+/// (the only place that broadcasts `exit`) never runs.
+#[cfg(unix)]
+fn kill_group(pid: u32) {
+    let pid = pid as i32;
+    unsafe {
+        if libc::kill(-pid, libc::SIGKILL) != 0 {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+}
+#[cfg(not(unix))]
+fn kill_group(_pid: u32) {}
+
+/// SIGHUP was sent; give the child a grace window, then take the group out —
+/// and if even that does not produce an EOF, force the entry out of the map.
+///
+/// The reader loop is the ONLY place a session leaves the map on the happy
+/// path, and that is deliberate. But SIGKILL to the group does not guarantee
+/// EOF on the master: anything outside that group still holding the slave fd (a
+/// grandchild that called `setsid`) keeps it open, the reader never returns,
+/// and the entry would live forever — every later `create` for that id
+/// answering `exists`, which the server deliberately does NOT count toward its
+/// spawn breaker. The tab became permanently un-recreatable. Two bounded steps,
+/// then the entry goes, exactly as the pre-escalation code always did.
+fn spawn_kill_escalation(
+    shared: Arc<Shared>,
+    id: String,
+    generation: u64,
+    pid: Option<u32>,
+    mut killer: Box<dyn ChildKiller + Send + Sync>,
+) {
+    let grace = window_from_env("TOPICS_PTY_BRIDGE_KILL_GRACE_MS", DEFAULT_KILL_GRACE);
+    thread::spawn(move || {
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline {
+            if !generation_present(&shared, &id, generation) {
+                return; // it honoured the signal; the reader loop already reaped it
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        if !generation_present(&shared, &id, generation) {
+            return;
+        }
+        eprintln!("[PTY Bridge] {id} ignored SIGHUP for {grace:?}, escalating to SIGKILL");
+        match pid {
+            Some(p) => kill_group(p),
+            // No pid (should not happen on unix): the killer handle is all we
+            // have, and a second kill is better than leaving it forever.
+            None => {
+                let _ = killer.kill();
+            }
+        }
+        // Second and last window. If the reader still has not reaped it, the
+        // master is being held by something the group kill could not reach.
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline {
+            if !generation_present(&shared, &id, generation) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        {
+            let mut sessions = shared.sessions.lock_ok();
+            if !sessions.get(&id).is_some_and(|s| s.generation == generation) {
+                return;
+            }
+            sessions.remove(&id);
+        }
+        eprintln!("[PTY Bridge] {id} never reached EOF after SIGKILL — forcing it out of the map");
+        // The `exit` frame is what the server listens to: without it the id
+        // stays busy on its side too.
+        broadcast(&shared, &json!({ "type": "exit", "id": id, "exitCode": -1 }));
+    });
+}
+
 fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
     let id = msg["id"].as_str().ok_or("create: missing id")?.to_string();
+    // ONE PTY PER ID, always. Two concurrent creates for the same id (the
+    // double /revive) used to build two children over one map slot; the first
+    // to exit then broadcast an `exit` that tore down the survivor, which after
+    // that lived in neither the bridge's map nor the server's. Refusing the
+    // second is what makes `create` idempotent. `code: "exists"` matters: the
+    // server counts consecutive `error` frames as spawn failures and recycles
+    // the whole bridge at three, and this is not a spawn failure.
+    // The check needs no extra lock to be atomic against the case that matters:
+    // one client is one reader thread, and `handle_create` runs to completion
+    // (spawn included) before that thread reads the next line, so two creates
+    // from the same server socket can never interleave here.
+    if shared.sessions.lock_ok().contains_key(&id) {
+        broadcast(
+            shared,
+            &json!({ "type": "error", "id": id, "code": "exists", "error": format!("session {id} already exists") }),
+        );
+        return Ok(());
+    }
     let shell = msg["shell"].as_str().ok_or("create: missing shell")?.to_string();
     let args: Vec<String> = msg["args"]
         .as_array()
@@ -368,6 +529,11 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
         .map_err(|e| format!("take_writer: {e}"))?;
 
     let buffer = Arc::new(Mutex::new(VecDeque::<u8>::new()));
+    let generation = {
+        let mut g = shared.next_generation.lock_ok();
+        *g += 1;
+        *g
+    };
     shared.sessions.lock_ok().insert(
         id.clone(),
         Session {
@@ -376,6 +542,8 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
             killer,
             buffer: buffer.clone(),
             pid,
+            generation,
+            killing: false,
         },
     );
 
@@ -383,7 +551,7 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
     {
         let shared = shared.clone();
         let id = id.clone();
-        thread::spawn(move || reader_loop(shared, id, reader, buffer, child));
+        thread::spawn(move || reader_loop(shared, id, generation, reader, buffer, child));
     }
 
     broadcast(shared, &json!({ "type": "created", "id": id, "pid": pid }));
@@ -393,6 +561,7 @@ fn handle_create(shared: &Arc<Shared>, msg: &Value) -> Result<(), String> {
 fn reader_loop(
     shared: Arc<Shared>,
     id: String,
+    generation: u64,
     mut reader: Box<dyn Read + Send>,
     buffer: Arc<Mutex<VecDeque<u8>>>,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
@@ -423,7 +592,15 @@ fn reader_loop(
     // Reap for the exit code. The `kill` path uses a separate ChildKiller handle, so
     // this blocking wait can never deadlock against it.
     let code: i64 = child.wait().map(|s| s.exit_code() as i64).unwrap_or(0);
-    shared.sessions.lock_ok().remove(&id);
+    // THE ONLY PLACE A SESSION LEAVES THE MAP, and it removes only its OWN
+    // incarnation: an unconditional `remove(&id)` here would let a late exit
+    // evict a newer session that had taken the same id.
+    {
+        let mut sessions = shared.sessions.lock_ok();
+        if sessions.get(&id).is_some_and(|s| s.generation == generation) {
+            sessions.remove(&id);
+        }
+    }
     broadcast(&shared, &json!({ "type": "exit", "id": id, "exitCode": code }));
 }
 
@@ -585,11 +762,31 @@ fn self_test() {
 }
 
 fn shutdown(shared: &Shared) -> ! {
-    let mut sessions = shared.sessions.lock_ok();
-    for s in sessions.values_mut() {
-        let _ = s.killer.kill();
+    // Same escalation as `kill`, inline: SIGHUP, a grace, then the process
+    // GROUP. Exiting straight after one SIGHUP is how a HUP-ignoring child
+    // outlived the daemon that owned it, holding a PTY nobody could reach
+    // again. We cannot wait for the reader threads here (we are on the signal
+    // path and the process is about to go), so this polls the pids directly.
+    let pids: Vec<u32> = {
+        let mut sessions = shared.sessions.lock_ok();
+        let pids = sessions.values().filter_map(|s| s.pid).collect::<Vec<_>>();
+        for s in sessions.values_mut() {
+            let _ = s.killer.kill();
+        }
+        sessions.clear();
+        pids
+    };
+    if !pids.is_empty() {
+        let grace = window_from_env("TOPICS_PTY_BRIDGE_KILL_GRACE_MS", DEFAULT_KILL_GRACE);
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline && pids.iter().any(|p| pid_alive(*p as i32)) {
+            thread::sleep(Duration::from_millis(25));
+        }
+        for p in pids.iter().filter(|p| pid_alive(**p as i32)) {
+            eprintln!("[PTY Bridge] shutdown: {p} ignored SIGHUP, escalating to SIGKILL");
+            kill_group(*p);
+        }
     }
-    sessions.clear();
     let _ = std::fs::remove_file(&shared.socket_path);
     let _ = std::fs::remove_file(&shared.pid_path);
     std::process::exit(0);
@@ -618,44 +815,114 @@ fn install_signal_handler(_shared: Arc<Shared>) {}
 // server reconnects within seconds. So once orphaned we only exit if NO server is
 // connected for a grace window (i.e. the app really quit). A connected client == a
 // server actively using us, so we stay alive and it reattaches to surviving PTYs.
+//
+// Orphanhood is decided on `--parent-pid` when the spawner passed one: it needs no
+// lucky timing and no cooperation from the runtime. The ppid heuristic below is the
+// fallback for a hand-started daemon, and `initial_ppid` is sampled by run() BEFORE
+// check_existing_bridge()/self_test() — a spawner that died during those seconds used
+// to make it read 1, which left the guard `initial_ppid != 1` false forever and the
+// monitor unable to ever arm. That is how the Node bridge accumulated 20 immortal
+// daemons (2026-08-14); the port carried the same hole.
 #[cfg(unix)]
-fn spawn_orphan_monitor(shared: Arc<Shared>) {
-    let initial_ppid = unsafe { libc::getppid() };
+fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Option<i32>) {
     thread::spawn(move || {
+        let grace = window_from_env("TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS", DEFAULT_ORPHAN_GRACE);
+        let tick = (grace / 2).clamp(Duration::from_millis(200), Duration::from_secs(5));
+        // A PROBE IS NOT A SERVER. check_existing_bridge() of every bridge that tries
+        // to be born connects here, waits for a pong and closes: about a second. The
+        // monitor used to clear the deadline on ANY connection, so anything that kept
+        // trying to spawn kept an orphan immortal. Measured 2026-08-14 on the ai-bridge
+        // twin, which alternated "Parent died … exit in 90s" and "Server reconnected"
+        // forever with a dead parent and zero peers on the socket. Only a client
+        // attached for at least REAL_CLIENT is a reattached server — and it is measured
+        // per connection: two different probes on two consecutive ticks are not one
+        // server that stayed.
+        let real_client = window_from_env("TOPICS_PTY_BRIDGE_REAL_CLIENT_MS", DEFAULT_REAL_CLIENT);
         let mut deadline: Option<Instant> = None;
+        let mut extended = false;
         loop {
-            thread::sleep(Duration::from_secs(5));
-            let orphaned = unsafe { libc::getppid() } == 1 && initial_ppid != 1;
+            thread::sleep(tick);
+            let orphaned = match parent_pid {
+                Some(pid) => !pid_alive(pid),
+                None => (unsafe { libc::getppid() }) == 1 && initial_ppid != 1,
+            };
             if !orphaned {
                 deadline = None;
+                extended = false;
                 continue;
             }
-            if !shared.clients.lock_ok().is_empty() {
+            let now = Instant::now();
+            // A reattached server stays connected: someone here for REAL_CLIENT means
+            // we are not abandoned, and only that clears the deadline.
+            let settled = shared
+                .connected_at
+                .lock_ok()
+                .values()
+                .any(|since| now.duration_since(*since) >= real_client);
+            if settled {
                 if deadline.take().is_some() {
                     eprintln!("[PTY Bridge] Server reconnected after parent death — staying alive, PTYs preserved.");
+                    extended = false;
                 }
                 continue;
             }
-            match deadline {
+            let expired = match deadline {
                 None => {
-                    deadline = Some(Instant::now() + ORPHAN_GRACE);
+                    deadline = Some(now + grace);
+                    let was = parent_pid.unwrap_or(initial_ppid);
                     eprintln!(
-                        "[PTY Bridge] Parent died (was {initial_ppid}) and no server connected — will exit in {}s unless one reconnects.",
-                        ORPHAN_GRACE.as_secs()
+                        "[PTY Bridge] Parent died (was {was}) and no server connected — will exit in {}s unless one reconnects.",
+                        grace.as_secs()
                     );
+                    continue;
                 }
-                Some(d) => {
-                    if Instant::now() >= d {
-                        eprintln!("[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.");
-                        shutdown(&shared);
-                    }
-                }
+                Some(d) => now >= d,
+            };
+            if !expired {
+                continue;
             }
+            if !shared.clients.lock_ok().is_empty() && !extended {
+                // Expired with someone freshly attached: it may be a server in the
+                // middle of reattaching, so grant ONE extension — long enough for it
+                // to become `settled`. After that we leave anyway, otherwise
+                // overlapping probes would buy an orphan immortality.
+                extended = true;
+                deadline = Some(now + real_client * 2);
+                continue;
+            }
+            eprintln!("[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.");
+            shutdown(&shared);
         }
     });
 }
 #[cfg(not(unix))]
-fn spawn_orphan_monitor(_shared: Arc<Shared>) {}
+fn spawn_orphan_monitor(_shared: Arc<Shared>, _initial_ppid: i32, _parent_pid: Option<i32>) {}
+
+// The rope under the parent check: no clients AND no sessions for IDLE_EXIT means
+// nobody is coming back for us. A single live PTY holds us up regardless — that is
+// the whole reason this daemon is detached.
+fn spawn_idle_monitor(shared: Arc<Shared>) {
+    thread::spawn(move || {
+        let idle_exit = window_from_env("TOPICS_PTY_BRIDGE_IDLE_EXIT_MS", DEFAULT_IDLE_EXIT);
+        let tick = (idle_exit / 2).clamp(Duration::from_millis(500), Duration::from_secs(60));
+        let mut idle_since = Instant::now();
+        loop {
+            thread::sleep(tick);
+            let busy = !shared.clients.lock_ok().is_empty() || !shared.sessions.lock_ok().is_empty();
+            if busy {
+                idle_since = Instant::now();
+                continue;
+            }
+            if idle_since.elapsed() >= idle_exit {
+                eprintln!(
+                    "[PTY Bridge] Idle {}s with no clients and no sessions — shutting down.",
+                    idle_exit.as_secs()
+                );
+                shutdown(&shared);
+            }
+        }
+    });
+}
 
 fn socket_from_args() -> PathBuf {
     let args: Vec<String> = std::env::args().collect();
@@ -668,7 +935,36 @@ fn socket_from_args() -> PathBuf {
     PathBuf::from("/tmp/topics-pty-bridge.sock")
 }
 
+/// Env seam for the two retirement windows, so they can be exercised without sitting
+/// through 90s / 30min. Production never sets these; the same names work on the Node
+/// bridge, and a check written against one reads the same on the other.
+fn window_from_env(key: &str, default: Duration) -> Duration {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(default)
+}
+
+/// Who spawned us, as told by the spawner (server/routes/terminal.ts). Absent for a
+/// hand-started daemon, and then the orphan monitor falls back to the ppid heuristic.
+fn parent_pid_from_args() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    let i = args.iter().position(|a| a == "--parent-pid")?;
+    args.get(i + 1)?.parse::<i32>().ok().filter(|p| *p > 0)
+}
+
 pub fn run() {
+    // BEFORE check_existing_bridge()/self_test(): both can take seconds, and a
+    // spawner that dies inside that window would otherwise make this read 1 and
+    // permanently disarm the orphan monitor's fallback heuristic.
+    #[cfg(unix)]
+    let initial_ppid = unsafe { libc::getppid() };
+    #[cfg(not(unix))]
+    let initial_ppid = 0;
+    let parent_pid = parent_pid_from_args();
+
     let socket_path = socket_from_args();
     let pid_path = socket_path.with_extension("pid");
 
@@ -698,13 +994,16 @@ pub fn run() {
 
     let shared = Arc::new(Shared {
         clients: Mutex::new(HashMap::new()),
+        connected_at: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
+        next_generation: Mutex::new(0),
         socket_path,
         pid_path,
     });
 
     install_signal_handler(shared.clone());
-    spawn_orphan_monitor(shared.clone());
+    spawn_orphan_monitor(shared.clone(), initial_ppid, parent_pid);
+    spawn_idle_monitor(shared.clone());
 
     let mut next_cid: u64 = 0;
     for stream in listener.incoming() {
@@ -727,6 +1026,7 @@ pub fn run() {
         // one, which then just loses output instead of taking the app down.
         let _ = write_half.set_write_timeout(Some(Duration::from_secs(2)));
         shared.clients.lock_ok().insert(cid, write_half);
+        shared.connected_at.lock_ok().insert(cid, Instant::now());
         eprintln!(
             "[PTY Bridge] Client connected ({} total)",
             shared.clients.lock_ok().len()
@@ -735,6 +1035,7 @@ pub fn run() {
         thread::spawn(move || {
             handle_client(cid, stream, &sh);
             sh.clients.lock_ok().remove(&cid);
+            sh.connected_at.lock_ok().remove(&cid);
             eprintln!(
                 "[PTY Bridge] Client disconnected ({} remaining)",
                 sh.clients.lock_ok().len()

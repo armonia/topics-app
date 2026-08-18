@@ -61,17 +61,17 @@ const MOTIVI: Record<string, string> = {
   "check:painted": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
   "check:landing": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
   "check:copy": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
-  "check:ink":
-    "e' un cancello VERO del codice — misura i millisecondi dal click all'inchiostro sulle tre " +
-    "azioni piu' frequenti — ma vuole un bundle del client COSTRUITO e il server di test in " +
-    "piedi, cioe' la stessa attrezzatura degli e2e, non quella dei controlli statici. Metterlo " +
-    "fra i guard rails li farebbe passare da secondi a minuti su ogni push. Gira a mano " +
-    "(`bun run check:ink`), e ha la sua leva di falsificazione: `--stall 300` rende l'app " +
-    "davvero lenta e il cancello DEVE diventare rosso. Il posto dove cablarlo, quando ci sara' " +
-    "un lavoro e2e in CI, e' li' — non qui.",
   "check:occlusion":
     "e' un cancello VERO del codice, ma vuole un WebKit di Playwright e un bundle costruito: " +
     "gira a mano, ed e' anche l'attrezzo che registra la clip di consegna (--video).",
+  "check:history-clean":
+    "interroga la STORIA con `git log -S` su tutti i rami, e in CI la storia non c'e': " +
+    "`actions/checkout` clona con `fetch-depth: 1`, quindi il cancello misurerebbe un solo " +
+    "commit e uscirebbe verde per il motivo sbagliato - il modo piu' comune in cui un cancello " +
+    "smette di guardare senza che nessuno se ne accorga. Gira a mano prima e dopo la " +
+    "riscrittura (`bun run scripts/scrub-history.ts` per misurare, `--check` per l'esito), " +
+    "che e' l'unico momento in cui serve. Se un giorno si scaricasse la storia intera in CI, " +
+    "questa riga va tolta e il cancello cablato.",
   "check:previews":
     "stessa specie di report:landed: misura lo STATO DELLA BOARD, non il codice. Legge " +
     "data/topics.db e ~/.openclaw/media/task-previews, che su un checkout di CI non esistono. " +

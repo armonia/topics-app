@@ -27,7 +27,7 @@ import {
   BRIDGED_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
-import { PARKED_WAITED_OUT, PREVIEW_RULE } from "../../shared/board";
+import { PARKED_WAITED_OUT, PREVIEW_RULE, TASK_STATUSES } from "../../shared/board";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 
@@ -232,11 +232,16 @@ const TOOLS = [
   {
     name: "list_tasks",
     description:
-      "List Kanban board tasks for THIS session's project. Optionally filter by status. Pass scope='all' for the flat cross-project feed (each row shows its project). Row ids feed get_task / update_task / comment_task.",
+      "List Kanban board tasks for THIS session's project. Optionally filter by status. Pass scope='all' for the flat cross-project feed (each row shows its project). SUBTASKS ARE INCLUDED: a nested checklist step is listed like any other row, marked `step of=<parent id>` so you can tell it from a card. A step you inherited from a previous attempt on the same task shows up here too, in todo. Row ids feed get_task / update_task / comment_task.",
     inputSchema: {
       type: "object",
       properties: {
-        status: { type: "string", description: "Optional filter: backlog | todo | in_progress | review | done." },
+        // `enum`, non solo la prosa: senza, «in-progress» arriva al server come
+        // un filtro che non matcha niente e l'agente legge una board VUOTA — una
+        // risposta plausibile, quindi il refuso non si vede. La lista viene da
+        // `TASK_STATUSES` e non è ricopiata: una copia a mano è la prossima a
+        // restare indietro.
+        status: { type: "string", enum: [...TASK_STATUSES], description: "Optional filter: backlog | todo | in_progress | review | done." },
         scope: { type: "string", description: "'project' (default — this session's project) or 'all' (every project)." },
       },
     },
@@ -281,7 +286,7 @@ const TOOLS = [
       type: "object",
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
-        status: { type: "string", description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
+        status: { type: "string", enum: [...TASK_STATUSES], description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
         output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
@@ -596,7 +601,7 @@ const TOOLS = [
   },
 ];
 
-interface ParsedArgs {
+export interface ParsedArgs {
   baseUrl: string;
   sessionKey: string;
   gatewayToken?: string;
@@ -623,7 +628,7 @@ interface ParsedArgs {
  *     (`agent-census.ts`, letto sia dal claim che dalla rotta di spawn);
  *   · il loro consumo si contabilizza sul task padre (`dispatch-usage.ts`);
  *   · profondita' 1: una figlia non apre nipoti (`boardSpawnRefusal`);
- *   · muoiono col padre (`orphanBoardChildSessions`, spazzata del dispatcher).
+ *   · muoiono col padre (`orphanChildSessions`, spazzata del dispatcher).
  * `list_agents` resta fuori: chi ha aperto le figlie e' il coordinatore, che gli
  * id ce li ha gia' dallo `spawn_agent`, e uno schema in meno e' un prefisso in
  * meno moltiplicato per ogni chiamata del turno.
@@ -876,6 +881,8 @@ interface TaskRow {
   priority?: number;
   assignedTo?: string;
   assigned_to?: string;
+  parentTaskId?: string | null;
+  parent_task_id?: string | null;
 }
 interface TasksResp { tasks?: TaskRow[] }
 /**
@@ -1326,9 +1333,16 @@ export async function callListTasks(
   const body = await httpJson<TasksResp>(args, "GET", path, undefined, fetchImpl);
   const tasks = Array.isArray(body?.tasks) ? body.tasks : [];
   if (!tasks.length) return "No tasks.";
-  return tasks.map((t: TaskRow) =>
-    `[${t.status}] ${t.text} (id=${t.id} project=${t.projectId ?? t.project_id ?? "?"})`,
-  ).join("\n");
+  // Uno STEP e' gia' in questa lista (la rotta non taglia le radici), ma finora
+  // usciva identico a una card: stesso formato, nessun padre. Un agente che
+  // rilegge la propria checklist dopo un cambio di sessione non poteva
+  // distinguere i propri passi dalle card del board, e li leggeva come lavoro
+  // di qualcun altro. Il padre e' l'unico dato che li separa: si stampa.
+  return tasks.map((t: TaskRow) => {
+    const parent = t.parentTaskId ?? t.parent_task_id ?? null;
+    const meta = `id=${t.id} project=${t.projectId ?? t.project_id ?? "?"}${parent ? ` step of=${parent}` : ""}`;
+    return `[${t.status}] ${t.text} (${meta})`;
+  }).join("\n");
 }
 
 export async function callUpdateTask(
@@ -1871,7 +1885,15 @@ export async function callApprovalPrompt(
  * instead). The underlying call* functions still take an explicit fetchImpl
  * for direct unit testing — the registry just relies on their default.
  */
-const TOOL_HANDLERS: Record<
+/**
+ * I mestieri di Topics, per nome.
+ *
+ * Esportata perché il RUNTIME NATIVO la usa in-process: quel runtime non
+ * spawna questo file come processo MCP (è tutto il suo punto), ma i tool sono
+ * gli stessi e riscriverli sarebbe due implementazioni che divergono al primo
+ * bugfix. Vedi `providers/native/topics-tools.ts`.
+ */
+export const TOOL_HANDLERS: Record<
   string,
   (args: ParsedArgs, toolArgs: Record<string, unknown>, ctx?: ToolCallContext) => Promise<string>
 > = {

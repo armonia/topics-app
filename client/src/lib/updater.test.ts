@@ -44,3 +44,36 @@ describe('shouldShowUpdaterToast', () => {
     expect(shouldShowUpdaterToast(ready, { dismissed: false, versionPopoverOpen: true })).toBe(false);
   });
 });
+
+describe("in automatico non si annuncia un aggiornamento che arriva da solo", () => {
+  // Segnalato DUE volte: «mi esce nuova versione disponibile anche se sono in
+  // modalità automatica», e poi «ancora mi esce nuova versione disponibile».
+  // La prima correzione aveva sistemato il PANNELLO della versione e non questo
+  // banner, che è una seconda superficie con la stessa frase — il difetto era
+  // sopravvissuto in un posto che nessuno aveva guardato.
+  const auto = { dismissed: false, versionPopoverOpen: false, autoUpdate: true };
+
+  test("«disponibile» non compare: le finestre si ricaricano da sole", () => {
+    const s: UpdaterStatus = { state: "update-available", version: "2.3.0" };
+    expect(shouldShowUpdaterToast(s, quiet)).toBe(true);
+    expect(shouldShowUpdaterToast(s, auto)).toBe(false);
+  });
+
+  test("nemmeno lo scaricamento in corso: è un lavoro che non hai chiesto", () => {
+    expect(shouldShowUpdaterToast({ state: "downloading", progress: 40 }, auto)).toBe(false);
+  });
+
+  test("«pronto» invece PASSA: lì il gesto serve davvero", () => {
+    // C'è un binario scaricato che aspetta un riavvio. È l'unico stato in cui
+    // la persona deve fare qualcosa, e tacere lascerebbe l'aggiornamento in
+    // panchina per sempre.
+    expect(shouldShowUpdaterToast({ state: "ready", version: "2.3.0" }, auto)).toBe(true);
+  });
+
+  test("senza il flag non cambia niente: chi non è in automatico vede tutto", () => {
+    // La regola vale solo dove l'aggiornamento arriva davvero da sé. Applicarla
+    // sempre renderebbe l'app muta su una macchina che aspetta un clic.
+    const s: UpdaterStatus = { state: "update-available", version: "2.3.0" };
+    expect(shouldShowUpdaterToast(s, { ...quiet, autoUpdate: false })).toBe(true);
+  });
+});

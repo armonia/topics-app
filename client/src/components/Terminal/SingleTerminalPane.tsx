@@ -15,6 +15,7 @@ import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../conte
 import { shouldDeclareExpired } from '../../hooks/rosterTrust';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { isWindowAwake } from '../../state/windowAwake';
+import { useT } from '../../hooks/useT';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -163,6 +164,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // its session reappears in the list. Read inside the connection effect via
   // refs so the (sessionId-keyed) xterm mount effect never re-runs on a list
   // change.
+  const t = useT();
   const terminalSessions = useTerminalSessions();
   const sessionListed = useMemo(
     () => terminalSessions.some((s) => s.id === sessionId),
@@ -929,7 +931,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <div data-testid="terminal-stale-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
             <div className="flex items-center gap-1.5 text-app-text-muted text-[12px]">
               <Clock size={13} />
-              <span>Sessione scaduta</span>
+              <span>{t('terminal.stale.title')}</span>
             </div>
             {(() => {
               const info = lastInfoRef.current;
@@ -958,7 +960,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                             const cmd = `claude --resume ${info.claudeSessionId}`;
                             try { void navigator.clipboard?.writeText(cmd); } catch { /* clipboard negata */ }
                           }}
-                          title={`Copia negli appunti: claude --resume ${info.claudeSessionId}`}
+                          title={t('terminal.copyResume', { id: info.claudeSessionId })}
                           className="underline decoration-dotted underline-offset-2 hover:text-app-text"
                         >resume {info.claudeSessionId.slice(0, 8)}</button>
                       </>
@@ -978,11 +980,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                 window.setTimeout(() => signalsActions.clearTerminalReloading(sessionId), 15000);
                 void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' }).catch(() => {});
               }}
-              title="Riavvia la sessione in-place (riprende la conversazione per claude/codex)"
+              title={t('terminal.reloadTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
               <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
-              <span>{reloading ? 'Riavvio…' : 'Ricarica'}</span>
+              <span>{reloading ? t('terminal.restarting') : t('terminal.reload')}</span>
             </button>
           </div>
         )}
@@ -997,7 +999,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <div data-testid="terminal-dormant-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
             <div className="flex items-center gap-1.5 text-app-text-muted text-[12px]">
               <Clock size={13} />
-              <span>Sessione terminata</span>
+              <span>{t('terminal.dormant.title')}</span>
             </div>
             {(() => {
               const info = lastInfoRef.current;
@@ -1026,7 +1028,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                             const cmd = `claude --resume ${info.claudeSessionId}`;
                             try { void navigator.clipboard?.writeText(cmd); } catch { /* clipboard negata */ }
                           }}
-                          title={`Copia negli appunti: claude --resume ${info.claudeSessionId}`}
+                          title={t('terminal.copyResume', { id: info.claudeSessionId })}
                           className="underline decoration-dotted underline-offset-2 hover:text-app-text"
                         >resume {info.claudeSessionId.slice(0, 8)}</button>
                       </>
@@ -1043,11 +1045,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                 window.setTimeout(() => signalsActions.clearTerminalReloading(sessionId), 15000);
                 void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' }).catch(() => {});
               }}
-              title="Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente"
+              title={t('terminal.resumeTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
               <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
-              <span>{reloading ? 'Riavvio…' : 'Riprendi'}</span>
+              <span>{reloading ? t('terminal.restarting') : t('terminal.resume')}</span>
             </button>
           </div>
         )}
@@ -1058,7 +1060,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <div data-testid="terminal-reloading-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-20">
             <div className="flex items-center gap-2 text-app-text-muted text-[12px]">
               <RotateCw size={14} className="animate-spin" />
-              <span>Riavvio sessione…</span>
+              <span>{t('terminal.restartingSession')}</span>
             </div>
           </div>
         )}

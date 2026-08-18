@@ -7,7 +7,7 @@ import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_INSET_LEFT, RAISED_CONTROL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_INSET_LEFT, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, TAB_LABEL } from '../../lib/selectionStyles';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
   PANE_CONFIG,
@@ -48,6 +48,7 @@ const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').the
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
+const ProfilePane = lazy(() => import('../Profile/ProfilePane').then(m => ({ default: m.ProfilePane })));
 
 
 interface StandaloneChatGroupProps {
@@ -76,6 +77,30 @@ interface StandaloneChatGroupProps {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onToggleSidebar?: () => void;
+  /**
+   * IL TELEFONO NON DISEGNA LA STRISCIA DELLE TAB.
+   *
+   * Sotto i 768px la colonna dei topic è a schermo intero ed è GIÀ l'elenco
+   * delle superfici aperte: chat, terminali, browser, board, progetti. Una
+   * seconda copia di quell'elenco in cima allo schermo non aggiunge una
+   * destinazione, ripete quelle che ci sono già e si porta via 46px di altezza
+   * su un'area di lettura alta 844 (chi usa la app, dalla PWA: «da mobile la barra
+   * delle tab in alto non serve, c'è già la lista delle tab»).
+   *
+   * Resta la RIGA, non la striscia: il nome della superficie che hai davanti
+   * (senza il quale, con una pane sola a schermo, non sapresti dire quale) e
+   * il comando che riapre la lista, che è l'unico della riga a non avere un
+   * gemello nella fila in basso — il «+» invece ce l'ha (`MobileChromeBar`),
+   * quindi qui sparisce insieme alle tab.
+   *
+   * Lo decide chi ci sta SOPRA e non `useMobile()`: il predicato che conta è
+   * quello con cui `PanelGrid` sceglie il suo render (`innerWidth < 768`), e
+   * due predicati diversi per la stessa domanda sono due predicati che prima o
+   * poi divergono — su un tablet toccabile a 900px `useMobile().isMobile` dice
+   * sì mentre la griglia splitta ancora, e la striscia sparirebbe da una
+   * superficie che ha davvero due riquadri affiancati da distinguere.
+   */
+  mobile?: boolean;
   panelInitialTab?: Record<string, PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
   // App-level quick-create. May resolve to the new DRAFT pane id (string) —
@@ -143,7 +168,7 @@ export function StandaloneChatGroup({
   onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
+  onToggleSidebar, mobile = false, panelInitialTab, onPanelInitialTabConsumed,
   onNewChat, stopSession,
   pendingProjectPane, onPendingProjectPaneConsumed,
   onNewChatInProject, pendingProjectFocus, onPendingProjectFocusConsumed,
@@ -298,6 +323,12 @@ export function StandaloneChatGroup({
       };
     }), [validatedOrderedIds, topics, effectivePinnedIds, terminalLabels]);
 
+  // Il nome della superficie davanti — lo legge la riga del telefono (vedi la
+  // prop `mobile`). Viene dalla STESSA lista da cui nascono le tab, così il
+  // nome in cima e quello nella colonna non possono divergere: sono la stessa
+  // stringa passata per due strade.
+  const titoloSuperficie = panes.find((p) => p.id === activePaneId)?.title ?? '';
+
   // Build tab notification badge map from context. Project tabs inherit their
   // children's badges via the central rollup (getProjectBadgeCount); other
   // panes use their own badge.
@@ -450,6 +481,14 @@ export function StandaloneChatGroup({
     if (!activeTopic) return;
     window.dispatchEvent(new CustomEvent('chat-input:toggle-context', { detail: { topicId: activeTopic.id } }));
   }, [activeTopic]);
+
+  // Stabile e non un arrow inline sulla board: quella prop scende su OGNI card,
+  // e un'identità nuova a ogni render del gruppo (una tab che cambia, un titolo
+  // che arriva) manda a vuoto il memo di tutte quante. La board di progetto
+  // passa già una callback stabile (`ProjectWindow`), questa no.
+  const openTopicFromBoard = useCallback((topicId: string) => {
+    window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }));
+  }, []);
 
   if (validatedOrderedIds.length === 0) return null;
   // NOTE: we deliberately do NOT bail the whole group when the ACTIVE pane is
@@ -680,7 +719,8 @@ export function StandaloneChatGroup({
         <LazyPane>
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
-          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={(topicId) => window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }))} />}
+          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={openTopicFromBoard} />}
+          {utilityType === 'profile' && <ProfilePane />}
         </LazyPane>
       );
     }
@@ -761,7 +801,21 @@ export function StandaloneChatGroup({
             this header; consolidating it lets the body switch underneath
             without re-mounting the tab bar / re-running its hooks. */}
         <div className={`${CHROME_BAR} pr-0 select-none app-drag-region`} {...DRAG_REGION}>
-          <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
+          {mobile ? (
+            // Il nome della superficie al posto della striscia. Stesso corpo
+            // della tab che c'era qui (`TAB_LABEL`) e stessa riserva a sinistra
+            // che la strip usava per non finire sotto il comando: la riga si
+            // svuota, non si sposta. Non è un bersaglio — non attiva, non
+            // chiude, non si trascina: per cambiare superficie c'è la lista.
+            <div
+              data-testid="mobile-pane-title"
+              className={`flex-1 flex items-center min-w-0 overflow-hidden ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+            >
+              <span className={`truncate ${TAB_LABEL}`}>{titoloSuperficie}</span>
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
+          )}
           {onToggleSidebar && (
             // La coppia del «+» in coda alla riga: stesso box
             // (`ROW_ACTION_BOX`), stesso incasso derivato, stessa scatola

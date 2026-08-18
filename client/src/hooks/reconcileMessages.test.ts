@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { ChatMessage } from '../types';
-import { reconcileMessages, sameChatMessage } from './reconcileMessages';
+import { mergeFetchedHistory, reconcileMessages, sameChatMessage } from './reconcileMessages';
 
 const msg = (id: string, content: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
@@ -80,5 +80,49 @@ describe('sameChatMessage — confronto per campi, non per stringa', () => {
     const a = msg('x', 'c');
     const b = msg('x', 'c', { pinned: true });
     expect(sameChatMessage(a, b)).toBe(false);
+  });
+});
+
+/**
+ * LA RISPOSTA IN VOLO DISEGNATA DUE VOLTE.
+ *
+ * A metà turno `/api/history` restituisce la riga parziale (con uno stream
+ * attivo i parziali non si filtrano e il contenuto vivo ci viene sovrapposto)
+ * sotto il suo id di DB, mentre la finestra che sta solo guardando teneva un
+ * segnaposto con un id coniato in locale. Due id per lo stesso turno: il filtro
+ * additivo li teneva entrambi.
+ */
+describe('mergeFetchedHistory — un turno solo, non due', () => {
+  const utente = (id: string, testo: string): ChatMessage =>
+    ({ id, role: 'user', content: testo, timestamp: '2026-08-12T10:00:00.000Z' } as ChatMessage);
+  const parziale = (id: string, testo: string): ChatMessage =>
+    msg(id, testo, { partial: true });
+
+  it('il segnaposto locale sparisce quando la storia finisce con un parziale', () => {
+    const existing = [utente('u1', 'vai'), parziale('msg_1765_abc', 'sto scriv')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-uuid-1', 'sto scrivendo')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out).toBe(fetched);
+    expect(out.filter((m) => m.role === 'assistant')).toHaveLength(1);
+  });
+
+  it('un messaggio locale NON parziale resta: è roba che il server non ha ancora', () => {
+    const existing = [utente('u1', 'vai'), utente('u2', 'e anche questo')];
+    const fetched = [utente('u1', 'vai')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => m.id)).toEqual(['u1', 'u2']);
+  });
+
+  it('a turno CHIUSO il parziale locale non si butta: non c’è nessun turno vivo di cui sia il gemello', () => {
+    const existing = [utente('u1', 'vai'), parziale('msg_1765_abc', 'mezza frase')];
+    const fetched = [utente('u1', 'vai'), msg('srv-uuid-1', 'risposta finita')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => m.id)).toEqual(['u1', 'srv-uuid-1', 'msg_1765_abc']);
+  });
+
+  it('lo stesso id da entrambe le parti non si duplica', () => {
+    const existing = [utente('u1', 'vai'), msg('srv-uuid-1', 'ok')];
+    const fetched = [utente('u1', 'vai'), msg('srv-uuid-1', 'ok')];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
   });
 });

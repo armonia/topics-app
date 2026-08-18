@@ -25,6 +25,54 @@ interface Msg {
 let nextSessionId = 1;
 let nextClientRequestId = 1;
 /** sessionId → è nata con `session/new` o è stata ricaricata? */
+
+/**
+ * Su quale modello si trova l'agente, e la storia di come ci è arrivato.
+ *
+ * Un agente vero tiene il modello per sessione; qui è uno solo per tutto il
+ * processo, e basta: i test che lo guardano usano una sessione per volta, e
+ * `calls` serve a dimostrare che il provider NON richiede il modello a ogni
+ * turno quando è già quello giusto.
+ */
+let currentModel = "modello-di-fabbrica";
+const modelCalls: string[] = [];
+
+/** Idem per l'effort di ragionamento. */
+let currentEffort = "effort-di-fabbrica";
+const effortCalls: string[] = [];
+
+/** I modelli che questo agente dichiara di avere, nella forma di ACP. */
+function configOptionsPayload(): Record<string, unknown> {
+  return {
+    configOptions: [
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        currentValue: currentModel,
+        options: [
+          { name: "modello-di-fabbrica", value: "modello-di-fabbrica" },
+          { name: "modello-piccolo", value: "modello-piccolo" },
+          { name: "modello-grosso", value: "modello-grosso" },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * «Questo metodo non ce l'ho», con il codice JSON-RPC giusto (-32601).
+ *
+ * Il codice conta: il provider distingue un metodo ASSENTE (smette di
+ * chiedere) da un errore qualunque (riproverà), e senza -32601 il test
+ * proverebbe il ramo sbagliato.
+ */
+class MethodNotFound extends Error {
+  readonly code = -32601;
+  constructor(method: string) {
+    super(`Unsupported ACP method: ${method}`);
+  }
+}
 const sessions = new Map<string, "new" | "loaded">();
 /** Prompt in attesa di `session/cancel`, per sessione. */
 const slowPrompts = new Map<string, (stopReason: string) => void>();
@@ -57,6 +105,26 @@ async function handlePrompt(params: Record<string, unknown>): Promise<Record<str
   if (text.includes("CRASH")) {
     // Muore a metà turno, senza rispondere: è il caso più cattivo.
     process.exit(1);
+  }
+
+  // Il turno racconta su che modello è stato servito, e quante volte glielo
+  // hanno cambiato. Passa dal canale NORMALE (il testo della risposta) perché
+  // il test deve poterlo leggere come lo legge una chat: un metodo di servizio
+  // in più proverebbe che il finto agente sa rispondere a un metodo in più.
+  if (text.includes("QUALEMODELLO")) {
+    update(sessionId, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: `MODELLO=${currentModel} CAMBI=${modelCalls.join(",")}` },
+    });
+    return { stopReason: "end_turn" };
+  }
+
+  if (text.includes("QUALEFFORT")) {
+    update(sessionId, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: `EFFORT=${currentEffort} CAMBI=${effortCalls.join(",")}` },
+    });
+    return { stopReason: "end_turn" };
   }
 
   if (text.includes("THINK")) {
@@ -147,7 +215,7 @@ async function handleRequest(method: string, params: Record<string, unknown>): P
     case "session/new": {
       const id = `sess-${nextSessionId++}`;
       sessions.set(id, "new");
-      return { sessionId: id };
+      return { sessionId: id, ...configOptionsPayload() };
     }
     case "session/load": {
       const id = String(params.sessionId ?? "");
@@ -159,8 +227,46 @@ async function handleRequest(method: string, params: Record<string, unknown>): P
     }
     case "session/prompt":
       return handlePrompt(params);
+    // Cambio di modello. Tre agenti in uno, scelti dall'ambiente, perché sono
+    // i tre comportamenti veri contro cui il provider deve reggere:
+    //   • normale       → accetta e rimanda i configOptions aggiornati;
+    //   • FAKE_ACP_NO_SET_MODEL=1 → non conosce il metodo (-32601), come un
+    //     agente ACP più vecchio o più povero: il provider deve degradare;
+    //   • FAKE_ACP_MODEL_REJECT=<nome> → conosce il metodo ma rifiuta QUEL
+    //     modello (-32000): è un errore del nome, non della capacità.
+    case "session/set_model": {
+      if (process.env.FAKE_ACP_NO_SET_MODEL === "1") {
+        throw new MethodNotFound(method);
+      }
+      const wanted = String(params.model ?? "");
+      if (wanted && wanted === process.env.FAKE_ACP_MODEL_REJECT) {
+        throw new Error(`modello non disponibile: ${wanted}`);
+      }
+      currentModel = wanted || currentModel;
+      modelCalls.push(currentModel);
+      return configOptionsPayload();
+    }
+    // Serve al test per chiedere «su che modello sei finito davvero?» senza
+    // dover leggere gli interni del provider.
+    case "debug/model":
+      return { currentModel, calls: modelCalls };
+    // L'effort di ragionamento, con gli stessi tre comportamenti del modello.
+    case "session/set_reasoning_effort": {
+      if (process.env.FAKE_ACP_NO_SET_EFFORT === "1") {
+        throw new MethodNotFound(method);
+      }
+      const wanted = String(params.effort ?? "");
+      if (wanted && wanted === process.env.FAKE_ACP_EFFORT_REJECT) {
+        // Il rifiuto VERO di jcode: l'effort vale solo per i modelli che
+        // espongono il thinking, e su tutti gli altri questa è la risposta.
+        throw new Error(`Reasoning effort non supportato per questo modello`);
+      }
+      currentEffort = wanted || currentEffort;
+      effortCalls.push(currentEffort);
+      return {};
+    }
     default:
-      throw new Error(`metodo non implementato: ${method}`);
+      throw new MethodNotFound(method);
   }
 }
 
@@ -191,7 +297,19 @@ function handleLine(line: string): void {
       .then(() => handleRequest(msg.method as string, params))
       .then((result) => send({ id, result: result ?? {} }))
       .catch((err: unknown) =>
-        send({ id, error: { code: -32000, message: err instanceof Error ? err.message : String(err) } }),
+        // Il codice lo sceglie chi solleva, quando ne ha uno: `MethodNotFound`
+        // deve arrivare al client come -32601, perché è su QUEL numero che il
+        // provider decide di smettere di chiedere. Appiattire tutto su -32000
+        // renderebbe il ramo del degrado impossibile da provare.
+        send({
+          id,
+          error: {
+            code: typeof (err as { code?: unknown })?.code === "number"
+              ? (err as { code: number }).code
+              : -32000,
+            message: err instanceof Error ? err.message : String(err),
+          },
+        }),
       );
     return;
   }

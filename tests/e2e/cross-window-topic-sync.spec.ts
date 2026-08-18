@@ -201,12 +201,17 @@ test.describe.serial("Cross-window topic + message sync", () => {
       );
       expect(postRes.ok()).toBeTruthy();
 
-      // Both windows should display the message.
+      // Both windows should display the message — DENTRO la conversazione.
+      // Cercarlo in tutta la pagina lo trova anche nell'anteprima della sidebar
+      // (`topic-preview`, la riga dell'ultimo messaggio sotto il nome del
+      // topic), e lo trova PRIMA: la sidebar si aggiorna comunque, quindi il
+      // test poteva passare anche con la pane della chat completamente muta —
+      // che e' esattamente la regressione che dice di sorvegliare.
       await expect(
-        pageA.getByText(new RegExp(uniqueMarker)),
+        pageA.locator('[role="main"]').getByText(new RegExp(uniqueMarker)),
       ).toBeVisible({ timeout: 8000 });
       await expect(
-        pageB.getByText(new RegExp(uniqueMarker)),
+        pageB.locator('[role="main"]').getByText(new RegExp(uniqueMarker)),
       ).toBeVisible({ timeout: 8000 });
     } finally {
       await deleteTopic(request, topicId);
@@ -338,11 +343,21 @@ test.describe.serial("Cross-window topic + message sync", () => {
       await page
         .getByRole("treeitem", { name: new RegExp(topicName) })
         .dblclick();
+      // DENTRO la conversazione, non «da qualche parte nella pagina». Il
+      // conteggio su tutta la pagina misurava anche l'ANTEPRIMA che la sidebar
+      // stampa sotto il nome del topic (`[data-testid="topic-preview"]`, riga
+      // dell'ultimo messaggio): due nodi con lo stesso testo, e il test rosso
+      // diceva «messaggio duplicato» mentre di messaggi ce n'era uno solo.
+      // Nessun dedupe era rotto — era il locator a contare una cosa diversa da
+      // quella che il test dichiara di misurare, ed e' lo stesso difetto gia'
+      // scritto in `PaneTabBar.tsx`: agganciarsi a cio' che si vede invece che
+      // a un appiglio stabile.
+      const conversazione = page.locator('[role="main"]');
       await expect(
-        page.getByText(new RegExp(marker)),
+        conversazione.getByText(new RegExp(marker)),
       ).toBeVisible({ timeout: 8000 });
 
-      const occurrences = await page.getByText(new RegExp(marker)).count();
+      const occurrences = await conversazione.getByText(new RegExp(marker)).count();
       expect(occurrences).toBe(1);
     } finally {
       await deleteTopic(request, topicId);

@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Server } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Server, Users } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { usePersonaCorrente } from '@/hooks/usePersonaCorrente';
 import { etichettaIdentita } from './identityLabel';
+import { presentiOra, type MembroPresenza } from './orgPresence';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
@@ -22,6 +23,7 @@ import { getVersion, relaunch } from '@/lib/shell/app';
 import { useAgentActivityCounts } from '@/state/signals';
 import { useMobile } from '@/hooks/useMobile';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
+import { useT } from '@/hooks/useT';
 
 declare const __BUILD_TIME__: string;
 declare const __BUILD_SHA__: string;
@@ -164,6 +166,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
   onOpenDevices?: () => void;
 } = {}) {
+  const tr = useT();
   // Subscribed HERE, in the leaf that shows the number, not up in App.
   // `useAgentActivityCounts` reads seven signal Sets through useShallow, so
   // while App held it a single `terminal:activity` frame — several a second
@@ -199,15 +202,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   // signal that a local change landed. A genuinely shipped release is >24h old,
   // so the chip auto-hides there instead of being a meaningless ever-growing
   // counter (the earlier "30s fa che non è vero" complaint).
-  // Evaluated once at mount via a lazy initializer — the wall-clock read stays
-  // out of the (pure) render body, and a coarse 24h "recent build" boolean has
-  // no reason to re-tick mid-session.
-  const [buildIsRecent] = useState(() => {
-    try {
-      return !!BUILD_TIME && (Date.now() - new Date(BUILD_TIME).getTime()) < 24 * 60 * 60 * 1000;
-    } catch { return false; }
-  });
-
   // The headline is the WHOLE app: shell + every WKWebView process macOS
   // attributes to it, the same set (and the same footprint metric) Activity
   // Monitor groups under "Topics". It used to be the shell process alone —
@@ -540,7 +534,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
           className={`tap-expand-y flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-1 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
-          title="Performance e stato sistema · apri per FPS live"
+          title={tr('statusBar.perfTitle')}
         >
           {openclawAvailable ? (
             <>
@@ -632,14 +626,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             // sulle tab. Il conteggio ne stava fuori per metà, e la frase
             // «con il turno finito» era già lì a descrivere un altro insieme.
             title={[
-              'Agenti Claude Code',
-              `· ${agentCounts.working} al lavoro`,
-              agentCounts.awaitingInput > 0 ? `· ${agentCounts.awaitingInput} in attesa di una tua risposta` : '',
+              tr('statusBar.agents.heading'),
+              tr('statusBar.agents.working', { n: agentCounts.working }),
+              agentCounts.awaitingInput > 0 ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
               agentCounts.awaiting - agentCounts.awaitingInput > 0
-                ? `· ${agentCounts.awaiting - agentCounts.awaitingInput} da guardare (turno finito o in pausa)`
+                ? tr('statusBar.agents.toLookAt', { n: agentCounts.awaiting - agentCounts.awaitingInput })
                 : '',
               '',
-              'Non contano le chat archiviate e le sessioni chiuse: non hanno una riga dove andarle a spegnere.',
+              tr('statusBar.agents.notCounted'),
             ].filter(Boolean).join('\n')}
           >
             {agentCounts.working > 0 && (
@@ -674,7 +668,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             className={`flex items-center gap-1.5 text-[11px] min-w-0 overflow-hidden ${
               wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA
             }`}
-            title="Stato connessione realtime al server Topics"
+            title={tr('statusBar.wsTitle')}
           >
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse ${
               wsStatus === 'offline' ? PALLINO_GUASTO : PALLINO_ATTESA
@@ -705,7 +699,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               data-version-anchor
               onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
               className={`tap-expand-y text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
-              title="Info versione e aggiornamenti"
+              title={tr('statusBar.versionTitle')}
             >
               v{appVersion}
             </button>
@@ -717,7 +711,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           {isDev && (
             <span
               className={`px-1 rounded bg-amber-500/15 ${SEGNALE_ATTESA} font-medium text-[10px] leading-tight`}
-              title={`Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.${lastChangeTime ? ` Ultimo aggiornamento codice: ${formatBuildTime(lastChangeTime)} fa.` : ''}`}
+              title={tr('statusBar.devBuildTitle') + (lastChangeTime ? tr('statusBar.lastCodeUpdateAgo', { t: formatBuildTime(lastChangeTime) }) : '')}
             >
               dev{lastChangeTime ? ` · ${formatBuildTime(lastChangeTime)}` : ''}
             </span>
@@ -727,23 +721,21 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               Driven by server status, so it shows in the PROD-minified desktop
               bundle too (unlike the Vite-only `dev` badge above). Hidden when
               isDev (the amber `dev` already implies live reload). */}
-          {!isDev && status?.server?.devReload && (
-            <span
-              className={`flex items-center gap-0.5 px-1 rounded bg-emerald-500/15 ${SEGNALE_OK} font-medium text-[10px] leading-tight`}
-              title="Auto-aggiornamento attivo: le finestre si ricaricano da sole ai nuovi build, senza popup. (Spegni rimuovendo topics-dev.json dallo STATE_DIR e riavviando il server.)"
-            >
-              <RefreshCw size={9} />
-              auto
-            </span>
-          )}
+          {/* IL BADGE «auto» E' STATO TOLTO. Diceva una cosa vera in un
+              posto dove sette informazioni si contendono ~200px, e la sua
+              conseguenza pratica - «non devi fare niente» - ora si vede da
+              sola: in automatico l'avviso di nuova versione non compare
+              proprio. Un simbolo che segnala l'assenza di un'azione e' un
+              simbolo che si guarda una volta e poi mai piu'.
+              Lo STATO resta leggibile nel dropdown della versione, che e' dove
+              si va a chiedere «a che punto sono con gli aggiornamenti». */}
           {/* Relative "X fa" = last local update. Shown in dev (HMR-tracked) and
               for a recent local build (the desktop app runs the built bundle even
               while developing). Hidden on a stale shipped release. */}
-          {!isDev && buildIsRecent && lastChangeTime && (
-            <span title={`Ultimo aggiornamento codice: ${formatBuildTime(lastChangeTime)} fa`}>
-              {formatBuildTime(lastChangeTime)}
-            </span>
-          )}
+          {/* E VIA ANCHE «X fa». Rispondeva a «quando e' stata costruita
+              questa build», che e' una domanda da dropdown della versione, non
+              da riga di stato: li' compete per larghezza con gli fps, la
+              memoria e la versione, che si guardano di continuo. */}
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -758,7 +750,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             // Si allarga il BOX vero su touch (28px, quanto la riga), che non ruba
             // niente a nessuno.
             className={`p-0.5 md:p-0.5 w-7 h-7 md:w-auto md:h-auto flex items-center justify-center rounded ${SIDEBAR_HOVER} transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
-            title={isDesktop ? 'Riavvia l\'app' : updateAvailable ? 'Aggiornamento disponibile' : 'Ricarica'}
+            title={isDesktop ? tr('statusBar.restartApp') : updateAvailable ? tr('statusBar.updateAvailable') : tr('statusBar.reload')}
           >
             {/* Distinct glyph from the dropdown's data-refresh (RefreshCw): the
                 bar button RESTARTS the app (desktop shell) — a different, heavier
@@ -843,8 +835,13 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
  * anche quella del menu del telefono: erano due copie ed erano gia' divergenti.
  */
 function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
+  const tr = useT();
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
   const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
+  /** Quanti ALTRI della tua organizzazione sono online adesso. Vedi `orgPresence.ts`. */
+  const [colleghi, setColleghi] = useState<number>(0);
+  /** Logo e nome dell'organizzazione di questa installazione. */
+  const [orgInfo, setOrgInfo] = useState<{ name: string; logo_url: string | null } | null>(null);
   useEffect(() => subscribeSession(setSession), []);
   const io = usePersonaCorrente();
   const chi = etichettaIdentita(io, session);
@@ -866,6 +863,36 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
     } catch { /* transitorio: la riga resta senza conteggio invece di mentire */ }
   }, []);
 
+  /**
+   * Chi altro c'e' della tua organizzazione. Due chiamate perche' i membri
+   * stanno per gruppo: prima quale gruppo, poi chi c'e' dentro.
+   *
+   * Best-effort come il conteggio dei dispositivi: su un'installazione senza
+   * servizio degli account queste rotte non rispondono, e la riga resta senza
+   * la parte dei colleghi invece di mostrare uno zero che non significa niente.
+   */
+  const caricaColleghi = useCallback(async () => {
+    try {
+      const ro = await fetch('/api/auth/orgs', { credentials: 'same-origin' });
+      if (!ro.ok) return;
+      const { orgs } = await ro.json() as { orgs: Array<{ id: string; name: string; logo_url: string | null; installation?: boolean }> };
+      const mia = orgs.find((o) => o.installation) ?? orgs[0];
+      if (!mia) return;
+      setOrgInfo({ name: mia.name, logo_url: mia.logo_url ?? null });
+      const rm = await fetch(`/api/auth/orgs/${encodeURIComponent(mia.id)}/members`, { credentials: 'same-origin' });
+      if (!rm.ok) return;
+      const { members } = await rm.json() as { members: MembroPresenza[] };
+      // DUE fonti per la stessa domanda «chi sono io», e serve la seconda: la
+      // rubrica (`/api/people`, dietro `usePersonaCorrente`) e' una fetch a
+      // parte che puo' non aver ancora risposto, o fallire in silenzio. La
+      // sessione porta gia' `personId` ed e' la stessa persona, risolta dal
+      // server da `devices.person_id`. Senza il ripiego, chi e' da solo si
+      // vedeva contare 1 - se stesso - nella riga che dice «chi ALTRO c'e'».
+      const mioId = io?.id ?? (session.status === 'paired' ? session.personId ?? null : null);
+      setColleghi(presentiOra(members ?? [], mioId, Date.now()));
+    } catch { /* idem: nessun numero e' meglio di un numero inventato */ }
+  }, [io?.id, session]);
+
   // Il conteggio si prende DOPO il primo paint, non durante. Questa riga sta in
   // fondo alla sidebar e il suo numero non serve a nessuno nel primo frame:
   // farlo partire dentro l'effetto significherebbe una scrittura di stato
@@ -875,14 +902,22 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
   useEffect(() => {
     const chiedi = () => { void caricaAltri(); };
     const primo = setTimeout(chiedi, 0);
+    // I colleghi si ricontano ogni minuto: la soglia e' cinque, e un numero che
+    // si aggiorna solo al montaggio direbbe «c'e' Marco» mezz'ora dopo che se
+    // n'e' andato.
+    const colleghiOra = () => { void caricaColleghi(); };
+    const primoColleghi = setTimeout(colleghiOra, 0);
+    const ogniMinuto = setInterval(colleghiOra, 60_000);
     window.addEventListener('topics:auth-pair-resolved', chiedi);
     window.addEventListener('topics:auth-device-revoked', chiedi);
     return () => {
       clearTimeout(primo);
+      clearTimeout(primoColleghi);
+      clearInterval(ogniMinuto);
       window.removeEventListener('topics:auth-pair-resolved', chiedi);
       window.removeEventListener('topics:auth-device-revoked', chiedi);
     };
-  }, [caricaAltri]);
+  }, [caricaAltri, caricaColleghi]);
 
   if (session.status !== 'paired') return null;
   const locale = session.as === 'loopback';
@@ -908,7 +943,7 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       style={{ paddingInline: ROW_INSET }}
       // Il tooltip dice ENTRAMBE le cose, sempre: chi e su cosa. La riga puo'
       // troncare il dettaglio quando la colonna e' stretta, il tooltip no.
-      title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}\nApri l\u2019elenco dei dispositivi autorizzati`}
+      title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}\n${tr('statusBar.devicesTitle')}`}
     >
       {/* LA FACCIA, e solo quando c'e' una persona. Senza, resta il glifo del
           ferro esattamente com'era: un tondino con dentro l'iniziale di
@@ -921,6 +956,28 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
           ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
           : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
       <span className="truncate text-app-text">{chi.nome}</span>
+      {/* IL BADGE DELL'ORG, visibile sempre quando c'e' un'organizzazione.
+          Appare solo quando NON ci sono colleghi online (in quel caso il chip
+          presenza li porta gia' il logo). Mostra il logo o le iniziali. */}
+      {orgInfo && colleghi === 0 && (
+        <span
+          className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted"
+          title={orgInfo.name}
+        >
+          {orgInfo.logo_url ? (
+            <img
+              src={orgInfo.logo_url}
+              alt={orgInfo.name}
+              className="h-3.5 w-3.5 flex-shrink-0 rounded-full object-cover opacity-70"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            />
+          ) : (
+            <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[7px] font-bold text-indigo-400">
+              {orgInfo.name.slice(0, 2).toUpperCase()}
+            </span>
+          )}
+        </span>
+      )}
       {/* IL FERRO, sceso a dettaglio. Cede lo spazio per primo (`min-w-0` senza
           `flex-shrink-0`): se la colonna e' stretta si tronca questo, mai il
           nome della persona. */}
@@ -932,8 +989,33 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
           <span className="truncate">{chi.dettaglio}</span>
         </span>
       )}
+      {/* CHI ALTRO C'E', della tua organizzazione. Compare solo quando c'e'
+          davvero qualcuno: «0 online» e' rumore che si impara a saltare, e una
+          riga che dice sempre qualcosa smette di essere guardata.
+          Prima del conteggio dei ferri perche' risponde a una domanda piu'
+          grande — «con chi sto lavorando» batte «quante macchine ho» — e con
+          `flex-shrink-0` perche' e' l'ultima cosa da troncare. */}
+      {colleghi > 0 && (
+        <span
+          data-testid="org-presence"
+          className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted"
+          title={orgInfo ? `${orgInfo.name} \u00b7 ${tr('statusBar.orgPresenceTitle')}` : tr('statusBar.orgPresenceTitle')}
+        >
+          {orgInfo?.logo_url ? (
+            <img
+              src={orgInfo.logo_url}
+              alt={orgInfo.name}
+              className="h-3 w-3 flex-shrink-0 rounded-full object-cover"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            />
+          ) : (
+            <Users size={10} className="flex-shrink-0" />
+          )}
+          {colleghi}
+        </span>
+      )}
       {altri && altri.totali > 0 && (
-        <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">
+        <span className={`${colleghi > 0 ? 'ml-1' : 'ml-auto'} flex flex-shrink-0 items-center gap-1 text-app-text-muted`}>
           {altri.connessi > 0 && <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_OK}`} />}
           {altri.connessi > 0 ? `${altri.connessi}/${altri.totali}` : `${altri.totali}`}
         </span>

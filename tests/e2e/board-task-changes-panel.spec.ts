@@ -29,23 +29,12 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
-
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 
 interface WorktreeRow { id: string; status: string; absPath: string; branchName: string }
 
@@ -220,9 +209,12 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     await expect(modifiche).toContainText("+2");
     await expect(modifiche).toContainText("−0");
 
+    // Il chip apre una tendina PORTALATA: il diff non vive più nel flusso del
+    // brief, quindi si cerca nel pannello e non dentro il drawer.
     await modifiche.click();
-    await expect(drawer.getByRole("button", { name: /^consegna\.ts/ })).toBeVisible({ timeout: 10000 });
-    await expect(drawer.getByRole("button", { name: /roba-di-un-altro/ })).toHaveCount(0);
+    const pannello = page.getByTestId("task-changes-panel");
+    await expect(pannello.getByRole("button", { name: /^consegna\.ts/ })).toBeVisible({ timeout: 10000 });
+    await expect(pannello.getByRole("button", { name: /roba-di-un-altro/ })).toHaveCount(0);
   });
 
   test("CHANGES-02: dopo il land il pannello RESTA, e dice da dove legge", async ({ page }) => {
@@ -251,7 +243,8 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     await expect(modifiche).toContainText("dal merge su main");
 
     await modifiche.click();
-    await expect(drawer.getByRole("button", { name: /^atterrata\.ts/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("task-changes-panel").getByRole("button", { name: /^atterrata\.ts/ }))
+      .toBeVisible({ timeout: 10000 });
   });
 
   test("CHANGES-03: senza niente da cui ricostruire lo DICE, invece di sparire", async ({ page }) => {

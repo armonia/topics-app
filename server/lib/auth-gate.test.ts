@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
-  evaluateAuth, isLoopbackAddress, isSameSite, canonHost, originHost,
+  evaluateAuth, isLoopbackAddress, isSameSite, isAllowedHost, canonHost, originHost,
   isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins, type AuthInput,
 } from "./auth-gate";
 
@@ -110,6 +110,30 @@ describe("auth-gate · canonHost", () => {
     // Regression: `notlocalhost.com` non deve finire nella classe locale.
     expect(canonHost("notlocalhost.com")).toBe("notlocalhost.com");
   });
+
+  it("un NOME che comincia per `127.` non è loopback: solo il LETTERALE lo è", () => {
+    // Il buco misurato: `/^127\./` girava sul NOME, quindi qualunque dominio
+    // pubblico che comincia per `127.` collassava in `#local`, passava l'asse
+    // host, era same-site e arrivava PROPRIETARIO da loopback.
+    for (const h of [
+      "127.0.0.1.nip.io", "127.0.0.1.nip.io:3333", "127.pwn.evil.com",
+      "127.evil.com", "127.0.0.1.evil.com", "1270.0.0.1",
+      "::ffff:127.0.0.1.evil.com",
+    ]) {
+      // Torna sé stesso (porta a parte), cioè NON la classe locale.
+      expect(`${h}→${canonHost(h)}`).toBe(`${h}→${h.replace(/:3333$/, "")}`);
+    }
+    // …e il letterale invece sì, o il controllo passerebbe per il motivo sbagliato.
+    expect(canonHost("127.0.0.1")).toBe(canonHost("localhost"));
+    expect(canonHost("::ffff:127.0.0.1")).toBe(canonHost("localhost"));
+  });
+
+  it("la SENTINELLA non si può mandare come Host", () => {
+    // `#local` è il valore di comodo in cui collassa la classe locale: se
+    // arrivasse dall'esterno coinciderebbe con essa e verrebbe preso per questa
+    // macchina.
+    expect(canonHost("#local")).toBeNull();
+  });
 });
 
 describe("auth-gate · originHost", () => {
@@ -147,6 +171,76 @@ describe("auth-gate · isSameSite", () => {
     expect(isSameSite("null", "192.168.1.12:3333")).toBe(false);
     expect(isSameSite(null, "192.168.1.12:3333")).toBe(false);
     expect(isSameSite("https://192.168.1.12:3333", null)).toBe(false);
+  });
+});
+
+describe("auth-gate · isAllowedHost", () => {
+  // OGNI strada da cui questa app viene raggiunta davvero. Un 403 sul telefono
+  // sarebbe un esito peggiore del buco che questo asse chiude.
+  it("accepts every way this app is actually reached", () => {
+    for (const h of [
+      "127.0.0.1:3333", "localhost:3333", "[::1]:3333", "0:0:0:0:0:0:0:1",
+      "tauri.localhost",                 // il guscio Tauri
+      "127.0.0.1:13333",                 // il proxy loopback del guscio
+      "127.0.0.1:3334",                  // l'ascoltatore del tunnel / relay
+      "192.168.1.12:3333", "10.0.0.3:3333", "172.16.4.9",  // la LAN, per IP
+      "[fe80::1]:3333", "fe80::1234:5678",                  // la LAN, per IPv6
+      "macbook-pro-di-attilio.local:3333",                  // mDNS
+      "mac.tail1234.ts.net",                                // Tailscale MagicDNS
+    ]) {
+      expect(`${h}→${isAllowedHost(h)}`).toBe(`${h}→true`);
+    }
+  });
+
+  it("accepts the tunnel hostname declared in TOPICS_ALLOWED_ORIGINS", () => {
+    // `cloudflared` inoltra l'`Host` originale (docs/tunnel.md), quindi senza
+    // questo ramo il tunnel documentato risponderebbe 403 a se stesso.
+    const ammesse = ["https://topics.esempio.io"];
+    expect(isAllowedHost("topics.esempio.io", ammesse)).toBe(true);
+    expect(isAllowedHost("topics.esempio.io:8443", ammesse)).toBe(true);
+    // …e anche scritto come hostname nudo: chi configura la variabile fa l'uno
+    // o l'altro, e un 403 qui sembrerebbe un guasto.
+    expect(isAllowedHost("topics.esempio.io", ["topics.esempio.io"])).toBe(true);
+  });
+
+  it("rejects every other DNS name — quello è il rebinding", () => {
+    for (const h of [
+      "rebind.evil.com:13333", "evil.com", "notlocalhost.com",
+      "topics.esempio.io",                       // non dichiarato ⇒ non nostro
+      "macbook.local.evil.com", "mac.ts.net.evil.com",
+      "local", "ts.net",                         // il suffisso NUDO non è un nostro nome
+      "999.1.1.1",                               // sembra un IP, non lo è
+    ]) {
+      expect(`${h}→${isAllowedHost(h)}`).toBe(`${h}→false`);
+    }
+  });
+
+  it("rejects PREFIX confusions too — il caso che qui mancava del tutto", () => {
+    // Fino a oggi questo elenco aveva solo confusioni di SUFFISSO
+    // (`macbook.local.evil.com`), e il buco stava dalla parte opposta: un nome
+    // pubblico che COMINCIA per `127.` veniva dichiarato loopback.
+    // `127.0.0.1.nip.io` risolve a 127.0.0.1 per chiunque, senza nemmeno
+    // registrare un dominio — misurato 200 contro il server vivo.
+    for (const h of [
+      "127.0.0.1.nip.io", "127.0.0.1.nip.io:3333",
+      "127.pwn.evil.com", "127.evil.com", "127.0.0.1.evil.com:13333",
+      "::ffff:127.0.0.1.evil.com",
+      "localhost.evil.com", "localhost.attacker.io:3333",
+      "topics.esempio.io.evil.com",
+      "#local",                                  // la sentinella della classe locale
+    ]) {
+      expect(`${h}→${isAllowedHost(h, ["https://topics.esempio.io"])}`).toBe(`${h}→false`);
+    }
+  });
+
+  it("lascia passare un Host ASSENTE: chi può ometterlo non è un browser", () => {
+    // CLI, tool MCP, hook HTTP. Il rebinding è un attacco da browser, e un
+    // browser l'header lo manda sempre.
+    expect(isAllowedHost(null)).toBe(true);
+    expect(isAllowedHost(undefined)).toBe(true);
+    expect(isAllowedHost("   ")).toBe(true);
+    // Storto invece è storto: una parentesi mai chiusa non è nessuno di noi.
+    expect(isAllowedHost("[::1")).toBe(false);
   });
 });
 
@@ -244,6 +338,60 @@ describe("auth-gate · evaluateAuth", () => {
   it("Host assente ⇒ nessuna origine è same-site → 403", () => {
     const r = evaluateAuth(input({ method: "POST", origin: "https://192.168.1.12:3333", host: null }));
     expect(r.allow).toBe(false);
+  });
+
+  // ── L'asse HOST: il DNS rebinding, che gli altri due non vedono.
+
+  it("un nome ribattezzato su 127.0.0.1 → 403, anche con un'identità VALIDA", () => {
+    // Prima era `allow: true`: `Origin` e `Host` concordano (il sito ostile
+    // controlla entrambi), il peer è loopback, quindi l'identità è
+    // PROPRIETARIA senza credenziali — e `POST /api/terminal/sessions` da lì è
+    // esecuzione di codice arbitrario.
+    const r = evaluateAuth(input({
+      method: "POST", pathname: "/api/terminal/sessions",
+      host: "rebind.evil.com:13333", origin: "https://rebind.evil.com",
+      identity: { ok: true },
+    }));
+    expect(r).toEqual({ allow: false, status: 403, reason: "host not allowed" });
+  });
+
+  it("il rebinding SENZA registrare un dominio (`127.0.0.1.nip.io`) → 403", () => {
+    // La forma esatta misurata contro il server vivo: `curl` con
+    // `Host: 127.0.0.1.nip.io` su `POST /api/terminal/sessions` rispondeva 200,
+    // cioè esecuzione di codice arbitrario a chiunque riuscisse a far aprire
+    // quella pagina. Il nome non va nemmeno comprato: nip.io lo risolve per
+    // tutti, e `sslip.io`/`localtest.me` fanno lo stesso.
+    for (const host of ["127.0.0.1.nip.io", "127.0.0.1.nip.io:3333", "127.pwn.evil.com"]) {
+      const r = evaluateAuth(input({
+        method: "POST", pathname: "/api/terminal/sessions",
+        host, origin: `http://${host}`, identity: { ok: true },
+      }));
+      expect(`${host}→${JSON.stringify(r)}`).toBe(
+        `${host}→${JSON.stringify({ allow: false, status: 403, reason: "host not allowed" })}`,
+      );
+    }
+  });
+
+  it("vale anche sulle LETTURE: il rebinding la risposta la legge davvero", () => {
+    // Sull'asse d'origine una GET passa perché il CORS la rende illeggibile.
+    // Qui no: la pagina crede di essere sulla NOSTRA origine, e il CORS non
+    // entra proprio in gioco.
+    const r = evaluateAuth(input({ method: "GET", host: "rebind.evil.com:3333", origin: null }));
+    expect(r).toEqual({ allow: false, status: 403, reason: "host not allowed" });
+  });
+
+  it("e le strade vere restano aperte: IP, .local, .ts.net, origine dichiarata", () => {
+    const passa = (host: string, allowedOrigins: string[] = []) => evaluateAuth(input({
+      method: "POST", host, origin: `https://${host}`, allowedOrigins, identity: { ok: true },
+    })).allow;
+    expect(passa("192.168.1.12:3333")).toBe(true);
+    expect(passa("macbook-pro-di-attilio.local:3333")).toBe(true);
+    expect(passa("mac.tail1234.ts.net")).toBe(true);
+    expect(passa("topics.esempio.io", ["https://topics.esempio.io"])).toBe(true);
+    // Il guscio Tauri: `Origin` e `Host` vengono da due mondi diversi.
+    expect(evaluateAuth(input({
+      method: "POST", host: "127.0.0.1:13333", origin: "tauri://localhost", identity: { ok: true },
+    })).allow).toBe(true);
   });
 
   // ── Le origini configurate a mano (un hostname di tunnel).

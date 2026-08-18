@@ -333,7 +333,11 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     const seedLanding = /^\/api\/test\/tasks\/([^/]+)\/landing$/.exec(pathname);
     if (method === "POST" && seedLanding) {
       const body = (await req.json().catch(() => null)) as
-        | { branch?: string | null; commit?: string | null; state?: string | null }
+        | {
+            branch?: string | null; commit?: string | null; state?: string | null;
+            /** L'entita' della consegna, per le spec che misurano il chip. */
+            filesChanged?: number; insertions?: number; deletions?: number;
+          }
         | null;
       const taskId = decodeURIComponent(seedLanding[1]);
       const state = body?.state ?? null;
@@ -346,9 +350,62 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         // precedente (una consegna nuova invalida un vecchio "landed"), quindi
         // lo stato va scritto DOPO — altrimenti si semina un `landing_state`
         // nullo e la spec misura il caso sbagliato.
-        svc.recordDelivery({ taskId, branch: body?.branch ?? null, commit: body?.commit ?? null });
+        svc.recordDelivery({
+          taskId, branch: body?.branch ?? null, commit: body?.commit ?? null,
+          // Assente ⇒ null, come in produzione: una spec che non chiede la
+          // misura deve vedere una card senza chip, non una con degli zeri.
+          stat: body?.filesChanged === undefined ? null : {
+            filesChanged: body.filesChanged,
+            insertions: body.insertions ?? 0,
+            deletions: body.deletions ?? 0,
+          },
+        });
         if (state) svc.recordLandingState({ taskId, state, checkedAt: new Date().toISOString() });
         return json({ ok: true, task: svc.get(taskId)?.task ?? null });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/tasks/:taskId/review-at {at} — l'istante d'INGRESSO in
+    // review, spostato indietro nel tempo.
+    //
+    // Il chip dell'attesa tace sotto l'ora, quindi una card appena creata non
+    // lo mostra: una spec che volesse vederlo dovrebbe aspettare un'ora vera.
+    // Questa porta sposta l'orologio del dato, non quello della macchina.
+    const seedReviewAt = pathname.match(/^\/api\/test\/tasks\/([^/]+)\/review-at$/);
+    if (method === "POST" && seedReviewAt) {
+      const body = (await req.json().catch(() => null)) as { at?: string } | null;
+      const at = typeof body?.at === "string" ? body.at : null;
+      if (!at || !Number.isFinite(Date.parse(at))) return json({ error: "at must be an ISO date" }, 400);
+      try {
+        db.prepare("UPDATE tasks SET review_at = ? WHERE id = ?").run(at, decodeURIComponent(seedReviewAt[1]!));
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/tasks/:taskId/checks {state} — l'ESITO DEI CONTROLLI.
+    //
+    // Stessa ragione delle altre porte di test: farli girare per davvero
+    // vorrebbe dire un repo, dei comandi e dei secondi, quando la spec misura
+    // solo se la card DICE l'esito. Il verdetto vero ha la sua strada in
+    // `POST /tasks/:id/checks` di tasks.ts, che questa non tocca.
+    const seedChecks = pathname.match(/^\/api\/test\/tasks\/([^/]+)\/checks$/);
+    if (method === "POST" && seedChecks) {
+      const body = (await req.json().catch(() => null)) as { state?: string } | null;
+      const state = body?.state ?? null;
+      if (state !== "running" && state !== "pass" && state !== "fail") {
+        return json({ error: "state must be running | pass | fail" }, 400);
+      }
+      try {
+        const svc = createTaskService(db);
+        const t = svc.recordChecks({
+          taskId: decodeURIComponent(seedChecks[1]!), state,
+          commit: null, runs: null,
+        });
+        return json({ ok: true, task: t });
       } catch (e) {
         return json({ error: (e as Error).message }, 400);
       }

@@ -71,6 +71,7 @@ try { fs.mkdirSync(storeDir, { recursive: true }); } catch { /* best effort */ }
  */
 const sessions = new Map();  // id -> Session
 const clients = new Set();   // connected server sockets
+const connectedAt = new Map(); // socket -> Date.now(), per distinguere un server da una sonda
 
 function broadcast(msg) {
   const line = JSON.stringify(msg) + '\n';
@@ -454,6 +455,7 @@ async function start() {
 
   const server = net.createServer((socket) => {
     clients.add(socket);
+    connectedAt.set(socket, Date.now());
     let lineBuffer = '';
     socket.on('data', (chunk) => {
       lineBuffer += chunk.toString();
@@ -466,7 +468,7 @@ async function start() {
         catch (e) { sendTo(socket, { type: 'error', error: e.message, id: parsed?.id }); }
       }
     });
-    const drop = () => { clients.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };
+    const drop = () => { clients.delete(socket); connectedAt.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };
     socket.on('close', drop);
     socket.on('error', drop);
   });
@@ -510,25 +512,54 @@ async function start() {
   // Env override exists so the test can exercise the real monitor without
   // sitting through 90s; production never sets it.
   const ORPHAN_GRACE_MS = Number(process.env.TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS) || 90_000;
+  // UNA SONDA NON È UN SERVER. `checkExistingBridge()` di ogni bridge che prova a
+  // nascere si connette qui, aspetta un pong e chiude: circa un secondo. Il
+  // monitor azzerava la scadenza a QUALSIASI connessione, quindi bastava che
+  // qualcuno continuasse a provare a spawnare per rendere l'orfano immortale.
+  // Misurato il 2026-08-14 proprio qui, in ai-bridge/daemon.log: «Parent died …
+  // exit in 90s» e «Server reconnected» alternate all'infinito, con il pid 41214
+  // ancora vivo dopo 12 minuti, padre morto e zero peer sul socket. Solo un
+  // client attaccato da almeno REAL_CLIENT_MS è un server riagganciato, e si
+  // misura sul singolo collegamento: due sonde diverse a due tick consecutivi
+  // non sono un server che è rimasto.
+  const REAL_CLIENT_MS = Number(process.env.TOPICS_AI_BRIDGE_REAL_CLIENT_MS) || 5_000;
+  // How often the orphan monitor fires. Production default 5s; tests can shrink
+  // it via TOPICS_AI_BRIDGE_MONITOR_TICK_MS to avoid sitting through full ticks.
+  const AI_MONITOR_TICK_MS = Number(process.env.TOPICS_AI_BRIDGE_MONITOR_TICK_MS) || 5_000;
   let orphanDeadline = null;
+  let orphanExtended = false;
   setInterval(() => {
     // No --parent-pid (hand-started daemon): nothing to outlive, the idle
     // timeout below is the only thing that will ever retire us.
     const orphaned = parentPid !== null && !pidAlive(parentPid);
-    if (!orphaned) { orphanDeadline = null; return; }
-    if (clients.size > 0) {
-      if (orphanDeadline !== null) { console.error('[AI Bridge] Server reconnected after parent death — staying alive, sessions preserved.'); orphanDeadline = null; }
+    if (!orphaned) { orphanDeadline = null; orphanExtended = false; return; }
+    const now = Date.now();
+    const settled = [...clients].some((c) => now - (connectedAt.get(c) ?? now) >= REAL_CLIENT_MS);
+    if (settled) {
+      if (orphanDeadline !== null) {
+        console.error('[AI Bridge] Server reconnected after parent death — staying alive, sessions preserved.');
+        orphanDeadline = null;
+        orphanExtended = false;
+      }
       return;
     }
-    const now = Date.now();
     if (orphanDeadline === null) {
       orphanDeadline = now + ORPHAN_GRACE_MS;
       console.error(`[AI Bridge] Parent died (was ${parentPid}), no server connected — exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects.`);
-    } else if (now >= orphanDeadline) {
-      console.error('[AI Bridge] No server reconnected within grace — shutting down.');
-      shutdown('ORPHAN_ABANDONED');
+      return;
     }
-  }, 5000).unref();
+    if (now < orphanDeadline) return;
+    if (clients.size > 0 && !orphanExtended) {
+      // Scaduta con qualcuno attaccato da poco: UNA proroga, lunga abbastanza da
+      // farlo diventare `settled` se è davvero un server. Poi si chiude comunque:
+      // sonde che si sovrappongono non devono valere l'immortalità.
+      orphanExtended = true;
+      orphanDeadline = now + REAL_CLIENT_MS * 2;
+      return;
+    }
+    console.error('[AI Bridge] No server reconnected within grace — shutting down.');
+    shutdown('ORPHAN_ABANDONED');
+  }, AI_MONITOR_TICK_MS).unref();
 
   // Backstop for daemons no parent check can ever retire: a crashed/timed-out
   // `bun test` never runs its afterAll, and its socket path embeds the test

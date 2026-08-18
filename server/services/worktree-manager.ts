@@ -37,9 +37,11 @@ import {
   generateWorktreeName,
   isValidWorktreeName,
 } from "../utils/worktree-naming";
+import { makeSerialQueue } from "../lib/serial-queue";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { OwnedScript } from "../lib/ghost-script";
 
 export class WorktreeRefusalError extends Error {
   constructor(reason: string) {
@@ -97,12 +99,28 @@ export interface WorktreeManager {
   worktreesDir(): string;
 }
 
+/** Dipendenze opzionali iniettate: INIETTARE, non importare. */
+export interface WorktreeManagerGcDeps {
+  /**
+   * Uccide l'albero di un processo: pid + graceMs.
+   * Iniettato da processes.ts per evitare un secondo scrittore di stato.
+   */
+  killTree?: (pid: number, graceMs?: number) => Promise<void>;
+  /**
+   * Restituisce la lista degli script avviati da Topics (source:"script") con
+   * pid e projectPath. Usata per individuare i processi con cwd nella worktree
+   * che si sta per cancellare.
+   */
+  listOwnedScripts?: () => OwnedScript[];
+}
+
 export function createWorktreeManager(
   ctx: AppContext,
   deps: {
     projectStore: ProjectStore;
     worktreeStore: WorktreeStore;
   },
+  gcDeps: WorktreeManagerGcDeps = {},
 ): WorktreeManager {
   const worktreesDir =
     process.env.TOPICS_WORKTREES_DIR ||
@@ -113,25 +131,62 @@ export function createWorktreeManager(
     mkdirSync(p, { recursive: true });
   }
 
-  // Per-project async serialization.
-  const projectQueues = new Map<string, Promise<unknown>>();
+  /**
+   * PUNTO 1 (task e3240a22): spegni PRIMA i processi Topics dentro la worktree,
+   * poi rimuovi la cartella.
+   *
+   * Cerca i processi source:"script" il cui projectPath sta dentro `wtPath`.
+   * Per ogni processo trovato, chiama killTree con identita' (pid+lstart) gia'
+   * verificata al momento dello spawn (il campo pidLstart nella registrazione).
+   *
+   * Se TOPICS_GHOST_REAP != "1", logga ma non uccide (modalita' solo-log).
+   *
+   * TRAPPOLA DI CODA: `del()` gira dentro `chainOnProjectQueue`. Non aspettare
+   * incondizionatamente 5s per ognuno: aspetta al massimo 2s SOLO se abbiamo
+   * davvero segnalato qualcuno, altrimenti niente attesa.
+   */
+  async function evictOwnedScripts(wtPath: string): Promise<void> {
+    if (!gcDeps.listOwnedScripts) return;
+    // Letto alla chiamata, non alla costruzione: permette di variare l'env
+    // in test (e di passare da solo-log ad armato senza riavviare il server).
+    const armed = process.env.TOPICS_GHOST_REAP === "1";
+    const base = wtPath.endsWith("/") ? wtPath : wtPath + "/";
+    const owned = gcDeps.listOwnedScripts().filter(s => {
+      if (s.source !== "script" || s.status !== "running" || !s.pid) return false;
+      const p = s.projectPath;
+      return p === wtPath || p.startsWith(base);
+    });
+    if (owned.length === 0) return;
 
+    for (const sp of owned) {
+      const pid = sp.pid!;
+      console.log(
+        `[ghost-reap] pid=${pid} port=? cwd sparito (${sp.projectPath}) — ` +
+        (armed ? "KILLING" : "only log (imposta TOPICS_GHOST_REAP=1 per armare)"),
+      );
+      if (armed && gcDeps.killTree) {
+        try {
+          await gcDeps.killTree(pid, 2000);
+        } catch (err) {
+          console.warn(`[ghost-reap] killTree(${pid}) fallito:`, err);
+        }
+      }
+    }
+
+    // Aspetta la sparizione dei listener SOLO se abbiamo segnalato qualcuno,
+    // e con cap 2s per non bloccare la coda del progetto.
+    if (armed && owned.length > 0) {
+      await new Promise<void>(res => setTimeout(res, 2000));
+    }
+  }
+
+  // Per-project async serialization (task e33820da: shared safe helper).
+  const projectQueue = makeSerialQueue();
   function chainOnProjectQueue<T>(
     projectId: string,
     fn: () => Promise<T>,
   ): Promise<T> {
-    const prev = projectQueues.get(projectId) ?? Promise.resolve();
-    const next = prev.catch(() => undefined).then(fn);
-    // GC: only clear if no one chained more work after us. The map must hold
-    // the SAME promise the guard compares against — `.finally()` returns a NEW
-    // promise, so setting the map to the finally-chain while comparing to
-    // `next` made the guard always-false (the delete was dead code and every
-    // project id lingered in the map forever).
-    const tail = next.finally(() => {
-      if (projectQueues.get(projectId) === tail) projectQueues.delete(projectId);
-    });
-    projectQueues.set(projectId, tail);
-    return next;
+    return projectQueue.enqueue(projectId, fn);
   }
 
   /**
@@ -306,6 +361,62 @@ export function createWorktreeManager(
     console.log(
       `[WorktreeManager] created { project: ${projectPath}, worktree: ${absPath}, mode: ${input.mode}, base_ref: ${input.baseRef}, ms: ${ms} }`,
     );
+    await installDeps(absPath);
+  }
+
+  /**
+   * LE DIPENDENZE DEL CLIENT, SUBITO — e costano meno di quanto sembrano.
+   *
+   * `git worktree add` copia i file TRACCIATI, e `client/node_modules` non lo e':
+   * un worktree nasce senza. Li' `eslint` e `tsc` non partono, quindi due dei
+   * cinque cancelli di review NON MISURANO NIENTE. Misurato il 18/08 prima di
+   * questa riga: 95 worktree su 103 erano cosi', cioe' quasi ogni card
+   * dispacciata veniva giudicata su meta' della barra.
+   *
+   * ── Perche' installare e non collegare ──────────────────────────────────
+   * Un symlink a `client/node_modules` del checkout principale sembra gratis, ma
+   * ha un bordo affilato: un `bun install` dentro il worktree scriverebbe nelle
+   * dipendenze del checkout VERO, e un ramo che cambia `client/package.json`
+   * userebbe quelle di main — cioe' le sbagliate, in silenzio. Un rosso
+   * plausibile e' peggio di uno palese.
+   *
+   * ── E il costo non e' quello che dice `du` ──────────────────────────────
+   * `du` riporta 357-409 MB e su 95 worktree farebbe ~38 GB: e' la stima che mi
+   * aveva fatto scartare questa strada, ed era SBAGLIATA. Misurato con `df`
+   * prima e dopo un'installazione vera in un worktree: **7 MB** e 0,8 secondi.
+   * Bun clona dalla sua cache globale e APFS condivide i blocchi (clonefile),
+   * quindi `du` conta la dimensione apparente di file che sul disco non
+   * esistono due volte.
+   *
+   * ── Best-effort, sempre ─────────────────────────────────────────────────
+   * Un `bun install` che fallisce (rete giu', lockfile incoerente col ramo) non
+   * deve impedire la nascita del worktree: l'agente puo' lavorare lo stesso, e i
+   * cancelli che non partono adesso lo DICONO invece di andare rossi (uscita 97,
+   * vedi `scripts/check-client-deps.ts`). Il silenzio qui e' un degrado onesto.
+   */
+  async function installDeps(absPath: string): Promise<void> {
+    // DUE INSTALLAZIONI, non una. La radice porta `bun-types`: senza, il
+    // typecheck del server muore su «Cannot find type definition file for
+    // 'bun'» — che e' un errore vero solo in apparenza, misurato su
+    // `soaring-cypress`: con le dipendenze di radice quel ramo fa 0 errori.
+    // `client/` porta eslint e tsc. Ne manca una, e mezza barra tace.
+    const started = Date.now();
+    let ok = 0;
+    for (const dir of [absPath, join(absPath, "client")]) {
+      if (!existsSync(join(dir, "package.json"))) continue;
+      try {
+        const proc = Bun.spawn(["bun", "install", "--frozen-lockfile"], {
+          cwd: dir, stdout: "pipe", stderr: "pipe",
+        });
+        if ((await proc.exited) === 0) ok += 1;
+        else console.warn(`[WorktreeManager] deps NON installate in ${dir}`);
+      } catch (err) {
+        console.warn(`[WorktreeManager] deps NON installate in ${dir}: ${String(err)}`);
+      }
+    }
+    console.log(
+      `[WorktreeManager] deps installed { worktree: ${absPath}, ok: ${ok}/2, ms: ${Date.now() - started} }`,
+    );
   }
 
   async function del(
@@ -319,6 +430,8 @@ export function createWorktreeManager(
     return chainOnProjectQueue(wt.projectId, async () => {
       // Best-effort: remove from disk, then the branch if we own it.
       if (project && existsSync(wt.absPath)) {
+        // PUNTO 1: spegni i processi Topics dentro la worktree PRIMA di rimuoverla.
+        await evictOwnedScripts(wt.absPath);
         try {
           await runGit(project.path, ["worktree", "remove", wt.absPath, "--force"]);
         } catch (err: any) {

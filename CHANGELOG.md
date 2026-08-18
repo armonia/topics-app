@@ -2,6 +2,551 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.158 — 2026-08-16
+
+### Correzioni
+- **knip** · dichiara mem-report.ts, la CI su main era rossa
+
+### Sotto il cofano
+- I 450 MB della barra: ora si puo' chiedere di cosa sono fatti
+- la pulizia degli artifact sta dove si consumano
+- Mille megabyte attribuiti a Topics erano i server MCP di Jarvis
+- sonda temporanea per la quota artifact
+- via la sonda della quota, ha risposto
+- Contavo i sidecar di server gia' morti, e il totale non tornava con la barra
+- I 2,2 GB di WebContent erano di Mail: Topics ne ha uno, e adesso si puo' chiedere
+- scrivi dove sta davvero la quota — nei repo privati
+- questa purga e' igiene, il rimedio alla quota sta altrove
+- Dire che pubblicare spedisce, prima del clic
+- Il tetto prenotava 3 GB per sessioni che ne costano 2,3 di megabyte
+
+## 2.2.157 — 2026-08-16
+
+### Sotto il cofano
+- Una coda ferma senza motivo e' indistinguibile da un dispatcher rotto
+- Il freno era tarato su agenti che non esistono piu'
+- «Profile» era la sezione `devices`: due domande diverse, una voce sola
+- Sulla macchina di oggi la differenza non e' quanto ci mette: e' se parte
+- Fermare una board sola: prima l'unica leva era spegnere tutto
+- Quattro task, due partono: il tetto descrive ancora le CLI
+- Un task vuoto diceva «Nessun commento»: adesso dice a chi tocca la mossa
+- La notarizzazione mancante smette di essere silenziosa
+- La «T» al posto dell'icona non e' questo URL, ed e' scritto dove qualcuno la cerchera'
+- «Con chi sto lavorando» non aveva risposta: la presence dell'organizzazione
+- i report playwright durano tre giorni, non sette
+
+## 2.2.156 — 2026-08-16
+
+### Sotto il cofano
+- Il runtime che costa meno diventa quello di chi non sceglie
+- Il modello scelto per il task non arrivava all'agente ACP
+- La CI decide cosa arriva all'auto-updater, e non piu' la sola compilazione
+- Il freno guardava il disco, ma quello che finisce e' la RAM
+- I test dell'inglese leggevano il fallback italiano, non l'inglese
+- L'unica rotta di test che la produzione esponeva davvero
+- «Non e' roba mia» non e' «l'ho guardato ed e' morto»
+- Le radici usa-e-getta dei test e la lavagna fra agenti restano fuori da git
+- Il guard che impedisce di cancellare lavoro falliva APERTO
+- La CLI parlava in chiaro a un server che accende TLS da solo
+- Cinque change finite che stavano ancora in changes/
+- Un blip dell'API undici secondi dopo l'ultimo upload buttava via una release intera
+- Il changelog lo rigenera la release, non la buona volonta'
+- Due documenti di porting vendevano un cantiere che non esiste
+- La copia canonica del protocollo diceva il falso su se stessa
+- acp.ts sotto la soglia: tre pezzi fuori, e la release riparte
+- Un agente che lavora senza nessuna CLI in mezzo
+- Il GC non vedeva 12 GB dei 27, e non erano dipendenze
+- Archiviare una change ne cambia il percorso, e tre voci di debito puntavano al vecchio
+- Il ratchet sugli any guardava sei file su 282, e gli altri 370 non li vedeva nessuno
+- Topics smette di aver bisogno di un programma altrui per pensare
+- Un agente che esegue da solo deve sapere cosa non gli e' permesso
+- Uno zero che nessuno aveva scelto: l'auto-dispatch lascia board_settings
+- Un turno lungo non muore piu' contro la finestra
+- Il trattino lungo nella descrizione di un tool, e il cricchetto che scende a 369
+- diciannove colonne, zero righe, e nessun modo di sapere perche' una card rimbalza
+- L'agente nativo impara i mestieri che Topics aveva gia'
+- Il test del dedupe contava l'anteprima nella sidebar e la chiamava «duplicato»
+- CROSS-04 e CROSS-06: due rossi cronici della nightly, nessuno dei due del prodotto
+- Il risparmio che uccideva il turno al quinto giro
+- L'attesa dentro CROSS-04 e' un evento, non un ritardo: check:sleeps aveva ragione
+- Il crash della raffica ha finalmente un cancello: misura la causa, non l'effetto
+- Un test della CLI nato fuori da ogni cancello, e vm_stat che nessuno aveva dichiarato
+- Il tempo di un turno era di qualcun altro, e adesso meta' e' nostro
+- La risposta a «sono piu' veloci?»: 2,8x al primo turno, 1,6x a regime
+- Due tipi diversi con lo stesso nome: il messaggio del protocollo diventa AgentMessage
+- La sentinella su --bare: un numero vuoto oggi, un avviso il giorno che serve
+- Il 2,8x era il caso piu' facile: su un task vero e' 1,2x
+- Una chat vuota diceva solo il suo nome: adesso dice come rispondera'
+- Il benchmark confrontava Opus contro Sonnet e lo chiamava «differenza di strada»
+- Il test del runtime di default misurava il DB della macchina, non la regola
+- 432 MB contro 2,3: il numero che avevo pubblicato era di un processo che moriva
+- Il test del default misurava le credenziali del runner, e HOME non veniva letta
+
+## 2.2.155 — 2026-08-16
+
+### Sotto il cofano
+- La soglia del chip misurava quale font ha la macchina, non se il layout e' allineato
+
+## 2.2.154 — 2026-08-16
+
+### Sotto il cofano
+- Otto agenti costavano 1,7 GB di CLI: ora possono costarne 5 MB
+- I segni e il nome si allineano per costruzione, non con un numero tarato
+- Il pannello provider torna sotto la soglia: due pezzi fuori, zero comportamento spostato
+- Un test misurava il TMPDIR di chi lo lancia, non la regola che diceva di difendere
+
+## 2.2.153 — 2026-08-16
+
+### Sotto il cofano
+- Il # apre il titolo, non chiude il nome del progetto
+
+## 2.2.152 — 2026-08-16
+
+### Sotto il cofano
+- ⌘R era muto solo con una pane browser aperta, e la mappa sbagliata lo spiega tutto
+- La stessa mappa filtrata teneva muti anche il tema e il salvataggio della finestra
+- Chiudi la famiglia: ogni ricerca filtrata riportata alla collezione giusta, notifiche comprese
+- Una domanda a cui i sottotask hanno gia' risposto smette di chiedere
+- Rimettere in coda una card la faceva tornare in review da sola in 17 minuti
+
+## 2.2.151 — 2026-08-15
+
+### Sotto il cofano
+- Il thread firmava «user» un'app che sa come ti chiami, e «share» era ritagliata da un overflow
+- La consegna è il titolo: in modo largo sale sopra le colonne, e il diff smette di spingere giù la decisione
+- Il brief salito in cima lasciava mezza colonna vuota sotto, e «dammi il link» aveva ancora due porte
+- Una riga scritta dall'app occupava tre: nome sopra, testo, ora sotto
+- Una freccia inline come callback ref: React la stacca e riattacca a ogni render, e sotto raffica non si ferma piu'
+
+## 2.2.150 — 2026-08-15
+
+### Sotto il cofano
+- Il sipario da 320ms copriva un salto che non succede piu': misurato, e sono 204ms per apertura
+
+## 2.2.149 — 2026-08-15
+
+### Sotto il cofano
+- il DOM non perde nodi, li tiene il virtualizzatore. Correggo quello che avevo scritto
+
+## 2.2.148 — 2026-08-15
+
+### Sotto il cofano
+- Un budget tarato su UNA macchina e' una congettura: adesso ne ha due sotto
+
+## 2.2.147 — 2026-08-15
+
+### Sotto il cofano
+- Un budget sotto la cadenza della macchina non lo rispetta nessun codice
+
+## 2.2.146 — 2026-08-15
+
+### Sotto il cofano
+- Un glifo si trova per quello che E', non per la frase che porta scritta accanto
+
+## 2.2.145 — 2026-08-15
+
+### Sotto il cofano
+- Un buco si conta in FRAME, e il cancello sulla fluidita' lo confrontava in millisecondi fra macchine diverse
+
+## 2.2.144 — 2026-08-15
+
+### Sotto il cofano
+- I sedici rossi della nightly erano un tasto che esiste solo mentre ci passi sopra
+
+## 2.2.143 — 2026-08-15
+
+### Sotto il cofano
+- Il metro della macchina si leggeva col righello sbagliato, le azioni non avevano un limite, e un SIGTERM non veniva mai verificato
+
+## 2.2.142 — 2026-08-15
+
+### Sotto il cofano
+- Un banco non e' un cancello, il font di riferimento non si nomina, e il gestore di scheme non era dietro il firewall
+
+## 2.2.141 — 2026-08-15
+
+### Sotto il cofano
+- La ripartizione della memoria c'era gia' nel payload e la leggeva solo un tooltip
+
+## 2.2.140 — 2026-08-15
+
+### Sotto il cofano
+- Il riscaldamento dei contesti browser affamava il proprio riscossore: 254 avvii, zero reap
+
+## 2.2.139 — 2026-08-15
+
+### Sotto il cofano
+- Il `.then` sul modulo lazy accecava knip, e il centro ORIZZONTALE non era mai stato valutato su Linux
+
+## 2.2.138 — 2026-08-15
+
+### Sotto il cofano
+- Il banco: la pendenza del topic Nesimo e' zero, quella dell'agente e' un intero `claude`
+- Quattro rossi che il cancello non bloccante nascondeva, e tre erano bug di prodotto
+- Il banco della crescita non si impiantava, si FERMAVA: tre difetti suoi, nessuno sulla memoria
+
+## 2.2.137 — 2026-08-15
+
+### Sotto il cofano
+- Due rossi che solo il runner poteva vedere: git senza identità e `WebSocket` che su Node 20 non esiste
+
+## 2.2.136 — 2026-08-15
+
+### Sotto il cofano
+- `getProvider` lancia, e sette chiamate credevano tornasse `undefined`: il server moriva su ogni macchina senza la CLI di Claude
+
+## 2.2.135 — 2026-08-15
+
+### Sotto il cofano
+- The board feed weighed 1.44 MB and a Host starting with "127." was the owner
+- Il cancello del drag giudica un numero vero: la baseline è registrata, e il pomello che lo fa arrossire vuole 40 ms
+- Il vocabolario del cancello sulla lingua è DATI, e la duplicazione che resta ha due nomi
+
+## 2.2.134 — 2026-08-15
+
+### Sotto il cofano
+- Il banco delle rotte misura il disco, e la sua baseline ne conosce uno solo: i numeri del runner, scritti
+
+## 2.2.133 — 2026-08-14
+
+### Sotto il cofano
+- Il banco misurava il portatile e lo chiamava regressione: ora il tubo fa da metro
+
+## 2.2.132 — 2026-08-14
+
+### Sotto il cofano
+- Lo spread della namespace rendeva `shell/index` cieco a knip: i quattro nomi si scrivono
+
+## 2.2.131 — 2026-08-14
+
+### Sotto il cofano
+- Un mock di modulo sopravviveva al suo file, e due rossi «di Linux» erano un ordine di lettura
+
+## 2.2.130 — 2026-08-14
+
+### Sotto il cofano
+- La falsificazione del pezzo «dati» piantava un termine che il cancello ha l'ordine di ignorare
+
+## 2.2.129 — 2026-08-14
+
+### Sotto il cofano
+- Il passo delle migration moriva su una corsa, e con lui tutti i cancelli dopo
+
+## 2.2.128 — 2026-08-14
+
+### Sotto il cofano
+- I due cancelli sull'identita' erano rossi su OGNI runner, e nessuno poteva vederlo
+
+## 2.2.127 — 2026-08-14
+
+### Sotto il cofano
+- La mappa correggeva un fatto sbagliato: GET /api/topics/:id non esiste, quindi togliere systemPrompt e' una rotta nuova, non una sfoltita
+
+## 2.2.126 — 2026-08-14
+
+### Sotto il cofano
+- L'estrazione ha portato il nome vero in un file nuovo, e ha ripulito quello vecchio
+- rotte: un banco sulle latenze che sa dire di no
+- fluido: il metro dei frame lo detta la macchina, non il numero 60
+- La baseline di bloat prende i due cancelli nuovi
+- fluido dichiara perche' non sta ancora nei guard rails
+- La potatura dei worktree esce da server.ts: 4.600 -> 4.349
+- fluido e' tarato e in CI: il budget sta fra due misure, non fra due opinioni
+- I test del cancello leggono il budget, non lo ricopiano
+- Il microfono della board taceva ancora: d8648ce5 aveva fatto parlare solo la chat
+- La nota vocale vuota si registra da sola, invece di sparire in un toast
+- Il guscio non chiedeva il microfono: macOS lo negava senza dirlo
+- La dettatura muta aveva due rami ancora, e uno nascondeva una chiave scaduta
+- Il risultato di ogni tool viaggiava due volte: 8,20 MB per aprire una chat, 5,42 dopo
+- Ventiquattro eventi di task erano ventiquattro letture da 1,44 MB: ora sono due
+- Le risposte JSON uscivano non compresse: dal telefono la chat pesava 5,42 MB, ora 1,43
+- Distingui il microfono muto dal modello che non capisce
+- L'assemblaggio del contesto leggeva 4 MB di tool call per non guardarle: 14,5 ms -> 0,5
+- ink era rosso su un gesto che non stava misurando, e non lo eseguiva nessuno
+- La mappa delle prestazioni registra anche l'avvio: 967 topic archiviati su 977, e 150 KB di systemPrompt che leggono in due
+- Gli stati senza corpo escono dalla compressione: un 304 non deve dichiarare byte che non ha
+- I 7 rossi dello shard 1/4 erano gia' su main: verificato su una worktree pulita a eb1f7a00
+- I commenti di questo giro passano all'inglese, e il costante FINESTRA_MS prende il nome che ha nel resto del file
+- Il codice di questo giro parla inglese: commenti, nomi e dati di fixture
+- Il WebSocket non comprimeva niente: 36,5 KB di bootstrap diventano 2,6 verso la LAN
+- Anche il terminale comprime, ed e' li' che sta il rapporto piu' alto: 1.927 B -> 41
+- Lo shard 1/4 rigirato con tutte le modifiche: stessi 234 verdi, stessi 7 rossi di prima
+
+## 2.2.125 — 2026-08-14
+
+### Sotto il cofano
+- Togliere il nome vero dai file nuovi: il repo e' pubblico
+- Una porta sola per «Rimanda indietro», e il testo ci passa dentro
+- La spec nuova si dichiara ermetica, come pretende il presidio
+- Di nuovo il nome vero fuori: il repo e' pubblico, e il ramo l'aveva riportato
+- Il divieto sul nome vero va nell'envelope, non nella pezza dopo
+- Un numero per la duplicazione e per i file troppo grandi
+- Click all'inchiostro: tre numeri al posto di sette aggettivi
+- Il nome vero era anche nel commento che vieta di scriverlo
+- ink dichiara perche' non sta nei guard rails
+- Aggiunge il cancello di sicurezza del checkout
+- Il doctor accusava di furto le consegne ATTERRATE
+- L'agente ACP gemini partiva col flag deprecato e senza credenziali
+- I token di un turno non spariscono piu' col run che li ha bruciati
+- In CI il cancello sull'identita' cercava il nome del RUNNER
+- Sul telefono si vede UNA superficie alla volta, e porta il suo nome
+- Le spec col dito misurano la forma di adesso, non quella del 12/08
+- La card che entra in review senza evidenza adesso lo dice
+- Il pannello «Piano» non ripesca un piano da una card gia' chiusa
+- La spec della dettatura non era mai passata: apriva il menu e non cliccava
+- Fai ritirare il ponte PTY quando resta senza nessuno
+- Metti un tetto di wall-clock ai cancelli, cosi un test appeso da rosso
+- Una sola definizione di token: il numero e' quanto e' costato
+- Il typecheck e2e vuole i due campi non opzionali: `?? 0`
+- Le due ricerche diventano una PAGINA sul telefono, e l'audit mobile ha un banco
+- Distingui un server riagganciato da una sonda nei monitor anti-orfano
+- Il payload della tray: cosa va nel menu, deciso in un posto solo
+- Zittisci l'unico warning clippy del sidecar (map_or -> is_some_and)
+- L'audit mobile giudica tutte e cinque le categorie, non due
+- Il pannello impostazioni esce dal cassetto di una card: 3.241 -> 2.989
+- Le notifiche native escono da lib.rs: 11.917 -> 11.289
+- La tray non sapeva niente del lavoro: adesso dice la board
+
+## 2.2.124 — 2026-08-14
+
+### Sotto il cofano
+- La board ha voce: un tasto, due gesti, e il vocale che falliva in silenzio adesso parla
+- Sfissare col dito: il punto del tocco arriva alla lista, che decide
+- Impronta della matrice riemessa dopo il tocco al composer
+- Fissare col dito: la riga porta il punto alla griglia, che lo serve come un drop
+- Una interruzione, una riga: gli avvisi di riavvio smettono di moltiplicarsi
+- Il bordo dello schermo e' del menu, non della cronologia
+- Versione 2.2.123
+- Il feedback scritto mentre l'agent lavora non si perde piu' a fine turno
+- La quarta porta e' il profilo, e la campanella passa a destra
+- Il ref si pubblica con useImperativeHandle e si aggiorna in un effetto
+- La chrome mobile misurata sulla forma nuova: quattro porte e la campanella a destra
+- Versione 2.2.124
+
+## 2.2.123 — 2026-08-14
+
+### Sotto il cofano
+- Togliere i dati personali dal repo, e mettere il cancello che li tiene fuori
+- Chiudere i sei rossi, e riparare i cancelli che sbagliavano a misurare
+- Due difetti visti da chi la usa: la lingua che sceglie da sola, e la card senza uscite
+- Un'attribuzione non porta un nome proprio in un file tracciato
+- Nona tornata: due rami davvero perduti, e la causa per cui si perdevano
+- Il ramo puo' essere nullo: il test lo dichiara invece di farlo dedurre a tsc
+- L'anello dei sottotask fermi: non si offre due volte un'uscita che gira a vuoto
+- Uno step senza piu' un padre vivo torna nelle colonne
+- La card dice che ad aspettare e' un turno pesante, non «in coda»
+- La sidebar dice chi sei, non su cosa sei
+- I tasti della fila hanno la faccia di un tasto, e l'angolo esterno segue l'arco dello schermo
+
+## 2.2.122 — 2026-08-13
+
+### Sotto il cofano
+- RESIDENCY_BUDGET.native: riverificato, il fix _close non e' su main
+- Il composer sceglie dove nasce il task: Todo o Backlog
+- Due locator che cercavano una copy invece di un'identità
+- Chiudere una pane browser adesso restituisce la memoria davvero
+- Versione 2.2.122
+
+## 2.2.121 — 2026-08-13
+
+### Sotto il cofano
+- Togliere dagli import i due nomi che white-laurel ha sostituito
+- Il tetto pieno lascia una riga sulla card, con i numeri
+- Diagramma di consegna: la riga del tetto pieno
+- La flotta non deve stare sui core lenti: al plist manca ProcessType
+- La suite unitaria diventa ermetica: ogni run la sua cartella
+- Il lampo della card non lo taglia più la colonna, e vale per ogni colonna
+- v2.2.120
+- Il tetto auto misura la flotta, non il load average
+- Fondere le due implementazioni doppie invece di scartarne una
+- La riga del tetto pieno dice anche la fila e il fan-out
+- CREATEFLASH-02: la card resta fuori dal composer anche dopo che si riapre
+
+## 2.2.120 — 2026-08-13
+
+### Sotto il cofano
+- Un valore fuori dominio risponde 400 con la regola, non 500 con l'SQL
+- Una review portata dal sistema smette di somigliare a una consegna
+- Il contatore del debito non sta piu' accanto a Pubblica: ci sta dentro
+- Un debito senza fotografia non e' un debito: lo stub lo dice per intero
+- la card esce da review solo a merge CONFERMATO su main
+- Ricostruire il file di test del tetto tenendo i casi di entrambi i rami
+- La differenza si vede sulla board vera: e2e con le due card affiancate
+- Versione 2.2.118
+- Allineare i casi del padre in attesa alla regola che uno step in todo e' fermo
+- Rendere ermetico il test della migration disjoint-cache: cartella per processo
+- solo un merge confermato toglie una card da review
+- Il banco dice «schermo bloccato» invece di «nessuna finestra»
+- Il gate pre-review gira fuori dalla richiesta, a gambe da 25s
+
+## 2.2.119 — 2026-08-13
+
+### Sotto il cofano
+- v2.2.118
+- Smetti di contare due volte la cache, e di congelare il costo a meta'
+- Riparare i nove difetti che i due avversari hanno trovato sul tetto
+- Test di integrazione ermetici: cartelle di scratch per processo, non fisse
+- Un file locale si apre perché lo serviamo, non perché apriamo file://
+- Il freno del dispatch misura la CPU della nostra flotta, non il load della macchina
+- Un rifiuto si legge: niente più pane bianche mute
+- Un pavimento sulle risorse, perche' il tetto ora si puo' togliere
+- Scrivere nel codice cosa dice la misura sul costo della CLI
+- Correggere la spiegazione del costo mancante: non era il contatore vivo
+- Sotto carico os.cpus() torna vuoto, e il tetto crede di stare su un core
+- Versione 2.2.119: la consegna dell'errore sulla card riparte da main
+- Tirare fuori dallo spawn la scelta del taglio, cosi' si puo' provare
+- La seconda gamba del banco misura un agente, perche' due non stanno nel muro
+- Correggi il commento sull'effort: CLAUDE_EFFORT è un output della CLI, non una leva
+- Card doppie: fusione delle card e cancello sui doppioni alla creazione
+- Versione 2.2.119
+- Il gruppo di azioni diventa rosso solo se sono fallite tutte
+
+## 2.2.118 — 2026-08-13
+
+### Correzioni
+- a per-project agent cap that commands nothing must not exist
+
+### Sotto il cofano
+- Tre backslash di troppo dentro un commento
+- La regola sta in shared, e la leggono tutte e quattro le superfici
+- L'interruttore si chiama come cio' che fa: Approva non fonde
+- webview orfane: verificato che il secondo ascoltatore si aggiunge, e
+- La nota del merge saltato arriva sulla card, e la via d'uscita esiste
+- Test del chip: nomi e commenti in inglese, e i numeri rimisurati
+- Il rosso deve dire chi e' davanti, non «elemento nascosto»
+- Il test della nota sulla card ora puo' fallire: la sonda del land non risponde
+- Le righe nuove in inglese: le tre che erano rimaste in italiano
+- FOCUS-05 non slitta al New Chat: misurato, casca al click come gli altri
+- Il piano rev.3: l'incognito nasconde il progetto, ma non impedisce di condividerlo
+- L'archivio della board ha un ritorno: filtro e ripristino
+- Le etichette riservate stanno dove le leggono in due
+- La guardia guardava il campo sbagliato, e tre porte su tre non la usavano
+- Il composer e' la seconda porta, e la nota azzurra restava appesa
+- Una parola sola, e il tooltip smette di promettere un agente che non c'e'
+- I test di parita' non misuravano nessuna superficie: ora una la misurano
+- il giro dell'archivio, con la clip di consegna
+- La notifica di review sceglie il titolo su isAsk, non sulla fence di question
+- Il banco della prova ⌘R vive nel repo, non in /tmp
+- v2.2.117
+- main non compilava: commentAsksHuman usato e definito da nessuno
+- Versione 2.2.118
+- L'errore di un'azione sta SULLA card, non nella barra del board
+- Banco ⌘R: il fuoco si guida davvero (cliclick assoluto, finestra grande, toast misurato)
+- Un figlio fermo in `todo` è fermo quanto uno in backlog, e il padre lo dice
+- v2.2.118
+- I chip della card dicono il vero, oppure tacciono
+- pin the dispatch tests to the cap that actually commands
+- DRAWER-01 misura l'intento: il pannello non e' collassato, non 200px tondi
+- Il tetto effettivo si calcola in un posto solo, e lo legge anche il client
+- Uno store per il tetto globale: un valore, uno scrittore, una sonda
+- Il tetto si vede dalle impostazioni della board, con quanti stanno girando
+- Chiudere l'ultimo figlio rimette in moto il padre
+- Una nota sotto una consegna smette di essere un rigetto
+- Un numero senza stato, e due allarmi che dicevano la stessa cosa
+- CODA-1 misurava la scatola del comando, e il cerchio dentro sta 6px piu' a sinistra
+- Il chip che contava sessioni che nessuno ti aveva chiesto di guardare
+- Lo store del pane diventa una cartella, e i comandi tornano a mordere fuori da macOS
+
+## 2.2.117 — 2026-08-13
+
+### Sotto il cofano
+- «Dimentica questo sito» anche sulla pane condivisa
+- La prova con un Chromium vero: l'autosave non resuscita il sito
+- La forma del silo la dicono in due, quindi sta in shared/
+- Il contratto della rotta lo prova un test che gira tutti i giorni
+- Il test pesante spostava DATA_DIR anche quando lo si saltava
+- Il video prova «Dimentica questo sito» sulla pane condivisa
+- Chiudere un overlay non deve azionare anche cio' che sta sotto
+- Lo stato di navigazione viene da WebKit, non da un eval sulla pagina
+- Avanzamento dei download: i byte dal file, il totale se il sistema lo dice
+- Trova nel pane: anche su QUALE corrispondenza sei, non solo quante
+- Il client prende url/title/loading dal nativo, e l'eval non li riporta indietro
+- Perche' l'osservatore KVO non puo' far saltare la chiusura
+- Menu contestuale della pane: il pezzo recuperato dal turno prima
+- Il menu del tasto destro e' montato nel pannello, e la copia immagine esiste
+- Il menu Download dice a che punto e', non solo che sta succedendo
+- La home di chi esegue non entra in un file tracciato
+- Una consegna non e' una domanda: guarda le opzioni, non la fence
+- Il ref del poll si aggiorna in un effetto, non durante il render
+- In Progress non e' piu' un buco nero: il drop senza agente va in Todo, e si vede
+- Done non fonde piu' di nascosto: l'interruttore della board si legge
+- Il rifiuto chiude il giro: un test dalla porta reject fino al cancello
+- La nota nomina l'interruttore com'e' scritto nell'interfaccia
+- Pagina di prova per la pane nativa
+- Le webview che non muoiono adesso lo dicono, invece di far sembrare lento il Mac
+- Il diagramma del percorso: da dove viene ogni numero
+- Una parola sola per ogni azione, e il de-duplicatore vede tutto lo schermo
+- Installare le dipendenze prima di misurare, o il cancello misura la worktree
+- Un link di dieci secondi fa non decide dove sei adesso
+- webview orfane: svuota alla chiusura della finestra, e il battito che le rivendica
+- Versione 2.2.117
+
+## 2.2.116 — 2026-08-13
+
+### Sotto il cofano
+- Riallineare gli e2e all'etichetta vera, e rendere l'anteprima una fetta del drawer
+- Tirare una card fuori da review conta come riapertura
+- Il diagramma della regola: quattro porte, un solo segnale
+- Due bottoni con lo stesso nome non possono fare cose opposte
+- Togliere il percorso home dal file tracciato: il repo e' pubblico
+- Versione 2.2.116
+
+## 2.2.115 — 2026-08-13
+
+### Sotto il cofano
+- L'harness della fusione legge la DDL condivisa, non una copia
+- Versione 2.2.114
+- Un autore di commento e' un'identita', l'etichetta si ricava
+- Tagliare il nome di una tessera fissata solo quando il + si vede davvero
+- Chi scrive un commento firma con l'identita', non col titolo del task
+- Le 404 righe gia' scritte si leggono, non si riscrivono
+- Togliere il predicato che nessuno chiama
+- the notes the server signs with your name live in one place
+- pure rule for the card's comment pair
+- the review card carries the request, not just the answer
+- Togliere l'import inutilizzato lasciato dalla fusione dei due rami
+- la cwd si codifica sostituendo OGNI non-alfanumerico
+- Il filo di una card piega la contabilita' e lascia fuori le parole
+- Da mobile la colonna Review seguiva la parola piu' lunga, non lo schermo
+
+## 2.2.114 — 2026-08-13
+
+### Sotto il cofano
+- La sonda guarda il turno, non la colonna: il padre in review non e' piu' escluso
+- Una domanda sola su «questo commit e' gia' dentro main»
+- Non si ridispaccia lavoro che e' gia' su main
+- Il genere della card se lo scrive la consegna, non l'agente
+- Su una card chiusa, «non su main» dice anche quale ramo e come rimediare
+- La card in review dice se la sua checklist e' congelata
+- Il freno del peso misura NOI, e l'attesa ha una fine
+- Il protocollo per gli umani dice anche come si deriva il genere
+- La card dice chi tiene ferma la coda, non solo «in coda»
+- Il ramo sul chip si legge davvero: via il prefisso che ce l'hanno tutti
+- Il tetto dell'attesa conta il CARICO, non il turno di un altro pesante
+- Il ripiego a sonda fredda e' un caso da tenere, non un dettaglio
+- Il cancello guardava la discendenza, e il land RICOPIA: era quasi sempre inerte
+- Il chip 'queued' ha due lettori: la stringa diventa una costante sola
+- La card che sta gia' chiedendo non si fa zittire da «ferma»
+- I motivi per cui un pesante non parte sono DUE, e la card ne accusava uno solo
+- Il giro sul menu + torna indurito: senza, la spec brucia i 60 s dentro la suite
+- Il cancello scambiava una decisione umana per un ridispaccio
+- Compattare taglia i token del 47% e i dollari dell'11%, e sotto i 150k li fa salire
+- Non sfrattare il proprietario del bridge quando e' solo lento
+- Recintare con una spec chi puo' prendere il socket del bridge
+- Portare in inglese i commenti del fix sul bridge
+- Quando due card dicono la stessa cosa: la misura, con le ancore che separano i fratelli
+- Fondere due card senza perdere niente, e un cancello sulla porta da cui entrano
+- La misura dei doppioni si rifa' da riga di comando, in sola lettura
+- Fondere due card non deve sbloccare chi le aspettava
+- La scappatoia del cancello deve esistere dove passa l'agente
+- Non forkare un universo vuoto quando il server e' solo lento a partire
+
+## 2.2.113 — 2026-08-12
+
+### Sotto il cofano
+- Landare una card in review non la butta piu' in backlog come failed
+- Il changelog non e' piu' un passo che qualcuno deve ricordarsi
+
 ## 2.2.112 — 2026-08-12
 
 ### Sotto il cofano
@@ -10,7 +555,6 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il kickoff dice che un sottotask in backlog e' un vicolo cieco
 - browser_*: backend WebView2 e WebKitGTK, e un cancello che li guarda
 - Tre forme sbagliate nei backend nuovi, e lo user-agent che mancava
-- Landare una card in review non la butta piu' in backlog come failed
 
 ## 2.2.111 — 2026-08-12
 
@@ -290,7 +834,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il box «Descrivi un task» non evapora se guardi altrove o apri un task
 - La prova che il composer resta: tre casi, e sul codice vecchio erano rossi
 - La tab della board non diceva niente: adesso dice quanti aspettano te
-- Due asserzioni del fan-out inseguono i messaggi accorciati in 76ea5396
+- Due asserzioni del fan-out inseguono i messaggi accorciati in 38a7d699
 - Le asserzioni del fan-out inseguono i messaggi accorciati
 - `done` deve voler dire ATTERRATO: chiudere una card ora landa il suo lavoro
 - «Sei in fondo» era vero a vuoto: la lista non si era ancora misurata

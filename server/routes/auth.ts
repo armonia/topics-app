@@ -199,6 +199,54 @@ function dispositiviDelSoggetto(
 }
 
 /**
+ * Togliere a un dispositivo revocato anche le PUSH.
+ *
+ * Chiudergli le socket non bastava: la push non passa da un filo aperto, la
+ * consegna Apple o Google a partire da una riga di `push_subscriptions`. Finché
+ * quella riga c'era, un telefono revocato continuava a ricevere titoli di task,
+ * domande degli agenti e descrizioni di approvazione — per sempre, e senza
+ * nessun modo di accorgersene da questa parte.
+ *
+ * Si CANCELLA e non si spegne (`enabled = 0`): quella colonna è la preferenza
+ * dell'utente, e riusarla per una revoca vorrebbe dire che riappaiare il
+ * telefono lo troverebbe «spento» senza che nessuno l'abbia spento. La riga
+ * nuova la scrive la prossima `subscribe`, che è comunque obbligatoria — le
+ * chiavi del push manager non sopravvivono a una revoca.
+ *
+ * DOVE **NON** VA, e prima ci andava: togliere qualcuno da un gruppo, o
+ * cancellare un gruppo. Quei due gesti passano da `dispositiviDelSoggetto`, che
+ * per costruzione restituisce solo dispositivi con `revoked_at IS NULL` — cioè
+ * telefoni ancora appaiati e legittimi, che restano tali. Cancellargli la riga
+ * di push era una revoca dell'HARDWARE fatta per sbaglio: la push spariva per
+ * sempre mentre il client continuava a mostrare «iscritto», perché quello stato
+ * lo legge dal browser e non dal server. I punti veri sono DUE: la revoca del
+ * dispositivo e il logout, cioè i due posti in cui `devices.revoked_at` viene
+ * scritto.
+ *
+ * Esportata perché il test la guidi con un db finto: la distinzione fra «la
+ * colonna non c'è» e «è andato storto qualcos'altro» non si può misurare da
+ * fuori, e senza quella distinzione il `catch` muto rendeva i due casi
+ * indistinguibili.
+ */
+export function dimenticaPush(
+  db: { query: (sql: string) => { run: (...a: unknown[]) => unknown } },
+  deviceId: string,
+): void {
+  try {
+    db.query("DELETE FROM push_subscriptions WHERE auth_device_id = ?").run(deviceId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Schema più vecchio della colonna (o della tabella): non c'è niente da
+    // togliere, e una revoca non deve fallire per le notifiche.
+    if (/no such column|no such table/i.test(msg)) return;
+    // Tutto il resto è un guasto vero, e il suo esito è che un dispositivo
+    // appena revocato CONTINUA a ricevere push. Il `catch {}` muto lo
+    // ingoiava: qui almeno lascia una traccia leggibile.
+    console.error(`[Push] revoca ${deviceId}: iscrizioni NON rimosse — ${msg}`);
+  }
+}
+
+/**
  * A quale persona appartiene il dispositivo che si sta approvando.
  *
  * `deciso: false` vuol dire che lo schema non ha ancora le persone (più vecchio
@@ -533,6 +581,8 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // timbrata all'upgrade e non la rilegge: senza chiuderla, «revocato»
       // valeva sulle richieste HTTP e non su ciò che continuava ad arrivare.
       ctx.closeDeviceSockets?.(id);
+      // E la push, che non passa da nessun filo: vedi `dimenticaPush`.
+      dimenticaPush(db, id);
       ctx.broadcast?.({ type: "auth:device-revoked", deviceId: id });
       return json({ ok: true });
     }
@@ -699,7 +749,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // posto solo, `server/lib/orgs.ts`.
         const orgId = installationOrgId(db as never);
         const org = orgId
-          ? db.query("SELECT id, name FROM orgs WHERE id = ?").get(orgId) as { id: string; name: string } | undefined
+          ? db.query("SELECT id, name, logo_url FROM orgs WHERE id = ?").get(orgId) as { id: string; name: string; logo_url: string | null } | undefined
           : undefined;
         return json({
           person: io ?? null,
@@ -707,7 +757,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // `/api/auth/orgs`: erano tre definizioni di «membro» e due si erano
           // già separate — l'interfaccia diceva «siete in due» e la rubrica non
           // offriva il gruppo, perché per lei eri di nuovo solo.
-          org: org ? { id: org.id, name: org.name, members: liveMemberCount(db as never, org.id) } : null,
+          org: org ? { id: org.id, name: org.name, logo_url: org.logo_url ?? null, members: liveMemberCount(db as never, org.id) } : null,
         });
       } catch {
         // Schema più vecchio della 084: non c'è ancora nessuno da nominare.
@@ -727,13 +777,14 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "GET") {
         try {
           const righe = db.query(
-            "SELECT id, name, created_at FROM orgs WHERE revoked_at IS NULL ORDER BY created_at",
-          ).all() as Array<{ id: string; name: string; created_at: number }>;
+            "SELECT id, name, logo_url, created_at FROM orgs WHERE revoked_at IS NULL ORDER BY created_at",
+          ).all() as Array<{ id: string; name: string; logo_url: string | null; created_at: number }>;
           const installazione = installationOrgId(db as never);
           return json({
             orgs: righe.map((o) => ({
               id: o.id,
               name: o.name,
+              logo_url: o.logo_url ?? null,
               members: liveMemberCount(db as never, o.id),
               // Il ruolo di CHI CHIEDE, non un ruolo assoluto: è ciò che
               // decide quali gesti l'interfaccia può offrire senza proporne uno
@@ -803,6 +854,11 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const dispositivi = dispositiviDelSoggetto(db, "org", id);
         db.query("UPDATE orgs SET revoked_at = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND revoked_at IS NULL")
           .run(now, now, id);
+        // Solo le socket. Questi dispositivi NON sono revocati — la loro riga in
+        // `devices` è intatta e `dispositiviDelSoggetto` restituisce solo quelli
+        // vivi — quindi cancellargli l'iscrizione di push sarebbe togliere le
+        // notifiche a un telefono ancora appaiato, per sempre e senza che dal
+        // client si veda (il pulsante legge il browser, non il server).
         for (const d of dispositivi) ctx.closeDeviceSockets?.(d);
         return json({ ok: true });
       } catch {
@@ -878,13 +934,16 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     if (method === "PATCH" && /^\/api\/auth\/(people|orgs)\/[^/]+$/.test(pathname)) {
       const persona = pathname.startsWith("/api/auth/people/");
       const id = decodeURIComponent(pathname.slice(persona ? "/api/auth/people/".length : "/api/auth/orgs/".length));
-      const body = await readJSON(req) as { name?: unknown; email?: unknown } | null;
+      const body = await readJSON(req) as { name?: unknown; email?: unknown; logo_url?: unknown } | null;
       const name = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : null;
       // `null` esplicito cancella l'email; assente la lascia com'è. Sono due
       // intenzioni diverse e vanno distinte, o non si può più togliere un
       // indirizzo messo per sbaglio.
       const email = body?.email === null ? null
         : typeof body?.email === "string" ? body.email.trim().slice(0, 200) : undefined;
+      // `null` esplicito rimuove il logo; assente lo lascia com'è.
+      const logoUrl = body?.logo_url === null ? null
+        : typeof body?.logo_url === "string" ? body.logo_url.trim().slice(0, 4096) : undefined;
       if (name !== null && !name) return json({ error: "name_required" }, 400);
 
       // Rinominare un gruppo è amministrarlo, e passa dallo stesso ruolo che
@@ -917,6 +976,9 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         }
         if (persona && email !== undefined) {
           db.query("UPDATE people SET email = ?, rev = rev + 1, updated_at = ? WHERE id = ?").run(email || null, now, id);
+        }
+        if (!persona && logoUrl !== undefined) {
+          db.query("UPDATE orgs SET logo_url = ?, rev = rev + 1, updated_at = ? WHERE id = ?").run(logoUrl, now, id);
         }
       } catch {
         return json({ error: "db_unavailable" }, 400);
@@ -961,10 +1023,17 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // le scritture rifiutano — ed è la stessa regola su entrambe le rotte.
           if (viva === null) return json({ members: [] });
           if (!viva) return json({ error: "unknown_org" }, 404);
+          // `last_seen`: l'ultima volta che questa persona si e' fatta viva, sul
+          // dispositivo piu' recente. `devices` dice quante macchine ha, che e'
+          // una proprieta' dell'anagrafica; questo dice se c'e' ADESSO, che e'
+          // l'unica cosa che serve a chi guarda per sapere con chi sta
+          // lavorando. Senza, «tre dispositivi» descrive uguale chi e' online e
+          // chi non apre l'app da marzo.
           const righe = db.query(`
             SELECT p.id, p.display_name AS name, p.email, m.role, m.joined_at,
                    m.revoked_at, m.local_blocked_at,
                    (SELECT COUNT(*) FROM devices d WHERE d.person_id = p.id AND d.revoked_at IS NULL) AS devices,
+                   (SELECT MAX(d.last_seen_at) FROM devices d WHERE d.person_id = p.id AND d.revoked_at IS NULL) AS last_seen,
                    (p.id IN (SELECT person_id FROM installation_owners)) AS owner
               FROM org_members m JOIN people p ON p.id = m.person_id
              WHERE m.org_id = ? AND p.revoked_at IS NULL
@@ -973,6 +1042,12 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             members: righe.map((r) => ({
               id: r.id, name: r.name, email: r.email, role: r.role,
               devices: Number(r.devices), owner: !!r.owner,
+              // Millisecondi o null: la soglia dell'«online» la decide chi
+              // disegna, non questa rotta. Un server che dichiarasse «online:
+              // true» congelerebbe qui una finestra temporale che il client non
+              // puo' piu' cambiare, e due schermate con due soglie diverse
+              // direbbero due verita' sullo stesso membro.
+              lastSeenAt: r.last_seen === null || r.last_seen === undefined ? null : Number(r.last_seen),
               // Le DUE revoche restano distinte anche qui: una l'ha decisa il
               // piano di controllo, l'altra tu — e solo la seconda sopravvive
               // al prossimo aggiornamento.
@@ -1105,6 +1180,8 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // dalla rubrica sono due gesti, e confonderli renderebbe impossibile
           // RIMETTERE dentro qualcuno — che è il gesto immediatamente successivo
           // più comune. La lapide si scrive da `DELETE /api/auth/people/:id`.
+          // Anche qui solo le socket: togliere dal gruppo non è revocare il
+          // telefono. Vedi `dimenticaPush`.
           for (const d of dispositiviDelSoggetto(db, "person", pid)) ctx.closeDeviceSockets?.(d);
           return json({ ok: true });
         } catch {
@@ -1345,7 +1422,13 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     // ── Uscire da questo dispositivo: revoca sé stesso e si toglie il cookie.
     if (method === "POST" && pathname === "/api/auth/logout") {
       const token = readSessionCookie(req.headers.get("cookie"));
-      if (token) db.query("UPDATE devices SET revoked_at = ? WHERE token_hash = ?").run(now, hashToken(token));
+      if (token) {
+        db.query("UPDATE devices SET revoked_at = ? WHERE token_hash = ?").run(now, hashToken(token));
+        // Uscire è una revoca come le altre, e finora era l'unica che lasciava
+        // in piedi la push: il telefono «uscito» continuava a ricevere.
+        const io = ctx.requestIdentity?.(req)?.deviceId ?? null;
+        if (io) dimenticaPush(db, io);
+      }
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: {

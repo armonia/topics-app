@@ -3,7 +3,7 @@ import { getAppSettings, updateAppSettings, type AppSettings } from "../services
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
 import { reconcileDiscordPresence } from "../services/discord-presence";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
-import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS } from "../../shared/types";
+import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS, AGENT_RUNTIMES } from "../../shared/types";
 
 /**
  * GET/PUT /api/app-settings — the promoted behaviour toggles (env-var audit,
@@ -32,6 +32,9 @@ const LANGUAGES = new Set<string>(OUTPUT_LANGUAGES);
 /** Idem per i gradini di privacy della presence: l'insieme sta in
  *  `shared/types.ts`, qui si valida contro quello. */
 const DISCORD_LEVELS = new Set<string>(DISCORD_DETAIL_LEVELS);
+/** Le due meccaniche di esecuzione, dallo stesso array che disegna il
+ *  selettore: `cli` | `jcode`. */
+const RUNTIMES = new Set<string>(AGENT_RUNTIMES);
 
 /**
  * I nomi ammessi per `aiProvider`: quelli REGISTRATI adesso, non una lista
@@ -89,6 +92,16 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // commento in cima a questo file racconta già per `aiProvider`.
   discordPresenceEnabled: { kind: "bool" },
   discordDetailLevel: { kind: "string", allow: DISCORD_LEVELS },
+  // La meccanica di esecuzione. `null` rimette il default del codice (`cli`),
+  // che è anche ciò che manda chi azzera la scelta.
+  agentRuntime: { kind: "string", allow: RUNTIMES },
+  // Spesa in dollari sulla pagina pubblica del profilo: opt-in esplicito,
+  // default false — dato personale.
+  profilePublishCost: { kind: "bool" },
+  // Il token e' gestito da POST/DELETE /api/app-settings/profile-token,
+  // non da PUT. Il campo va in FIELD_RULES per soddisfare Record<keyof AppSettings, …>
+  // ma non e' mai in `body` nel PUT ordinario: skip silenzioso.
+  profileShareToken: { kind: "string" },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */
@@ -147,6 +160,16 @@ function parsePatch(body: Record<string, unknown>): {
   return { patch, errors };
 }
 
+/** Genera un token URL-safe a 128-bit (22 caratteri Base64url). */
+function generateToken(): string {
+  // 16 byte → 128 bit di entropia: non deducibile per tentativi.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
 export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
 
@@ -156,6 +179,25 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
     pathname: string,
     method: string,
   ): Promise<Response | null> {
+    // ── POST /api/app-settings/profile-token — genera e salva il token ──────
+    // Idempotente: se il token esiste gia' lo restituisce senza cambiarlo.
+    // Cosi' «Pubblica» e' sicuro anche se premuto piu' volte.
+    if (pathname === "/api/app-settings/profile-token" && method === "POST") {
+      const current = getAppSettings();
+      const token = current.profileShareToken ?? generateToken();
+      if (!current.profileShareToken) {
+        updateAppSettings({ profileShareToken: token });
+      }
+      return json({ ok: true, token });
+    }
+
+    // ── DELETE /api/app-settings/profile-token — revoca il token ─────────────
+    // Azzera il token: da questo momento /public/profile/<vecchio-token> torna 404.
+    if (pathname === "/api/app-settings/profile-token" && method === "DELETE") {
+      updateAppSettings({ profileShareToken: null });
+      return json({ ok: true });
+    }
+
     if (pathname !== "/api/app-settings") return null;
 
     if (method === "GET") {

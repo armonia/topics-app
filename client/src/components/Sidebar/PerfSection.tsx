@@ -1,7 +1,9 @@
-import { Activity, Cpu, MonitorSmartphone, HardDrive } from 'lucide-react';
+import { Activity, Cpu, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import { computeTopicsFootprint } from '@/lib/topicsFootprint';
+import { useT } from '@/hooks/useT';
 
 const SPARK_W = 288;
 const SPARK_H = 40;
@@ -76,6 +78,7 @@ function PerfStat({ label, value, color, title, className }: { label: string; va
  *   • PC — system load average + GPU hardware-acceleration status.
  */
 export function PerfSection() {
+  const tr = useT();
   const fps = useFps();
   const history = useFpsHistory();
   const perf = usePerfMetrics(true);
@@ -88,55 +91,41 @@ export function PerfSection() {
     : 0;
 
   const accelerated = perf?.gpu.accelerated;
-  const topProcesses = status?.topProcesses ?? [];
 
-  // Aggregate the system top-CPU list by command name. With ~20 Claude Code
-  // terminals running, the raw list is several identical "claude"/"node" rows
-  // distinguished only by a hidden PID; summing per name (with a ×count) turns
-  // that into one legible "claude ×6  140%" row. CPU is per-core (ps %cpu), so
-  // a sum can exceed 100% — the header says "per core".
-  const topByCommand = (() => {
-    const m = new Map<string, { cpu: number; count: number; isTopics: boolean }>();
-    for (const p of topProcesses) {
-      // `electron` dropped from the match: the shell was archived in v2.0.0, so
-      // no process on this machine is ever named after it — the alternation
-      // could only ever produce a false positive on someone else's app.
-      const e = m.get(p.command) ?? { cpu: 0, count: 0, isTopics: /topics/i.test(p.command) };
-      e.cpu += p.cpu;
-      e.count += 1;
-      m.set(p.command, e);
-    }
-    return [...m.entries()].sort((a, b) => b[1].cpu - a[1].cpu).slice(0, 5);
-  })();
 
   // `perf.partial` is true only where the shell can't attribute its child
   // processes (Windows/Linux); on macOS these figures now cover the whole app.
   // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
   // shell gets a payload without `memory`, so guard the whole block.
-  const serverMemMB = status?.server.memoryMB ?? null;
-  // The server side is not one process: the pty-bridge tree (claude CLIs, MCP
-  // servers, headless Chromes), the ai-bridge and the WebRTC sidecar are all
-  // launchd-reparented children of the server that the shell's attribution set
-  // can't see. `fleet` is that whole set, summed from `ps rss`; `serverMemMB`
-  // (the Bun process alone) is the fallback where `ps` isn't usable.
   const fleet = status?.server.fleet;
-  const serverSideMemMB = fleet?.memoryMB ?? serverMemMB;
-  const serverSideProcs = fleet?.processCount ?? 1;
   const mem = perf?.memory ?? null;
   const isPartial = perf?.partial ?? false;
-  // Shell footprint + server-side RSS. Different metrics, shown as one headline
-  // because the question it answers ("quanto costa Topics?") has one answer; the
-  // tiles below split it back apart and the tooltips name each metric.
-  const totalMemMB = mem ? mem.totalMB + (serverSideMemMB ?? 0) : serverSideMemMB;
-  const memLabel = mem?.metric === 'footprint' ? 'footprint' : 'RSS';
+
+  // Calcolatore unico: combina shell + server con EMA per smorzare le oscillazioni.
+  // Usa computeTopicsFootprint invece di sommare direttamente qui.
+  const footprint = computeTopicsFootprint(
+    mem?.totalMB ?? null,
+    mem?.processCount ?? 0,
+    isPartial,
+    fleet?.memoryMB ?? (status?.server.memoryMB ?? 0),
+    fleet?.processCount ?? 1,
+    fleet?.memMetric ?? 'rss',
+    fleet?.scriptsMB ?? 0,
+    fleet?.scriptsProcessCount ?? 0,
+  );
+
+  const totalMemMB = footprint.totalMB > 0 ? footprint.totalMB : null;
+  const serverSideMemMB = footprint.serverMB;
+  const serverSideProcs = footprint.serverProcessCount;
+
   const serverSideTitle = fleet
-    ? `Somma RSS dei ${fleet.processCount} processi lato server: server Bun`
+    ? tr('perf.serverTitleFleet', { n: fleet.processCount })
       + fleet.roots
           .filter(r => r.kind !== 'server' && r.processCount > 0)
-          .map(r => ` + ${r.kind} (${r.processCount} proc., ${r.memoryMB} MB)`)
+          .map(r => tr('perf.serverTitleRoot', { kind: r.kind, procs: r.processCount, mb: r.memoryMB }))
           .join('')
-      + `${status?.server ? ` · heap del server ${status.server.heapUsedMB} MB` : ''}`
-    : `RSS del processo server Bun${status?.server ? ` · heap ${status.server.heapUsedMB} MB` : ''}`;
+      + `${status?.server ? tr('perf.serverTitleHeap', { mb: status.server.heapUsedMB }) : ''}`
+    : tr('perf.serverTitleSingle') + `${status?.server ? tr('perf.serverTitleHeapShort', { mb: status.server.heapUsedMB }) : ''}`;
 
   // How much of the footprint the OS has had to compress or swap out. Measured at
   // 6937 MB footprint against 610 MB resident with ~20 browser panes open — the
@@ -149,238 +138,137 @@ export function PerfSection() {
   // culprits, so the user reads it directly instead of being told.
   let verdict: { text: string; color: string } | null = null;
   if (perf && accelerated === false) {
-    verdict = { text: 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.', color: 'text-red-500' };
+    verdict = { text: tr('perf.verdict.noAccel'), color: 'text-red-500' };
   } else if (compressedMB > 2048) {
     verdict = {
-      text: `${(compressedMB / 1024).toFixed(1)} GB compressi o in swap. Chiudi qualche pannello browser.`,
+      text: tr('perf.verdict.compressed', { gb: (compressedMB / 1024).toFixed(1) }),
       color: 'text-amber-500',
     };
     // Soglia su scala 0-100 dell'intera macchina (vedi `usePerfMetrics`): metà
     // macchina presa dalla sola shell è già "sotto carico". Era `> 100`, che
     // aveva senso finché il numero era per-core e poteva arrivare a 1200.
   } else if (perf && (perf.cpu.total ?? 0) > 50) {
-    verdict = { text: 'Processo Topics sotto carico', color: 'text-amber-500' };
+    verdict = { text: tr('perf.verdict.loaded'), color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
   // already say it. The verdict only speaks up when there's a real problem.
 
   return (
-    <div className="px-2 pt-2 pb-1 space-y-1.5 border-b border-app-border">
-      {/* FPS headline + sparkline */}
-      <div className="flex items-center justify-between px-0.5">
-        <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <Activity size={12} /> FPS Topics
-        </span>
-        <span className="flex items-baseline gap-2 tabular-nums">
-          <span className={`text-[15px] font-semibold leading-none ${fpsColor(fps)}`}>{fps || '-'}</span>
-          <span className="text-[10px] text-app-text-muted">avg {avg || '-'}</span>
-        </span>
-      </div>
-      <FpsSparkline data={history} />
+    <div className="px-2 pt-2 pb-1 space-y-2 border-b border-app-border">
+      {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
+          etichette diverse per la stessa cosa ("CPU shell", "CPU Topics",
+          "Renderer", "GPU", "server-side", "Topics (shell)", "residente",
+          "compressa"): segnalato come «troppa informazione messa in maniera
+          confusionaria», ed era vero - ogni riga era difendibile da sola e
+          insieme non rispondevano a niente.
+          Adesso: 1) va veloce? 2) quanto costa? 3) c'e' qualcosa che non va?
+          Il dettaglio non sparisce, scende nei tooltip: chi vuole il numero per
+          processo lo trova dove si cercano i dettagli, non davanti. */}
 
-      {/* CPU cost. Under Tauri only the shell process is measurable (renderer/GPU
-          CPU live in WKWebView's XPC processes we can't attribute), so we show the
-          shell figure quando c'è UNA MISURA: `total !== null`. Il gate era `> 0`, e
-          uno zero misurato — cioè una shell ferma — perdeva la riga insieme al
-          caso "baseline non ancora arrivata".
-          The pre-Tauri renderer+GPU split is kept for a shell that reports it. */}
-      {perf && isPartial && perf.cpu.total !== null && (
-        <div className="grid grid-cols-4 gap-1.5">
-          <PerfStat
-            label="CPU shell"
-            className="col-span-4"
-            value={`${formatCpuPercent(perf.cpu.total)}%`}
-            color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
-            title="CPU del processo shell di Topics · non include i processi WKWebView dei pannelli · può superare 100% (per core)"
-          />
-        </div>
-      )}
-      {perf && !isPartial && perf.cpu.total !== null && (
-        <div className="grid grid-cols-4 gap-1.5">
-          <PerfStat
-            label="CPU Topics"
-            className="col-span-2"
-            value={`${formatCpuPercent(perf.cpu.total)}%`}
-            color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
-            title={[
-              `CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) · somma per-core, può superare 100% come in Activity Monitor`,
-              perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
-                ? `misura su ${perf.cpu.sampled}/${perf.cpu.pids} processi: gli altri sono appena comparsi e non hanno ancora un delta`
-                : null,
-            ].filter(Boolean).join(' · ')}
-          />
-          <PerfStat
-            label="Renderer"
-            value={`${formatCpuPercent(perf.cpu.renderer)}%`}
-            title="CPU dei processi WKWebView di contenuto · uno per pannello browser"
-          />
-          <PerfStat
-            label="GPU"
-            value={`${formatCpuPercent(perf.cpu.gpu)}%`}
-            title="CPU del processo GPU/compositor di Topics"
-          />
-        </div>
-      )}
-      {/* The server side has its own CPU cost and it is not small — the WebRTC
-          sidecar alone measured ~29% while streaming a pane, and the agent CLIs
-          under the pty-bridge dwarf it. The shell figures above can't see any of
-          it: those processes belong to the server, not to the shell. */}
-      {/* Gate su `fleet`, non su `cpuPercent > 0`: questa cifra viene da `ps`,
-          che risponde sempre — non ha il problema della baseline che ha la CPU
-          della shell. Uno zero qui è una MISURA (il lato server è fermo), e
-          nasconderlo ripeterebbe l'errore appena corretto sull'altra metà.
-
-          Scala 0-100 dell'INTERA macchina: il server divide già per i core
-          (`fleet-usage.ts`). Prima era la somma per-core di `ps`, che accanto
-          alla CPU di sistema si leggeva come una contraddizione — "170%" su un
-          Mac al 30%, che sono 1,7 core su 12. La soglia d'allarme è quindi
-          metà macchina, non più 100. */}
-      {fleet && (
-        <div className="grid grid-cols-4 gap-1.5">
-          <PerfStat
-            label={`CPU lato server ×${serverSideProcs}`}
-            className="col-span-4"
-            value={`${formatCpuPercent(fleet.cpuPercent)}%`}
-            color={fleet.cpuPercent > 50 ? 'text-amber-500' : 'text-app-text'}
-            title={`CPU del server e di tutto ciò che ne dipende, sui ${fleet.cpuCores} core della macchina${fleet.roots
-              .filter(r => r.kind !== 'server' && r.cpuPercent > 0)
-              .map(r => ` · ${r.kind} ${r.cpuPercent}%`)
-              .join('')}`}
-          />
-        </div>
-      )}
-
-      {/* Memory — the honest process figures. Where the shell can attribute its
-          children (macOS) this is the WHOLE app; `isPartial` keeps the old
-          shell-only labelling truthful everywhere else. */}
-      <div
-        className="flex items-center justify-between px-0.5 pt-0.5"
-        title={(isPartial
-          ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli).'
-          : memLabel === 'footprint'
-            ? `Footprint di TUTTI i ${mem?.processCount ?? '?'} processi della shell (finestra + WKWebView dei pannelli) · lo stesso valore della colonna "Memoria" di Activity Monitor.`
-            : 'Memoria residente (RSS) dei processi della shell. Activity Monitor mostra un valore più alto (footprint).')
-          + ` PIÙ ${serverSideTitle.charAt(0).toLowerCase()}${serverSideTitle.slice(1)}.`}
-      >
-        <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <HardDrive size={12} /> Memoria{' '}
-          <span className="text-[9px] opacity-60">
-            {isPartial
-              ? `shell + ${serverSideProcs} lato server`
-              : `${(mem?.processCount ?? 0) + serverSideProcs} processi · ${memLabel} + RSS`}
+      {/* 1 · VA VELOCE? Gli fps sono l'unica cosa che l'utente SENTE. */}
+      <div>
+        <div className="flex items-center justify-between px-0.5">
+          <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+            <Activity size={12} /> {tr('perf.q1')}
           </span>
-        </span>
-        <span className="tabular-nums text-[13px] font-semibold text-app-text">
-          {totalMemMB !== null ? `${totalMemMB} MB` : '-'}
-        </span>
+          <span className="flex items-baseline gap-2 tabular-nums">
+            <span className={`text-[15px] font-semibold leading-none ${fpsColor(fps)}`}>{fps || '-'}</span>
+            <span className="text-[10px] text-app-text-muted">{tr('perf.fpsAvg', { n: avg || '-' })}</span>
+          </span>
+        </div>
+        <FpsSparkline data={history} />
       </div>
-      {/* The resident slice. Without it the footprint headline is unreadable: the
-          user can't tell "6 GB in RAM" (bad) from "6 GB of which 600 MB in RAM,
-          the rest compressed" (bad differently, and fixed by closing panes). */}
-      {!isPartial && mem && (
+
+      {/* 2 · QUANTO COSTA? UN numero, non cinque tessere.
+          La somma e' quella che si andrebbe a leggere in Monitoraggio Attivita'
+          se si sapesse quali processi sommare - ed e' la ragione per cui il
+          conto lo fa l'app invece di lasciarlo a chi guarda. Il dettaglio
+          (shell, renderer, GPU, lato server, quanto e' compresso) sta nel
+          tooltip: e' la risposta alla domanda DOPO, e prima confondeva questa. */}
+      <div className="space-y-1">
         <div
-          className="flex items-center justify-between px-0.5 text-[10px] text-app-text-muted"
-          title="Quanta di quella memoria è davvero nella RAM fisica adesso. Il resto lo ha compresso o spostato in swap il sistema: rientrarci costa tempo, ed è quello che fa scattare l'interfaccia."
+          data-testid="perf-cost"
+          className="flex items-center justify-between px-0.5"
+          title={[
+            isPartial ? tr('perf.memShellTitle')
+              : footprint.serverMetric === 'footprint' ? tr('perf.memFootprintTitle', { n: mem?.processCount ?? '?' })
+              : tr('perf.memRssTitle'),
+            serverSideTitle,
+            !isPartial && mem ? tr('perf.residentInline', { mb: mem.residentMB }) : null,
+            compressedMB > 0 ? tr('perf.compressedInline', { n: compressedMB }) : null,
+            perf?.cpu.total !== null && perf ? tr('perf.cpuInline', { pct: formatCpuPercent(perf.cpu.total) }) : null,
+            fleet ? tr('perf.cpuServerInline', { pct: formatCpuPercent(fleet.cpuPercent) }) : null,
+          ].filter(Boolean).join('\n')}
         >
-          <span>di cui in RAM</span>
-          <span className="tabular-nums">
-            {mem.residentMB} MB
-            {compressedMB > 0 && (
-              <span className={compressedMB > 2048 ? 'text-amber-500' : ''}>
-                {' '}· {compressedMB} MB compressi
-              </span>
-            )}
+          <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+            <HardDrive size={12} /> {tr('perf.q2')}
+            <span className="text-[9px] opacity-60">
+              {tr('perf.procCount', { n: (mem?.processCount ?? 0) + serverSideProcs })}
+            </span>
+          </span>
+          <span className="tabular-nums text-[13px] font-semibold text-app-text">
+            {totalMemMB !== null ? `${totalMemMB} MB` : '-'}
           </span>
         </div>
-      )}
-      <div className="grid grid-cols-4 gap-1.5">
-        {isPartial && mem ? (
-          <>
-            <PerfStat
-              label="Topics (shell)"
-              className="col-span-2"
-              value={`${mem.totalMB}MB`}
-              title="RSS del processo shell di Topics · i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)"
-            />
-            <PerfStat
-              label={fleet ? `Lato server ×${serverSideProcs}` : 'Server Bun'}
-              className="col-span-2"
-              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
-              title={serverSideTitle}
-            />
-          </>
-        ) : mem ? (
-          <>
-            <PerfStat
-              label="Renderer"
-              value={`${mem.rendererMB}MB`}
-              title="Memoria dei processi renderer · finestre e ogni pannello browser nativo"
-            />
-            <PerfStat label="GPU" value={`${mem.gpuMB}MB`} title="Memoria del processo GPU/compositor" />
-            <PerfStat label="Altri" value={`${mem.otherMB}MB`} title="Processo main + utility (network, storage, audio)" />
-            <PerfStat
-              label={fleet ? `Server ×${serverSideProcs}` : 'Server'}
-              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
-              title={serverSideTitle}
-            />
-          </>
-        ) : (
+
+        {/* DUE tessere e non cinque: «l'app che guardi» e «il lavoro che gira
+            per conto tuo» sono le uniche due meta' che si possono CHIUDERE in
+            modo diverso - una chiudendo pannelli, l'altra fermando sessioni.
+            Renderer/GPU/altro erano tre numeri che nessuno poteva agire. */}
+        <div className="grid grid-cols-2 gap-1.5">
           <PerfStat
-            label={fleet ? `Lato server ×${serverSideProcs}` : 'Server'}
-            className="col-span-4"
-            value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
-            title={fleet
-              ? serverSideTitle + " · in modalità web la memoria della shell non è disponibile"
-              : "In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server"}
+            label={tr('perf.tileApp')}
+            value={mem ? `${mem.totalMB}MB` : tr('perf.na')}
+            color={perf && (perf.cpu.total ?? 0) > 50 ? 'text-amber-500' : undefined}
+            title={isPartial ? tr('perf.shellRssTitle') : tr('perf.tileAppTitle')}
           />
+          <PerfStat
+            label={tr('perf.tileAgents', { n: serverSideProcs })}
+            value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : tr('perf.na')}
+            color={fleet && fleet.cpuPercent > 50 ? 'text-amber-500' : undefined}
+            title={serverSideTitle}
+          />
+        </div>
+
+        {/* QUALE sessione tiene la memoria: e' l'unica riga di dettaglio che
+            resta a vista, perche' e' l'unica su cui si puo' AGIRE (chiudere
+            quella sessione). Tre e non tutte. */}
+        {fleet && fleet.sessions.length > 0 && (
+          <div data-testid="perf-sessions" className="flex flex-col gap-0.5 px-0.5 text-[10px] text-app-text-muted">
+            {[...fleet.sessions]
+              .sort((a, b) => b.memoryMB - a.memoryMB)
+              .slice(0, 3)
+              .map(s => (
+                <div key={s.sessionId} className="flex items-center justify-between gap-2">
+                  <span className="truncate">{s.name || s.sessionId}</span>
+                  <span className="tabular-nums whitespace-nowrap text-app-text">{s.memoryMB} MB</span>
+                </div>
+              ))}
+          </div>
         )}
       </div>
 
-      {/* GPU acceleration — the single biggest hidden FPS killer */}
-      {perf && (
-        <div
-          className="flex items-center gap-1.5 px-1.5 py-1 rounded text-[10px]"
-          title={`gpu_compositing: ${perf.gpu.compositing} · webgl: ${perf.gpu.webgl}`}
-        >
-          {accelerated ? (
-            <>
-              <MonitorSmartphone size={11} className="text-emerald-500" />
-              <span className="text-app-text-muted">Accelerazione hardware</span>
-              <span className="text-emerald-500 font-medium ml-auto">attiva</span>
-            </>
-          ) : (
-            <>
+      {/* 3 · C'E' QUALCOSA CHE NON VA? Parla SOLO quando c'e' un problema.
+          Il caso buono e' gia' detto dagli fps qui sopra: una riga «tutto bene»
+          e' una riga che si impara a saltare, e il giorno che dice altro non la
+          legge piu' nessuno.
+          I TOP PROCESSI DEL COMPUTER SONO STATI TOLTI: rispondevano a «cosa sta
+          usando il Mac», che e' la domanda di Monitoraggio Attivita' e non di
+          questo pannello. Elencavano processi di altre app su cui Topics non
+          puo' fare niente, e occupavano cinque righe su nove. */}
+      {(verdict || accelerated === false) && (
+        <div data-testid="perf-verdict" className="space-y-0.5 pt-0.5">
+          {accelerated === false && (
+            <div className="flex items-center gap-1.5 px-1.5 py-1 rounded text-[10px]">
               <Cpu size={11} className="text-red-500" />
-              <span className="text-app-text-muted">Rendering software</span>
-              <span className="text-red-500 font-medium ml-auto">no GPU</span>
-            </>
+              <span className="text-app-text-muted">{tr('perf.softwareRendering')}</span>
+              <span className="text-red-500 font-medium ml-auto">{tr('perf.noGpu')}</span>
+            </div>
+          )}
+          {verdict && (
+            <div className={`px-1.5 py-0.5 text-[10px] font-medium ${verdict.color}`}>{verdict.text}</div>
           )}
         </div>
-      )}
-
-      {/* Top CPU consumers — what's actually loading the PC right now. The user
-          asked "perché ho il PC load?": this answers it concretely. */}
-      {topByCommand.length > 0 && (
-        <div className="space-y-0.5 pt-0.5">
-          <div className="flex items-center justify-between px-1.5">
-            <span className="text-[9px] uppercase tracking-wide text-app-text-muted">Top CPU</span>
-            <span className="text-[9px] text-app-text-muted">sistema · per core</span>
-          </div>
-          {topByCommand.map(([command, { cpu, count, isTopics }]) => (
-            <div key={command} className="flex items-center gap-2 px-1.5 py-0.5 rounded">
-              <span className={`text-[10px] truncate flex-1 ${isTopics ? 'text-primary font-medium' : 'text-app-text-secondary'}`}>
-                {command}{count > 1 && <span className="text-app-text-muted"> ×{count}</span>}
-              </span>
-              <span className={`text-[10px] tabular-nums flex-shrink-0 ${cpu >= 80 ? 'text-amber-500' : 'text-app-text-muted'}`}>
-                {Math.round(cpu)}%
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {verdict && (
-        <div className={`px-1.5 py-0.5 text-[10px] font-medium ${verdict.color}`}>{verdict.text}</div>
       )}
     </div>
   );

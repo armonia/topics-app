@@ -77,6 +77,45 @@ export function loadDurations(): Record<string, number> {
   }
 }
 
+/**
+ * IL NOME DEL FILE NON E' UN PATH: PLAYWRIGHT LO LEGGE COME REGEX.
+ *
+ * Gli argomenti posizionali di `playwright test` sono ESPRESSIONI REGOLARI sul
+ * percorso, non nomi. Il piano scriveva i basename nudi (`board.spec.ts`), e
+ * `.` e' un jolly ma soprattutto una sottostringa combacia: `board.spec.ts`
+ * seleziona anche `dashboard.spec.ts`, `focus-bounce-board.spec.ts` e
+ * `browser-mobile-keyboard.spec.ts`.
+ *
+ * Sull'albero del 18/08 (247 spec) le collisioni erano CINQUE. Quando i due
+ * file finiscono in shard diversi il secondo gira DUE VOLTE: tempo buttato, e
+ * il bilanciamento per durata — che e' l'unica ragione per cui il piano esiste
+ * — misura una divisione che non e' quella eseguita.
+ *
+ * L'ancora: `tests/e2e/` davanti (esclude i suffissi come `dashboard`), `\.`
+ * al posto del jolly, `$` in fondo (esclude i prefissi).
+ */
+export function specSelector(basename: string): string {
+  return `tests/e2e/${basename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+}
+
+/**
+ * Due voci del piano che selezionano lo stesso file sono un errore, non un
+ * dettaglio: e' la forma esatta del difetto che `specSelector` chiude, e la
+ * prossima spec che nasce con un nome contenuto in un'altra deve trovare un
+ * rosso invece di uno spreco muto.
+ */
+export function selectorCollisions(files: string[]): Array<{ selector: string; matches: string[] }> {
+  const paths = files.map((f) => `tests/e2e/${f}`);
+  const out: Array<{ selector: string; matches: string[] }> = [];
+  for (const f of files) {
+    const sel = specSelector(f);
+    const re = new RegExp(sel);
+    const matches = paths.filter((p) => re.test(p));
+    if (matches.length > 1) out.push({ selector: sel, matches });
+  }
+  return out;
+}
+
 /** LPT: dal più lento al più veloce, ognuno nel secchio finora meno carico. */
 export function planShards(
   files: string[],
@@ -144,10 +183,21 @@ if (import.meta.main) {
   const durations = loadDurations();
   const buckets = planShards(files, durations, shards);
 
+  // La guardia PRIMA di scrivere: un piano che seleziona due volte lo stesso
+  // file non e' un piano, e va detto qui — non scoperto contando i test in un
+  // riepilogo.
+  const collisioni = selectorCollisions(files);
+  if (collisioni.length) {
+    console.error("[plan] due voci selezionano lo stesso file: il piano non e' eseguibile.");
+    for (const c of collisioni) console.error(`  ${c.selector}  ->  ${c.matches.join(", ")}`);
+    process.exit(1);
+  }
+
   if (outDir) {
     mkdirSync(outDir, { recursive: true });
     buckets.forEach((b, i) => {
-      writeFileSync(resolve(outDir, `shard-${i + 1}.txt`), b.files.join("\n") + "\n");
+      // SELETTORI, non nomi: vedi `specSelector`.
+      writeFileSync(resolve(outDir, `shard-${i + 1}.txt`), b.files.map(specSelector).join("\n") + "\n");
     });
   }
 

@@ -37,10 +37,51 @@ hermetic(test);
 // Marcatore di una shell di build PRECEDENTE, seminato a mano nella cache del SW.
 // Se compare a schermo, il SW ha servito la copia stantia invece della rete.
 const OLD_SHELL_MARKER = "OLD-STALE-SHELL-vPREV";
-// Deve combaciare con CACHE_NAME in client/public/sw.js.
-const SW_CACHE_NAME = "topics-v11";
-// Deve combaciare con NAV_RETRIES in client/public/sw.js.
-const NAV_RETRIES = 3;
+
+/**
+ * PERCHÉ QUI NON C'È NESSUN NUMERO SCRITTO A MANO.
+ *
+ * Il nome della cache e il numero di retry vivevano qui come costanti copiate da
+ * `client/public/sw.js`, con sopra scritto «deve combaciare». Non hanno
+ * combaciato: il bump a `topics-v12` del 12/08 (i tasti nella notifica push) ha
+ * lasciato indietro il `topics-v11` di questo file, e da allora il seme finiva
+ * in una cache che il SW non guarda più. Il test non diceva «il nome è vecchio»,
+ * diceva «la PWA non serve la shell cachata» — cioè accusava il prodotto di un
+ * guasto che non aveva.
+ *
+ * Una copia di una costante non si può tenere allineata a mano, quindi non si
+ * copia: entrambi i valori si LEGGONO dal service worker vivo, e se non si
+ * leggono il test muore invece di misurare la cosa sbagliata.
+ */
+
+/** Il nome della cache lo decide `CACHE_NAME` in sw.js e cambia a ogni bump.
+ *  Quello VIVO è l'unico autorevole: dopo l'`activate` il SW cancella ogni
+ *  chiave diversa dalla propria, quindi ne sopravvive esattamente una ed è
+ *  quella in cui cercherà il fallback. */
+async function swCacheName(page: import("@playwright/test").Page): Promise<string> {
+  let keys: string[] = [];
+  await expect
+    .poll(
+      async () => {
+        keys = await page.evaluate(() => caches.keys());
+        return keys.length;
+      },
+      { timeout: 15_000, message: "il SW non ha ancora aperto la sua cache" },
+    )
+    .toBe(1);
+  return keys[0];
+}
+
+/** `NAV_RETRIES` letto dal sorgente SERVITO — lo stesso file che il browser ha
+ *  registrato, non una copia sul disco che potrebbe non essere nel bundle. */
+async function swNavRetries(page: import("@playwright/test").Page): Promise<number> {
+  const src = await page.evaluate(() =>
+    fetch("/sw.js", { cache: "no-store" }).then((r) => r.text()),
+  );
+  const found = /^const NAV_RETRIES = (\d+);/m.exec(src);
+  if (!found) throw new Error("sw.js non dichiara più `const NAV_RETRIES = <n>;`: il test non sa quanti tentativi aspettarsi");
+  return Number(found[1]);
+}
 
 /** Carica l'app e assicura che il SW registrato CONTROLLI la pagina.
  *  boot.js registra il SW al `load` ma NON fa `clients.claim()`, quindi il
@@ -58,8 +99,9 @@ async function bootWithControllingSW(page: import("@playwright/test").Page) {
  *  di essere di una build PRECEDENTE. È esattamente ciò che il vecchio fallback
  *  serviva durante un riavvio. */
 async function seedStaleShell(page: import("@playwright/test").Page) {
-  await page.evaluate(async ([cacheName, marker]) => {
-    const cache = await caches.open(cacheName);
+  const cacheName = await swCacheName(page);
+  await page.evaluate(async ([name, marker]) => {
+    const cache = await caches.open(name);
     const html =
       `<!doctype html><html><head><title>STALE</title></head>` +
       `<body><div id="stale">${marker}</div></body></html>`;
@@ -67,7 +109,7 @@ async function seedStaleShell(page: import("@playwright/test").Page) {
       new Request(new URL("/", self.location.origin).href),
       new Response(html, { headers: { "content-type": "text/html" } }),
     );
-  }, [SW_CACHE_NAME, OLD_SHELL_MARKER] as const);
+  }, [cacheName, OLD_SHELL_MARKER] as const);
 }
 
 test.describe("service worker: riavvio-server non serve la shell vecchia", () => {
@@ -134,6 +176,7 @@ test.describe("service worker: riavvio-server non serve la shell vecchia", () =>
   }) => {
     await bootWithControllingSW(page);
     await seedStaleShell(page);
+    const navRetries = await swNavRetries(page);
 
     // Nessun ritorno del server: dopo aver esaurito i retry il SW DEVE servire
     // la shell cachata — il fallback offline è voluto, il fix non lo rompe.
@@ -152,7 +195,7 @@ test.describe("service worker: riavvio-server non serve la shell vecchia", () =>
     // Ha ritentato il numero di volte previsto prima di arrendersi: è la
     // differenza fra "cade sulla cache dopo aver insistito" e il vecchio
     // comportamento, che ci cadeva al primo fallimento.
-    expect(refused).toBe(NAV_RETRIES);
+    expect(refused).toBe(navRetries);
   });
 
   test("offline VERO (rete staccata) → la PWA continua a servire la shell", async ({

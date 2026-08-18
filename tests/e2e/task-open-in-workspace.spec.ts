@@ -18,6 +18,7 @@ import { createTopic, deleteTopic, deleteTask, resetPaneStore, seedProjectPane }
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -26,17 +27,6 @@ hermetic(test);
 const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-wsopen-${Date.now()}`;
 
-/** BYTE-IDENTICAL to server/services/tasks.ts:projectIdForPath (parity-tested there). */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 let projectTopicId: string | null = null;
@@ -138,8 +128,12 @@ test.describe("Apri nel workspace", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    const openBtn = drawer.getByTestId("task-open-in-workspace");
-    await expect(openBtn).toBeVisible();
+    // Da agosto 2026 il gesto vive nel menu ⋯ e si chiama «Apri il task nel
+    // progetto»: non «apri il risultato», perché i risultati di una card sono
+    // tanti e cambiano mentre l'agent lavora.
+    await drawer.getByTestId("task-options-menu").click();
+    const openBtn = page.getByTestId("task-open-in-workspace");
+    await expect(openBtn).toBeVisible({ timeout: 5000 });
 
     // Capture the workspace-open events the button dispatches.
     await page.evaluate(() => {
@@ -212,7 +206,8 @@ test.describe("Apri nel workspace", () => {
         (window as unknown as { __wsOpen: unknown[] }).__wsOpen.push((e as CustomEvent).detail));
     });
 
-    await drawer.getByTestId("task-open-in-workspace").click();
+    await drawer.getByTestId("task-options-menu").click();
+    await page.getByTestId("task-open-in-workspace").click();
 
     // DUE navigate, uno per tab: il risultato non è più «Output» al singolare.
     await expect

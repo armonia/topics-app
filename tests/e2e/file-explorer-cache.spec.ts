@@ -202,7 +202,52 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
       };
     });
 
-    const aperta = await stile();
+    /**
+     * LO STILE A RIPOSO: puntatore FUORI dalla card, transizione finita.
+     *
+     * Il fondo di una card di sezione cambia SOTTO IL PUNTATORE
+     * (`hover:bg-black/[0.08]` dentro `RESTING_SURFACE`) e ci arriva in 150ms
+     * (`transition-colors`). Un `click()` lascia il mouse proprio li' sopra,
+     * quindi leggere subito dopo misura DOVE STA IL MOUSE e a che punto e'
+     * l'animazione, non lo stato della sezione.
+     *
+     * Misurato il 18/08/2026: appena dopo il click il fondo legge ancora 0.05
+     * (transizione in volo) e 400ms dopo legge 0.08 (hover arrivato). Su una
+     * macchina scarica la lettura arrivava prima -> verde; con quattro shard
+     * addosso arrivava dopo -> rosso, sempre su questa riga. Non era il codice:
+     * era la misura.
+     *
+     * Quindi ogni lettura si prende parcheggiando il puntatore e aspettando che
+     * il colore SMETTA di muoversi. Aspetta la stabilita', non un valore atteso:
+     * se la superficie cambiasse davvero fra i due stati, questo la leggerebbe
+     * comunque diversa e la riga sotto sarebbe rossa.
+     */
+    const stileARiposo = async () => {
+      await page.mouse.move(5, 5);
+      await expect
+        .poll(() => header.evaluate((el: HTMLElement) => el.matches(":hover")), {
+          timeout: 3000,
+          message: "il puntatore e' rimasto sulla card: la misura direbbe dov'e' il mouse",
+        })
+        .toBe(false);
+      let precedente = "";
+      await expect
+        .poll(
+          async () => {
+            const ora = await header.evaluate(
+              (el: HTMLElement) => getComputedStyle(el).backgroundColor,
+            );
+            const fermo = ora === precedente;
+            precedente = ora;
+            return fermo;
+          },
+          { timeout: 3000, message: "il fondo continua a cambiare: transizione mai finita" },
+        )
+        .toBe(true);
+      return await stile();
+    };
+
+    const aperta = await stileARiposo();
     // È una card: fondo proprio, angoli, e rientrata dai lati come ogni altra.
     expect(aperta.raggio, "l'intestazione è arrotondata come una tab").not.toBe("0px");
     expect(aperta.fondo, "l'intestazione ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
@@ -210,7 +255,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
 
     await header.click();
     await expect(header).toHaveAttribute("aria-expanded", "false");
-    const chiusa = await stile();
+    const chiusa = await stileARiposo();
 
     // Niente cambia fra i due stati: non c'è più un bordo che compare, e la
     // superficie è la stessa. Se qualcuno rimettesse una linea condizionale,

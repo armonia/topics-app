@@ -16,6 +16,7 @@ import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, SIDEBAR_ACTIVE, SIDEBAR_INDENT_STEP, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
+import { useT } from '../../hooks/useT';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { SkeletonRows } from '../Shared/Skeleton';
 
@@ -426,6 +427,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
 }
 
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed, onWSMessage }, ref) {
+  const tr = useT();
   const toast = useToast();
   /**
    * L'albero, le cartelle aperte e lo stato di caricamento NON stanno piu' qui.
@@ -1409,7 +1411,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         onClick={handleDelete}
         className="w-full text-left px-3 py-1.5 text-[12px] text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2"
       >
-        <Trash2 size={14} /> Sposta nel cestino{isMultiSelect ? ` (${multiSelectCount})` : ''}
+        <Trash2 size={14} /> {tr('files.trash')}{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
     </div>,
     document.body
@@ -1476,7 +1478,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       className="px-3 py-1 text-[11px] text-amber-800 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0"
     >
       <span className="truncate">{error}</span>
-      <button onClick={loadFiles} className="text-[11px] text-primary hover:underline flex-shrink-0">Riprova</button>
+      <button onClick={loadFiles} className="text-[11px] text-primary hover:underline flex-shrink-0">{tr('common.retry')}</button>
     </div>
   ) : null;
 
@@ -1612,16 +1614,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 // cestino di sistema (server/lib/trash.ts) invece di cancellare. Il testo dice
 // dove finisce la roba, perche' e' l'unica informazione che serve a decidere.
 function DeleteConfirmDialog({ paths, onConfirm, onCancel }: { paths: string[]; onConfirm: () => void; onCancel: () => void }) {
+  const tr = useT();
   return (
     <ConfirmDialog
-      title="Sposta nel cestino"
-      confirmLabel="Sposta nel cestino"
+      title={tr('files.trash')}
+      confirmLabel={tr('files.trash')}
       onConfirm={onConfirm}
       onCancel={onCancel}
     >
       {paths.length === 1
-        ? <>Sposto <span className="font-mono">{basename(paths[0])}</span> nel cestino di sistema. Da lì puoi rimetterlo a posto.</>
-        : <>Sposto {paths.length} elementi nel cestino di sistema. Da lì puoi rimetterli a posto.</>}
+        ? <>{tr('files.trashOneLead')}<span className="font-mono">{basename(paths[0])}</span>{tr('files.trashOneTail')}</>
+        : <>{tr('files.trashMany', { n: paths.length })}</>}
     </ConfirmDialog>
   );
 }

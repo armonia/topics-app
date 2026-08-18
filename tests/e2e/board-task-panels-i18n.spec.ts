@@ -37,23 +37,12 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
-
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath (come board.spec.ts). */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 
 const REPO = `/tmp/topics-e2e-i18npanels-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(REPO);
@@ -258,6 +247,10 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
     await expect(changes).toBeVisible({ timeout: 15000 });
     await expect(changes).toContainText("2 files");
     await changes.click();
+    // Il chip apre una tendina PORTALATA: sta fuori dal drawer nel DOM, quindi
+    // il diff si cerca lì.
+    const changesPanel = page.getByTestId("task-changes-panel");
+    await expect(changesPanel).toBeVisible({ timeout: 10000 });
 
     // La barra delle note in sospeso vive solo con una nota scritta. L'aggancio
     // sta in `UnifiedDiff`, che è un'altra superficie e parla ancora italiano:
@@ -265,22 +258,27 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
     // Con PIÙ di un file nessuna card si apre da sola (`defaultOpenFirst` vale
     // solo per un patch a file unico): il file va aperto, ed è il prezzo di
     // avere due file per provare il plurale.
-    await drawer.getByRole("button", { name: /^conta\.txt/ }).click();
+    await changesPanel.getByRole("button", { name: /^conta\.txt/ }).click();
     // Qualunque riga agganciabile del file appena aperto: quale sia dipende da
     // come git spezza il patch, e questa spec non parla di quello.
-    const commenta = drawer.getByRole("button", { name: /^Commenta .+:\d+$/ }).first();
+    const commenta = changesPanel.getByRole("button", { name: /^Commenta .+:\d+$/ }).first();
     await expect(commenta).toBeVisible({ timeout: 10000 });
     await commenta.click();
-    await drawer.getByPlaceholder("Cosa non va in questa riga…").fill("Perché maiuscolo?");
-    await drawer.getByRole("button", { name: "Aggiungi" }).click();
+    await changesPanel.getByPlaceholder("Cosa non va in questa riga…").fill("Perché maiuscolo?");
+    await changesPanel.getByRole("button", { name: "Aggiungi" }).click();
 
-    await expect(drawer.getByText("1 comment on the diff, not sent yet")).toBeVisible({ timeout: 10000 });
-    await expect(drawer.getByText("1 pending")).toBeVisible();
-    await expect(drawer.getByRole("button", { name: "Send to the agent" })).toBeVisible();
+    await expect(changesPanel.getByText("1 comment on the diff, not sent yet")).toBeVisible({ timeout: 10000 });
+    // «1 pending» sta sul CHIP, che è rimasto nel drawer: è la traccia che il
+    // lavoro esiste anche a tendina chiusa.
+    await expect(changes).toContainText("1 pending");
+    await expect(changesPanel.getByRole("button", { name: "Send to the agent" })).toBeVisible();
     // Scartata subito: una bozza lasciata lì viaggia sul server e la ritroverebbe
     // il test seguente.
-    await drawer.getByRole("button", { name: "Discard" }).click();
-    await expect(drawer.getByText("1 comment on the diff, not sent yet")).toBeHidden();
+    await changesPanel.getByRole("button", { name: "Discard" }).click();
+    await expect(page.getByText("1 comment on the diff, not sent yet")).toBeHidden();
+    // La tendina si chiude: le sezioni che vengono dopo stanno sotto di lei.
+    await page.keyboard.press("Escape");
+    await expect(changesPanel).toBeHidden({ timeout: 5000 });
 
     // ── Checks ──────────────────────────────────────────────────────────────
     const checks = drawer.getByRole("button", { name: /^Checks RED/ });

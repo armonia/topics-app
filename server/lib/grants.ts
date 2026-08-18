@@ -17,7 +17,7 @@
  */
 
 /** Cosa si riceve. Le due entità che hanno una riga a cui appendere il permesso. */
-export type ResourceType = 'task' | 'topic';
+export type ResourceType = 'task' | 'topic' | 'project';
 
 /*
  * IL SOGGETTO E IL LIVELLO NON STANNO QUI, e l'assenza è deliberata.
@@ -48,7 +48,18 @@ export type ResourceType = 'task' | 'topic';
  * costo è riscrivere una riga come questa, il ricavo è che la porta resta una.
  */
 
-export const RESOURCE_TYPES: readonly ResourceType[] = ['task', 'topic'] as const;
+/**
+ * `project` è entrato con 20260816230500: condividerne uno apre i suoi task
+ * senza scrivere una riga per ciascuno (espansione in lettura, vedi
+ * `grants-query.ts`).
+ *
+ * NON allarga cosa un ospite può TOCCARE: `isGuestAllowedPath` è un'allowlist
+ * di percorsi, e non esiste `/api/projects/`. Un progetto condiviso si vede
+ * attraverso i suoi task, che passano dai percorsi già aperti e dal loro
+ * controllo per id. Il giorno che una rotta di progetto esistesse, questo
+ * commento è il posto in cui accorgersene.
+ */
+export const RESOURCE_TYPES: readonly ResourceType[] = ['task', 'topic', 'project'] as const;
 
 export function isResourceType(v: unknown): v is ResourceType {
   return typeof v === 'string' && (RESOURCE_TYPES as readonly string[]).includes(v);

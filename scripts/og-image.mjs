@@ -44,7 +44,13 @@ const iconData = `data:image/png;base64,${(await readFile(ICON)).toString('base6
 const shotData = `data:image/webp;base64,${(await readFile(SHOT)).toString('base64')}`;
 
 const stats = repoStats();
-const fmt = (n) => n.toLocaleString('en-GB');
+// `commits` is null on a checkout without usable history, and `releases` no
+// longer exists at all: no file in the tree carries a truthful published-release
+// count, so the field was removed rather than left to drift. The card drops the
+// line it cannot fill instead of printing `undefined` into an image nobody
+// re-reads before it is scraped.
+const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-GB') : null);
+const commits = fmt(stats.commits);
 
 const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600&display=block">
@@ -84,8 +90,8 @@ const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
     <p>A desktop workspace for Claude Code, Codex, OpenCode and Gemini CLI.</p>
     <div class="foot">
       <span><span class="dot"></span>MIT &middot; macOS, Windows, Linux</span>
-      <span><b>${fmt(stats.commits)}</b> commits</span>
-      <span><b>${stats.releases}</b> releases</span>
+      ${commits ? `<span><b>${commits}</b> commits</span>` : ''}
+      <span>v${stats.version}</span>
     </div>
   </div>
 </body></html>`;
@@ -100,7 +106,7 @@ await page.screenshot({ path: OUT });
 await browser.close();
 
 const { size } = await stat(OUT);
-console.log(`og.png  1200x630  ${Math.round(size / 1024)} KB  ·  ${fmt(stats.commits)} commits, ${stats.releases} releases${stats.live ? '' : ' (fallback numbers — no git history here)'}`);
+console.log(`og.png  1200x630  ${Math.round(size / 1024)} KB  ·  v${stats.version}${commits ? `, ${commits} commits` : ' (no git history here: the commit line is omitted)'}`);
 if (size > 400_000) {
   console.log('⚠ over 400 KB — some scrapers cap the fetch; consider JPEG');
   process.exit(1);

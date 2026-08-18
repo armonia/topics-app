@@ -54,6 +54,8 @@ import { join, relative, sep } from "node:path";
  * La lista è deliberatamente CHIUSA e fatta di nomi non ambigui. `dist`,
  * `build`, `out`, `coverage` sono fuori apposta: valgono poco (17 MB in tutto
  * sui 25 misurati) e il loro nome non promette niente su cosa contengono.
+ * Stessa ragione per `videos`: pesa (3 GB il 16/08) ma il nome non dice di chi
+ * e', e una cartella di video puo' benissimo essere l'unica copia di qualcosa.
  */
 export const SLIM_DIR_NAMES: ReadonlySet<string> = new Set([
   "node_modules",
@@ -66,6 +68,13 @@ export const SLIM_DIR_NAMES: ReadonlySet<string> = new Set([
   ".astro",
   "__pycache__",
   ".pytest_cache",
+  // Playwright. Misurato il 16/08 su `~/.topics/worktrees`: 12 GB su 27, quasi
+  // tutti sotto quadra, dove la UAT gira con video e trace accesi. Sono i due
+  // nomi che Playwright si sceglie da solo e che nessun altro usa per altro —
+  // `videos/` resta FUORI apposta, e' un nome che chiunque puo' dare a
+  // qualunque cosa e la lista vive di nomi che non promettono altro.
+  "test-results",
+  "playwright-report",
 ]);
 
 /**

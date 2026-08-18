@@ -1,12 +1,16 @@
 /**
  * board-land-conflict.spec.ts — un land che va in CONFLITTO dice perché.
  *
- * La card approvata esce da `done` e torna in lavorazione: è giusto (il merge
- * non è avvenuto, il lavoro non è finito), ma la riga di storico diceva
- * «user → In Progress» — identica a quella che scrive un umano quando ritira
- * una consegna a mano. Chi rivedeva vedeva un dietrofront senza causa e col
- * firmatario sbagliato: l'umano aveva cliccato «Landa su main», il ritiro è
- * della macchina.
+ * La card torna in lavorazione: è giusto (il merge non è avvenuto, il lavoro
+ * non è finito), ma la riga di storico diceva «user → In Progress» — identica a
+ * quella che scrive un umano quando ritira una consegna a mano. Chi rivedeva
+ * vedeva un dietrofront senza causa e col firmatario sbagliato: l'umano aveva
+ * cliccato «Landa su main», il ritiro è della macchina.
+ *
+ * La colonna di partenza è `review`, non `done`: dal 13/08 il land non promuove
+ * più la card prima di fondere, perché tre card erano finite in `done` coi rami
+ * mai arrivati su main. Il fatto sotto esame non cambia — il ritiro porta la
+ * ragione ed è firmato dal sistema — ma la riga lo dice a partire da review.
  *
  * Il conflitto qui è VERO: repo git in /tmp, worktree vero via
  * `POST /api/worktrees`, la stessa riga cambiata in due modi diversi sul branch
@@ -33,23 +37,12 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
-
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath (come board.spec.ts). */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 
 /** La stessa riga, cambiata in due modi: il conflitto è garantito, non sperato. */
 const BEFORE = ["uno", "due", "tre", "quattro"].join("\n") + "\n";
@@ -187,7 +180,7 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     await seedProjectPane(page.request, REPO);
   });
 
-  test("BOARD-LAND-01: la transizione fuori da done porta la ragione, e la firma è del sistema", async ({ page, request }) => {
+  test("BOARD-LAND-01: la transizione che ritira la consegna porta la ragione, e la firma è del sistema", async ({ page, request }) => {
     await page.goto("/");
     await openProjectBoard(page);
 
@@ -200,20 +193,45 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     await drawer.getByRole("button", { name: "Landa su main" }).click();
 
     // La riga di storico che prima non c'era: il PERCHÉ accanto al dove.
+    //
+    // Il land prova PRIMA a riportare main dentro il ramo (`realignOnMain`), e
+    // qui è lì che si rompe: il ramo è indietro di un commit su main, e quel
+    // commit tocca la stessa riga. È il conflitto di riallineamento, non quello
+    // della fusione finale — e all'agente servono due istruzioni diverse
+    // (server/routes/tasks.ts, ramo `res.status === "conflict"`), quindi le due
+    // ragioni sono due frasi diverse e questa spec ancora la sua.
     const evento = drawer.getByTestId("task-status-event")
-      .filter({ hasText: "il land ha fatto conflitto con main" });
+      .filter({ hasText: "ha fatto conflitto" });
     await expect(evento).toBeVisible({ timeout: 20000 });
-    await expect(evento).toContainText("system");     // non «user»: non l'ha mossa l'umano
     await expect(evento).toContainText("In Progress"); // la destinazione resta leggibile
+    // Chi l'ha mossa: da agosto 2026 il chip NON scrive il nome quando è stata
+    // l'app — un thread in cui ogni riga si firma «Topics» ha smesso di dire
+    // qualcosa. Il fatto che conta qui è che NON l'ha mossa l'umano, e si legge
+    // dal tooltip, che porta il nome E il ruolo grezzo scritto sul disco.
+    await expect(evento).toHaveAttribute("title", /Topics \(system\)/);
+    await expect(evento).not.toContainText("Topics");
+
+    // E la nota che il land fallito lascia nel thread è UNA riga, quindi è un
+    // chip: prima erano tre — il nome di chi ha parlato, il testo, l'ora — e su
+    // una card che ha lavorato sono dieci righe così. Il nome e l'ora restano
+    // sotto il mouse, dove servono a chi cerca l'istante e non a chi scorre.
+    // (È il ramo `conflict` del land, non `skipped`: il testo è quello che
+    //  `server/routes/tasks.ts` scrive lì, e la frase finale è sua sola.)
+    const nota = drawer.getByTestId("task-app-note").filter({ hasText: "Rimando all'agent per riconciliare" });
+    await expect(nota).toBeVisible({ timeout: 20000 });
+    await expect(nota).toHaveAttribute("title", /Topics \(system\)/);
     await beat(page, 2200);
 
-    // E sul dato: l'evento è una transizione `done→in_progress` con la ragione
-    // attaccata, non un commento qualsiasi.
+    // E sul dato: l'evento è una transizione verso `in_progress` con la ragione
+    // attaccata, non un commento qualsiasi. La colonna di PARTENZA è `review`:
+    // dal 13/08 il land non promuove più a `done` prima di fondere (tre card
+    // erano finite chiuse coi rami mai arrivati su main), quindi la card che
+    // torna indietro parte da dove il reviewer l'ha lasciata.
     const res = await request.get(`${API}/boards/${PROJECT_ID}/tasks/${taskId}`);
     expect(res.ok()).toBe(true);
     const got = (await res.json()) as { comments: { author: string; content: string; kind: string }[] };
     const riga = got.comments.filter((c) => c.kind === "status").at(-1)!;
     expect(riga.author).toBe("system");
-    expect(riga.content).toBe("done→in_progress · il land ha fatto conflitto con main");
+    expect(riga.content).toBe("review→in_progress · riportare main nel ramo (indietro di 1) ha fatto conflitto");
   });
 });

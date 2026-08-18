@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSyn
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase, closeDatabase } from "../db";
+import { DEFAULT_AGENT_RUNTIME } from "../../shared/types";
 import {
   getAppSettings,
   updateAppSettings,
@@ -22,13 +23,14 @@ import {
   resolveClaudeMaxTokens,
   resolveCodexApprovalMode,
   resolveClaudeCodeEnabled,
+  resolveAgentRuntime,
   settingClaudeEffort,
 } from "./app-settings";
 
 let tmpRoot: string;
 const ENV_KEYS = [
   "AI_PROVIDER", "CLAUDE_MODEL", "CLAUDE_MAX_TOKENS",
-  "CODEX_APPROVAL_MODE", "CLAUDE_CODE_ENABLED",
+  "CODEX_APPROVAL_MODE", "CLAUDE_CODE_ENABLED", "TOPICS_AGENT_RUNTIME",
 ] as const;
 const saved: Record<string, string | undefined> = {};
 
@@ -62,6 +64,7 @@ beforeEach(() => {
     aiProvider: null, claudeModel: null, claudeMaxTokens: null, claudeEffort: null,
     openaiModel: null, openaiMaxTokens: null, codexModel: null, codexReasoningEffort: null,
     claudeCodePermissionMode: null, codexApprovalMode: null, claudeCodeEnabled: null,
+    agentRuntime: null,
   });
 });
 
@@ -170,5 +173,87 @@ describe("la scelta del provider di default sopravvive a recomputeDefault", () =
     updateAppSettings({ aiProvider: "claude-code" });
     updateAppSettings({ aiProvider: null });
     expect(resolveAiProvider()).toBe("claude");
+  });
+});
+
+describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
+  // Perché questi test esistono: l'interruttore decide se una sessione costa
+  // ~200 MB (una CLI per sessione) o meno di uno (una sessione dentro un demone
+  // condiviso). Sbagliare il ripiego non è un dettaglio di stile — è mandare
+  // agenti su un runtime che nessuno ha chiesto.
+  //
+  // I DUE RIPIEGHI SONO OPPOSTI ED È VOLUTO: chi non ha scelto prende il
+  // gradino buono, chi ha scritto un refuso torna al sistema storico (`cli`).
+  // I due test qui sotto sono la coppia che tiene ferma la differenza.
+  //
+  // Il gradino buono si legge da `DEFAULT_AGENT_RUNTIME` invece che da una
+  // stringa a mano, ed è una lezione di stamattina: questo test è nato dicendo
+  // `cli`, è passato a `jcode`, e ora è `topics`. Ogni volta la costante era
+  // già stata cambiata e il test no — cioè il test falliva per essere vecchio,
+  // non per aver trovato qualcosa. Quello che deve restare fermo è la REGOLA
+  // («chi non sceglie prende il default»), non quale sia il default oggi.
+  test("mai toccato → il default: chi non ha scelto non sta chiedendo il sistema vecchio", () => {
+    expect(resolveAgentRuntime()).toBe(DEFAULT_AGENT_RUNTIME);
+    // E il default non è mai `cli`: quello è il RIPIEGO, un'altra cosa.
+    expect(DEFAULT_AGENT_RUNTIME).not.toBe("cli");
+  });
+
+  test("scritto `cli` a mano, resta `cli`: è una scelta, non un'assenza di scelta", () => {
+    updateAppSettings({ agentRuntime: "cli" });
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  test("scritto nelle settings, vale", () => {
+    updateAppSettings({ agentRuntime: "jcode" });
+    expect(resolveAgentRuntime()).toBe("jcode");
+  });
+
+  // L'env serve a misurare le due meccaniche una contro l'altra, e ora la prova
+  // che conta è l'altro verso: col default su `jcode`, `TOPICS_AGENT_RUNTIME`
+  // deve saper riportare un bench sulla CLI vera senza toccare il DB.
+  test("l'env porta la scelta su una macchina senza aprire la UI", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  test("l'impostazione VINCE sull'env: chi ha scelto in Impostazioni ha scelto dopo", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
+    updateAppSettings({ agentRuntime: "jcode" });
+    expect(resolveAgentRuntime()).toBe("jcode");
+  });
+
+  test("azzerata, si torna a cedere all'env", () => {
+    process.env.TOPICS_AGENT_RUNTIME = "cli";
+    updateAppSettings({ agentRuntime: "jcode" });
+    updateAppSettings({ agentRuntime: null });
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  // Il verso in cui è giusto sbagliare, e ora è l'unico posto in cui `cli` è un
+  // RIPIEGO invece che una scelta. Vale a maggior ragione col default invertito:
+  // dietro un refuso c'è una volontà che non si riesce a leggere, e a una
+  // volontà illeggibile non si risponde alzando la posta.
+  test("un valore fuori scala cade su `cli`, non su `jcode`", () => {
+    updateAppSettings({ agentRuntime: "jcodee" });
+    expect(resolveAgentRuntime()).toBe("cli");
+    updateAppSettings({ agentRuntime: null });
+    process.env.TOPICS_AGENT_RUNTIME = "demone";
+    expect(resolveAgentRuntime()).toBe("cli");
+  });
+
+  // Una stringa vuota non è un refuso: è una colonna azzerata male, una env
+  // esportata a vuoto (`TOPICS_AGENT_RUNTIME=`). Nessuno ha espresso niente,
+  // quindi vale la delega e non il ripiego.
+  test("stringa vuota o soli spazi = nessuno ha scelto, non un refuso", () => {
+    updateAppSettings({ agentRuntime: "   " });
+    expect(resolveAgentRuntime()).toBe(DEFAULT_AGENT_RUNTIME);
+    updateAppSettings({ agentRuntime: null });
+    process.env.TOPICS_AGENT_RUNTIME = "";
+    expect(resolveAgentRuntime()).toBe(DEFAULT_AGENT_RUNTIME);
+  });
+
+  test("spazi e maiuscole non contano: è una riga scritta a mano, non un token", () => {
+    updateAppSettings({ agentRuntime: "  CLI " });
+    expect(resolveAgentRuntime()).toBe("cli");
   });
 });

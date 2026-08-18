@@ -6,7 +6,7 @@ set -euo pipefail
 # nessun segreto passi da una chat o resti in un file.
 #
 # ── COSA FA A MANO L'UMANO, E PERCHÉ NON PUÒ FARLO QUESTO SCRIPT ────────────
-# Creare l'Apple Account, accettare il contratto che impegna [azienda], e
+# Creare l'Apple Account, accettare il contratto che impegna l'azienda, e
 # pagare. Sono atti legali e finanziari: non si automatizzano, e nessuno
 # strumento cambia questo. Tutto il resto è qui.
 #
@@ -40,7 +40,7 @@ serve() {
 # mai il portachiavi, e il certificato che ti restituisce vale solo con quella.
 csr() {
   local email nome
-  read -r -p "Email dell'Apple Account (quello NUOVO, titolare di [azienda]): " email
+  read -r -p "Email dell'Apple Account (quello NUOVO, titolare di l'azienda): " email
   read -r -p "Nome e cognome legali: " nome
   [ -n "$email" ] && [ -n "$nome" ] || { rosso "Servono entrambi."; exit 1; }
 
@@ -156,7 +156,7 @@ segreti() {
     info "Identità trovata: $identita"
     printf '%s' "$identita" | gh secret set APPLE_SIGNING_IDENTITY
   else
-    read -r -p 'APPLE_SIGNING_IDENTITY (es. "Developer ID Application: [azienda] (TEAMID)"): ' identita
+    read -r -p 'APPLE_SIGNING_IDENTITY (es. "Developer ID Application: l'azienda (TEAMID)"): ' identita
     printf '%s' "$identita" | gh secret set APPLE_SIGNING_IDENTITY
   fi
   verde "APPLE_SIGNING_IDENTITY ✓"

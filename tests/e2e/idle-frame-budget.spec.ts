@@ -201,3 +201,188 @@ test.describe("perf: app a riposo", () => {
     }
   });
 });
+
+/**
+ * A FINESTRA NASCOSTA I DRAIN NATIVI DEVONO TACERE — E AL RITORNO RECUPERARE.
+ *
+ * I rAF qui sopra misurano il costo di chi DISEGNA. Questo misura il costo di
+ * chi PARLA COL GUSCIO: `useTauriBrowser` arma cinque poll per pane browser, e
+ * i due drain nativi (`browser_take_nav_state` a 250ms,
+ * `browser_take_nav_errors` a 1s) fino al 2026-08-15 guardavano solo `ready`.
+ * Con l'app in Cmd+H, minimizzata o su un altro Space continuavano a battere:
+ * ~300 risvegli al minuto per pane, per zero pixel. E le pane native non si
+ * sfrattano mai (`RESIDENCY_BUDGET.native` è `Infinity` per contratto), quindi
+ * il conto non cala da solo.
+ *
+ * DUE METÀ, E LA SECONDA CONTA QUANTO LA PRIMA. Un poll che tace e basta si
+ * scrive con un `return`; il patto di `startVisibilityGatedPoll` è che al
+ * ritorno in primo piano ci sia un RECUPERO immediato, o la barra degli
+ * indirizzi resterebbe indietro di un periodo intero. Il test misura entrambe.
+ *
+ * PERCHÉ NON MISURA I FRAME. Un'IPC verso il Rust non chiede un frame: non
+ * comparirebbe nella sonda dei rAF nemmeno se battesse a 4Hz per venti pane. Si
+ * conta la cosa vera, cioè le chiamate al ponte, stubbando `__TAURI_INTERNALS__`
+ * con un contatore. Lo stub è anche l'UNICO modo di far prendere alla pane il
+ * ramo nativo sotto Chromium (`isTauri` si decide su quel globale).
+ *
+ * PERCHÉ LO STUB DEVE ANCHE RIPORTARE LA RETE A CASA. `isTauri` non accende
+ * solo il ramo nativo: accende `installNetShim` (`lib/shell/net.ts`), che
+ * riscrive OGNI `fetch` relativo verso `http://127.0.0.1:13333` — il proxy di
+ * loopback che il guscio vero fa girare in Rust. Sotto Playwright lì non c'è
+ * nessuno: la prima versione di questo test fingeva Tauri e basta, e la pagina
+ * restava senza server (`Failed to fetch` a schermo, nessuna pane seminata,
+ * nessun `browser_open`). Contava uno stub che non aveva mai sparato un colpo.
+ * Rimappare quell'origine sull'origine della pagina è il pezzo mancante dello
+ * stesso travestimento, non uno sconto: il guscio vero ha davvero un server a
+ * quell'indirizzo.
+ *
+ * PERCHÉ SI FALSIFICA `document.visibilityState` invece di nascondere davvero la
+ * finestra: sotto Playwright una pagina in primo piano resta `visible`, e la
+ * guardia legge esattamente quella property — sovrascriverla è l'iniezione più
+ * vicina al segnale vero. Il passo «visibile» prima del passo «nascosta» esiste
+ * apposta: senza, lo zero finale sarebbe uno zero a vuoto (la pane poteva non
+ * essersi mai aperta).
+ */
+const HIDDEN_WINDOW_MS = 3000;
+/** Il periodo del drain PIÙ LENTO dei due (`browser_take_nav_errors`, 1s).
+ *  Il recupero si misura contro questo: una lettura che arriva molto prima di
+ *  un periodo non può essere un tick, può solo essere il catch-up. */
+const SLOW_DRAIN_MS = 1000;
+/** Finestra concessa al recupero. Molto sotto SLOW_DRAIN_MS, molto sopra il
+ *  costo di una IPC finta (che è una microtask). */
+const CATCH_UP_MS = 250;
+
+interface InvokeProbeWindow {
+  __invokeProbe: Record<string, number>;
+  __topicsHidden: boolean;
+}
+
+/**
+ * Veste la pagina da guscio Tauri: ponte IPC contatore, visibilità pilotabile,
+ * e la rete del guscio (proxy di loopback) riportata sull'origine della pagina.
+ */
+async function installTauriInvokeProbe(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as InvokeProbeWindow & { __TAURI_INTERNALS__: unknown };
+    w.__invokeProbe = {};
+    w.__topicsHidden = false;
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (w.__topicsHidden ? "hidden" : "visible"),
+    });
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => w.__topicsHidden,
+    });
+
+    // ── La rete del guscio, riportata a casa ────────────────────────────────
+    // Gli stessi due indirizzi che `lib/shell/net.ts` usa quando `isTauri`.
+    const HTTP_PROXY = "http://127.0.0.1:13333";
+    const WS_PROXY = "ws://127.0.0.1:13333";
+    const wsOrigin = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
+    const toLocal = (u: string): string => {
+      if (u.startsWith(HTTP_PROXY)) return location.origin + u.slice(HTTP_PROXY.length);
+      if (u.startsWith(WS_PROXY)) return wsOrigin + u.slice(WS_PROXY.length);
+      return u;
+    };
+
+    // `installNetShim` avvolge il `fetch` che trova al boot, cioè QUESTO: gli
+    // arriva quindi l'URL già riscritto verso il proxy, e lo si rimanda
+    // all'origine della pagina prima della fetch vera.
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (typeof input === "string") return nativeFetch(toLocal(input), init);
+      if (input instanceof URL) return nativeFetch(toLocal(input.href), init);
+      if (input instanceof Request) return nativeFetch(new Request(toLocal(input.url), input), init);
+      return nativeFetch(input, init);
+    }) as typeof fetch;
+
+    // I WebSocket non passano dallo shim: i callsite costruiscono l'URL con
+    // `serverWsBase()`, quindi si intercetta il costruttore. Un Proxy e non una
+    // sottoclasse, così le costanti statiche (OPEN, CLOSED…) restano quelle.
+    window.WebSocket = new Proxy(window.WebSocket, {
+      construct(target, args: [string | URL, (string | string[])?]) {
+        return new target(toLocal(String(args[0])), args[1]);
+      },
+    });
+
+    const EMPTY: unknown[] = [];
+    w.__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" } },
+      invoke: (cmd: string) => {
+        w.__invokeProbe[cmd] = (w.__invokeProbe[cmd] ?? 0) + 1;
+        // Risposte innocue: nessun comando deve RIGETTARE, o la pane resta su
+        // "Initializing native browser…" e il test misurerebbe una pane morta.
+        if (cmd === "browser_eval_js") return Promise.resolve("");
+        if (cmd.startsWith("browser_take_") || cmd === "browser_nav_entries") return Promise.resolve(EMPTY);
+        return Promise.resolve(null);
+      },
+    };
+  });
+}
+
+test.describe("perf: guscio nativo a riposo", () => {
+  test("finestra nascosta: i due drain IPC della pane browser tacciono, e al ritorno recuperano", async ({ page, request }) => {
+    const paneId = "browser:idle-drain-probe";
+    await seedPaneStore(request, () => ({
+      panes: {
+        [paneId]: { id: paneId, type: "browser", title: "idle-drain-probe", url: "about:blank" },
+      },
+      groups: {
+        "group:default": {
+          id: "group:default",
+          paneIds: [paneId],
+          splitRatio: 1,
+          splitAxis: "horizontal",
+        },
+      },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+
+    await installTauriInvokeProbe(page);
+    await goToApp(page);
+
+    const count = (cmd: string) =>
+      page.evaluate(
+        (c) => (window as unknown as InvokeProbeWindow).__invokeProbe[c] ?? 0,
+        cmd,
+      );
+    const drains = async () =>
+      (await count("browser_take_nav_state")) + (await count("browser_take_nav_errors"));
+    const resetProbe = () =>
+      page.evaluate(() => { (window as unknown as InvokeProbeWindow).__invokeProbe = {}; });
+    const setHidden = (hidden: boolean) =>
+      page.evaluate((h) => {
+        (window as unknown as InvokeProbeWindow).__topicsHidden = h;
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, hidden);
+
+    // La pane si apre davvero (il ponte ha ricevuto `browser_open`).
+    await expect.poll(() => count("browser_open"), { timeout: 20000 }).toBeGreaterThan(0);
+
+    // Passo 1, visibile: i drain battono. È il controllo che la sonda è cablata.
+    await resetProbe();
+    await expect.poll(drains, { timeout: 5000 }).toBeGreaterThan(0);
+
+    // Passo 2, nascosta: zero, per tre secondi pieni — dodici tick del drain
+    // veloce e tre di quello lento, se non fossero gated.
+    await setHidden(true);
+    await resetProbe();
+    await page.waitForTimeout(HIDDEN_WINDOW_MS);
+    expect(await drains(), "drain nativi con la finestra NASCOSTA").toBe(0);
+
+    // Passo 3, di nuovo visibile: il recupero è IMMEDIATO. Si misura sul drain
+    // lento, l'unico la cui lettura entro CATCH_UP_MS non possa essere spiegata
+    // da un tick periodico.
+    await resetProbe();
+    await setHidden(false);
+    await page.waitForTimeout(CATCH_UP_MS);
+    expect(
+      await count("browser_take_nav_errors"),
+      `recupero entro ${CATCH_UP_MS}ms dal ritorno (il periodo è ${SLOW_DRAIN_MS}ms)`,
+    ).toBeGreaterThan(0);
+  });
+});

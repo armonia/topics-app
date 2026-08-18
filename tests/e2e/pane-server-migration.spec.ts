@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures/test-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { openSocket } from "./helpers/node-websocket";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -328,7 +329,7 @@ test.describe("PANE server migration (012): broadcast shape & sourceClientId (fi
     const timeoutMs = opts.timeoutMs ?? 5_000;
     // `BASE` is http://…; the WS endpoint is ws://…/ws (same host/port).
     const wsUrl = BASE.replace(/^http/, "ws") + "/ws";
-    const ws = new WebSocket(wsUrl);
+    const ws = openSocket(wsUrl);
     const frames: any[] = [];
     await new Promise<void>((resolve, reject) => {
       const to = setTimeout(() => reject(new Error("ws open timeout")), timeoutMs);

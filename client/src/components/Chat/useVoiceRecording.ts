@@ -6,10 +6,13 @@ import {
   extForMime,
   micErrorMessage,
   MIN_VOICE_BLOB_BYTES,
+  messaggioNotaVuota,
+  segnalaNotaVuota,
   SPEECH_AUDIO_CONSTRAINTS,
   SPEECH_BITS_PER_SECOND,
   fetchSttCapabilities,
 } from '../../lib/stt';
+import { ascoltaLivello, messaggioTrascrittoVuoto, type SondaLivello } from '../../lib/livello-audio';
 
 export function useVoiceRecording(
   sendMessage: (sessionKey: string, content: string) => Promise<boolean>,
@@ -47,11 +50,14 @@ export function useVoiceRecording(
 
   const onErrorRef = useRef(onError);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  /** Misura il segnale mentre si registra: serve solo se il trascritto torna vuoto. */
+  const sondaRef = useRef<SondaLivello | null>(null);
 
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
+      sondaRef.current = ascoltaLivello(stream);
       const mimeType = pickRecorderMimeType();
       const options: MediaRecorderOptions = {
         ...(mimeType ? { mimeType } : {}),
@@ -78,6 +84,9 @@ export function useVoiceRecording(
       if (!recorder || recorder.state === 'inactive') { resolve(); return; }
       recorder.onstop = async () => {
         if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+        // La sonda si chiude col microfono: il picco che ha raccolto resta
+        // leggibile dopo, ed e' quello che serve al messaggio.
+        sondaRef.current?.chiudi();
         if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
         const mimeType = recorder.mimeType || 'audio/webm';
         const ext = extForMime(mimeType);
@@ -95,9 +104,8 @@ export function useVoiceRecording(
           // motivo per cui la nota vocale "non funziona" senza una diagnosi.
           // Il numero serve: dice se il microfono non ha aperto affatto (0
           // spezzoni) o se ha prodotto solo l'intestazione del contenitore.
-          onErrorRef.current?.(
-            `Nota vocale vuota: ${audioChunksRef.current.length} spezzoni, ${blob.size} byte in ${mimeType}. Niente da inviare.`,
-          );
+          onErrorRef.current?.(messaggioNotaVuota(audioChunksRef.current.length, blob.size, mimeType));
+          segnalaNotaVuota(audioChunksRef.current.length, blob.size, mimeType, 'nota-vocale');
           audioChunksRef.current = [];
           recordingSessionKeyRef.current = null;
           resolve();
@@ -133,8 +141,19 @@ export function useVoiceRecording(
           const spoken = transcription?.transcript.trim() ?? '';
           const marker = `[Voice message: ${upload.path}]`;
           if (!spoken) {
+            // DUE VUOTI DIVERSI, e prima avevano la stessa frase. Se la
+            // trascrizione ha RISPOSTO ed era vuota, il motore ha funzionato e
+            // il problema sta a monte: lo dice la sonda, che ha misurato il
+            // segnale prima della codifica. Se invece non ha risposto affatto,
+            // la notizia e' che l'agente riceve un file che non sa ascoltare.
             onErrorRef.current?.(
-              `Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare.${failure ? ` Motivo: ${failure}` : ''}`,
+              transcription
+                ? messaggioTrascrittoVuoto({
+                    sonda: sondaRef.current,
+                    provider: transcription.provider,
+                    durataMs: transcription.durationMs,
+                  })
+                : `Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare.${failure ? ` Motivo: ${failure}` : ''}`,
             );
           }
           // Deliver to the session the recording STARTED on, not whatever
@@ -155,6 +174,7 @@ export function useVoiceRecording(
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
+      sondaRef.current?.chiudi();
       if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
     };
   }, []);

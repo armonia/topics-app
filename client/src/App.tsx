@@ -62,6 +62,7 @@ import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
+import { isUtilityPanelType } from './state/pane/adapters/utilityPanelId';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
@@ -396,7 +397,7 @@ function App() {
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
   // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<'devices' | 'notifications' | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<'profile' | 'devices' | 'notifications' | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
@@ -492,7 +493,7 @@ function App() {
   // taskId (un click apre il drawer del task) e lo legge per NON bannerizzare
   // né la fine turno né i messaggi di un agente di board al lavoro — quelli li
   // annuncia `task:review-ready`.
-  const taskForTopic = useTaskTopicIndex(onWSMessage);
+  const taskForTopic = useTaskTopicIndex();
 
   // A stable global the native (Tauri) notification delegate can call on click to
   // open a task — the web/Electron path opens it directly via notifyNative.onclick.
@@ -775,13 +776,17 @@ function App() {
       handleQuickCreateTerminal(normalizeTerminalAgent(subType), claudeSkipPermissions);
     } else if (type === 'browser') {
       openBrowserPane(newBrowserContextId());
-    } else if (type === 'board' || type === 'dashboard' || type === 'cron') {
-      // Le tre pane UTILITY: id fisso (`__board__`, `__dashboard__`, `__cron__`)
-      // e quindi non `createPaneId`, che ne sorteggerebbe uno nuovo a ogni
-      // apertura — la seconda tab della stessa pagina. `handleOpenAsPage` è
-      // l'unica porta che conosce quella forma. Il ramo era il solo `board`
-      // finché le altre due si aprivano dal dropdown «Topics ▾»; ora che sono
-      // righe del «+» passano da qui, o la riga sarebbe muta.
+    } else if (isUtilityPanelType(type)) {
+      // Le pane UTILITY: id fisso (`__board__`, `__dashboard__`, `__cron__`,
+      // `__profile__`) e quindi non `createPaneId`, che ne sorteggerebbe uno
+      // nuovo a ogni apertura — la seconda tab della stessa pagina.
+      // `handleOpenAsPage` è l'unica porta che conosce quella forma.
+      //
+      // Il predicato viene dall'INSIEME canonico (`UTILITY_PANEL_TYPES`) e non
+      // da tre `===` scritti a mano, che è come stava e come si è già rotto due
+      // volte: il ramo elencava il solo `board` finché Dashboard e Cron
+      // arrivavano dal dropdown «Topics ▾», e le loro righe nel «+»
+      // comparivano senza fare NIENTE. Profilo sarebbe stata la terza volta.
       handleOpenAsPage(type);
     }
   }, [handleQuickCreateTerminal, claudeSkipPermissions, openBrowserPane, handleOpenAsPage]);
@@ -1125,6 +1130,25 @@ function App() {
     if (boardSpace) goToSpace(boardSpace);
     handleOpenAsPage('board');
   }, [paneSpaceById, goToSpace, handleOpenAsPage]);
+
+  // La sezione «Board» della tray: una riga di stato apre QUEL task (stesso
+  // deep-link del click su una notifica, quindi stesso atterraggio), la testa
+  // della sezione apre la board dalla PORTA UNICA qui sopra — che è anche
+  // l'unica che porta la finestra nel gruppo dove la board vive. Il mestiere
+  // resta di qua: la tray dice COSA, il client sa COME.
+  useEffect(() => {
+    const onTask = (e: Event) => {
+      const taskId = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      if (taskId) openTaskInApp({ taskId });
+    };
+    const onBoard = () => { handleOpenBoard(); };
+    window.addEventListener('topics:tray-open-task', onTask as EventListener);
+    window.addEventListener('topics:tray-open-board', onBoard);
+    return () => {
+      window.removeEventListener('topics:tray-open-task', onTask as EventListener);
+      window.removeEventListener('topics:tray-open-board', onBoard);
+    };
+  }, [handleOpenBoard]);
 
   // L'INTERRUTTORE DELLA FILA IN BASSO — board ⇄ lista.
   //
@@ -1595,10 +1619,15 @@ function App() {
         }
         boardInFront={boardInFront}
         onToggleBoard={handleMobileBoardToggle}
-        // La stessa stanza a cui portava la voce «account» del menu «Topics»,
-        // che adesso non c'è più: Impostazioni → Account e dispositivi. Il
-        // cassetto si chiude, come per ogni cosa che si apre da qui.
-        onOpenProfile={() => { setSettingsSection('devices'); setShowSettings(true); setShowTopicsMenu(false); }}
+        // LA PANE Profilo, non più la modale delle Impostazioni.
+        //
+        // Portava a Impostazioni → Profilo, cioè dentro un pannello che si apre
+        // sopra la app e va richiuso per tornare a lavorare. Adesso è una tab
+        // come Dashboard e Board: `topics:open-utility` è il bus che le apre
+        // tutte (l'ascoltatore sta in `usePanelLifecycle` e accetta l'insieme
+        // `UTILITY_PANEL_TYPES`), e sul telefono `handleOpenAsPage` chiude da sé
+        // il cassetto. La sezione in Impostazioni resta dov'era.
+        onOpenProfile={() => { window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'profile' } })); setShowTopicsMenu(false); }}
       />
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
@@ -2124,20 +2153,14 @@ function App() {
  * deep-link della board (l'intento `topics:open-tab` in usePanelLifecycle).
  */
 function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
-  // Il valore del context dei toast NON è memoizzato (ToastProvider ricrea
-  // l'oggetto a ogni render), quindi metterlo fra le dipendenze rifarebbe
-  // partire l'intera corsa di boot a ogni toast mostrato. Rifless in un ref:
-  // l'effetto gira UNA volta, e legge il toast che c'è nel momento in cui
-  // deve parlare.
+  // `useToast()` restituisce l'API STABILE del provider (Toast.tsx: due context,
+  // quello dei mittenti non cambia mai identità dopo il mount), quindi sta fra
+  // le dipendenze come qualunque altro valore fermo e l'effetto di boot gira una
+  // volta sola. Fino al 2026-08-15 qui c'era un ref-shim sincronizzato in un
+  // effetto: serviva perché il context value si ricostruiva a ogni render di
+  // App, e metterlo fra le dipendenze avrebbe rifatto partire l'intera corsa di
+  // boot a ogni toast mostrato.
   const toast = useToast();
-  const toastRef = useRef(toast);
-  // Sincronizzato in un effetto, non durante il render: scrivere un ref mentre
-  // React sta renderizzando e' proprio la cosa che rompe sotto concurrent. Gli
-  // effetti girano nell'ordine di dichiarazione, quindi questo aggiorna il ref
-  // PRIMA che il corpo dell'effetto di boot qui sotto lo legga, al mount e a
-  // ogni render successivo. E' lo stesso schema di pinnedIdsRef/orderedIdsRef
-  // in usePaneOrdering.
-  useEffect(() => { toastRef.current = toast; });
   useEffect(() => {
     // Le finestre STACCATE (`?topics=`) sono read-only verso il pane-store
     // (bootstrap.ts: niente persistenza locale, niente PUT, niente cross-tab):
@@ -2155,7 +2178,7 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     if (!BOOT_TAB_PERMALINK && !boot) return;
     // Il canale per dire all'utente che il link non porta da nessuna parte.
     // `warning` e non `error`: non è un guasto dell'app, è un indirizzo vecchio.
-    const notify = (message: string) => toastRef.current.warning(message);
+    const notify = (message: string) => toast.warning(message);
     // Una rotta `/tab/` si CONSUMA (il pane-store è già la persistenza della
     // tab: lasciarla nella URL la riaprirebbe a ogni reload, per sempre — il
     // difetto noto di `/topic/<id>`). Va consumata anche quando il target è
@@ -2249,7 +2272,7 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     // Boot window only — never yank focus long after load.
     const deadline = setTimeout(stop, 8000);
     return stop;
-  }, [isDetached]);
+  }, [isDetached, toast]);
   return null;
 }
 

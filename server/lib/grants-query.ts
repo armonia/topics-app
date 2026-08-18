@@ -55,6 +55,15 @@ export interface GrantRow {
   subjectId: string;
   level: GrantLevel;
   grantedAt: number;
+  /** DA DOVE arriva questo accesso, quando non è scritto sulla risorsa stessa.
+   *  Oggi solo `project`: un task condiviso attraverso il suo progetto. Assente
+   *  = la riga è sulla risorsa, ed è il caso normale.
+   *
+   *  Si CALCOLA in lettura, non si memorizza: le colonne `via_type`/`via_id`
+   *  della 083 restano inerti perché con l'espansione in lettura non esiste
+   *  nessuna riga derivata da etichettare (vedi 20260816230500). */
+  viaType?: ResourceType;
+  viaId?: string;
 }
 
 /** Forma minima del database che serve a questo modulo — così i test possono
@@ -114,7 +123,43 @@ export function grantRowsFor(
   }));
 }
 
-/** Questi principali possono LEGGERE questa risorsa? Una riga `deny` vince. */
+/**
+ * IL CONTENITORE DI UNA RISORSA, quando ne ha uno.
+ *
+ * Oggi e' uno solo: un task appartiene a un progetto. Condividere il progetto
+ * apre i suoi task senza scrivere una riga per ciascuno - la strada scelta
+ * dalla migration 20260816230500, che spiega perche' NON sono righe derivate.
+ *
+ * Torna `null` quando non c'e' contenitore o quando lo schema e' piu' vecchio:
+ * in entrambi i casi la domanda torna a essere quella di prima, invece di
+ * cadere.
+ */
+function contenitoreDi(
+  db: Db,
+  resourceType: ResourceType,
+  resourceId: string,
+): { tipo: ResourceType; id: string } | null {
+  if (resourceType !== "task") return null;
+  try {
+    const r = db.query("SELECT project_id FROM tasks WHERE id = ?").get(resourceId) as
+      | { project_id?: string | null }
+      | undefined;
+    const pid = r?.project_id;
+    return pid ? { tipo: "project", id: pid } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Questi principali possono LEGGERE questa risorsa? Una riga `deny` vince.
+ *
+ * IL DENY DELLA RISORSA VINCE ANCHE SUL CONTENITORE, ed e' l'unica gerarchia
+ * che conta: «questo progetto e' condiviso, TRANNE questo task» dev'essere
+ * dicibile, o la condivisione di un progetto diventa una porta che non si puo'
+ * piu' chiudere su un singolo pezzo. Per questo il contenitore si guarda solo
+ * quando la risorsa non ha detto NIENTE - non quando ha detto no.
+ */
 export function hasGrant(
   db: Db,
   principals: readonly Principal[],
@@ -122,8 +167,13 @@ export function hasGrant(
   resourceId: string,
 ): boolean {
   const righe = grantRowsFor(db, principals, resourceType, resourceId);
-  if (righe.length === 0) return false;
-  return righe[0].level !== "deny";
+  if (righe.length > 0) return righe[0].level !== "deny";
+
+  const dentro = contenitoreDi(db, resourceType, resourceId);
+  if (!dentro) return false;
+  const suContenitore = grantRowsFor(db, principals, dentro.tipo, dentro.id);
+  if (suContenitore.length === 0) return false;
+  return suContenitore[0].level !== "deny";
 }
 
 /**
@@ -139,7 +189,17 @@ export function reasonsFor(
   resourceType: ResourceType,
   resourceId: string,
 ): GrantRow[] {
-  return grantRowsFor(db, principals, resourceType, resourceId).filter((r) => r.level !== "deny");
+  const dirette = grantRowsFor(db, principals, resourceType, resourceId);
+  if (dirette.length > 0) return dirette.filter((r) => r.level !== "deny");
+
+  // Nessuna riga sulla risorsa: la ragione puo' essere il contenitore, e va
+  // detta - un elenco di ragioni che non nomina il progetto lascerebbe chi
+  // guarda a togliere un accesso che non e' li'.
+  const dentro = contenitoreDi(db, resourceType, resourceId);
+  if (!dentro) return [];
+  return grantRowsFor(db, principals, dentro.tipo, dentro.id)
+    .filter((r) => r.level !== "deny")
+    .map((r) => ({ ...r, viaType: dentro.tipo, viaId: dentro.id }));
 }
 
 /**

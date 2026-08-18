@@ -45,6 +45,7 @@ import { computeMenuPosition, type MenuPosition } from '@/lib/popoverPosition';
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import { bringPaneIntoSpace, firstOtherLiveSpace } from '../Layout/spaceHelpers';
 import { useGoToSpace, type SpaceCard } from './useSpaceCards';
+import { useT } from '../../hooks/useT';
 
 /** Larghezza minima del menu — così il clamp orizzontale non deve misurare
  *  (tienila in lockstep con il min-w qui sotto). */
@@ -71,6 +72,7 @@ interface SpaceGroupCardProps {
  * l'intestazione sarebbe solo una riga che capita di stare sopra ad altre.
  */
 export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGroupCardProps) {
+  const tr = useT();
   const dispatch = usePaneStore((s) => s.dispatch);
   const spaces = usePaneStore((s) => s.spaces);
   const goToSpace = useGoToSpace();
@@ -221,7 +223,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         <button
           onClick={onToggle}
           aria-expanded={expanded}
-          aria-label={expanded ? `Chiudi ${card.name}` : `Apri ${card.name}`}
+          aria-label={expanded ? tr('space.collapse', { name: card.name }) : tr('space.expand', { name: card.name })}
           // `tap-expand`: la freccia non allarga il BOX — sfonderebbe la riga —
           // e cresce solo l'area sensibile, ai 44px di iOS e solo su
           // `pointer: coarse`.
@@ -239,8 +241,8 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           onClick={() => goToSpace(card.id)}
           className="min-w-0 flex-1 truncate text-left"
           title={card.detachedLabel
-            ? `${card.name} · in una finestra sua (clic per portarla davanti)`
-            : card.active ? `${card.name}: è il gruppo che stai usando` : `Passa a ${card.name}`}
+            ? tr('space.detachedTitle', { name: card.name })
+            : card.active ? tr('space.currentTitle', { name: card.name }) : tr('space.switchTo', { name: card.name })}
         >
           {card.name}
         </button>
@@ -248,16 +250,16 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           <span
             className="flex flex-shrink-0 items-center gap-1 rounded px-1 text-[10px] text-app-text-tertiary"
             data-testid="space-detached"
-            aria-label="in una finestra sua"
-            title={`${card.name} vive in una finestra sua`}
+            aria-label={tr('space.detachedLabel')}
+            title={tr('space.detachedOwnWindow', { name: card.name })}
           >
             <AppWindow size={11} />
-            finestra
+            {tr('space.detachedChip')}
           </span>
         )}
         {card.tier && (
           <span
-            aria-label={card.tier === 'input' ? 'richiede input' : 'attività completata'}
+            aria-label={card.tier === 'input' ? tr('space.tier.input') : tr('space.tier.done')}
             className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
               card.tier === 'input' ? `${TIER_INPUT_BG} animate-pulse` : TIER_DONE_BG
             }`}
@@ -326,14 +328,14 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
                   value={renameDraft}
                   onChange={(e) => setRenameDraft(e.target.value)}
                   className="w-full rounded-md border border-app-border-light bg-app-hover px-2 py-1 text-[12px] text-app-text outline-none focus:border-primary"
-                  placeholder="Nome del gruppo"
-                  aria-label="Rinomina gruppo"
+                  placeholder={tr('space.renamePlaceholder')}
+                  aria-label={tr('space.renameLabel')}
                 />
               </form>
             ) : (
               <button onClick={() => setRenameDraft(meta.name)} className={POPOVER_ITEM}>
                 <Pencil size={14} />
-                <span className="flex-1">Rinomina</span>
+                <span className="flex-1">{tr('space.rename')}</span>
               </button>
             )
           )}
@@ -352,12 +354,12 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
             }}
             className={POPOVER_ITEM}
             title={card.detachedLabel
-              ? 'È già in una finestra sua: la porto davanti'
-              : 'Il gruppo si apre in una finestra sua; le sue tab restano queste'}
+              ? tr('space.alreadyDetached')
+              : tr('space.detach')}
             data-testid="space-detach"
           >
             <AppWindow size={14} />
-            <span className="flex-1">{card.detachedLabel ? 'Vai alla sua finestra' : 'Sposta in una finestra'}</span>
+            <span className="flex-1">{card.detachedLabel ? tr('space.goToWindow') : tr('space.moveToWindow')}</span>
           </button>
           {card.detachedLabel && (
             <button
@@ -371,11 +373,11 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
                 });
               }}
               className={POPOVER_ITEM}
-              title="Chiude la sua finestra e riporta il gruppo qui"
+              title={tr('space.reattachTitle')}
               data-testid="space-reattach"
             >
               <CornerDownLeft size={14} />
-              <span className="flex-1">Riporta in questa finestra</span>
+              <span className="flex-1">{tr('space.reattach')}</span>
             </button>
           )}
           {!isDefault && meta && !meta.deleted && (
@@ -396,11 +398,11 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
                   setMenu(null);
                 }}
                 className={POPOVER_ITEM}
-                title="Le tab tornano tutte nel gruppo principale; niente si chiude"
+                title={tr('space.dissolveTitle')}
                 data-testid="space-dissolve"
               >
                 <Merge size={14} />
-                <span className="flex-1">Sciogli nel principale</span>
+                <span className="flex-1">{tr('space.dissolve')}</span>
               </button>
             </>
           )}

@@ -23,8 +23,8 @@
  *                    a sinistra, l'ultimo a destra, quelli in mezzo standard —
  *                    e il raggio applicato è quello CONCENTRICO a quello
  *                    dichiarato, non un numero scelto a mano
- *  MOBILE-CHROME-08  la porta del profilo apre Impostazioni sulla scheda
- *                    «Profile», senza passare da nessun menu
+ *  MOBILE-CHROME-08  la porta del profilo apre la PANE Profilo — una tab, non
+ *                    la modale delle Impostazioni — senza passare da nessun menu
  *
  * La fascia inferiore si FORZA (`--sab`), non si aspetta un iPhone vero: è
  * esattamente il motivo per cui quell'inset vive in una variabile CSS invece
@@ -277,8 +277,17 @@ test.describe.serial("La chrome del telefono", () => {
     await expect(tasto).toContainText("Task");
 
     // Andata: la Kanban compare e il cassetto si toglie di mezzo.
+    //
+    // SI GUARDA LA BOARD, NON LA SUA TAB. Questo test cercava
+    // `[data-pane-id="__board__"]`, che è la TESSERA nella striscia delle tab —
+    // e su un telefono quella striscia non esiste più da `b58b01a9` («da mobile
+    // la barra delle tab in alto non serve, c'è già la lista delle tab»), che è
+    // arrivata poche ore dopo questo file. Da allora il locator non trovava
+    // niente mentre la board era a schermo intero: il rosso diceva «la board non
+    // si apre» di una board aperta. `kanban-board` è il marcatore della pane
+    // stessa, quindi risponde alla domanda vera su entrambe le sponde.
     await tasto.tap();
-    await expect(page.locator('[data-pane-id="__board__"], [data-testid="board-pane"]').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15_000 });
     await expect(tasto).toContainText("Tab");
 
     // Ritorno: torna la lista, e la board NON si è chiusa — è ciò che rende
@@ -286,10 +295,8 @@ test.describe.serial("La chrome del telefono", () => {
     await tasto.tap();
     await expect(page.locator('[data-testid="sidebar-topic-list"]')).toBeVisible();
     await expect(tasto).toContainText("Task");
-    const boardAncoraAperta = await page.evaluate(() =>
-      !!document.querySelector('[data-pane-id="__board__"], [data-testid="board-pane"]'),
-    );
-    expect(boardAncoraAperta).toBe(true);
+    // Montata, non per forza in primo piano: il cassetto le sta davanti.
+    await expect(page.getByTestId("kanban-board")).toHaveCount(1);
   });
 
   test("MOBILE-CHROME-05 — nel menu restano prestazioni e versione, l'account no", async ({ page }) => {
@@ -473,7 +480,7 @@ test.describe.serial("La chrome del telefono", () => {
     await page.evaluate(() => document.getElementById("righello-arco")?.remove());
   });
 
-  test("MOBILE-CHROME-08 — la porta del profilo apre Impostazioni sulla scheda «Profile»", async ({ page }) => {
+  test("MOBILE-CHROME-08 — la porta del profilo apre la PANE Profilo, non la modale", async ({ page }) => {
     await apri(page);
     await fascia(page, FASCIA_IPHONE);
 
@@ -484,17 +491,18 @@ test.describe.serial("La chrome del telefono", () => {
     await expect(profilo).toContainText("Profilo");
     await profilo.tap();
 
-    const pannello = page.locator('[data-testid="settings-panel"]');
-    await expect(pannello).toBeVisible();
+    // La PANE, cioè una tab come Dashboard e Board. Portava a Impostazioni →
+    // Profilo: un pannello sopra la app, da richiudere per tornare a lavorare.
+    // Le statistiche sono qualcosa che si va a guardare, e una cosa che si
+    // guarda vuole una tab.
+    await expect(page.locator('[data-testid="profile-pane"]')).toBeVisible();
 
-    // Non basta che si apra: deve atterrare sulla scheda giusta. Il pannello
-    // resta montato fra un'apertura e l'altra e riparte da «Appearance» se
-    // nessuno gli dice dove andare, quindi una modale aperta e basta sarebbe
-    // una porta che si apre su un'altra stanza.
-    const scheda = pannello.locator('nav button[aria-current="page"]');
-    await expect(scheda).toHaveText("Profile");
+    // E la modale NON si apre: due porte per la stessa stanza sarebbero il
+    // difetto che questo cambio esiste per togliere. La sezione in Impostazioni
+    // resta raggiungibile da lì, non da qui.
+    await expect(page.locator('[data-testid="settings-panel"]')).toHaveCount(0);
 
-    // E il menu «Topics» è rimasto chiuso per tutto il tragitto.
+    // Il menu «Topics» è rimasto chiuso per tutto il tragitto.
     await expect(page.locator('[data-testid="sidebar-system-menu"]')).toHaveCount(0);
   });
 });

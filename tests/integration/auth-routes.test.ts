@@ -32,11 +32,14 @@ import {
 } from "../../server/routes/auth";
 import { PAIRING_CODE_TTL_MS } from "../../server/lib/device-auth";
 import { hashToken, readSessionCookie } from "../../server/lib/device-auth";
-import { TASKS_DDL } from "../../server/db/test-schema";
+import { alterMigrationsAfter, TASKS_DDL } from "../../server/db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql"];
 
+/** Le tabelle che questo file usa: vedi `alterMigrationsAfter`. */
+const TABELLE_QUI = ["orgs", "people", "devices", "grants", "task_shares"];
+const alterazioniSuccessive = (dopo: string) => alterMigrationsAfter(dopo, TABELLE_QUI, RADICE);
 function dbFresco(): Database {
   const db = new Database(":memory:");
   // Le due tabelle a cui le migration si agganciano con una FK, e da cui
@@ -365,7 +368,12 @@ describe("rotte auth · condivisione", () => {
 
   test("un tipo di risorsa che non ha una riga vera è rifiutato", async () => {
     const { router, idOspite } = await scena();
-    for (const tipo of ["space", "pane", "project", "terminal"]) {
+    // `project` e' USCITO da questa lista con 20260816230500: ha la sua tabella
+    // (migration 016) con id stabile, quindi una concessione ha una riga a cui
+    // appendersi. La regola non e' cambiata, e' cambiato il fatto - gli altri
+    // restano fuori per la ragione di sempre: uno spazio e una tab vivono in un
+    // blob di ui_state, un terminale e' un processo.
+    for (const tipo of ["space", "pane", "terminal"]) {
       const r = await chiama(router, "/api/auth/shares", "POST", {
         body: { resourceType: tipo, resourceId: "x", deviceId: idOspite },
       });
@@ -385,7 +393,7 @@ describe("rotte auth · condivisione", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda condivisa','todo', 'p-test', '2026-01-01', '2026-01-01')");
@@ -572,7 +580,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;
@@ -641,7 +649,7 @@ describe("rotte auth · il ruolo DISCENDE dalla persona", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     // La 084 il proprietario lo crea da sé, anche su un database vuoto — e la
@@ -799,7 +807,7 @@ describe("rotte auth · i membri dell'organizzazione", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;
@@ -827,6 +835,40 @@ describe("rotte auth · i membri dell'organizzazione", () => {
     expect(nuovo.role).toBe("member");
     expect(nuovo.owner).toBe(false);
     expect(nuovo.devices).toBe(0);
+  });
+
+  test("un membro dice quando si è fatto vivo l'ultima volta, non solo quanti ferri ha", async () => {
+    // «Tre dispositivi» descrive uguale chi è online adesso e chi non apre
+    // l'app da marzo. `lastSeenAt` è l'unica cosa che serve a chi guarda per
+    // sapere con chi sta lavorando, ed è il dato su cui si costruisce la
+    // presence dell'organizzazione.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const io = (db.query("SELECT person_id AS id FROM installation_owners").get() as { id: string }).id;
+
+    type M = { id: string; devices: number; lastSeenAt: number | null };
+    const leggi = async () => ((await (await chiama(router, `/api/auth/orgs/${org}/members`))!.json()) as { members: M[] })
+      .members.find((x) => x.id === io)!;
+
+    // Senza dispositivi vivi non si è visti: `null`, non zero. Zero sarebbe una
+    // data — il 1970 — e ordinando per «ultimo visto» finirebbe in fondo
+    // insieme a chi c'è stato davvero e molto tempo fa.
+    expect((await leggi()).lastSeenAt).toBeNull();
+
+    const quando = Date.now() - 60_000;
+    db.query(
+      "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role, person_id) VALUES (?, ?, ?, ?, ?, ?, NULL, 'member', ?)",
+    ).run("dev-presenza", "Mac", "hash", quando, quando, "127.0.0.1", io);
+
+    const dopo = await leggi();
+    expect(dopo.devices).toBe(1);
+    expect(dopo.lastSeenAt).toBe(quando);
+
+    // Un dispositivo REVOCATO non tiene viva la presence: chi ha tolto la
+    // fiducia a tutte le sue macchine non è «online da allora».
+    db.query("UPDATE devices SET revoked_at = ? WHERE id = 'dev-presenza'").run(Date.now());
+    expect((await leggi()).lastSeenAt).toBeNull();
   });
 
   test("il proprietario compare per primo, e non si può togliere", async () => {
@@ -1005,7 +1047,7 @@ describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda",
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;
@@ -1279,7 +1321,7 @@ describe("rotte auth · la rubrica e il cancello non possono divergere", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda','todo', 'p-test', '2026-01-01', '2026-01-01')");
@@ -1375,7 +1417,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     const db = new Database(":memory:");
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
-    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", ...alterazioniSuccessive("084-people-orgs.sql")]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
     return db;

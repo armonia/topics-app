@@ -2,7 +2,7 @@
 /**
  * The privacy page, written BEFORE any analytics exists rather than after.
  *
- * The product's promise is "no telemetry", and that is a promise about the
+ * The product's promise is "no analytics", and that is a promise about the
  * application. A website is a different thing, and the moment a site with that
  * claim on its home page adds a counter without saying so, the claim stops
  * being worth anything — including the part that was true. So the distinction
@@ -46,10 +46,16 @@ const jsonLd = {
     <article class="prose">
       <h2 id="the-application">The application</h2>
       <p>
-        Topics collects nothing. There is no analytics library, no crash reporter, no usage
-        ping, no account and no server of ours anywhere in the path. Your conversations,
-        projects, boards and terminal history are SQLite files and directories under
-        <code>~/.topics</code> on your own disk.
+        Topics collects nothing about how you use it: no analytics library, no crash
+        reporter, no usage ping, no account. Your conversations, projects, boards and
+        terminal history are SQLite files and directories under <code>~/.topics</code> on
+        your own disk.
+      </p>
+      <p>
+        One exception, and it is opt-in: reaching Topics from outside your own network is a
+        paid feature that routes traffic through a relay. Use ours and that traffic passes
+        through our infrastructure; point <code>TOPICS_RELAY_URL</code> at your own and it
+        does not. With the relay off, nothing of yours leaves your machine.
       </p>
       <p>
         It does make network requests, and all of them go somewhere you chose: to Anthropic or

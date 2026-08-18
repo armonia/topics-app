@@ -6,21 +6,25 @@ import type { AppContext, RouteHandler, Topic } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
-import { createHistoryRouter } from "./history";
+import { createHistoryRouter, createToolDetailRouter } from "./history";
+import { leanMessagesForWire } from "../../shared/lean-tool-call";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
+import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
 import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
+import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
 import { persistAgentTaskTab, attachLoginHandleToTaskTab } from "../services/task-tab-persist";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "../../shared/clear-messages-policy";
+import { projectIdForPath } from "../../shared/board";
 import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
@@ -42,6 +46,8 @@ import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
 import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
+import { recordTurnEnd } from "../providers/turn-end-registry";
+import { cancelled } from "../providers/stop-reason";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -701,15 +707,17 @@ export function createTopicsRouter(
 
   const { db } = ctx;
 
+  /**
+   * Il `projectId` della board a cui un topic appartiene, o `null` se il topic
+   * non è legato a un progetto.
+   *
+   * L'hash NON è più riscritto qui: questa closure era la copia che nessun test
+   * di parità copriva, quindi l'unica delle tre che poteva derivare in silenzio.
+   */
   function getProjectIdForTopic(topicId: string): string | null {
     const topic = getTopicById(topicId);
     if (!topic?.projectPath) return null;
-    const projectPath = topic.projectPath;
-    const pathParts = projectPath.replace(/\/+$/, "").split("/");
-    const dirName = pathParts[pathParts.length - 1] || "project";
-    let hash = 0;
-    for (let i = 0; i < projectPath.length; i++) { hash = ((hash << 5) - hash) + projectPath.charCodeAt(i); hash |= 0; }
-    return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
+    return projectIdForPath(topic.projectPath);
   }
 
   // Scan workspace directory for project directories
@@ -758,6 +766,9 @@ export function createTopicsRouter(
   // helpers injected (they close over this scope), so it's instantiated here.
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
   const historyRouter = createHistoryRouter(ctx, { matchHistoryRoute, providerForSessionKey });
+  // Il rovescio dello sfoltimento di `/api/history`: la riga di tool arriva col
+  // testo svuotato e se lo riprende da qui, la prima volta che qualcuno la apre.
+  const toolDetailRouter = createToolDetailRouter(ctx);
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
   // Il canale umano non chiede niente a questa closure: solo ctx.
   const permissionRouter = createPermissionRouter(ctx);
@@ -1651,6 +1662,24 @@ export function createTopicsRouter(
         unread[params.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
         saveUnread(unread);
         broadcastToAll({ type: "unread:updated", topicId: params.id, unreadCount: 0 });
+        // E LA CAMPANELLA SI SPEGNE CON LEI.
+        //
+        // Fino a qui la lettura azzerava il non-letto nella sidebar e lasciava
+        // acceso il contatore delle notifiche: due numeri sullo stesso fatto che
+        // dicevano cose diverse. Il peggiore dei due era quello che restava
+        // acceso, perche' nessun gesto naturale lo spegneva - solo aprire il
+        // pannello della cronologia, che e' un posto in cui non si passa mai
+        // apposta. Segnalato: «assicuriamoci che le notifiche siano
+        // sincronizzate con lo stato della notifica della sidebar».
+        //
+        // Il broadcast parte SOLO se qualcosa e' cambiato davvero: questa rotta
+        // e' gia' silenziosa sul no-op per la stessa ragione (un
+        // `unread:updated{0}` inutile sveglia ogni client connesso), e sarebbe
+        // strano che la riga sotto reintroducesse il costo appena evitato.
+        const viste = markTargetNotificationsSeen("topic", params.id);
+        if (viste > 0) {
+          broadcastToAll({ type: "notification:seen", unseen: countUnseenNotifications() });
+        }
         return json({ ok: true });
       }
     }
@@ -1890,7 +1919,13 @@ export function createTopicsRouter(
         const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
         const total = completeMsgs.length;
         const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-        const result = sliced.slice(-limit);
+        // Same slimming as `/api/history/:key`. Without it this route shipped
+        // 12.54 MB where the other shipped 5.42 for the same topic, because here
+        // `toolCalls` still travelled alongside `blocks` AND each one carried a
+        // duplicated `result`. The caller is the agents' `read_chat` over MCP,
+        // which then keeps 4,000 characters per message and throws the rest away
+        // (server/mcp/topics-mcp-server.ts:1219). See shared/lean-tool-call.ts.
+        const result = leanMessagesForWire(sliced.slice(-limit));
 
         return json({ messages: result, total, topicName: topic.name });
       }
@@ -1909,7 +1944,15 @@ export function createTopicsRouter(
     // /api/context-upload moved to server/routes/media.ts (with the other uploads).
 
     // --- Test: Seed message (for E2E tests — inserts a message directly into DB) ---
+    //
+    // Dietro lo STESSO cancello delle altre rotte di test (`e2eRoutesEnabled`,
+    // TOPICS_E2E=1): era l'unica superficie di test registrata anche in
+    // produzione, e scriveva righe `messages` arbitrarie senza guard — finding
+    // F57 dell'audit del 19/06. Su un server normale ora è 404, come se non
+    // esistesse: un endpoint di test spento deve essere indistinguibile da un
+    // endpoint che non c'è, altrimenti dice comunque che c'è qualcosa lì.
     if (method === "POST" && pathname === "/api/test/seed-message") {
+      if (!e2eRoutesEnabled()) return null;
       const body = await readJSON(req);
       if (!body?.sessionKey || !body?.role) {
         return json({ error: "sessionKey and role required" }, 400);
@@ -2043,15 +2086,34 @@ export function createTopicsRouter(
         return json({ ok: false, reason: "no_active_stream", cleared: false });
       }
 
+      // CHI ha fermato il turno si DEPOSITA, prima di qualunque altra cosa.
+      //
+      // Chi guida un turno headless (`runHeadlessTurn` in server.ts) legge la
+      // fine da `takeTurnEnd`, e quando non la trova assume `end_turn`. Da qui
+      // non ci passava mai: `stream.abortController.abort()` fa scattare il
+      // listener della route di chat, che latcha `streamState = "finalized"`, e
+      // da quel momento `finalizeStream` esce alla prima riga — quindi il suo
+      // `recordTurnEnd` non gira. Uno stop premuto da una persona arrivava al
+      // dispatcher come una consegna RIUSCITA: bruciava un tentativo e
+      // rilanciava l'agente all'istante, sul task che l'umano aveva appena
+      // fermato.
+      //
+      // `cancelled("user")` è quello che il provider stesso depositerebbe: se la
+      // sua finalizzazione arriva comunque, riscrive lo stesso verdetto.
+      recordTurnEnd(sessionKey, cancelled("user", "POST /api/chat/abort"));
+
+      // PRIMA il provider, POI il controller dell'SSE. L'ordine conta: l'abort
+      // del controller chiude la macchina a stati della route, quindi tutto ciò
+      // che il provider ha ancora da dire su questo turno (il suo `onAborted`,
+      // con la ragione autorevole) troverebbe un `finalizeStream` già spento.
+      if (abortProvider.connected) {
+        abortProvider.abort?.(sessionKey, undefined, "user")?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
+        abortProvider.unregisterStreamHandler?.(sessionKey);
+      }
+
       // Abort the gateway request (HTTP fallback)
       if (stream.abortController) {
         try { stream.abortController.abort(); } catch {}
-      }
-
-      // Also abort via provider if connected
-      if (abortProvider.connected) {
-        abortProvider.abort?.(sessionKey)?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
-        abortProvider.unregisterStreamHandler?.(sessionKey);
       }
 
       // If a `mcp__topics__ask_user_question` bridge handler is blocked waiting
@@ -2295,6 +2357,12 @@ export function createTopicsRouter(
     {
       const historyResp = await historyRouter(req, url, pathname, method);
       if (historyResp) return historyResp;
+    }
+
+    // --- Tool detail on demand --- (GET /api/messages/:id/tool/:id/detail)
+    {
+      const toolDetailResp = await toolDetailRouter(req, url, pathname, method);
+      if (toolDetailResp) return toolDetailResp;
     }
 
     // --- Media serving ---

@@ -207,8 +207,15 @@ export async function notificationStatus(): Promise<NativeNotificationStatus | n
 export async function reloadAllWindows(): Promise<void> {
   if (shellKind === 'tauri') {
     try {
-      await tauriInvoke<number>('app_reload_all');
-      return;
+      // ZERO NON È UN SUCCESSO, ed è l'unico modo in cui questo gesto può
+      // fallire in silenzio: `app_reload_all` torna QUANTE finestre ha
+      // ricaricato, e per un anno quel numero è stato buttato via. Quando il
+      // nativo non ne trovava nessuna — succedeva a ogni pane browser aperta,
+      // vedi `reload_all_ui_windows` — il `return` qui sotto usciva contento e
+      // nemmeno questa finestra ripartiva. Un conteggio che nessuno legge è un
+      // errore che nessuno vede.
+      const n = await tauriInvoke<number>('app_reload_all');
+      if (n > 0) return;
     } catch {
       // Guscio vecchio senza il comando: almeno questa finestra riparte.
     }

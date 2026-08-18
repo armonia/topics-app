@@ -13,9 +13,70 @@ concurrency:
   group: e2e-nightly-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
+  # Piano di sharding per durata: un'unica chiamata a `playwright test --list`
+  # (~10s) per tutta la run, il risultato viene caricato come artifact e scaricato
+  # da ogni shard. Il fallback a --shard=i/4 e' conservato: se il piano non c'e',
+  # la suite gira lo stesso.
+  prepare-e2e:
+    runs-on: ubuntu-latest
+    outputs:
+      plan-ok: ${{ steps.plan.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by the server)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Install Playwright browsers (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Calcola il piano di sharding per durata (suite completa)
+        id: plan
+        # Niente E2E_TIER: il piano copre la suite intera, come fa lo shard.
+        run: |
+          if bun run scripts/e2e-plan-shards.ts 4 --out plan; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Carica il piano come artifact
+        if: steps.plan.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-plan-nightly
+          path: plan/
+          retention-days: 1
+
   e2e-full:
     runs-on: ubuntu-latest
+    needs: prepare-e2e
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +100,17 @@ jobs:
       - name: Rebuild node-pty (Linux)
         run: npm rebuild node-pty
 
+      # `--ignore-scripts` qui sopra non salta solo i postinstall delle
+      # dipendenze: salta anche quello della RADICE, che e'
+      # `bun run scripts/fix-node-pty-exec-bit.ts`. E quel bit serve davvero: il
+      # tarball di node-pty spedisce gli `spawn-helper` a 644 (verificato con
+      # `npm pack`), nessuno script del pacchetto li chmoda, e `npm rebuild`
+      # ricostruisce `build/Release` senza toccare i `prebuilds/`. Su questa
+      # macchina sono 755 solo perche' il postinstall gira; sul runner no, e il
+      # test «ogni spawn-helper di node-pty e' eseguibile» diventava rosso.
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
       - name: Install client deps
         run: bun install --frozen-lockfile
         working-directory: client
@@ -56,11 +128,41 @@ jobs:
           test -x "$bin"
           echo "path=$bin" >> "$GITHUB_OUTPUT"
 
+      - name: Scarica il piano di sharding
+        if: needs.prepare-e2e.outputs.plan-ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-plan-nightly
+          path: plan/
+
       # No E2E_TIER → the FULL suite (nothing ignored, @nightly tests included).
       - name: Run E2E tests (Playwright, full)
-        run: npx playwright test --shard=${{ matrix.shard }}/4
+        # Usa il piano per durata (shard-N.txt) se disponibile; fallback a --shard=i/4.
+        # Il results.json serve al job update-durations per aggiornare e2e-durations.json.
+        run: |
+          PLAN_FILE="plan/shard-${{ matrix.shard }}.txt"
+          if [ -f "$PLAN_FILE" ]; then
+            echo "[nightly] usando il piano per durata: $PLAN_FILE"
+            readarray -t SELECTORS < "$PLAN_FILE"
+            npx playwright test "${SELECTORS[@]}" --reporter=line,json
+          else
+            echo "[nightly] piano non disponibile, fallback a --shard=${{ matrix.shard }}/4"
+            npx playwright test --shard=${{ matrix.shard }}/4 --reporter=line,json
+          fi
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/results.json
+
+      # Il results.json e' necessario al job update-durations per riscrivere le durate.
+      # Si carica sempre (anche se la suite ha fallito): le durate dei test rossi sono
+      # comunque valide, e non caricarle significherebbe perdere la misura di quella notte.
+      - name: Carica results.json per aggiornamento durate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-nightly-shard-${{ matrix.shard }}
+          path: test-results/results.json
+          retention-days: 1
 
       - name: Upload Playwright report
         if: failure()
@@ -68,4 +170,156 @@ jobs:
         with:
           name: playwright-report-nightly-shard-${{ matrix.shard }}
           path: test-results/html-report
-          retention-days: 7
+          # 3, non 7: questi report pesano fino a 35 MB l'uno e un rosso si guarda entro il
+          # giorno — tre giorni sono gia' larghi. NON e' una misura anti-quota, per quanto il
+          # commento qui dicesse il contrario fino al 16/08: topics-app e' un repo PUBBLICO,
+          # e gli artifact dei repo pubblici NON consumano la quota dell'org. A saturare la
+          # quota il 16/08 (upload della UAT di quadra morti con "storage quota has been hit")
+          # erano repo PRIVATI — tdh, zenda, moonstone-circle — piu' 4,6 GB di artifact
+          # SCADUTI, che GitHub marca `expired` senza cancellarli e che continuano a occupare
+          # spazio. Cancellare roba di qui non sposta un byte: il rimedio e'
+          # `scripts/purge-org-artifacts.sh` in quadra.
+          retention-days: 3
+
+  # Dopo ogni nightly verde (o anche rossa: le durate dei test falliti sono valide),
+  # riscrive scripts/e2e-durations.json con i tempi misurati stanotte e apre una PR.
+  # Cosi' il piano di sharding si tiene aggiornato senza intervento manuale.
+  #
+  # Il job gira anche se la suite ha fallito (if: always()) perche' le durate
+  # misurate su test rossi sono comunque valide e servono al bilanciamento.
+  update-durations:
+    name: aggiorna durate shard
+    runs-on: ubuntu-latest
+    needs: e2e-full
+    if: always()
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Scarica tutti i results.json degli shard
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-results-nightly-shard-*
+          path: downloaded-results/
+          merge-multiple: false
+
+      - name: Aggiorna e2e-durations.json
+        id: update
+        run: |
+          # Ogni artifact e' in una cartella separata; raccogliamo tutti i results.json.
+          RESULTS_FILES=()
+          while IFS= read -r -d '' f; do
+            RESULTS_FILES+=("$f")
+          done < <(find downloaded-results/ -name "results.json" -print0)
+          if [ "${#RESULTS_FILES[@]}" -eq 0 ]; then
+            echo "Nessun results.json trovato — skip."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Trovati ${#RESULTS_FILES[@]} results.json: ${RESULTS_FILES[*]}"
+          bun run scripts/e2e-record-durations.ts "${RESULTS_FILES[@]}"
+          if git diff --quiet scripts/e2e-durations.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apri PR con le durate aggiornate
+        if: steps.update.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { execFileSync } = require("child_process");
+            const branch = `chore/update-e2e-durations-${context.runId}`;
+            execFileSync("git", ["config", "user.email", "github-actions[bot]@users.noreply.github.com"]);
+            execFileSync("git", ["config", "user.name", "github-actions[bot]"]);
+            execFileSync("git", ["checkout", "-b", branch]);
+            execFileSync("git", ["add", "scripts/e2e-durations.json"]);
+            execFileSync("git", ["commit", "-m",
+              `chore(e2e): aggiorna durate shard dal nightly del ${new Date().toISOString().slice(0,10)}`]);
+            execFileSync("git", ["push", "origin", branch]);
+            await github.rest.pulls.create({
+              ...context.repo,
+              title: `chore(e2e): aggiorna durate shard (nightly ${context.runId})`,
+              head: branch,
+              base: "main",
+              body: [
+                "Aggiorna `scripts/e2e-durations.json` con i tempi misurati dalla nightly di questa notte.",
+                "",
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                "",
+                "Generato automaticamente da `.github/workflows/e2e-nightly.yml` · job `update-durations`.",
+              ].join("\n"),
+            });
+
+  # Un gate che fallisce in silenzio non e' un gate. Questa nightly e' stata ROSSA per OTTO
+  # notti di fila (09/08 -> 16/08, tutte `failure`) senza che nessuno lo sapesse: nessuno
+  # apre la tab Actions di un workflow schedulato che non gli parla. Nel frattempo dentro
+  # c'erano rossi veri — CROSS-04 virtual scroll, CROSS-06 theme toggle, FILE-17 git commit,
+  # terminal-session-resume AC-1 — non capricci di CI.
+  #
+  # L'esito si valuta UNA volta sola, dopo tutti e quattro gli shard: valutarlo dentro la
+  # matrix aprirebbe quattro segnalazioni gemelle per lo stesso rosso.
+  esito:
+    name: esito nightly + segnalazione
+    runs-on: ubuntu-latest
+    needs: e2e-full
+    if: always()
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      # `always()` sopra + questa condizione: si segnala su qualunque esito non verde,
+      # `cancelled` incluso — una nightly cancellata a meta' non e' una nightly passata.
+      - name: Segnala la nightly rossa (apri/aggiorna issue)
+        if: needs.e2e-full.result != 'success'
+        uses: actions/github-script@v7
+        env:
+          # Via env e non interpolato nello script: `${{ }}` viene sostituito PRIMA che il
+          # JS esista, quindi un valore col carattere sbagliato romperebbe la sintassi.
+          NIGHTLY_RESULT: ${{ needs.e2e-full.result }}
+        with:
+          script: |
+            const title = "E2E nightly rossa";
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `La E2E nightly (suite completa, 4 shard) è fallita sul run [${context.runId}](${run}) — commit ${context.sha.slice(0, 7)}, esito \`${process.env.NIGHTLY_RESULT}\`.`,
+              "",
+              "Quali scenari sono rossi si legge aprendo il run e guardando i job per shard. Il report HTML dei soli falliti è negli artifact `playwright-report-nightly-shard-N` (3 giorni di retention).",
+              "",
+              "Questa suite copre ciò che il gate della PR esclude di proposito (`E2E_TIER=pr` con `grepInvert: /@nightly/`): crescita di heap/DOM/listener sulla sessione lunga, frame time del drag in kanban, latenza AI, sincronizzazione fra due finestre. Un rosso qui è coperto da nessun altro gate.",
+              "",
+              "_Issue aperta e richiusa automaticamente dal workflow: si chiude da sola alla prima nightly verde._",
+            ].join("\n");
+            const { data: open } = await github.rest.issues.listForRepo({
+              ...context.repo, state: "open", labels: "e2e-nightly",
+            });
+            if (open.length) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: open[0].number, body });
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body, labels: ["e2e-nightly"] });
+            }
+
+      - name: Chiudi la segnalazione se la nightly è tornata verde
+        if: needs.e2e-full.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: open } = await github.rest.issues.listForRepo({
+              ...context.repo, state: "open", labels: "e2e-nightly",
+            });
+            for (const issue of open) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: issue.number,
+                body: `E2E nightly tornata verde sul commit ${context.sha.slice(0, 7)} — chiudo.`,
+              });
+              await github.rest.issues.update({ ...context.repo, issue_number: issue.number, state: "closed" });
+            }

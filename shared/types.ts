@@ -73,6 +73,56 @@ export const DISCORD_DETAIL_LEVELS = ['minimal', 'activity', 'detailed'] as cons
 export type DiscordDetailLevel = (typeof DISCORD_DETAIL_LEVELS)[number];
 
 /**
+ * Con quale MECCANICA si esegue un agente. Non è «chi risponde» — quello è il
+ * provider, e resta scelto per topic e per task — è quanta macchina costa
+ * tenerne uno vivo.
+ *
+ *   • `cli`   — una CLI per sessione, in una PTY: `claude`, `codex`. È il
+ *               sistema storico. Fedele fino all'ultimo carattere, perché è
+ *               letteralmente il programma che gira in un terminale, ma è un
+ *               processo Node INTERO per sessione.
+ *   • `jcode` — le sessioni passano da `jcode acp`, un adattatore sottile
+ *               davanti a un demone Rust condiviso. Sempre un binario di
+ *               TERZI: la sua riga di comando, i suoi metodi, il suo catalogo
+ *               di modelli, che possono cambiare sotto di noi.
+ *   • `topics`— il runtime DI CASA: nessun processo, nessun binario esterno.
+ *               Topics parla direttamente col modello e tiene la sessione in
+ *               memoria propria (`server/providers/native/`).
+ *
+ * Il numero che separa i gradini, misurato su questa macchina il
+ * 2026-08-15 e non stimato: un agente dispatchato costa ~206 MB marginali
+ * (bench/results/memory-latest.json), due `claude` vivi ne pesavano 1.580 in
+ * due. Ventiquattro sessioni ACP concorrenti su un solo peer jcode sono
+ * costate 0,58 MB l'una. È lo stesso lavoro con due ordini di grandezza di
+ * differenza, ed è tutta la ragione per cui questo interruttore esiste.
+ *
+ * `topics` è il DEFAULT dal 2026-08-16, e ha lo stesso vantaggio di memoria di
+ * `jcode` senza la sua dipendenza: una sessione è un array di messaggi dentro
+ * il server che è già acceso. Il costo della CLI non è una preferenza di stile,
+ * è una macchina che fa pageout con otto agenti in volo; e un default che
+ * bisogna sapere di dover cambiare è un default sbagliato.
+ *
+ * `jcode` resta per confronto e per chi lo ha già configurato. Chi vuole la CLI
+ * vera (riprodurre un comportamento, un dubbio sul runtime nuovo) ci torna in
+ * un gesto: è la stessa riga in Impostazioni.
+ *
+ * IL RIPIEGO NON È QUESTA COSTANTE. Un valore illeggibile cade su `cli` (vedi
+ * `resolveAgentRuntime`): sono due domande diverse — cosa vuole chi non ha
+ * scelto, e cosa si fa quando la scelta è incomprensibile. La prima merita il
+ * gradino buono, la seconda il sistema che c'è sempre stato.
+ */
+export const AGENT_RUNTIMES = ['cli', 'jcode', 'topics'] as const;
+export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
+
+/**
+ * Il runtime di chi non ha scelto. Sta qui, in una costante sola, perché il
+ * server (`resolveAgentRuntime`) e la scheda Impostazioni devono dire la STESSA
+ * cosa: erano due `?? 'cli'` a mano in due file, e il modo in cui una UI mente
+ * è esattamente questo, un ripiego aggiornato da una parte sola.
+ */
+export const DEFAULT_AGENT_RUNTIME: AgentRuntime = 'topics';
+
+/**
  * L'attività come Discord la vuole in `SET_ACTIVITY.args.activity`.
  *
  * Sta qui e non nel servizio perché la card in Impostazioni ne disegna
@@ -678,6 +728,29 @@ export interface ToolCall {
    * `detail.actions[]` rather than emitting separate timeline items.
    */
   detail?: ToolCallDetail;
+  /**
+   * How many characters the history payload REMOVED from `detail`.
+   *
+   * `GET /api/history/:sessionKey` blanks the three big text fields inside
+   * `detail` (`output`, `content`, `result`) before putting the thread on the
+   * wire: a closed tool row never reads them, and they are most of the weight
+   * of opening a chat. This counter is what the row has left to know that a
+   * body EXISTED, since the strings it would have measured are now empty.
+   *
+   * Set by `stripDetailText` (shared/lean-tool-call.ts). Absent when nothing
+   * was stripped, which is also the shape every other route ships: only the
+   * history route strips, so a message read from the DB or from
+   * `/api/topics/:id/messages` carries the full text and no counter.
+   *
+   * It lives HERE and not inside `detail` on purpose: `parseToolCallDetail`
+   * runs a Zod schema over `detail` and drops unknown keys, so a counter put
+   * in there would have to be added to all 20+ variants of the union to
+   * survive the trip.
+   *
+   * The text is not lost. The row fetches it on first expand from
+   * `GET /api/messages/:messageId/tool/:toolCallId/detail`.
+   */
+  detailBytes?: number;
   /** See client mirror for full semantics. Populated for tools that
    *  request human input; lives on the row so re-renders + scrollback
    *  show the original prompt. */

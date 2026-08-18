@@ -5,6 +5,12 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { describeNight, formatCountdown, type NightStatus } from './nightModeText';
+import { ensureLocaleLoaded } from '../../lib/i18n';
+// L'inglese vive in un chunk suo (`i18n-en.ts`, split del 15/08) e `t()` è
+// sincrona: senza attendere il catalogo questi casi leggono il fallback italiano
+// e falliscono per un motivo che non è quello che vogliono misurare.
+await ensureLocaleLoaded('en');
+
 
 const st = (o: Partial<NightStatus>): NightStatus => ({
   enabled: true, until: '10:00', startedAt: null, action: 'dispatch', reason: null,

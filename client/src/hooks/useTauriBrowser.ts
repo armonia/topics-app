@@ -62,6 +62,8 @@ import {
   pickNavState,
   nativeNavIsFresh,
 } from '../lib/shell/browserPagePoll';
+import { pickNavError } from '../lib/shell/navErrorQueue';
+import { startVisibilityGatedPoll } from '../lib/shell/visibilityPoll';
 import { NO_FAULT, recordPaneOk, recordPaneError, recreatePane, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
 import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 import { normalizeUrl } from '@/lib/browserNavUrl';
@@ -107,31 +109,13 @@ const INSTALL_FOCUS_HOOK =
   "__tFocusArm=Date.now()+600;},true);" +
   "addEventListener('focus',function(){if(__tFocusArm&&Date.now()<=__tFocusArm){__tFocusArm=0;window.__topicsFocusBump++;}},true);}";
 
-/** True while this document is actually on screen.
- *
- *  Every eval poll below crosses into a SEPARATE WKWebView content process
- *  through the Rust shell. Left ungated they keep ticking while the whole app is
- *  occluded (⌘H, minimized, another Space), burning IPC and content-process CPU
- *  for pixels nobody can see — and with the keep-alive ladder there is one such
- *  pane per visited browser tab.
- *
- *  Visibility is the right gate, and `document.hasFocus()` is emphatically NOT:
- *  a click into a native pane makes the CHILD webview key, so the host
- *  document's hasFocus() reads false exactly when a browser pane is in use.
- *  Visibility has no such inversion, and an app that is merely not frontmost
- *  stays `visible` — which keeps the click-that-also-focuses-the-app path
- *  (INSTALL_FOCUS_HOOK's arm window) working. Nothing is lost while hidden:
- *  __topicsFocusBump is a monotonic counter and the page-side console buffer is
- *  capped, so the tick primed on the way back reads the accumulated state. */
-const docVisible = (): boolean =>
-  typeof document === 'undefined' || document.visibilityState === 'visible';
-
-/** Run `fn` whenever the document becomes visible again; returns the unsubscribe. */
-function onDocumentVisible(fn: () => void): () => void {
-  const handler = (): void => { if (docVisible()) fn(); };
-  document.addEventListener('visibilitychange', handler);
-  return () => document.removeEventListener('visibilitychange', handler);
-}
+/* Ogni poll di questo file passa da `startVisibilityGatedPoll`. La guardia di
+ * visibilità e il recupero al ritorno in primo piano stanno LÌ, in una funzione
+ * sola: erano scritti a mano su tre dei cinque poll, e i due che ne erano
+ * rimasti fuori (i due drain nativi) costavano ~300 risvegli al minuto per pane
+ * con l'app in ⌘H — con le pane native che non si sfrattano mai. Il perché della
+ * visibilità e non del fuoco sta nell'intestazione di `lib/shell/visibilityPoll`,
+ * insieme al comportamento, che lì è eseguito da un test e non solo descritto. */
 
 /** Native browser views are durable across TRANSIENT React unmounts. A project
  *  auto-split moves the browser pane into a NEW group; SplitTree keys its leaf by
@@ -197,6 +181,20 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // drain poll below — NOT reset by the eval polls, which can't tell a failed
   // load from "still showing the previous page".
   const [navError, setNavError] = useState<{ message: string; url: string; hint?: string } | null>(null);
+  /**
+   * What the CATCH-UP read of the did-fail queue is allowed to believe.
+   *
+   * `requestedUrlRef` = the last url this client asked the view to load. It is
+   * stamped in the two doors that exist — `navigate()` and `attemptOpen()` — and
+   * an agent-driven navigation goes through the first of them (WS
+   * `browser:navigate` → `navigateUrl` prop → `browser.navigate`), so it is a
+   * real witness and not just "what the user typed".
+   * `nativeViewUrlRef` = the last url the KVO drain reported, mirrored in a ref
+   * because the error drain reads it from another effect's closure, where the
+   * `url` STATE is one render behind. See `pickNavError`.
+   */
+  const requestedUrlRef = useRef('');
+  const nativeViewUrlRef = useRef('');
   /**
    * Scheda PARCHEGGIATA: punta a una porta locale su cui non c'è nessuno in
    * ascolto, quindi la webview nativa non è stata nemmeno creata.
@@ -733,8 +731,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // a posto lo stato; questa promessa non li sposta, li ASCOLTA — perché chi
     // RICREA una scheda morta è l'unico chiamante che deve sapere se sotto c'è
     // di nuovo una vista, prima di lasciar cadere il guasto.
-    const attemptOpen = (openUrl: string): Promise<boolean> =>
-      new Promise<boolean>((resolve) => {
+    const attemptOpen = (openUrl: string): Promise<boolean> => {
+      // The other door a url reaches the view from (first open, parked retry,
+      // recreate). Stamped here and in `navigate` so the catch-up drain of the
+      // did-fail queue can tell "we are still on this" from "we left long ago".
+      requestedUrlRef.current = openUrl;
+      return new Promise<boolean>((resolve) => {
         attemptNativeOpen({
           // windowLabel: la webview nativa deve nascere figlia della finestra che
           // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
@@ -757,6 +759,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           },
         });
       });
+    };
     // Kept for EVERY pane, not just the loopback-gated ones: it is how a pane
     // that has been declared dead gets rebuilt (`recreate` below), and how a
     // parked tab opens late. It used to be set only inside the gated branch, so
@@ -829,6 +832,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     async (u: string) => {
       const norm = normalizeUrl(u);
       setUrl(norm === 'about:blank' ? '' : norm);
+      // The single door for EVERY navigation of this pane: the url bar, the WS
+      // `browser:navigate` an agent sends, the restore of a persisted pane url.
+      // The catch-up drain of the did-fail queue reads it to tell a failure of
+      // the page we are on from one we asked to leave (see pickNavError).
+      requestedUrlRef.current = norm;
       setLoading(true);
       setNavError(null); // a fresh attempt owns the strip
       // Una scheda parcheggiata non ha una webview da navigare: chi digita un
@@ -933,7 +941,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // Skip if the previous eval hasn't resolved — on a hung page browser_eval_js
       // can take up to its 8s timeout, and ungated ticks would pile up blocked
       // spawn_blocking workers behind it.
-      if (stop || inFlight || !docVisible()) return;
+      if (stop || inFlight) return;
       inFlight = true;
       try {
         const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: READ }));
@@ -971,13 +979,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         inFlight = false;
       }
     };
-    const iv = window.setInterval(tick, 800);
-    const offVis = onDocumentVisible(() => { void tick(); }); // catch up on re-show
-    void tick(); // prime immediately
+    const stopPoll = startVisibilityGatedPoll({ intervalMs: 800, prime: true, tick: () => { void tick(); } });
     return () => {
       stop = true;
-      offVis();
-      window.clearInterval(iv);
+      stopPoll();
     };
   }, [id, ready, isVisible, maybeFireSelfFocus, reassertZoom]);
 
@@ -1000,7 +1005,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     let stop = false;
     let inFlight = false;
     const tick = async () => {
-      if (stop || inFlight || !docVisible()) return;
+      if (stop || inFlight) return;
       inFlight = true;
       try {
         const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: META_JS }));
@@ -1018,10 +1023,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
     };
-    void tick(); // prime once immediately so the label appears fast on open
-    const iv = window.setInterval(tick, 2500);
-    const offVis = onDocumentVisible(() => { void tick(); });
-    return () => { stop = true; offVis(); window.clearInterval(iv); };
+    // `prime`: la prima risposta è quella che dà un'etichetta alla tab, quindi
+    // non si aspetta il periodo (2,5s) per averla.
+    const stopPoll = startVisibilityGatedPoll({ intervalMs: 2500, prime: true, tick: () => { void tick(); } });
+    return () => { stop = true; stopPoll(); };
   }, [id, ready, isVisible, reassertZoom]);
 
   // ── Stato nav dai NATIVI (KVO su URL/title/loading) ───────────────────────
@@ -1037,6 +1042,18 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // la sua tab deve convergere sull'etichetta giusta. Costa un mutex vuoto per
   // tick, non un eval in un altro processo.
   //
+  // È gated su `docVisible()`, che è un altro asse: pane di sfondo ≠ FINESTRA
+  // nascosta. Con l'app in ⌘H, minimizzata o su un altro Space questi due drain
+  // erano gli unici due poll del file a restare accesi (i tre fratelli a
+  // :936/:1003/:1147 controllano già `docVisible()`), e le pane native non si
+  // sfrattano mai — `RESIDENCY_BUDGET.native` è `Infinity` per contratto —
+  // quindi facevano 300 risvegli al minuto PER PANE per nessun pixel.
+  // Nulla si perde mentre è nascosta, e non è una speranza: `NAV_STATE_EVENTS`
+  // (lib.rs) tiene UNA sola voce per pane, l'ultima, quindi il drain al ritorno
+  // legge lo stato corrente; `NAV_ERROR_EVENTS` è una coda a 64 con eviction
+  // dalla testa, e il client usa comunque solo l'ULTIMO errore. Il recupero al
+  // ritorno lo dà `onDocumentVisible`.
+  //
   // Il poll eval RESTA: fuori da macOS la coda è vuota per contratto, quindi lì
   // è l'unica sorgente e deve bastare da sola. La precedenza quando ci sono
   // entrambe sta in `nativeNavIsFresh` (una finestra di fiducia, non un
@@ -1048,7 +1065,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   useEffect(() => {
     if (!ready) return;
     let stop = false;
-    const iv = window.setInterval(() => {
+    const tick = () => {
+      if (stop) return;
       void tauriInvoke<Array<{ url: string; title: string; loading: boolean }>>(
         'browser_take_nav_state',
         { id },
@@ -1058,7 +1076,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           const s = pickNavState(events);
           if (!s) return; // coda vuota (o guscio senza il comando): niente da applicare
           nativeNavAtRef.current = Date.now();
-          if (s.url) setUrl(s.url);
+          if (s.url) {
+            setUrl(s.url);
+            // Mirrored in a ref for the error drain: that effect holds a closure
+            // over the `url` STATE of the render it was created in, which after
+            // a hidden period is exactly the value that is out of date.
+            nativeViewUrlRef.current = s.url;
+          }
           // Un titolo VUOTO non si scrive: WebKit lo azzera all'inizio di ogni
           // navigazione, e scriverlo qui farebbe perdere l'etichetta alla tab a
           // ogni click. Quando la pagina nuova davvero non ha un <title>, a
@@ -1073,29 +1097,49 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           }
         })
         .catch(() => {});
-    }, 250);
+    };
+    const stopPoll = startVisibilityGatedPoll({ intervalMs: 250, tick });
     return () => {
       stop = true;
-      window.clearInterval(iv);
+      stopPoll();
     };
   }, [id, ready]);
 
   // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
   // scoped to this pane, same contract as the download queue). A pure mutex
   // drain, NO page eval — so it works exactly when the eval polls can't: a page
-  // that never loaded, a hung host, a dead DNS name. Not gated on visibility
+  // that never loaded, a hung host, a dead DNS name. Not gated on `isVisible`
   // (agent-driven navigations fail in background tabs too); ~zero cost per tick.
+  // Gated su `docVisible()` per la ragione (e col recupero) scritti sopra il
+  // drain dello stato nav: qui il client legge solo l'ULTIMO errore in coda,
+  // quindi l'eviction dalla testa dei 64 non gli toglie niente.
+  //
+  // Ma il RECUPERO non è un tick come gli altri, ed è la mezza verità che ha
+  // fatto il danno: mentre la finestra è nascosta la coda non si svuota, quindi
+  // al ritorno in primo piano ci si trova davanti tutto il periodo di nascondino
+  // invece dell'ultimo secondo. Un fallimento di una navigazione che l'agente ha
+  // già lasciato alle spalle riaccendeva la strip sopra una pagina che stava
+  // caricando bene, con «Riprova» puntato sulla URL morta e la barra di
+  // avanzamento tenuta spenta per NAV_FAIL_GRACE_MS. Da qui il secondo argomento
+  // di `pickNavError`: `null` per il poll vivo (la coda è stata svuotata un
+  // battito fa, niente lì dentro può essere vecchio), la coppia di URL per il
+  // recupero. La regola sta tutta in quel modulo.
   useEffect(() => {
     if (!ready) return;
     let stop = false;
-    const iv = window.setInterval(() => {
+    const tick = (catchUp: boolean) => {
+      if (stop) return;
       void tauriInvoke<Array<{ url: string; description: string; code: number }>>(
         'browser_take_nav_errors',
         { id },
       )
         .then((events) => {
-          if (stop || !events || events.length === 0) return;
-          const last = events[events.length - 1];
+          if (stop) return;
+          const last = pickNavError(
+            events,
+            catchUp ? { requested: requestedUrlRef.current, view: nativeViewUrlRef.current } : null,
+          );
+          if (!last) return;
           // La traduzione sta in `navErrorMessage`: qui arriva la stringa di
           // Cocoa, che per il caso più comune di questo pannello (una scheda che
           // riapre su una porta locale ormai spenta) è «Could not connect to the
@@ -1105,14 +1149,17 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // A known failure outranks whatever the last tick read — eval poll AND
           // native drain. Il timestamp è come lo dice al drain dello stato nav,
           // che gira quattro volte più spesso di questo (vedi NAV_FAIL_GRACE_MS).
+          // Sta DOPO il filtro: un errore scartato non deve spegnere la barra di
+          // una pagina che sta caricando adesso.
           navFailedAtRef.current = Date.now();
           setLoading(false);
         })
         .catch(() => {});
-    }, 1000);
+    };
+    const stopPoll = startVisibilityGatedPoll({ intervalMs: 1000, tick });
     return () => {
       stop = true;
-      window.clearInterval(iv);
+      stopPoll();
     };
   }, [id, ready]);
 
@@ -1144,7 +1191,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       "try{return JSON.stringify({k:window.__topicsFocusBump||0,m:" + PANE_CONTEXT_TAKE_EXPR + "})}" +
       "catch(e){return ''}})()";
     const tick = async () => {
-      if (stop || inFlight || !docVisible()) return;
+      if (stop || inFlight) return;
       inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
@@ -1170,9 +1217,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // 8.3 evals/s per visible pane is the price of instant tab activation while
     // you are looking at the app; while it is occluded it buys nothing, and the
     // bump counter is monotonic so the catch-up tick loses no click.
-    const iv = window.setInterval(tick, 120);
-    const offVis = onDocumentVisible(() => { void tick(); });
-    return () => { stop = true; offVis(); window.clearInterval(iv); };
+    const stopPoll = startVisibilityGatedPoll({ intervalMs: 120, tick: () => { void tick(); } });
+    return () => { stop = true; stopPoll(); };
   }, [id, ready, isVisible, maybeFireSelfFocus]);
 
   const toggleDevTools = useCallback(async () => {

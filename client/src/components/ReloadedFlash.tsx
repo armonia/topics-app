@@ -16,21 +16,21 @@
  * un ACK. Durata corta, perché la sola cosa che deve fare è togliere il dubbio
  * nel secondo in cui nasce.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useToast } from './Shared/Toast';
 import { consumeReloadFlash } from '@/lib/reloadFlash';
 
 export function ReloadedFlash() {
+  // `toast` è una dipendenza normale dell'effetto. Qui c'era uno specchio in un
+  // ref perché il valore del context si ricostruiva a ogni render di App, e
+  // metterlo fra le dipendenze avrebbe rifatto partire l'effetto a ogni giro.
+  // Ora l'API dei toast vive in un context suo (`ToastApiContext`) la cui
+  // identità non cambia mai dopo il mount, quindi l'effetto parte una volta
+  // sola perché la dipendenza è davvero stabile — non perché gliel'abbiamo
+  // nascosta. Stesso taglio già fatto in BootDeepLinkResolver.
   const toast = useToast();
-  // Il context dei toast NON è memoizzato (ToastProvider ricrea l'oggetto a
-  // ogni render): metterlo fra le dipendenze rifarebbe partire l'effetto — e
-  // il flag è già consumato, quindi non ne uscirebbe un doppione, ma neanche
-  // un motivo per rileggere lo storage a ogni render. Stesso ref-pattern di
-  // BootDeepLinkResolver.
-  const toastRef = useRef(toast);
-  useEffect(() => { toastRef.current = toast; });
   useEffect(() => {
-    if (consumeReloadFlash()) toastRef.current.info('Ricaricata', 1800);
-  }, []);
+    if (consumeReloadFlash()) toast.info('Ricaricata', 1800);
+  }, [toast]);
   return null;
 }

@@ -60,6 +60,14 @@ const NIGHTLY_ONLY_SPECS = [
   "file-explorer-panels",
   "file-context-menu",
   "file-external-drop",
+  // Dipende da un motore STT raggiungibile (ElevenLabs o whisper locale) e
+  // asserisce sul comportamento del provider reale: va bene nel notturno, non
+  // nel gate PR dove il server di test gira senza chiavi e senza modelli.
+  // Il tag @nightly nel titolo gia' esclude i singoli test con grepInvert,
+  // ma senza questa riga il FILE rimane in testIgnore=[] e viene scoperto
+  // ugualmente: il filtro grepInvert salta i test, non i file, quindi il
+  // beforeAll (che chiama /api/stt/capabilities) gira comunque.
+  "dictation-real-mic",
 ].map((name) => `**/${name}.spec.ts`);
 
 // ── Velocità vs. evidenza ────────────────────────────────────────────────────
@@ -109,6 +117,35 @@ export default defineConfig({
     ["list"],
   ],
   use: {
+    /**
+     * Un'azione ha un limite, e prima non ce l'aveva.
+     *
+     * Il default di Playwright per `actionTimeout` è **0, cioè nessun limite**: un
+     * `click()` su un elemento che non diventerà mai cliccabile non fallisce, resta
+     * lì finché scade il TEST. Il rosso che ne esce si intesta al test
+     * (`locator.click: Test timeout of 30000ms exceeded`) invece che all'azione:
+     * il call log col locator c'è ancora, ma il tempo se l'è preso tutto l'ultima
+     * azione e ogni assert successivo non viene mai eseguito, quindi il test
+     * racconta un solo sintomo invece dei suoi.
+     *
+     * E dove il test si alza il proprio timeout non resta nemmeno quello. Il
+     * 2026-08-15 `long-session-growth.spec.ts` è stato fermo VENTICINQUE MINUTI
+     * senza scrivere un artefatto, perché si dà 1.500.000 ms e il limite
+     * dell'azione era, di nuovo, nessuno: tagliare i cicli non cambiava niente,
+     * il limite non era mai stato il lavoro. Nella nightly dello stesso giorno
+     * tutti e sedici i rossi di `layout-edge-cases.spec.ts` sono quella riga,
+     * identica, in otto test diversi.
+     *
+     * 15 s e non 30: dentro un test da 30 s l'azione deve fallire abbastanza presto
+     * da lasciare a Playwright il tempo di attribuire l'errore e allegare traccia e
+     * video. E non 10 s, che è il limite di `expect`, per non trasformare in rosso
+     * un'azione lenta ma legittima su un runner sotto carico. Una spec che ha
+     * davvero bisogno di più lo chiede sulla singola chiamata, dove si legge il
+     * perché — che è esattamente il contrario di un default infinito che non si
+     * legge da nessuna parte.
+     */
+    actionTimeout: 15_000,
+
     baseURL: E2E_BASE,
     video: EVIDENCE ? "on" : "retain-on-failure",
     screenshot: "only-on-failure",
@@ -180,6 +217,15 @@ export default defineConfig({
         "**/browser-mobile-keyboard.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
         "**/mobile-edge-swipe-no-history.spec.ts",
+        // Le due che mancavano. `sidebar-pin-drag-touch` è nel `testMatch` di
+        // `chromium-touch` e `tab-close-ring-touch` in quello di
+        // `chromium-touch-wide`, ma un `testMatch` altrove non ESCLUDE nulla
+        // qui: senza queste due righe ognuna girava una SECONDA volta a
+        // 1280×800 con `hasTouch: false`, dove `.tap()` non esiste e le misure
+        // da dito non possono reggere. Ogni spec di questa famiglia va nominata
+        // in DUE posti: il `testMatch` del suo progetto e questa lista.
+        "**/sidebar-pin-drag-touch.spec.ts",
+        "**/tab-close-ring-touch.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -269,7 +315,14 @@ export default defineConfig({
       // menu aperto da due gesti, e i suoi due test si escludono a vicenda con
       // `test.skip(isMobile)`. A 390px la board è appiattita e la card non c'è —
       // serve il dito su schermo largo, che è esattamente questo progetto.
-      testMatch: ["**/hover-reveal-touch-audit.spec.ts", "**/browser-mobile-keyboard.spec.ts", "**/board-card-stop.spec.ts"],
+      testMatch: [
+        "**/hover-reveal-touch-audit.spec.ts",
+        "**/browser-mobile-keyboard.spec.ts",
+        "**/board-card-stop.spec.ts",
+        // La spunta della tab: il contratto e' «col dito», non «sul telefono»,
+        // e a 390px la striscia non si disegna piu'. Qui c'e' e il dito e' vero.
+        "**/tab-close-ring-touch.spec.ts",
+      ],
       use: {
         browserName: "chromium",
         hasTouch: true,

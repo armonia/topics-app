@@ -117,6 +117,27 @@ describe("decidePostLandReap — verify before destroy", () => {
     expect(d.reason).toContain("non committate");
   });
 
+  // BUG-PRINCIPALE: git status esce non-zero (index.lock presente, fs non risponde).
+  // La sonda fallisce APERTA: dirtAfter=[] viene letto come «pulito» e il worktree
+  // viene potato — esattamente il momento in cui contiene l'unica copia del lavoro.
+  // Con dirtReadable:false il guard deve fermarsi (keep), non distruggere.
+  test("sonda illeggibile (dirtReadable:false) → keep, anche con dirtAfter vuoto", () => {
+    const d = decidePostLandReap({ ...base, dirtReadable: false });
+    expect(d.action).toBe("keep");
+    expect(d.reason).toContain("illeggibile");
+  });
+
+  test("sonda illeggibile batte un land 'landed': illeggibile != pulito", () => {
+    const d = decidePostLandReap({ ...base, outcome: "landed", branchAfter: "merged", dirtReadable: false });
+    expect(d.action).toBe("keep");
+    expect(d.action).not.toBe("reap");
+  });
+
+  test("sonda leggibile e albero pulito → reap (il caso normale deve continuare)", () => {
+    const d = decidePostLandReap({ ...base, dirtReadable: true });
+    expect(d.action).toBe("reap");
+  });
+
   for (const outcome of ["conflict", "skipped"] as const) {
     // Il land non è avvenuto: i commit vivono solo sul branch, che non si tocca.
     // La cartella invece è ridondante, e da `03ca44c3` questo è il caso NORMALE
@@ -151,7 +172,7 @@ function makeDeps(over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps {
     resolveTask: () => ({ taskId: "t", status: "done", archived: false }),
     isBusy: () => false,
     diskPresent: () => true,
-    realDirt: async () => [],
+    realDirt: async () => ({ ok: true, paths: [] }),
     branchStatus: async () => "merged",
     autoMergeEnabled: () => true,
     tryLand: async () => "landed",
@@ -228,7 +249,7 @@ describe("sweepWorktrees", () => {
     let landed = false;
     await sweepWorktrees(makeDeps({
       listWorktrees: () => [wt("gone-after")],
-      realDirt: async () => (landed ? ["server/foo.ts"] : []),
+      realDirt: async () => ({ ok: true, paths: landed ? ["server/foo.ts"] : [] }),
       branchStatus: async () => (landed ? "gone" : "unmerged"),
       tryLand: async () => { landed = true; return "landed"; },
       noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
@@ -257,7 +278,7 @@ describe("sweepWorktrees", () => {
     const s = await sweepWorktrees(makeDeps({
       listWorktrees: () => [wt("dirty-after")],
       // Clean at decision time, dirty when re-read after the land.
-      realDirt: async () => (landed ? ["server/foo.ts"] : []),
+      realDirt: async () => ({ ok: true, paths: landed ? ["server/foo.ts"] : [] }),
       branchStatus: async () => (landed ? "merged" : "unmerged"),
       tryLand: async () => { landed = true; return "landed"; },
       reap: async (id) => { reaped.push(id); return true; },
@@ -325,16 +346,37 @@ describe("sweepWorktrees", () => {
     expect(s.reaped).toBe(0);
   });
 
-  test("one worktree failing does not abort the rest", async () => {
+  // Una sonda che non risponde NON e' una sonda che dice «pulito». Il caso
+  // rotto: `git status` esce non-zero (index.lock, volume che non risponde) o
+  // esplode, e prima quella cartella veniva CANCELLATA come se fosse vuota —
+  // il guard piu' importante del GC falliva aperto, esattamente al contrario di
+  // come deve fallire un guard che autorizza a distruggere.
+  test("una worktree illeggibile si tiene, e non ferma le altre", async () => {
     const reaped: string[] = [];
     const s = await sweepWorktrees(makeDeps({
       listWorktrees: () => [wt("boom"), wt("ok")],
-      realDirt: async (p) => { if (p.endsWith("boom")) throw new Error("git hiccup"); return []; },
+      realDirt: async (p) => {
+        if (p.endsWith("boom")) throw new Error("git hiccup");
+        return { ok: true, paths: [] };
+      },
       reap: async (id) => { reaped.push(id); return true; },
     }));
-    // "boom" realDirt throws → caught → treated as clean → still reaps; both reaped.
-    expect(reaped.sort()).toEqual(["boom", "ok"]);
-    expect(s.reaped).toBe(2);
+    expect(reaped).toEqual(["ok"]);
+    expect(s.reaped).toBe(1);
+    expect(s.kept).toBe(1);
+  });
+
+  // Stessa cosa senza eccezione: `git status` che esce non-zero e' il caso
+  // COMUNE (repo occupato), e arriva come `ok: false`, non come throw.
+  test("git status non-zero vale sporco, non pulito", async () => {
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("muta")],
+      realDirt: async () => ({ ok: false, paths: [] }),
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(reaped).toEqual([]);
+    expect(s.kept).toBe(1);
   });
 });
 
@@ -456,7 +498,7 @@ describe("sweepWorktrees — abbandonati", () => {
 
   test("dirt nel tree → keep, l'abbandono non passa sopra il lavoro non committato", async () => {
     const s = await sweepWorktrees(stuckDeps({
-      realDirt: async () => ["server/foo.ts"],
+      realDirt: async () => ({ ok: true, paths: ["server/foo.ts"] }),
       abandon: async () => true,
     }));
     expect(s.abandoned).toBe(0);
@@ -642,7 +684,7 @@ describe("sweepWorktrees — perché i kept sono tenuti", () => {
       isBusy: () => false,
       branchStatus: async () => "unmerged",
       diskPresent: () => true,
-      realDirt: async () => [],
+      realDirt: async () => ({ ok: true, paths: [] }),
       autoMergeEnabled: () => false,
       reap: async () => true,
       tryLand: async () => "landed",
@@ -675,7 +717,7 @@ describe("sweepWorktrees — perché i kept sono tenuti", () => {
     const s = await sweepWorktrees(deps({
       worktrees: [wt("a"), wt("b")],
       resolveTask: (id) => ({ taskId: `t-${id}`, status: "done", archived: false }),
-      realDirt: async (p) => (p.endsWith("a") ? ["x.ts"] : ["y.ts", "z.ts"]),
+      realDirt: async (p) => ({ ok: true, paths: p.endsWith("a") ? ["x.ts"] : ["y.ts", "z.ts"] }),
     }));
     // Due worktree, quantità di sporco diverse, UNA categoria.
     expect(Object.keys(s.keptReasons)).toEqual(["modifiche non committate (junk escluso)"]);
@@ -835,5 +877,77 @@ describe("sweepWorktrees — snellimento", () => {
     expect(s.kept).toBe(1);
     expect(s.slimmed).toBe(0);
     expect(s.slimmedBytes).toBe(0);
+  });
+});
+
+// ── re-dispatch: worktree sporco + nota al task ───────────────────────────
+//
+// Misurato il 18/08 su `eef64e32`: il task era passato a `stellar-weasel` con
+// lavoro non committato rimasto in `groovy-frond` — la cartella e' stata
+// potata e quel lavoro e' andato perso senza una riga che lo dicesse.
+//
+// Il fix: quando il GC decide `keep` a causa di sporco NON committato, deve
+// scrivere una nota sul task con il path del worktree. Senza, l'umano non sa
+// dove guardare.
+describe("sweepWorktrees — re-dispatch con worktree sporco", () => {
+  test("worktree sporco → keep E nota sul task con il path (Test 1)", async () => {
+    const notes: Array<[string, string]> = [];
+    const reaped: string[] = [];
+    // Task "terminale" (null = orfano) con dirt non committata: la GC dovrebbe
+    // tenerlo E avvisare sul thread del task.
+    await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("groovy-frond")],
+      resolveTask: () => ({ taskId: "eef64e32", status: "done", archived: false }),
+      realDirt: async () => ({ ok: true, paths: ["scripts/e2e-plan-shards.ts", "tests/unit/e2e-shard-regex.test.ts"] }),
+      branchStatus: async () => "unmerged",
+      tryLand: async () => "nothing",
+      reap: async (id) => { reaped.push(id); return true; },
+      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
+    }));
+    // Il worktree NON deve essere stato potato.
+    expect(reaped).toEqual([]);
+    // Deve esserci una nota sul task con il path del worktree.
+    expect(notes).toHaveLength(1);
+    expect(notes[0][0]).toBe("eef64e32");
+    // La nota deve contenere il path (o il nome del branch) in modo che l'umano
+    // sappia dove si trova il lavoro non committato.
+    expect(notes[0][1]).toMatch(/groovy-frond/);
+    // Deve anche spiegare che ci sono modifiche non committate.
+    expect(notes[0][1]).toMatch(/non.committ|uncommit|sporco|dirt/i);
+  });
+
+  test("sonda illeggibile (ok:false) vale sporco: keep E nota (stessa regola del cancello sul land)", async () => {
+    const notes: Array<[string, string]> = [];
+    const reaped: string[] = [];
+    await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("groovy-frond")],
+      resolveTask: () => ({ taskId: "eef64e32", status: "done", archived: false }),
+      // La sonda non risponde (ok:false) — vale sporco.
+      realDirt: async () => ({ ok: false, paths: [] }),
+      branchStatus: async () => "unmerged",
+      tryLand: async () => "nothing",
+      reap: async (id) => { reaped.push(id); return true; },
+      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
+    }));
+    expect(reaped).toEqual([]);
+    // Anche con ok:false deve esserci la nota (non si potava silenziosamente).
+    expect(notes.length).toBeGreaterThanOrEqual(1);
+    if (notes.length > 0) {
+      expect(notes[0][0]).toBe("eef64e32");
+    }
+  });
+
+  test("worktree pulito → nessuna nota extra (la nota e' solo per lo sporco)", async () => {
+    const notes: Array<[string, string]> = [];
+    await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("clean-worktree")],
+      resolveTask: () => ({ taskId: "clean-task", status: "done", archived: false }),
+      realDirt: async () => ({ ok: true, paths: [] }),
+      branchStatus: async () => "merged",
+      reap: async () => true,
+      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
+    }));
+    // Nessuna nota: il worktree e' stato potato normalmente.
+    expect(notes).toEqual([]);
   });
 });

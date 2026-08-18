@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { createPortal } from 'react-dom';
 import type { GitHunkSummary } from '../../types';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
+import { useT } from '../../hooks/useT';
 
 /**
  * I blocchi di un file, uno alla volta.
@@ -53,6 +54,7 @@ export interface HunkActionsProps {
 }
 
 export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onApplied }: HunkActionsProps) {
+  const t = useT();
   // Stage/scarta di un singolo blocco non hanno un altro percorso col dito (non
   // c'e' un menu di riga sugli hunk), quindi senza puntatore i comandi si
   // VEDONO invece di restare bersagli invisibili: `touch: 'shown'`.
@@ -168,7 +170,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
                     onClick={() => setDaScartare(h.index)}
                     disabled={inCorso !== null}
                     className="p-0.5 rounded hover:bg-app-hover disabled:opacity-40"
-                    title="Scarta questo blocco"
+                    title={t('git.hunk.discardTitle')}
                   >
                     <Undo2 size={11} className="text-app-text-muted" />
                   </button>
@@ -176,7 +178,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
                     onClick={() => applica(h.index, 'stage')}
                     disabled={inCorso !== null}
                     className="p-0.5 rounded hover:bg-app-hover disabled:opacity-40"
-                    title="Metti in stage questo blocco"
+                    title={t('git.hunk.stageTitle')}
                   >
                     <Plus size={11} className="text-green-500" />
                   </button>
@@ -186,7 +188,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
                   onClick={() => applica(h.index, 'unstage')}
                   disabled={inCorso !== null}
                   className="p-0.5 rounded hover:bg-app-hover disabled:opacity-40"
-                  title="Togli dall’indice questo blocco"
+                  title={t('git.hunk.unstageTitle')}
                 >
                   <Minus size={11} className="text-red-500" />
                 </button>
@@ -200,12 +202,12 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
           delle tre azioni da cui non si torna indietro, quindi si chiede. */}
       {daScartare !== null && createPortal(
         <ConfirmDialog
-          title="Scarta il blocco"
-          confirmLabel="Scarta"
+          title={t('git.hunk.discardConfirmTitle')}
+          confirmLabel={t('git.hunk.discardConfirmLabel')}
           onConfirm={() => { const i = daScartare; setDaScartare(null); applica(i, 'discard'); }}
           onCancel={() => setDaScartare(null)}
         >
-          Le righe di questo blocco tornano com’erano nell’indice. Non è recuperabile.
+          {t('git.hunk.discardConfirmBody')}
         </ConfirmDialog>,
         document.body,
       )}

@@ -33,6 +33,47 @@ export const MAX_FANOUT = 5;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Identità di una board — la funzione che la genera, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Il `projectId` della board, derivato dal path assoluto del progetto:
+ * `<basename della cartella>-<hash a 6 cifre>`.
+ *
+ * Fino al 18/08 questa funzione esisteva in QUARANTANOVE copie: il servizio
+ * (`server/services/tasks.ts:projectIdForPath`), una closure dentro
+ * `server/routes/topics.ts:getProjectIdForTopic`, il client
+ * (`client/src/lib/board.ts:boardIdForPath`), 45 spec E2E e il bench di
+ * concorrenza (`scripts/bench/concurrency.ts:boardId`) — quasi tutte con un
+ * commento che dichiarava «BYTE-IDENTICAL» alle altre. Il commento era l'unica
+ * cosa che le teneva insieme: tre test inchiodavano il server, il router e il
+ * client sullo stesso vettore, ma la closure di `topics.ts`, le 45 spec e il
+ * bench non erano coperti da niente. Il bench era già derivato — gli mancava il
+ * ripiego `|| 'project'` — e nessuno se n'era accorto perché lo chiama solo su
+ * cartelle di `mkdtemp`. Una divergenza lì non esplode: scrive i task sotto un
+ * `projectId` che nessuna board legge, e la colonna resta vuota senza un errore
+ * da nessuna parte.
+ *
+ * Hash djb2 a 32 bit con segno (variante `h * 33 + c` scritta `(h<<5)-h+c`),
+ * base36 del valore assoluto, troncato a 6 caratteri. NON cambiarlo: ogni
+ * modifica orfanerebbe ogni riga `tasks` già scritta nel DB.
+ *
+ * Parente ma NON la stessa cosa di `shared/project-keys.ts:projectHash`, che
+ * gira lo stesso djb2 sulle chiavi `ui_state` ma restituisce l'hash intero e
+ * senza prefisso: identità diversa, store diverso, resta separata.
+ */
+export function projectIdForPath(projectPath: string): string {
+  const parts = projectPath.replace(/\/+$/, '').split('/');
+  const dirName = parts[parts.length - 1] || 'project';
+  let hash = 0;
+  for (let i = 0; i < projectPath.length; i++) {
+    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
+    hash |= 0;
+  }
+  return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Evento di transizione (`kind='status'`) — il formato, in UN posto solo.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -117,6 +158,29 @@ export function statusEventEnters(content: string, status: TaskStatus): boolean 
  */
 export const PREVIEW_CARD_MAX_RATIO = 0.7;
 
+/**
+ * PERCHE' NON ESISTE UN SECONDO TETTO PER LA PORTA MANUALE.
+ *
+ * Il 17/08 ho aggiunto un cancello sulla FORMA a `acceptPreview`: un'anteprima
+ * piu' alta che larga occupa la card e spinge giu' il testo (misurato: 255x397
+ * alta 330px su una card di 798). Il fatto era vero; il rimedio no, e l'ha
+ * detto la suite - due tentativi, due rossi su `board-preview-cap.spec.ts`.
+ *
+ * Prima con 0,7: rifiutava anche una QUADRATA. Poi con 1,2: rifiutava una
+ * 900x1800, che quella spec tiene fra i casi buoni col commento «quella che il
+ * tetto deve tagliare».
+ *
+ * La ragione e' che il riquadro RITAGLIA gia', sempre (`object-cover
+ * object-top` + `max-h-[70cqw]` in `PreviewMedia.tsx`), ed e' il comportamento
+ * dichiarato. Un cancello che rifiuta cio' che il layout sa gestire non
+ * protegge niente: duplica una decisione presa altrove e la contraddice.
+ *
+ * Il rifiuto per forma resta dov'era: nella promozione AUTOMATICA
+ * (`tooTallForCard`), che sceglie da sola cosa mettere sulla card e nel dubbio
+ * non sceglie. La porta manuale e' un gesto esplicito, e a un gesto esplicito
+ * si risponde mostrando, non rifiutando.
+ */
+
 
 /**
  * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
@@ -139,12 +203,13 @@ export const PREVIEW_CARD_MAX_RATIO = 0.7;
 // allow-emdash-block: da qui alla fine dei cancelli è il BRIEFING dell'agent,
 // un prompt letto da un modello e non un testo della app.
 export const PREVIEW_RULE = [
-  "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
-  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (la card ritaglia l'eccedenza dal basso invece di rimpicciolirla). Mai un full-page.`,
-  "· VIDEO .webm/.mp4 ≤20s — dimostrare la consegna richiede DUE O PIÙ STATI (appare, resta, sparisce; scroll, apri/chiudi, streaming, un flusso a più passi): uno screenshot statico non prova un comportamento. Clip Playwright breve (`recordVideo: { dir }` sul context) o, se il progetto ha spec-flow, il .webm dello scenario.",
-  "· DIAGRAMMA .svg — la consegna NON ha una superficie renderizzata (un piano, un'architettura, un protocollo, una migrazione): si disegna la STRUTTURA — riquadri, frecce, cinque parole per nodo — non si fotografa il documento.",
-  "Una TAB del task (open_browser_pane) NON sostituisce l'anteprima: la pagina viva muore col server che la serve, l'anteprima resta.",
-  "Cancello unico, e vale per tutti e tre: a 268px di larghezza (`sips -Z 268 <file>`) devi ancora saper dire cosa mostra.",
+  "REVIEW EVIDENCE = a DURABLE PREVIEW on the task — update_task(preview_image=<absolute path under ~/.topics/media/ or inside the task workspace; empty string = clear it>), which becomes the image on the board card and in the drawer. Three branches, and what picks one is the criterion, not habit:",
+  `· SCREENSHOT .png — the delivery HAS a rendered surface that fits in one frame. Capture it at viewport ≤1440×900 and with height/width ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (the card crops the excess off the bottom instead of shrinking it). Never a full-page shot.`,
+  "· VIDEO .webm/.mp4 ≤20s — proving the delivery takes TWO OR MORE STATES (appears, stays, disappears; scroll, open/close, streaming, a multi-step flow): a still screenshot cannot prove a behaviour. A short Playwright clip (`recordVideo: { dir }` on the context) or, if the project has spec-flow, the scenario's .webm.",
+  "· DIAGRAM .svg — the delivery has NO rendered surface (a plan, an architecture, a protocol, a migration): you DRAW the structure — boxes, arrows, five words per node — you do not photograph the document.",
+  "A TAB of the task (open_browser_pane) does NOT replace the preview: the live page dies with the server that serves it, the preview stays.",
+  "The preview is an ATTACHMENT, not source. Never leave it in the repo root: an untracked file there BLOCKS the land (it would be swallowed by the realign merge, and the land refuses rather than swallow it — measured twice on 18/08), and a committed one is repo litter. Write it under ~/.topics/media/, or if it genuinely documents a decision worth keeping, under docs/archive/ — never the root.",
+  "One single gate, and it holds for all three: at 268px wide (`sips -Z 268 <file>`) you must still be able to say what it shows.",
 ].join("\n");
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -174,9 +239,9 @@ export const PREVIEW_RULE = [
  * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
  */
 export const CODE_GATES_RULE = [
-  "I CINQUE CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`), prosa (`bun run check:emdash`).",
-  "Il quinto è nuovo e sorprende: `check:emdash` rifiuta il trattino lungo in QUALUNQUE testo del repo, comprese le stringhe di protocollo e i commenti che scrivi nel codice. Non si sostituisce con un trattino corto: la frase che il trattino teneva insieme erano due frasi, e si spezzano. Se il carattere E' il dato, la riga finisce con `// allow-emdash: <ragione>`.",
-  "Il terzo è quello che si dimentica sempre: per il gate del codice morto un file che NESSUNO IMPORTA è codice morto. Quindi uno script che si lancia a mano (una sonda, un banco, una misura) va DICHIARATO fra gli entry del progetto nello stesso commit che lo aggiunge — con knip: la voce col suffisso `!` in `knip.jsonc` (come `scripts/disk-report.ts!`), e accanto la riga di commento che dice come si lancia.",
+  "THE FIVE CODE GATES, and ALL of them hold before you deliver — the script names you read in `package.json`, the gates you do not: types (`bun run typecheck`), lint (`bun run lint`), dead code (`bun run check:deadcode`), unit tests (`bun run test:unit`), prose (`bun run check:emdash`).",
+  "The fifth one is new and it surprises people: `check:emdash` rejects the long dash in ANY text in the repo, protocol strings and the comments you write in the code included. You do not replace it with a short dash: the sentence the dash was holding together was two sentences, and they split. If the character IS the data, the line ends with `// allow-emdash: <reason>`.",
+  "The third one is the one everybody forgets: for the dead-code gate, a file NOBODY IMPORTS is dead code. So a script you run by hand (a probe, a bench, a measurement) has to be DECLARED among the project entries in the same commit that adds it — with knip: the entry with the `!` suffix in `knip.jsonc` (like `scripts/disk-report.ts!`), and next to it the comment line that says how it is run.",
 ].join("\n");
 
 // end-allow-emdash
@@ -202,7 +267,7 @@ export const CODE_GATES_RULE = [
  * `package.json`.
  */
 export const VERSION_BUMP_RULE =
-  "BUMP DI VERSIONE = UN COMANDO, mai i file a mano. Il nome lo leggi in `package.json` (qui `bun run bump [patch|X.Y.Z]`, e `bun run bump sync` per riallineare un albero già scollato). Il numero è scritto in PIÙ posti e uno è un file GENERATO (un lockfile): è l'unico che non si apre mai a mano, quindi è l'unico che un bump manuale dimentica: è già successo due volte in una notte.";
+  "A VERSION BUMP IS ONE COMMAND, never the files by hand. The name you read in `package.json` (here `bun run bump [patch|X.Y.Z]`, and `bun run bump sync` to realign a tree that already drifted). The number is written in SEVERAL places and one of them is a GENERATED file (a lockfile): it is the only one nobody ever opens by hand, so it is the only one a manual bump forgets. It has already happened twice in one night.";
 
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
@@ -213,9 +278,9 @@ export const VERSION_BUMP_RULE =
  */
 export function extractPreviewRule(envelope: string): string | null {
   const lines = envelope.split('\n');
-  const from = lines.findIndex((l) => l.startsWith('EVIDENZA DI REVIEW'));
+  const from = lines.findIndex((l) => l.startsWith('REVIEW EVIDENCE'));
   if (from < 0) return null;
-  const to = lines.findIndex((l, i) => i >= from && l.startsWith('Cancello unico'));
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith('One single gate'));
   if (to < 0) return null;
   return lines.slice(from, to + 1).join('\n');
 }
@@ -348,12 +413,37 @@ export const NOTE_STOPPED_BY_HUMAN =
 export const NOTE_ARCHIVED_BY_HUMAN =
   'Archiviato da te mentre l\'agent lavorava: turno interrotto.';
 
+/**
+ * The tails that say WHICH option was picked. They are constants because a
+ * reader has to recognise the fact in SQL, and a copy typed on the reading side
+ * is a copy that stops matching the day the sentence is reworded.
+ */
+const PARKED_REQUEUED_TAIL = 'sottotask rimessi in coda.';
+const PARKED_ARCHIVED_TAIL = 'sottotask archiviati.';
+
 /** The note `resolveParkedChildren` writes after the human picked an option. */
 export function noteParkedChildrenResolved(decision: 'requeue' | 'archive', count: number): string {
   return decision === 'requeue'
-    ? `Sbloccato: ${count} sottotask rimessi in coda. Torno in coda anch'io e riparto quando hanno finito.`
-    : `Sbloccato: ${count} sottotask archiviati. Torno in coda: non c'è più niente ad aspettarmi.`;
+    ? `Sbloccato: ${count} ${PARKED_REQUEUED_TAIL} Torno in coda anch'io e riparto quando hanno finito.`
+    : `Sbloccato: ${count} ${PARKED_ARCHIVED_TAIL} Torno in coda: non c'è più niente ad aspettarmi.`;
 }
+
+/**
+ * «RIMETTI IN CODA È GIÀ STATO FATTO SU QUESTA CARD», per chi lo conta in SQL.
+ *
+ * The escape hatch out of the parked-subtask loop hangs on this question, and
+ * it was dead: the probe compared a comment to the BUTTON LABEL
+ * (`content = REQUEUE_PARKED_LABEL`), and nothing ever writes a comment whose
+ * whole body is that label. So the count was always zero, the third option
+ * (`TAKE_OVER_PARKED_LABEL`) was never offered, and the human was handed the
+ * same circular button forever — which is the exact loop that option exists to
+ * break.
+ *
+ * The fact that DOES get written is the note above, so that is what gets
+ * counted. Exported as a LIKE pattern built from the same constant the writer
+ * uses: one declaration, two sides, no way to drift.
+ */
+export const PARKED_REQUEUE_NOTE_LIKE = `%${PARKED_REQUEUED_TAIL}%`;
 
 /** The shape of `noteParkedChildrenResolved`, matched without rebuilding it. */
 const PARKED_CHILDREN_NOTE = /^Sbloccato: \d+ sottotask (?:rimessi in coda|archiviati)\./;
@@ -793,14 +883,14 @@ function shortId(id: string): string {
 }
 
 /** Le colonne in cui una promessa di ritorno in coda è una bugia, dette a parole. */
-const FUORI_DALLA_CODA: Record<'backlog' | 'review', { dove: string; cosa: string }> = {
+const OUT_OF_QUEUE: Record<'backlog' | 'review', { where: string; what: string }> = {
   backlog: {
-    dove: 'in Backlog',
-    cosa: 'Trascinala in Todo per farla ripartire.',
+    where: 'in Backlog',
+    what: 'Trascinala in Todo per farla ripartire.',
   },
   review: {
-    dove: 'in Review',
-    cosa: 'Decidi tu: approvala, rimandala indietro, oppure rimettila in Todo se il lavoro non è finito.',
+    where: 'in Review',
+    what: 'Decidi tu: approvala, rimandala indietro, oppure rimettila in Todo se il lavoro non è finito.',
   },
 };
 
@@ -822,18 +912,18 @@ const FUORI_DALLA_CODA: Record<'backlog' | 'review', { dove: string; cosa: strin
  * card in Backlog è semplicemente parcheggiata e la colonna lo dice già da sé —
  * ripeterlo su ognuna sarebbe rumore. `null` significa esattamente questo.
  */
-function promessaFuoriDallaCoda(
+function outOfQueuePromise(
   task: { dispatchState: string | null | undefined; dispatchDeferredUntil: string | null | undefined; dispatchError?: string | null },
-  colonna: 'backlog' | 'review',
+  column: 'backlog' | 'review',
 ): QueueReason | null {
   if (task.dispatchState !== 'waiting' && !task.dispatchDeferredUntil) return null;
-  const { dove, cosa } = FUORI_DALLA_CODA[colonna];
+  const { where, what } = OUT_OF_QUEUE[column];
   return {
     kind: 'parked', tone: 'stalled', head: 'ferma',
-    detail: `${dove.toLowerCase()}, fuori dalla coda`,
+    detail: `${where.toLowerCase()}, fuori dalla coda`,
     title:
-      `Il chip dice che torna in coda da sé, ma è ${dove} e il dispatcher reclama solo la colonna Todo: ` +
-      `quella finestra non scade più per nessuno${task.dispatchError ? `. Aspettava: ${task.dispatchError}` : ''}. ${cosa}`,
+      `Il chip dice che torna in coda da sé, ma è ${where} e il dispatcher reclama solo la colonna Todo: ` +
+      `quella finestra non scade più per nessuno${task.dispatchError ? `. Aspettava: ${task.dispatchError}` : ''}. ${what}`,
   };
 }
 
@@ -908,7 +998,7 @@ export function deriveQueueReason(
   // card così nella notte del 12/08, e il motivo viveva solo nel log di una
   // sonda che nessuno lancia.
   if (task.status === 'review') {
-    if (ctx.openSubtasks <= 0) return promessaFuoriDallaCoda(task, 'review');
+    if (ctx.openSubtasks <= 0) return outOfQueuePromise(task, 'review');
     // LA CARD CHE STA GIÀ CHIEDENDO NON SI ZITTISCE. `needs_input` è l'unico
     // stato in cui la card porta addosso una DOMANDA con una risposta possibile:
     // quella di sistema sui figli parcheggiati, che arriva coi due bottoni
@@ -993,7 +1083,7 @@ export function deriveQueueReason(
     // su ogni card sarebbe ripetere l'ovvio dove sta scritto. Si parla solo
     // sopra una PROMESSA — il chip `waiting` o una finestra di rinvio — perché
     // quella promessa è l'unica cosa che la colonna non smentisce da sé.
-    return promessaFuoriDallaCoda(task, 'backlog');
+    return outOfQueuePromise(task, 'backlog');
   }
 
   if (task.status !== 'todo') return null;
@@ -1145,6 +1235,21 @@ export interface TaskComment {
 }
 
 /**
+ * Un commento COME LO DISEGNA LA CARD: i tre campi che legge, e nient'altro.
+ *
+ * È la forma con cui gli ultimi commenti viaggiano SULLA LISTA della board
+ * (`Task.recentComments`), non nel thread: `id`, `taskId`, `createdAt`,
+ * `mentions` e `media` la card non li tocca, e moltiplicati per tre commenti su
+ * ogni scheda erano metà del peso di quel pezzo del feed (731 KB misurati il
+ * 15/08/2026). Chi apre il thread riceve `TaskComment` interi, da `svc.get`.
+ *
+ * `Pick` e non una seconda interfaccia: il tipo dei tre campi deve restare
+ * quello del thread, o `kind` diventa una `string` da una parte e un'unione
+ * dall'altra senza che niente lo dica.
+ */
+export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind'>;
+
+/**
  * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.
  *
  * Esiste perché il chip «in attesa di» non può dipendere da chi c'è nella lista
@@ -1177,6 +1282,13 @@ export interface CheckRun {
   code: number | null;
   ms: number;
   timedOut: boolean;
+  /**
+   * Il comando ha DICHIARATO di non aver misurato (uscita 97): `tsc` o `eslint`
+   * non c'erano, cioè un worktree senza `bun install` in client/. Campo suo e
+   * non `timedOut`, perché dire «fermato oltre il tempo massimo» di un binario
+   * che non esiste sarebbe una bugia, e il testo del commento la ripeterebbe.
+   */
+  notMeasured?: boolean;
   tail: string;
   /** Valorizzato solo se il comando non è nemmeno partito (binario assente, cwd sparita). */
   spawnError?: string;
@@ -1267,6 +1379,20 @@ export interface BoardSettings {
    * si ferma a `nightModeUntil`. La accende una PERSONA — il senso è «vado
    * via», e nessuna euristica lo sa. Default spento.
    */
+  /**
+   * Questa board e' in pausa: il tick la salta, le altre continuano.
+   *
+   * Puo' solo FERMARE, ed e' l'unico verso che regge: il dispatch parte se
+   * l'interruttore globale e' acceso E questa board non e' in pausa. Una board
+   * «non in pausa» con il globale spento non dispaccia niente. Due interruttori
+   * che possono entrambi ACCENDERE si contraddicono, e chi guarda non sa quale
+   * dei due sta leggendo.
+   *
+   * Diverso da `nightMode`, che e' condizionale (aspetta che la macchina sia
+   * scarica) e si spegne da solo a un orario. Questo e' una scelta secca e
+   * resta finche' qualcuno non la toglie.
+   */
+  dispatchPaused: boolean;
   nightMode: boolean;
   /** Quando smettere, `HH:MM` locale. Vuoto ⇒ nessuna fine (sconsigliato: un
    *  turno che non sa finire resta armato il giorno dopo). */
@@ -1654,4 +1780,20 @@ export interface LandingTicket {
   settledAt: string | null;
   /** Il motivo del `failed`. `null` in ogni altra fase. */
   error: string | null;
+  /**
+   * L'esito del land, disponibile su `phase === 'settled'`. `null` finche'
+   * non e' finito o se l'esito non e' determinabile.
+   * - `landed` il commit e' su main
+   * - `unlanded` il merge e' stato rifiutato (checkout sporco, conflitto, ecc.)
+   * - `unverifiable` il merge e' uscito zero ma non si e' potuto rileggere main
+   * - `skipped` non c'era niente da atterrare (nessun ramo proprio)
+   * - `nothing` il ramo non portava commit che main non avesse gia'
+   */
+  outcome: 'landed' | 'unlanded' | 'unverifiable' | 'skipped' | 'nothing' | null;
+  /**
+   * La ragione del rifiuto quando `outcome === 'unlanded'`. Corrisponde al
+   * testo scritto nel thread della card dal sistema. `null` in tutti gli
+   * altri casi.
+   */
+  reason: string | null;
 }

@@ -137,6 +137,7 @@
   "`browser_list` — sapere quante WKWebView sono davvero vive": "`browser_list` — know how many WKWebViews are really alive",
   "a fine turno l'agent lascia sempre un commento di consegna": "at the end of the turn the agent always leaves a delivery comment",
   "a ogni avvio l'app riannunciava ogni chat gia' finita": "on every launch the app re-announced every chat that had already finished",
+  "a per-project agent cap that commands nothing must not exist": "a per-project agent cap that commands nothing must not exist",
   "abort provider on stream timeout + make finalizeStream idempotent": "abort provider on stream timeout + make finalizeStream idempotent",
   "activate a native pane's tab when you click inside it": "activate a native pane's tab when you click inside it",
   "activity-driven SVG wave replaces working-aura orbiters": "activity-driven SVG wave replaces working-aura orbiters",

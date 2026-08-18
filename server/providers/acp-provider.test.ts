@@ -322,8 +322,20 @@ describe("diagnostica", () => {
     expect(rec.errors[0]).toContain("ACP_BINARY_NOT_FOUND");
   });
 
-  test("listModels è vuoto: ACP v1 non li elenca, e inventarli sarebbe peggio", async () => {
+  test("listModels è vuoto finché non si è parlato con l'agente", async () => {
+    // Non è pigrizia: prima di una sessione non abbiamo NIENTE di suo da
+    // riportare, e riempire la lista di ipotesi sarebbe inventarla.
     expect(await makeProvider().listModels()).toEqual([]);
+  });
+
+  test("dopo una sessione, listModels riporta i modelli che l'agente ha annunciato", async () => {
+    const provider = makeProvider();
+    await provider.sendChat("topic:models", "ciao", recorder().handler);
+    expect(await provider.listModels()).toEqual([
+      "modello-di-fabbrica",
+      "modello-piccolo",
+      "modello-grosso",
+    ]);
   });
 
   test("la strategia di contesto è inline-system: la storia la tiene l'agente", () => {
@@ -331,5 +343,176 @@ describe("diagnostica", () => {
     expect(provider.contextStrategy).toBe("inline-system");
     expect(provider.capabilities.has("history")).toBe(false);
     expect(provider.capabilities.has("sessions")).toBe(true);
+  });
+});
+
+/**
+ * Il modello CHIESTO deve arrivare all'agente.
+ *
+ * Perché è un blocco a sé. Su Topics il modello si sceglie PER TASK, ed è una
+ * leva di costo: un typo su un modello grosso e un refactor sullo stesso
+ * modello non costano uguale, e la board lo sa. Il provider ACP però riceveva
+ * `options.model` e lo buttava via — il turno riusciva lo stesso, sul modello
+ * di default dell'agente, e nessuno se ne accorgeva. Un errore che non dà
+ * errore: esattamente la categoria che questi test esistono per prendere.
+ *
+ * Si chiede all'AGENTE su che modello è finito (`debug/model`), non al
+ * provider: chiedere al provider vorrebbe dire farsi confermare da chi ha
+ * scritto la richiesta che la richiesta è partita.
+ */
+describe("il modello per task arriva all'agente", () => {
+  /**
+   * Su che modello è l'agente adesso, e quante volte gliel'hanno cambiato.
+   *
+   * Glielo si chiede con un TURNO NORMALE (`QUALEMODELLO`) sulla stessa
+   * sessione, e la risposta arriva nel testo: è la stessa strada che fa una
+   * chat vera. Il turno di domanda non chiede modelli, quindi non sporca il
+   * conto dei cambi che sta misurando.
+   */
+  async function agentModel(
+    provider: AcpProvider,
+    sessionKey: string,
+  ): Promise<{ current: string; calls: string[] }> {
+    const rec = recorder();
+    await provider.sendChat(sessionKey, "QUALEMODELLO", rec.handler);
+    const m = /MODELLO=(\S*) CAMBI=(\S*)/.exec(rec.full);
+    if (!m) throw new Error(`l'agente non ha detto il modello: ${rec.full}`);
+    return { current: m[1]!, calls: m[2] ? m[2]!.split(",") : [] };
+  }
+
+  test("senza modello richiesto, l'agente resta sul suo: non gli si impone niente", async () => {
+    const provider = makeProvider();
+    await provider.sendChat("topic:m0", "ciao", recorder().handler);
+    expect((await agentModel(provider, "topic:m0")).calls).toEqual([]);
+  });
+
+  test("il modello richiesto viene applicato PRIMA del prompt", async () => {
+    const provider = makeProvider();
+    await provider.sendChat("topic:m1", "ciao", recorder().handler, { model: "modello-piccolo" });
+    const seen = await agentModel(provider, "topic:m1");
+    expect(seen.current).toBe("modello-piccolo");
+    expect(seen.calls).toEqual(["modello-piccolo"]);
+  });
+
+  test("stesso modello due turni di fila: non si richiede due volte", async () => {
+    // Non è ottimizzazione: la sessione ACP vive in un demone condiviso e il
+    // modello ci resta. Richiederlo a ogni prompt sarebbe un giro di rete per
+    // turno per non cambiare niente.
+    const provider = makeProvider();
+    await provider.sendChat("topic:m2", "uno", recorder().handler, { model: "modello-piccolo" });
+    await provider.sendChat("topic:m2", "due", recorder().handler, { model: "modello-piccolo" });
+    expect((await agentModel(provider, "topic:m2")).calls).toEqual(["modello-piccolo"]);
+  });
+
+  test("cambiare modello fra due turni della stessa chat funziona", async () => {
+    const provider = makeProvider();
+    await provider.sendChat("topic:m3", "uno", recorder().handler, { model: "modello-piccolo" });
+    await provider.sendChat("topic:m3", "due", recorder().handler, { model: "modello-grosso" });
+    const seen = await agentModel(provider, "topic:m3");
+    expect(seen.current).toBe("modello-grosso");
+    expect(seen.calls).toEqual(["modello-piccolo", "modello-grosso"]);
+  });
+
+  // I due rami di degrado. Il patto è lo stesso: un modello non applicato è un
+  // turno che gira su un altro modello, cioè lavoro fatto — mai un turno morto.
+  test("agente che non sa cambiare modello: il turno passa lo stesso", async () => {
+    const provider = makeProvider({ env: { FAKE_ACP_NO_SET_MODEL: "1" } });
+    const rec = recorder();
+    await provider.sendChat("topic:m4", "ciao", rec.handler, { model: "modello-piccolo" });
+    expect(rec.errors).toEqual([]);
+    expect(rec.full).toContain("ciao");
+    expect(rec.done).toHaveLength(1);
+  });
+
+  test("modello rifiutato per nome: il turno passa, e un ALTRO modello si può ancora chiedere", async () => {
+    // La distinzione che conta: «non so cambiare modello» è dell'agente e vale
+    // per sempre, «non ho QUESTO modello» è del nome e non deve chiudere la
+    // porta al prossimo task che ne chiede un altro.
+    const provider = makeProvider({ env: { FAKE_ACP_MODEL_REJECT: "modello-piccolo" } });
+    const rec = recorder();
+    await provider.sendChat("topic:m5", "uno", rec.handler, { model: "modello-piccolo" });
+    expect(rec.errors).toEqual([]);
+    await provider.sendChat("topic:m5", "due", recorder().handler, { model: "modello-grosso" });
+    expect((await agentModel(provider, "topic:m5")).current).toBe("modello-grosso");
+  });
+});
+
+/**
+ * L'effort di ragionamento del topic arriva all'agente.
+ *
+ * È la leva più cara della board: sullo stesso lavoro `medium` ha misurato
+ * 61,1k token e `xhigh` 108,8k. Su claude-code finisce nei flag di spawn; se il
+ * percorso ACP la ignorasse, dispacciare su jcode toglierebbe il freno del
+ * costo senza dirlo a nessuno.
+ *
+ * A differenza del modello NON arriva dalle opzioni del turno: sta sulla riga
+ * del topic (migrazione 033), quindi qui la si scrive lì e si guarda se esce
+ * dall'altra parte.
+ */
+describe("l'effort del topic arriva all'agente", () => {
+  /** Scrive un topic con quell'effort, come farebbe la board. */
+  function topicWithEffort(sessionKey: string, effort: string | null): void {
+    const slug = sessionKey.replace(/[^a-z0-9]+/gi, "-");
+    const now = new Date().toISOString();
+    getDatabase()
+      .prepare(
+        "INSERT INTO topics (id, name, slug, session_key, effort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(`t-${sessionKey}`, sessionKey, slug, sessionKey, effort, now, now);
+  }
+
+  async function agentEffort(
+    provider: AcpProvider,
+    sessionKey: string,
+  ): Promise<{ current: string; calls: string[] }> {
+    const rec = recorder();
+    await provider.sendChat(sessionKey, "QUALEFFORT", rec.handler);
+    const m = /EFFORT=(\S*) CAMBI=(\S*)/.exec(rec.full);
+    if (!m) throw new Error(`l'agente non ha detto l'effort: ${rec.full}`);
+    return { current: m[1]!, calls: m[2] ? m[2]!.split(",") : [] };
+  }
+
+  test("topic senza effort: non si impone niente", async () => {
+    topicWithEffort("topic:e0", null);
+    const provider = makeProvider();
+    await provider.sendChat("topic:e0", "ciao", recorder().handler);
+    expect((await agentEffort(provider, "topic:e0")).calls).toEqual([]);
+  });
+
+  test("l'effort scritto sul topic viene applicato", async () => {
+    topicWithEffort("topic:e1", "xhigh");
+    const provider = makeProvider();
+    await provider.sendChat("topic:e1", "ciao", recorder().handler);
+    expect((await agentEffort(provider, "topic:e1")).current).toBe("xhigh");
+  });
+
+  test("non si richiede a ogni turno se non è cambiato", async () => {
+    topicWithEffort("topic:e2", "medium");
+    const provider = makeProvider();
+    await provider.sendChat("topic:e2", "uno", recorder().handler);
+    await provider.sendChat("topic:e2", "due", recorder().handler);
+    expect((await agentEffort(provider, "topic:e2")).calls).toEqual(["medium"]);
+  });
+
+  test("agente che non sa cambiare effort: il turno passa lo stesso", async () => {
+    topicWithEffort("topic:e3", "xhigh");
+    const provider = makeProvider({ env: { FAKE_ACP_NO_SET_EFFORT: "1" } });
+    const rec = recorder();
+    await provider.sendChat("topic:e3", "ciao", rec.handler);
+    expect(rec.errors).toEqual([]);
+    expect(rec.done).toHaveLength(1);
+  });
+
+  test("effort rifiutato dal modello: passa, e non si insiste a ogni turno", async () => {
+    // È il caso NORMALE su un modello senza thinking: jcode risponde picche, e
+    // ripetere la richiesta (e l'avviso) a ogni prompt sarebbe rumore per una
+    // preferenza che quel modello non può onorare.
+    topicWithEffort("topic:e4", "xhigh");
+    const provider = makeProvider({ env: { FAKE_ACP_EFFORT_REJECT: "xhigh" } });
+    const rec = recorder();
+    await provider.sendChat("topic:e4", "uno", rec.handler);
+    await provider.sendChat("topic:e4", "due", recorder().handler);
+    expect(rec.errors).toEqual([]);
+    expect((await agentEffort(provider, "topic:e4")).calls).toEqual([]);
   });
 });

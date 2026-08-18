@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask } from './board';
-import { between, compareTasks, groupByStatus, manualStatusTarget, planDrop } from './boardOrder';
+import {
+  applyPendingWrites, between, columnSlice, compareTasks, COLUMN_PAGE, groupByStatus,
+  isPagedColumn, manualStatusTarget, planDrop,
+} from './boardOrder';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,6 +110,73 @@ describe('groupByStatus', () => {
     const b = task({ id: 'aaa', status: 'done' });
     expect(groupByStatus([a, b], 'board').done.map((t) => t.id)).toEqual(['aaa', 'zzz']);
     expect(groupByStatus([b, a], 'board').done.map((t) => t.id)).toEqual(['aaa', 'zzz']);
+  });
+});
+
+describe('columnSlice', () => {
+  const molte = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `t${i}` }));
+
+  test('le colonne di LAVORO si disegnano intere, sempre', () => {
+    // Il tetto toglierebbe una card dal registro di dnd-kit, cioè un bersaglio
+    // di drop: un drag che smette di funzionare senza dire niente.
+    for (const s of ['backlog', 'todo', 'in_progress'] as const) {
+      const r = columnSlice(s, molte(500), COLUMN_PAGE);
+      expect(r.rows.length, s).toBe(500);
+      expect(r.hidden, s).toBe(0);
+      expect(isPagedColumn(s), s).toBe(false);
+    }
+  });
+
+  test('review e done si sfogliano: 449 card chiuse non sono 449 sottoalberi vivi', () => {
+    for (const s of ['review', 'done'] as const) {
+      const r = columnSlice(s, molte(449), COLUMN_PAGE);
+      expect(r.rows.length, s).toBe(COLUMN_PAGE);
+      expect(r.hidden, s).toBe(449 - COLUMN_PAGE);
+      expect(r.rows[0]?.id, s).toBe('t0'); // le prime, cioè le più recenti
+    }
+  });
+
+  test('sotto il tetto non si taglia niente, e la lista è la STESSA (identità)', () => {
+    // Identità e non copia: `SortableContext` riceve gli id da un memo su questa
+    // lista, e un array nuovo a ogni render li rifarebbe tutti.
+    const tasks = molte(3);
+    const r = columnSlice('done', tasks, COLUMN_PAGE);
+    expect(r.rows).toBe(tasks);
+    expect(r.hidden).toBe(0);
+  });
+
+  test('«mostra altri» allarga la fetta finché non resta niente da mostrare', () => {
+    const tasks = molte(60);
+    expect(columnSlice('done', tasks, 25).hidden).toBe(35);
+    expect(columnSlice('done', tasks, 50).hidden).toBe(10);
+    expect(columnSlice('done', tasks, 75).hidden).toBe(0);
+    expect(columnSlice('done', tasks, 75).rows.length).toBe(60);
+  });
+});
+
+describe('applyPendingWrites', () => {
+  test('la lista atterrata non riporta indietro un drop ancora in volo', () => {
+    // La lettura era partita PRIMA che la PATCH finisse: risponde con lo stato
+    // vecchio, ed è una risposta giusta a una domanda vecchia. Finché la
+    // scrittura non ha risposto, comanda la scrittura.
+    const atterrate = [task({ id: 'a', status: 'todo', kanbanOrder: 1 }), task({ id: 'b', status: 'todo' })];
+    const inVolo = new Map([['a', { status: 'done' as const, kanbanOrder: 7 }]]);
+    const rows = applyPendingWrites(atterrate, inVolo);
+    expect(rows[0]!.status).toBe('done');
+    expect(rows[0]!.kanbanOrder).toBe(7);
+    expect(rows[1]!.status).toBe('todo');
+    // Le righe originali non si toccano: la board le condivide con altri lettori.
+    expect(atterrate[0]!.status).toBe('todo');
+  });
+
+  test('nessuna scrittura in volo → la stessa lista, non una copia', () => {
+    const atterrate = [task({ id: 'a' })];
+    expect(applyPendingWrites(atterrate, new Map())).toBe(atterrate);
+  });
+
+  test('una scrittura su una card che la lista non ha ancora non inventa righe', () => {
+    const atterrate = [task({ id: 'a' })];
+    expect(applyPendingWrites(atterrate, new Map([['fantasma', { status: 'done' as const }]])).length).toBe(1);
   });
 });
 
@@ -377,6 +447,61 @@ describe('planDrop', () => {
         expect(src.includes('manualStatusTarget('), `${f} no longer asks the rule`).toBe(true);
         expect(src.match(/status: ['"]in_progress['"]/g) ?? [], `${f} writes the column by hand`).toEqual([]);
       }
+    });
+  });
+
+  describe('un filtro nasconde delle card, non le cancella', () => {
+    // `byStatus` è la colonna FILTRATA — è quella che si vede, ed è giusto che
+    // decida su quale card hai rilasciato. Ma i numeri li tiene la colonna
+    // intera: calcolarli sul sottoinsieme visibile produce posizioni già
+    // occupate, e una rinumerazione che riscrive 1..N sulle sole visibili
+    // lascia le nascoste con i vecchi numeri, cioè rimescola la colonna appena
+    // togli il filtro.
+    const fuori = task({ id: 'fuori', status: 'backlog', kanbanOrder: 9 });
+
+    test('between: il posto è fra i vicini VERI, non fra quelli visibili', () => {
+      const x = task({ id: 'x', kanbanOrder: 1 });
+      const nascosta = task({ id: 'nascosta', kanbanOrder: 2 });
+      const y = task({ id: 'y', kanbanOrder: 3 });
+      const visibile = col([x, y, fuori]);
+      const intera = col([x, nascosta, y, fuori]);
+      const plan = planDrop({ task: fuori, overId: 'y', byStatus: visibile, byStatusAll: intera, scope: 'board' })!;
+      // Senza la colonna intera qui usciva 2: esattamente il numero della card
+      // che non stavi guardando.
+      expect(plan.patch).toEqual({ status: 'todo', kanbanOrder: 2.5 });
+    });
+
+    test('interstizio esaurito: la rinumerazione copre TUTTA la colonna', () => {
+      const x = task({ id: 'x', kanbanOrder: 1 });
+      const y = task({ id: 'y', kanbanOrder: 1 + Number.EPSILON });
+      const h1 = task({ id: 'h1', kanbanOrder: 2 });
+      const h2 = task({ id: 'h2', kanbanOrder: 3 });
+      const z = task({ id: 'z', kanbanOrder: 4 });
+      const visibile = col([x, y, z, fuori]);       // h1 e h2 filtrate via
+      const intera = col([x, y, h1, h2, z, fuori]);
+      const plan = planDrop({ task: fuori, overId: 'y', byStatus: visibile, byStatusAll: intera, scope: 'board' })!;
+      expect(plan.patch).toEqual({ status: 'todo', kanbanOrder: 2 });
+      // Cinque, non tre: prima h1 e h2 restavano ai loro vecchi numeri mentre
+      // le visibili venivano riscritte sopra di essi.
+      expect(plan.renumber).toEqual([
+        { id: 'x', kanbanOrder: 1 },
+        { id: 'y', kanbanOrder: 3 },
+        { id: 'h1', kanbanOrder: 4 },
+        { id: 'h2', kanbanOrder: 5 },
+        { id: 'z', kanbanOrder: 6 },
+      ]);
+      // E il risultato è una colonna senza pari-merito: è questo che la
+      // rinumerazione serve a garantire.
+      const finali = [plan.patch.kanbanOrder!, ...plan.renumber!.map((r) => r.kanbanOrder)];
+      expect(new Set(finali).size).toBe(finali.length);
+    });
+
+    test('senza filtro le due liste sono la stessa, e il piano non cambia', () => {
+      const x = task({ id: 'x', kanbanOrder: 1 });
+      const y = task({ id: 'y', kanbanOrder: 3 });
+      const g = col([x, y, fuori]);
+      expect(planDrop({ task: fuori, overId: 'y', byStatus: g, byStatusAll: g, scope: 'board' }))
+        .toEqual(planDrop({ task: fuori, overId: 'y', byStatus: g, scope: 'board' }));
     });
   });
 

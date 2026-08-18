@@ -21,6 +21,7 @@ import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useMobile } from '@/hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { useTouchDrag } from '@/hooks/useTouchDrag';
+import { useT } from '@/hooks/useT';
 
 /* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
  * `lib/selectionStyles`, importata sopra. Stava in questo file come costante di
@@ -123,6 +124,7 @@ export const TopicItem = memo(function TopicItem({
   const { isTouch, hasHover } = useMobile();
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
+  const tr = useT();
   const isStreaming = useTopicLoading(topic.id);
   // Attention TIER — amber 'input' (a permission gate, act now) vs blue 'done'
   // (turn finished, look when ready), or null. Same signal/look the chat tab
@@ -371,7 +373,7 @@ export const TopicItem = memo(function TopicItem({
       {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
           session, not a local one. Muted tone (not the attention axis). */}
       {topic.provider === 'openclaw' && (
-        <span className={cn("flex-shrink-0 flex items-center", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")} title="Cloud (OpenClaw)" aria-label="Sessione cloud (OpenClaw)">
+        <span className={cn("flex-shrink-0 flex items-center", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")} title="Cloud (OpenClaw)" aria-label={tr('topic.cloudSession')}>
           <Cloud size={12} />
         </span>
       )}
@@ -446,8 +448,15 @@ export const TopicItem = memo(function TopicItem({
         {detachedWindowLabel !== undefined && (
           <span
             className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
-            title="Aperto in un'altra finestra"
-            aria-label="Aperto in un'altra finestra"
+            title={tr('topic.openElsewhere')}
+            aria-label={tr('topic.openElsewhere')}
+            // Un segnale che non parla nessuna lingua, per chi deve TROVARE questo
+            // glifo. `sidebar.spec.ts` lo cercava per `aria-label`, cioe' su una
+            // frase tradotta: quella riga congelava il testo, perche' riscriverlo
+            // faceva rosso — e infatti sta nella tabella dei letterali bloccati in
+            // tests/e2e/CONVENTIONS.md. L'etichetta resta, ed e' giusto che resti:
+            // serve a chi usa uno screen reader. Ma non e' un identificatore.
+            data-elsewhere="true"
           >
             <AppWindow size={12} />
           </span>

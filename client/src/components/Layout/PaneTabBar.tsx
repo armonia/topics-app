@@ -1,7 +1,7 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, Link2 } from 'lucide-react';
+import { X, ArrowUpRight, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -64,7 +64,7 @@ import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 const TAB_DRAG_SLOP_PX = 4;
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
-  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock,
+  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound,
 };
 
 // Tab status reads as two orthogonal cues, both shared with the sidebar so the
@@ -167,6 +167,16 @@ interface PaneTabBarProps {
    * la voce invece di produrre un link non risolvibile.
    */
   linkContext?: TabLinkContext;
+  /**
+   * «Apri nel progetto»: promuove QUESTA scheda nel workspace del progetto.
+   *
+   * Vive sul tasto destro e non su un'icona in testata perché è un gesto che si
+   * fa a una scheda precisa, e il posto dove si parla a una scheda precisa è il
+   * suo menu. La cabla il drawer del task (`useTaskBrowserGroupLayout`); dove
+   * non è cablata la voce non esiste, quindi le barre di primo livello e quelle
+   * di progetto restano com'erano.
+   */
+  onOpenPaneInProject?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
   /** Pop the WHOLE group (all its tabs) out into ONE window ("stacca il gruppo").
@@ -234,7 +244,7 @@ interface PaneTabBarProps {
   subordinate?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, subordinate = false }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, onOpenPaneInProject, subordinate = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -1661,6 +1671,27 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               «Copia URL della pagina» quello del sito che ci sta dentro.
               Il feedback è un toast: il menu si chiude al click, quindi lo swap
               d'icona alla TaskDetail non si vedrebbe mai. */}
+          {/* «Apri nel progetto». Sta PRIMA dei due «copia link» perché è
+              l'unico gesto di questo menu che sposta la scheda invece di
+              descriverla, e perché è quello che si cerca: prima viveva come
+              icona-mappamondo nella testata del drawer, senza nome scritto e
+              per TUTTE le tab insieme. Qui parla alla tab su cui hai premuto. */}
+          {onOpenPaneInProject && (() => {
+            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+            if (!ctxPane || ctxPane.type !== 'browser') return null;
+            const paneId = ctxMenu.paneId;
+            return (
+              <button
+                onClick={() => { onOpenPaneInProject(paneId); setCtxMenu(null); }}
+                data-testid="tab-menu-open-in-project"
+                title={tr('board.task.openTabInProjectTitle')}
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                <ArrowUpRight size={14} />
+                <span className="flex-1 text-left">{tr('board.task.openTabInProject')}</span>
+              </button>
+            );
+          })()}
           {(() => {
             const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
             if (!ctxPane) return null;

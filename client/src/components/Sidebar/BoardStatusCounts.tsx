@@ -4,6 +4,7 @@ import { StatusIcon } from '../Board/atoms';
 import { STATUS_GLYPH_PX, STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { SUMMARY_STATUSES } from '../../lib/boardTabCounts';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
+import { useT } from '../../hooks/useT';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
@@ -171,6 +172,7 @@ function ProjectChip({ chip }: { chip: BoardProjectChip }) {
  * direbbe «visibile» mentre l'utente non vede niente.
  */
 export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, BoardTask[]> | undefined }) {
+  const tr = useT();
   const index = useBoardProjects();
   const tutti = useMemo(() => boardProjectChips(byStatus, index), [byStatus, index]);
   /**
@@ -327,7 +329,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
       {nascosti > 0 && (
         <span
           data-testid="board-project-more"
-          title={`Altri ${nascosti} progetti con task aperti`}
+          title={tr('board.projects.more', { n: nascosti })}
           className="flex-shrink-0 tabular-nums text-[11px] text-app-text-tertiary"
         >
           +{nascosti}

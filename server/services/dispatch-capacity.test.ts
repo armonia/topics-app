@@ -1,10 +1,14 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 
 function dbConImpostazioni(): Database {
   const db = new Database(":memory:");
+  // migration 20260816112635: l'interruttore GLOBALE dell'auto-dispatch vive in
+  // `app_settings`, non piu' sulla riga '*' di `board_settings`.
+  db.run(`CREATE TABLE IF NOT EXISTS app_settings (id INTEGER PRIMARY KEY CHECK (id = 1), auto_dispatch INTEGER)`);
+  db.run(`INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0)`);
   db.run(`CREATE TABLE board_settings (project_id TEXT PRIMARY KEY, max_agents INTEGER, max_agents_auto INTEGER)`);
   return db;
 }
@@ -153,12 +157,23 @@ describe("il tetto disattivato", () => {
  * path sbagliato, cioè causerebbe un guasto peggiore di quello che previene.
  */
 describe("il pavimento sulle risorse", () => {
+  /**
+   * Memoria fissata, e non e' pigrizia: questi casi giudicano il DISCO, e
+   * `dispatchResourceBlock` legge di sua iniziativa anche la RAM della macchina
+   * che esegue la suite. Lasciandola vera, il verde di «con spazio non blocca»
+   * dipenderebbe da quanti Chrome sono aperti mentre gira il test — misurato il
+   * 2026-08-16: 12,09 GB disponibili contro un pavimento di 12, cioe' a un
+   * decimo dal rosso. E' lo stesso difetto gia' pagato in tasks.test.ts, dove
+   * un test misurava il TMPDIR di chi lo lanciava.
+   */
+  const memoriaLarga = () => DISPATCH_MEM_FLOOR_GB + 8;
+
   test("con spazio non blocca", () => {
-    expect(dispatchResourceBlock("/")).toBeNull();
+    expect(dispatchResourceBlock("/", freeDiskGB, memoriaLarga)).toBeNull();
   });
 
   test("un path che non si legge NON blocca: non sapere non è sapere di no", () => {
-    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero")).toBeNull();
+    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero", freeDiskGB, memoriaLarga)).toBeNull();
     expect(freeDiskGB("/percorso/che/non/esiste/davvero")).toBeNull();
   });
 
@@ -175,7 +190,7 @@ describe("il pavimento sulle risorse", () => {
   test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
     // Misura iniettata: il caso che conta è il disco quasi pieno, e aspettarlo
     // sul serio vorrebbe dire non provarlo mai.
-    const msg = dispatchResourceBlock("/qualunque", () => 3.5);
+    const msg = dispatchResourceBlock("/qualunque", () => 3.5, memoriaLarga);
     expect(msg).not.toBeNull();
     expect(msg!).toContain("3.5 GB liberi");
     expect(msg!).toContain(String(DISPATCH_DISK_FLOOR_GB));
@@ -185,12 +200,111 @@ describe("il pavimento sulle risorse", () => {
   });
 
   test("un solo GB sopra il pavimento non blocca: la soglia è una soglia", () => {
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1)).toBeNull();
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB)).toBeNull();
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1)).not.toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1, memoriaLarga)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB, memoriaLarga)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1, memoriaLarga)).not.toBeNull();
   });
 });
 
+/**
+ * IL PAVIMENTO SULLA MEMORIA.
+ *
+ * Provato nei DUE versi di proposito: un pavimento che scatta sempre non è una
+ * guardia, è il dispatch spento, e sarebbe verde in un test che controlla solo
+ * «blocca quando la RAM è finita». Il caso che tiene onesto questo file è
+ * l'altro — con memoria in abbondanza NON deve mordere.
+ *
+ * La sonda è iniettata ovunque: leggerla dalla macchina vera renderebbe
+ * l'asserzione dipendente da cosa gira mentre la suite passa, che è esattamente
+ * il difetto già pagato altrove in questo repo.
+ */
+describe("il pavimento sulla memoria", () => {
+  // Disco largo: qui si giudica solo la RAM, e con un disco pieno la prima
+  // frase vincerebbe sempre nascondendo la seconda.
+  const discoLargo = () => 999;
+
+  test("con memoria in abbondanza NON blocca", () => {
+    expect(dispatchResourceBlock("/qualunque", discoLargo, () => DISPATCH_MEM_FLOOR_GB + 8)).toBeNull();
+  });
+
+  test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
+    const msg = dispatchResourceBlock("/qualunque", discoLargo, () => 2.1);
+    expect(msg).not.toBeNull();
+    expect(msg!).toContain("2.1 GB disponibili");
+    expect(msg!).toContain(String(DISPATCH_MEM_FLOOR_GB));
+    expect(msg!).toContain("Riprendo");
+  });
+
+  test("la soglia è una soglia, e il verso è «sotto blocca»", () => {
+    expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB + 0.1)).toBe(false);
+    expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB)).toBe(false);
+    expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB - 0.1)).toBe(true);
+  });
+
+  test("non sapere non è sapere di no: sonda muta = via libera", () => {
+    // Stessa regola del disco. Su Linux e Windows la sonda non c'è affatto, e
+    // un `null` trattato come «zero GB» spegnerebbe il dispatch su ogni host
+    // che non sia un Mac.
+    expect(memoryTooTight(null)).toBe(false);
+    expect(memoryTooTight(Number.NaN)).toBe(false);
+    expect(dispatchResourceBlock("/qualunque", discoLargo, () => null)).toBeNull();
+  });
+
+  test("una sonda che esplode non ferma la coda", () => {
+    expect(
+      dispatchResourceBlock("/qualunque", discoLargo, () => { throw new Error("vm_stat non c'è"); }),
+    ).toBeNull();
+  });
+
+  test("il disco vince sulla memoria: una frase sola per card", () => {
+    // Entrambi sotto: due frasi insieme sono rumore, e il disco va per primo
+    // perché un disco pieno ROMPE (scritture SQLite) mentre la RAM degrada.
+    const msg = dispatchResourceBlock("/qualunque", () => 1, () => 1);
+    expect(msg!).toContain("Disco quasi pieno");
+    expect(msg!).not.toContain("Memoria quasi finita");
+  });
+
+  test("legge vm_stat davvero: pagine libere + speculative + inattive", () => {
+    // Un vm_stat finto ma nella forma vera, cosi' l'unita' e' verificata senza
+    // dipendere da quanta RAM ha la macchina che esegue la suite.
+    // 65536 pagine da 16384 byte = 1,073 GB per ciascuna delle tre voci.
+    const finto = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                65536.",
+      "Pages active:                             700000.",
+      "Pages inactive:                            65536.",
+      "Pages speculative:                         65536.",
+      "Pages throttled:                               0.",
+    ].join("\n");
+    const gb = availableMemGB(() => finto);
+    expect(gb).not.toBeNull();
+    // 3 x 65536 x 16384 / 1e9 = 3,221 GB. Un errore di unita' (pagine contate
+    // come byte) darebbe 0,0002 e il pavimento morderebbe SEMPRE.
+    expect(gb!).toBeCloseTo(3.221, 2);
+  });
+
+  test("le pagine ATTIVE non contano: sono in uso, non disponibili", () => {
+    // La riga `Pages active` del campione sopra vale 700000 pagine, cioe' 11,5
+    // GB: se finisse nel totale il pavimento non morderebbe mai su una macchina
+    // piena, che e' precisamente il caso per cui esiste.
+    const conAttive = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                65536.",
+      "Pages active:                             700000.",
+      "Pages inactive:                            65536.",
+      "Pages speculative:                         65536.",
+    ].join("\n");
+    expect(availableMemGB(() => conAttive)!).toBeLessThan(4);
+  });
+
+  test("un output illeggibile vale «non lo so», non una sottostima", () => {
+    // Una voce mancante e il totale sarebbe piu' basso del vero, cioe' un
+    // pavimento che morde quando non deve: peggio del non sapere.
+    expect(availableMemGB(() => "roba che non e' vm_stat")).toBeNull();
+    expect(availableMemGB(() => "Pages free: 100.\nPages inactive: 50.")).toBeNull(); // manca page size
+    expect(availableMemGB(() => null)).toBeNull();
+  });
+});
 
 describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", () => {
   // 12 core = il Mac su cui il difetto è stato misurato: quota 6 core-unità.
@@ -298,5 +412,108 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
   test("`running` non gonfia mai il tetto oltre lo strutturale", () => {
     const cap = computeDispatchCapacity(99, () => ({ coreUnits: 0, cores }));
     expect(cap.recommended).toBe(structuralDispatchCapacity());
+  });
+});
+
+/**
+ * IL PAVIMENTO DEVE SAPERE COSA COSTA UN AGENTE.
+ *
+ * Tutta la taratura a 12 GB misura una CLI: 240 MB fermi, 320-420 al lavoro,
+ * cinque agenti veri più il margine per chi sta usando il Mac. Col runtime
+ * nativo un agente costa 2,3 MB — dieci ne costano meno di UNO con la CLI — e
+ * tenere lo stesso margine ferma la coda su una macchina che sta benissimo.
+ *
+ * Non è teoria: il 2026-08-16 il dispatch era bloccato con 8,7 GB liberi
+ * mentre gli agenti che doveva lanciare ne avrebbero chiesti venti di megabyte.
+ */
+describe("il pavimento della memoria segue il runtime", () => {
+  const disco = () => 500; // disco largo: qui si guarda solo la RAM
+  const ram = (gb: number) => () => gb;
+
+  test("con le CLI: 8,7 GB non bastano, ed è giusto", () => {
+    const r = dispatchResourceBlock("/tmp", disco, ram(8.7), true);
+    expect(r).toBeTruthy();
+    expect(r).toContain("pavimento di 12 GB");
+    expect(r).toContain("240 MB");
+  });
+
+  test("col runtime nativo: gli stessi 8,7 GB sono abbondanti", () => {
+    // LA RIGA CHE CONTA: stessa macchina, stessa lettura, coda che riparte.
+    expect(dispatchResourceBlock("/tmp", disco, ram(8.7), false)).toBeNull();
+  });
+
+  test("il pavimento nativo esiste comunque: sotto 2 GB si ferma anche lui", () => {
+    // Non è zero: il server tiene le conversazioni in memoria e i tool leggono
+    // file. Una macchina già in swap non deve peggiorare comunque.
+    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false);
+    expect(r).toBeTruthy();
+    expect(r).toContain("pavimento di 2 GB");
+    // E il messaggio dice il costo GIUSTO: citare i 240 MB della CLI qui
+    // manderebbe a cercare la causa nel posto sbagliato.
+    expect(r).not.toContain("240 MB");
+    expect(r).toContain("2,3 MB");
+  });
+
+  test("il disco viene prima della RAM, su entrambi i runtime", () => {
+    // Un disco pieno rompe (SQLite smette di scrivere) mentre la RAM degrada:
+    // l'ordine non cambia col runtime.
+    for (const processi of [true, false]) {
+      const r = dispatchResourceBlock("/tmp", () => 1, ram(0.5), processi);
+      expect(r).toContain("Disco quasi pieno");
+    }
+  });
+
+  test("una misura assente non ferma la coda, con nessuno dei due pavimenti", () => {
+    // «Non lo so» non è «zero»: un errore di lettura fermerebbe tutto per
+    // sempre. Vale identico sulle due strade.
+    expect(dispatchResourceBlock("/tmp", () => null, () => null, true)).toBeNull();
+    expect(dispatchResourceBlock("/tmp", () => null, () => null, false)).toBeNull();
+  });
+});
+
+/**
+ * IL PREZZO DI AMMISSIONE SEGUE IL RUNTIME.
+ *
+ * Il pavimento sapeva già distinguere una CLI da una sessione nativa; il TETTO
+ * no, e prenotava 3 GB a testa anche per sessioni che ne costano 2,3 di
+ * megabyte. Su questa macchina (34 GB) il conto dava 11 posti e non mordeva,
+ * ma su una macchina piccola sì: 8 GB di RAM davano DUE posti a un runtime che
+ * ne regge decine, ed è lì che i task partivano a scaglioni.
+ *
+ * I test non leggono la RAM di chi li esegue: fissano il caso che conta (la
+ * macchina piccola) ragionando sui due divisori, così l'asserzione non dipende
+ * dall'host che fa girare la suite.
+ */
+describe("il tetto conosce il runtime: 3 GB per una CLI, 0,25 per una sessione nativa", () => {
+  test("i due prezzi non sono lo stesso numero, e il nativo costa molto meno", () => {
+    // Se un giorno qualcuno li riallinea, i test qui sotto passerebbero per
+    // caso: questa riga è la sentinella che rende visibile la regressione.
+    expect(GB_PER_AGENT_NATIVE).toBeLessThan(GB_PER_AGENT_CLI);
+  });
+
+  test("col runtime nativo la RAM non è più il vincolo che stringe", () => {
+    // `byMem` col nativo vale `RAM / 0,25` — su qualunque macchina che regga
+    // Topics è ≥ 8, cioè il tetto massimo automatico. Quindi il numero che
+    // comanda deve essere quello dei CORE, mai più quello della memoria.
+    const native = structuralDispatchCapacity(false);
+    const cli = structuralDispatchCapacity(true);
+    expect(native).toBeGreaterThanOrEqual(cli);
+  });
+
+  test("il default resta la CLI: chi non passa niente ottiene il conto prudente", () => {
+    // Un parametro con default sbagliato allarga il tetto di nascosto su ogni
+    // chiamante che non è stato aggiornato. Il default deve essere il vecchio
+    // comportamento, e questo lo inchioda.
+    expect(structuralDispatchCapacity()).toBe(structuralDispatchCapacity(true));
+  });
+
+  test("stessa regola in `computeDispatchCapacity`, non solo nella strutturale", () => {
+    // Le due funzioni rispondono a domande diverse ma dividono per lo stesso
+    // prezzo: se una imparasse il runtime e l'altra no, il tetto e il divisore
+    // della quota direbbero due cose diverse sulla stessa macchina.
+    const probe = () => ({ coreUnits: 0, cores: 12 });
+    const native = computeDispatchCapacity(0, probe, false).recommended;
+    const cli = computeDispatchCapacity(0, probe, true).recommended;
+    expect(native).toBeGreaterThanOrEqual(cli);
   });
 });

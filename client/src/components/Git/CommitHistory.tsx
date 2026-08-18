@@ -4,6 +4,7 @@ import { gitApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
 import { Spinner } from '../Shared/Spinner';
 import type { GitLogEntry, GitCommitDetail, GitCommitFile } from '../../types';
+import { useT } from '../../hooks/useT';
 
 /**
  * La cronologia dei commit.
@@ -94,6 +95,7 @@ export interface CommitHistoryProps {
 }
 
 export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 'section' }: CommitHistoryProps) {
+  const t = useT();
   const inPopover = variant === 'popover';
   // Nel popover è sempre aperta: chi l'ha aperto ha già espresso l'intenzione.
   const [expanded, setExpanded] = useState(inPopover);
@@ -206,7 +208,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
         <div className={inPopover ? 'pb-1 overflow-y-auto flex-1 min-h-0' : 'pb-1 overflow-y-auto flex-1 min-h-0 max-h-[220px]'}>
           {errore && <div className="px-3 py-1 text-[11px] text-red-500">{errore}</div>}
           {!errore && !loading && commits.length === 0 && (
-            <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessun commit</div>
+            <div className="px-3 py-1 text-[11px] text-app-text-muted">{t('git.history.noCommits')}</div>
           )}
 
           {commits.map(c => {
@@ -231,11 +233,11 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
                 {aperto && (
                   <div className="bg-app-hover/40">
                     {caricandoDettaglio && (
-                      <div className="px-3 py-1 text-[11px] text-app-text-muted">Carico…</div>
+                      <div className="px-3 py-1 text-[11px] text-app-text-muted">{t('common.loading')}</div>
                     )}
                     {!caricandoDettaglio && dettaglio?.files.length === 0 && (
                       <div className="px-3 py-1 text-[11px] text-app-text-muted">
-                        Nessun file di questo progetto in questo commit
+                        {t('git.history.noFilesHere')}
                       </div>
                     )}
                     {!caricandoDettaglio && dettaglio?.files.map(f => (
@@ -258,7 +260,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
               onClick={() => setLimit(l => l + PAGINA)}
               className="w-full px-3 py-1 text-[11px] text-primary hover:underline text-left"
             >
-              Mostra altri {PAGINA}
+              {t('git.history.showMore', { n: PAGINA })}
             </button>
           )}
         </div>

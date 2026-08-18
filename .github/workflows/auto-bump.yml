@@ -1,28 +1,50 @@
 name: Auto-bump patch
 
-# Every push to main auto-increments the PATCH (the z in x.y.z) in lockstep
-# across package.json / tauri.conf.json / Cargo.toml, commits it back, and THEN
-# builds + publishes the Tauri installers for that version — so every merge to
-# main ships to everyone's auto-updater with no manual step (policy: main is
-# always shipped, approved 2026-07-10).
+# Ogni push su main auto-incrementa la PATCH (la z in x.y.z) in lockstep su
+# package.json / tauri.conf.json / Cargo.toml, la committa indietro, e POI
+# costruisce e pubblica gli installer Tauri per quella versione — cosi' ogni
+# merge su main arriva all'auto-updater di tutti senza un passo manuale.
 #
-# Loop safety: the bump commit itself starts with "chore(release):", so the `if`
-# below skips it — the workflow never bumps its own bump. (The default
-# GITHUB_TOKEN also cannot trigger another workflow run, a second layer of
-# protection.) We deliberately do NOT also match "[skip-bump]" anywhere in the
-# message: a squash-merge concatenates the branch's commit messages into the
-# body, so a PR that merely mentions the loop guard would be skipped by accident.
+# IL CANCELLO, ed e' il motivo per cui questo file e' cambiato il 2026-08-16.
+# La policy «main e' sempre spedito» (approvata 2026-07-10) diceva che gli
+# installer si costruiscono a ogni merge, e la build stessa era il cancello: un
+# merge che rompe la compilazione non pubblica niente. Misurato su 60 run, quel
+# cancello lascia passare tutto il resto: 37 release riuscite, 28 delle quali su
+# uno SHA la cui CI era rossa o cancellata. Compilare non e' passare i test —
+# quello che arrivava all'auto-updater di tutti era codice che non aveva mai
+# superato typecheck, lint e suite.
 #
-# Why the release runs HERE instead of from the `tauri-v*` tag: CI's built-in
-# GITHUB_TOKEN can't trigger a tag- or dispatch-driven workflow, and we use no
-# repo PAT. This job is triggered by a human merge push, which CAN fan out to
-# downstream jobs — so it calls tauri-release.yml directly (workflow_call) on the
-# freshly-bumped commit. The installer build is itself the gate: a merge that
-# breaks compilation fails the build and publishes nothing. (Lint/unit run in
-# parallel in ci.yml; they don't block the publish — acceptable per the "always
-# shipped" policy. `scripts/ship.sh` remains for one-off manual releases.)
+# «Sempre spedito» resta, e questo NON lo annulla: non c'e' nessun passo umano
+# nuovo, nessuna approvazione, nessun tag da battere a mano. Cambia solo COSA
+# conta come merge sano — la CI verde invece della sola compilazione. Un rosso
+# non mette la release in attesa di qualcuno: la salta, e il commit successivo
+# che passa la CI spedisce anche il contenuto di quello saltato, perche' la
+# versione e' un contatore e non una coda.
+#
+# PERCHE' `workflow_run` E NON UN POLLING. Le due strade erano: restare su
+# `push` e interrogare la conclusione della CI per quello SHA, oppure farsi
+# svegliare dalla CI quando ha finito. La prima paga la CI due volte — dieci
+# minuti di runner fermo ad aspettare un altro runner — e ha bisogno di un
+# timeout, che e' un terzo numero da tarare. La seconda arriva a cose fatte, con
+# la conclusione gia' nel payload. Una sola, come chiedeva il task.
+#
+# NIENTE LOOP, e per due ragioni indipendenti. Il commit di bump e' pushato con
+# il GITHUB_TOKEN di default, che per costruzione non fa scattare altri
+# workflow: la CI non gira sul bump, quindi non esiste un `workflow_run` che lo
+# riguardi e questo file non puo' svegliarsi su se stesso. La guardia sul
+# prefisso `chore(release):` resta come seconda rete, perche' una rete sola su
+# un ciclo che pubblica agli utenti non basta.
+#
+# Perche' la release gira QUI e non da un tag `tauri-v*`: il GITHUB_TOKEN non
+# puo' far partire un workflow guidato da tag o da dispatch, e non usiamo PAT.
+# Il job `release` non e' un fan-out ma una CHIAMATA diretta (`workflow_call`)
+# dentro questo stesso run, quindi continua a funzionare anche ora che il
+# trigger non e' piu' un push umano. `scripts/ship.sh` resta per i rilasci
+# manuali una tantum.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
 concurrency:
@@ -31,7 +53,16 @@ concurrency:
 
 jobs:
   bump:
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    # Tre condizioni, e nessuna e' ridondante:
+    #  - la CI dev'essere VERDE. `cancelled`, `failure` e `timed_out` sono tutti
+    #    «non lo sappiamo o sappiamo di no», e nessuno dei tre merita gli utenti;
+    #  - il push dev'essere su main. `branches:` sopra gia' filtra, ma il payload
+    #    di workflow_run porta il ramo della CI e vale dirlo dove si legge;
+    #  - il commit non dev'essere un bump. Rete di sicurezza sul loop.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.head_branch == 'main'
+          && !startsWith(github.event.workflow_run.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -42,25 +73,52 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          # Lo SHA ESATTO che la CI ha giudicato, non «main adesso»: fra la fine
+          # della CI e questo job main puo' essere avanzato, e bumpare un
+          # contenuto diverso da quello approvato e' esattamente il buco che
+          # questo cancello esiste per chiudere.
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Bump patch across lockstep files
         id: bump
         run: echo "version=$(bash scripts/bump-version.sh patch)" >> "$GITHUB_OUTPUT"
 
+      # Il changelog e' GENERATO dalla storia di git (scripts/gen-changelog.mjs),
+      # quindi la versione appena bumpata puo' averlo solo DOPO il bump e prima
+      # del commit. Girava a mano: il commit del 12/08 prometteva «non e' piu'
+      # un passo che qualcuno deve ricordarsi» e non lo aggancio' a niente —
+      # tre giorni dopo era indietro di 37 versioni, ed e' il changelog che
+      # l'utente legge dentro l'app e sulla landing.
+      #
+      # Non blocca la release: un changelog che non si rigenera e' un difetto,
+      # fermare la spedizione per quello sarebbe peggio del difetto.
+      - name: Regenerate the changelog for this version
+        continue-on-error: true
+        run: node scripts/gen-changelog.mjs
+
       - name: Commit the bump back to main
         id: push
         env:
           VERSION: ${{ steps.bump.outputs.version }}
-          BRANCH: ${{ github.ref_name }}
+          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(release): bump v${VERSION}"
-          git push origin "HEAD:${BRANCH}"
+          # `--force-with-lease` NO, e nemmeno un push cieco: se main e'
+          # avanzato mentre la CI girava, il push non e' fast-forward e DEVE
+          # fallire. Spingerlo comunque cancellerebbe il commit di qualcun
+          # altro; rifarlo sulla punta nuova pubblicherebbe codice che la CI non
+          # ha visto. Salta, e la release la fa il merge successivo — che porta
+          # dentro anche questo, perche' e' gia' in main.
+          if ! git push origin "HEAD:main"; then
+            echo "::warning::main e' avanzato oltre ${APPROVED_SHA} mentre la CI girava: bump saltato, lo spedisce il prossimo merge verde."
+            exit 1
+          fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  # Build + publish the installers for the just-bumped version, live to everyone.
-  # Runs in THIS (human-triggered) run; auto-skips when `bump` is skipped.
+  # Build + publish degli installer per la versione appena bumpata, live a
+  # tutti. Si salta da solo quando `bump` e' saltato (CI non verde).
   release:
     needs: bump
     permissions:

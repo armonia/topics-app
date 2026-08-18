@@ -3,7 +3,8 @@
 > A desktop workspace for CLI coding agents. Several agents work the same
 > repository at once — each inside its own git worktree, so none of them collide —
 > and you watch, review and land their work from one window. Free, MIT, runs
-> entirely on your machine, no account, no telemetry, no cloud that reads your code.
+> entirely on your machine, no account, no analytics, no cloud that reads your code.
+> Reaching it from outside your network is a paid relay; everything local works without it.
 
 Topics is not an editor and not a model. It is the room the agents work in. It
 drives the agent CLIs you already have installed — Claude Code, Codex, OpenCode,
@@ -22,7 +23,7 @@ separate human clicks, because "done" should mean you said so.
 
 - [Topics](https://topics.armonia.io): what it is, what it does, and a live demo running the real client with sample data.
 - [Install and adopt Topics](https://topics.armonia.io/agents.md): written for a coding agent asked to set it up. Install commands per platform, what to expect on first launch, and what Topics does not have.
-- [Changelog](https://topics.armonia.io/changelog.html): every release. 141 versions in the nine weeks since the repository was created on 2026-06-01.
+- [Changelog](https://topics.armonia.io/changelog): every released version, newest first, each with the date it shipped. Count them there rather than quoting a number from here: releases are automatic on every merge to main, so any total written on this page is stale by the time you read it.
 
 ## Source
 
@@ -34,15 +35,15 @@ separate human clicks, because "done" should mean you said so.
 ## What it costs you
 
 - [Privacy](https://github.com/armonia/topics-app/blob/main/PRIVACY.md): no analytics, no crash reporting, nothing phones home. Conversations and project data sit in `~/.openclaw` on your disk.
-- [Security](https://github.com/armonia/topics-app/blob/main/SECURITY.md): the app ships with no authentication of its own. If you expose it over a tunnel, put your own auth in front of it.
+- [Security](https://github.com/armonia/topics-app/blob/main/SECURITY.md): the server listens on every interface by default, and reaching the port is not the same as getting in. The machine Topics runs on is the owner; every other device is authorized once from that machine, holds its own token afterwards, and can be revoked. Set `SERVER_HOST=127.0.0.1` to keep it on loopback. Exposing it to the public internet through a tunnel is discouraged and stays your responsibility.
 - Model billing is yours and stays between you and the provider. Topics never proxies inference, never holds a key of its own, and takes no cut.
 
 ## Known limits, stated by us
 
 - **macOS shows a Gatekeeper warning.** The app is ad-hoc signed, not notarized. Since macOS Sequoia the Control-click bypass no longer exists: the path is System Settings → Privacy & Security → Open Anyway. Any guide telling you to right-click and Open is out of date.
-- **There is no hosted anything.** No relay, no managed remote access, no off-machine backup, no accounts, no team roles. Cross-device sync and remote access work today over a tunnel you run yourself.
+- **There is no hosted anything.** No relay, no managed remote access, no off-machine backup, no accounts, no team roles. Cross-device sync and remote access work today over a tunnel you run yourself. Devices are paired rather than signed in: one approval from the machine Topics runs on, one token per device, revocable.
 - **Mobile is a PWA**, not a native app.
-- **The project is young**: the repository was created on 2026-06-01.
+- **The project is young**: first commit 2026-02-11, public on GitHub since 2026-06-01.
 
 ## Terms
 

@@ -171,7 +171,7 @@ export interface UseProjectLayoutReturn {
     /** Immediate close — bypasses the countdown (right-click "Close now"). */
     closeNow: (groupId: string, paneId: string) => void;
     addToGroup: (groupId: string, type: PaneType, subType?: string) => Promise<string | undefined>;
-    addWhenEmpty: (type: PaneType, subType?: string) => Promise<void>;
+    addWhenEmpty: (type: PaneType, subType?: string, paneKey?: string) => Promise<string | undefined>;
     reorderGroupPanes: (groupId: string, newPaneIds: string[]) => void;
     moveBetweenGroups: (sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => void;
     splitGroup: (sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => void;
@@ -327,6 +327,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // (`window.close()` → `browser:request-close`) entra da `useProjectBrowserPanes`,
   // montato in cima, ma `handleClosePane` nasce ~700 righe più in basso.
   const handleClosePaneRef = useRef<((groupId: string, paneId: string) => void) | null>(null);
+  // Stessa plumbing per il progetto SENZA gruppi. `handleAddPaneToGroup` vuole
+  // un gruppo che lì non esiste, e senza questo l'unica risposta possibile era
+  // «non fare niente»: un progetto con tutte le tab chiuse ingoiava in silenzio
+  // l'apertura chiesta dalla board («Apri nel workspace»). Vedi la guardia
+  // `if (!fgid)` in `useProjectBrowserPanes`.
+  const handleAddPaneWhenEmptyRef = useRef<((type: PaneType, subType?: string, paneKey?: string) => Promise<string | undefined>) | null>(null);
 
   // Forward-declared ref so the pendingFocusTopicId effect (mounted ~80
   // lines below) can call `reopenChatPane`, which is itself defined
@@ -379,6 +385,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     onWSMessage,
     onBrowserNavigateUrl,
     handleAddPaneToGroupRef,
+    handleAddPaneWhenEmptyRef,
     handleSplitGroupRef,
     handleClosePaneRef,
     updatePaneRef,
@@ -1050,7 +1057,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   handleAddPaneToGroupRef.current = handleAddPaneToGroup;
 
   const handleAddPaneWhenEmpty = useCallback(
-    async (type: PaneType, subType?: string) => {
+    // `paneKey` come in `handleAddPaneToGroup`: una pane browser deve poter
+    // nascere legata al SUO contextId (`browser:<ctx>`), altrimenti chi la
+    // apre non la ritrova e l'agente non la sa pilotare. Il menu «+» non lo
+    // passa e ottiene l'id casuale di prima.
+    async (type: PaneType, subType?: string, paneKey?: string) => {
       const config = PANE_CONFIG[type];
       if (!config || config.fixed) return;
 
@@ -1075,7 +1086,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           return;
         }
       } else {
-        paneId = createPaneId(type);
+        paneId = createPaneId(type, paneKey);
         paneTitle = config.label;
       }
 
@@ -1110,9 +1121,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         return [...cleaned, newGroup];
       });
       setFocusedGroupId(newGroupId);
+      return paneId;
     },
     [projectPath, claudeSkipPermissions],
   );
+
+  // Pinned each render, come `handleAddPaneToGroupRef`: l'effetto browser è
+  // montato in cima a questo hook e questo handler nasce qui, ~700 righe sotto.
+  handleAddPaneWhenEmptyRef.current = handleAddPaneWhenEmpty;
 
   // --- Pending pane request from sidebar ---
   useEffect(() => {

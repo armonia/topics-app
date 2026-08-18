@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -34,21 +34,24 @@ import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
+import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
-import { createLandingQueue, type LandingTicket } from "../services/landing-queue";
+import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { MAX_CHECKS, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { MAX_CHECKS, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
+import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
+import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -168,6 +171,22 @@ export interface TasksRouterOpts {
    */
   taskWorktreeDirt?: (taskId: string) => Promise<string[] | null>;
   /**
+   * Come `taskWorktreeDirt`, ma dice anche SE ha potuto leggere.
+   * `ok: false` = `git status` non ha risposto: trattare come sporco.
+   * Chi distrugge usa questa; chi solo consiglia usa `taskWorktreeDirt`.
+   */
+  taskWorktreeDirtProbe?: (taskId: string) => Promise<{ ok: boolean; paths: string[] } | null>;
+  /**
+   * Il task ha (o ha avuto) un tentativo con worktree di ramo registrato?
+   *
+   * Serve al cancello `review_needs_commit` per distinguere «non ho trovato
+   * il worktree» da «questo task non ha mai avuto un ramo» quando la sonda
+   * torna `null`. Senza questa distinzione, un task rilasciato dal dispatcher
+   * (che azzera `assigned_topic_id`) passava il cancello in silenzio anche
+   * con 279 righe non committate — incidente 18/08, card `171b787d`.
+   */
+  taskHasBranchAttempt?: (taskId: string) => boolean;
+  /**
    * Il progetto di questa board può davvero avere un worktree isolato?
    *
    * È una condizione del BOARD, non del task, ma si scopriva una volta PER
@@ -197,7 +216,11 @@ export interface TasksRouterOpts {
    * ha avuto risposta: si lascia stare quel che c'è). `commit: null` ⇒ verificato,
    * la card non ha prodotto codice — che è un'informazione, e va registrata.
    */
-  taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string | null } | null>;
+  taskDeliveryRef?: (taskId: string) => Promise<{
+    branch: string; commit: string | null;
+    /** L'entità del lavoro consegnato, quando git ha saputo dirla. */
+    filesChanged?: number; insertions?: number; deletions?: number;
+  } | null>;
   /**
    * Dove girano i checks pre-review: la cartella del worktree del task e il commit
    * su cui sta in quel momento. `null` ⇒ nessun worktree di branch (task in-place),
@@ -287,6 +310,14 @@ export interface TasksRouterOpts {
    * motivo invece di tacere.
    */
   preparePreview?: (taskId: string, opts?: { explain?: boolean }) => Promise<void>;
+  /**
+   * Callback chiamata subito dopo che il `checksGate` interno e' stato creato.
+   * Serve a `server.ts` per passare `checksGate.runningCount` al dispatcher:
+   * il gate e' una closure della rotta, ma il dispatcher nasce prima della rotta
+   * e non puo' riceverlo al costruttore. Con questo hook il wiring e' immediato
+   * e senza accoppiamenti circolari.
+   */
+  onChecksGate?: (gate: import("../services/checks-gate").ChecksGate) => void;
 }
 
 /**
@@ -342,7 +373,7 @@ function parseLabelsParam(raw: string | null): string[] | undefined {
  * niente. `[]` = verificato, nessun file — che NON è invisibilità (vedi
  * `deriveCloser`): una card senza codice è una DECISIONE, e la chiude un umano.
  */
-async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<TaskFile[] | null> {
+export async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<TaskFile[] | null> {
   const head = await runGitCap(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const branch = head.code === 0 ? head.out.trim() : "";
   if (!branch || branch === "HEAD") return null; // detached: non c'è un ramo di cui dire "suo"
@@ -544,16 +575,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    */
   async function reapAfterLand(taskId: string, outcome: LandOutcome): Promise<void> {
     if (!opts?.deleteTaskWorktree) return;
-    const [dirtAfter, branchAfter] = await Promise.all([
-      opts.taskWorktreeDirt?.(taskId).catch(() => null) ?? Promise.resolve(null),
+    const [dirtProbe, branchAfter] = await Promise.all([
+      opts.taskWorktreeDirtProbe?.(taskId).catch(() => null) ?? Promise.resolve(null),
       opts.taskBranchStatus?.(taskId).catch(() => "unmerged" as BranchStatus) ?? Promise.resolve(null),
     ]);
     // No branch worktree to reason about (in-place task) → nothing to reap.
-    if (dirtAfter === null && branchAfter === null) return;
+    if (dirtProbe === null && branchAfter === null) return;
     const post = decidePostLandReap({
       outcome,
       branchAfter: branchAfter ?? "gone",
-      dirtAfter: dirtAfter ?? [],
+      dirtAfter: dirtProbe?.paths ?? [],
+      dirtReadable: dirtProbe === null ? undefined : dirtProbe.ok,
     });
     // `free-checkout` — liberare la cartella tenendo il branch — è una decisione
     // che QUESTO percorso non esegue, di proposito. La passata periodica agisce
@@ -573,7 +605,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return;
     }
     const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
-    if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
+    if (reaped) svc.addComment({ taskId, author: "system", kind: "service", content: "Worktree e branch del task ripuliti." });
   }
 
   /**
@@ -618,40 +650,52 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * is exactly how 139 lines were lost on 19/07 without anyone noticing.
    * Best-effort: a git hiccup must never refuse a delivery.
    */
+  /**
+   * La fotografia e le etichette stanno in `services/task-delivery-capture.ts`:
+   * ne esistevano tre copie e la terza — quella del dispatcher — mancava, cioe'
+   * la consegna forzata dal sistema diceva «nessun ramo» su card che avevano
+   * committato. Qui resta solo il CANCELLO sull'edge: si fotografa quando la
+   * card ENTRA in review, non a ogni PATCH su una card che c'e' gia'.
+   */
+  const capturaConsegna = createDeliveryCapture({
+    svc,
+    taskDeliveryRef: opts?.taskDeliveryRef,
+    taskCheckoutRef: opts?.taskCheckoutRef,
+    ownCommitFiles: (cwd) => ownCommitFiles(cwd),
+  });
+
   async function captureDelivery<T extends { id: string; status: string }>(task: T, prevStatus?: string): Promise<T> {
-    if (task.status !== "review" || prevStatus === "review" || !opts?.taskDeliveryRef) return task;
-    try {
-      const ref = await opts.taskDeliveryRef(task.id);
-      if (!ref) return task; // in-place task: nothing to compare against main
-      svc.recordDelivery({ taskId: task.id, branch: ref.branch, commit: ref.commit });
-      await deriveDeliveryLabels(task.id);
-      // Return the REFRESHED row so the response and the broadcast already carry
-      // the snapshot — otherwise the board only learns about it on a refetch.
-      return (svc.get(task.id)?.task as T | undefined) ?? task;
-    } catch { /* best-effort: never block a delivery on git */ }
-    return task;
+    if (task.status !== "review" || prevStatus === "review") return task;
+    await capturaConsegna(task.id);
+    // Return the REFRESHED row so the response and the broadcast already carry
+    // the snapshot — otherwise the board only learns about it on a refetch.
+    return (svc.get(task.id)?.task as T | undefined) ?? task;
   }
 
   /**
-   * Chi CHIUDERÀ questa card, deciso sull'edge verso `review` e non dopo: la
-   * board deve poter mostrare la coda «visibili in review» già al primo
-   * disegno, e l'etichetta è ciò che ci mette dentro (o fuori) la card.
+   * Sonda l'output_url in background (fire-and-forget) e aggiorna il DB +
+   * manda un delta WS ai client. Non blocca la richiesta corrente.
    *
-   * Nessun agente la dichiara. Qui si guardano i file dei suoi commit PROPRI e
-   * si applica la regola di `shared/task-labels.ts`. Best-effort come la
-   * fotografia di consegna: se git non risponde, la card resta senza etichetta —
-   * e senza etichetta la chiude un umano, che è il default sicuro.
+   * - Con cache TTL (5 min): non ri-sonda su ogni accesso alla card.
+   * - Solo se il task ha un output_url.
+   * - Il client usa `urlProbeStatus` per decidere se mostrare il link.
    */
-  async function deriveDeliveryLabels(taskId: string): Promise<void> {
-    if (!opts?.taskCheckoutRef) return;
-    try {
-      const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
-      if (!ref) return;
-      const files = await ownCommitFiles(ref.cwd);
-      if (files === null) return; // non contabile: non si scrive un verdetto a caso
-      svc.deriveLabelsFromDiff({ taskId, files });
-    } catch { /* l'etichetta non può far fallire una consegna */ }
+  function triggerUrlProbe(taskId: string, outputUrl: string | null, projectId?: string): void {
+    if (!outputUrl) return;
+    void (async () => {
+      try {
+        const result = await probeUrl(outputUrl);
+        const updated = svc.setUrlProbeStatus({ taskId, status: result.status, checkedAt: result.checkedAt });
+        // Broadcast il delta ai client connessi (come gli altri update in questo file).
+        if (projectId) {
+          broadcastToAll({ type: "task:updated", projectId, task: updated });
+        }
+      } catch (err) {
+        console.warn("[url-probe] background probe failed", taskId, err);
+      }
+    })();
   }
+
 
   /**
    * Le corse dei check, una per task, VIVE oltre la richiesta che le ha chieste.
@@ -660,6 +704,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * fila dei land qui sotto.
    */
   const checksGate = createChecksGate();
+  // Notifica il chiamante non appena il gate esiste, cosi' puo' passarne
+  // `runningCount` al dispatcher senza accoppiamenti circolari.
+  try { opts?.onChecksGate?.(checksGate); } catch { /* best-effort */ }
 
   // Qui, e non nel poll del dispatcher: questo è l'unico istante in cui il
   // registro è VUOTO per costruzione, quindi ogni «running» rimasto nel db è di
@@ -718,8 +765,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
         const comment = formatChecksComment(runs, { commit: ref.commit });
         try {
-          svc.recordChecks({ taskId, state: ok ? "pass" : "fail", commit: ref.commit, runs });
-          svc.addComment({ taskId, author: "system", content: comment });
+          // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
+          // la parola del commento: uno SCADUTO non ha misurato niente, e
+          // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
+          // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
+          // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
+          // qualcuno non e' arrivato in fondo.
+          svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
+          // VERDE ⇒ servizio, ROSSO ⇒ parola. Il verde è già un chip sulla card
+          // (`card-checks-green`) e il paragrafo lo ripete comando per comando,
+          // bruciando uno slot su OGNI consegna — misurate 92 copie in 7 giorni.
+          // Il rosso invece cambia cosa fa l'umano: elenca quali comandi sono
+          // caduti, e su una card in review è metà della decisione. Un chip col
+          // tooltip non basta a portare quel dettaglio in una colonna.
+          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: comment });
           const t = svc.get(taskId, { projectId })?.task;
           if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* l'esito conta più della sua registrazione */ }
@@ -791,6 +850,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     try {
       svc.addComment({
         taskId, author: "system",
+        // Ricevuta interna, e il commento qui accanto lo dice: esiste perché la
+        // coda vive in RAM e un riavvio la perderebbe. È un log, non una parola.
+        kind: "service",
         content: "Land accodato: la card si chiude solo quando il merge è CONFERMATO su main.",
       });
       const t = svc.get(taskId, { projectId })?.task;
@@ -913,13 +975,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
-  async function landTask(projectId: string, taskId: string): Promise<void> {
+  async function landTask(projectId: string, taskId: string): Promise<LandOutcomeResult | void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
       svc.addComment({ taskId, author: "system", content: "Landing non disponibile: merge automatico non configurato per questo host." });
       const t = svc.get(taskId, { projectId })?.task;
       if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-      return;
+      return { outcome: "skipped", reason: "merge automatico non configurato" };
     }
     const task = svc.get(taskId, { projectId })?.task;
     // La card è sparita fra il click e il suo turno in coda (archiviata, spostata
@@ -935,7 +997,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.
       if (res.status === "merged" && res.realigned) {
-        svc.addComment({ taskId, author: "system", content: `Riallineato prima del land: ${res.realigned}.` });
+        svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato prima del land: ${res.realigned}.` });
       }
       // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
       // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
@@ -954,6 +1016,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // Il caso che chiude questo difetto: la macchina crede di aver landato,
         // main dice di no. La card NON si chiude, il worktree NON si pota (è
         // l'unica copia del lavoro) e il verdetto dice il vero.
+        const proofReason = `il merge e' uscito zero ma il commit ${res.commit} NON risulta su main in ${res.repoPath}`;
         svc.addComment({
           taskId, author: "system",
           content:
@@ -963,7 +1026,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try { await opts?.stampLanding?.(taskId, "unlanded"); } catch { /* la spia non fa fallire il resto */ }
         const t = svc.get(taskId, { projectId })?.task;
         if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-        return;
+        return { outcome: "unlanded", reason: proofReason };
       }
       if (res.status === "merged") {
         if (proof === null) {
@@ -974,7 +1037,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               "il verdetto di atterraggio resta «non verificabile». Controlla a mano se il lavoro è su main.",
           });
         }
-        svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+        svc.addComment({ taskId, author: "system", kind: "service", content: `Mergiato su main (commit ${res.commit}).` });
         // È QUI che finisce la vita di review della card, non all'inizio del
         // land: l'anteprima si smonta quando il merge è confermato. Smontarla
         // prima di provare a fondere toglieva al reviewer la pagina viva anche
@@ -990,6 +1053,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
         // di storico al percorso che funzionava.
         const closed = svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
+        // IL MERGE È AVVENUTO ANCHE QUANDO LA CARD NON SI CHIUDE. `settleLanded`
+        // rifiuta di chiudere un padre che ha ancora step aperti (chiuderlo li
+        // renderebbe irraggiungibili: il feed è `rootsOnly`), e senza questa riga
+        // chi ha cliccato «Landa su main» leggerebbe «Mergiato su main» sopra una
+        // card che resta in review, senza sapere perché. Si nominano i passi:
+        // sono quelli da chiudere o archiviare prima di approvarla.
+        if (closed && closed.status !== "done") {
+          const aperti = (svc.get(taskId, { projectId })?.children ?? [])
+            .filter((c) => c.status !== "done")
+            .map((c) => `«${c.text}»`);
+          if (aperti.length) {
+            svc.addComment({
+              taskId, author: "system",
+              content:
+                `Il lavoro è su main, ma la card NON si chiude: restano ${aperti.length} sottotask aperti (${aperti.join(", ")}). ` +
+                "Chiudili o archiviali, poi approva questa card.",
+            });
+          }
+        }
         // Chi ASPETTAVA questa card lo scopre qui, non più all'approvazione:
         // adesso è questa la porta da cui una card landata arriva in `done`.
         if (closed && closed.status === "done") dispatcher?.onBlockerDone(taskId);
@@ -1026,6 +1108,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const build = await autoMerge.buildClient(res.repoPath);
             svc.addComment({
               taskId, author: "system",
+              // Riuscita ⇒ ricevuta; fallita ⇒ parola, perché chiede un comando
+              // all'umano. Stessa regola dei checks: non conta chi scrive, conta
+              // se cambia cosa fai.
+              kind: build.code === 0 ? "service" : "comment",
               content: build.code === 0
                 ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
                 : `Build client fallita (exit ${build.code}). Lancia \`bun run build:client\` a mano.`,
@@ -1036,7 +1122,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             svc.addComment({ taskId, author: "system", content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch)." });
           }
           if (res.touchedServer) {
-            svc.addComment({ taskId, author: "system", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
+            svc.addComment({ taskId, author: "system", kind: "service", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
           }
         }
       } else if (res.status === "nothing") {
@@ -1139,6 +1225,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try { await opts?.stampLanding?.(taskId, verdict); } catch { /* la spia non fa fallire un land */ }
       const updated = svc.get(taskId, { projectId })?.task;
       if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
+      // Restituisce l'esito al ticket della coda: GET /land lo riporta subito,
+      // senza dover rileggere il task da un secondo GET.
+      // `verdict === "ask"` copre i casi in cui il land non sa (nessun ramo, o
+      // il ramo era gia' su main): li mappa su "skipped" per il chiamante MCP.
+      const ticketOutcome: LandOutcomeResult['outcome'] =
+        verdict === "ask" ? "skipped" : verdict;
+      // La ragione e' utile solo quando il merge e' stato rifiutato: e' quella
+      // che l'MCP riporta direttamente invece di lasciare che chi chiama apra
+      // il thread della card.
+      const ticketReason: string | null =
+        verdict === "unlanded"
+          ? (res.status === "conflict"
+            ? (res.realignConflict
+              ? `il ramo era indietro di ${res.realignConflict.behind} commit e il realign ha fatto conflitto`
+              : "il merge ha fatto conflitto con main")
+            : res.status === "skipped" ? (res.reason ?? null) : null)
+          : null;
+      return { outcome: ticketOutcome, reason: ticketReason };
     } catch (e) {
       // ── Il percorso che produceva «zero commenti, zero ragione» ─────────────
       //
@@ -1234,9 +1338,44 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!filterMedia([raw])?.length) {
       return { ok: false, reason: "path fuori dalle cartelle consentite (~/.topics/media, ~/.openclaw/media, workspace)" };
     }
-    return isPreviewablePath(raw)
-      ? { ok: true, value: raw }
-      : { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
+    if (!isPreviewablePath(raw)) {
+      return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
+    }
+    // IL DEFAULT E' LA COSA VERA, non un si'.
+    //
+    // Il seam esiste perche' un test possa dire «fingi che ci sia»; il suo
+    // valore di riposo pero' deve restare `existsSync`, altrimenti qualunque
+    // AppContext costruito senza quel campo perde il cancello SENZA dirlo — e
+    // un cancello che sparisce in silenzio e' peggio di uno che non c'e' mai
+    // stato. Con `?? (() => true)` bastava dimenticare una riga di cablaggio
+    // per tornare al difetto di partenza: una card che punta a un'anteprima
+    // cancellata e una PATCH che risponde 200.
+    const checkExists = ctx.fileExistsSync ?? existsSync;
+    if (!checkExists(raw)) {
+      return { ok: false, reason: `file non trovato sul disco: ${raw}` };
+    }
+    // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.
+    //
+    // Ci avevo messo un terzo cancello: un'anteprima piu' alta che larga occupa
+    // la card e spinge giu' il testo (misurato il 17/08: 255x397 alta 330px su
+    // una card di 798). Il fatto e' vero, il rimedio era sbagliato, e l'ha
+    // detto la suite - due tentativi, due rossi su `board-preview-cap.spec.ts`.
+    //
+    // Il riquadro della card RITAGLIA, sempre: `object-cover object-top` con
+    // `max-h-[70cqw]`. Quella spec dichiara il contratto («il tetto taglia, non
+    // deforma») e tiene apposta fra i casi buoni una quadrata E una 900x1800,
+    // col commento «quella che il tetto deve tagliare». Rifiutarle qui vorrebbe
+    // dire che la porta manuale non crede a cio' che la card fa un layer piu'
+    // in la'.
+    //
+    // Il rifiuto per forma resta dov'era gia': nella promozione AUTOMATICA
+    // (`tooTallForCard`), che sceglie da sola cosa mettere sulla card e nel
+    // dubbio non sceglie. Qui c'e' un gesto esplicito - qualcuno dice «voglio
+    // QUESTA» - e la risposta giusta e' mostrarla ritagliata, non rifiutarla.
+    //
+    // Cio' che ho sbagliato a fare qui e' documentato in
+    // `shared/board.ts:PREVIEW_CARD_MAX_RATIO`.
+    return { ok: true, value: raw };
   }
 
   /**
@@ -1316,6 +1455,26 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return null;
   }
 
+  /**
+   * `?status=` dal query string, SENZA `as any`.
+   *
+   * Il cast passava «in-progress» dritto al servizio, che lo metteva in un
+   * `WHERE status = ?` dove non matcha niente: 200 con zero card. Una board
+   * vuota è una risposta plausibilissima, quindi il refuso restava invisibile e
+   * si andava a cercare il guasto nel dispatcher. Qui il dominio è chiuso e lo
+   * sbaglio si dichiara — 400 con l'elenco degli stati veri. La stessa guardia
+   * sta anche in `svc.list`, che è la porta comune: questa nomina il valore che
+   * è arrivato dalla rete, quella copre chi il servizio lo chiama da dentro.
+   */
+  function asTaskStatus(raw: string | null | undefined): TaskStatus | undefined {
+    if (!raw) return undefined;
+    const found = TASK_STATUSES.find((s) => s === raw);
+    if (!found) {
+      throw new TaskServiceError("invalid_input", `stato "${raw}" inesistente: gli stati sono ${TASK_STATUSES.join(", ")}`);
+    }
+    return found;
+  }
+
   function fail(e: unknown): Response {
     if (e instanceof TaskServiceError) return json({ error: e.message, code: e.code }, ERROR_STATUS[e.code] ?? 400);
     // Un valore fuori da un dominio chiuso è colpa di chi chiama, non del
@@ -1392,10 +1551,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         grantedResourceIds(ctx.db, resolvePrincipals(ctx.db, deviceId).list, "task"),
       );
 
-      // L'elenco: solo i suoi.
+      // L'elenco: solo i suoi, e il PREDICATO ARRIVA FINO A SQL. Prima si
+      // idratava ogni task del database — ogni etichetta, ogni bloccante, ogni
+      // conto di coda — per poi tenerne i due condivisi in JS: l'ospite pagava
+      // l'intera board per vedere le sue due schede. `ids` rende quel filtro una
+      // clausola, e un insieme vuoto esce senza interrogare niente.
       if (pathname === "/api/all-boards/tasks") {
-        const tutti = svc.list({ scope: "all", rootsOnly: true }) as Array<{ id: string }>;
-        return json({ tasks: tutti.filter((t) => condivisi.has(t.id)) });
+        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi] }) });
       }
       // Un task singolo, il suo thread, i suoi allegati: passa solo se l'id è
       // fra i condivisi. L'id si legge dal path, che è la forma che tutte le
@@ -1422,7 +1584,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
       // Tranne gli ORFANI (padre chiuso, archiviato o sparito): quello non è
       // l'albero di nessuno, e fuori dalle colonne non lo guarda più niente.
-      try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true, includeOrphanSubtasks: true }) }); }
+      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true }) }); }
       catch (e) { return fail(e); }
     }
 
@@ -1461,7 +1623,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // un tetto astratto. Senza dispatcher (host degradato) vale 0.
       let running = 0;
       try { running = dispatcher?.busyCount() ?? 0; } catch { /* best-effort */ }
-      return json(computeDispatchCapacity(running));
+      return json(computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli"));
     }
 
     // GET /api/all-boards/publish-status — per-project "commits not yet pushed"
@@ -1673,6 +1835,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }, 409);
         }
 
+        // ── LA SCELTA SI FA UNA VOLTA SOLA ────────────────────────────────
+        //
+        // `attempts.select` è atomico DENTRO di sé (una transazione: mai due
+        // `selected`), ma non ha una PRECONDIZIONE: una seconda `select` su un
+        // tentativo diverso ripuntava il task su un worktree che la prima aveva
+        // già potato — `reapAttemptWorkspace` sui perdenti gira fuori dalla
+        // transazione, e da lì in poi diff, checks, land e anteprima seguivano
+        // un'indirezione morta. Due click su due schede, o un doppio invio, e
+        // il lavoro scelto per primo non è più raggiungibile.
+        //
+        // Il cancello sta QUI, alla porta, con la stessa forma del 409
+        // `fanout_running` qui sopra: si nomina il tentativo che ha già vinto,
+        // così chi legge sa cosa è stato deciso invece di riprovare. Ripremere
+        // sullo STESSO tentativo resta idempotente: non c'è niente da rifare,
+        // ma neanche niente di sbagliato da dire.
+        const giaScelto = attempts.list(taskId).find((a) => a.state === "selected");
+        if (giaScelto && giaScelto.id !== attemptId) {
+          return json({
+            error: `il fan-out di questo task è già stato deciso: ha vinto il tentativo #${giaScelto.idx}, e i worktree degli altri sono stati potati`,
+            code: "fanout_already_decided",
+            attemptId: giaScelto.id,
+          }, 409);
+        }
+
         const picked = attempts.select(taskId, attemptId);
         if (!picked) return json({ error: "attempt not found", code: "not_found" }, 404);
         const winner = picked.winner;
@@ -1683,14 +1869,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // vincitore, non quelli del tentativo 1 a cui il task era legato un
         // istante fa. `captureDelivery` non scatta (il task è in review da
         // quando il fan-out ha chiuso), quindi la fotografia si prende qui.
-        if (opts?.taskDeliveryRef) {
-          try {
-            const ref = await opts.taskDeliveryRef(taskId);
-            if (ref) {
-              svc.recordDelivery({ taskId, branch: ref.branch, commit: ref.commit });
-              task = svc.get(taskId, { projectId })?.task ?? task;
-            }
-          } catch { /* la scelta vale anche senza fotografia */ }
+        if (await capturaConsegna(taskId)) {
+          task = svc.get(taskId, { projectId })?.task ?? task;
         }
 
         const losers = picked.losers;
@@ -1934,6 +2114,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
               dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
               dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
+              // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
+              // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni
+              // giro — ma qui non passavano, quindi restavano al default per
+              // sempre e il PATCH rispondeva 200 con il valore vecchio.
+              //
+              // `dispatchPaused` ha un interruttore VERO nel pannello
+              // (`BoardSettingsPanel.tsx:84-85`, `patch({ dispatchPaused })`):
+              // era un interruttore morto, che e' peggio di un interruttore
+              // assente perche' promette. Misurato il 18/08: PATCH
+              // `{"dispatchPaused":true}` -> risposta 200 con `false`.
+              // `dispatchRetryCap` decide quanti turni ha un agente prima che il
+              // sistema gli tolga la card: bloccato a 2 e non alzabile da nessuna
+              // porta.
+              dispatchPaused: typeof body?.dispatchPaused === "boolean" ? body.dispatchPaused : undefined,
+              dispatchRetryCap: typeof body?.dispatchRetryCap === "number" ? body.dispatchRetryCap : undefined,
+              dispatchRetryBackoffS: typeof body?.dispatchRetryBackoffS === "number" ? body.dispatchRetryBackoffS : undefined,
+              language: typeof body?.language === "string" ? body.language : undefined,
               nightMode: typeof body?.nightMode === "boolean" ? body.nightMode : undefined,
               nightModeUntil: typeof body?.nightModeUntil === "string" ? body.nightModeUntil : undefined,
               // Passa dal parser tollerante: il pannello manda una lista di
@@ -1977,7 +2174,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (boardId === UNASSIGNED_PROJECT_ID) return json({ proposal: null });
           // rootsOnly: un sottotask è la checklist di qualcun altro, non una
           // destinazione — appenderci sotto un feedback lo seppellirebbe.
-          const candidates = svc.list({ scope: "project", projectId: boardId, rootsOnly: true });
+          // `withDescription`: qui il testo intero è il DATO su cui si decide
+          // (proposeLink confronta le descrizioni), non qualcosa da disegnare.
+          const candidates = svc.list({ scope: "project", projectId: boardId, rootsOnly: true, withDescription: true });
           const proposal = proposeLink({
             text,
             description,
@@ -2008,7 +2207,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           try {
             return json({
               tasks: svc.list({
-                scope: "project", projectId, status: status as any, rootsOnly: true,
+                scope: "project", projectId, status: asTaskStatus(status), rootsOnly: true,
                 includeOrphanSubtasks: true,
                 labels: parseLabelsParam(params.get("labels")),
                 archived,
@@ -2521,6 +2720,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
           try {
             const prevStatus = svc.get(taskId, { projectId })?.task.status;
+            // Invalidate probe cache when output_url changes (new URL needs a fresh probe).
+            if (parsed.patch.outputUrl !== undefined) {
+              const old = svc.get(taskId, { projectId })?.task.outputUrl;
+              if (old) invalidateProbeCache(old);
+            }
             let task = svc.update({
               taskId, actor: "human", by: HUMAN, projectId,
               patch: parsed.patch,
@@ -2529,6 +2733,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             broadcastToAll({ type: "task:updated", projectId, task });
             emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
               () => svc.get(taskId)?.comments);
+            triggerUrlProbe(taskId, task.outputUrl, projectId);
             // Auto-dispatch trigger: the human dragging a task INTO todo is the
             // "vai" signal; dragging it back OUT while still queued cancels it.
             // The dispatcher itself no-ops when auto_dispatch is off for the board.
@@ -2595,7 +2800,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const scope = params.get("scope") === "all" ? "all" : "project";
         const status = params.get("status") || undefined;
         try {
-          const tasks = svc.list({ scope, projectId: sess.projectId, status: status as any });
+          // La lista di un AGENTE porta la descrizione intera: la board umana
+          // ne manda solo l'anteprima perché la card la taglia comunque a due
+          // righe, ma un agente legge, e 240 caratteri senza dirlo si leggono
+          // come «descrizione corta» invece che come «descrizione tagliata».
+          const tasks = svc.list({ scope, projectId: sess.projectId, status: asTaskStatus(status), withDescription: true });
           return json({ tasks });
         } catch (e) { return fail(e); }
       }
@@ -2836,19 +3045,54 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // three exemptions out of four went to the very shape being gated.
         if (body?.status === "review") {
           let isDelivery = false;
+          let reviewGateTask: ReturnType<typeof svc.get> | null = null;
           try {
-            const got = svc.get(item.taskId, { projectId: sess.projectId });
-            const lastOwn = got ? [...got.comments].reverse().find(
+            reviewGateTask = svc.get(item.taskId, { projectId: sess.projectId });
+            const lastOwn = reviewGateTask ? [...reviewGateTask.comments].reverse().find(
               (c) => c.author !== "user" && c.author !== "system" && c.kind === "comment",
             ) : null;
             const isQuestion = commentAsksHuman(lastOwn?.content);
-            isDelivery = !!got && got.task.status !== "review" && !isQuestion;
+            isDelivery = !!reviewGateTask && reviewGateTask.task.status !== "review" && !isQuestion;
           } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
 
-          if (isDelivery && opts?.taskWorktreeDirt) {
+          if (isDelivery && opts?.taskWorktreeDirtProbe) {
             try {
-              const dirt = await opts.taskWorktreeDirt(item.taskId);
-              if (dirt && dirt.length > 0) {
+              const probe = await opts.taskWorktreeDirtProbe(item.taskId);
+              if (probe === null) {
+                // La sonda non ha trovato nessun worktree di ramo per questo
+                // task. Se il task ha (o ha avuto) un ramo, la risposta giusta
+                // e' «non so» — che in un cancello vale «rifiuta». Un worktree
+                // eliminato prima della review, un legame topic spezzato dal
+                // release: in entrambi i casi lasciare passare sarebbe aprire
+                // il cancello per ignoranza.
+                //
+                // Regola: se il task ha un delivery_branch o un tentativo con
+                // worktree registrato, rifiuta con ragione leggibile. Se davvero
+                // non ha MAI avuto un ramo, lascia passare (task in-place).
+                const hasBranch =
+                  !!reviewGateTask?.task.deliveryBranch ||
+                  opts.taskHasBranchAttempt?.(item.taskId) === true;
+                if (hasBranch) {
+                  return json({
+                    error:
+                      "cannot verify the worktree state: the branch worktree is no longer " +
+                      "reachable (the slot was released before review). " +
+                      "commit your work and ensure the worktree is still linked, " +
+                      "THEN set status='review'",
+                    code: "review_needs_commit",
+                  }, 409);
+                }
+              } else if (!probe.ok || probe.paths.length > 0) {
+                const dirt = probe.paths;
+                if (!probe.ok) {
+                  return json({
+                    error:
+                      "cannot read the worktree status (git status failed). " +
+                      "make sure your worktree has no uncommitted changes, " +
+                      "THEN set status='review'",
+                    code: "review_needs_commit",
+                  }, 409);
+                }
                 return json({
                   error:
                     `your worktree has ${dirt.length} uncommitted change${dirt.length === 1 ? "" : "s"} ` +
@@ -2917,6 +3161,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
             () => svc.get(task.id)?.comments);
+          triggerUrlProbe(item.taskId, task.outputUrl, sess.projectId);
           return json(task);
         } catch (e) { return fail(e); }
       }
