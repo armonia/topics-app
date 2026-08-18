@@ -3858,17 +3858,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // Qui, e solo qui, la card va DAVVERO in review: è il punto in cui «l'ho
       // portato io in review» smette di essere una previsione e diventa un fatto.
-      if (reason && reason.trim()) {
-        const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
-        try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
-      }
       // PREDICATO review_needs_summary, PORTA DI SISTEMA.
       //
-      // Dentro `update()` il predicato blocca: l'agente deve riprovare.
-      // Qui non puo' bloccare — il turno e' finito — ma il fatto si annota:
-      // chi rivede vede subito che l'agente non ha scritto nulla, e non deve
-      // scoprirlo da solo. Nota di servizio (kind='service'): contabilita',
-      // non conversazione — non interrompe il thread della consegna vera.
+      // PRIMA di cio' che parla all'umano, e non dopo: l'ULTIMA parola del
+      // thread e' quella a cui si risponde. Una domanda porta le sue opzioni
+      // (`questionOptions`) e il client legge l'ultimo commento; una nota di
+      // contabilita' appesa dopo la seppelliva, e sette casi di
+      // `tasks.parked-stall.test.ts` sono diventati rossi leggendo `[]` dove
+      // c'erano due bottoni. Il rosso era il sintomo: il guasto vero e' che
+      // chi apriva la card trovava per ultima una riga di macchina invece
+      // della decisione che gli si chiede.
+      //
+      // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
+      // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
+      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
+      // contabilita', non conversazione.
       if (!hasFreshAgentComment(taskId)) {
         try {
           this.addComment({
@@ -3876,6 +3880,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
           });
         } catch { /* best-effort */ }
+      }
+      if (reason && reason.trim()) {
+        const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
+        try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
       }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).
@@ -3966,17 +3974,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           `Archivio cio' che non serve piu', oppure la prendi in mano tu?`
         : `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
           `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
-      try {
-        this.addComment({
-          taskId, author: "system", content: question,
-          questionOptions: giaRimessi > 0
-            ? [ARCHIVE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL]
-            : [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
-        });
-      } catch { /* dedupe/best-effort: la domanda resta comunque nello stato */ }
-      // PREDICATO review_needs_summary, PORTA DI SISTEMA (stessa logica di
-      // `deliverToReviewBySystem`): annota se l'agente non ha commentato nel
-      // suo turno. Non blocca — anche qui il turno e' gia' finito.
+      // PREDICATO review_needs_summary, PORTA DI SISTEMA.
+      //
+      // PRIMA di cio' che parla all'umano, e non dopo: l'ULTIMA parola del
+      // thread e' quella a cui si risponde. Una domanda porta le sue opzioni
+      // (`questionOptions`) e il client legge l'ultimo commento; una nota di
+      // contabilita' appesa dopo la seppelliva, e sette casi di
+      // `tasks.parked-stall.test.ts` sono diventati rossi leggendo `[]` dove
+      // c'erano due bottoni. Il rosso era il sintomo: il guasto vero e' che
+      // chi apriva la card trovava per ultima una riga di macchina invece
+      // della decisione che gli si chiede.
+      //
+      // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
+      // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
+      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
+      // contabilita', non conversazione.
       if (!hasFreshAgentComment(taskId)) {
         try {
           this.addComment({
@@ -3985,6 +3997,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           });
         } catch { /* best-effort */ }
       }
+      try {
+        this.addComment({
+          taskId, author: "system", content: question,
+          questionOptions: giaRimessi > 0
+            ? [ARCHIVE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL]
+            : [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
+        });
+      } catch { /* dedupe/best-effort: la domanda resta comunque nello stato */ }
       // Stessa forma di una consegna di sistema — review + `needs_input` + firma
       // `system` — perché è la stessa cosa: una card che aspetta una persona.
       // `delivered_reason` dice QUALE persona serve, e la card lo scrive da sé.
