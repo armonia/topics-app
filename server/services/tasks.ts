@@ -883,7 +883,7 @@ export interface TaskService {
    */
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
-  bindTopic(args: { taskId: string; topicId: string }): Task;
+  bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
@@ -3947,11 +3947,43 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return { task, children };
     },
 
-    bindTopic({ taskId, topicId }): Task {
+    bindTopic({ taskId, topicId, freshSession }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-      db.prepare("UPDATE tasks SET assigned_topic_id = ?, chat_id = ?, updated_at = ? WHERE id = ?")
-        .run(topicId, topicId, now(), taskId);
+      // UNA SESSIONE NUOVA E' UN TENTATIVO NUOVO, e il budget riparte da zero.
+      //
+      // `dispatch_attempts` conta i turni di UN tentativo — e' il freno contro
+      // un agente che gira in tondo dentro la stessa conversazione. Fra un
+      // dispatch e l'altro, invece, il contatore restava: la card ripartiva su
+      // una sessione VERGINE con il budget gia' speso, quindi moriva al primo
+      // turno annunciando di averne fatti quattro.
+      //
+      // Misurato il 18/08 su `eef64e32`: tre dispatch, tre topic diversi
+      // (`groovy-frond`, `stellar-weasel`, `stellar-geyser`), e al terzo la
+      // sessione aveva DUE messaggi mentre la card scriveva «L'agent ha
+      // lavorato 4 turni». Un ciclo che non poteva chiudersi: ogni giro
+      // ricominciava il piano e non arrivava mai a lavorarlo.
+      //
+      // E' la stessa regola che le due uscite UMANE applicano gia', con la
+      // stessa ragione scritta accanto (`reviewDecision` rifiuto,
+      // `resolveParkedChildren`): «il mandato e' NUOVO, quindi il budget dei
+      // tentativi riparte da zero. Senza, il padre tornerebbe in coda gia'
+      // esaurito e non lo reclamerebbe piu' nessuno».
+      //
+      // Il freno NON si allenta: se la sessione e' la STESSA — una ripresa, una
+      // continuazione — il contatore resta dov'e', ed e' li' che serve.
+      // `freshSession` lo DICE chi lo sa: il dispatcher, che ha appena creato
+      // il topic invece di riusarne uno. Dedurlo da «il topic e' cambiato» non
+      // funziona — fra un tentativo e l'altro `release` azzera il legame, e il
+      // primo attacco di OGNI tentativo sarebbe `null -> topic`, cioe' anche
+      // quello che la rivendicazione ha appena contato.
+      //
+      // `1` e non `0`: questo turno e' il PRIMO della sessione nuova, e conta.
+      db.prepare(
+        "UPDATE tasks SET assigned_topic_id = ?, chat_id = ?" +
+          (freshSession ? ", dispatch_attempts = 1" : "") +
+          ", updated_at = ? WHERE id = ?",
+      ).run(topicId, topicId, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 

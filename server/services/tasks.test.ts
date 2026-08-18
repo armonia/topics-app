@@ -3096,3 +3096,37 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
     expect(listati.get(id)!.model).toBe("claude-opus-5");
   });
 });
+
+describe("bindTopic: una sessione nuova e' un tentativo nuovo", () => {
+  // `dispatch_attempts` frena un agente che gira in tondo DENTRO una
+  // conversazione. Fra un dispatch e l'altro invece restava, e la card
+  // ripartiva su una sessione vergine col budget gia' speso: moriva al primo
+  // turno annunciando di averne fatti quattro. Misurato il 18/08 su `eef64e32`
+  // — tre dispatch, tre topic, e al terzo la sessione aveva DUE messaggi.
+  test("una sessione NUOVA riparte da 1: il turno che comincia conta, quelli di prima no", () => {
+    const db = freshDb(); const s = svc(db);
+    db.prepare("INSERT INTO topics (id) VALUES ('t-uno')").run();
+    db.prepare("INSERT INTO topics (id) VALUES ('t-due')").run();
+    const t = s.create({ projectId: PID, text: "Un task" });
+    s.bindTopic({ taskId: t.id, topicId: "t-uno", freshSession: true });
+    db.prepare("UPDATE tasks SET dispatch_attempts = 4 WHERE id = ?").run(t.id);
+
+    s.bindTopic({ taskId: t.id, topicId: "t-due", freshSession: true });
+
+    expect(s.get(t.id)!.task.dispatchAttempts).toBe(1);
+  });
+
+  test("senza `freshSession` il freno resta dov'e'", () => {
+    // E' il caso della ripresa e del riuso del topic del bloccante: stessa
+    // conversazione, stesso budget. Ed e' anche il primo attacco di un
+    // tentativo normale, che la rivendicazione ha gia' contato.
+    const db = freshDb(); const s = svc(db);
+    db.prepare("INSERT INTO topics (id) VALUES ('t-uno')").run();
+    const t = s.create({ projectId: PID, text: "Un task" });
+    db.prepare("UPDATE tasks SET dispatch_attempts = 3 WHERE id = ?").run(t.id);
+
+    s.bindTopic({ taskId: t.id, topicId: "t-uno" });
+
+    expect(s.get(t.id)!.task.dispatchAttempts, "stessa conversazione, stesso budget").toBe(3);
+  });
+});

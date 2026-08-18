@@ -1677,7 +1677,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
       // Point the claim at the REAL topic (claim bound a placeholder) and flip
       // the chip to working. assigned_topic_id is the "apri tab" deep-link target.
-      deps.svc.bindTopic({ taskId, topicId });
+      // `freshSession`: il topic e' NUOVO (non un riuso del bloccante), quindi
+      // il budget dei tentativi riparte — questo e' il primo turno di questa
+      // conversazione. Senza, la card ripartiva su una sessione vergine col
+      // budget gia' speso e moriva al primo turno annunciando di averne fatti
+      // quattro (misurato il 18/08 su `eef64e32`: tre dispatch, tre topic, e al
+      // terzo la sessione aveva due messaggi).
+      deps.svc.bindTopic({ taskId, topicId, freshSession: !reuseTopicId });
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
