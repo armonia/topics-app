@@ -24,12 +24,18 @@ UPDATE orgs
  )
    AND (name = 'La mia organizzazione' OR name = 'Armonia');
 
--- Imposta l'email del proprietario dell'installazione se non ne ha una.
-UPDATE people
-   SET email = 'redatto@example.com',
-       rev = rev + 1,
-       updated_at = CAST(strftime('%s','now') AS INTEGER)*1000
- WHERE id = (
-   SELECT person_id FROM installation_owners WHERE is_default = 1
- )
-   AND email IS NULL;
+-- L'EMAIL DEL PROPRIETARIO NON STA QUI, e non e' una svista.
+--
+-- Questa migration conteneva un `UPDATE people SET email = '<indirizzo di una
+-- persona reale>' WHERE email IS NULL`. Due cose sbagliate insieme:
+--
+--  · l'indirizzo privato di un individuo finiva in un file TRACCIATO di un repo
+--    PUBBLICO. Il cancello `no-personal-data-tracked` non poteva vederlo:
+--    protegge l'identita' di CHI COMMITTA, derivandola a runtime, e un terzo
+--    non e' derivabile. Ora c'e' anche `no-third-party-emails`;
+--  · e su ogni installazione NUOVA — dove il proprietario nasce senza email —
+--    quell'indirizzo veniva stampato addosso a un utente che non c'entra
+--    niente. Su questa macchina non e' successo solo perche' un'email c'era
+--    gia'; l'ha scoperto la suite E2E, dove il database nasce vuoto.
+--
+-- L'email di una persona la scrive quella persona, dalle impostazioni.
