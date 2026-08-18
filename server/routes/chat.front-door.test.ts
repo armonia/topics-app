@@ -44,7 +44,13 @@ interface Harness {
   streaming: Map<string, { messageId: string }>;
 }
 
-function harness(): Harness {
+/**
+ * `provider` inietta il provider che `resolveProvider` restituirà. Serve alle
+ * due prove sul riattacco: la porta deve saper distinguere un provider che sa
+ * riattaccarsi da uno che non lo sa, e quella distinzione è l'unica cosa che
+ * separa «adotto il turno vivo» da «fabbrico un turno che nessuno ha chiesto».
+ */
+function harness(opts?: { provider?: Record<string, unknown>; appendSurvives?: boolean }): Harness {
   const appended: string[] = [];
   const streaming = new Map<string, { messageId: string }>();
 
@@ -56,12 +62,20 @@ function harness(): Harness {
     isStreaming: (sessionKey: string) => streaming.get(sessionKey),
     appendLocalMessage: (sessionKey: string, _role: string, content: string) => {
       appended.push(`${sessionKey}:${content}`);
-      // Oltre questo punto il test non arriva: il turno vero vuole un provider.
-      throw new Error("STOP_AFTER_APPEND");
+      // Di norma si ferma qui: alle prove sulla PORTA non serve altro.
+      // `appendSurvives` lascia proseguire di qualche riga — serve alla prova
+      // sull'idempotenza, perche' la chiave si ricorda subito DOPO la scrittura
+      // della riga, e un throw qui la salterebbe. Il turno muore comunque poco
+      // piu' avanti, su `resolveProvider`.
+      if (!opts?.appendSurvives) throw new Error("STOP_AFTER_APPEND");
+      return { id: `stored-${appended.length}`, role: "user", content, timestamp: new Date().toISOString() };
     },
   } as unknown as AppContext;
 
-  const deps = { browserNavigatedTopics: new Set<string>() } as never;
+  const deps = {
+    browserNavigatedTopics: new Set<string>(),
+    ...(opts?.provider ? { resolveProvider: () => opts.provider } : {}),
+  } as never;
   const router = createChatRouter(ctx, deps);
 
   const post = async (body: unknown) => {
@@ -161,5 +175,137 @@ describe("POST /api/chat — la porta d'ingresso", () => {
     const resp = await h.post({ sessionKey: "topic:abc" });
 
     expect(resp?.status).toBe(400);
+  });
+
+  /**
+   * IL RIATTACCO NON DEVE MAI DIVENTARE UN INVIO.
+   *
+   * Il guasto, misurato il 2026-08-18 su topic:9fe7a291. Il turno vero girava
+   * su `claude-code` (figlio CLI vivo nello store del broker). A ogni riavvio
+   * del server — una ventina, perché un'altra sessione stava salvando file in
+   * `server/` con `TOPICS_SERVER_WATCH=1` — il setaccio di boot chiamava
+   * `runHeadlessReattach`, che POSTava `{messages: [], mode:"reattach"}` SENZA
+   * dichiarare il provider. `resolveProvider` cadeva sul default della
+   * macchina, che qui è il runtime nativo `topics`; quello non ha `reattach`;
+   * e il ternario di `drive` ripiegava su `sendChat` con `userContent` = solo
+   * il preambolo `<context>` e nessuna domanda.
+   *
+   * Risultato: nove turni FABBRICATI, pagati all'API, uno per riavvio, ognuno
+   * con un «Ciao! Come posso aiutarti con la valutazione del lavoro di
+   * Giovanni?» (il nome del topic — l'unica cosa che quel modello vedeva) che
+   * si sedeva in chat al posto della risposta vera. La risposta vera, 2.396
+   * caratteri di verdetto documentato, non è mai arrivata in `messages`: è
+   * rimasta solo nel JSONL della CLI.
+   *
+   * Due cose lo permettevano insieme: il ripiego silenzioso, e il fatto che
+   * `isReattach` salta il cancello 409 (giustamente — adottare il turno vivo è
+   * il suo mestiere), quindi il turno fantasma partiva su una sessione che ne
+   * aveva già uno in volo.
+   */
+  test("riattacco su un provider che NON sa riattaccarsi ⇒ 501, e nessun messaggio inviato", async () => {
+    let sendChatCalls = 0;
+    const h = harness({
+      provider: {
+        name: "topics",
+        capabilities: new Set(["streaming"]),
+        connected: true,
+        // Nessun `reattach`: è il runtime nativo.
+        sendChat: () => { sendChatCalls++; return Promise.resolve({}); },
+      },
+    });
+
+    const resp = await h.post({ sessionKey: "topic:abc", messages: [], mode: "reattach" });
+
+    expect(resp?.status).toBe(501);
+    const body = await resp!.json();
+    expect(body.code).toBe("reattach_unsupported");
+    expect(body.provider).toBe("topics");
+    // Il punto dell'intera prova: non è partita nessuna chiamata al modello.
+    expect(sendChatCalls).toBe(0);
+    // E nessuna riga in chat: il rifiuto arriva prima della riga parziale.
+    expect(h.appended).toEqual([]);
+  });
+
+  /**
+   * LO STESSO INVIO NON SI PRENDE DUE VOLTE.
+   *
+   * Il client sapeva se un messaggio era partito da un solo indizio,
+   * `streamStarted`, che diventa vero quando la `fetch` restituisce la risposta.
+   * Se la connessione muore prima — e muore, perche' il server si ricarica a
+   * ogni salvataggio in `server/` — restano due possibilita' opposte e da fuori
+   * identiche: siamo morti prima di scrivere la riga (il messaggio e' perso, va
+   * rispedito) o dopo (rispedirlo lo duplica). Il commento del drain lo
+   * ammetteva: «tenerlo qui significherebbe rispedirlo a un server che potrebbe
+   * averlo gia' preso».
+   *
+   * Con la chiave, il client rispedisce sempre e la decisione torna al server.
+   * La prova: due POST con la stessa `clientMessageId`, una riga sola.
+   */
+  test("stessa clientMessageId due volte ⇒ 409 duplicate_message, e la riga NON si raddoppia", async () => {
+    const h = harness({ appendSurvives: true });
+    const key = `prova-${crypto.randomUUID()}`;
+    const body = { sessionKey: "topic:abc", messages: [{ role: "user", content: "ciao" }], clientMessageId: key };
+
+    const first = await h.attempt(body);
+    // Il primo passa la porta e scrive: muore piu' avanti, dove il finto
+    // contesto non ha un provider.
+    expect(first.wentDeeper).toBe(true);
+    expect(h.appended).toEqual(["topic:abc:ciao"]);
+
+    const second = await h.post(body);
+
+    expect(second?.status).toBe(409);
+    const payload = await second!.json();
+    expect(payload.code).toBe("duplicate_message");
+    // Il client deve poter ritrovare la riga che il server aveva gia' preso.
+    expect(payload.messageId).toBe("stored-1");
+    // E soprattutto: nessuna seconda scrittura.
+    expect(h.appended).toEqual(["topic:abc:ciao"]);
+  });
+
+  test("chiavi diverse restano messaggi diversi: due «ok» di fila passano entrambi", async () => {
+    const h = harness({ appendSurvives: true });
+    const msg = (content: string) => ({
+      sessionKey: "topic:abc",
+      messages: [{ role: "user", content }],
+      clientMessageId: `prova-${crypto.randomUUID()}`,
+    });
+
+    await h.attempt(msg("ok"));
+    await h.attempt(msg("ok"));
+
+    // La chiave e' coniata per INVIO, non ricavata dal testo: due volte lo
+    // stesso testo sono due messaggi, e devono restare due.
+    expect(h.appended).toEqual(["topic:abc:ok", "topic:abc:ok"]);
+  });
+
+  test("senza chiave si comporta come prima: nessuna deduplicazione", async () => {
+    const h = harness({ appendSurvives: true });
+    const body = { sessionKey: "topic:abc", messages: [{ role: "user", content: "ciao" }] };
+
+    await h.attempt(body);
+    await h.attempt(body);
+
+    // Un client vecchio, che la chiave non la manda, non deve trovarsi messaggi
+    // silenziosamente ingoiati.
+    expect(h.appended).toEqual(["topic:abc:ciao", "topic:abc:ciao"]);
+  });
+
+  test("riattacco su un provider che SA riattaccarsi passa la porta", async () => {
+    const h = harness({
+      provider: {
+        name: "claude-code",
+        capabilities: new Set(["streaming"]),
+        connected: true,
+        reattach: () => Promise.resolve("live"),
+        sendChat: () => Promise.resolve({}),
+      },
+    });
+
+    const out = await h.attempt({ sessionKey: "topic:abc", messages: [], mode: "reattach" });
+
+    // La guardia non deve trasformarsi in un muro: il caso per cui il riattacco
+    // esiste — il provider giusto, quello che possiede il turno vivo — passa.
+    expect(out.status).not.toBe(501);
   });
 });

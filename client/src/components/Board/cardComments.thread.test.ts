@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { showsCardThread, cardCommentsFromRow } from './cardComments';
+import { showsCardThread, cardCommentsFromRow, selectCardComments } from './cardComments';
 
 /**
  * IL SERVER MANDA I COMMENTI, LA CARD LI BUTTAVA.
@@ -55,6 +55,33 @@ describe('la card in review mostra ciò che il server le ha mandato', () => {
     const inVolo = { status: 'review', assignedTopicId: 'topic-1', deliveredReason: null, subtaskCount: 0, recentComments: undefined };
     expect(showsCardThread(inVolo as never)).toBe(true);
     expect(cardCommentsFromRow(inVolo as never)).toBeNull();
+  });
+
+  test("nemmeno una NOTIFICA del sistema ruba il posto: sono 3984 nel db", () => {
+    // Stamattina ho escluso solo `kind: 'review-note'`, e non bastava. Il
+    // rumore piu' comune arriva da `author: 'system'` con `kind: 'comment'` -
+    // 3984 righe, la specie piu' numerosa del database: «l'agent ha lavorato
+    // 2 turni ma non ha spostato il task», «Worktree e branch ripuliti»,
+    // «Niente da atterrare». Sono notifiche di STATO, non parole di nessuno,
+    // e arrivano DOPO il riassunto perche' il sistema scrive per ultimo.
+    //
+    // Misurato sulla board vera: il mio riassunto da 1832 caratteri arrivava
+    // alla card tagliato a 201, perche' il taglio pieno se lo prendeva la
+    // notifica. Segnalato: «quelli in review non hanno commento utile».
+    const consegna = { author: 'user', content: 'Ecco cosa ho fatto e come si verifica.', kind: 'comment' as const };
+    const notifica = { author: 'system', content: "L'agent ha lavorato 2 turni ma non ha spostato il task in review da solo.", kind: 'comment' as const };
+    const c = selectCardComments([consegna, notifica]);
+    expect(c!.latest.content, 'in cima va la parola di chi ha consegnato, non la notifica di stato').toBe(consegna.content);
+  });
+
+  test('ma una DOMANDA del sistema resta: quella aspetta una risposta', () => {
+    // Il sistema fa anche domande vere, con i bottoni di risposta rapida
+    // (```question). Quelle non sono rumore: sono l'unica cosa che blocca la
+    // card, e nasconderle sarebbe peggio del problema che sto risolvendo.
+    const vecchio = { author: 'claude', content: 'Ho finito il primo pezzo.', kind: 'comment' as const };
+    const domanda = { author: 'system', content: '```question\nFermo su 2 sottotask: chi li lavora?\n```', kind: 'comment' as const };
+    const c = selectCardComments([vecchio, domanda]);
+    expect(c!.latest.content, 'una domanda aperta deve restare in cima').toContain('question');
   });
 
   test('una nota di SISTEMA non ruba il posto alla parola della consegna', () => {

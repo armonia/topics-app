@@ -129,6 +129,26 @@ describe("la finestra dei modelli", () => {
     expect(windowFor("claude-haiku-4-5-20251001")).toBe(200_000);
   });
 
+  test("la variante [1m] dichiara un MILIONE, su qualunque famiglia", () => {
+    // IL BUG: i rami erano in ordine sbagliato. `opus-4` e `sonnet-4-5` erano
+    // controllati PRIMA del suffisso, quindi `claude-opus-4[1m]` usciva a 200k
+    // senza mai raggiungere il ramo giusto - misurato il 17/08: due famiglie su
+    // quattro. Conseguenza: la conversazione veniva compattata a un quinto
+    // della finestra che aveva davvero, cioe' si buttava contesto che c'era.
+    expect(windowFor("claude-opus-5[1m]")).toBe(1_000_000);
+    expect(windowFor("claude-sonnet-5[1m]")).toBe(1_000_000);
+    expect(windowFor("claude-opus-4[1m]")).toBe(1_000_000);
+    expect(windowFor("claude-sonnet-4-5[1m]")).toBe(1_000_000);
+  });
+
+  test("senza suffisso le stesse famiglie restano a 200k", () => {
+    // La domanda che il test sopra da solo non chiude: il suffisso deve
+    // ALZARE la finestra, non spostarla per tutti.
+    expect(windowFor("claude-opus-4")).toBe(200_000);
+    expect(windowFor("claude-sonnet-4-5")).toBe(200_000);
+    expect(windowFor("claude-opus-5")).toBe(200_000);
+  });
+
   test("uno sconosciuto prende il valore PRUDENTE, non il più generoso", () => {
     // Sbagliare per eccesso qui significa non compattare in tempo.
     expect(windowFor("modello-mai-visto")).toBe(200_000);

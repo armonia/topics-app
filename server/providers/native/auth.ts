@@ -30,7 +30,7 @@
  * credenziali morto per otto ore (2026-08-16).
  */
 
-import { readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync } from "fs";
+import { readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, dirname } from "path";
 
@@ -46,8 +46,37 @@ const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
  * da Cloudflare (error 1010, «browser signature») a qualunque client che non
  * sia un browser. Il dominio giusto è `platform.claude.com`, e ci si arriva
  * solo con gli header sotto — verificato il 2026-08-16.
+ *
+ * OAUTH_TOKEN_URL_OVERRIDE: usata solo nei test per puntare a un server finto,
+ * e accettata SOLO se punta al loopback.
+ *
+ * Il vincolo non e' formale. Questo e' l'indirizzo a cui viene spedito il
+ * REFRESH TOKEN, cioe' la credenziale piu' preziosa della macchina: senza
+ * vincolo, una variabile d'ambiente qualunque — un `.env` copiato, uno script
+ * di comodo, una riga in un profilo di shell — la manderebbe altrove, e la
+ * risposta finirebbe scritta nel file delle credenziali dell'utente. Il test
+ * che la usa alza un server finto su 127.0.0.1, quindi il vincolo non gli costa
+ * niente; a un attaccante toglie tutto.
  */
-const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
+function tokenUrlFromEnv(raw: string | undefined): string | null {
+  if (!raw) return null;
+  let u: URL;
+  try { u = new URL(raw); } catch { return null; }
+  const host = u.hostname;
+  const loopback = host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost";
+  if (!loopback) {
+    console.warn(
+      `[auth] OAUTH_TOKEN_URL_OVERRIDE ignorata: "${raw}" non punta al loopback. ` +
+      "Quell'indirizzo riceverebbe il refresh token.",
+    );
+    return null;
+  }
+  return raw;
+}
+
+export const OAUTH_TOKEN_URL_DEFAULT = "https://platform.claude.com/v1/oauth/token";
+const TOKEN_URL = tokenUrlFromEnv(process.env.OAUTH_TOKEN_URL_OVERRIDE) ?? OAUTH_TOKEN_URL_DEFAULT;
+export { tokenUrlFromEnv };
 
 /** Gli scope che la CLI chiede, e che il rinnovo deve richiedere identici. */
 const SCOPES = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
@@ -209,6 +238,68 @@ export function writeCredentials(path: string, next: OAuthCredentials): void {
 }
 
 /**
+ * Lucchetto fra processi sul file delle credenziali.
+ *
+ * PROTOCOLLO. Il lock è un file `<cred>.lock` creato con O_EXCL: il kernel
+ * garantisce che uno solo ci riesce, anche fra processi diversi sullo stesso
+ * filesystem. Chi non riesce attende, rileggendo il file ogni LOCK_RETRY_MS
+ * millisecondi, fino a LOCK_TIMEOUT_MS. Dopo LOCK_STALE_MS il lock viene
+ * considerato abbandonato (processo morto) e rimosso.
+ *
+ * DOUBLE-CHECK. Dopo aver preso il lock si RILEGGE le credenziali: se nel
+ * frattempo un altro processo ha già rinnovato, il token sul disco è già fresco
+ * e non si fa un secondo rinnovo — si usa quello.
+ *
+ * `_inFlight` resta per il caso intra-processo (dieci sessioni nello stesso
+ * server che partono insieme): è il percorso veloce, senza I/O di lock.
+ */
+const LOCK_STALE_MS = 30_000;
+const LOCK_TIMEOUT_MS = 20_000;
+const LOCK_RETRY_MS = 50;
+
+function lockPath(credPath: string): string {
+  return credPath + ".lock";
+}
+
+/** Tenta di prendere il lock. Ritorna true se riesce, false se il timeout scade. */
+async function acquireLock(credPath: string): Promise<boolean> {
+  const lp = lockPath(credPath);
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      // O_EXCL garantisce atomicità: uno solo fra tutti i processi ci riesce.
+      const fd = openSync(lp, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY, 0o600);
+      writeFileSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+      closeSync(fd);
+      return true;
+    } catch (e: unknown) {
+      // EEXIST = qualcun altro lo tiene. Si controlla se è stantio.
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST") throw e;
+
+      // Controlla se il lock è stantio (processo morto).
+      try {
+        const meta = JSON.parse(readFileSync(lp, "utf-8")) as { pid: number; at: number };
+        if (Date.now() - meta.at > LOCK_STALE_MS) {
+          // Lock abbandonato: lo rimuoviamo. Se due processi lo rilevano
+          // insieme, il loser di unlink ottiene ENOENT e ricomincia il loop.
+          try { unlinkSync(lp); } catch { /* già rimosso da un altro */ }
+          continue;
+        }
+      } catch { /* lock sparito o illeggibile: si riprova */ }
+
+      await new Promise<void>((res) => setTimeout(res, LOCK_RETRY_MS));
+    }
+  }
+  return false;
+}
+
+function releaseLock(credPath: string): void {
+  try { unlinkSync(lockPath(credPath)); } catch { /* già rimosso */ }
+}
+
+/**
  * Rinnova l'access token usando il refresh token.
  *
  * Gli header non sono decorativi: senza `user-agent` e `anthropic-beta`
@@ -250,7 +341,7 @@ export async function refreshCredentials(current: OAuthCredentials): Promise<OAu
   };
 }
 
-/** Un rinnovo alla volta: dieci sessioni che partono insieme non ne fanno dieci. */
+/** Un rinnovo alla volta DENTRO il processo: dieci sessioni che partono insieme non ne fanno dieci. */
 let _inFlight: Promise<OAuthCredentials> | null = null;
 
 /**
@@ -259,6 +350,14 @@ let _inFlight: Promise<OAuthCredentials> | null = null;
  * È l'unica funzione che il resto del runtime chiama. Restituisce `null` quando
  * non c'è nessuna credenziale: il provider lo traduce in «non connesso», che è
  * ciò che vede chi non ha mai fatto login con la CLI.
+ *
+ * SERIALIZZAZIONE FRA PROCESSI. Il refresh token RUOTA a ogni rinnovo: due
+ * processi che rinnovano in parallelo si invalidano a vicenda e chiunque tenga
+ * il token precedente (compreso il server vivo su :3333) ottiene 401. Il lock
+ * O_EXCL sul file `.lock` affiancato alle credenziali garantisce che un solo
+ * processo alla volta esegua il rinnovo. Dopo aver preso il lock si RILEGGE il
+ * file: se nel frattempo qualcun altro ha già rinnovato, si usa il suo token
+ * senza fare una seconda richiesta (double-check).
  */
 export async function getAccessToken(): Promise<string | null> {
   const creds = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
@@ -268,19 +367,39 @@ export async function getAccessToken(): Promise<string | null> {
   const fresh = creds.expiresAt - Date.now() > REFRESH_MARGIN_MS;
   if (fresh) return creds.accessToken;
 
+  // Percorso veloce intra-processo: una sola Promise per tutti.
   if (_inFlight) return (await _inFlight).accessToken;
 
   _inFlight = (async () => {
-    const next = await refreshCredentials(creds);
-    // Si scrive DOVE si è letto: vedi l'intestazione. Un rinnovo non salvato
-    // lascia sloggata la CLI dell'utente.
-    if (_sourcePath) {
-      try { writeCredentials(_sourcePath, next); }
-      catch (err) {
-        console.warn(`[auth] rinnovo riuscito ma non salvato in ${_sourcePath}: ${String(err)}`);
-      }
+    const sourcePath = _sourcePath;
+
+    // Senza un percorso noto non possiamo né bloccare né salvare: si rinnova
+    // senza lock e senza scrivere, accettando la race condition remota.
+    if (!sourcePath) {
+      return refreshCredentials(creds);
     }
-    return next;
+
+    // Lucchetto inter-processo: uno solo fra tutti i processi esegue il rinnovo.
+    const acquired = await acquireLock(sourcePath);
+    try {
+      // DOUBLE-CHECK: dopo aver preso il lock si rilegge il file. Se un altro
+      // processo ha già rinnovato, il token sul disco è già fresco.
+      const reread = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
+      if (reread && reread.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
+        return reread;
+      }
+
+      const next = await refreshCredentials(reread ?? creds);
+      // Si scrive DOVE si è letto: vedi l'intestazione. Un rinnovo non salvato
+      // lascia sloggata la CLI dell'utente.
+      try { writeCredentials(sourcePath, next); }
+      catch (err) {
+        console.warn(`[auth] rinnovo riuscito ma non salvato in ${sourcePath}: ${String(err)}`);
+      }
+      return next;
+    } finally {
+      if (acquired) releaseLock(sourcePath);
+    }
   })();
 
   try {

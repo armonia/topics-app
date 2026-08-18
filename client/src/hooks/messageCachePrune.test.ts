@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { decideCachePrune } from './useChat';
+import { decideCachePrune } from './messageCachePrune';
 
 /**
  * La cache dei messaggi aveva riempito il localStorage fino a superare la quota

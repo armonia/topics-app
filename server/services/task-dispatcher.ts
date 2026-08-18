@@ -74,6 +74,36 @@ export interface DispatcherDeps {
    */
   createWorktree?: (projectStoreId: string) => Promise<string>;
   /**
+   * Scrive sulla card la fotografia della consegna (ramo, commit, diffstat) e le
+   * etichette derivate, leggendo il worktree. Torna `true` se c'e' un ramo.
+   *
+   * SERVE QUI perche' la consegna forzata dal sistema decide cosa dire al
+   * reviewer leggendo quelle colonne — e nel percorso del dispatcher nessuno le
+   * scriveva mai. Vedi `services/task-delivery-capture.ts`.
+   */
+  captureDelivery?: (taskId: string) => Promise<boolean>;
+  /**
+   * I FILE LASCIATI NEL WORKTREE E MAI COMMITTATI, o `null` se non si sa.
+   *
+   * ── Perche' esiste ────────────────────────────────────────────────────────
+   * La fotografia di consegna legge la STORIA di git: ramo, commit, diffstat.
+   * Un turno che muore prima del commit non lascia storia, quindi la card
+   * concludeva «nessun ramo e nessun file toccato» — e chi rivedeva chiudeva o
+   * rilanciava una card il cui lavoro era li', sul disco, intatto.
+   *
+   * Misurato il 18/08/2026 su due card in colonna review, entrambe con zero
+   * commit e la stessa frase addosso: `fervent-snow` aveva QUATTRO file
+   * modificati (la regola sui sottotask del tentativo morto, 367 righe, test
+   * verdi) e `bashful-wren` TRE. Le ultime parole dell'agente della seconda,
+   * recuperate dalla sessione, erano letteralmente «Changes are staged but not
+   * committed». Nessuno dei due l'avrebbe mai saputo dalla card.
+   *
+   * `null` = non misurabile (nessun worktree, git muto): resta il testo
+   * storico, che e' un silenzio onesto. Un elenco vuoto invece e' una misura:
+   * il worktree c'e' ed e' davvero pulito.
+   */
+  uncommittedInWorktree?: (taskId: string) => Promise<string[] | null>;
+  /**
    * IL PAVIMENTO: perché la MACCHINA non regge un altro agente adesso, o `null`
    * se lo regge. Non è il tetto — il tetto è una preferenza e può valere
    * «nessun limite», questo no. Assente (test, host degradato) = non blocca
@@ -158,6 +188,17 @@ export interface DispatcherDeps {
    *  back to that row's fixed number. There is no per-board cap: the field that
    *  suggested one was written by nobody's reader and has been removed. */
   recommendedCap?: () => number;
+  /**
+   * Quante barre di check pre-review stanno girando ADESSO (dal registro
+   * `checksGate.runningCount()`).
+   *
+   * Ogni barra vale uno slot di capacita': `test:unit` da solo dura ~322s e
+   * satura piu' core. Sei barre insieme il 18/08 hanno portato il loadavg a
+   * 78,83 su 12 core. Il freno deve contarle accanto agli agenti in volo, cosi'
+   * un dispatch nuovo aspetta finche' sia gli agenti che le barre stanno dentro
+   * il tetto. Assente = non si contano (comportamento storico, mai zero-denial).
+   */
+  checksRunning?: () => number;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
    * Drive ONE headless turn to completion; resolves when the turn ends.
@@ -827,6 +868,40 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
 
   /**
+   * LE ATTESE DI BACKOFF, per la stessa ragione esatta di `slotWaits`.
+   *
+   * Quando un turno cade su un guasto ricuperabile, `onTurnEnd` programma il
+   * ritentativo con un `setTimeout(backoff)` e lo annuncia sulla card («riprovo
+   * tra 60s»). Ma quel timer non TRATTIENE niente: il `finally` del chiamante
+   * libera lo slot `inFlight` subito dopo, e da quel momento la card e' una riga
+   * `in_progress` con chip `working` e nessun turno vivo — cioe' indistinguibile
+   * da un orfano di riavvio per il giro di `reconcile`, che gira ogni
+   * `DISPATCH_POLL_MS` (10 secondi).
+   *
+   * Risultato misurato il 18/08 sul DB vivo: 504 note «La sessione stava gia'
+   * rispondendo: turno non avviato: riprovo tra 60s» su 12 card. Gli istanti di
+   * quattro consecutive su `d636cfbf`: 12:43:46, 12:43:59, 12:44:09, 12:44:19 —
+   * 13, 10, 10 secondi, cioe' il POLL, non il backoff. Ogni giro sveglia una
+   * sessione che sta davvero rispondendo, si prende un 409, scrive la nota e
+   * programma un ALTRO timer: le catene si accumulano finche' il turno vero non
+   * finisce.
+   *
+   * Non e' solo rumore nel thread: ogni giro e' una chiamata alla front-door
+   * pagata per farsi dire di no, e il conto sale col numero di agenti.
+   *
+   * Come `slotWaits`: vive in memoria ACCANTO a `inFlight`, e un riavvio perde
+   * il timer e il registro insieme — a quel punto la card e' orfana davvero ed e'
+   * giusto che `reconcile` la riprenda.
+   */
+  const retryWaits = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** Il ritentativo non serve piu' (o sta partendo): via il timer e la voce. */
+  function clearRetryWait(taskId: string): void {
+    const t = retryWaits.get(taskId);
+    if (t) { clearTimeout(t); retryWaits.delete(taskId); }
+  }
+
+  /**
    * L'attesa non ha più senso: via il timer, via la memoria del suo commento.
    *
    * Il messaggio che teneva in mano NON muore col timer: `inherit` lo passa al
@@ -849,6 +924,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
     const runId = nextRunId++;
+    // Un turno che PARTE rende senza senso il ritentativo che lo aspettava: se
+    // restasse in `retryWaits` bloccherebbe il recupero orfani fino allo scadere
+    // del timer, e piu' tardi farebbe partire un secondo resume su un turno
+    // vivo. L'invariante e' «una voce nel registro se e solo se c'e' un timer
+    // che serve ancora», la stessa di `slotWaits`.
+    clearRetryWait(taskId);
     inFlight.set(taskId, { runId, sessionKey, sessionAt: Date.now(), deadSweeps: 0 });
     return runId;
   }
@@ -1668,7 +1749,45 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
       // Point the claim at the REAL topic (claim bound a placeholder) and flip
       // the chip to working. assigned_topic_id is the "apri tab" deep-link target.
-      deps.svc.bindTopic({ taskId, topicId });
+      // `freshSession`: il topic e' NUOVO (non un riuso del bloccante), quindi
+      // il budget dei tentativi riparte — questo e' il primo turno di questa
+      // conversazione. Senza, la card ripartiva su una sessione vergine col
+      // budget gia' speso e moriva al primo turno annunciando di averne fatti
+      // quattro (misurato il 18/08 su `eef64e32`: tre dispatch, tre topic, e al
+      // terzo la sessione aveva due messaggi).
+      deps.svc.bindTopic({ taskId, topicId, freshSession: !reuseTopicId });
+
+      // DIRLO: il cambio di worktree era muto, e l'umano non sapeva dove
+      // cercarlo se la GC l'avesse tenuto aperto per sporco. Un commento di
+      // sistema con il nuovo ramo e l'eventuale vecchio e' l'unica traccia
+      // leggibile nel thread — senza, la card sembrava "ancora in coda".
+      //
+      // La nota esce SOLO per un worktree NUOVO (non per il riuso del bloccante):
+      // il riuso e' trasparente per definizione e la nota lo renderebbe rumore.
+      // Il vecchio ramo viene cercato nell'ultimo tentativo registrato: `release()`
+      // azzera gia' `assigned_topic_id` prima che il nuovo dispatch cominci, quindi
+      // il vecchio topic e' irraggiungibile da qui tranne che dallo storico.
+      if (!reuseTopicId && worktreeId) {
+        try {
+          const newBranch = deps.worktreeBranch?.(worktreeId) ?? worktreeId;
+          let note = `Nuovo worktree: \`${newBranch}\``;
+          if (attemptStore) {
+            try {
+              const prev = attemptStore.list(taskId);
+              if (prev.length >= 2) {
+                // L'ultimo e' il tentativo appena aperto; quello prima e' il precedente.
+                const prevAttempt = prev[prev.length - 2];
+                const prevBranch = prevAttempt?.worktreeId
+                  ? (deps.worktreeBranch?.(prevAttempt.worktreeId) ?? prevAttempt.worktreeId)
+                  : null;
+                if (prevBranch) note += ` (precedente: \`${prevBranch}\`)`;
+              }
+            } catch { /* storico non disponibile: la nota esce comunque */ }
+          }
+          deps.svc.addComment({ taskId, author: "system", content: note });
+        } catch { /* best-effort: la nota non blocca il dispatch */ }
+      }
+
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
@@ -2321,7 +2440,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // riprovare subito dentro un'interruzione del provider brucia i
           // tentativi mentre l'interruzione è ancora in corso. La durata resta
           // un indizio valido quando la ragione non è arrivata fin qui.
-          const outage = end.end === "error" || (turnMs !== undefined && turnMs < backoff);
+          // `turn-in-flight` ASPETTA SEMPRE, e non per euristica: la front-door
+          // ci ha respinti perche' la sessione sta gia' rispondendo, quindi un
+          // ritentativo immediato incassa lo stesso 409 per costruzione. Finora
+          // ci finiva dentro solo di rimbalzo, via `turnMs < backoff` — vero in
+          // produzione (il turno non parte, quindi dura zero) ma falso appena la
+          // durata non arriva fin qui, e allora si riprovava SUBITO.
+          const outage = end.end === "error"
+            || end.cause === "turn-in-flight"
+            || (turnMs !== undefined && turnMs < backoff);
           const attempt = free
             ? `tentativo ${bumped.dispatchAttempts}/${cap}, non conteggiato`
             : `tentativo ${bumped.dispatchAttempts}/${cap}`;
@@ -2336,7 +2463,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           emit(bumped);
           // Deferred at least a tick: the caller's finally still holds the
           // inFlight slot; quick deaths wait out the backoff.
-          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, outage ? backoff : 0);
+          // Il timer si REGISTRA: senza, il poll di `reconcile` (10s) vede una
+          // card `in_progress` senza turno vivo e la sveglia comunque, contro
+          // una sessione che sta ancora rispondendo. Vedi `retryWaits`.
+          clearRetryWait(taskId);
+          const retryTimer = setTimeout(() => {
+            retryWaits.delete(taskId);
+            void resume(taskId, "", { continuation: true });
+          }, outage ? backoff : 0);
+          retryWaits.set(taskId, retryTimer);
           return;
         }
       }
@@ -2351,59 +2486,127 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // sbloccare (`needsHuman`: il modello si è rifiutato). Riprovare identico
       // otterrebbe lo stesso rifiuto: si arriva subito all'umano, con la ragione
       // scritta invece che dopo aver bruciato tutto il budget.
-      const fresh = hasFreshAgentComment(cur);
-      const recovered = fresh ? null : recoverAgentWords(cur);
-      if (cur.assignedTopicId && (fresh || recovered || needsHuman(end))) {
-        const base = needsHuman(end)
-          ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo: ` +
-            "l'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
-          : `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
-            "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
-        const reason = recovered
-          ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
-          : base;
-        try {
-          const delivered = deps.svc.deliverToReviewBySystem({
-            taskId,
-            reason,
-            // Due cause distinte, non una: "ha lavorato ma è finito il budget di
-            // turni" si può rimandare indietro e riparte; "il modello si è
-            // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide
-            // diversamente nei due casi, quindi la card deve dirglielo.
-            cause: needsHuman(end) ? "model_refused" : "retries_exhausted",
-          });
-          emit(delivered);
-          // System-delivery bypasses the route PATCH, so the review-edge
-          // notification (OS banner + web-push) would never fire. Emit it here:
-          // this is exactly the "task waiting for review after a timeout" case
-          // that was previously silent.
+      // PRIMA DI DIRE «non c'e' niente da guardare», GUARDA.
+      //
+      // Il testo qui sotto sceglie fra due frasi opposte leggendo
+      // `deliveryBranch` e `deliveryFilesChanged`. Su questo percorso nessuno le
+      // aveva mai scritte — la fotografia la prendeva solo la ROTTA, sull'edge
+      // verso review — quindi la condizione era sempre vera e la card diceva
+      // sempre «nessun ramo e nessun file toccato». Misurato il 18/08 su
+      // `cf15dea6`: quel testo su una card il cui ramo portava il commit
+      // `af248dcf9`, worktree pulito, cinque sottotask su cinque chiusi.
+      // Il tail e' asincrono perche' la fotografia si legge da git: `onTurnEnd`
+      // resta sincrono (i suoi chiamanti non lo aspettano) e il lavoro parte qui.
+      void (async () => {
+        if (deps.captureDelivery) {
+          try { await deps.captureDelivery(taskId); } catch { /* mai bloccare la consegna su git */ }
+        }
+        // La riga RILETTA: la fotografia l'ha appena scritta.
+        const t = deps.svc.get(taskId)?.task ?? cur;
+        const fresh = hasFreshAgentComment(t);
+        const recovered = fresh ? null : recoverAgentWords(t);
+        if (t.assignedTopicId && (fresh || recovered || needsHuman(end))) {
+          // ── «VALUTA COSA HA PRODOTTO» SU UNA CARD DOVE NON C'E' NIENTE ───────
+          //
+          // La frase era una sola per due situazioni opposte, e su quella
+          // sbagliata mandava a cercare un lavoro che non esiste. Misurato il
+          // 17/08 su `5cf58e29`: nessun ramo, zero file toccati, ogni turno morto
+          // su un errore del provider — e la card chiedeva di valutare la
+          // consegna. Segnalato: «non capisco che succede».
+          //
+          // La differenza la sanno le colonne, non il testo: un turno che ha
+          // prodotto qualcosa lascia un ramo o dei file cambiati. Quando non c'e'
+          // ne' l'uno ne' gli altri, la card lo DICE e nomina la sola mossa che
+          // ha senso, invece di chiedere una valutazione impossibile.
+          const nienteDaVedere = !t.deliveryBranch && !t.deliveryFilesChanged;
+          // NIENTE NELLA STORIA NON VUOL DIRE NIENTE SUL DISCO. Si chiede solo
+          // quando la storia e' vuota: e' l'unico caso in cui la risposta
+          // cambia cosa deve fare chi legge, e su una card con un diff da
+          // guardare sarebbe una domanda a git per niente.
+          const sporchi = nienteDaVedere && deps.uncommittedInWorktree
+            ? await deps.uncommittedInWorktree(taskId).catch(() => null)
+            : null;
+          const lavoroNonCommittato = sporchi && sporchi.length > 0 ? sporchi : null;
+          // IL PERCHE' E' DI CHI CHIUDE IL TURNO, IL DOVE NO. Qui si sa perché il
+          // turno è finito; NON si sa dove finirà la card, perché
+          // `deliverToReviewBySystem` ha due guardie che possono mandarla in
+          // `todo` (sottotask ancora aperti, figli parcheggiati da sbloccare).
+          // Dichiarare «l'ho portato io in review» da qui era una previsione, e
+          // su tre giorni ha sbagliato 6 volte su 35 — la riga resta nel thread
+          // per sempre e il reviewer la trova quando la card arriva DAVVERO in
+          // review, chiedendogli di valutare una consegna che allora non c'era.
+          // Quindi: la mossa successiva viaggia a parte, e la scrive chi sa dove
+          // la card è atterrata.
+          const base = needsHuman(end)
+            ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo.`
+            : lavoroNonCommittato
+              // IL LAVORO C'E', NON E' COMMITTATO. Non e' la stessa card di una
+              // dove non c'e' niente, e la mossa non e' la stessa: qui c'e'
+              // qualcosa da salvare, e va nominato prima che qualcuno decida
+              // di ributtare via il worktree.
+              ? `Il turno e' finito prima del commit: ${t.dispatchAttempts} turni, nessun commit, ` +
+                `ma nel worktree ci sono ${lavoroNonCommittato.length} file modificati ` +
+                `(${lavoroNonCommittato.slice(0, 6).join(", ")}${lavoroNonCommittato.length > 6 ? ", …" : ""}). ` +
+                `L'ultimo turno e' finito cosi': ${describeTurnEnd(end).toLowerCase()}.`
+              : nienteDaVedere
+                ? `Nessun lavoro consegnato: ${t.dispatchAttempts} turni, nessun ramo e nessun file toccato. ` +
+                  `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}.`
+                : `L'agent ha lavorato ${t.dispatchAttempts} turni ma non ha spostato il task in review da solo.`;
+          // Cosa può fare l'umano, e ha senso SOLO se la card gli arriva davvero.
+          const mossa = needsHuman(end)
+            ? "L'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
+            : lavoroNonCommittato
+              ? "Quel lavoro non e' perduto: rimandalo indietro e riparte sulla stessa sessione, nello stesso worktree, e la prima cosa che deve fare e' committare."
+              : nienteDaVedere
+                ? "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
+                : "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
+          const reason = recovered
+            ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
+            : base;
           try {
-            deps.broadcast({
-              type: "task:review-ready",
-              projectId: delivered.projectId,
-              taskId: delivered.id,
-              taskTitle: delivered.text || "Task",
-              reason: "system-delivered",
+            const delivered = deps.svc.deliverToReviewBySystem({
+              taskId,
+              reason,
+              nextMove: mossa,
+              // Due cause distinte, non una: "ha lavorato ma è finito il budget di
+              // turni" si può rimandare indietro e riparte; "il modello si è
+              // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide
+              // diversamente nei due casi, quindi la card deve dirglielo.
+              cause: needsHuman(end) ? "model_refused" : "retries_exhausted",
             });
-          } catch { /* best-effort */ }
-          // Stessa catena della consegna volontaria: anteprima prima, snellimento
-          // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
-          // effetti, e il suo worktree costa gli stessi ~260 MB.
-          try {
-            void Promise.resolve(deps.preparePreview?.(taskId))
-              .catch(() => { /* best-effort */ })
-              .then(() => deps.slimWorktree?.(taskId))
-              .catch(() => { /* best-effort */ });
-          } catch { /* best-effort */ }
-        } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
-        return;
-      }
-      releaseAndEmit({
-        taskId,
-        requeue: false,
-        parkState: CHIP_FAILED,
-        reason: `${describeTurnEnd(end)}. Nessun output dopo ${cur.dispatchAttempts} tentativi: parcheggiato in backlog.`,
-      });
+            emit(delivered);
+            // System-delivery bypasses the route PATCH, so the review-edge
+            // notification (OS banner + web-push) would never fire. Emit it here:
+            // this is exactly the "task waiting for review after a timeout" case
+            // that was previously silent.
+            try {
+              deps.broadcast({
+                type: "task:review-ready",
+                projectId: delivered.projectId,
+                taskId: delivered.id,
+                taskTitle: delivered.text || "Task",
+                reason: "system-delivered",
+              });
+            } catch { /* best-effort */ }
+            // Stessa catena della consegna volontaria: anteprima prima, snellimento
+            // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
+            // effetti, e il suo worktree costa gli stessi ~260 MB.
+            try {
+              void Promise.resolve(deps.preparePreview?.(taskId))
+                .catch(() => { /* best-effort */ })
+                .then(() => deps.slimWorktree?.(taskId))
+                .catch(() => { /* best-effort */ });
+            } catch { /* best-effort */ }
+          } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
+          return;
+        }
+        releaseAndEmit({
+          taskId,
+          requeue: false,
+          parkState: CHIP_FAILED,
+          reason: `${describeTurnEnd(end)}. Nessun output dopo ${t.dispatchAttempts} tentativi: parcheggiato in backlog.`,
+        });
+      })();
       return;
     }
     // Lo stop umano passa PROPRIO di qui, ed è l'unico park che si annuncia da
@@ -2506,7 +2709,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // il messaggio aspetta esattamente come aspetterebbe per uno slot pieno —
     // stessa coda, stesso chip, stessa promessa che niente si perde.
     const floorBlock = admissionBlock();
-    if (floorBlock || inFlight.size >= currentCap()) {
+    // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
+    // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
+    // mentre la macchina e' gia' al limite per i check.
+    const resumeGateRuns = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
+    if (floorBlock || inFlight.size + resumeGateRuns >= currentCap()) {
       // Il chip dice DOV'E': senza, la card resta `in_progress` con nessun turno
       // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
       // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
@@ -2890,6 +3097,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // carica → raccomandazione 1 → «sono solo» → fetta intera.
     const effectiveCap = currentCap();
 
+    // Le corse dei check pre-review valgono slot: ogni barra in volo satura
+    // core nella stessa macchina degli agenti. Si contano UNA volta per tick
+    // (non per card: la sonda e' la stessa per tutti i todo di questo giro).
+    // `null` = dep assente, comportamento storico (non si contano).
+    const gateRuns: number = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
+
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
     // condizioni non negoziabili, entrambe silenziose sarebbero una trappola:
     //  - serve l'isolamento worktree (N agenti nella STESSA cartella si
@@ -2902,7 +3115,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Il tetto di concorrenza è il tetto VERO: se non c'è posto per N agenti il
     // fan-out scende a quanti ce ne stanno, e lo si dice nel thread invece di
     // lanciarne meno in silenzio.
-    const freeSlots = Math.max(1, effectiveCap - reservedSlots);
+    // I gate in volo occupano slot come gli agenti: si sottraggono dal budget
+    // prima di calcolare quanti posti restano per nuovi dispatch.
+    const freeSlots = Math.max(1, effectiveCap - reservedSlots - gateRuns);
     const fanOut = fanOutBlocked ? 1 : Math.min(wantFanOut, freeSlots);
     // Il pavimento vale anche — soprattutto — per i dispatch NUOVI: è un agente
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
@@ -3053,13 +3268,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // N agenti = N slot. `claim` conta le RIGHE in_progress (una, per un
       // fan-out), quindi la prenotazione va fatta qui: il claim passa solo se
       // restano almeno N posti liberi.
-      const claimCap = effectiveCap - reservedSlots - (taskFanOut - 1);
+      // I gate in volo si sottraggono anche qui: il claimCap deve riflettere i
+      // posti DAVVERO liberi, non solo quelli non occupati da agenti.
+      const claimCap = effectiveCap - reservedSlots - gateRuns - (taskFanOut - 1);
       if (claimCap < 1) {
         // Macchina piena: da qui in poi aspettano tutti, e lo si dice a
         // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
         // la coda restava ferma e le card non lo raccontavano.
         const vivi = agentiVivi();
-        const posti = Math.max(0, effectiveCap - reservedSlots);
+        const posti = Math.max(0, effectiveCap - reservedSlots - gateRuns);
         for (const rest of todos.slice(idx)) {
           if (inFlight.has(rest.id) || graceTimers.has(rest.id)) continue;
           noteCapFull(rest, vivi, { serve: taskFanOut, posti });
@@ -3367,6 +3584,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // registro è la differenza, e vive in memoria come il timer: se il processo
       // è ripartito è vuoto, e allora la card è orfana per davvero.
       if (slotWaits.has(t.id)) continue;
+      // Un RITENTATIVO gia' programmato: stessa forma dell'attesa di slot qui
+      // sopra — nessun turno vivo, quindi nessuna traccia in `inFlight` — e
+      // stessa conseguenza se lo si ignora, moltiplicata per il poll: la card
+      // viene svegliata ogni 10 secondi contro una sessione occupata. Vedi
+      // `retryWaits` per la misura.
+      if (retryWaits.has(t.id)) continue;
       // Just buried above: its recovery is already scheduled (onTurnEnd). Without
       // this it would ALSO look like a restart orphan and get a second, wrong
       // recovery ("il server è ripartito", which never happened).
@@ -3536,6 +3759,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // creano uno per caso, non si passano le attese a vicenda.
     for (const w of slotWaits.values()) clearTimeout(w.timer);
     slotWaits.clear();
+    for (const t of retryWaits.values()) clearTimeout(t);
+    retryWaits.clear();
     waitingForSlot.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe

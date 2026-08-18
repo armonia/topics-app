@@ -72,6 +72,14 @@ export interface WorktreeGcDeps {
   /** L'anteprima viva di un task, se c'e' (nasce dopo: closure). */
   previewList: () => { taskId: string }[];
   previewTeardown: (taskId: string) => Promise<void>;
+  /**
+   * PUNTO 3 (task e3240a22): lista degli script Topics (source:"script") in
+   * esecuzione con il loro projectPath. Usata per rimandare lo slim quando
+   * c'e' un processo vivo DENTRO la cartella che si vuole snellire.
+   *
+   * Closure deliberata (nasce dopo: lo stesso schema di previewList).
+   */
+  listOwnedScripts?: () => Array<{ processId: string; pid: number | null; projectPath: string; source?: string; status: string }>;
 }
 
 export interface WorktreeGcRunner {
@@ -341,6 +349,21 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       slim: async (wt) => {
         // Un'anteprima viva è un `bun run dev` che gira LÌ DENTRO: rimandare.
         if (deps.previewList().some((p) => deps.worktreeOfTask(p.taskId)?.id === wt.id)) return 0;
+        // PUNTO 3 (task e3240a22): rimanda se c'e' uno script Topics vivo dentro.
+        // L'unica guardia oggi e' previewList(), che non consulta runningScripts.
+        // Questo e' il solo modo di fabbricare un fantasma che il Punto 2 non
+        // vedra' mai: la root esiste, il contenuto e' sparito sotto i piedi.
+        if (deps.listOwnedScripts) {
+          const base = wt.absPath.endsWith("/") ? wt.absPath : wt.absPath + "/";
+          const hasLiving = deps.listOwnedScripts().some(s => {
+            if ((s.source !== "script" && s.source != null) || s.status !== "running" || !s.pid) return false;
+            return s.projectPath === wt.absPath || s.projectPath.startsWith(base);
+          });
+          if (hasLiving) {
+            console.log(`[worktree-slim] ${wt.branchName ?? wt.id}: script vivo dentro — slim rimandato`);
+            return 0;
+          }
+        }
         const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
         if (res.removed.length > 0) {
           console.log(
@@ -353,14 +376,19 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       // A reap refused because the work isn't provably on main must be VISIBLE:
       // the same class of loss went unnoticed for 8 days precisely because the
       // sweep only ever spoke to the server log.
-      noteOnTask: (taskId, message) => {
-        try { deps.svc.addComment({ taskId, author: "system", content: message }); }
+      noteOnTask: (taskId, message, opts) => {
+        try { deps.svc.addComment({ taskId, author: "system", content: message, kind: opts?.kind, once: opts?.once }); }
         catch (err) { console.warn("[worktree-gc] noteOnTask failed", err); }
       },
       // Il ramo scritto sulla card mentre e' ancora noto: e' cio' che la tiene
       // landabile dopo che la cartella se n'e' andata (vedi `stampDeliveryBranch`).
+      // USA setDeliveryBranch e non recordDelivery: quest'ultima azzera commit,
+      // diffstat e landing_state (per progetto: un dato non aggiornato mente),
+      // ma qui non ci sono nuovi dati — solo un indirizzo da conservare. Le card
+      // dichiarate NON su main dal GC perdevano proprio quei dati, e con loro
+      // uscivano dall'audit di landing (filtra per delivery_commit IS NOT NULL).
       stampDeliveryBranch: (taskId, branch) => {
-        try { deps.svc.recordDelivery({ taskId, branch, commit: null }); }
+        try { deps.svc.setDeliveryBranch(taskId, branch); }
         catch (err) { console.warn("[worktree-gc] stampDeliveryBranch failed", err); }
       },
       log: (msg) => console.log(msg),

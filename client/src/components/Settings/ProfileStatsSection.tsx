@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { profileApi, type ProfileStats } from '../../lib/api';
+import { appSettingsApi, profileApi, type AppBehaviorSettings, type ProfileStats } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
+import { bannerMarkdown } from '../../lib/bannerShare';
 
 /**
  * LE TUE STATISTICHE: quanto lavoro è passato davvero di qui.
@@ -56,20 +57,117 @@ function Sparkline({ serie }: { serie: ProfileStats['activity']['last30'] }) {
   );
 }
 
+/**
+ * Risultato della configurazione relay: URL condivisibile via relay oppure
+ * URL locale (LAN only).
+ */
+interface RelayInfo {
+  /** URL di destinazione (relay o localhost). */
+  url: string;
+  /** `true` = l'URL è raggiungibile solo sulla LAN locale. */
+  lanOnly: boolean;
+}
+
 export function ProfileStatsSection() {
   const t = useT();
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [nome, setNome] = useState<string | null>(null);
   const [errore, setErrore] = useState(false);
   const [copiato, setCopiato] = useState(false);
+  // L'avviso vive finche' non si ricopia: e' la risposta a un gesto.
+  const [avviso, setAvviso] = useState<string | null>(null);
+  const [copiatoLink, setCopiatoLink] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppBehaviorSettings | null>(null);
+  const [relayInfo, setRelayInfo] = useState<RelayInfo | null>(null);
+  /** In-flight: 'publishing' | 'revoking' | null */
+  const [tokenBusy, setTokenBusy] = useState<'publishing' | 'revoking' | null>(null);
 
   useEffect(() => {
     let vivo = true;
     profileApi.stats()
       .then((r) => { if (vivo) { setStats(r.stats); setNome(r.name); } })
       .catch(() => { if (vivo) setErrore(true); });
+    appSettingsApi.get()
+      .then((s) => { if (vivo) setAppSettings(s); })
+      .catch(() => { /* non bloccante */ });
+    // Costruisce l'URL pubblico dal relay se disponibile.
+    // `/i/:relayId/public/profile/<token>` e' il percorso del browser proxy del relay.
+    fetch('/api/auth/relay', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((r: { enabled: boolean; baseUrl: string | null; relayId: string | null }) => {
+        if (!vivo) return;
+        if (r.enabled && r.baseUrl && r.relayId) {
+          setRelayInfo({
+            url: `${r.baseUrl}/i/${r.relayId}/public/profile`,
+            lanOnly: false,
+          });
+        } else {
+          // Relay non configurato: l'URL funziona solo in LAN.
+          setRelayInfo({
+            url: `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`,
+            lanOnly: true,
+          });
+        }
+      })
+      .catch(() => {
+        if (!vivo) return;
+        setRelayInfo({
+          url: `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`,
+          lanOnly: true,
+        });
+      });
     return () => { vivo = false; };
   }, []);
+
+  // Il token rende la pagina raggiungibile. Senza token la pagina non esiste.
+  // L'URL completo aggiunge /<token> al base. Il relay proxy passa il path
+  // invariato al server, quindi /i/<relayId>/public/profile/<token> funziona.
+  const token = appSettings?.profileShareToken ?? null;
+  const baseUrl = relayInfo?.url
+    ?? `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`;
+  const publicUrl = token ? `${baseUrl}/${token}` : null;
+  const lanOnly = relayInfo?.lanOnly ?? true;
+
+  const togglePublishCost = useCallback(async () => {
+    if (!appSettings) return;
+    const next = !appSettings.profilePublishCost;
+    setAppSettings((s) => s ? { ...s, profilePublishCost: next } : s);
+    try {
+      const updated = await appSettingsApi.update({ profilePublishCost: next });
+      setAppSettings(updated);
+    } catch {
+      // Ripristina il valore precedente in caso di errore
+      setAppSettings((s) => s ? { ...s, profilePublishCost: !next } : s);
+    }
+  }, [appSettings]);
+
+  /** Genera il token di condivisione (idempotente). */
+  const handlePublish = useCallback(async () => {
+    if (tokenBusy) return;
+    setTokenBusy('publishing');
+    try {
+      const tok = await appSettingsApi.publishProfile();
+      setAppSettings((s) => s ? { ...s, profileShareToken: tok } : s);
+    } catch {
+      // noop: il bottone torna attivo
+    } finally {
+      setTokenBusy(null);
+    }
+  }, [tokenBusy]);
+
+  /** Revoca il token: il vecchio URL diventa 404 immediatamente. */
+  const handleRevoke = useCallback(async () => {
+    if (tokenBusy) return;
+    setTokenBusy('revoking');
+    try {
+      await appSettingsApi.revokeProfile();
+      setAppSettings((s) => s ? { ...s, profileShareToken: null } : s);
+    } catch {
+      // noop
+    } finally {
+      setTokenBusy(null);
+    }
+  }, [tokenBusy]);
 
   if (errore) {
     return (
@@ -174,8 +272,16 @@ export function ProfileStatsSection() {
                 type="button"
                 data-testid="profile-banner-copy"
                 onClick={async () => {
-                  const url = `${window.location.origin}/api/profile/banner.svg${nome ? `?name=${encodeURIComponent(nome)}` : ''}`;
-                  setCopiato(await copyText(`![Topics](${url})`));
+                  // `bannerMarkdown` non costruisce solo la stringa: risponde
+                  // anche alla domanda che il bottone deve porsi PRIMA di
+                  // copiarla - questo indirizzo lo raggiunge qualcuno che non
+                  // sono io? Da localhost la risposta e' no, e allora il
+                  // markdown si copia lo stesso (chi ha un tunnel lo adatta)
+                  // ma accompagnato dall'avviso: un link rotto scoperto dopo
+                  // averlo incollato su GitHub e' il momento peggiore.
+                  const m = bannerMarkdown(window.location.origin, nome);
+                  setAvviso(m.condivisibile ? null : m.avviso);
+                  setCopiato(await copyText(m.testo));
                   // Torna com'era da solo: un «copiato» che resta acceso
                   // diventa un'etichetta e smette di dire che e' successo ORA.
                   setTimeout(() => setCopiato(false), 2000);
@@ -185,6 +291,89 @@ export function ProfileStatsSection() {
                 {copiato ? t('profile.banner.copied') : t('profile.banner.copy')}
               </button>
               <span className="text-[10.5px] text-app-text-muted">{t('profile.banner.hint')}</span>
+              {avviso && (
+                <p data-testid="profile-banner-warning" className="w-full text-[10.5px] leading-snug text-amber-400">{avviso}</p>
+              )}
+            </div>
+
+            {/* ── Pagina pubblica: token-gated, condivisione deliberata. ── */}
+            <div className="flex flex-col gap-1.5 border-t border-app-border pt-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-app-text-secondary">{t('profile.public.label')}</span>
+                {/* Pubblica / Revoca — il gesto deliberato. */}
+                {!token ? (
+                  <button
+                    type="button"
+                    data-testid="profile-public-publish"
+                    onClick={handlePublish}
+                    disabled={tokenBusy != null || appSettings == null}
+                    className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11"
+                  >
+                    {tokenBusy === 'publishing' ? t('profile.public.publishing') : t('profile.public.publish')}
+                  </button>
+                ) : (
+                  <>
+                    <a
+                      href={publicUrl!}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                    >
+                      {t('profile.public.open')}
+                    </a>
+                    <button
+                      type="button"
+                      data-testid="profile-public-copy"
+                      onClick={async () => {
+                        if (!publicUrl) return;
+                        setCopiatoLink(await copyText(publicUrl));
+                        setTimeout(() => setCopiatoLink(false), 2000);
+                      }}
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                    >
+                      {copiatoLink ? t('profile.public.copied') : t('profile.public.copy')}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="profile-public-revoke"
+                      onClick={handleRevoke}
+                      disabled={tokenBusy != null}
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover hover:text-app-text disabled:opacity-50 coarse:min-h-11"
+                    >
+                      {tokenBusy === 'revoking' ? t('profile.public.revoking') : t('profile.public.revoke')}
+                    </button>
+                  </>
+                )}
+              </div>
+              {/* Stato: non pubblicata / avviso LAN-only. */}
+              <p className="text-[10.5px] text-app-text-muted">
+                {!token
+                  ? t('profile.public.notPublished')
+                  : lanOnly
+                  ? t('profile.public.hintLanOnly')
+                  : t('profile.public.hint')}
+              </p>
+              {/* Toggle spesa: dato personale, opt-in esplicito. Visibile anche
+                  prima di pubblicare: la scelta si fa PRIMA di condividere. */}
+              {/* 12px bastano al mouse e non al DITO: il minimo tattile e' 44,
+                  e il cancello `settings-mobile` lo misura sull'INPUT, non sulla
+                  label che lo avvolge. `coarse:` e' la variante che il resto
+                  dell'app usa per la stessa cosa (questo device si puo' toccare,
+                  non lo schermo e' stretto), quindi col mouse la casella resta
+                  piccola com'era. */}
+              <label className="flex cursor-pointer items-start gap-2 coarse:items-center">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-3 w-3 flex-shrink-0 accent-primary coarse:mt-0 coarse:h-11 coarse:w-11"
+                  checked={appSettings?.profilePublishCost === true}
+                  onChange={togglePublishCost}
+                  disabled={appSettings == null}
+                />
+                <span className="text-[11px] text-app-text-secondary">
+                  {t('profile.public.showCost')}
+                  <span className="ml-1 text-[10.5px] text-app-text-muted">{t('profile.public.showCostHint')}</span>
+                </span>
+              </label>
             </div>
           </>
         )}

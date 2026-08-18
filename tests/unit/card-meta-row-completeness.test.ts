@@ -78,18 +78,25 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
     // parser approssimativo darebbe verdi falsi proprio nel caso che conta.
     const governatoDa: Record<string, string> = {
       "card-delivery-stat": "deliveryStat",
+      // Un ramo senza un solo commit (18/08): non e' una consegna piccola, e'
+      // nessuna consegna, e il land si rifiutera'. Va detto dalla colonna.
+      "card-uncommitted": "senzaCommit",
       "card-not-landed": "notLanded",
       "card-conductor-closes": "conductorCloses",
       "card-review-age": "attesa",
       "card-checks-green": "checksGreen",
       "card-checks-running": "checksRunning",
       "card-checks-red": "checksRed",
+      // Il terzo esito dei checks (18/08): uno SCADUTO non e' un rosso, e il chip
+      // ambra lo dice. Predicato suo, disgiunto da `checksRed`.
+      "card-checks-unknown": "checksUnknown",
       "card-system-delivered": "systemDelivered",
       "card-blocked-by": "blockedChip",
       "card-reopened": "reopened",
       "card-waiting-on-this": "waitingOnThis",
       "card-worked-in-place": "lavoroInPlace",
       "card-moved-by-hand": "spostataAMano",
+      "card-nothing-delivered": "senzaConsegna",
       // Questo ha DUE condizioni in `&&`: basta che una delle due sia nella
       // riga, ed e' `showsQuestion` a portarcelo (via `attesa`/`assignedTo`).
       "card-human-context": "humanContextText",
@@ -123,9 +130,16 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
     // Due copie della stessa condizione (una nella riga, una sul chip) sono il
     // modo esatto in cui la riga smette di montarsi mentre il chip crede di
     // esserci. Il predicato si dichiara una volta e si usa in entrambi i punti.
-    const occorrenze = SORGENTE.split("deliveryFilesChanged != null").length - 1;
+    // Il predicato e' cambiato il 18/08 da `!= null` a `truthy`: uno ZERO non
+    // deve piu' produrre il chip «0 file +0 -0», perche' quel caso ha il suo
+    // (`card-uncommitted`) e dirlo due volte con la forma di una misura buona e'
+    // il difetto. Cio' che il cancello sorveglia non cambia: UNA dichiarazione.
+    const occorrenze = SORGENTE.split("const deliveryStat = task.status === 'review' && task.deliveryFilesChanged").length - 1;
     expect(occorrenze,
       "la condizione del chip va dichiarata una volta sola (const deliveryStat)",
     ).toBe(1);
+    expect(SORGENTE.includes("deliveryFilesChanged != null"),
+      "lo ZERO non deve tornare a valere come misura: quel caso e' `senzaCommit`",
+    ).toBe(false);
   });
 });

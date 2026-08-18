@@ -48,3 +48,44 @@ describe('il corpo della colonna', () => {
     expect(src).toContain('{tasks.length}');
   });
 });
+
+/**
+ * UNO SCADUTO NON SI DISEGNA COME UN ROSSO.
+ *
+ * `checks_state` ha tre esiti dal 18/08 (`checksVerdict` in
+ * `server/services/review-checks.ts`) e la card deve tenerli distinti: rosso
+ * dice «il codice e' rotto, non approvare», ambra dice «non lo sappiamo».
+ * Misurato lo stesso giorno sul DB vivo: delle 15 card marcate `fail`, SEI
+ * erano solo scadute al tetto dei 20 minuti — il 40% delle bocciature accusava
+ * un codice sano.
+ *
+ * Sorgente e non render, per la stessa ragione dei casi qui sopra: `Card.tsx`
+ * importa `@/lib/popoverStyles` e `bun test` non risolve l'alias. Cio' che si
+ * sorveglia e' che i due chip restino DUE, con predicati disgiunti — collassare
+ * `checksUnknown` dentro `checksRed` e' una modifica di una parola e non fa
+ * rumore da nessuna parte.
+ */
+describe('il chip dei checks distingue rosso da non-misurato', () => {
+  test('i due predicati esistono e sono disgiunti', () => {
+    expect(src).toContain("const checksRed = task.checksState === 'fail';");
+    expect(src).toContain("const checksUnknown = task.checksState === 'unknown';");
+  });
+
+  test("il chip «non misurati» ha un suo testid e un suo colore", () => {
+    // Il testid serve all'E2E; il colore e' la meta' che l'occhio legge, e
+    // riusare `rose` avrebbe rimesso in piedi il difetto lasciando i test verdi.
+    expect(src).toContain('data-testid="card-checks-unknown"');
+    const chip = src.slice(src.indexOf('data-testid="card-checks-unknown"'));
+    expect(chip.slice(0, 400)).toContain('amber');
+    expect(chip.slice(0, 400)).not.toContain('rose');
+  });
+
+  test('entrambi entrano nella riga dei chip: un chip che non si disegna non esiste', () => {
+    // `hasMetaRow` decide se la riga si monta affatto. Dimenticarlo li' vuol
+    // dire un chip corretto e invisibile — il difetto piu' silenzioso di tutti.
+    const meta = src.slice(src.indexOf('const hasMetaRow'), src.indexOf('const hasMetaRow') + 700);
+    expect(meta).toContain('checksRed');
+    expect(meta).toContain('checksUnknown');
+  });
+});
+

@@ -273,15 +273,22 @@ function MessageQueueBadge({
   onUpdateItem,
   onRemoveItem,
   onClear,
+  onSendNow,
+  busy,
 }: {
   queue: string[];
   onUpdateItem: (index: number, content: string) => void;
   onRemoveItem: (index: number) => void;
   onClear: () => void;
+  /** Ferma il turno in corso e fa partire la coda adesso. Vedi ChatPane. */
+  onSendNow?: () => void;
+  /** Il turno è ancora in volo: senza niente da fermare, «invia subito» non ha senso. */
+  busy?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const count = queue.length;
+  const t = useT();
 
   // Close the popover when the queue empties (last message dispatched while
   // open). Without this the panel lingers as an empty box until clicked away.
@@ -337,14 +344,33 @@ function MessageQueueBadge({
             <span className="text-[11px] font-medium text-app-text">
               Da inviare ({count})
             </span>
-            <button
-              type="button"
-              onClick={() => { onClear(); setOpen(false); }}
-              className="text-[11px] text-app-text-muted hover:text-red-500 transition-colors"
-              title="Svuota la coda"
-            >
-              Svuota
-            </button>
+            <div className="flex items-center gap-3">
+              {/* «Non aspettare la fine»: interrompe il turno e fa partire la
+                  coda adesso. Compare solo mentre un turno è in volo, perché
+                  è l'unica condizione in cui c'è qualcosa da anticipare: a
+                  turno fermo la coda parte da sé, o la fa partire il messaggio
+                  successivo. Prima dello «Svuota» e non dopo: l'azione che
+                  costruisce viene prima di quella che butta. */}
+              {onSendNow && busy && (
+                <button
+                  type="button"
+                  onClick={() => { onSendNow(); setOpen(false); }}
+                  data-testid="queue-send-now"
+                  className="text-[11px] font-medium text-primary hover:text-primary-hover transition-colors"
+                  title={t('chat.queue.sendNowTitle')}
+                >
+                  {t('chat.queue.sendNow')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { onClear(); setOpen(false); }}
+                className="text-[11px] text-app-text-muted hover:text-red-500 transition-colors"
+                title="Svuota la coda"
+              >
+                Svuota
+              </button>
+            </div>
           </div>
           <ul className="py-1.5">
             {queue.map((content, idx) => (
@@ -464,6 +490,11 @@ interface ChatInputProps {
   onUpdateQueueItem: (index: number, content: string) => void;
   onRemoveQueueItem: (index: number) => void;
   onClearQueue: () => void;
+  /**
+   * «Invia subito»: ferma il turno in corso e fa partire la coda senza
+   * aspettare che finisca. Assente ⇒ il comando non compare.
+   */
+  onSendQueueNow?: () => void;
   othersTyping: boolean;
   othersTypingText: string;
   mentionedFiles: MentionedFile[];
@@ -535,6 +566,7 @@ export function ChatInput({
   onUpdateQueueItem,
   onRemoveQueueItem,
   onClearQueue,
+  onSendQueueNow,
   othersTyping,
   othersTypingText,
   mentionedFiles,
@@ -1322,6 +1354,8 @@ export function ChatInput({
           onUpdateItem={onUpdateQueueItem}
           onRemoveItem={onRemoveQueueItem}
           onClear={onClearQueue}
+          onSendNow={onSendQueueNow}
+          busy={currentStreaming}
         />
       )}
 

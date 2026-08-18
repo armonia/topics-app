@@ -14,74 +14,8 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
+import { freshDb } from "./tasks-test-db";
 
-function freshDb(): Database {
-  const db = new Database(":memory:");
-  db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, due_date TEXT, chat_id TEXT,
-    created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), assigned_agent_id TEXT,
-    archived INTEGER NOT NULL DEFAULT 0, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT, dispatch_weight TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1, reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
-    blocked_by_task_id TEXT REFERENCES tasks(id), output_url TEXT, preview_image TEXT,
-    preview_retired_at TEXT, preview_retired_reason TEXT,
-    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
-    landing_witnessed INTEGER NOT NULL DEFAULT 0,
-    delivered_by TEXT, delivered_reason TEXT,
-    done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT,
-    model TEXT, created_by_topic_id TEXT,
-    -- Le colonne del 16/08, in fondo come le mette ALTER TABLE in produzione:
-    -- l'entita' della consegna (20260816174500) e da quando la card aspetta
-    -- una risposta umana (20260816214500). Questo DDL e' una copia a mano e
-    -- non lo stub condiviso, quindi ogni migration nuova va ripetuta QUI o
-    -- ogni test del file muore su "no such column" - che e' precisamente cio'
-    -- che e' successo aggiungendo review_at.
-    delivery_files_changed INTEGER, delivery_insertions INTEGER, delivery_deletions INTEGER,
-    review_at TEXT
-  )`);
-  // See the note in tasks.queue-reason.test.ts: `readGlobalCap` SELECTs
-  // `max_agents_auto`, so leaving it out of this DDL arms a "no such column"
-  // throw for the first test here that touches the machine-wide cap.
-  // migration 20260816112635: l'interruttore GLOBALE dell'auto-dispatch vive in
-  // `app_settings`, non piu' sulla riga '*' di `board_settings`.
-  db.run(`CREATE TABLE IF NOT EXISTS app_settings (id INTEGER PRIMARY KEY CHECK (id = 1), auto_dispatch INTEGER)`);
-  db.run(`INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0)`);
-  db.run(`CREATE TABLE board_settings (
-    project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
-    max_agents INTEGER DEFAULT 3, max_agents_auto INTEGER, dispatch_retry_cap INTEGER
-  )`);
-  db.run(`CREATE TABLE task_comments (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
-  )`);
-  db.run(`CREATE TABLE task_labels (
-    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    label TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'human',
-    created_at TEXT NOT NULL, PRIMARY KEY (task_id, label)
-  )`);
-  db.run(`CREATE TABLE approvals (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
-    approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
-    rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
-    reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
-  )`);
-  // L'interruttore globale sta in `app_settings` dalla migration 20260816112635:
-  // sulla riga '*' di board_settings la colonna non esiste piu'.
-  db.run("UPDATE app_settings SET auto_dispatch = 1");
-  return db;
-}
 
 const PID = "topics-app-abc123";
 
@@ -247,6 +181,53 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     expect(t.status).toBe("review");
     expect(t.dispatchState).toBe("needs_input");
     expect(ultimoCommento(s, padre)).toContain("- Rimetti in coda i sottotask");
+  });
+
+  test("l'agente che spunta il PRIMO passo della sua checklist non si taglia il turno", () => {
+    // IL GUASTO DEL 18/08, nella sua forma esatta. Tre card dispacciate su
+    // cinque sono finite in review al PRIMO turno, con zero commit e una
+    // domanda di contabilita' in cima alla colonna: l'agente apriva la sua
+    // checklist (i sottotask nascono in `backlog`), spuntava il primo passo, e
+    // nel momento in cui quel figlio usciva dal volo `childLeftFlight` chiamava
+    // `askParkedChildren` — che SPOSTA la card — mentre il turno era vivo.
+    // La sessione di `e33820da` aveva due messaggi in tutto.
+    //
+    // `parkedChildRaisedStall` la guardia ce l'aveva (il test qui sopra);
+    // `childLeftFlight` no, e la funzione che muove la card nemmeno. Adesso la
+    // guardia sta dove si muove la card, cioe' in un posto solo.
+    const TOPIC = "t-agente";
+    db.prepare("INSERT INTO topics (id) VALUES (?)").run(TOPIC);
+    const padre = s.create({ projectId: PID, text: "Il padre al lavoro", status: "in_progress" }).id;
+    // Il legame topic<->card lo scrive il dispatcher: qui si mette sulla riga,
+    // che e' quello che `isOwnStep` legge per riconoscere «uno step MIO».
+    db.prepare("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?").run(TOPIC, padre);
+    const uno = s.create({ projectId: PID, text: "1. il primo passo", parentTaskId: padre }).id;
+    s.create({ projectId: PID, text: "2. il secondo passo", parentTaskId: padre });
+    s.create({ projectId: PID, text: "3. il terzo passo", parentTaskId: padre });
+    s.update({ taskId: uno, actor: "agent", by: "agent", agentTopicId: TOPIC, patch: { status: "in_progress" } });
+
+    // Spunta il primo passo — che l'agente PUO' chiudere: e' uno step suo.
+    // L'ultimo figlio in volo esce, e ne restano due fermi.
+    s.update({ taskId: uno, actor: "agent", by: "agent", agentTopicId: TOPIC, patch: { status: "done" } });
+
+    const t = s.get(padre)!.task;
+    expect(t.status, "il padre stava lavorando: la sua card non si sposta").toBe("in_progress");
+    expect(t.dispatchState).not.toBe("needs_input");
+    expect(t.deliveredReason).not.toBe("parked_children");
+  });
+
+  test("finito il turno la domanda si fa comunque: non si perde, si sposta", () => {
+    // L'altra meta' della guardia. Se la domanda sparisse invece di spostarsi,
+    // il padre resterebbe fermo per sempre su figli che nessuno prende — il
+    // guasto del 12/08 che questo file esiste per chiudere.
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    s.create({ projectId: PID, text: "Uno step mai lavorato", parentTaskId: padre });
+
+    const out = s.askParkedChildren({ taskId: padre, by: "dispatcher", evenIfLive: true });
+
+    expect(out, "chi chiude il turno sa che e' finito: la domanda si fa").not.toBeNull();
+    expect(s.get(padre)!.task.status).toBe("review");
+    expect(s.get(padre)!.task.dispatchState).toBe("needs_input");
   });
 
   test("se il padre STA LAVORANDO l'avviso è una riga nel thread, non un turno tagliato", () => {

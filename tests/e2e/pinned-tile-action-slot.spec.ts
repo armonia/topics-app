@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { clipDiConsegna } from "./helpers/clip";
+import { clipDiConsegna, isClipRun } from "./helpers/clip";
 
 /**
  * LO SLOT DEL «+» CEDE FINCHÉ IL «+» NON SI VEDE.
@@ -275,6 +275,22 @@ test.describe("Sidebar — lo slot del «+» sulla tessera fissata", () => {
   });
 
   test("SLOT-3: la clip di consegna", async ({ page }) => {
+    // GIRA SOLO QUANDO PRODUCE DAVVERO LA CLIP.
+    //
+    // Le due asserzioni che appartengono a SLOT-3 stanno dentro `if (clip)`, e
+    // `clipDiConsegna` ritorna `null` fuori da `E2E_CLIP=1` (helpers/clip.ts):
+    // in una passata normale non venivano MAI eseguite. Quello che restava era
+    // la scena — 9,5 secondi di `waitForTimeout` per far vedere i tre stati a
+    // una telecamera spenta — e le sue asserzioni di contorno (tessera
+    // visibile, una favicon, «+» all'hover, «+» nascosto dopo) sono le stesse
+    // che SLOT-1 fa gia', misurando anche i pixel invece di guardarli.
+    //
+    // Costo tolto dalla passata: 11,4s misurati. Copertura persa: nessuna.
+    // Verificato caso per caso sulle altre cinque spec che usano
+    // `clipDiConsegna` — hanno da 12 a 22 asserzioni FUORI da `if (clip)` e
+    // zero sonni fissi: sono test veri che per giunta producono una clip, e
+    // vanno lasciati dove sono.
+    test.skip(!isClipRun(), "produce la clip di consegna: gira solo con E2E_CLIP=1");
     // La scena: tessera a riposo col nome più lungo che si riesca a leggere →
     // il mouse entra, il «+» compare e il nome gli cede i suoi 28px → il mouse
     // se ne va e il nome torna intero. Registra solo sotto `E2E_CLIP=1`; senza,

@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 /**
  * Pezzi di schema che PIÙ harness di test devono creare a mano.
  *
@@ -107,7 +109,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   delivery_insertions INTEGER,
   delivery_deletions INTEGER,
   -- 20260816214500: da quando la card aspetta una risposta umana.
-  review_at TEXT
+  review_at TEXT,
+  -- 20260818164410: esito sonda server-side sull'output_url (live/dead/unknown).
+  url_probe_status TEXT CHECK (url_probe_status IN ('live', 'dead', 'unknown')) DEFAULT NULL,
+  url_probe_checked_at TEXT DEFAULT NULL
 )`;
 
 /**
@@ -166,7 +171,8 @@ export const TERMINAL_SESSIONS_DDL = `CREATE TABLE IF NOT EXISTS terminal_sessio
  */
 export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
-  auto_dispatch INTEGER
+  auto_dispatch INTEGER,
+  profile_publish_cost INTEGER NOT NULL DEFAULT 0
 );
 INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 
@@ -183,3 +189,33 @@ export const TASK_LABELS_DDL = `CREATE TABLE IF NOT EXISTS task_labels (
   created_at TEXT NOT NULL,
   PRIMARY KEY (task_id, label)
 )`;
+
+
+/**
+ * LE MIGRATION ARRIVATE DOPO, senza doverle rincorrere a mano.
+ *
+ * Diversi harness costruiscono lo schema applicando un ELENCO di file di
+ * migration che si ferma a una certa data (le rotte dell'identita' si fermano
+ * alla 084). Ogni colonna aggiunta dopo a una di quelle tabelle diventa
+ * invisibile li' dentro: la rotta la seleziona, SQLite non la conosce, la query
+ * esplode e il `catch` della rotta risponde con un `null`. A schermo non si vede
+ * un errore: si vede sparire il dato.
+ *
+ * Misurato il 18/08/2026: `20260818151850-org-logo-url.sql` aggiunge
+ * `orgs.logo_url`, `/api/auth/me` comincia a leggerlo, e QUATTRO casi in due
+ * file diventano rossi dicendo `null is not an object` — cioe' nominando il
+ * sintomo e non la causa. Aggiungere il nome all'elenco a mano vorrebbe dire
+ * ripagare lo stesso pomeriggio alla prossima colonna.
+ *
+ * Quindi non si elencano: si CERCANO. Solo le `ALTER TABLE` sulle tabelle che
+ * l'harness usa davvero — nient'altro entra, cosi' una migration che dipende da
+ * tabelle li' assenti non puo' rompere il banco.
+ */
+export function alterMigrationsAfter(dopo: string, tabelle: string[], radice: string): string[] {
+  const dir = join(radice, "server", "db", "migrations");
+  const soloAlter = new RegExp(`ALTER\\s+TABLE\\s+(${tabelle.join("|")})\\b`, "i");
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".sql") && f > dopo)
+    .sort()
+    .filter((f) => soloAlter.test(readFileSync(join(dir, f), "utf8")));
+}

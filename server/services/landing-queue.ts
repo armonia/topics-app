@@ -37,6 +37,7 @@
 // dichiarato UNA volta in `shared/board.ts` e letto dai due lati.
 export type { LandingTicket } from "../../shared/board";
 import type { LandingTicket } from "../../shared/board";
+import { makeSerialQueue } from "../lib/serial-queue";
 
 export interface LandingQueueDeps {
   now?: () => string;
@@ -56,14 +57,24 @@ interface Entry {
   finish: (t: LandingTicket) => void;
 }
 
+/** Il risultato opzionale che `run` puo' restituire per popolare il ticket. */
+export interface LandOutcomeResult {
+  outcome: LandingTicket['outcome'];
+  reason?: string | null;
+}
+
 export interface LandingQueue {
   /**
    * Mette il land di `taskId` in fondo alla fila `key` (una per progetto: le
    * fusioni toccano tutte lo stesso checkout). Ritorna SUBITO il ticket, con la
    * posizione. Se un land per lo stesso task è già in fila o in corso, ritorna
    * QUELLO e non accoda niente.
+   *
+   * `run` puo' restituire un `LandOutcomeResult` per popolare `outcome` e
+   * `reason` sul ticket, cosi' chi interroga GET /land ottiene l'esito
+   * direttamente senza dover rileggere il task.
    */
-  enqueue(key: string, taskId: string, run: () => Promise<void>): LandingTicket;
+  enqueue(key: string, taskId: string, run: () => Promise<LandOutcomeResult | void>): LandingTicket;
   /** L'ultimo ticket noto per il task — anche già chiuso. `null` se mai visto. */
   status(taskId: string): LandingTicket | null;
   /** Si risolve quando il land del task è finito. `null` se non ce n'è mai stato uno. */
@@ -79,8 +90,8 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
 
   /** Task in fila per chiave, in ordine: l'indice 0 è quello che sta girando. */
   const lanes = new Map<string, string[]>();
-  /** La coda di promise per chiave: è ciò che serializza davvero. */
-  const tails = new Map<string, Promise<unknown>>();
+  /** La coda che serializza i land: usa makeSerialQueue invece di tails inline. */
+  const q = makeSerialQueue();
   const entries = new Map<string, Entry>();
   /** Ticket chiusi, dal più vecchio: la finestra da potare quando supera `cap`. */
   const history: string[] = [];
@@ -117,7 +128,7 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
       const settled = new Promise<LandingTicket>((res) => { finish = res; });
       const entry: Entry = {
         key,
-        ticket: { taskId, phase: "queued", ahead: 0, queuedAt: now(), settledAt: null, error: null },
+        ticket: { taskId, phase: "queued", ahead: 0, queuedAt: now(), settledAt: null, error: null, outcome: null, reason: null },
         settled,
         finish,
       };
@@ -128,15 +139,22 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
       lanes.set(key, lane);
       const ticket = snapshot(entry);
 
-      const prev = tails.get(key) ?? Promise.resolve();
-      const next = prev.then(async () => {
+      // makeSerialQueue gestisce la coda di promise e la pulizia della mappa.
+      // La fn wrappa tutto in try/catch, quindi non rifiuta mai: `void` è sicuro.
+      void q.enqueue(key, async () => {
         entry.ticket.phase = "running";
         try {
-          await run();
+          const result = await run();
           entry.ticket.phase = "settled";
+          // Popola l'esito sul ticket se `run` lo ha restituito: chi interroga
+          // GET /land lo legge direttamente, senza dover rileggere il task.
+          if (result && typeof result === "object" && "outcome" in result) {
+            entry.ticket.outcome = result.outcome ?? null;
+            entry.ticket.reason = result.reason ?? null;
+          }
         } catch (err) {
           // L'esito di UN land non contagia la fila: si chiude questo ticket col
-          // motivo e si passa al prossimo. È l'esatto contrario del `void`, che
+          // motivo e si passa al prossimo. E' l'esatto contrario del `void`, che
           // lasciava una promise rifiutata e nient'altro.
           entry.ticket.phase = "failed";
           entry.ticket.error = err instanceof Error ? err.message : String(err);
@@ -153,11 +171,6 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
         entry.ticket.ahead = 0;
         entry.finish({ ...entry.ticket });
       });
-      // `next` non rifiuta mai (il catch è dentro), ma la coda non deve dipendere
-      // da quella promessa: `catch` qui la rende vera per costruzione.
-      const tail = next.catch(() => undefined);
-      tails.set(key, tail);
-      void tail.then(() => { if (tails.get(key) === tail) tails.delete(key); });
 
       return ticket;
     },

@@ -1,7 +1,7 @@
 {
   "schema": "bench-ai-latency-v1",
   "bench": "ai-latency",
-  "measured_at": "2026-08-17T14:55:06.272Z",
+  "measured_at": "2026-08-17T16:34:57.456Z",
   "mode": "injected",
   "platform": "darwin arm64",
   "machine": "Apple M2 Max, 12 cores, darwin 25.2.0",
@@ -36,15 +36,15 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
+        0.4,
+        0.4,
         0.3,
-        0.6,
-        0.7,
         0.5,
-        0.3,
-        0.6,
-        0.3
+        0.7,
+        0.4,
+        0.4
       ],
-      "medianMs": 0.5,
+      "medianMs": 0.4,
       "minMs": 0.3,
       "maxMs": 0.7
     },
@@ -55,17 +55,17 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
-        10.1,
-        11.1,
-        9.9,
-        16.8,
-        77.2,
-        24.3,
-        25.1
+        44.5,
+        10.9,
+        9,
+        14.7,
+        12,
+        9.1,
+        21
       ],
-      "medianMs": 16.8,
-      "minMs": 9.9,
-      "maxMs": 77.2
+      "medianMs": 12,
+      "minMs": 9,
+      "maxMs": 44.5
     },
     "firstTokenToInk": {
       "label": "first provider event -> first token readable",
@@ -74,17 +74,17 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
-        178.7,
-        79.9,
-        202.4,
-        28.9,
-        19.8,
-        13.2,
-        18.8
+        21,
+        13.8,
+        15.1,
+        22.5,
+        10.8,
+        38,
+        24
       ],
-      "medianMs": 28.9,
-      "minMs": 13.2,
-      "maxMs": 202.4
+      "medianMs": 21,
+      "minMs": 10.8,
+      "maxMs": 38
     },
     "midStreamTokenToInk": {
       "label": "mid-stream event -> that token readable",
@@ -93,17 +93,17 @@
       "measurable": true,
       "unit": "ms",
       "samples": [
-        155.3,
-        31,
-        114.8,
-        160.9,
-        104.2,
-        154,
-        97.7
+        18.5,
+        35.2,
+        119.7,
+        37.3,
+        30,
+        59.5,
+        55.3
       ],
-      "medianMs": 114.8,
-      "minMs": 31,
-      "maxMs": 160.9
+      "medianMs": 37.3,
+      "minMs": 18.5,
+      "maxMs": 119.7
     },
     "acceptedToFirstProviderEvent": {
       "label": "accepted -> first provider event",

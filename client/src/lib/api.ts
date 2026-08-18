@@ -331,6 +331,21 @@ export const chatApi = {
       body: JSON.stringify({ branchIndex }),
     });
   },
+
+  /**
+   * Recupera il `detail` completo di una singola chiamata tool.
+   *
+   * La rotta `/api/history` spedisce i detail CON i campi di testo grossi
+   * (`output`, `content`, `result`) svuotati, e mette sul toolCall il contatore
+   * dei byte tolti (`detailBytes`). Questa chiamata li recupera la prima volta
+   * che la riga viene APERTA: la risposta resta in uno stato locale della riga
+   * e non rientra nello store. Niente si perde, si paga solo quando serve.
+   */
+  async fetchToolDetail(messageId: string, toolCallId: string): Promise<{ detail: unknown }> {
+    return request<{ detail: unknown }>(
+      `/messages/${encodeURIComponent(messageId)}/tool/${encodeURIComponent(toolCallId)}/detail`,
+    );
+  },
 };
 
 // Search API
@@ -1279,6 +1294,12 @@ export interface AppBehaviorSettings {
    *  `jcode` (sessioni ACP dentro un demone condiviso). `null` = il default
    *  del server, `cli`. */
   agentRuntime: AgentRuntime | null;
+  /** Mostrare la spesa in dollari sulla pagina pubblica del profilo. `null`
+   *  o `false` = spesa non visibile (default sicuro: dato personale). */
+  profilePublishCost: boolean | null;
+  /** Token opaco nel percorso /public/profile/<token>. NULL = pagina spenta.
+   *  Gestito da POST/DELETE /api/app-settings/profile-token, non da PUT. */
+  profileShareToken: string | null;
 }
 
 /**
@@ -1317,6 +1338,19 @@ export const appSettingsApi = {
       body: JSON.stringify(patch),
     });
     return r.settings;
+  },
+  /** Genera il token di pubblicazione (idempotente: se esiste lo restituisce). */
+  async publishProfile(): Promise<string> {
+    const r = await request<{ ok: boolean; token: string }>('/app-settings/profile-token', {
+      method: 'POST',
+    });
+    return r.token;
+  },
+  /** Revoca il token: il vecchio URL diventa 404 immediatamente. */
+  async revokeProfile(): Promise<void> {
+    await request<{ ok: boolean }>('/app-settings/profile-token', {
+      method: 'DELETE',
+    });
   },
 };
 

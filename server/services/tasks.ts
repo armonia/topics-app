@@ -179,6 +179,16 @@ export interface Task {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /**
+   * Esito dell'ultima sonda server-side sull'output_url.
+   * - `'live'`    : la sonda ha risposto 2xx/3xx
+   * - `'dead'`    : la sonda non risponde o risponde 4xx/5xx
+   * - `'unknown'` : sonda mai eseguita (default dopo la migration)
+   * `null` = nessun output_url, campo non rilevante.
+   */
+  urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
+  /** Timestamp dell'ultima sonda (ISO string). */
+  urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
@@ -280,7 +290,7 @@ export interface Task {
    * worktree, task precedenti al gate) — che NON è un verde e non va disegnato come
    * tale. 'running' mentre il server li esegue.
    */
-  checksState: "running" | "pass" | "fail" | null;
+  checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksAt: string | null;
   /** Il commit su cui sono girati: se il branch è avanzato, un 'pass' è scaduto. */
   checksCommit: string | null;
@@ -518,6 +528,35 @@ function parseChecksJson(raw: unknown): CheckRun[] | null {
  */
 const VALID_EFFORT = new Set<string>([...EFFORT_TIERS, "auto"]);
 const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
+
+/**
+ * Le colonne che descrivono LO SNAPSHOT DI UNA CONSEGNA: ramo, commit,
+ * diffstat e risultati dei controlli automatici.
+ *
+ * Una fonte sola per tutti e tre i punti di azzeramento:
+ *   - `update()` quando la card esce da review/done verso la coda;
+ *   - `reviewDecision("reject")` che scrive a SQL grezzo;
+ *   - `recordDelivery` che le sovrascrive con i dati nuovi.
+ *
+ * Aggiungere una colonna qui la porta automaticamente in tutti e tre i
+ * punti: la prossima colonna di consegna non nasce dimenticata da due di loro.
+ *
+ * `checks_state`/`checks_json`/`checks_commit` fanno parte dello snapshot
+ * perche' descrivono la barra verde DI QUELLA CONSEGNA. Su un commit
+ * diverso da quello consegnato un verde non e' un verde: `whoCloses` legge
+ * `checksState` per decidere se il conduttore puo' chiudere da solo, e
+ * senza azzeramento decide su dati di una consegna che non esiste piu'.
+ */
+const DELIVERY_SNAPSHOT_COLUMNS = [
+  "delivery_branch",
+  "delivery_commit",
+  "delivery_files_changed",
+  "delivery_insertions",
+  "delivery_deletions",
+  "checks_state",
+  "checks_json",
+  "checks_commit",
+] as const;
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
 
@@ -532,22 +571,12 @@ export class TaskServiceError extends Error {
 /**
  * Derive the board `project_id` from an absolute project path.
  *
- * BYTE-IDENTICAL to `getProjectIdForTopic` in `server/routes/topics.ts:720`
- * (djb2-ish 32-bit hash, base36, 6 chars, prefixed by the dir basename). Kept
- * duplicated here — not imported — because that helper is closure-local; a
- * parity test (`tasks.test.ts`) pins the two together. Do NOT "improve" the
- * hash without updating both, or existing rows orphan.
+ * La funzione vive in `shared/board.ts`, dichiarata UNA volta: questo modulo
+ * resta la porta da cui il resto del server la importa (routes/tasks.ts,
+ * lib/tab-resolver.ts, services/project-path-resolver.ts), ma non ne tiene più
+ * una copia. Prima erano quarantanove, tenute insieme da un commento.
  */
-export function projectIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
+export { projectIdForPath } from "../../shared/board";
 
 /**
  * Per quanto una rivendicazione di interruzione tiene il campo.
@@ -618,7 +647,19 @@ export interface TaskService {
    * well-formed block — an LLM caller passes structured options and never
    * reproduces markdown syntax by hand.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" }): TaskComment;
+  /**
+   * `once` — questa riga descrive una CONDIZIONE, non un evento.
+   *
+   * La dedupe normale ha una finestra di 10 secondi e serve contro i retry. Non
+   * morde su chi riscrive perche' la condizione dura: il GC dei worktree ripassa
+   * ogni 30 minuti e, finche' un worktree resta sporco, riscrive la stessa frase
+   * da 244 caratteri. Misurato il 18/08: 108 righe identiche su 12 card in
+   * quattro ore, dieci-dodici copie byte-per-byte sulla stessa card, e il thread
+   * cresce di una ogni mezz'ora finche' nessuno tocca quel worktree — cioe' per
+   * giorni. `once` toglie la finestra: stesso autore, stesso testo, stessa card
+   * ⇒ si scrive la prima volta e basta.
+   */
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service"; once?: boolean }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -660,6 +701,13 @@ export interface TaskService {
     taskId: string;
     reason: string;
     cause?: "retries_exhausted" | "model_refused" | "fanout";
+      /**
+     * La mossa che l'umano può fare, e che ha senso SOLO se la card gli arriva.
+     * Chi chiude il turno sa PERCHE' è finito ma non DOVE finirà la card: le due
+     * guardie qui sotto possono mandarla in coda. Separata, così la frase la
+     * scrive chi sa dov'è atterrata — e non resta nel thread una promessa falsa.
+     */
+    nextMove?: string;
   }): Task;
   /**
    * Alza la DOMANDA dello stallo: il task va in review con chip `needs_input` e
@@ -670,7 +718,7 @@ export interface TaskService {
    * archiviato, oppure sta GIÀ chiedendo (è in review: la domanda c'è).
    * Idempotente per costruzione: due giri di dispatch non fanno due domande.
    */
-  askParkedChildren(args: { taskId: string; by?: string }): Task | null;
+  askParkedChildren(args: { taskId: string; by?: string; evenIfLive?: boolean }): Task | null;
   /**
    * LO STESSO GIRO, SULLE CARD GIÀ FERME. `askParkedChildren` si arma su due
    * eventi — un figlio che si ferma, il turno del padre che finisce — e chi si
@@ -883,7 +931,7 @@ export interface TaskService {
    */
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
-  bindTopic(args: { taskId: string; topicId: string }): Task;
+  bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
@@ -898,6 +946,11 @@ export interface TaskService {
   setDispatchWeight(args: { taskId: string; weight: TaskWeight | null }): Task;
   /** Toglie l'anteprima e scrive sulla card PERCHÉ (stato, non messaggio). */
   retirePreview(args: { taskId: string; reason: string }): Task;
+  /**
+   * Scrive l'esito della sonda sull'output_url.
+   * Chiamato dal background probe trigger dopo ogni sonda HTTP.
+   */
+  setUrlProbeStatus(args: { taskId: string; status: 'live' | 'dead' | 'unknown'; checkedAt: string }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
@@ -929,10 +982,31 @@ export interface TaskService {
      *  niente», ed è una frase che va detta solo quando è vera. */
     stat?: { filesChanged: number; insertions: number; deletions: number } | null;
   }): void;
+  /**
+   * Timbra SOLO il `delivery_branch`, senza toccare commit, diffstat o
+   * landing_state. Usato dal GC (`stampDeliveryBranch`) prima di liberare la
+   * cartella di un worktree: scrive l'unico pezzo che mancherebbe dopo la
+   * rimozione, senza azzerare la testimonianza di una consegna precedente.
+   *
+   * `recordDelivery` con `commit: null` avrebbe azzerato anche il commit e il
+   * diffstat (per progetto: un dato non aggiornato insieme al suo soggetto
+   * mente). Questo setter esiste per il caso in cui non ci sono nuovi dati da
+   * scrivere, solo un indirizzo da conservare.
+   */
+  /**
+   * I soli NUMERI di una consegna già registrata, e solo se mancano.
+   *
+   * Non `recordDelivery`: quella azzera il verdetto di atterraggio (è il suo
+   * mestiere, una consegna nuova invalida il verdetto vecchio) e con `stat`
+   * assente scrive NULL. Per riempire un buco su una consegna che NON è
+   * cambiata servono entrambe le cose al contrario. Torna `true` se ha scritto.
+   */
+  setDeliveryStat(args: { taskId: string; filesChanged: number; insertions: number; deletions: number }): boolean;
+  setDeliveryBranch(taskId: string, branch: string): void;
   /** Esito dei checks pre-review sul task (evidenza per il reviewer). */
   recordChecks(args: {
     taskId: string;
-    state: "running" | "pass" | "fail" | null;
+    state: "running" | "pass" | "fail" | "unknown" | null;
     commit?: string | null;
     runs?: CheckRun[] | null;
   }): Task;
@@ -1080,29 +1154,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           return;
         }
       }
-      // NESSUN CANDIDATO, PROPRIO NESSUNO: la card entra in review cieca e
-      // finora lo faceva IN SILENZIO.
-      //
-      // Misurato il 14/08 sulla board di topics: 186 card su 393 senza
-      // anteprima, e di quelle 0 scartate per forma. Cioè il ramo qui sotto —
-      // l'unico che parlava — non era mai scattato: chi arrivava senza allegare
-      // niente non riceveva nessun segnale, e chi apriva la card per decidere
-      // trovava un riquadro vuoto senza sapere se l'evidenza mancava, era
-      // fallita o non serviva.
-      //
-      // Non è un blocco (il protocollo dice che l'anteprima NON è un cancello
-      // di review, e trasformarla in tale fermerebbe consegne buone): è la
-      // stessa scelta di `noteDuplicatePreview` — si scrive il fatto e decide
-      // chi legge.
+      // Nessun candidato: la card resta cieca. Il riquadro vuoto lo dice gia'.
+      // Le istruzioni su come allegare l'evidenza vivono nell'envelope
+      // dell'agente (PREVIEW_RULE in buildKickoff e buildResume), non nel
+      // thread di chi decide.
       if (!rejected.length && !rows.some((r) => (r.media ?? "").trim())) {
-        reviewNote(
-          taskId,
-          "Consegna SENZA anteprima: nel thread non c'è nessun allegato da promuovere, quindi la card resta cieca. " +
-            "Non è un blocco. Se questa consegna non ha una superficie da mostrare va bene così. " +
-            "Se ne ha una, l'evidenza durevole è ciò che resta quando la sessione è finita: `.png` per una schermata, " +
-            "`.webm` ≤20s per un comportamento a più stati, `.svg` per una struttura senza superficie. " +
-            "Poi `update_task(preview_image=…)`.",
-        );
         return;
       }
       // Nessun candidato promosso ma qualcuno scartato per forma: la card
@@ -1309,6 +1365,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * l'esito) lasciava la card senza contesto.
    */
   const CARD_COMMENTS_DEPTH = 3;
+
+  /**
+   * «Parola vera», in SQL: 1 quando la riga e' la voce di qualcuno, 0 quando e'
+   * contabilita' della macchina.
+   *
+   * E' il gemello di `contorno()` — qui sotto in `cardCommentsFor`, e in
+   * `client/src/components/Board/cardComments.ts`. Le tre copie devono dire la
+   * stessa cosa: se questa fosse piu' larga, la finestra trasporterebbe una
+   * nota che il client poi scarta, e la card resterebbe muta come prima.
+   */
+  const SQL_PAROLA =
+    "CASE WHEN COALESCE(c.kind, 'comment') = 'review-note' THEN 0 " +
+    "     WHEN c.author = 'system' AND c.content NOT LIKE '%```question%' THEN 0 " +
+    "     ELSE 1 END";
 
   /**
    * Quanto testo di un commento viaggia sulla card, e sono DUE misure perché la
@@ -1569,14 +1639,42 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     if (ids.length === 0) return out;
     let rows: any[];
     try {
+      // LA FINESTRA NON BASTA: SERVE UNA GARANZIA.
+      //
+      // `rn <= DEPTH` prende le ultime tre righe parlate, e il client poi
+      // scarta le note di macchina per trovare la parola vera. Funziona finche'
+      // le note dopo una consegna sono meno di tre. Non lo sono: dopo ogni
+      // ingresso in review ne arrivano di norma TRE — l'esito dei checks, la
+      // nota sull'anteprima, «Non e' su main: <sha> — landa il ramo prima che
+      // venga potato» — e il riassunto dell'agente esce dalla finestra prima
+      // ancora di partire. Il client filtra correttamente e non trova niente da
+      // mostrare: ripiega sulle note, e la card apre con «Non e' su main».
+      //
+      // Misurato il 2026-08-18 sulla board vera: delle 26 card in review/done
+      // lavorate davvero da un agente, 23 avevano il suo riassunto nel thread e
+      // ZERO lo mostravano; su 24 l'ultima parola era di sistema. Segnalato:
+      // «parecchi task non hanno un commento utile, hanno soltanto un commento
+      // di sistema, e questo mi fa capire che c'e' qualcosa di rotto».
+      //
+      // Quindi la seconda finestra: l'ULTIMA PAROLA VERA entra sempre, quale
+      // che sia la sua distanza dal fondo. Costa al massimo una riga per card.
+      // Il predicato e' lo stesso `contorno` di qui sotto e del client, scritto
+      // in SQL: tre copie della stessa regola sono gia' il difetto di
+      // `hasMetaRow`, ma qui la terza serve a NON trasportare cio' che le altre
+      // due poi scarterebbero.
       rows = db.query(
         `SELECT * FROM (
-           SELECT c.*, row_number() OVER (
-                    PARTITION BY c.task_id ORDER BY c.created_at DESC, c.rowid DESC) AS rn
+           SELECT c.*,
+                  row_number() OVER (
+                    PARTITION BY c.task_id ORDER BY c.created_at DESC, c.rowid DESC) AS rn,
+                  row_number() OVER (
+                    PARTITION BY c.task_id, ${SQL_PAROLA}
+                    ORDER BY c.created_at DESC, c.rowid DESC) AS rn_parola,
+                  ${SQL_PAROLA} AS parola
              FROM task_comments c
             WHERE c.task_id IN (SELECT value FROM json_each(?))
               AND COALESCE(c.kind, 'comment') NOT IN ('status', 'service')
-         ) WHERE rn <= ${CARD_COMMENTS_DEPTH}
+         ) WHERE rn <= ${CARD_COMMENTS_DEPTH} OR (parola = 1 AND rn_parola = 1)
          ORDER BY task_id ASC, rn DESC`,
       ).all(idParam(ids)) as any[];
     } catch { return out; }
@@ -1606,7 +1704,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `rn` numera dal più recente, e le righe arrivano `ORDER BY rn DESC`:
       // la più recente è l'ultima. Fra quelle, la prima che non è una nota.
       const dalPiuRecente = [...righe].reverse();
-      const scelta = dalPiuRecente.find((r) => rowToComment(r).kind !== "review-note") ?? dalPiuRecente[0];
+      // STESSA REGOLA DEL CLIENT, e stavolta per intero: contorno non e' solo
+      // la `review-note`. Le NOTIFICHE DI STATO del sistema (`author:
+      // 'system'`, `kind: 'comment'`) sono 3984 nel db, la specie piu'
+      // numerosa - «l'agent ha lavorato 2 turni ma non ha spostato il task»,
+      // «Worktree e branch ripuliti» - e arrivano sempre DOPO il riassunto,
+      // perche' il sistema scrive per ultimo. Misurato il 17/08: un riassunto
+      // da 1832 caratteri arrivava alla card tagliato a 201, perche' i 1200
+      // se li prendeva la notifica.
+      //
+      // Una DOMANDA del sistema no: il recinto ```question e' la firma di
+      // qualcosa che aspetta una risposta, ed e' l'unica cosa che tiene ferma
+      // la card. Vedi `contorno()` in client/src/components/Board/cardComments.ts:
+      // le due regole devono dire la stessa cosa, o il testo pieno va a una
+      // riga che il client non disegna.
+      const contorno = (r: (typeof rows)[number]): boolean => {
+        const c = rowToComment(r);
+        if (c.kind === "review-note") return true;
+        if (c.author !== "system") return false;
+        return !c.content.includes("```question");
+      };
+      const scelta = dalPiuRecente.find((r) => !contorno(r)) ?? dalPiuRecente[0];
       for (const r of righe) {
         const full = rowToComment(r);
         // `rowToComment` normalizza `kind` (una riga scritta prima che la
@@ -1819,6 +1937,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
+      urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
+      urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
@@ -2040,6 +2160,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * Lo `status` viaggia perché la riga lo scrive: la domanda dice DOVE sono
    * fermi, e «in backlog» su un figlio in todo era una bugia.
    */
+  /**
+   * IL PADRE HA UN TURNO ADDOSSO ADESSO?
+   *
+   * Il predicato esisteva gia', ma solo dentro `parkedChildRaisedStall`, che e'
+   * uno dei TRE punti che devono conoscerlo: il rastrello lo riscrive come
+   * esclusione SQL (`status NOT IN (... 'in_progress')`), e `childLeftFlight`
+   * non lo aveva affatto. Tre copie di cui una mancante e' il modo esatto in
+   * cui il 18/08 tre card dispacciate sono finite in review al PRIMO turno:
+   * l'agente creava la sua checklist, spuntava il primo passo, e nel momento in
+   * cui quel figlio usciva dal volo `childLeftFlight` chiamava
+   * `askParkedChildren` — che sposta la card — mentre il turno era vivo.
+   * Sessione con DUE messaggi, zero commit, e una domanda di contabilita' in
+   * cima alla colonna di review.
+   *
+   * Sta qui perche' qui lo legge chi SPOSTA la card, che e' la regola che il
+   * rastrello dichiara gia' («questa query stringe il campo, poi
+   * `askParkedChildren` applica le sue guardie una per una»).
+   */
+  function hasLiveTurn(row: { status: string; dispatch_state?: string | null }): boolean {
+    return row.status === "in_progress"
+      || row.dispatch_state === "working"
+      || row.dispatch_state === "starting";
+  }
+
   function parkedChildren(taskId: string): Array<{ id: string; text: string; status: string }> {
     return db.prepare(
       "SELECT id, text, status FROM tasks WHERE parent_task_id = ? AND archived = 0" +
@@ -2066,9 +2210,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const parent = getTaskRow(parentId);
       if (!parent || parent.archived === 1 || parent.status === "done") return;
       if (!hasActiveChildren(parentId) || hasChildrenInFlight(parentId)) return;
-      const live = parent.status === "in_progress"
-        || parent.dispatch_state === "working" || parent.dispatch_state === "starting";
-      if (!live) { svc.askParkedChildren({ taskId: parentId, by }); return; }
+      if (!hasLiveTurn(parent)) { svc.askParkedChildren({ taskId: parentId, by }); return; }
       const child = getTaskRow(childId);
       const titolo = child?.text ? `«${child.text}»` : "un sottotask";
       // La COLONNA non si nomina: un figlio in `todo` è fermo quanto uno in
@@ -2242,6 +2384,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (latest === null || r.created_at > latest) latest = r.created_at;
     }
     return latest;
+  }
+
+  /**
+   * Il predicato del gate `review_needs_summary`, estratto per essere chiamato
+   * anche dalle porte di sistema (`deliverToReviewBySystem`, `askParkedChildren`)
+   * che non passano da `update()`.
+   *
+   * Dentro `update()` il predicato BLOCCA (l'agente può riprovare). Dalle porte
+   * di sistema NON blocca — il turno e' gia' finito, la card deve andare da
+   * qualche parte — ma il fatto si ANNOTA: chi rivede sa subito che l'agente non
+   * ha dichiarato nulla, e non deve scoprirlo aprendo il worktree.
+   *
+   * `true` = il turno ha prodotto almeno un commento dell'agente = consegna non
+   * muta. `false` = nessuna parola fresca = annotare.
+   */
+  function hasFreshAgentComment(taskId: string): boolean {
+    const turnStart = lastTurnStart(taskId);
+    const c = (db.prepare(
+      `SELECT COUNT(*) AS c FROM task_comments
+        WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
+          AND (? IS NULL OR created_at >= ?)`,
+    ).get(taskId, turnStart, turnStart) as any).c as number;
+    return c > 0;
   }
 
   /**
@@ -2665,13 +2830,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // (the newest `…→in_progress` status event). Coach a retry — same
           // pattern as comment_too_long. kind='comment' only: an agent-authored
           // status flip must not satisfy the gate.
-          const turnStart = lastTurnStart(taskId);
-          const fresh = (db.prepare(
-            `SELECT COUNT(*) AS c FROM task_comments
-              WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
-                AND (? IS NULL OR created_at >= ?)`,
-          ).get(taskId, turnStart, turnStart) as any).c as number;
-          if (fresh === 0) {
+          if (!hasFreshAgentComment(taskId)) {
             throw new TaskServiceError(
               "review_needs_summary",
               "post a delivery summary for THIS turn first. Use comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason), THEN set status='review'",
@@ -2812,7 +2971,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Stessa lista che azzera `recordDelivery`: la TESTIMONIANZA cade col
         // suo commit, altrimenti il prossimo verdetto nascerebbe già «visto».
         if ((current === "done" || current === "review") && patch.status !== "done" && patch.status !== "review") {
-          put("delivery_branch", null); put("delivery_commit", null);
+          for (const col of DELIVERY_SNAPSHOT_COLUMNS) put(col, null);
           put("landing_state", null); put("landing_checked_at", null); put("landing_witnessed", 0);
         }
         // A card leaving the flow keeps no live chip: dragging review → done
@@ -2939,7 +3098,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once }): TaskComment {
       // The kind is whitelisted, never passed through: an unknown value reads
       // as a plain comment, so a typo at a call site costs a visible row rather
       // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
@@ -2982,7 +3141,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
       // Dedupe identical author+content within the window — retries don't double-post.
       // Window boundary derives from the injected clock so tests are deterministic.
-      const since = new Date(new Date(now()).getTime() - commentDedupeMs).toISOString();
+      // `once` ⇒ nessuna finestra: la riga descrive una condizione che dura, e
+      // riscriverla a ogni verifica e' il muro di paragrafi identici documentato
+      // sull'interfaccia.
+      const since = once
+        ? "0000-01-01T00:00:00.000Z"
+        : new Date(new Date(now()).getTime() - commentDedupeMs).toISOString();
       const dupe = db.prepare(
         "SELECT * FROM task_comments WHERE task_id = ? AND author = ? AND content = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
       ).get(taskId, author, body, since);
@@ -3073,8 +3237,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // non ci passa, perché questa porta scrive lo status a SQL grezzo.
         db.prepare(
           "UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, " +
-            "delivery_branch = NULL, delivery_commit = NULL, landing_state = NULL, " +
-            "landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
+            DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
+            "landing_state = NULL, landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
         ).run(target, ts, taskId);
         markReopened(taskId, "review", target, "human", by);
       } else {
@@ -3617,14 +3781,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason, cause }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause, nextMove }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
-      // Note first so the "why it's here" is the last word on the review card.
-      if (reason && reason.trim()) {
-        try { this.addComment({ taskId, author: "system", content: reason }); } catch { /* best-effort */ }
-      }
+      // LA RIGA SI SCRIVE DOPO LE GUARDIE, non prima. Stava in cima perché così
+      // era «l'ultima parola sulla card» — ragione caduta con `ad1516aca`, che
+      // garantisce il trasporto dell'ultima parola vera quale che sia la sua
+      // posizione. Restava solo il costo: il testo dice «L'ho portato io in
+      // review: valuta cosa ha prodotto», ma le due guardie qui sotto possono
+      // mandare la card in `todo`. Misurato il 18/08 su `171b787d`: commento
+      // alle 03:34:43.585, riga di stato `in_progress→todo` alle 03:34:43.587 —
+      // due millisecondi dopo. Su tre giorni, 35 note di questa famiglia: 29
+      // seguite da review e SEI da todo; sull'intero storico, 260 note e 87
+      // verso todo o backlog.
+      //
+      // La riga resta nel thread per sempre, e quando la card arriva davvero in
+      // review è quella che il reviewer trova: gli dice di valutare una consegna
+      // in un momento in cui non ce n'era ancora una. Si scambia «sempre
+      // presente, a volte falsa» con «a volte assente, mai falsa» — e solo sulla
+      // seconda si può decidere.
       // Un padre con sottotask aperti NON è approvabile (il gate su `done` lo
       // rifiuta), quindi metterlo in review mette in coda all'umano una card su
       // cui non può decidere niente — e ci torna a ogni turno esaurito. Misurato
@@ -3642,7 +3818,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `dispatch_error` la nascondeva nel drawer di una card in fondo alla
       // colonna del riposo: misurate il 12/08 cinque card ferme così, e nessuna
       // lo diceva a nessuno. `askParkedChildren` la porta in review coi bottoni.
-      const domanda = this.askParkedChildren({ taskId, by: "dispatcher" });
+      // `evenIfLive`: qui il turno E' finito — questa funzione la chiama chi lo
+      // sta chiudendo — quindi la guardia sul padre vivo non deve mordere.
+      const domanda = this.askParkedChildren({ taskId, by: "dispatcher", evenIfLive: true });
       if (domanda) return domanda;
       if (hasActiveChildren(taskId)) {
         // Il tentativo si RESTITUISCE: il turno non è finito per colpa del
@@ -3667,7 +3845,45 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
               dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
         ).run(note, until, ts, taskId);
         if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+        // La ragione del turno resta scritta — sparire in silenzio sarebbe
+        // peggio, e un test lo pinna — ma accompagnata dalla destinazione VERA:
+        // questa card non è in review, e nessuno deve valutarla adesso. Servizio,
+        // perché su una card in coda è contabilità: chi la riprende è il
+        // dispatcher, non un umano.
+        if (reason && reason.trim()) {
+          try { this.addComment({ taskId, author: "system", kind: "service", content: `${reason}\n\n${note}` }); }
+          catch { /* best-effort */ }
+        }
         return rowToTask(getTaskRow(taskId));
+      }
+      // Qui, e solo qui, la card va DAVVERO in review: è il punto in cui «l'ho
+      // portato io in review» smette di essere una previsione e diventa un fatto.
+      // PREDICATO review_needs_summary, PORTA DI SISTEMA.
+      //
+      // PRIMA di cio' che parla all'umano, e non dopo: l'ULTIMA parola del
+      // thread e' quella a cui si risponde. Una domanda porta le sue opzioni
+      // (`questionOptions`) e il client legge l'ultimo commento; una nota di
+      // contabilita' appesa dopo la seppelliva, e sette casi di
+      // `tasks.parked-stall.test.ts` sono diventati rossi leggendo `[]` dove
+      // c'erano due bottoni. Il rosso era il sintomo: il guasto vero e' che
+      // chi apriva la card trovava per ultima una riga di macchina invece
+      // della decisione che gli si chiede.
+      //
+      // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
+      // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
+      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
+      // contabilita', non conversazione.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
+      }
+      if (reason && reason.trim()) {
+        const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
+        try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
       }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).
@@ -3699,13 +3915,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    askParkedChildren({ taskId, by }): Task | null {
+    askParkedChildren({ taskId, by, evenIfLive }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) return null;
       // Una card chiusa o archiviata non ha domande da fare; una GIÀ in review la
       // sta già facendo, e rifarla a ogni giro sarebbe il rumore che spegne le
       // domande vere.
       if (row.archived === 1 || row.status === "done" || row.status === "review") return null;
+      // IL PADRE STA LAVORANDO: la domanda non si fa adesso.
+      //
+      // Spostare in review una card con un turno vivo gli taglia il turno sotto
+      // i piedi — lo dice gia' la docstring di `parkedChildRaisedStall`, che per
+      // questo la guardia ce l'aveva. Mancava qui, cioe' nell'unico punto che la
+      // card la MUOVE davvero, e `childLeftFlight` ci arrivava senza nessuna
+      // protezione: bastava che l'agente spuntasse il primo passo della propria
+      // checklist perche' la sua card finisse in review a turno in corso.
+      // La domanda non si perde: la fa `deliverToReviewBySystem` a fine turno,
+      // che passa `evenIfLive` proprio perche' li' il turno e' finito per
+      // davvero. Fra minuti, non fra giorni.
+      if (!evenIfLive && hasLiveTurn(row)) return null;
       if (!hasActiveChildren(taskId) || hasChildrenInFlight(taskId)) return null;
       const parked = parkedChildren(taskId);
       if (parked.length === 0) return null;
@@ -3746,6 +3974,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           `Archivio cio' che non serve piu', oppure la prendi in mano tu?`
         : `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
           `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
+      // PREDICATO review_needs_summary, PORTA DI SISTEMA.
+      //
+      // PRIMA di cio' che parla all'umano, e non dopo: l'ULTIMA parola del
+      // thread e' quella a cui si risponde. Una domanda porta le sue opzioni
+      // (`questionOptions`) e il client legge l'ultimo commento; una nota di
+      // contabilita' appesa dopo la seppelliva, e sette casi di
+      // `tasks.parked-stall.test.ts` sono diventati rossi leggendo `[]` dove
+      // c'erano due bottoni. Il rosso era il sintomo: il guasto vero e' che
+      // chi apriva la card trovava per ultima una riga di macchina invece
+      // della decisione che gli si chiede.
+      //
+      // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
+      // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
+      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
+      // contabilita', non conversazione.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
+      }
       try {
         this.addComment({
           taskId, author: "system", content: question,
@@ -3891,11 +4142,150 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return { task, children };
     },
 
-    bindTopic({ taskId, topicId }): Task {
+    bindTopic({ taskId, topicId, freshSession }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-      db.prepare("UPDATE tasks SET assigned_topic_id = ?, chat_id = ?, updated_at = ? WHERE id = ?")
-        .run(topicId, topicId, now(), taskId);
+      // UNA SESSIONE NUOVA E' UN TENTATIVO NUOVO, e il budget riparte da zero.
+      //
+      // `dispatch_attempts` conta i turni di UN tentativo — e' il freno contro
+      // un agente che gira in tondo dentro la stessa conversazione. Fra un
+      // dispatch e l'altro, invece, il contatore restava: la card ripartiva su
+      // una sessione VERGINE con il budget gia' speso, quindi moriva al primo
+      // turno annunciando di averne fatti quattro.
+      //
+      // Misurato il 18/08 su `eef64e32`: tre dispatch, tre topic diversi
+      // (`groovy-frond`, `stellar-weasel`, `stellar-geyser`), e al terzo la
+      // sessione aveva DUE messaggi mentre la card scriveva «L'agent ha
+      // lavorato 4 turni». Un ciclo che non poteva chiudersi: ogni giro
+      // ricominciava il piano e non arrivava mai a lavorarlo.
+      //
+      // E' la stessa regola che le due uscite UMANE applicano gia', con la
+      // stessa ragione scritta accanto (`reviewDecision` rifiuto,
+      // `resolveParkedChildren`): «il mandato e' NUOVO, quindi il budget dei
+      // tentativi riparte da zero. Senza, il padre tornerebbe in coda gia'
+      // esaurito e non lo reclamerebbe piu' nessuno».
+      //
+      // Il freno NON si allenta: se la sessione e' la STESSA — una ripresa, una
+      // continuazione — il contatore resta dov'e', ed e' li' che serve.
+      // `freshSession` lo DICE chi lo sa: il dispatcher, che ha appena creato
+      // il topic invece di riusarne uno. Dedurlo da «il topic e' cambiato» non
+      // funziona — fra un tentativo e l'altro `release` azzera il legame, e il
+      // primo attacco di OGNI tentativo sarebbe `null -> topic`, cioe' anche
+      // quello che la rivendicazione ha appena contato.
+      //
+      // `1` e non `0`: questo turno e' il PRIMO della sessione nuova, e conta.
+
+      // IL TENTATIVO MUORE, LA CHECKLIST NO: I `done` SI ARCHIVIANO, GLI APERTI
+      // CAMBIANO PADRONE.
+      //
+      // Misurato il 18/08 su `eef64e32`: dopo il re-dispatch i quattro sottotask
+      // del topic precedente (`groovy-frond`) erano ancora nella checklist del
+      // padre, tre segnati `done` per lavoro che era stato buttato via e uno
+      // `in_progress` che mandava il padre in attesa di nessuno (deadlock
+      // silenzioso: la card restava in coda per sempre perche' uno step si muove
+      // solo dall'agente di quella card, e quell'agente non esiste piu').
+      //
+      // I due guasti NON sono lo stesso guasto, e non hanno la stessa cura:
+      //
+      //  · un `done` e' una BUGIA. Descrive lavoro che il worktree nuovo non ha;
+      //    l'agente che arriva lo legge come fatto e non lo rifa'. Si archivia.
+      //  · un aperto e' un PIANO. Dice cosa restava da fare, ed e' l'unica cosa
+      //    di buono che il tentativo morto lascia. Archiviarlo faceva ripartire
+      //    il nuovo agente dal foglio bianco, a ricostruire la stessa lista.
+      //
+      // Quindi gli aperti restano, ma cambiano padrone: `status` torna a `todo`
+      // (l'`in_progress` era di un turno che non gira piu') e
+      // `created_by_topic_id` passa al topic NUOVO. Il secondo pezzo e' quello
+      // che scioglie il deadlock, ed e' il motivo per cui `isOwnStep` guarda la
+      // PROVENIENZA e non solo il legame di dispatch: `assigned_topic_id` lo
+      // azzera `release` mentre il turno gira ancora, e senza la provenienza
+      // aggiornata l'agente nuovo vedeva lo step e prendeva 409 nel chiuderlo.
+      //
+      // Ricorsivo sull'ALBERO, non sui figli diretti: uno step annidato del
+      // tentativo morto avrebbe lo stesso problema un livello piu' sotto, e
+      // sarebbe l'unico rimasto che nessuno puo' chiudere.
+      //
+      // Idempotente: se il topic e' lo stesso (ripresa) o non c'era (primo
+      // dispatch), non si tocca niente.
+      const oldTopicId = row.assigned_topic_id as string | null;
+      if (freshSession && oldTopicId && oldTopicId !== topicId) {
+        const ts = now();
+        // L'albero INTERO sotto il task, filtrato sulla provenienza: quello che
+        // ha creato un altro topic (un umano, un altro agente) non si tocca.
+        // Il task stesso e' escluso: e' il deliverable, non uno step.
+        const staleOf = (): Array<{ id: string; text: string; status: string }> =>
+          db.prepare(
+            `WITH RECURSIVE subtree(id) AS (
+               SELECT id FROM tasks WHERE id = ?
+               UNION ALL
+               SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+             )
+             SELECT t.id, t.text, t.status FROM tasks t
+              WHERE t.id IN (SELECT id FROM subtree WHERE id != ?)
+                AND t.created_by_topic_id = ?
+                AND t.archived = 0
+              ORDER BY t.kanban_order ASC`,
+          ).all(taskId, taskId, oldTopicId) as Array<{ id: string; text: string; status: string }>;
+
+        const archiviati = staleOf().filter((c) => c.status === "done");
+        // Prima gli archiviati, e in cascata: un aperto che pendeva da uno step
+        // `done` se ne va con lui invece di restare appeso a un padre sparito.
+        for (const c of archiviati) archiveSubtree(c.id, ts);
+        // Poi si rilegge: quello che e' ancora aperto DOPO la cascata e' quello
+        // che il nuovo agente eredita davvero.
+        const ereditati = staleOf().filter((c) => c.status !== "done");
+        for (const c of ereditati) {
+          // Le colonne sono ESATTAMENTE quelle che `resolveParkedChildren`
+          // azzera quando rimette in coda un figlio, e per la stessa ragione:
+          // e' un mandato NUOVO, non un residuo. Lasciare la finestra di rinvio
+          // o il chip vecchio vuol dire uno step che dice «in coda» sopra una
+          // coda che non lo serve, che e' il modo in cui una card si ferma
+          // senza dirlo a nessuno.
+          db.prepare(
+            "UPDATE tasks SET status = 'todo', created_by_topic_id = ?, dispatch_state = NULL, " +
+              "dispatch_error = NULL, dispatch_attempts = 0, dispatch_deferred_until = NULL, " +
+              "updated_at = ? WHERE id = ?",
+          ).run(topicId, ts, c.id);
+          // La riga di stato la scrive CHI SPOSTA, sempre: senza, la storia
+          // dello step mostra una colonna cambiata e nessuno che l'ha cambiata.
+          // Il `from` e' quello vero e non una costante — uno step gia' in
+          // `todo` non si e' mosso, e scrivergli «todo -> todo» sarebbe mettere
+          // nella sua storia un passaggio mai avvenuto (stessa regola, e stessa
+          // riga, di `resolveParkedChildren`).
+          if (c.status !== "todo") logStatus(c.id, c.status, "todo", "system");
+          // Uno step in `review` stava aspettando una decisione. Tirandolo
+          // fuori, quella approvazione non ha piu' oggetto: se resta `pending`
+          // non la chiude piu' niente, perche' `reviewDecision` rifiuta un task
+          // che in review non c'e' piu'. E' la stessa chiusura che
+          // `resolveParkedChildren` fa sul padre quando la domanda decade.
+          if (c.status === "review") settleReviewApproval(c.id, "expired", "system", ts);
+        }
+        if (archiviati.length > 0 || ereditati.length > 0) {
+          const righe: string[] = [`Sessione cambiata (topic \`${oldTopicId}\` -> \`${topicId}\`).`];
+          if (archiviati.length > 0) {
+            righe.push(
+              `${archiviati.length} ${archiviati.length === 1 ? "sottotask completato archiviato" : "sottotask completati archiviati"}: ` +
+                `segnavano lavoro del tentativo precedente, che non esiste piu'.`,
+            );
+          }
+          if (ereditati.length > 0) {
+            righe.push(
+              `${ereditati.length} ${ereditati.length === 1 ? "sottotask incompleto ereditato" : "sottotask incompleti ereditati"} ` +
+                `dal nuovo agente: rimessi in todo, sono il piano che il tentativo precedente lascia.`,
+            );
+            righe.push(ereditati.map((c) => `- ${c.text}`).join("\n"));
+          }
+          try {
+            this.addComment({ taskId, author: "system", content: righe.join("\n") });
+          } catch { /* best-effort: la nota non blocca il bind */ }
+        }
+      }
+
+      db.prepare(
+        "UPDATE tasks SET assigned_topic_id = ?, chat_id = ?" +
+          (freshSession ? ", dispatch_attempts = 1" : "") +
+          ", updated_at = ? WHERE id = ?",
+      ).run(topicId, topicId, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -3957,6 +4347,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
       ).run(now(), reason.trim() || null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setUrlProbeStatus({ taskId, status, checkedAt }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare(
+        "UPDATE tasks SET url_probe_status = ?, url_probe_checked_at = ?, updated_at = ? WHERE id = ?",
+      ).run(status, checkedAt, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -4119,6 +4518,34 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       );
     },
 
+    setDeliveryStat({ taskId, filesChanged, insertions, deletions }): boolean {
+      // SOLO I NUMERI, e SOLO se non ci sono. Stessa ragione di
+      // `setDeliveryBranch`: l'invariante di `recordDelivery` («un dato che non
+      // si aggiorna insieme al suo soggetto mente») serve a impedire che i
+      // numeri di una consegna restino su quella dopo. Qui la consegna non
+      // cambia — si sta solo misurando quella che c'è già — quindi passare da
+      // `recordDelivery` sarebbe distruttivo per due motivi:
+      //   · azzera `landing_state`, `landing_checked_at` e `landing_witnessed`,
+      //     cioè butta via il verdetto testimoniato a ogni passata di backfill;
+      //   · con `stat` non misurabile scrive NULL sopra numeri buoni.
+      // La condizione `IS NULL` nella WHERE è la seconda cintura: anche chiamata
+      // per sbaglio su una card già misurata, questa non la tocca.
+      const r = db.prepare(
+        "UPDATE tasks SET delivery_files_changed = ?, delivery_insertions = ?, delivery_deletions = ? " +
+        "WHERE id = ? AND delivery_files_changed IS NULL",
+      ).run(filesChanged, insertions, deletions, taskId);
+      return r.changes > 0;
+    },
+
+    setDeliveryBranch(taskId: string, branch: string): void {
+      // Scrive SOLO delivery_branch, senza toccare commit, diffstat o
+      // landing_state. L'invariante di recordDelivery (un dato non aggiornato
+      // insieme al suo soggetto mente) non si applica qui: non ci sono nuovi
+      // dati da scrivere, solo un indirizzo da conservare prima che la cartella
+      // sparisca. Toccare commit/diffstat/landing_state sarebbe distruttivo.
+      db.prepare("UPDATE tasks SET delivery_branch = ? WHERE id = ?").run(branch, taskId);
+    },
+
     listLandingAuditCandidates() {
       // La TESTIMONIANZA vale per «è atterrato», e solo per quello: il contenuto
       // che è su main ci resta, quindi ricontrollarlo sarebbe rimettere una
@@ -4127,10 +4554,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // cui una persona può aver cherry-piccato quel lavoro a mano. Escluderlo
       // per sempre dall'audit congela l'accusa: misurate il 13/08 due card che
       // dicevano «non su main» col commit ANTENATO di main, e in Done da giorni.
+      //
+      // E POI C'È IL SECONDO INSIEME, che è l'opposto del primo: le card senza
+      // consegna registrata che portano GIÀ un'accusa. Senza commit non c'è
+      // niente da verificare, ed era il motivo del filtro; ma `markLandPending`
+      // timbra `unlanded` appena il land viene CHIESTO, e conta su questa
+      // passata per correggersi. Finché il filtro le teneva fuori, quel timbro
+      // era definitivo: misurate il 18/08 su topics-app 13 card ferme su «non è
+      // su main» senza consegna, la più vecchia da sei giorni, due delle quali
+      // avevano il merge del land su main. Un'accusa che nessuno può più
+      // sostenere si RITIRA, ed è lavoro dell'audit tanto quanto scriverla.
       return db.prepare(
         `SELECT id, project_id, delivery_branch, delivery_commit
            FROM tasks
-          WHERE archived = 0 AND delivery_commit IS NOT NULL
+          WHERE archived = 0
+            AND (delivery_commit IS NOT NULL OR landing_state = 'unlanded')
             AND status IN ('review', 'done')
             AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
       ).all().map((r: any) => ({

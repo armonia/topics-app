@@ -507,6 +507,9 @@ async function start() {
   // singolo collegamento, non contando i tick: due sonde diverse a due tick
   // consecutivi non sono un server che è rimasto.
   const REAL_CLIENT_MS = Number(process.env.TOPICS_PTY_BRIDGE_REAL_CLIENT_MS) || 5_000;
+  // How often the orphan monitor fires. Production default 5s; tests can shrink
+  // it via TOPICS_PTY_BRIDGE_MONITOR_TICK_MS to avoid sitting through full ticks.
+  const MONITOR_TICK_MS = Number(process.env.TOPICS_PTY_BRIDGE_MONITOR_TICK_MS) || 5_000;
   let orphanDeadline = null;
   let orphanExtended = false;
   setInterval(() => {
@@ -544,7 +547,7 @@ async function start() {
     }
     console.error('[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.');
     shutdown('ORPHAN_ABANDONED');
-  }, 5000).unref();
+  }, MONITOR_TICK_MS).unref();
 
   // Backstop for the bridges no parent check can ever retire — a spawner whose
   // pid got recycled, a `bun test` that died without its afterAll, a worktree

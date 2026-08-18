@@ -125,6 +125,40 @@ describe("ensurePreview", () => {
     expect(h.procs[0].killed).toBe(true);
   });
 
+  /**
+   * L'ALBERO ANCHE SULLE USCITE DI ERRORE, e non e' pignoleria.
+   *
+   * `deps.spawn` lancia `bun run dev`: il processo che ASCOLTA e' un suo
+   * DISCENDENTE. `proc.kill()` chiude il wrapper e lascia il figlio vivo,
+   * reparentato a init, con la porta presa e la CPU accesa — e' scritto nel
+   * commento di `teardown`, che infatti usa `killTree`. Le due uscite di errore
+   * di `bootPreview` no: usavano `proc.kill()` nudo, cioe' proprio dove il dev
+   * server e' mezzo avviato e nessuno lo sta piu' guardando. Il pool 3400-3450
+   * si consuma cosi', finche' una card in review non ha piu' dove nascere.
+   */
+  it("un boot fallito chiude l'ALBERO, non solo il wrapper", async () => {
+    const killed: number[] = [];
+    const h = harness({
+      probe: async () => false, readyTimeoutMs: 5, readyPollMs: 1,
+      killTree: async (pid) => { killed.push(pid); },
+    });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    expect(killed, "il discendente che ascolta va chiuso, non solo l'handle").toEqual([h.procs[0].pid!]);
+  });
+
+  it("una porta di un estraneo chiude l'ALBERO del nostro figlio", async () => {
+    const killed: number[] = [];
+    const h = harness({
+      listenerPid: async () => 999,   // ad ascoltare non e' il nostro
+      processCwd: async () => "/altrove",
+      killTree: async (pid) => { killed.push(pid); },
+    });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    expect(killed).toEqual([h.procs[0].pid!]);
+  });
+
   it("skips ports already taken by other previews", async () => {
     const h = harness({ portRange: [3400, 3401] });
     const pm = createPreviewManager(h.deps);

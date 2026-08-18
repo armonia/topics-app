@@ -194,7 +194,14 @@ function copiaAlbero(da: string, a: string): void {
     }
   }
   git(a, "init", "--quiet");
-  git(a, "add", "-A");
+  // `--force`, e non e' un dettaglio. La copia deve avere lo STESSO insieme
+  // tracciato del sorgente, ma `git add -A` riapplica `.gitignore` da zero: gli
+  // 11 file che il repo traccia PUR combaciando con una regola (i `docs/*`
+  // entrati prima dell'allowlist) sparirebbero dall'indice della copia. Il
+  // banco poi misura un albero piu' piccolo di quello vero e accusa il
+  // cancello sbagliato: il 18/08 `no-personal-data-tracked` dichiarava stantia
+  // `docs/archive/PORTING-PLAN.md` — un file che nella copia non esisteva.
+  git(a, "add", "-A", "--force");
 }
 
 describe("check:security - i pezzi che vogliono l'albero vero", () => {

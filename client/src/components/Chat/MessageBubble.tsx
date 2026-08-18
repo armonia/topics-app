@@ -386,6 +386,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onPlanDecision={onPlanDecision}
                 invokedCommand={invokedCommand}
                 sessionKey={topic.sessionKey}
+                messageId={msg.id}
                 onMessage={onMessage}
               />
             </div>
