@@ -9,6 +9,7 @@ import { resolveStateDir } from "../lib/data-dir";
 import { getTerminalSessionById } from "./terminal";
 import { getSessionCliPid } from "../providers/session-pids";
 import { backgroundShellBanner, shellProcessKey } from "../../shared/background-shell-registry";
+import { registerFleetScriptSource } from "../lib/fleet-usage";
 
 interface ScriptProcess {
   processId: string;
@@ -104,6 +105,14 @@ const MAX_RECENT = 10;
 
 const runningScripts = new Map<string, ScriptProcess>();
 const recentScripts: ScriptProcess[] = [];
+
+// Terzo asse del calcolatore di memoria: processi lanciati dagli agenti.
+// Vengono esclusi dal totale server (fleet-usage.ts) e mostrati separatamente.
+registerFleetScriptSource(() =>
+  Array.from(runningScripts.values())
+    .filter(sp => sp.status === "running" && sp.pid !== null)
+    .map(sp => ({ pid: sp.pid as number, lstart: sp.pidLstart })),
+);
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 

@@ -282,6 +282,43 @@ test.describe.serial("Dettatura e nota vocale · col microfono @nightly", () => 
     return (await res.json()) as SttCapabilities;
   }
 
+  /**
+   * IL CANCELLO VERO: non «c'è una chiave», ma «qualcuno sa trascrivere».
+   *
+   * `capabilities.available` dice CONFIGURATO, non RAGGIUNGIBILE, ed è giusto
+   * così: il server non può sapere se una chiave è valida senza spenderla, e la
+   * app deve pur decidere se mostrare il tasto dettatura. Ma come guardia di
+   * questo test è il predicato sbagliato.
+   *
+   * Misurato il 18/08/2026 su questa macchina: `available: true` con l'unico
+   * provider in catena — ElevenLabs — che risponde `401 invalid_api_key` a ogni
+   * richiesta. La guardia non scattava, il test arrivava fino in fondo e moriva
+   * su `not.toHaveValue("prima dopo")` dopo 90 secondi di attesa, dicendo
+   * «la dettatura non scrive nel composer» quando la verità era «nessun motore
+   * ha risposto». Un rosso che nomina la cosa sbagliata è peggio di un salto.
+   *
+   * Quindi si CHIEDE, una volta, con lo stesso WAV: se la catena risponde il
+   * test gira intero, se non risponde si salta con il motivo del server in
+   * chiaro. Non nasconde niente — un guasto nella catena UI (microfono, codec,
+   * multipart, rientro nel composer) passa da qui indenne, perché questa sonda
+   * tocca solo il fondo della cascata.
+   */
+  async function motivoSttIrraggiungibile(request: APIRequestContext): Promise<string | null> {
+    const res = await request.post("/api/stt", {
+      multipart: {
+        audio: {
+          name: "spoken-phrase.wav",
+          mimeType: "audio/wav",
+          buffer: readFileSync(SPOKEN_WAV),
+        },
+      },
+      ignoreHTTPSErrors: true,
+      timeout: 120_000,
+    });
+    if (res.ok()) return null;
+    return `${res.status()} ${(await res.text()).slice(0, 300)}`;
+  }
+
   test("⌘⇧D: si parla, e il testo entra nel composer AL CURSORE @nightly", async ({ page, chatPage, request }) => {
     await installMicProbe(page);
     const caps = await readSttCapabilities(request);
@@ -290,6 +327,11 @@ test.describe.serial("Dettatura e nota vocale · col microfono @nightly", () => 
       `nessun motore STT configurato per il server di test: ${(caps.providers ?? [])
         .map((p) => `${p.id}=${p.reason ?? "?"}`)
         .join(", ")}`,
+    );
+    const irraggiungibile = await motivoSttIrraggiungibile(request);
+    test.skip(
+      irraggiungibile !== null,
+      `nessun motore STT ha saputo trascrivere sul server di test: ${irraggiungibile}`,
     );
 
     await goToApp(page);
@@ -348,6 +390,11 @@ test.describe.serial("Dettatura e nota vocale · col microfono @nightly", () => 
     await installMicProbe(page);
     const caps = await readSttCapabilities(request);
     test.skip(!caps.available, "nessun motore STT configurato per il server di test");
+    const irraggiungibile = await motivoSttIrraggiungibile(request);
+    test.skip(
+      irraggiungibile !== null,
+      `nessun motore STT ha saputo trascrivere sul server di test: ${irraggiungibile}`,
+    );
 
     // Il turno vero non c'entra con questa consegna: la nota vocale è finita nel
     // momento in cui il messaggio UTENTE esiste, e farlo eseguire davvero
