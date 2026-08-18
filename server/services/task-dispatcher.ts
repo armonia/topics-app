@@ -167,6 +167,17 @@ export interface DispatcherDeps {
    *  back to that row's fixed number. There is no per-board cap: the field that
    *  suggested one was written by nobody's reader and has been removed. */
   recommendedCap?: () => number;
+  /**
+   * Quante barre di check pre-review stanno girando ADESSO (dal registro
+   * `checksGate.runningCount()`).
+   *
+   * Ogni barra vale uno slot di capacita': `test:unit` da solo dura ~322s e
+   * satura piu' core. Sei barre insieme il 18/08 hanno portato il loadavg a
+   * 78,83 su 12 core. Il freno deve contarle accanto agli agenti in volo, cosi'
+   * un dispatch nuovo aspetta finche' sia gli agenti che le barre stanno dentro
+   * il tetto. Assente = non si contano (comportamento storico, mai zero-denial).
+   */
+  checksRunning?: () => number;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
    * Drive ONE headless turn to completion; resolves when the turn ends.
@@ -2588,7 +2599,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // il messaggio aspetta esattamente come aspetterebbe per uno slot pieno —
     // stessa coda, stesso chip, stessa promessa che niente si perde.
     const floorBlock = admissionBlock();
-    if (floorBlock || inFlight.size >= currentCap()) {
+    // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
+    // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
+    // mentre la macchina e' gia' al limite per i check.
+    const resumeGateRuns = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
+    if (floorBlock || inFlight.size + resumeGateRuns >= currentCap()) {
       // Il chip dice DOV'E': senza, la card resta `in_progress` con nessun turno
       // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
       // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
@@ -2972,6 +2987,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // carica → raccomandazione 1 → «sono solo» → fetta intera.
     const effectiveCap = currentCap();
 
+    // Le corse dei check pre-review valgono slot: ogni barra in volo satura
+    // core nella stessa macchina degli agenti. Si contano UNA volta per tick
+    // (non per card: la sonda e' la stessa per tutti i todo di questo giro).
+    // `null` = dep assente, comportamento storico (non si contano).
+    const gateRuns: number = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
+
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
     // condizioni non negoziabili, entrambe silenziose sarebbero una trappola:
     //  - serve l'isolamento worktree (N agenti nella STESSA cartella si
@@ -2984,7 +3005,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Il tetto di concorrenza è il tetto VERO: se non c'è posto per N agenti il
     // fan-out scende a quanti ce ne stanno, e lo si dice nel thread invece di
     // lanciarne meno in silenzio.
-    const freeSlots = Math.max(1, effectiveCap - reservedSlots);
+    // I gate in volo occupano slot come gli agenti: si sottraggono dal budget
+    // prima di calcolare quanti posti restano per nuovi dispatch.
+    const freeSlots = Math.max(1, effectiveCap - reservedSlots - gateRuns);
     const fanOut = fanOutBlocked ? 1 : Math.min(wantFanOut, freeSlots);
     // Il pavimento vale anche — soprattutto — per i dispatch NUOVI: è un agente
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
@@ -3135,13 +3158,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // N agenti = N slot. `claim` conta le RIGHE in_progress (una, per un
       // fan-out), quindi la prenotazione va fatta qui: il claim passa solo se
       // restano almeno N posti liberi.
-      const claimCap = effectiveCap - reservedSlots - (taskFanOut - 1);
+      // I gate in volo si sottraggono anche qui: il claimCap deve riflettere i
+      // posti DAVVERO liberi, non solo quelli non occupati da agenti.
+      const claimCap = effectiveCap - reservedSlots - gateRuns - (taskFanOut - 1);
       if (claimCap < 1) {
         // Macchina piena: da qui in poi aspettano tutti, e lo si dice a
         // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
         // la coda restava ferma e le card non lo raccontavano.
         const vivi = agentiVivi();
-        const posti = Math.max(0, effectiveCap - reservedSlots);
+        const posti = Math.max(0, effectiveCap - reservedSlots - gateRuns);
         for (const rest of todos.slice(idx)) {
           if (inFlight.has(rest.id) || graceTimers.has(rest.id)) continue;
           noteCapFull(rest, vivi, { serve: taskFanOut, posti });
