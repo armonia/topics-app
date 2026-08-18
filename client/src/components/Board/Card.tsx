@@ -12,7 +12,7 @@ import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
-import { cardCommentsFromRow, cardDetailNeed, selectCardComments, showsCardThread, type CardComments } from './cardComments';
+import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -362,6 +362,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // La riga della lista comanda; il fetch è la ricaduta per un server vecchio.
   const rowThread = useMemo(() => cardCommentsFromRow(task), [task]);
   const lastComment = rowThread?.latest ?? thread?.latest ?? null;
+  /** Chi parla non e' una persona ne' un agente: vedi `isMachineVoice`. */
+  const noteDiMacchina = lastComment ? isMachineVoice(lastComment) : false;
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -551,6 +553,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Solo il ROSSO va sulla card: un verde è la norma e riempirebbe la colonna di
   // spunte che nessuno legge, mentre il rosso è la ragione per non aprire il task.
   const checksRed = task.checksState === 'fail';
+  /** Misurato: NIENTE. Vedi il chip piu' sotto per il perche' non e' un rosso. */
+  const checksUnknown = task.checksState === 'unknown';
   // IL VERDE SI DICE, non si deduce dall'assenza del rosso.
   //
   // Prima esisteva solo `checksRed`: una card senza chip poteva voler dire
@@ -636,7 +640,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || task.labels.length);
 
   return (
     <div
@@ -1058,6 +1062,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksRunning')}</span>
           )}
+          {/* NON MISURATI, e si deve leggere diverso da rosso. Ambra e non rosa:
+              rosso dice «il codice e' rotto, non approvare», questo dice «non lo
+              sappiamo» — e chi rivede decide diversamente nei due casi. Misurate
+              il 18/08 sul DB vivo: 6 card su 15 marcate `fail` erano solo scadute
+              al tetto dei 20 minuti, cioe' il 40% delle bocciature accusava un
+              codice sano. */}
+          {checksUnknown && (
+            <span
+              data-testid="card-checks-unknown"
+              title={tr('board.card.checksUnknownTitle')}
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
+          )}
           {checksRed && (
             <span
               title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
@@ -1159,6 +1176,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
+          {/* CHI PARLA, il predicato in un posto solo.
+              Il tag «SISTEMA» e il colore muted guardavano `kind === 'review-note'`,
+              cioe' la specie MENO numerosa: 38 note su 345 in tre giorni. Le
+              notifiche del sistema hanno `author: 'system'` con la kind di
+              default, e sono «la specie piu' numerosa» (il commento in
+              `cardComments.ts` la conta a 3.984 righe). Quando una di quelle
+              veniva promossa a parola della card, la card la disegnava in
+              `text-app-text-heading` — identica al riassunto di un agente, senza
+              nessun segno che a parlare fosse la macchina. E' il difetto che il
+              commit 2ded6eae4 dichiarava chiuso: chiuso per la specie rara,
+              aperto per quella che arriva quasi sempre.
+              La domanda ```question del sistema NON passa di qui: ha il suo ramo
+              (`pending`, appena sotto), quindi non prende il tag e resta
+              protagonista come deve. */}
           {!showsQuestion ? null : pending ? (
             <p className="break-words text-xs leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
@@ -1186,7 +1217,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               // senza guadagno. Il testo NON viene tagliato: e' tutto li',
               // basta un click - e chi ha ripiegato una card la ritrova
               // ripiegata, perche' lo stato vive per card.
-              className={`text-xs leading-relaxed ${lastComment.kind === 'review-note' ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
+              className={`text-xs leading-relaxed ${noteDiMacchina ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
               title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
             >
               {/* CHI PARLA, quando non e' una persona.
@@ -1197,7 +1228,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   `selectCardComments`), quindi il segno serve proprio nel caso in
                   cui non c'e' nient'altro con cui confrontarla. Anche il colore
                   scende a `muted`: e' contorno, non la parola della consegna. */}
-              {lastComment.kind === 'review-note' && (
+              {noteDiMacchina && (
                 <span
                   data-testid="card-comment-system-tag"
                   className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-[10px] uppercase tracking-wide text-app-text-muted"

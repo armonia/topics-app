@@ -588,6 +588,8 @@ const IT: Dict = {
   'board.card.checksGreenTitle': 'I controlli sono passati su questa consegna. Approvare non aspetta altro.',
   'board.card.checksRunning': 'check in corso',
   'board.card.checksRunningTitle': 'I controlli stanno girando: l\'esito non c\'e\' ancora. Approvare adesso vuol dire non aspettarlo.',
+  'board.card.checksUnknown': 'check non misurati',
+  'board.card.checksUnknownTitle': 'I comandi non sono arrivati in fondo (quasi sempre il tetto dei 20 minuti su una macchina carica). Non e\' un fallimento: e\' un\'assenza di misura. Rilanciali quando c\'e\' meno traffico, oppure guarda il diff.',
   'board.card.checksRed': 'checks rossi',
   'board.card.checksRedTitle': 'Checks pre-review ROSSI: {commands}',
   'board.card.checksRedUnknown': 'un comando è fallito',

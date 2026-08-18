@@ -10,6 +10,7 @@ import {
   tailOf,
   MAX_CHECKS,
   type CheckRun,
+  checksVerdict,
 } from "./review-checks";
 
 describe("parseReviewChecks", () => {
@@ -251,5 +252,71 @@ describe("formatChecksComment", () => {
 
   test("nessun comando dichiarato non è un verde", () => {
     expect(formatChecksComment([])).not.toContain("verdi");
+  });
+});
+
+/**
+ * TRE ESITI, NON DUE — e il terzo non e' una sfumatura del secondo.
+ *
+ * `fail` dice «il tuo codice e' rotto, non approvare». `unknown` dice «non lo
+ * sappiamo». Chi rivede decide diversamente nei due casi, e chi ha consegnato
+ * pure: sul primo si va a cercare il guasto, sul secondo si rilancia.
+ *
+ * La distinzione esisteva dal 12/08 ma SOLO nel testo del commento, e il test
+ * di sopra si chiudeva con «la parola conta piu' del codice di stato». Si e'
+ * fermata li': `recordChecks` scriveva `ok ? "pass" : "fail"`, e la card legge
+ * lo STATO — `checks_json` non viaggia nel payload della lista, pesava 217 KB.
+ *
+ * Misurato il 18/08 sul DB vivo: delle 15 card marcate `fail`, SEI erano solo
+ * scadute. Il 40% delle bocciature accusava un codice sano.
+ */
+describe("checksVerdict: l'esito della barra in una parola", () => {
+  const ok = (name: string): CheckRun => ({ name, cmd: name, ok: true, code: 0, ms: 10, timedOut: false, tail: "" });
+  const rosso = (name: string): CheckRun => ({ name, cmd: name, ok: false, code: 2, ms: 10, timedOut: false, tail: "" });
+  const scaduto = (name: string): CheckRun => ({ name, cmd: name, ok: false, code: null, ms: 1_200_000, timedOut: true, tail: "" });
+
+  test("tutti verdi ⇒ pass", () => {
+    expect(checksVerdict([ok("typecheck"), ok("lint")], 2)).toBe("pass");
+  });
+
+  test("un rosso vero ⇒ fail", () => {
+    expect(checksVerdict([ok("typecheck"), rosso("lint")], 2)).toBe("fail");
+  });
+
+  test("SOLO scaduti ⇒ unknown: e' il caso che valeva il 40% delle bocciature", () => {
+    expect(checksVerdict([ok("typecheck"), scaduto("test:unit")], 2)).toBe("unknown");
+    expect(checksVerdict([scaduto("test:unit")], 1)).toBe("unknown");
+  });
+
+  test("un rosso VERO vince su uno scaduto: un guasto misurato non si nasconde", () => {
+    // Il verso opposto sarebbe il difetto: un rosso reale mascherato da «non
+    // lo sappiamo» farebbe approvare codice rotto.
+    expect(checksVerdict([rosso("lint"), scaduto("test:unit")], 2)).toBe("fail");
+    expect(checksVerdict([scaduto("test:unit"), rosso("lint")], 2)).toBe("fail");
+  });
+
+  test("elenco piu' CORTO dei comandi dichiarati ⇒ unknown, anche se e' tutto verde", () => {
+    // Un comando che non e' mai tornato non e' un verde. Senza `expected` questo
+    // caso direbbe `pass` su una barra girata a meta'.
+    expect(checksVerdict([ok("typecheck")], 5)).toBe("unknown");
+    expect(checksVerdict([ok("typecheck")], 1)).toBe("pass");
+  });
+
+  test("nessun comando ⇒ unknown, non pass", () => {
+    // Zero misure non sono un verde. `pass` qui autorizzerebbe il direttore a
+    // chiudere una card su cui non ha girato niente (vedi `whoCloses`).
+    expect(checksVerdict([], 0)).toBe("unknown");
+  });
+
+  test("il TESTO e lo STATO dicono la stessa cosa: un predicato solo", () => {
+    // E' la ragione per cui `checksVerdict` e' stata estratta invece di
+    // duplicata: due copie che divergono rimetterebbero in piedi il difetto,
+    // con la card che dice rosso mentre il thread dice «non misurati».
+    const soloScaduti = [ok("typecheck"), scaduto("test:unit")];
+    expect(checksVerdict(soloScaduti)).toBe("unknown");
+    expect(formatChecksComment(soloScaduti)).toContain("NON MISURATI");
+    const conRosso = [rosso("lint"), scaduto("test:unit")];
+    expect(checksVerdict(conRosso)).toBe("fail");
+    expect(formatChecksComment(conRosso)).toContain("ROSSI");
   });
 });

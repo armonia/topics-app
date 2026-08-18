@@ -26,6 +26,7 @@
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import { CODING_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
+import { rehydrateHistory } from "./history-rehydrate";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
@@ -195,7 +196,23 @@ export class NativeProvider implements AIProvider {
       getTopicWorkspaceForSession(sessionKey)
       || this.config.defaultWorkspace
       || null;
-    const fresh: NativeSession = { history: [], workspace };
+    // UNA SESSIONE FRESCA NON È UNA CONVERSAZIONE NUOVA.
+    //
+    // Questa Map muore col processo, e su una macchina con
+    // `TOPICS_SERVER_WATCH=1` il processo si riavvia a ogni salvataggio in
+    // `server/`. Partire da `history: []` significava che, dopo un riavvio, la
+    // stessa chat ricominciava da zero senza dirlo a nessuno: il 2026-08-18 su
+    // topic:9fe7a291 l'utente ha chiesto «fammi un report di fine giornata» in
+    // una conversazione che conteneva un'analisi da 2.396 caratteri e si è
+    // sentito rispondere «Non ho trovato messaggi nel topic "New Chat"». Non era
+    // un modello che sbaglia: era un modello a cui non era stato dato niente.
+    //
+    // La rotta non ce la manda, la storia, e ha ragione lei: `contextStrategy`
+    // qui è `inline-system`, cioè «me la ricordo io». Quella promessa vale
+    // finché il processo vive; oltre, l'unico posto dove la conversazione è
+    // sopravvissuta è il DB. Si va a prenderla lì — una volta sola, quando la
+    // sessione nasce, non a ogni turno.
+    const fresh: NativeSession = { history: rehydrateHistory(sessionKey), workspace };
     this.sessions.set(sessionKey, fresh);
     return fresh;
   }
@@ -217,7 +234,19 @@ export class NativeProvider implements AIProvider {
         content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
       }));
     }
-    session.history.push({ role: "user", content: message });
+    // Se in coda c'è già un `user`, il messaggio nuovo ci si FONDE invece di
+    // accodarsi. Succede solo in un caso, ed è quello che conta: la storia
+    // ricostruita dal DB può finire con una domanda rimasta senza risposta
+    // (turno morto a metà, riavvio), e `historyFromPersistedThread` la lascia lì
+    // apposta — buttarla via sarebbe perdere proprio ciò che l'utente non ha mai
+    // ottenuto. In esercizio normale l'ultimo turno è sempre dell'assistente,
+    // quindi questo ramo non scatta. Fondere tiene anche l'alternanza dei ruoli.
+    const tail = session.history[session.history.length - 1];
+    if (tail && tail.role === "user" && typeof tail.content === "string") {
+      tail.content = `${tail.content}\n\n${message}`;
+    } else {
+      session.history.push({ role: "user", content: message });
+    }
     // ── LA STORIA SI RIPARA PRIMA DI PARTIRE, NON SI SPERA CHE SIA SANA ──────
     //
     // Un turno morto a meta' (processo riavviato, rete caduta, stop) lascia in

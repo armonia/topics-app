@@ -31,6 +31,8 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { describeInFlight } from "./server/lib/quiescence";
+import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
@@ -63,6 +65,8 @@ import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/servic
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
+import { resolveDeliveryBranch, type DeliveryBranchDeps } from "./server/services/delivery-branch-ref";
+import { landedMergeRange } from "./server/services/task-diff-range";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingState } from "./server/services/landing-audit";
@@ -162,6 +166,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
 // palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
 import { armTurnDeadline } from "./server/lib/turn-deadline";
+import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -526,6 +531,20 @@ const claudeSessionTracker = createClaudeSessionTracker({
 // nasce DOPO il contesto; i tre percorsi di archiviazione la chiamano.
 configureSessionParkingForTracker(claudeSessionTracker);
 
+// Il runtime nativo tiene le conversazioni in una Map di processo e dichiara
+// alla rotta «la storia me la ricordo io» (`contextStrategy: inline-system`).
+// Vero finché il processo vive — e qui il processo si riavvia a ogni
+// salvataggio in `server/`. Da qui in poi, quando una sua sessione nasce, se la
+// va a riprendere dal DB: `loadActiveThread` è la stessa lettura che alimenta la
+// chat, quindi il modello riparte esattamente da ciò che l'utente ha davanti.
+configureNativeHistorySource((sessionKey) =>
+  ctx.loadActiveThread(sessionKey).map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
+    partial: (m as { partial?: number | boolean | null }).partial ?? null,
+  })),
+);
+
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
 const webrtcBridge = createWebrtcBridge();
@@ -780,7 +799,24 @@ async function runHeadlessTurn(
 // reconcile REATTACH branch after a server restart.
 async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true });
+  // Il provider si DICHIARA, non si lascia indovinare alla rotta.
+  //
+  // `resolveProvider` risponde «con chi vorrebbe parlare questa topic», e senza
+  // un `provider` nel corpo cade sul default della macchina. Ma un riattacco
+  // non sceglie: adotta un turno che sta già girando, e qui il proprietario è
+  // `claude-code` per COSTRUZIONE — entrambi i chiamanti lo sanno già.
+  // `hasLiveSession` (poco sopra) interroga esplicitamente `claude-code`, e il
+  // setaccio di boot `reattachSurvivingChatTurns` enumera lo store del broker
+  // ai-bridge, che è del provider claude-code e di nessun altro.
+  //
+  // Senza questa riga, su una macchina il cui default è il runtime nativo
+  // (`topics`, che non ha `reattach`), ogni riadozione finiva su `sendChat` con
+  // un messaggio VUOTO: un turno fabbricato che rispondeva «Ciao! Come posso
+  // aiutarti?» e si sedeva in chat al posto della risposta vera. Nove volte in
+  // quindici minuti su topic:9fe7a291 il 2026-08-18, una per riavvio del
+  // server. La rotta adesso rifiuta quel caso (501 `reattach_unsupported`),
+  // ma la cura sta qui: chi conosce il proprietario lo scrive.
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
   // Stesso patto di runHeadlessTurn: residuo via prima di iniziare.
   takeTurnEnd(sessionKey);
   const resp = await topicsRouter(
@@ -1538,17 +1574,61 @@ const worktreeGc = createWorktreeGcRunner({
  * file toccato», anche su card che avevano committato (misurato il 18/08 su
  * `cf15dea6`, ramo con commit `af248dcf9`).
  */
+/**
+ * DOVE e SU QUALE RAMO chiedere della consegna di una card, in un posto solo.
+ *
+ * Il worktree quando c'è, il ramo scritto sulla card quando non c'è più. Il
+ * perché sta in `services/delivery-branch-ref.ts`: la catena
+ * `task → assignedTopicId → topic.worktreeId → worktrees` si spezza da sola per
+ * strada, e da lì in poi la consegna non si poteva più fotografare.
+ *
+ * È lo stesso ripiego che il land già si era costruito per sé
+ * (`declaredDelivery`, più in alto): quello serve a decidere se c'è qualcosa da
+ * pubblicare, questo a registrare cosa è stato consegnato. La risposta alla
+ * domanda «quale ramo» ora è una sola.
+ *
+ * `candidati` si passa da chi CICLA: costruirli scandisce la cartella di lavoro,
+ * e il backfill ne farebbe una scansione per card.
+ */
+const deliveryBranchDeps = (candidati?: ReturnType<typeof buildProjectCandidates>): DeliveryBranchDeps => ({
+  worktreeOfTask: (id) => worktreeOfTask(id),
+  storeRepoPath: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+  recordedDelivery: (id) => {
+    const t = dispatcherSvc.get(id)?.task;
+    return t ? { projectId: t.projectId, deliveryBranch: t.deliveryBranch ?? null } : null;
+  },
+  boardRepoPath: (boardProjectId) => {
+    try {
+      const lista = candidati ?? buildProjectCandidates({
+        projectStore: ctx.projectStore,
+        workspaceDir: DISPATCH_WORKSPACE_DIR,
+        extraPaths: dispatchExtraPaths,
+      });
+      return resolveProjectPath(boardProjectId, lista)?.path ?? null;
+    } catch { return null; }
+  },
+  branchExists: (repoPath, branch) => branchExistsInRepo(repoPath, branch),
+});
+
 const taskDeliveryRef = async (taskId: string) => {
-    const wt = worktreeOfTask(taskId);
-    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
-    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-    if (!repoPath) return null;
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
     // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
     // di chi stava sul checkout condiviso ha una punta che non è della card, e
     // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
     // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
-    const ref = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
-    if (!ref) return null;
+    //
+    // E `commit: null` NON si ripiega sulla punta. È la tentazione ovvia quando
+    // si vede una colonna vuota, ed è il difetto stesso: `own = []` vuol dire
+    // «verificato, questa card non ha prodotto niente di suo», e sovrascriverlo
+    // con `HEAD` intesta a lei il lavoro di un altro. Misurato il 18/08 sulla
+    // card `5bfd7356` (worktree `mossy-marble`, zero commit propri): la sua
+    // punta è `27d9ebca4`, «Le missioni: compiti a preset…», di un'altra card e
+    // già su main da una settimana. Registrarla avrebbe fatto leggere al
+    // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
+    // esattamente il guasto per cui l'audit esiste.
+    const pointer = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
+    if (!pointer) return null;
     // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
     //
     // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
@@ -1559,12 +1639,16 @@ const taskDeliveryRef = async (taskId: string) => {
     // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
     // chi stava parcheggiato sul checkout condiviso.
     //
+    // Senza cartella si misura dal checkout del progetto: la domanda è tutta sui
+    // ref, che i worktree di un repo condividono, e l'albero di lavoro non entra
+    // nella risposta (`worktreeDiffStat` confronta due commit).
+    //
     // Best-effort come tutto il resto di questa funzione: se git inciampa la
     // consegna passa lo stesso, senza misura (NULL, che non è zero).
-    const stat = await worktreeDiffStat(wt.absPath, { branch: wt.branchName }).catch(() => null);
+    const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
     return stat
-      ? { ...ref, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-      : ref;
+      ? { ...pointer, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
+      : pointer;
 };
 
 const taskCheckoutRef = async (taskId: string) => {
@@ -3824,6 +3908,33 @@ async function reattachSurvivingChatTurns(): Promise<void> {
             const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
             const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
             if (state === "open") {
+              // «Resta viva» va SCRITTA, non solo non-disfatta.
+              //
+              // Saltare la pulizia qui sotto non bastava: la riga era già stata
+              // chiusa a monte. `finalizeStream` passa `partial: undefined` e la
+              // UPDATE di `updateMessage` (server/utils.ts:330) scrive
+              // `partial = $partial` SENZA COALESCE — quindi ogni gamba di
+              // riadozione, anche quella che finisce su un turno ancora aperto,
+              // lascia `partial` spento. E `reuseOrCreatePartialForReattach`
+              // (utils.ts:1347) riusa la riga SOLO se è assistant con
+              // `partial = 1`: al riavvio successivo non trovava niente da
+              // riprendere e ne apriva una NUOVA. È il conto esatto del
+              // 2026-08-18 su topic:9fe7a291 — dieci riadozioni, 1 riusata
+              // («partial in DB») + 8 nuove («store del broker aperto») = nove
+              // righe dove doveva essercene una. Lo stesso sintomo delle cinque
+              // copie su topic:ed2070df che il commento qui sopra dice curato:
+              // la guardia c'era, ma disarmava un flag che qualcun altro aveva
+              // già spento.
+              //
+              // Il broker ha appena detto `open`: la riga è di un turno vivo, e
+              // il flag si RIACCENDE. Solo l'ultima della sessione, che è quella
+              // che il prossimo riattacco riprenderà.
+              try {
+                ctx.db.run(
+                  "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
+                  [s.id],
+                );
+              } catch { /* al peggio il prossimo riattacco apre una riga nuova, com'era prima */ }
               console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
               return;
             }
@@ -4117,27 +4228,23 @@ const worktreeGcTimer = setInterval(() => { void worktreeGc.runWorktreeGc(); }, 
 //     every task that predates the delivery snapshot.
 //  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
 //     the verdict; the edge into `unlanded` posts a comment on the task.
-async function backfillDeliveries(): Promise<void> {
-  const rows = ctx.db.prepare(
-    `SELECT id FROM tasks
-      WHERE archived = 0 AND delivery_commit IS NULL AND status IN ('review', 'done')`,
-  ).all() as Array<{ id: string }>;
-  for (const row of rows) {
-    const wt = worktreeOfTask(row.id);
-    if (!wt || wt.mode !== "branch" || !wt.branchName) continue;
-    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-    if (!repoPath) continue;
-    // Stessa domanda della cattura in review: il commit PROPRIO più recente, non
-    // la punta del ramo — altrimenti questo giro riscriverebbe ogni 30 minuti il
-    // lavoro di un'altra sessione sopra le card senza consegna.
-    // Awaited: the audit right below must see what we just recorded, otherwise
-    // a backfilled task waits a full interval for its first verdict.
-    const ptr = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
-    // Niente commit propri (o domanda senza risposta): non si scrive niente e si
-    // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
-    // stessa domanda cambia risposta da sola.
-    if (ptr?.commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: ptr.branch, commit: ptr.commit });
-  }
+/**
+ * Il cablaggio della passata di backfill: il COSA sta in
+ * `services/delivery-backfill.ts`, qui restano solo le dipendenze vere.
+ */
+function backfillDeliveries(): Promise<void> {
+  return backfillDeliveriesPass({
+    db: ctx.db,
+    projectStore: ctx.projectStore,
+    svc: dispatcherSvc,
+    workspaceDir: DISPATCH_WORKSPACE_DIR,
+    extraPaths: dispatchExtraPaths,
+    buildProjectCandidates,
+    deliveryBranchDeps,
+    resolveDeliveryBranch,
+    deliveryPointer,
+    worktreeDiffStat,
+  });
 }
 
 const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
@@ -4193,6 +4300,19 @@ function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) 
         : await classifyCommitLanding(repoPath, task.deliveryCommit ?? "", { indiceMain });
       return classifyLandingEsito(verdetto.esito);
     },
+    // LA TERZA MANIGLIA, e l'unica che risponde quando le altre due sono
+    // sparite: il merge che il land scrive su main porta il nome della card
+    // (`merge task <id>: …`) e non lo pota nessuno. La domanda e la sua
+    // prudenza stanno gia' in `landedMergeRange`, che il pannello «Modifiche»
+    // usa per la stessa identificazione: `--merges` perche' il land e' `--no-ff`
+    // e senza quel filtro un commit qualunque che citi l'id passerebbe per un
+    // atterraggio, e `-F` perche' il titolo della card e' prosa.
+    //
+    // `null` = nessun merge trovato, che non e' una smentita.
+    landedMerge: async (task: AuditTask, repoPath: string): Promise<boolean | null> => {
+      const trovato = await landedMergeRange(repoPath, task.id).catch(() => null);
+      return trovato ? true : null;
+    },
     record: (taskId: string, state: LandingState, checkedAt: string) =>
       dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
     previousState: (taskId: string) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
@@ -4203,11 +4323,18 @@ function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) 
           try {
             dispatcherSvc.addComment({
               taskId: task.id, author: "system",
-              // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
-              // drawer e un badge sulla card (`landingState`), e questo commento
-              // serve solo a datare il momento in cui è successo. Ripeterci sopra
-              // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
-              // 128 commenti su 97 card, uno lungo tre righe.
+              // SERVICE, e la ragione la dichiara la riga qui sotto: lo STATO ha
+              // già una banda in cima al drawer e un badge sulla card
+              // (`landingState`), e questo commento serve solo a DATARE il
+              // momento in cui è successo. Una riga che non aggiunge un fatto è
+              // per definizione servizio, e questa era la peggiore della board:
+              // una card in review ha per definizione lavoro fuori da main,
+              // quindi la nota scatta su OGNI card della colonna, sempre DOPO la
+              // consegna, e mentre l'umano dorme resta l'ultima riga del thread.
+              // Misurata il 18/08: era la parola stampata su 3 card su 4, al
+              // posto del riassunto dell'agente — e diceva «landa il ramo» a chi
+              // in review il bottone «Landa» non ce l'ha nemmeno.
+              kind: "service",
               content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
             });
             const fresh = dispatcherSvc.get(task.id)?.task;
@@ -4235,7 +4362,13 @@ async function runLandingAudit() {
  */
 async function auditOneLanding(taskId: string): Promise<void> {
   const t = dispatcherSvc.get(taskId)?.task;
-  if (!t?.deliveryCommit) return; // niente fotografia della consegna: niente da verificare
+  if (!t) return;
+  // Senza consegna registrata non c'e' niente da verificare, e si tace. Con
+  // un'accusa gia' scritta invece si prosegue, perche' c'e' qualcosa da
+  // RITIRARE: `markLandPending` timbra «non e' su main» appena il land viene
+  // chiesto, e questa e' la sua via d'uscita. `auditLandings` sa gia' che senza
+  // commit l'unica risposta possibile e' «non lo so», piu' il merge del land.
+  if (!t.deliveryCommit && t.landingState !== "unlanded") return;
   const one: AuditTask = {
     id: t.id, projectId: t.projectId,
     deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,
@@ -4453,21 +4586,100 @@ setTimeout(() => {
 // reload-resilience path resumes whatever was still running. Only for
 // CONTROLLED restarts; raw SIGTERM/SIGINT (OS shutdown) stay fast.
 const QUIESCENCE_CAP_MS = 5 * 60_000;
+/** Il broker si interroga a questa cadenza, non a ogni giro da 500ms: la sonda
+ *  legge la coda dello store di OGNI sessione viva, e a 2Hz sarebbe un costo
+ *  pagato per un'informazione che cambia di rado. */
+const QUIESCENCE_BROKER_PROBE_MS = 5_000;
+
+/**
+ * Le sessioni di chat il cui TURNO è ancora aperto secondo il broker.
+ *
+ * È l'unico oracolo che vede un turno ADOTTATO. Dopo un riavvio la gamba di
+ * riadozione (`runHeadlessReattach`) dura un attimo — è un replay muto — e
+ * quando si chiude `endStream` toglie la voce da `activeStreams`. Da quel
+ * momento, in QUESTO processo, non esiste più niente che rappresenti il figlio
+ * CLI che sta ancora lavorando: `busyCount()` e `activeStreams` dicono «fermo»,
+ * e lo dicono con verità. Solo lo store del broker sa che il figlio è vivo.
+ *
+ * Direzione del fallimento: se il broker non risponde si torna una lista VUOTA,
+ * cioè non si trattiene il riavvio. È il verso opposto a quello del reap in
+ * `reattachSurvivingChatTurns` — là il dubbio salvava un turno dall'essere
+ * ucciso, qui il dubbio costerebbe un cancello che si inchioda su ogni riavvio
+ * per un ponte rotto. Un SIGTERM, a differenza di un kill, il turno non lo
+ * ammazza: il figlio sopravvive e viene riadottato.
+ */
+async function openBrokerChatTurns(): Promise<string[]> {
+  if (!aiBridgeEnabled()) return [];
+  try {
+    const sessions = await getAiBridgeClient().list();
+    const live = sessions.filter((s) => s.alive && s.id.startsWith("topic:"));
+    if (live.length === 0) return [];
+    const prov = tryGetProvider("claude-code") as
+      { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
+    if (typeof prov?.brokerTurnState !== "function") return [];
+    const open: string[] = [];
+    for (const s of live) {
+      // Niente `park: true`: quel flag è la promessa di riadottare subito, e qui
+      // stiamo solo guardando.
+      try { if (await prov.brokerTurnState(s.id) === "open") open.push(s.id); }
+      catch { /* una sessione che non risponde non trattiene il riavvio */ }
+    }
+    return open;
+  } catch { return []; }
+}
+
+let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
+
+/**
+ * Che cosa sta ancora lavorando — e perché il riavvio aspetta. `null` = niente.
+ *
+ * Il cancello guardava UN contatore solo: `taskDispatcher.busyCount()`, cioè
+ * `inFlight.size`, una mappa chiavata sul taskId e scritta solo da `beginRun`
+ * sul cammino di dispatch di una CARD. Una chat umana non è una card: non può
+ * entrarci per costruzione, e infatti non ci entrava. Il 2026-08-18 il server
+ * si è riavviato ~1,4 volte al minuto sopra un turno di chat vivo da quattordici
+ * minuti senza che una sola riga `[quiescence]` comparisse nel log — il predicato
+ * non era mai nemmeno entrato nel `while`. Il nome della rotta prometteva
+ * «quando i turni finiscono»; manteneva «quando finiscono i turni della board».
+ *
+ * Ora le fonti sono tre, in ordine di costo: le card (contatore in RAM), le chat
+ * che stanno streammando in QUESTO processo (`activeStreams`), e i turni
+ * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
+ * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
+ */
+async function whatIsStillWorking(): Promise<string | null> {
+  const cards = taskDispatcher.busyCount();
+  const streamKeys = [...activeStreams.keys()];
+  // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
+  // economica ha già detto «occupato», la risposta non cambia.
+  let brokerOpen = brokerProbeCache.open;
+  if (cards === 0 && streamKeys.length === 0) {
+    const now = Date.now();
+    if (now - brokerProbeCache.at >= QUIESCENCE_BROKER_PROBE_MS) {
+      brokerProbeCache = { at: now, open: await openBrokerChatTurns() };
+    }
+    brokerOpen = brokerProbeCache.open;
+  }
+  return describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen });
+}
+
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
   const deadline = Date.now() + capMs;
   let logged = false;
-  while (taskDispatcher.busyCount() > 0) {
+  for (;;) {
+    const busy = await whatIsStillWorking();
+    if (!busy) break;
     if (Date.now() >= deadline) {
-      console.warn(`[quiescence] ${label}: ${taskDispatcher.busyCount()} turn(s) still in flight after ${Math.round(capMs / 1000)}s — proceeding anyway (reload-resilience will resume them)`);
+      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo dopo ${Math.round(capMs / 1000)}s, si procede lo stesso (la reload-resilience li riprende)`);
       return;
     }
     if (!logged) {
-      console.log(`[quiescence] ${label}: waiting for ${taskDispatcher.busyCount()} in-flight turn(s) to finish before restart`);
+      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}`);
       logged = true;
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  if (logged) console.log(`[quiescence] ${label}: all turns finished — proceeding with restart`);
+  if (logged) console.log(`[quiescence] ${label}: tutto finito — si procede col riavvio`);
 }
 
 // Graceful shutdown

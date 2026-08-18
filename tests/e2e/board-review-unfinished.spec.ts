@@ -180,10 +180,17 @@ test.describe("Review portata dal sistema: scelte diverse da una consegna", () =
         await beat(page, 1600);
 
         // ── 2. La card del reaper: il chip lo dice, e il verde è un'altra ────
-        await didascalia(page, "Stessa colonna, portata dal sistema: chip «non consegnato»");
+        await didascalia(page, "Stessa colonna, portata dal sistema: chip «turni finiti»");
         const chip = reaper.getByTestId("card-system-delivered");
         await expect(chip).toBeVisible();
-        await expect(chip).toHaveText(/non consegnato/);
+        // «turni finiti», non piu' «non consegnato». La parola e' cambiata il
+        // 18/08 perche' questo chip si monta SOLO quando il lavoro c'e': il caso
+        // davvero vuoto ha il suo (`reviewEvidence().kind === 'empty'`) e
+        // sopprime questo. Sulla card `0a17739e` la riga diceva insieme «non
+        // consegnato», «9 file +759 −21» e «checks verdi» — e i 9 file erano
+        // veri. Cio' che il chip deve continuare a dire e' «nessun agente ha
+        // dichiarato di aver finito», ed e' quello che questo caso sorveglia.
+        await expect(chip).toHaveText(/turni finiti/);
         // Il verde è «Rimandalo avanti», non «Landa su main».
         await expect(choice(taskIds.reaper, "send-back")).toHaveText(/Rimandalo avanti/);
         await expect(choice(taskIds.reaper, "send-back")).toHaveClass(/emerald/);
