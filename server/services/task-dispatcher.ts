@@ -74,6 +74,15 @@ export interface DispatcherDeps {
    */
   createWorktree?: (projectStoreId: string) => Promise<string>;
   /**
+   * Scrive sulla card la fotografia della consegna (ramo, commit, diffstat) e le
+   * etichette derivate, leggendo il worktree. Torna `true` se c'e' un ramo.
+   *
+   * SERVE QUI perche' la consegna forzata dal sistema decide cosa dire al
+   * reviewer leggendo quelle colonne — e nel percorso del dispatcher nessuno le
+   * scriveva mai. Vedi `services/task-delivery-capture.ts`.
+   */
+  captureDelivery?: (taskId: string) => Promise<boolean>;
+  /**
    * IL PAVIMENTO: perché la MACCHINA non regge un altro agente adesso, o `null`
    * se lo regge. Non è il tetto — il tetto è una preferenza e può valere
    * «nessun limite», questo no. Assente (test, host degradato) = non blocca
@@ -2351,76 +2360,94 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // sbloccare (`needsHuman`: il modello si è rifiutato). Riprovare identico
       // otterrebbe lo stesso rifiuto: si arriva subito all'umano, con la ragione
       // scritta invece che dopo aver bruciato tutto il budget.
-      const fresh = hasFreshAgentComment(cur);
-      const recovered = fresh ? null : recoverAgentWords(cur);
-      if (cur.assignedTopicId && (fresh || recovered || needsHuman(end))) {
-        // ── «VALUTA COSA HA PRODOTTO» SU UNA CARD DOVE NON C'E' NIENTE ───────
-        //
-        // La frase era una sola per due situazioni opposte, e su quella
-        // sbagliata mandava a cercare un lavoro che non esiste. Misurato il
-        // 17/08 su `5cf58e29`: nessun ramo, zero file toccati, ogni turno morto
-        // su un errore del provider — e la card chiedeva di valutare la
-        // consegna. Segnalato: «non capisco che succede».
-        //
-        // La differenza la sanno le colonne, non il testo: un turno che ha
-        // prodotto qualcosa lascia un ramo o dei file cambiati. Quando non c'e'
-        // ne' l'uno ne' gli altri, la card lo DICE e nomina la sola mossa che
-        // ha senso, invece di chiedere una valutazione impossibile.
-        const nienteDaVedere = !cur.deliveryBranch && !cur.deliveryFilesChanged;
-        const base = needsHuman(end)
-          ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo: ` +
-            "l'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
-          : nienteDaVedere
-            ? `Nessun lavoro consegnato: ${cur.dispatchAttempts} turni, nessun ramo e nessun file toccato. ` +
-              `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}. ` +
-              "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
-            : `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
-              "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
-        const reason = recovered
-          ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
-          : base;
-        try {
-          const delivered = deps.svc.deliverToReviewBySystem({
-            taskId,
-            reason,
-            // Due cause distinte, non una: "ha lavorato ma è finito il budget di
-            // turni" si può rimandare indietro e riparte; "il modello si è
-            // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide
-            // diversamente nei due casi, quindi la card deve dirglielo.
-            cause: needsHuman(end) ? "model_refused" : "retries_exhausted",
-          });
-          emit(delivered);
-          // System-delivery bypasses the route PATCH, so the review-edge
-          // notification (OS banner + web-push) would never fire. Emit it here:
-          // this is exactly the "task waiting for review after a timeout" case
-          // that was previously silent.
+      // PRIMA DI DIRE «non c'e' niente da guardare», GUARDA.
+      //
+      // Il testo qui sotto sceglie fra due frasi opposte leggendo
+      // `deliveryBranch` e `deliveryFilesChanged`. Su questo percorso nessuno le
+      // aveva mai scritte — la fotografia la prendeva solo la ROTTA, sull'edge
+      // verso review — quindi la condizione era sempre vera e la card diceva
+      // sempre «nessun ramo e nessun file toccato». Misurato il 18/08 su
+      // `cf15dea6`: quel testo su una card il cui ramo portava il commit
+      // `af248dcf9`, worktree pulito, cinque sottotask su cinque chiusi.
+      // Il tail e' asincrono perche' la fotografia si legge da git: `onTurnEnd`
+      // resta sincrono (i suoi chiamanti non lo aspettano) e il lavoro parte qui.
+      void (async () => {
+        if (deps.captureDelivery) {
+          try { await deps.captureDelivery(taskId); } catch { /* mai bloccare la consegna su git */ }
+        }
+        // La riga RILETTA: la fotografia l'ha appena scritta.
+        const t = deps.svc.get(taskId)?.task ?? cur;
+        const fresh = hasFreshAgentComment(t);
+        const recovered = fresh ? null : recoverAgentWords(t);
+        if (t.assignedTopicId && (fresh || recovered || needsHuman(end))) {
+          // ── «VALUTA COSA HA PRODOTTO» SU UNA CARD DOVE NON C'E' NIENTE ───────
+          //
+          // La frase era una sola per due situazioni opposte, e su quella
+          // sbagliata mandava a cercare un lavoro che non esiste. Misurato il
+          // 17/08 su `5cf58e29`: nessun ramo, zero file toccati, ogni turno morto
+          // su un errore del provider — e la card chiedeva di valutare la
+          // consegna. Segnalato: «non capisco che succede».
+          //
+          // La differenza la sanno le colonne, non il testo: un turno che ha
+          // prodotto qualcosa lascia un ramo o dei file cambiati. Quando non c'e'
+          // ne' l'uno ne' gli altri, la card lo DICE e nomina la sola mossa che
+          // ha senso, invece di chiedere una valutazione impossibile.
+          const nienteDaVedere = !t.deliveryBranch && !t.deliveryFilesChanged;
+          const base = needsHuman(end)
+            ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo: ` +
+              "l'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
+            : nienteDaVedere
+              ? `Nessun lavoro consegnato: ${t.dispatchAttempts} turni, nessun ramo e nessun file toccato. ` +
+                `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}. ` +
+                "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
+              : `L'agent ha lavorato ${t.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
+                "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
+          const reason = recovered
+            ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
+            : base;
           try {
-            deps.broadcast({
-              type: "task:review-ready",
-              projectId: delivered.projectId,
-              taskId: delivered.id,
-              taskTitle: delivered.text || "Task",
-              reason: "system-delivered",
+            const delivered = deps.svc.deliverToReviewBySystem({
+              taskId,
+              reason,
+              // Due cause distinte, non una: "ha lavorato ma è finito il budget di
+              // turni" si può rimandare indietro e riparte; "il modello si è
+              // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide
+              // diversamente nei due casi, quindi la card deve dirglielo.
+              cause: needsHuman(end) ? "model_refused" : "retries_exhausted",
             });
-          } catch { /* best-effort */ }
-          // Stessa catena della consegna volontaria: anteprima prima, snellimento
-          // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
-          // effetti, e il suo worktree costa gli stessi ~260 MB.
-          try {
-            void Promise.resolve(deps.preparePreview?.(taskId))
-              .catch(() => { /* best-effort */ })
-              .then(() => deps.slimWorktree?.(taskId))
-              .catch(() => { /* best-effort */ });
-          } catch { /* best-effort */ }
-        } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
-        return;
-      }
-      releaseAndEmit({
-        taskId,
-        requeue: false,
-        parkState: CHIP_FAILED,
-        reason: `${describeTurnEnd(end)}. Nessun output dopo ${cur.dispatchAttempts} tentativi: parcheggiato in backlog.`,
-      });
+            emit(delivered);
+            // System-delivery bypasses the route PATCH, so the review-edge
+            // notification (OS banner + web-push) would never fire. Emit it here:
+            // this is exactly the "task waiting for review after a timeout" case
+            // that was previously silent.
+            try {
+              deps.broadcast({
+                type: "task:review-ready",
+                projectId: delivered.projectId,
+                taskId: delivered.id,
+                taskTitle: delivered.text || "Task",
+                reason: "system-delivered",
+              });
+            } catch { /* best-effort */ }
+            // Stessa catena della consegna volontaria: anteprima prima, snellimento
+            // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
+            // effetti, e il suo worktree costa gli stessi ~260 MB.
+            try {
+              void Promise.resolve(deps.preparePreview?.(taskId))
+                .catch(() => { /* best-effort */ })
+                .then(() => deps.slimWorktree?.(taskId))
+                .catch(() => { /* best-effort */ });
+            } catch { /* best-effort */ }
+          } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
+          return;
+        }
+        releaseAndEmit({
+          taskId,
+          requeue: false,
+          parkState: CHIP_FAILED,
+          reason: `${describeTurnEnd(end)}. Nessun output dopo ${t.dispatchAttempts} tentativi: parcheggiato in backlog.`,
+        });
+      })();
       return;
     }
     // Lo stop umano passa PROPRIO di qui, ed è l'unico park che si annuncia da
