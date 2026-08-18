@@ -28,6 +28,8 @@ import {
 } from './scrollAuthority';
 import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
+import type { QueuedTurn } from '../../state/chatQueue';
+import { useT } from '../../hooks/useT';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -84,6 +86,50 @@ const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
   },
 );
 
+/** Identità stabile per la coda assente: un `[]` nuovo a ogni render farebbe
+ *  ricostruire la mappa `components` di Virtuoso a ogni token di streaming. */
+const NO_QUEUED: QueuedTurn[] = [];
+
+/**
+ * QUELLO CHE HAI SCRITTO E NON È ANCORA PARTITO, dove finirà quando partirà.
+ *
+ * La coda del turno (`state/chatQueue.ts`) si vedeva solo aprendo il pannello
+ * del composer, cioè in un posto che bisogna decidere di guardare: nel
+ * trascritto non c'era traccia di righe già scritte, e il filo del discorso
+ * si leggeva a metà. Qui stanno in fondo, nell'ordine in cui partiranno.
+ *
+ * Si distinguono per SOTTRAZIONE, non per colore: stessa scocca e stessa tinta
+ * della bolla utente, inchiostro più tenue, bordo tratteggiato. Il tratteggio è
+ * la differenza che si legge senza leggere — un contorno interrotto è una cosa
+ * non ancora chiusa. La tinta resta `bg-app-user-bubble` e NON l'accento: in
+ * quest'app il blu è il colore delle azioni, e un messaggio non è un'azione
+ * (stessa regola della bolla utente, `MessageBubble`).
+ */
+function QueuedBubbles({ turns, isMobile }: { turns: QueuedTurn[]; isMobile: boolean }) {
+  const t = useT();
+  if (turns.length === 0) return null;
+  return (
+    <div data-testid="queued-bubbles" className={isMobile ? 'px-2' : 'px-4'}>
+      {turns.map((turn) => (
+        <div key={turn.id} className="flex justify-end mt-1.5">
+          <div
+            data-testid="queued-bubble"
+            className="max-w-[85%] min-w-0 px-3 py-2 rounded-2xl border border-dashed border-app-border bg-app-user-bubble/60 text-[13px] leading-relaxed text-app-text-secondary"
+            title={t('chat.queue.waitingTitle')}
+          >
+            <p className="whitespace-pre-wrap break-words">{turn.content}</p>
+            {/* Stessa parola del badge del composer («da inviare»), perché è la
+                stessa coda vista da un'altra parte. Chiamarla «in coda» qui la
+                confonderebbe con la lista di cose da fare dell'agente, che nel
+                blocco di fondo sta a due centimetri. */}
+            <p className="mt-0.5 text-right text-[11px] text-app-text-muted">{t('chat.queue.waiting')}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface MessageListProps {
   isMobile: boolean;
   topic: Topic;
@@ -130,6 +176,12 @@ interface MessageListProps {
    * current position on the pane so a later close+undo can restore it.
    */
   onScrollOffsetChange?: (scrollTop: number) => void;
+  /**
+   * I messaggi SCRITTI e non ancora partiti (`state/chatQueue.ts`), in coda
+   * dietro al turno in corso. Finiscono in fondo al trascritto con la faccia
+   * dell'attesa: vedi `QueuedBubbles`.
+   */
+  queuedTurns?: QueuedTurn[];
 }
 
 export function MessageList({
@@ -161,6 +213,7 @@ export function MessageList({
   composerCentered = false,
   initialScrollOffset,
   onScrollOffsetChange,
+  queuedTurns,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -266,7 +319,10 @@ export function MessageList({
 
   // Stable Virtuoso `components` map: a fresh object + Footer fn identity every
   // render defeats Virtuoso's bailout, so the footer churned per streaming
-  // token. The footer only depends on inputAreaHeight.
+  // token. Il Footer dipende da `inputAreaHeight` e dalla coda, e nessuna delle
+  // due cambia per token: la coda arriva da `useChatQueue`, che tiene fermo lo
+  // stesso array finché nessuno la tocca.
+  const queued = queuedTurns ?? NO_QUEUED;
   const virtuosoComponents = useMemo(() => ({
     // Il Footer riserva l'altezza del composer PIÙ un varco fisso.
     //
@@ -282,7 +338,21 @@ export function MessageList({
     // l'ultima riga, e senza margine se lo mangia dal TESTO. Ventiquattro
     // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
     // abbastanza da non far mai toccare le due cose.
-    Footer: () => <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />,
+    //
+    // Qui dentro, SOPRA il varco, stanno anche le bolle di quello che è ancora
+    // in coda (`QueuedBubbles`). Il posto non è arbitrario: lo scroller di
+    // Virtuoso è alto quanto tutta la cella (`height: 100%` in `scrollerStyle`),
+    // quindi qualunque cosa appesa DOPO la lista nascerebbe sotto il bordo
+    // inferiore, in un secondo scroller che nessuno scorre. Dentro il Footer
+    // invece crescono attaccate all'ultima risposta, e la loro crescita passa
+    // da `totalListHeightChanged`, cioè dall'aggancio che tiene la vista in
+    // fondo.
+    Footer: () => (
+      <>
+        <QueuedBubbles turns={queued} isMobile={isMobile} />
+        <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
+      </>
+    ),
     // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
     // conversazione confina con del CHROME, non con il bordo della finestra.
     //
@@ -311,7 +381,7 @@ export function MessageList({
     // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
     Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
-  }), [inputAreaHeight]);
+  }), [inputAreaHeight, queued, isMobile]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
