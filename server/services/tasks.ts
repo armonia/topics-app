@@ -670,7 +670,7 @@ export interface TaskService {
    * archiviato, oppure sta GIÀ chiedendo (è in review: la domanda c'è).
    * Idempotente per costruzione: due giri di dispatch non fanno due domande.
    */
-  askParkedChildren(args: { taskId: string; by?: string }): Task | null;
+  askParkedChildren(args: { taskId: string; by?: string; evenIfLive?: boolean }): Task | null;
   /**
    * LO STESSO GIRO, SULLE CARD GIÀ FERME. `askParkedChildren` si arma su due
    * eventi — un figlio che si ferma, il turno del padre che finisce — e chi si
@@ -2060,6 +2060,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * Lo `status` viaggia perché la riga lo scrive: la domanda dice DOVE sono
    * fermi, e «in backlog» su un figlio in todo era una bugia.
    */
+  /**
+   * IL PADRE HA UN TURNO ADDOSSO ADESSO?
+   *
+   * Il predicato esisteva gia', ma solo dentro `parkedChildRaisedStall`, che e'
+   * uno dei TRE punti che devono conoscerlo: il rastrello lo riscrive come
+   * esclusione SQL (`status NOT IN (... 'in_progress')`), e `childLeftFlight`
+   * non lo aveva affatto. Tre copie di cui una mancante e' il modo esatto in
+   * cui il 18/08 tre card dispacciate sono finite in review al PRIMO turno:
+   * l'agente creava la sua checklist, spuntava il primo passo, e nel momento in
+   * cui quel figlio usciva dal volo `childLeftFlight` chiamava
+   * `askParkedChildren` — che sposta la card — mentre il turno era vivo.
+   * Sessione con DUE messaggi, zero commit, e una domanda di contabilita' in
+   * cima alla colonna di review.
+   *
+   * Sta qui perche' qui lo legge chi SPOSTA la card, che e' la regola che il
+   * rastrello dichiara gia' («questa query stringe il campo, poi
+   * `askParkedChildren` applica le sue guardie una per una»).
+   */
+  function hasLiveTurn(row: { status: string; dispatch_state?: string | null }): boolean {
+    return row.status === "in_progress"
+      || row.dispatch_state === "working"
+      || row.dispatch_state === "starting";
+  }
+
   function parkedChildren(taskId: string): Array<{ id: string; text: string; status: string }> {
     return db.prepare(
       "SELECT id, text, status FROM tasks WHERE parent_task_id = ? AND archived = 0" +
@@ -2086,9 +2110,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const parent = getTaskRow(parentId);
       if (!parent || parent.archived === 1 || parent.status === "done") return;
       if (!hasActiveChildren(parentId) || hasChildrenInFlight(parentId)) return;
-      const live = parent.status === "in_progress"
-        || parent.dispatch_state === "working" || parent.dispatch_state === "starting";
-      if (!live) { svc.askParkedChildren({ taskId: parentId, by }); return; }
+      if (!hasLiveTurn(parent)) { svc.askParkedChildren({ taskId: parentId, by }); return; }
       const child = getTaskRow(childId);
       const titolo = child?.text ? `«${child.text}»` : "un sottotask";
       // La COLONNA non si nomina: un figlio in `todo` è fermo quanto uno in
@@ -3662,7 +3684,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `dispatch_error` la nascondeva nel drawer di una card in fondo alla
       // colonna del riposo: misurate il 12/08 cinque card ferme così, e nessuna
       // lo diceva a nessuno. `askParkedChildren` la porta in review coi bottoni.
-      const domanda = this.askParkedChildren({ taskId, by: "dispatcher" });
+      // `evenIfLive`: qui il turno E' finito — questa funzione la chiama chi lo
+      // sta chiudendo — quindi la guardia sul padre vivo non deve mordere.
+      const domanda = this.askParkedChildren({ taskId, by: "dispatcher", evenIfLive: true });
       if (domanda) return domanda;
       if (hasActiveChildren(taskId)) {
         // Il tentativo si RESTITUISCE: il turno non è finito per colpa del
@@ -3719,13 +3743,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    askParkedChildren({ taskId, by }): Task | null {
+    askParkedChildren({ taskId, by, evenIfLive }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) return null;
       // Una card chiusa o archiviata non ha domande da fare; una GIÀ in review la
       // sta già facendo, e rifarla a ogni giro sarebbe il rumore che spegne le
       // domande vere.
       if (row.archived === 1 || row.status === "done" || row.status === "review") return null;
+      // IL PADRE STA LAVORANDO: la domanda non si fa adesso.
+      //
+      // Spostare in review una card con un turno vivo gli taglia il turno sotto
+      // i piedi — lo dice gia' la docstring di `parkedChildRaisedStall`, che per
+      // questo la guardia ce l'aveva. Mancava qui, cioe' nell'unico punto che la
+      // card la MUOVE davvero, e `childLeftFlight` ci arrivava senza nessuna
+      // protezione: bastava che l'agente spuntasse il primo passo della propria
+      // checklist perche' la sua card finisse in review a turno in corso.
+      // La domanda non si perde: la fa `deliverToReviewBySystem` a fine turno,
+      // che passa `evenIfLive` proprio perche' li' il turno e' finito per
+      // davvero. Fra minuti, non fra giorni.
+      if (!evenIfLive && hasLiveTurn(row)) return null;
       if (!hasActiveChildren(taskId) || hasChildrenInFlight(taskId)) return null;
       const parked = parkedChildren(taskId);
       if (parked.length === 0) return null;
