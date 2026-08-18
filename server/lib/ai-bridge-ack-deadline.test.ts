@@ -24,6 +24,13 @@ const SOCK = join(tmpdir(), `ai-bridge-stall-${process.pid}.sock`);
 const dataDir = mkdtempSync(join(tmpdir(), "ai-bridge-stall-data-"));
 process.env.TOPICS_AI_BRIDGE_SOCKET = SOCK;
 process.env.TOPICS_DATA_DIR = dataDir;
+// Shrink timers so the test does not sit through the real production waits
+// (5s ACK + 1s tick = 15s for 3 mute retries; 8s slow-bridge wait).
+// Production never sets these.
+const TEST_ACK_MS = 500;
+const TEST_TICK_MS = 50;
+process.env.TOPICS_AI_BRIDGE_ACK_MS = String(TEST_ACK_MS);
+process.env.TOPICS_AI_BRIDGE_STALL_TICK_MS = String(TEST_TICK_MS);
 
 const { AiBridgeClient, BridgeAckStalled, isRetryableBridgeError, shouldRecycleSocket } =
   await import("./ai-bridge-client");
@@ -66,18 +73,22 @@ afterAll(async () => {
 
 describe("deadline sul silenzio, non sul totale", () => {
   test("un ponte LENTO ma che parla non fa scadere l'ack (ACK_TIMEOUT_MS = 5s)", async () => {
-    // Il `list` viene acked solo dopo 8 secondi — ben oltre i 5 della deadline.
+    // Il `list` viene acked solo dopo TEST_ACK_MS * 2 — ben oltre la deadline.
     // Nel frattempo il daemon versa `data` di ALTRE sessioni: è esattamente la
     // coda che in produzione fa da tappo, ed è la prova che è vivo.
+    // (In prod: 8s delay per dimostrare che l'ack da 5s non scattava; qui
+    // usiamo TEST_ACK_MS via env per non sedersi 8s a ogni run.)
+    const replyAfterMs = TEST_ACK_MS * 2;
+    const noiseEveryMs = Math.min(200, TEST_ACK_MS / 2);
     const c = await scena((frame, sock) => {
       if (frame.type !== "list") return;
       const rumore = setInterval(() => {
         sock.write(JSON.stringify({ type: "data", id: "topic:altro", offset: 0, chunk: "eA==" }) + "\n");
-      }, 500);
+      }, noiseEveryMs);
       setTimeout(() => {
         clearInterval(rumore);
         sock.write(JSON.stringify({ type: "list", sessions: [] }) + "\n");
-      }, 8_000);
+      }, replyAfterMs);
     });
 
     const t0 = Date.now();
@@ -85,9 +96,9 @@ describe("deadline sul silenzio, non sul totale", () => {
     const dt = Date.now() - t0;
 
     expect(sessions).toEqual([]);
-    expect(dt).toBeGreaterThan(5_000);   // la vecchia deadline sarebbe già scattata
-    expect(dt).toBeLessThan(12_000);
-  }, 30_000);
+    expect(dt).toBeGreaterThan(TEST_ACK_MS);   // la vecchia deadline sarebbe già scattata
+    expect(dt).toBeLessThan(replyAfterMs + 2_000);
+  }, 10_000);
 
   test("un ponte MUTO rigetta — ma solo dopo aver rimandato il frame", async () => {
     let listRicevuti = 0;
@@ -102,7 +113,7 @@ describe("deadline sul silenzio, non sul totale", () => {
     // REQUEST_ATTEMPTS = 3: prima si moriva al primo colpo. `list` è
     // idempotente, quindi rimandarlo è sicuro per costruzione.
     expect(listRicevuti).toBe(3);
-  }, 40_000);
+  }, 10_000);
 });
 
 describe("cosa vale la pena rimandare", () => {

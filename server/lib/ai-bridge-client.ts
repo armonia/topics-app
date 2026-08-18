@@ -59,11 +59,15 @@ export interface SessionInfo {
  * tempo, e — cosa che conta di più — un socket caduto NON aspetta più il
  * timeout: fallisce subito e si riprova (vedi `request`).
  */
-const ACK_TIMEOUT_MS = 5_000;
-const SPAWN_ACK_TIMEOUT_MS = 20_000;
-const ATTACH_ACK_TIMEOUT_MS = 15_000;
-const WATCHDOG_EVERY_MS = 15_000;
-const PONG_TIMEOUT_MS = 45_000;
+// Env overrides for tests — production never sets these.
+// TOPICS_AI_BRIDGE_ACK_MS, TOPICS_AI_BRIDGE_WATCHDOG_MS, TOPICS_AI_BRIDGE_PONG_MS,
+// TOPICS_AI_BRIDGE_STALL_TICK_MS let a test shrink the wait windows without
+// sitting through the real production timers.
+const ACK_TIMEOUT_MS = Number(process.env.TOPICS_AI_BRIDGE_ACK_MS) || 5_000;
+const SPAWN_ACK_TIMEOUT_MS = Number(process.env.TOPICS_AI_BRIDGE_SPAWN_ACK_MS) || 20_000;
+const ATTACH_ACK_TIMEOUT_MS = Number(process.env.TOPICS_AI_BRIDGE_ATTACH_ACK_MS) || 15_000;
+const WATCHDOG_EVERY_MS = Number(process.env.TOPICS_AI_BRIDGE_WATCHDOG_MS) || 15_000;
+const PONG_TIMEOUT_MS = Number(process.env.TOPICS_AI_BRIDGE_PONG_MS) || 45_000;
 
 /**
  * I tempi qui sopra sono deadline sul SILENZIO, non sul totale.
@@ -85,7 +89,7 @@ const PONG_TIMEOUT_MS = 45_000;
  */
 const MAX_ACK_WAIT_MS = 90_000;
 /** Ogni quanto il waiter si sveglia per chiedersi se il ponte è ancora muto. */
-const STALL_TICK_MS = 1_000;
+const STALL_TICK_MS = Number(process.env.TOPICS_AI_BRIDGE_STALL_TICK_MS) || 1_000;
 /**
  * Un timer che scatta MOLTO più tardi del dovuto non racconta il ponte:
  * racconta noi, fermi (un fold lungo, una GC, la macchina sotto carico). Quel

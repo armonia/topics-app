@@ -34,8 +34,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const BRIDGE = join(import.meta.dir, "pty-bridge.mjs");
-/** Il monitor anti-orfano ticchetta ogni 5s: le attese vanno oltre quel tick. */
-const MONITOR_TICK_MS = 5_000;
+// Tick ridotto via env per non sedersi attraverso i 5s di produzione a ogni run.
+// Production never sets TOPICS_PTY_BRIDGE_MONITOR_TICK_MS.
+const MONITOR_TICK_MS = 500;
+const BRIDGE_ENV_FAST = { TOPICS_PTY_BRIDGE_MONITOR_TICK_MS: String(MONITOR_TICK_MS) };
 
 type Cleanup = () => void;
 const cleanups: Cleanup[] = [];
@@ -81,7 +83,7 @@ async function deadPid(): Promise<number> {
 describe("pty-bridge · monitor anti-orfano", () => {
   test("un ponte il cui --parent-pid è morto si ritira, e si porta via il socket", async () => {
     const sock = socketPath("orphan");
-    const bridge = spawnBridge(sock, await deadPid(), { TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000" });
+    const bridge = spawnBridge(sock, await deadPid(), { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000" });
 
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
     let exited = false;
@@ -101,6 +103,7 @@ describe("pty-bridge · monitor anti-orfano", () => {
     // 41214 era ancora vivo dopo 12 minuti — padre morto e zero peer sul socket.
     const sock = socketPath("probe");
     const bridge = spawnBridge(sock, await deadPid(), {
+      ...BRIDGE_ENV_FAST,
       TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000",
       // Una sonda vera dura ~1s (connect → ping → pong → close): la soglia sta
       // sopra, così le sonde qui sotto non contano mai come server.
@@ -128,7 +131,7 @@ describe("pty-bridge · monitor anti-orfano", () => {
 
   test("un ponte con il padre VIVO resta su", async () => {
     const sock = socketPath("live");
-    const bridge = spawnBridge(sock, process.pid, { TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000" });
+    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000" });
 
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
     let exited = false;
@@ -141,7 +144,7 @@ describe("pty-bridge · monitor anti-orfano", () => {
 describe("pty-bridge · backstop idle", () => {
   test("senza client e senza sessioni si ritira ANCHE con il padre vivo", async () => {
     const sock = socketPath("idle");
-    const bridge = spawnBridge(sock, process.pid, { TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: "2000" });
+    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: "2000" });
 
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
     let exited = false;
@@ -152,7 +155,7 @@ describe("pty-bridge · backstop idle", () => {
 
   test("con un client attaccato NON si ritira (il backstop non uccide chi è in uso)", async () => {
     const sock = socketPath("busy");
-    const bridge = spawnBridge(sock, process.pid, { TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: "2000" });
+    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: "2000" });
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
 
     const client = net.connect(sock);
