@@ -11,7 +11,7 @@
  * sessioni finte divergessero, i due test parlerebbero di due produzioni.
  */
 import { Database } from "bun:sqlite";
-import type { AppContext } from "../types";
+import type { AppContext, RouteHandler } from "../types";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 export function freshDb(): Database {
@@ -78,14 +78,14 @@ export const SESSIONS: Record<string, { projectPath: string; name: string; topic
   sCatch: { projectPath: "/home/.openclaw/workspace/tasks/abc123", name: "generale-agent", topicId: "top-catch" },
 };
 
-export function makeCtx(db: Database, broadcasts: any[]) {
+export function makeCtx(db: Database, broadcasts: unknown[]) {
   return {
     db,
-    json: (data: any, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
+    json: (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
     readJSON: (req: Request) => req.json(),
     matchRoute,
-    broadcastToAll: (m: any) => { broadcasts.push(m); },
-    getTopicBySessionKey: (sk: string) => (SESSIONS[sk] ? ({ id: SESSIONS[sk].topicId, projectPath: SESSIONS[sk].projectPath, name: SESSIONS[sk].name } as any) : null),
+    broadcastToAll: (m: unknown) => { broadcasts.push(m); },
+    getTopicBySessionKey: (sk: string) => (SESSIONS[sk] ? ({ id: SESSIONS[sk].topicId, projectPath: SESSIONS[sk].projectPath, name: SESSIONS[sk].name } as unknown as ReturnType<AppContext["getTopicBySessionKey"]>) : null),
     // La potatura di un tentativo perdente archivia la sua chat. Qui non ci sono
     // chat vere: lo stub dice «non c'è» invece di lasciare che il `catch` di
     // `reapAttemptWorkspace` stampi un TypeError per ogni perdente.
@@ -93,9 +93,9 @@ export function makeCtx(db: Database, broadcasts: any[]) {
   } as unknown as AppContext;
 }
 
-export function call(router: any, method: string, path: string, body?: any) {
+export function call(router: RouteHandler, method: string, path: string, body?: unknown) {
   const init: RequestInit = { method };
   if (body !== undefined) init.body = JSON.stringify(body);
   const req = new Request(`http://x${path}`, init);
-  return router(req, new URL(req.url), new URL(req.url).pathname, method) as Promise<Response | null>;
+  return Promise.resolve(router(req, new URL(req.url), new URL(req.url).pathname, method));
 }

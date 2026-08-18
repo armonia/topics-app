@@ -24,6 +24,7 @@
  */
 
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
+import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
 import { rehydrateHistory } from "./history-rehydrate";
@@ -307,6 +308,11 @@ export class NativeProvider implements AIProvider {
       // è lo stesso registro che usano le CLI, e senza questo un turno
       // dispacciato non saprebbe dire com'è finito.
       recordTurnEnd(sessionKey, out.turnEnd);
+      // E COSI' L'USO, che fin qui veniva misurato e buttato via. `runAgentTurn`
+      // lo restituisce da sempre; nessuno lo depositava, e `getSessionUsage`
+      // cercava un transcript JSONL che il nativo non scrive — quindi rispondeva
+      // zero. Misurato il 18/08: 43 card con turni e costo zero.
+      recordTurnUsage(sessionKey, out.usage);
       return {};
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
