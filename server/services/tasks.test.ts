@@ -3130,3 +3130,120 @@ describe("bindTopic: una sessione nuova e' un tentativo nuovo", () => {
     expect(s.get(t.id)!.task.dispatchAttempts, "stessa conversazione, stesso budget").toBe(3);
   });
 });
+
+// ── re-dispatch: archiviare i sottotask del tentativo morto ──────────────
+//
+// Misurato il 18/08 su `eef64e32`: il task era passato a `stellar-weasel` ma
+// i quattro sottotask creati dal topic `groovy-frond` erano rimasti attaccati,
+// tre con status `done` e uno `in_progress`. L'agent nuovo leggeva una
+// checklist di un tentativo morto — tre su quattro falsi positivi — e il
+// quarto mandava il padre in attesa di nessuno (deadlock silenzioso).
+//
+// Il fix: al cambio di topic (freshSession:true), i sottotask creati dal
+// topic PRECEDENTE vengono archiviati e una nota lo dice nel thread.
+describe("bindTopic: il cambio di topic archivia i sottotask del tentativo morto (Test 2)", () => {
+  function setup() {
+    const db = freshDb();
+    db.prepare("INSERT INTO topics (id) VALUES ('topic-a')").run();
+    db.prepare("INSERT INTO topics (id) VALUES ('topic-b')").run();
+    return { db, s: svc(db) };
+  }
+
+  test("quattro figli del topic A — alcuni done, uno in_progress — passati al topic B: tutti archiviati", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+
+    // Simula il primo dispatch: bindTopic al topic A.
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    // L'agent crea quattro sottotask nel suo turno (con created_by_topic_id = topic-a).
+    const c1 = s.create({ projectId: PID, text: "Step 1", parentTaskId: parent.id });
+    const c2 = s.create({ projectId: PID, text: "Step 2", parentTaskId: parent.id });
+    const c3 = s.create({ projectId: PID, text: "Step 3", parentTaskId: parent.id });
+    const c4 = s.create({ projectId: PID, text: "Step 4", parentTaskId: parent.id });
+
+    // Marca i created_by_topic_id a topic-a (come farebbe il createTask MCP reale).
+    for (const c of [c1, c2, c3, c4]) {
+      db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a' WHERE id = ?").run(c.id);
+    }
+
+    // Simula lo stato della checklist al momento del re-dispatch:
+    // tre step done, uno in_progress.
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(c1.id);
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(c2.id);
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(c3.id);
+    db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(c4.id);
+
+    // Re-dispatch al topic B (freshSession: true = sessione nuova = tentativo nuovo).
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    // Tutti e quattro i figli devono essere archiviati.
+    const isArchived = (id: string) =>
+      (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as any).archived === 1;
+    for (const c of [c1, c2, c3, c4]) {
+      expect(isArchived(c.id), `Step ${c.id} deve essere archiviato`).toBe(true);
+    }
+
+    // Il padre NON deve avere figli aperti (archived esclude dalla conta).
+    const openCount = (
+      db.prepare(
+        "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
+      ).get(parent.id) as any
+    ).c;
+    expect(openCount, "nessun figlio aperto dopo il cambio topic").toBe(0);
+  });
+
+  test("il cambio di topic scrive una nota nel thread con cosa c'era", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    const child = s.create({ projectId: PID, text: "Step da archiviare", parentTaskId: parent.id });
+    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a', status = 'done' WHERE id = ?").run(child.id);
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    // Deve esserci un commento di sistema che descrive l'archiviazione.
+    const comments = s.get(parent.id)!.comments;
+    const note = comments.find((c) => c.author === "system" && c.content.includes("topic-a"));
+    expect(note, "nota di sistema con il topic vecchio").toBeTruthy();
+  });
+
+  test("senza freshSession (ripresa) NON si archiviano i figli", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Task ripreso" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    const child = s.create({ projectId: PID, text: "Step", parentTaskId: parent.id });
+    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a' WHERE id = ?").run(child.id);
+
+    // Ripresa della stessa sessione (freshSession: false/undefined).
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a" });
+
+    // Il figlio NON deve essere archiviato (stessa sessione).
+    const archivedBit = (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(child.id) as any).archived;
+    expect(archivedBit ?? 0, "stesso topic: figlio non toccato").toBe(0);
+  });
+
+  test("figli creati da altri topic non vengono toccati", () => {
+    const { db, s } = setup();
+    db.prepare("INSERT INTO topics (id) VALUES ('topic-c')").run();
+    const parent = s.create({ projectId: PID, text: "Task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    // Un figlio creato da topic-a (vecchio) e uno da topic-c (altro agente / umano).
+    const fromA = s.create({ projectId: PID, text: "Da topic A", parentTaskId: parent.id });
+    const fromC = s.create({ projectId: PID, text: "Da topic C / umano", parentTaskId: parent.id });
+    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a' WHERE id = ?").run(fromA.id);
+    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-c' WHERE id = ?").run(fromC.id);
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    // Solo fromA viene archiviato.
+    const archOf = (id: string) =>
+      (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as any).archived === 1;
+    expect(archOf(fromA.id), "fromA archiviato").toBe(true);
+    // fromC NON viene toccato.
+    expect(archOf(fromC.id), "fromC non toccato").toBe(false);
+  });
+});
