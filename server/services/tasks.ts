@@ -4095,7 +4095,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // `1` e non `0`: questo turno e' il PRIMO della sessione nuova, e conta.
 
-      // I SOTTOTASK DEL TENTATIVO MORTO NON SOPRAVVIVONO AL TENTATIVO.
+      // IL TENTATIVO MUORE, LA CHECKLIST NO: I `done` SI ARCHIVIANO, GLI APERTI
+      // CAMBIANO PADRONE.
       //
       // Misurato il 18/08 su `eef64e32`: dopo il re-dispatch i quattro sottotask
       // del topic precedente (`groovy-frond`) erano ancora nella checklist del
@@ -4104,33 +4105,98 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // silenzioso: la card restava in coda per sempre perche' uno step si muove
       // solo dall'agente di quella card, e quell'agente non esiste piu').
       //
-      // La regola: al cambio di topic (freshSession + topic diverso), i figli
-      // creati dal topic PRECEDENTE (`created_by_topic_id = vecchio_topic`)
-      // vengono archiviati, e una nota nel thread lo dice. Un `done` che descrive
-      // lavoro buttato e' peggio di un buco: meglio un archiviato visibile.
+      // I due guasti NON sono lo stesso guasto, e non hanno la stessa cura:
+      //
+      //  · un `done` e' una BUGIA. Descrive lavoro che il worktree nuovo non ha;
+      //    l'agente che arriva lo legge come fatto e non lo rifa'. Si archivia.
+      //  · un aperto e' un PIANO. Dice cosa restava da fare, ed e' l'unica cosa
+      //    di buono che il tentativo morto lascia. Archiviarlo faceva ripartire
+      //    il nuovo agente dal foglio bianco, a ricostruire la stessa lista.
+      //
+      // Quindi gli aperti restano, ma cambiano padrone: `status` torna a `todo`
+      // (l'`in_progress` era di un turno che non gira piu') e
+      // `created_by_topic_id` passa al topic NUOVO. Il secondo pezzo e' quello
+      // che scioglie il deadlock, ed e' il motivo per cui `isOwnStep` guarda la
+      // PROVENIENZA e non solo il legame di dispatch: `assigned_topic_id` lo
+      // azzera `release` mentre il turno gira ancora, e senza la provenienza
+      // aggiornata l'agente nuovo vedeva lo step e prendeva 409 nel chiuderlo.
+      //
+      // Ricorsivo sull'ALBERO, non sui figli diretti: uno step annidato del
+      // tentativo morto avrebbe lo stesso problema un livello piu' sotto, e
+      // sarebbe l'unico rimasto che nessuno puo' chiudere.
       //
       // Idempotente: se il topic e' lo stesso (ripresa) o non c'era (primo
       // dispatch), non si tocca niente.
       const oldTopicId = row.assigned_topic_id as string | null;
       if (freshSession && oldTopicId && oldTopicId !== topicId) {
         const ts = now();
-        const staleChildren = (db.prepare(
-          "SELECT id, text FROM tasks WHERE parent_task_id = ? AND created_by_topic_id = ? AND archived = 0",
-        ).all(taskId, oldTopicId) as Array<{ id: string; text: string }>);
-        if (staleChildren.length > 0) {
-          for (const child of staleChildren) {
-            archiveSubtree(child.id, ts);
+        // L'albero INTERO sotto il task, filtrato sulla provenienza: quello che
+        // ha creato un altro topic (un umano, un altro agente) non si tocca.
+        // Il task stesso e' escluso: e' il deliverable, non uno step.
+        const staleOf = (): Array<{ id: string; text: string; status: string }> =>
+          db.prepare(
+            `WITH RECURSIVE subtree(id) AS (
+               SELECT id FROM tasks WHERE id = ?
+               UNION ALL
+               SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+             )
+             SELECT t.id, t.text, t.status FROM tasks t
+              WHERE t.id IN (SELECT id FROM subtree WHERE id != ?)
+                AND t.created_by_topic_id = ?
+                AND t.archived = 0
+              ORDER BY t.kanban_order ASC`,
+          ).all(taskId, taskId, oldTopicId) as Array<{ id: string; text: string; status: string }>;
+
+        const archiviati = staleOf().filter((c) => c.status === "done");
+        // Prima gli archiviati, e in cascata: un aperto che pendeva da uno step
+        // `done` se ne va con lui invece di restare appeso a un padre sparito.
+        for (const c of archiviati) archiveSubtree(c.id, ts);
+        // Poi si rilegge: quello che e' ancora aperto DOPO la cascata e' quello
+        // che il nuovo agente eredita davvero.
+        const ereditati = staleOf().filter((c) => c.status !== "done");
+        for (const c of ereditati) {
+          // Le colonne sono ESATTAMENTE quelle che `resolveParkedChildren`
+          // azzera quando rimette in coda un figlio, e per la stessa ragione:
+          // e' un mandato NUOVO, non un residuo. Lasciare la finestra di rinvio
+          // o il chip vecchio vuol dire uno step che dice «in coda» sopra una
+          // coda che non lo serve, che e' il modo in cui una card si ferma
+          // senza dirlo a nessuno.
+          db.prepare(
+            "UPDATE tasks SET status = 'todo', created_by_topic_id = ?, dispatch_state = NULL, " +
+              "dispatch_error = NULL, dispatch_attempts = 0, dispatch_deferred_until = NULL, " +
+              "updated_at = ? WHERE id = ?",
+          ).run(topicId, ts, c.id);
+          // La riga di stato la scrive CHI SPOSTA, sempre: senza, la storia
+          // dello step mostra una colonna cambiata e nessuno che l'ha cambiata.
+          // Il `from` e' quello vero e non una costante — uno step gia' in
+          // `todo` non si e' mosso, e scrivergli «todo -> todo» sarebbe mettere
+          // nella sua storia un passaggio mai avvenuto (stessa regola, e stessa
+          // riga, di `resolveParkedChildren`).
+          if (c.status !== "todo") logStatus(c.id, c.status, "todo", "system");
+          // Uno step in `review` stava aspettando una decisione. Tirandolo
+          // fuori, quella approvazione non ha piu' oggetto: se resta `pending`
+          // non la chiude piu' niente, perche' `reviewDecision` rifiuta un task
+          // che in review non c'e' piu'. E' la stessa chiusura che
+          // `resolveParkedChildren` fa sul padre quando la domanda decade.
+          if (c.status === "review") settleReviewApproval(c.id, "expired", "system", ts);
+        }
+        if (archiviati.length > 0 || ereditati.length > 0) {
+          const righe: string[] = [`Sessione cambiata (topic \`${oldTopicId}\` -> \`${topicId}\`).`];
+          if (archiviati.length > 0) {
+            righe.push(
+              `${archiviati.length} ${archiviati.length === 1 ? "sottotask completato archiviato" : "sottotask completati archiviati"}: ` +
+                `segnavano lavoro del tentativo precedente, che non esiste piu'.`,
+            );
           }
-          const stepList = staleChildren.map((c) => `- ${c.text}`).join("\n");
+          if (ereditati.length > 0) {
+            righe.push(
+              `${ereditati.length} ${ereditati.length === 1 ? "sottotask incompleto ereditato" : "sottotask incompleti ereditati"} ` +
+                `dal nuovo agente: rimessi in todo, sono il piano che il tentativo precedente lascia.`,
+            );
+            righe.push(ereditati.map((c) => `- ${c.text}`).join("\n"));
+          }
           try {
-            this.addComment({
-              taskId,
-              author: "system",
-              content:
-                `Sessione cambiata (topic \`${oldTopicId}\` → \`${topicId}\`): ` +
-                `${staleChildren.length} sottotask del tentativo precedente archiviati ` +
-                `perche' il loro stato rifletteva lavoro che non esiste piu'.\n${stepList}`,
-            });
+            this.addComment({ taskId, author: "system", content: righe.join("\n") });
           } catch { /* best-effort: la nota non blocca il bind */ }
         }
       }
