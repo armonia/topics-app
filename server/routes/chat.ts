@@ -86,6 +86,24 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
+import { createIdempotencyCache } from "../lib/idempotency-cache";
+
+/**
+ * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
+ *
+ * TTL lungo (mezz'ora) perche' non costa niente sbagliare da questa parte: la
+ * chiave e' un uuid coniato UNA volta per invio, non un'impronta del testo.
+ * Rimandare due volte «ok» resta due messaggi distinti, con due chiavi diverse;
+ * l'unica cosa che una chiave ripetuta puo' significare e' «e' lo stesso invio
+ * che ci riprova». Tenerla in memoria a lungo copre una riconnessione lenta,
+ * scaderla presto rimetterebbe in gioco il doppione che vogliamo evitare.
+ *
+ * Vive nel processo, quindi un riavvio la perde: e' un limite accettato, non un
+ * difetto nascosto. Il caso che protegge (client che ritenta subito una richiesta
+ * caduta) si consuma in secondi, e la finestra dopo un riavvio e' coperta dalla
+ * riga utente gia' scritta, che il client rilegge dalla history.
+ */
+const chatIdempotency = createIdempotencyCache({ ttlMs: 30 * 60_000 });
 
 /**
  * Closure-local helpers from createTopicsRouter that the /api/chat block needs,
@@ -224,6 +242,49 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       if (!body) return json({ error: "body required" }, 400);
       const sessionKey = body.sessionKey;
+
+      /**
+       * LO STESSO MESSAGGIO NON SI PRENDE DUE VOLTE.
+       *
+       * Il client aveva una regola sola per sapere se un messaggio era partito:
+       * `streamStarted`, che diventa vero quando la `fetch` restituisce la
+       * risposta. Se la connessione muore PRIMA — e muore, perché su questa
+       * macchina il server si ricarica a ogni salvataggio in `server/` — per lui
+       * il server non l'ha mai ricevuto. Ma le due cose che possono essere
+       * successe sono opposte e da fuori identiche: (a) siamo morti prima di
+       * scrivere la riga, e allora il messaggio è perso e va rispedito;
+       * (b) siamo morti dopo, e allora rispedirlo lo duplica.
+       *
+       * Non potendo distinguerle, il client sceglieva: teneva il messaggio in
+       * coda e sperava. Il commento del suo drain lo dice in chiaro — «tenerlo
+       * qui significherebbe rispedirlo a un server che potrebbe averlo già
+       * preso». Misurato il 2026-08-18: un messaggio scritto durante un reload
+       * non è mai arrivato (zero righe, zero turni) e la pagina è rimasta a
+       * girare; poco prima, un altro aveva mostrato «Message queued» pur essendo
+       * arrivato benissimo.
+       *
+       * Con una chiave il dubbio sparisce: il client rispedisce SEMPRE, e siamo
+       * noi a dire se l'avevamo già preso. La chiave si ricorda solo DOPO che la
+       * riga utente è scritta (più sotto), perché è quello il momento in cui il
+       * messaggio esiste davvero: se cadiamo prima, la ripetizione deve poter
+       * ripartire pulita.
+       *
+       * Stessa meccanica di `POST /api/terminal/sessions`, stesso modulo.
+       */
+      const idempotencyKey =
+        req.headers.get("x-idempotency-key")
+        ?? (typeof body.clientMessageId === "string" && body.clientMessageId.trim() ? body.clientMessageId.trim() : null);
+      const idempotencySlot = idempotencyKey ? `${sessionKey} ${idempotencyKey}` : null;
+      if (idempotencySlot) {
+        const already = chatIdempotency.lookup(idempotencySlot);
+        if (already) {
+          console.log(`[HTTP] POST /api/chat: ripetizione di ${idempotencyKey} su ${sessionKey} — già preso come ${already}, non lo rifaccio`);
+          return json(
+            { error: "message already accepted", code: "duplicate_message", messageId: already },
+            409,
+          );
+        }
+      }
       // Turno guidato dalla board (runHeadlessTurn), non una chat umana: si
       // propaga sul `stream:end` di completamento così la push di fine risposta
       // lo esclude (vedi server/push-triggers.ts). Decine di turni d'agente = spam.
@@ -315,6 +376,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
         );
+        // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
+        // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
+        // l'unica cosa giusta da fare.
+        if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
         if (matchedTopic) {
           broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
           // Bump the topic's own timestamp on every real message, not just

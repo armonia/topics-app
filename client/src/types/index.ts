@@ -190,6 +190,15 @@ export interface ChatRequest {
   provider?: string;
   /** Per-message model override. Ignored by providers without per-call model selection. */
   model?: string;
+  /**
+   * Chiave di idempotenza dell'invio: il server la ricorda appena ha scritto la
+   * riga utente e risponde 409 `duplicate_message` a chi la ripete. Serve a un
+   * caso solo, ma è quello che perdeva i messaggi: la connessione che muore
+   * prima che la risposta cominci. Da qui «il server non l'ha ricevuto» e «l'ha
+   * ricevuto e poi è caduto» sono identici, e chiedono l'opposto — rispedire o
+   * non rispedire. Con la chiave si rispedisce sempre, e decide il server.
+   */
+  clientMessageId?: string;
 }
 
 // ============ Providers ============
