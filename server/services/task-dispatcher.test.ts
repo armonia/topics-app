@@ -2575,6 +2575,25 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(src).toContain("@container");
   });
 
+  it("promoteReviewPreview non scrive piu' il paragrafo istruttivo nel thread", () => {
+    // Prima scriveva «Consegna SENZA anteprima» nel thread dell'umano:
+    // 39 copie nel DB (18/08), 26 card distinte. Il pubblico era sbagliato:
+    // istruzioni operative recapitate a chi decide, che non puo' eseguirle.
+    // La regola vive ora nell'envelope dell'agente (PREVIEW_RULE).
+    const db = freshDb();
+    const PID_LOCAL = "proj-preview-test";
+    db.run("INSERT INTO topics (id) VALUES ('topic-x')");
+    const svc = createTaskService(db, { now: () => new Date().toISOString(), uuid: () => `upr-${Math.random()}` });
+    const t = svc.create({ projectId: PID_LOCAL, text: "consegna senza allegati" });
+    svc.addComment({ taskId: t.id, author: "claude", content: "cinque cancelli verdi" });
+    svc.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    const notes = (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'review-note'").all(t.id) as Array<{ content: string }>)
+      .map((r) => r.content);
+    expect(notes.some((n) => n.includes("Consegna SENZA anteprima"))).toBe(false);
+    expect(notes).toHaveLength(0);
+  });
+
   it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
     // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
     // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
