@@ -84,6 +84,9 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
       "card-checks-green": "checksGreen",
       "card-checks-running": "checksRunning",
       "card-checks-red": "checksRed",
+      // Il terzo esito dei checks (18/08): uno SCADUTO non e' un rosso, e il chip
+      // ambra lo dice. Predicato suo, disgiunto da `checksRed`.
+      "card-checks-unknown": "checksUnknown",
       "card-system-delivered": "systemDelivered",
       "card-blocked-by": "blockedChip",
       "card-reopened": "reopened",

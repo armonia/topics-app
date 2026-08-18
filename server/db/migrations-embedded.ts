@@ -120,6 +120,7 @@ import m20260816174500_task_delivery_diffstat from "./migrations/20260816174500-
 import m20260816214500_task_review_at from "./migrations/20260816214500-task-review-at.sql" with { type: "text" };
 import m20260816230500_grants_project from "./migrations/20260816230500-grants-project.sql" with { type: "text" };
 import m20260818110000_machine_notes_are_service from "./migrations/20260818110000-machine-notes-are-service.sql" with { type: "text" };
+import m20260818120000_timeout_is_not_a_red from "./migrations/20260818120000-timeout-is-not-a-red.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -244,4 +245,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260816214500, name: "20260816214500-task-review-at.sql", sql: m20260816214500_task_review_at },
   { version: 20260816230500, name: "20260816230500-grants-project.sql", sql: m20260816230500_grants_project },
   { version: 20260818110000, name: "20260818110000-machine-notes-are-service.sql", sql: m20260818110000_machine_notes_are_service },
+  { version: 20260818120000, name: "20260818120000-timeout-is-not-a-red.sql", sql: m20260818120000_timeout_is_not_a_red },
 ];

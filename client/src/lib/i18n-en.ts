@@ -408,6 +408,8 @@ const EN = {
   'board.card.checksGreenTitle': 'Checks passed on this delivery. Approving waits for nothing else.',
   'board.card.checksRunning': 'checks running',
   'board.card.checksRunningTitle': 'Checks are still running: there is no verdict yet. Approving now means not waiting for it.',
+  'board.card.checksUnknown': 'checks not measured',
+  'board.card.checksUnknownTitle': 'The commands did not reach the end (usually the 20-minute cap on a busy machine). Not a failure: a missing measurement. Re-run them when the machine is quieter, or read the diff.',
   'board.card.checksRed': 'checks red',
   'board.card.checksRedTitle': 'Pre-review checks RED: {commands}',
   'board.card.checksRedUnknown': 'a command failed',

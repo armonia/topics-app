@@ -113,7 +113,7 @@ export function formatRegenerationEvidence(
     // riempirla d'immaginazione, che è esattamente il guasto da cui nasce
     // questo file.
     let outcome: string;
-    if (call.error) outcome = `ERRORE — ${clip(call.error, maxChars)}`;
+    if (call.error) outcome = `ERRORE: ${clip(call.error, maxChars)}`;
     else if (typeof call.result === "string" && call.result.length > 0) outcome = clip(call.result, maxChars);
     else outcome = "(nessun esito registrato: NON dare per scontato che sia andata bene)";
     lines.push(`${i + 1}. ${name}${call.status ? ` [${call.status}]` : ""}`);

@@ -553,6 +553,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Solo il ROSSO va sulla card: un verde è la norma e riempirebbe la colonna di
   // spunte che nessuno legge, mentre il rosso è la ragione per non aprire il task.
   const checksRed = task.checksState === 'fail';
+  /** Misurato: NIENTE. Vedi il chip piu' sotto per il perche' non e' un rosso. */
+  const checksUnknown = task.checksState === 'unknown';
   // IL VERDE SI DICE, non si deduce dall'assenza del rosso.
   //
   // Prima esisteva solo `checksRed`: una card senza chip poteva voler dire
@@ -638,7 +640,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || task.labels.length);
 
   return (
     <div
@@ -1059,6 +1061,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               title={tr('board.card.checksRunningTitle')}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksRunning')}</span>
+          )}
+          {/* NON MISURATI, e si deve leggere diverso da rosso. Ambra e non rosa:
+              rosso dice «il codice e' rotto, non approvare», questo dice «non lo
+              sappiamo» — e chi rivede decide diversamente nei due casi. Misurate
+              il 18/08 sul DB vivo: 6 card su 15 marcate `fail` erano solo scadute
+              al tetto dei 20 minuti, cioe' il 40% delle bocciature accusava un
+              codice sano. */}
+          {checksUnknown && (
+            <span
+              data-testid="card-checks-unknown"
+              title={tr('board.card.checksUnknownTitle')}
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
           )}
           {checksRed && (
             <span
