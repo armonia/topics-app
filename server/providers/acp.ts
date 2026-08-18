@@ -504,6 +504,8 @@ export class AcpProvider implements AIProvider {
     await applyModel(peer, state, model, {
       name: this.name,
       unsupported: this.unsupported,
+      // Cio' che l'agente ha dichiarato di saper fare, letto da `absorbConfigOptions`.
+      knownModels: this.knownModels,
       // La risposta INTERA, non i soli nomi: porta anche il `currentValue`, cioe'
       // il modello su cui l'agente dice di girare adesso, che alimenta il badge.
       onConfig: (res) => this.absorbConfigOptions(res),

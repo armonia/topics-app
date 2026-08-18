@@ -37,6 +37,7 @@ import {
   generateWorktreeName,
   isValidWorktreeName,
 } from "../utils/worktree-naming";
+import { makeSerialQueue } from "../lib/serial-queue";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -113,25 +114,13 @@ export function createWorktreeManager(
     mkdirSync(p, { recursive: true });
   }
 
-  // Per-project async serialization.
-  const projectQueues = new Map<string, Promise<unknown>>();
-
+  // Per-project async serialization (task e33820da: shared safe helper).
+  const projectQueue = makeSerialQueue();
   function chainOnProjectQueue<T>(
     projectId: string,
     fn: () => Promise<T>,
   ): Promise<T> {
-    const prev = projectQueues.get(projectId) ?? Promise.resolve();
-    const next = prev.catch(() => undefined).then(fn);
-    // GC: only clear if no one chained more work after us. The map must hold
-    // the SAME promise the guard compares against — `.finally()` returns a NEW
-    // promise, so setting the map to the finally-chain while comparing to
-    // `next` made the guard always-false (the delete was dead code and every
-    // project id lingered in the map forever).
-    const tail = next.finally(() => {
-      if (projectQueues.get(projectId) === tail) projectQueues.delete(projectId);
-    });
-    projectQueues.set(projectId, tail);
-    return next;
+    return projectQueue.enqueue(projectId, fn);
   }
 
   /**

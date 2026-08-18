@@ -70,8 +70,17 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  *       del primo ELENCA ogni provider col suo perché. Senza motore la app
  *       nasconde il tasto dettatura, quindi girare qui proverebbe il
  *       contrario di ciò che il test afferma.
+ *
+ *  6.   `pinned-tile-action-slot.spec.ts:277` (SLOT-3) — stessa famiglia del 3:
+ *       non è un AC, è la SCENA che produce la clip di consegna. Le sue due
+ *       asserzioni proprie stanno dentro `if (clip)`, e `clipDiConsegna`
+ *       ritorna `null` fuori da `E2E_CLIP=1`: in una passata normale non
+ *       venivano mai eseguite. Restavano 9,5 secondi di `waitForTimeout` per
+ *       mostrare tre stati a una telecamera spenta, e asserzioni di contorno
+ *       che SLOT-1 fa già misurando i pixel invece di guardarli. Tolti 11,4s
+ *       per passata, copertura persa: nessuna. Si accende con `E2E_CLIP=1`.
  */
-const BASELINE = 18;
+const BASELINE = 19;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;
