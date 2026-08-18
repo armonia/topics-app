@@ -33,6 +33,47 @@ export const MAX_FANOUT = 5;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Identità di una board — la funzione che la genera, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Il `projectId` della board, derivato dal path assoluto del progetto:
+ * `<basename della cartella>-<hash a 6 cifre>`.
+ *
+ * Fino al 18/08 questa funzione esisteva in QUARANTANOVE copie: il servizio
+ * (`server/services/tasks.ts:projectIdForPath`), una closure dentro
+ * `server/routes/topics.ts:getProjectIdForTopic`, il client
+ * (`client/src/lib/board.ts:boardIdForPath`), 45 spec E2E e il bench di
+ * concorrenza (`scripts/bench/concurrency.ts:boardId`) — quasi tutte con un
+ * commento che dichiarava «BYTE-IDENTICAL» alle altre. Il commento era l'unica
+ * cosa che le teneva insieme: tre test inchiodavano il server, il router e il
+ * client sullo stesso vettore, ma la closure di `topics.ts`, le 45 spec e il
+ * bench non erano coperti da niente. Il bench era già derivato — gli mancava il
+ * ripiego `|| 'project'` — e nessuno se n'era accorto perché lo chiama solo su
+ * cartelle di `mkdtemp`. Una divergenza lì non esplode: scrive i task sotto un
+ * `projectId` che nessuna board legge, e la colonna resta vuota senza un errore
+ * da nessuna parte.
+ *
+ * Hash djb2 a 32 bit con segno (variante `h * 33 + c` scritta `(h<<5)-h+c`),
+ * base36 del valore assoluto, troncato a 6 caratteri. NON cambiarlo: ogni
+ * modifica orfanerebbe ogni riga `tasks` già scritta nel DB.
+ *
+ * Parente ma NON la stessa cosa di `shared/project-keys.ts:projectHash`, che
+ * gira lo stesso djb2 sulle chiavi `ui_state` ma restituisce l'hash intero e
+ * senza prefisso: identità diversa, store diverso, resta separata.
+ */
+export function projectIdForPath(projectPath: string): string {
+  const parts = projectPath.replace(/\/+$/, '').split('/');
+  const dirName = parts[parts.length - 1] || 'project';
+  let hash = 0;
+  for (let i = 0; i < projectPath.length; i++) {
+    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
+    hash |= 0;
+  }
+  return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Evento di transizione (`kind='status'`) — il formato, in UN posto solo.
 // ─────────────────────────────────────────────────────────────────────────────
 

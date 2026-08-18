@@ -30,6 +30,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "fs
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
+import { projectIdForPath as boardId } from "../../shared/board";
 
 const args = process.argv.slice(2);
 const flag = (n: string, d?: string) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d; };
@@ -44,14 +45,6 @@ async function api(path: string, init?: RequestInit): Promise<any> {
   const r = await fetch(`${BASE}${path}`, { ...tls, ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
   const t = await r.text();
   try { return JSON.parse(t); } catch { return t; }
-}
-
-/** L'id con cui il DISPATCHER indicizza una board: derivato dal path, non l'UUID. */
-function boardId(path: string): string {
-  const parts = path.replace(/\/+$/, "").split("/");
-  let h = 0;
-  for (let i = 0; i < path.length; i++) { h = ((h << 5) - h) + path.charCodeAt(i); h |= 0; }
-  return `${parts[parts.length - 1]}-${Math.abs(h).toString(36).slice(0, 6)}`;
 }
 
 interface Slot { dir: string; board: string; done?: number }
