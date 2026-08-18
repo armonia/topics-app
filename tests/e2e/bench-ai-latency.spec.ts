@@ -103,7 +103,7 @@
  * request and would itself be a tax on the baseline.
  */
 import { expect, test } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { arch, cpus, platform, release } from "node:os";
 import { resolve } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
@@ -129,16 +129,31 @@ const SEND_STALL_MS = Number(process.env.BENCH_AI_SEND_STALL_MS ?? 0);
 const DELIVER_STALL_MS = Number(process.env.BENCH_AI_DELIVER_STALL_MS ?? 0);
 const ACCEPT_STALL_MS = Number(process.env.BENCH_AI_ACCEPT_STALL_MS ?? 0);
 
-const OUT_DIR = resolve(__dirname, "../../bench/results");
+/**
+ * Ogni passata E2E scrive QUI: test-results/ e' gia' nel .gitignore, quindi il
+ * checkout resta pulito e il land non viene bloccato dal controllo WIP.
+ *
+ * Se E2E_BENCH=1 il file viene copiato anche in bench/results/ (la memoria
+ * storica delle misure). Chi vuole la misura la chiede; chi lancia la suite per
+ * i test non si ritrova un diff.
+ */
+const OUT_DIR_TRANSIENT = resolve(__dirname, "../../test-results/bench");
+const OUT_LATEST_TRANSIENT = resolve(OUT_DIR_TRANSIENT, "ai-latency-latest.json");
+const OUT_DATED_TRANSIENT = (): string =>
+  resolve(OUT_DIR_TRANSIENT, `ai-latency-${platform()}-${new Date().toISOString().slice(0, 10)}.json`);
+
+const BENCH_PERSIST = process.env.E2E_BENCH === "1";
+/** Cartella storica: scrive solo con E2E_BENCH=1, per non sporcare il checkout. */
+const OUT_DIR_DURABLE = resolve(__dirname, "../../bench/results");
 /**
  * Same two files, same names, same snake_case keys as the sibling harness that
  * had already landed when this was written (scripts/bench/memory.ts writes
  * `memory-<platform>-<date>.json` plus `memory-latest.json`): a dated copy that
  * accumulates, and a stable name the judge and the runner read.
  */
-const OUT_LATEST = resolve(OUT_DIR, "ai-latency-latest.json");
-const OUT_DATED = (): string =>
-  resolve(OUT_DIR, `ai-latency-${platform()}-${new Date().toISOString().slice(0, 10)}.json`);
+const OUT_DATED_DURABLE = (): string =>
+  resolve(OUT_DIR_DURABLE, `ai-latency-${platform()}-${new Date().toISOString().slice(0, 10)}.json`);
+const OUT_LATEST_DURABLE = resolve(OUT_DIR_DURABLE, "ai-latency-latest.json");
 
 /** Every assistant bubble in the transcript. Text makes each match unique. */
 const ASSISTANT_BUBBLE = '[data-testid="chat-message"][data-role="assistant"]';
@@ -293,10 +308,19 @@ test.describe("@nightly BENCH - AI response time, our overhead separated from th
       bodyChars,
     });
 
-    mkdirSync(OUT_DIR, { recursive: true });
+    // Scrittura sempre in test-results/ (gitignored): il checkout resta pulito.
+    mkdirSync(OUT_DIR_TRANSIENT, { recursive: true });
     const serialised = `${JSON.stringify(payload, null, 2)}\n`;
-    writeFileSync(OUT_LATEST, serialised);
-    writeFileSync(OUT_DATED(), serialised);
+    const datedTransient = OUT_DATED_TRANSIENT();
+    writeFileSync(OUT_LATEST_TRANSIENT, serialised);
+    writeFileSync(datedTransient, serialised);
+
+    // Scrittura in bench/results/ solo con E2E_BENCH=1 (la memoria storica).
+    if (BENCH_PERSIST) {
+      mkdirSync(OUT_DIR_DURABLE, { recursive: true });
+      copyFileSync(OUT_LATEST_TRANSIENT, OUT_LATEST_DURABLE);
+      copyFileSync(datedTransient, OUT_DATED_DURABLE());
+    }
 
     testInfo.annotations.push({
       type: "bench-ai",
