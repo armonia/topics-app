@@ -63,6 +63,8 @@ import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/servic
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
+import { resolveDeliveryBranch, type DeliveryBranchDeps } from "./server/services/delivery-branch-ref";
+import { landedMergeRange } from "./server/services/task-diff-range";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingState } from "./server/services/landing-audit";
@@ -1516,17 +1518,61 @@ const worktreeGc = createWorktreeGcRunner({
  * file toccato», anche su card che avevano committato (misurato il 18/08 su
  * `cf15dea6`, ramo con commit `af248dcf9`).
  */
+/**
+ * DOVE e SU QUALE RAMO chiedere della consegna di una card, in un posto solo.
+ *
+ * Il worktree quando c'è, il ramo scritto sulla card quando non c'è più. Il
+ * perché sta in `services/delivery-branch-ref.ts`: la catena
+ * `task → assignedTopicId → topic.worktreeId → worktrees` si spezza da sola per
+ * strada, e da lì in poi la consegna non si poteva più fotografare.
+ *
+ * È lo stesso ripiego che il land già si era costruito per sé
+ * (`declaredDelivery`, più in alto): quello serve a decidere se c'è qualcosa da
+ * pubblicare, questo a registrare cosa è stato consegnato. La risposta alla
+ * domanda «quale ramo» ora è una sola.
+ *
+ * `candidati` si passa da chi CICLA: costruirli scandisce la cartella di lavoro,
+ * e il backfill ne farebbe una scansione per card.
+ */
+const deliveryBranchDeps = (candidati?: ReturnType<typeof buildProjectCandidates>): DeliveryBranchDeps => ({
+  worktreeOfTask: (id) => worktreeOfTask(id),
+  storeRepoPath: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+  recordedDelivery: (id) => {
+    const t = dispatcherSvc.get(id)?.task;
+    return t ? { projectId: t.projectId, deliveryBranch: t.deliveryBranch ?? null } : null;
+  },
+  boardRepoPath: (boardProjectId) => {
+    try {
+      const lista = candidati ?? buildProjectCandidates({
+        projectStore: ctx.projectStore,
+        workspaceDir: DISPATCH_WORKSPACE_DIR,
+        extraPaths: dispatchExtraPaths,
+      });
+      return resolveProjectPath(boardProjectId, lista)?.path ?? null;
+    } catch { return null; }
+  },
+  branchExists: (repoPath, branch) => branchExistsInRepo(repoPath, branch),
+});
+
 const taskDeliveryRef = async (taskId: string) => {
-    const wt = worktreeOfTask(taskId);
-    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
-    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-    if (!repoPath) return null;
+    const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
+    if (!ref) return null;
     // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
     // di chi stava sul checkout condiviso ha una punta che non è della card, e
     // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
     // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
-    const ref = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
-    if (!ref) return null;
+    //
+    // E `commit: null` NON si ripiega sulla punta. È la tentazione ovvia quando
+    // si vede una colonna vuota, ed è il difetto stesso: `own = []` vuol dire
+    // «verificato, questa card non ha prodotto niente di suo», e sovrascriverlo
+    // con `HEAD` intesta a lei il lavoro di un altro. Misurato il 18/08 sulla
+    // card `5bfd7356` (worktree `mossy-marble`, zero commit propri): la sua
+    // punta è `27d9ebca4`, «Le missioni: compiti a preset…», di un'altra card e
+    // già su main da una settimana. Registrarla avrebbe fatto leggere al
+    // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
+    // esattamente il guasto per cui l'audit esiste.
+    const pointer = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
+    if (!pointer) return null;
     // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
     //
     // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
@@ -1537,12 +1583,16 @@ const taskDeliveryRef = async (taskId: string) => {
     // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
     // chi stava parcheggiato sul checkout condiviso.
     //
+    // Senza cartella si misura dal checkout del progetto: la domanda è tutta sui
+    // ref, che i worktree di un repo condividono, e l'albero di lavoro non entra
+    // nella risposta (`worktreeDiffStat` confronta due commit).
+    //
     // Best-effort come tutto il resto di questa funzione: se git inciampa la
     // consegna passa lo stesso, senza misura (NULL, che non è zero).
-    const stat = await worktreeDiffStat(wt.absPath, { branch: wt.branchName }).catch(() => null);
+    const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
     return stat
-      ? { ...ref, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-      : ref;
+      ? { ...pointer, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
+      : pointer;
 };
 
 const taskCheckoutRef = async (taskId: string) => {
@@ -4096,20 +4146,32 @@ async function backfillDeliveries(): Promise<void> {
     `SELECT id FROM tasks
       WHERE archived = 0 AND delivery_commit IS NULL AND status IN ('review', 'done')`,
   ).all() as Array<{ id: string }>;
+  // I candidati di progetto una volta sola: costruirli scandisce la cartella di
+  // lavoro, e qui si cicla su tutte le card senza consegna.
+  const candidati = buildProjectCandidates({
+    projectStore: ctx.projectStore,
+    workspaceDir: DISPATCH_WORKSPACE_DIR,
+    extraPaths: dispatchExtraPaths,
+  });
+  const deps = deliveryBranchDeps(candidati);
   for (const row of rows) {
-    const wt = worktreeOfTask(row.id);
-    if (!wt || wt.mode !== "branch" || !wt.branchName) continue;
-    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-    if (!repoPath) continue;
+    // Il worktree se è vivo, altrimenti il ramo che la card si è tenuta. Senza
+    // questo ripiego una card che ha perso la cartella non poteva più essere
+    // fotografata da nessuno, e `delivery_commit` restava NULL per sempre: sono
+    // le 23 card misurate il 18/08 su topics-app, 13 delle quali ferme su
+    // un'accusa che l'audit non poteva più togliere.
+    const ref = await resolveDeliveryBranch(deps, row.id).catch(() => null);
+    if (!ref) continue;
     // Stessa domanda della cattura in review: il commit PROPRIO più recente, non
     // la punta del ramo — altrimenti questo giro riscriverebbe ogni 30 minuti il
     // lavoro di un'altra sessione sopra le card senza consegna.
     // Awaited: the audit right below must see what we just recorded, otherwise
     // a backfilled task waits a full interval for its first verdict.
-    const ptr = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
+    const ptr = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
     // Niente commit propri (o domanda senza risposta): non si scrive niente e si
     // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
-    // stessa domanda cambia risposta da sola.
+    // stessa domanda cambia risposta da sola. In particolare NON si ripiega
+    // sulla punta: vedi `taskDeliveryRef`, dove c'è la misura del perché.
     if (ptr?.commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: ptr.branch, commit: ptr.commit });
   }
 }
@@ -4167,6 +4229,19 @@ function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) 
         : await classifyCommitLanding(repoPath, task.deliveryCommit ?? "", { indiceMain });
       return classifyLandingEsito(verdetto.esito);
     },
+    // LA TERZA MANIGLIA, e l'unica che risponde quando le altre due sono
+    // sparite: il merge che il land scrive su main porta il nome della card
+    // (`merge task <id>: …`) e non lo pota nessuno. La domanda e la sua
+    // prudenza stanno gia' in `landedMergeRange`, che il pannello «Modifiche»
+    // usa per la stessa identificazione: `--merges` perche' il land e' `--no-ff`
+    // e senza quel filtro un commit qualunque che citi l'id passerebbe per un
+    // atterraggio, e `-F` perche' il titolo della card e' prosa.
+    //
+    // `null` = nessun merge trovato, che non e' una smentita.
+    landedMerge: async (task: AuditTask, repoPath: string): Promise<boolean | null> => {
+      const trovato = await landedMergeRange(repoPath, task.id).catch(() => null);
+      return trovato ? true : null;
+    },
     record: (taskId: string, state: LandingState, checkedAt: string) =>
       dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
     previousState: (taskId: string) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
@@ -4209,7 +4284,13 @@ async function runLandingAudit() {
  */
 async function auditOneLanding(taskId: string): Promise<void> {
   const t = dispatcherSvc.get(taskId)?.task;
-  if (!t?.deliveryCommit) return; // niente fotografia della consegna: niente da verificare
+  if (!t) return;
+  // Senza consegna registrata non c'e' niente da verificare, e si tace. Con
+  // un'accusa gia' scritta invece si prosegue, perche' c'e' qualcosa da
+  // RITIRARE: `markLandPending` timbra «non e' su main» appena il land viene
+  // chiesto, e questa e' la sua via d'uscita. `auditLandings` sa gia' che senza
+  // commit l'unica risposta possibile e' «non lo so», piu' il merge del land.
+  if (!t.deliveryCommit && t.landingState !== "unlanded") return;
   const one: AuditTask = {
     id: t.id, projectId: t.projectId,
     deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,

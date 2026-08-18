@@ -314,6 +314,39 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
     expect(backfill).toContain("deliveryPointer(");
     expect(backfill).not.toContain("resolveCommit(");
   });
+
+  /**
+   * IL RIPIEGO CHE SEMBRA OVVIO E RIFÀ IL DANNO.
+   *
+   * `delivery_commit` resta NULL su parecchie card, e la cura che viene in mente
+   * guardando la colonna vuota è «e allora prendi la punta del ramo». Il 18/08
+   * quella cura è arrivata fin dentro `server.ts`, in tutt'e due i punti.
+   *
+   * Ma `commit: null` non è un buco: è la risposta «verificato, questa card non
+   * ha prodotto niente di suo», e la punta in quel caso è di qualcun altro.
+   * Misurato sulla card `5bfd7356` (worktree `mossy-marble`, zero commit
+   * propri): `HEAD` è `27d9ebca4`, «Le missioni: compiti a preset…», commit di
+   * un'altra card e su main da una settimana. Registrarlo manda il reviewer a
+   * leggere il diff sbagliato e stampa all'audit un «atterrato» falso, cioè
+   * proprio il guasto per cui l'audit esiste (`landing-audit.ts`).
+   *
+   * Il buco vero era un altro e sta chiuso altrove: senza worktree non si
+   * risaliva più al ramo (`delivery-branch-ref.ts`).
+   */
+  test("nessuno dei due punti ripiega sulla PUNTA quando i commit propri sono zero", () => {
+    const punte = [
+      /rev-parse["'\s,\]]+.{0,20}HEAD/s,   // `["rev-parse", "HEAD"]` in ogni spaziatura
+      /symbolic-ref/,
+      /\bHEAD\b["']/,
+    ];
+    for (const [nome, testo] of [
+      ["la cattura in review", block("const taskDeliveryRef = async (taskId: string)", "const taskCheckoutRef")],
+      ["il backfill", block("async function backfillDeliveries()", "const LANDING_AUDIT_INTERVAL_MS")],
+    ] as const) {
+      const codice = testo.split("\n").filter((r) => !r.trim().startsWith("//")).join("\n");
+      for (const p of punte) expect(`${nome}: ${codice}`).not.toMatch(p);
+    }
+  });
 });
 
 /**
