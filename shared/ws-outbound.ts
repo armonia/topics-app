@@ -330,7 +330,11 @@ const streamStartSchema = z.looseObject({
   type: z.literal('stream:start'),
   sessionKey: z.string(),
   topicId: z.optional(z.string()),
-  messageId: z.string(),
+  // `.min(1)`, non solo `string`: la stringa vuota passava, e a valle il client
+  // ci vedeva un valore mancante e coniava un id locale — cioe' la riga in DB e
+  // la bolla a schermo con due nomi diversi, che e' il difetto che questo campo
+  // esiste per impedire. Il posto per rifiutarla e' la porta, non il chiamante.
+  messageId: z.string().check(z.minLength(1)),
   /**
    * Il turno non comincia: RIPRENDE. `messageId` punta a una bolla che il
    * client ha già piena — quella di prima del riavvio — e il replay sta per
