@@ -208,6 +208,7 @@ export const PREVIEW_RULE = [
   "· VIDEO .webm/.mp4 ≤20s — proving the delivery takes TWO OR MORE STATES (appears, stays, disappears; scroll, open/close, streaming, a multi-step flow): a still screenshot cannot prove a behaviour. A short Playwright clip (`recordVideo: { dir }` on the context) or, if the project has spec-flow, the scenario's .webm.",
   "· DIAGRAM .svg — the delivery has NO rendered surface (a plan, an architecture, a protocol, a migration): you DRAW the structure — boxes, arrows, five words per node — you do not photograph the document.",
   "A TAB of the task (open_browser_pane) does NOT replace the preview: the live page dies with the server that serves it, the preview stays.",
+  "The preview is an ATTACHMENT, not source. Never leave it in the repo root: an untracked file there BLOCKS the land (it would be swallowed by the realign merge, and the land refuses rather than swallow it — measured twice on 18/08), and a committed one is repo litter. Write it under ~/.topics/media/, or if it genuinely documents a decision worth keeping, under docs/archive/ — never the root.",
   "One single gate, and it holds for all three: at 268px wide (`sips -Z 268 <file>`) you must still be able to say what it shows.",
 ].join("\n");
 
