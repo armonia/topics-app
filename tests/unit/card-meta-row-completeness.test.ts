@@ -90,6 +90,7 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
       "card-waiting-on-this": "waitingOnThis",
       "card-worked-in-place": "lavoroInPlace",
       "card-moved-by-hand": "spostataAMano",
+      "card-nothing-delivered": "senzaConsegna",
       // Questo ha DUE condizioni in `&&`: basta che una delle due sia nella
       // riga, ed e' `showsQuestion` a portarcelo (via `attesa`/`assignedTo`).
       "card-human-context": "humanContextText",
