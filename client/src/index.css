@@ -2832,21 +2832,16 @@ html.electron-mac:not(.dark) .chrome-glass {
  * staticamente (dentro c'è una `var()`), quindi lo lascia passare intatto —
  * la stessa ragione per cui la riga sopravvive alla compilazione. Un solo
  * `:root`: la variante scura arriva da sé, perché arriva da `--bg-surface`. */
-/* NESSUN VELO, NEMMENO SUL WEB: le tab GALLEGGIANO sul contenuto.
+/* IL VELO PORTA LA TINTA DELLA SUPERFICIE: `--bg-surface` all'alpha 0,72.
  *
- * Il velo era la tinta del chrome, poi è diventato la tinta della superficie
- * sotto (che è la ragione per cui il gradino è sparito), e a quel punto la
- * domanda giusta è: a cosa serve stendere un colore su se stesso? A mascherare
- * ciò che scorre — che è esattamente ciò che fa il `backdrop-filter`, senza
- * dover scegliere un'opacità. «Il bg tabbar doveva essere trasparente così
- * appariva tutto in floating» (Attilio, 09/08): tolto il fondo, quello che si
- * vede sono le CARD delle tab appoggiate sul contenuto, che è la forma che
- * questa barra ha sempre voluto avere.
- *
- * Un valore solo per tutti gli ambienti: sotto la shell era già così dal
- * blocco `html.electron-mac`, e tenerne due significava che web e desktop
- * mostravano due barre diverse per una decisione che è una sola. */
-:root { --chrome-overlay-bg: transparent; }
+ * `color-mix(in srgb, var(--bg-surface) 72%, transparent)` è la forma che il
+ * commento sopra raccomanda: la tinta è quella della superficie su cui la
+ * barra galleggia, non quella del chrome. Con tinta = base l'errore sul bordo
+ * basso è zero per costruzione a qualunque alpha. Lightning CSS non può
+ * risolvere `var()` staticamente, quindi la regola sopravvive alla
+ * compilazione intatta. La variante scura arriva da sé perché arriva da
+ * `--bg-surface`. */
+:root { --chrome-overlay-bg: color-mix(in srgb, var(--bg-surface) 72%, transparent); }
 .pane-chrome-bar {
   position: absolute;
   inset-inline: 0;
