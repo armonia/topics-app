@@ -1003,6 +1003,23 @@ async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boole
  */
 let capturaConsegna: DeliveryCapture | null = null;
 
+/**
+ * Quante corse di check pre-review stanno girando adesso.
+ *
+ * Il dispatcher viene costruito PRIMA della rotta dei task (che e' la closure
+ * che tiene il `checksGate`). Il riferimento in avanti e' sicuro per lo stesso
+ * motivo di `capturaConsegna`: il dispatcher chiama `checksRunning` solo dentro
+ * il tick o il resume, che sono entrambi dopo la costruzione della rotta. Zero
+ * finche' non esiste: un conteggio assente vale «nessuno», mai un'eccezione
+ * dentro un tick.
+ *
+ * Questo e' il collegamento che chiude il freno: prima mancava, e sei card che
+ * consegnavano nello stesso quarto d'ora lanciavano sei barre di check in
+ * parallelo. Con `test:unit` da solo a 322s e piu' core, il loadavg andava a
+ * 78,83 su 12 core.
+ */
+let checksGateRunningCount: (() => number) | null = null;
+
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   svc: dispatcherSvc,
@@ -1073,6 +1090,11 @@ const taskDispatcher = createTaskDispatcher({
   // posti residui. Letto dentro la closure, non alla costruzione: il dispatcher
   // esiste solo dopo questa chiamata.
   recommendedCap: () => computeDispatchCapacity(turniInVolo()).recommended,
+  // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
+  // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
+  // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non
+  // esiste: stesso pattern di `capturaConsegna`.
+  checksRunning: () => checksGateRunningCount?.() ?? 0,
   // Don't drop an agent into a repo somebody is already working by hand.
   externalSessionsAt: (path) =>
     externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
@@ -1769,6 +1791,10 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
+  // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
+  // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
+  // lo usa in ogni tick e resume per sapere quante barre sono in volo.
+  onChecksGate: (gate) => { checksGateRunningCount = () => gate.runningCount(); },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
