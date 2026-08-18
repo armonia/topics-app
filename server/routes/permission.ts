@@ -18,6 +18,7 @@ import { cliDecisionFor, decisionFreesSession, isPermissionDecision } from "../.
 import { sessionIsFree, switchSessionToFree } from "../lib/session-free-mode";
 import { etichettaAutore } from "../lib/message-author";
 import { logActivity } from "../db/activity-log";
+import { decodeCol } from "../../shared/message-blob";
 import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest } from "../../shared/types";
 
 /**
@@ -236,9 +237,12 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           // restano la lettura e gli effetti.
           let row: { tool_calls?: string | null; blocks?: string | null } | undefined;
           try {
-            row = ctx.db
+            const rawRow = ctx.db
               .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: string | null; blocks?: string | null } | undefined;
+              .get(sk) as { tool_calls?: unknown; blocks?: unknown } | undefined;
+            if (rawRow) {
+              row = { tool_calls: decodeCol(rawRow.tool_calls), blocks: decodeCol(rawRow.blocks) };
+            }
           } catch { /* riga illeggibile: si ridipinge */ }
           const { targetId, aliasTo, alreadyPainted } = decidePermissionPaint(row, toolUseId, toolName);
           // Il click arriverà con l'id della RIGA: la corrispondenza si SCRIVE
@@ -317,8 +321,9 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           try {
             const row = ctx.db
               .prepare("SELECT tool_calls FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: string | null } | undefined;
-            const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string }[]) : [];
+              .get(sk) as { tool_calls?: unknown } | undefined;
+            const decoded = decodeCol(row?.tool_calls);
+            const calls = decoded ? (JSON.parse(decoded) as { id?: string; name?: string }[]) : [];
             return calls.find((c) => c?.id === toolCallId)?.name ?? null;
           } catch {
             return null;
