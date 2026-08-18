@@ -1318,11 +1318,31 @@ const taskDispatcher = createTaskDispatcher({
 // branch there. Only `branch`-mode worktrees on a ready project have something to
 // land; everything else resolves to null (skip). Default branch is `main`.
 const worktreeOfTask = (taskId: string) => {
+  // Percorso primario: task → assigned_topic_id → topic.worktree_id → worktree.
+  // Funziona finché il dispatcher tiene il legame vivo.
   const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
-  if (!topicId) return null;
-  const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
-  if (!worktreeId) return null;
-  return ctx.worktreeStore.get(worktreeId) ?? null;
+  if (topicId) {
+    const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+    if (worktreeId) return ctx.worktreeStore.get(worktreeId) ?? null;
+  }
+  // Percorso di ripiego: dopo un `release()` il dispatcher azzera
+  // `assigned_topic_id`, ma il record del tentativo corrente conserva
+  // `worktree_id`. Cerchiamo l'ultimo tentativo in stato `running` (o
+  // comunque con un worktree collegato) per questo task.
+  //
+  // Incidente 18/08: card `171b787d` in review con 279 righe non committate
+  // e `deliveryFilesChanged: 0` perche' `worktreeOfTask` tornava null dopo
+  // che il dispatcher aveva rilasciato la card — e la sonda `taskWorktreeDirt`
+  // leggeva null come «pulito» invece che come «non so».
+  try {
+    const row = ctx.db.prepare(
+      `SELECT worktree_id FROM task_attempts
+        WHERE task_id = ? AND worktree_id IS NOT NULL
+        ORDER BY idx DESC LIMIT 1`,
+    ).get(taskId) as { worktree_id: string } | undefined;
+    if (row?.worktree_id) return ctx.worktreeStore.get(row.worktree_id) ?? null;
+  } catch { /* fallback is best-effort */ }
+  return null;
 };
 
 // ── Review-ready previews ──────────────────────────────────────────────────
@@ -1703,6 +1723,18 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const wt = worktreeOfTask(taskId);
     if (!wt || wt.mode !== "branch") return null;
     return worktreeDirtProbe(wt.absPath);
+  },
+  // Il task ha (o ha avuto) un tentativo con worktree di ramo registrato?
+  // Usato dal cancello `review_needs_commit` per distinguere «non ho trovato
+  // il worktree» da «questo task non ha mai avuto un ramo»: un task senza
+  // ramo (in-place) non deve essere bloccato quando la sonda torna null.
+  taskHasBranchAttempt: (taskId) => {
+    try {
+      const row = ctx.db.prepare(
+        `SELECT 1 FROM task_attempts WHERE task_id = ? AND worktree_id IS NOT NULL LIMIT 1`,
+      ).get(taskId);
+      return !!row;
+    } catch { return false; }
   },
   // Post-landing reap guard: the branch's state relative to main read by
   // CONTENT (survives squash-landing). null = no branch worktree to protect.

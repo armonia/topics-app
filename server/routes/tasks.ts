@@ -176,6 +176,16 @@ export interface TasksRouterOpts {
    */
   taskWorktreeDirtProbe?: (taskId: string) => Promise<{ ok: boolean; paths: string[] } | null>;
   /**
+   * Il task ha (o ha avuto) un tentativo con worktree di ramo registrato?
+   *
+   * Serve al cancello `review_needs_commit` per distinguere «non ho trovato
+   * il worktree» da «questo task non ha mai avuto un ramo» quando la sonda
+   * torna `null`. Senza questa distinzione, un task rilasciato dal dispatcher
+   * (che azzera `assigned_topic_id`) passava il cancello in silenzio anche
+   * con 279 righe non committate — incidente 18/08, card `171b787d`.
+   */
+  taskHasBranchAttempt?: (taskId: string) => boolean;
+  /**
    * Il progetto di questa board può davvero avere un worktree isolato?
    *
    * È una condizione del BOARD, non del task, ma si scopriva una volta PER
@@ -2972,19 +2982,54 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // three exemptions out of four went to the very shape being gated.
         if (body?.status === "review") {
           let isDelivery = false;
+          let reviewGateTask: ReturnType<typeof svc.get> | null = null;
           try {
-            const got = svc.get(item.taskId, { projectId: sess.projectId });
-            const lastOwn = got ? [...got.comments].reverse().find(
+            reviewGateTask = svc.get(item.taskId, { projectId: sess.projectId });
+            const lastOwn = reviewGateTask ? [...reviewGateTask.comments].reverse().find(
               (c) => c.author !== "user" && c.author !== "system" && c.kind === "comment",
             ) : null;
             const isQuestion = commentAsksHuman(lastOwn?.content);
-            isDelivery = !!got && got.task.status !== "review" && !isQuestion;
+            isDelivery = !!reviewGateTask && reviewGateTask.task.status !== "review" && !isQuestion;
           } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
 
-          if (isDelivery && opts?.taskWorktreeDirt) {
+          if (isDelivery && opts?.taskWorktreeDirtProbe) {
             try {
-              const dirt = await opts.taskWorktreeDirt(item.taskId);
-              if (dirt && dirt.length > 0) {
+              const probe = await opts.taskWorktreeDirtProbe(item.taskId);
+              if (probe === null) {
+                // La sonda non ha trovato nessun worktree di ramo per questo
+                // task. Se il task ha (o ha avuto) un ramo, la risposta giusta
+                // e' «non so» — che in un cancello vale «rifiuta». Un worktree
+                // eliminato prima della review, un legame topic spezzato dal
+                // release: in entrambi i casi lasciare passare sarebbe aprire
+                // il cancello per ignoranza.
+                //
+                // Regola: se il task ha un delivery_branch o un tentativo con
+                // worktree registrato, rifiuta con ragione leggibile. Se davvero
+                // non ha MAI avuto un ramo, lascia passare (task in-place).
+                const hasBranch =
+                  !!reviewGateTask?.task.deliveryBranch ||
+                  opts.taskHasBranchAttempt?.(item.taskId) === true;
+                if (hasBranch) {
+                  return json({
+                    error:
+                      "cannot verify the worktree state: the branch worktree is no longer " +
+                      "reachable (the slot was released before review). " +
+                      "commit your work and ensure the worktree is still linked, " +
+                      "THEN set status='review'",
+                    code: "review_needs_commit",
+                  }, 409);
+                }
+              } else if (!probe.ok || probe.paths.length > 0) {
+                const dirt = probe.paths;
+                if (!probe.ok) {
+                  return json({
+                    error:
+                      "cannot read the worktree status (git status failed). " +
+                      "make sure your worktree has no uncommitted changes, " +
+                      "THEN set status='review'",
+                    code: "review_needs_commit",
+                  }, 409);
+                }
                 return json({
                   error:
                     `your worktree has ${dirt.length} uncommitted change${dirt.length === 1 ? "" : "s"} ` +
