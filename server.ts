@@ -56,7 +56,7 @@ import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
 import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
-import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
+import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
@@ -1515,6 +1515,13 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const wt = worktreeOfTask(taskId);
     if (!wt || wt.mode !== "branch") return null;
     return worktreeRealDirt(wt.absPath);
+  },
+  // Come sopra, ma dice anche SE ha potuto leggere: la usa chi CANCELLA
+  // (`reapAfterLand`), dove un `git status` muto non vale «pulito».
+  taskWorktreeDirtProbe: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch") return null;
+    return worktreeDirtProbe(wt.absPath);
   },
   // Post-landing reap guard: the branch's state relative to main read by
   // CONTENT (survives squash-landing). null = no branch worktree to protect.
