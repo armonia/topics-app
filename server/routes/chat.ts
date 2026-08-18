@@ -36,6 +36,7 @@ import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from 
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
+import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
 import { accumulateTurnUsage, emptyTurnUsage, turnUsageParts, turnUsageWire } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
 import type { BrowserService } from "../browser-service";
@@ -2725,15 +2726,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
           // Streaming fallback — simplified version (no tool visibility)
           const originalBody = resp.body!;
-          let fullContent = "";
-          let fullThinking = "";
-          let isInThinking = false;
-          let chunkCount = 0;
-          let lastSaveChunk = 0;
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id, abortController);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+
+          // Mutable state via refs so that both the WS onToolStart callback and
+          // the shared SSE processor read from the same up-to-date value.
+          const contentRef = { value: "" };
+          const thinkingRef = { value: "" };
+          const inThinkingRef = { value: false };
+          const chunkCountRef = { value: 0 };
 
           // Always register WS handler for tool events — even if WS appears disconnected,
           // it may reconnect during the HTTP request. Tool events arrive via WS agent events.
@@ -2743,7 +2746,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               onTextDelta() {},  // Handled by HTTP SSE processLine
               onThinkingDelta() {},
               onToolStart(toolCallId: string, name: string, args?: Record<string, unknown>) {
-                const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: fullContent.length };
+                const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: contentRef.value.length };
                 addToolCallToLastMessage(sessionKey, toolCall);
                 broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
               },
@@ -2767,134 +2770,52 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const forwardToClient = async (chunk: Uint8Array) => { if (clientDisconnected) return; try { await writer.write(chunk); } catch { clientDisconnected = true; } };
           const closeClient = async () => { if (clientDisconnected) return; try { await writer.close(); } catch { clientDisconnected = true; } };
 
-          const processLine = (line: string) => {
-            if (!line.startsWith("data: ")) return;
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") {
-              // CHAT-REL-01: Detect empty response and surface error
-              if (!fullContent.trim()) {
-                fullContent = "⚠️ No response received. The AI service may be overloaded. Please try again.";
-                console.warn(`[Stream] Empty response for ${sessionKey} — surfacing error to client`);
-              }
-              updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-              endStream(sessionKey);
+          const { consumeGateway } = makeGatewaySseProcessor({
+            sessionKey,
+            matchedTopic,
+            partialMsgId: partialMsg.id,
+            contentRef,
+            thinkingRef,
+            inThinkingRef,
+            chunkCountRef,
+            forwardToClient,
+            closeClient,
+            isClientDisconnected: () => clientDisconnected,
+            encoder,
+            writeExtra: (payload: string) => {
+              if (!clientDisconnected) { try { writer.write(encoder.encode(payload)); } catch { clientDisconnected = true; } }
+            },
+            broadcastToAll,
+            broadcastToTopicSubscribers,
+            updateStreamContent,
+            updateLastMessage,
+            endStream,
+            isStreaming,
+            addToolCallToLastMessage,
+            updateToolCallResult: (sk, id, result) => updateToolCallResult(sk, id, result),
+            saveInterval: SAVE_INTERVAL,
+            onDone: () => {
+              // chat.ts-specific: unregister handler, broadcast message:new,
+              // and mark stream:end as completed (overrides the shared broadcast).
               topicProvider.unregisterStreamHandler?.(sessionKey);
               if (matchedTopic) {
-                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
-                // Fallback SSE: il `[DONE]` è la fine pulita del turno (l'errore
-                // esce dal ramo catch/finally, non da qui). Stesso marcatore del
-                // path WS per la push di fine risposta.
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: contentRef.value, preview: contentRef.value.slice(0, 100) });
+                // The shared module already broadcast stream:end; re-broadcast
+                // with the chat-specific completed/dispatched fields.
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id, completed: true, ...(dispatched ? { dispatched: true } : {}) });
                 finalizeTurnActivity(matchedTopic);
               }
-              return;
-            }
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta;
-              if (delta?.content) {
-                const content = delta.content;
-                if (content.includes('<thinking>')) { isInThinking = true; broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
-                if (content.includes('</thinking>')) { isInThinking = false; broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
-                if (isInThinking) { const cleaned = content.replace(/<\/?thinking>/g, ''); fullThinking += cleaned; const tc = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, tc); else broadcastToAll(tc); }
-                else { const cleaned = content.replace(/<\/?thinking>/g, ''); if (cleaned) { fullContent += cleaned; const cc = { type: "stream:content_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cc); else broadcastToAll(cc); } }
-                chunkCount++;
-                updateStreamContent(sessionKey, fullContent, fullThinking);
-                if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) { lastSaveChunk = chunkCount; updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined }); }
-              }
-              // Tool calls from SSE stream (if gateway includes them in HTTP response)
-              if (delta?.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  if (tc.function?.name) {
-                    const toolCall = {
-                      id: tc.id || `tool-${Date.now()}`,
-                      name: tc.function.name,
-                      args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
-                      status: 'running' as const,
-                      contentOffset: fullContent.length,
-                    };
-                    addToolCallToLastMessage(sessionKey, toolCall);
-                    broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
-                    // Also forward as SSE for the HTTP client
-                    const sseToolPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCall.id, function: { name: toolCall.name, arguments: JSON.stringify(toolCall.args) }, contentOffset: toolCall.contentOffset }] } }] });
-                    if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseToolPayload}\n\n`)); } catch {} }
-                  }
-                }
-              }
-              if (delta?.tool_result) {
-                const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
-                if (trId) {
-                  updateToolCallResult(sessionKey, trId, trResult || 'completed');
-                  broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: trId, status: trStatus || 'success', result: trResult }, matchedTopic?.id);
-                  const sseResultPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: trId, status: trStatus || 'success', result: trResult } } }] });
-                  if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseResultPayload}\n\n`)); } catch {} }
-                }
-              }
-            } catch {}
-          };
-
-          const consumeGateway = async () => {
-            const reader = originalBody.getReader();
-            const onAbort = () => reader.cancel();
-            abortController.signal.addEventListener("abort", onAbort, { once: true });
-            const decoder = new TextDecoder();
-            let sseBuffer = "";
-            let streamError: string | null = null;
-
-            // CHAT-REL-03: Inactivity timeout (60s per chunk)
-            const INACTIVITY_TIMEOUT_MS = 60000;
-            let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-            const resetInactivityTimer = () => {
-              if (inactivityTimer) clearTimeout(inactivityTimer);
-              inactivityTimer = setTimeout(() => {
-                console.warn(`[Stream] Inactivity timeout (${INACTIVITY_TIMEOUT_MS / 1000}s) for ${sessionKey}`);
-                streamError = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
-                abortController.abort();
-              }, INACTIVITY_TIMEOUT_MS);
-            };
-            resetInactivityTimer();
-
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                resetInactivityTimer();
-                await forwardToClient(value);
-                sseBuffer += decoder.decode(value, { stream: true });
-                const lines = sseBuffer.split("\n");
-                sseBuffer = lines.pop() || "";
-                for (const line of lines) processLine(line);
-              }
-              if (sseBuffer.trim()) processLine(sseBuffer);
-            } catch (err: any) {
-              // CHAT-REL-02: Propagate errors to client via SSE
-              const isAbort = err?.name === "AbortError" || abortController.signal.aborted;
-              const errorMsg = streamError || (isAbort
-                ? "⚠️ Response timed out. Please try again."
-                : "⚠️ Connection lost during response. Please try again.");
-              console.warn(`[Stream] Gateway read error for ${sessionKey}:`, err?.message || err);
-              if (!fullContent.trim()) fullContent = errorMsg;
-              else fullContent += `\n\n---\n*${errorMsg}*`;
-              // Send error to client SSE
-              const errPayload = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `\n\n${errorMsg}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-              if (!clientDisconnected) { try { await writer.write(encoder.encode(errPayload)); } catch {} }
-            }
-            finally {
-              if (inactivityTimer) clearTimeout(inactivityTimer);
-              abortController.signal.removeEventListener("abort", onAbort);
-              reader.releaseLock();
-              await closeClient();
+            },
+            onStreamEnd: () => {
+              // chat.ts-specific: unregister handler + finalize activity (abrupt end).
               topicProvider.unregisterStreamHandler?.(sessionKey);
-              if (isStreaming(sessionKey)) {
-                updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-                endStream(sessionKey);
-                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-                if (matchedTopic) finalizeTurnActivity(matchedTopic);
-              }
-            }
-          };
+              if (matchedTopic) finalizeTurnActivity(matchedTopic);
+            },
+            logTag: "[Stream]",
+            abortController,
+          });
 
-          consumeGateway().catch(err => console.error('[consumeGateway:chat] error:', err));
+          consumeGateway(originalBody).catch(err => console.error('[consumeGateway:chat] error:', err));
           return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
         } catch (err: any) {
           if (err.name === "AbortError") return json({ error: "Request timeout (5 min)" }, 504);

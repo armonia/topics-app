@@ -175,3 +175,104 @@ describe("da quando la card aspetta una risposta", () => {
   });
 });
 
+/**
+ * DIFFSTAT E CHECKS NON SOPRAVVIVONO ALLA CONSEGNA CHE DESCRIVEVANO.
+ *
+ * Difetto osservato il 18/08: una card rifiutata in review (o trascinata
+ * review -> todo) azzerava delivery_branch e delivery_commit ma NON
+ * delivery_files_changed, delivery_insertions, delivery_deletions,
+ * checks_state, checks_json, checks_commit.
+ *
+ * La card conservava «7 file +240 -18» e la barra verde di una consegna il
+ * cui puntatore era stato deliberatamente cancellato. Due lettori prendevano
+ * decisioni sbagliate:
+ *   - il chip «chiude il conduttore» (whoCloses) leggeva checksState='pass'
+ *     su un commit non piu' consegnato e autorizzava la chiusura automatica;
+ *   - il gate checksState === 'fail' bloccava l'approvazione su un esito
+ *     che non apparteneva piu' a questa consegna.
+ */
+describe("diffstat e checks cadono col rifiuto (review -> coda via update)", () => {
+  it("rifiuto via update() azzera diffstat e checks", () => {
+    const { svc, id } = conTask();
+    // 1. Consegna con diffstat e checks verdi.
+    svc.recordDelivery({
+      taskId: id, branch: "topics/x", commit: "a".repeat(40),
+      stat: { filesChanged: 7, insertions: 240, deletions: 18 },
+    });
+    svc.recordChecks({ taskId: id, state: "pass", commit: "a".repeat(40), runs: [] });
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    // Verifico che i dati siano presenti prima del rifiuto.
+    const prima = svc.get(id)!.task;
+    expect(prima.deliveryFilesChanged).toBe(7);
+    expect(prima.checksState).toBe("pass");
+
+    // 2. Rifiuto: review -> todo tramite update().
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "todo" } });
+    const dopo = svc.get(id)!.task;
+
+    // Diffstat.
+    expect(dopo.deliveryFilesChanged, "diffstat non sopravvive al rifiuto").toBeNull();
+    expect(dopo.deliveryInsertions, "insertions non sopravvivono al rifiuto").toBeNull();
+    expect(dopo.deliveryDeletions, "deletions non sopravvivono al rifiuto").toBeNull();
+    // Checks.
+    expect(dopo.checksState, "checks_state non sopravvive al rifiuto").toBeNull();
+  });
+
+  it("rifiuto via update() azzera anche da done -> todo", () => {
+    const { svc, id } = conTask();
+    svc.recordDelivery({
+      taskId: id, branch: "topics/y", commit: "b".repeat(40),
+      stat: { filesChanged: 3, insertions: 10, deletions: 2 },
+    });
+    svc.recordChecks({ taskId: id, state: "fail", commit: "b".repeat(40), runs: [] });
+    // Porta in done direttamente (simulazione land).
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "done" } });
+    const prima = svc.get(id)!.task;
+    expect(prima.deliveryFilesChanged).toBe(3);
+    expect(prima.checksState).toBe("fail");
+
+    // Riapre: done -> todo.
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "todo" } });
+    const dopo = svc.get(id)!.task;
+    expect(dopo.deliveryFilesChanged, "diffstat non sopravvive all'uscita da done").toBeNull();
+    expect(dopo.checksState, "checks_state non sopravvive all'uscita da done").toBeNull();
+  });
+});
+
+describe("diffstat e checks cadono col rifiuto (reviewDecision)", () => {
+  it("reviewDecision('reject') azzera diffstat e checks", () => {
+    const { svc, id } = conTask();
+    svc.recordDelivery({
+      taskId: id, branch: "topics/z", commit: "c".repeat(40),
+      stat: { filesChanged: 5, insertions: 50, deletions: 5 },
+    });
+    svc.recordChecks({ taskId: id, state: "pass", commit: "c".repeat(40), runs: [] });
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+
+    const prima = svc.get(id)!.task;
+    expect(prima.deliveryFilesChanged).toBe(5);
+    expect(prima.checksState).toBe("pass");
+
+    svc.reviewDecision({ taskId: id, by: "test", decision: "reject" });
+    const dopo = svc.get(id)!.task;
+    expect(dopo.deliveryFilesChanged, "diffstat non sopravvive al reviewDecision reject").toBeNull();
+    expect(dopo.deliveryInsertions, "insertions non sopravvivono al reviewDecision reject").toBeNull();
+    expect(dopo.deliveryDeletions, "deletions non sopravvivono al reviewDecision reject").toBeNull();
+    expect(dopo.checksState, "checks_state non sopravvive al reviewDecision reject").toBeNull();
+  });
+
+  it("rosso PRIMA del fix: checks_state='pass' su commit non piu' consegnato", () => {
+    // Questo test era ROSSO prima del fix perche' checksState restava 'pass'
+    // dopo il rifiuto, il che autorizzava whoCloses a chiudere senza umano.
+    // Ora deve essere verde: dopo il rifiuto checksState e' null.
+    const { svc, id } = conTask();
+    svc.recordDelivery({ taskId: id, branch: "topics/w", commit: "d".repeat(40) });
+    svc.recordChecks({ taskId: id, state: "pass", commit: "d".repeat(40), runs: [] });
+    svc.update({ taskId: id, actor: "human", by: "test", patch: { status: "review" } });
+    svc.reviewDecision({ taskId: id, by: "test", decision: "reject" });
+    // checksState null = 'non misurato su questa consegna' = whoCloses -> 'human'.
+    expect(svc.get(id)!.task.checksState).toBeNull();
+  });
+});
+
