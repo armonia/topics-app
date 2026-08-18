@@ -4,9 +4,13 @@
  * La domanda a cui rispondono questi test è una sola, in quattro forme: se la
  * richiesta se ne va prima dei comandi, il lavoro non deve né raddoppiarsi né
  * perdersi.
+ *
+ * I nuovi test coprono:
+ *  · `runningCount()` - il contatore che il dispatcher usa per il freno
+ *  · serializzazione - `maxConcurrent` limita le corse parallele
  */
 import { test, expect, describe } from "bun:test";
-import { CHECKS_LEG_MS, clampLegMs, CHECKS_LEG_MS_MAX, createChecksGate } from "./checks-gate";
+import { CHECKS_LEG_MS, clampLegMs, CHECKS_LEG_MS_MAX, DEFAULT_MAX_CONCURRENT_CHECKS, createChecksGate } from "./checks-gate";
 
 const differita = <T>(ms: number, value: T) => new Promise<T>((r) => setTimeout(() => r(value), ms));
 const verde = { ok: true, comment: "verdi" };
@@ -87,6 +91,137 @@ describe("createChecksGate", () => {
     expect(await gate.leg("t1", { commit: "aa", legMs: 1, run })).toEqual({ pending: true });
     await differita(60, null);
     expect(gate.isRunning("t1")).toBe(false);
+  });
+});
+
+describe("runningCount — il contatore per il freno del dispatcher", () => {
+  test("zero prima che cominci qualcosa", () => {
+    const gate = createChecksGate();
+    expect(gate.runningCount()).toBe(0);
+  });
+
+  test("sale a 1 mentre la corsa gira, torna a 0 dopo", async () => {
+    const gate = createChecksGate();
+    let resolve: (v: typeof verde) => void;
+    const bloccata = new Promise<typeof verde>((r) => { resolve = r; });
+    const run = async () => bloccata;
+    const gamba = gate.leg("t1", { commit: "aa", legMs: 500, run });
+    // Aspetta che la corsa sia partita davvero
+    await differita(5, null);
+    expect(gate.runningCount()).toBe(1);
+    resolve!(verde);
+    await gamba;
+    expect(gate.runningCount()).toBe(0);
+  });
+
+  test("due chiavi diverse = due corse, contatore a 2", async () => {
+    const gate = createChecksGate({ maxConcurrent: 2 });
+    let r1: (v: typeof verde) => void, r2: (v: typeof verde) => void;
+    const b1 = new Promise<typeof verde>((r) => { r1 = r; });
+    const b2 = new Promise<typeof verde>((r) => { r2 = r; });
+    const g1 = gate.leg("t1", { commit: "aa", legMs: 500, run: async () => b1 });
+    const g2 = gate.leg("t2", { commit: "aa", legMs: 500, run: async () => b2 });
+    await differita(5, null);
+    expect(gate.runningCount()).toBe(2);
+    r1!(verde);
+    await g1;
+    expect(gate.runningCount()).toBe(1);
+    r2!(verde);
+    await g2;
+    expect(gate.runningCount()).toBe(0);
+  });
+});
+
+describe("serializzazione — maxConcurrent limita le barre parallele", () => {
+  test("il default e' 1 (serializzato)", () => {
+    // Il default e' conservativo: una barra alla volta,
+    // cosi' sei card che consegnano insieme non saturano la macchina.
+    expect(DEFAULT_MAX_CONCURRENT_CHECKS).toBe(1);
+  });
+
+  test("con maxConcurrent=1 la seconda corsa aspetta la prima", async () => {
+    const gate = createChecksGate({ maxConcurrent: 1 });
+    const ordine: number[] = [];
+    let sblocca: (() => void) | null = null;
+
+    const run1 = async () => {
+      await new Promise<void>((r) => { sblocca = r; });
+      ordine.push(1);
+      return verde;
+    };
+    const run2 = async () => {
+      ordine.push(2);
+      return rosso;
+    };
+
+    const g1 = gate.leg("t1", { commit: "aa", legMs: 500, run: run1 });
+    const g2 = gate.leg("t2", { commit: "bb", legMs: 500, run: run2 });
+
+    // Aspetta che la prima sia partita e la seconda sia in coda
+    await differita(5, null);
+    // Solo la prima sta girando
+    expect(gate.runningCount()).toBe(1);
+    // La seconda non ha ancora prodotto niente
+    expect(ordine).toEqual([]);
+
+    // Sblocca la prima
+    sblocca!();
+    await g1;
+    // Ora la seconda dovrebbe essere partita
+    await g2;
+
+    // L'ordine: prima 1, poi 2 (serializzate)
+    expect(ordine).toEqual([1, 2]);
+  });
+
+  test("con maxConcurrent=2 due corse girano insieme", async () => {
+    const gate = createChecksGate({ maxConcurrent: 2 });
+    const attive: Set<string> = new Set();
+    let maxContemporanee = 0;
+
+    const makeRun = (key: string) => async () => {
+      attive.add(key);
+      maxContemporanee = Math.max(maxContemporanee, attive.size);
+      await differita(20, null);
+      attive.delete(key);
+      return verde;
+    };
+
+    await Promise.all([
+      gate.leg("t1", { commit: "aa", legMs: 500, run: makeRun("t1") }),
+      gate.leg("t2", { commit: "aa", legMs: 500, run: makeRun("t2") }),
+      gate.leg("t3", { commit: "aa", legMs: 500, run: makeRun("t3") }),
+    ]);
+
+    // Con maxConcurrent=2, al massimo 2 corse girano insieme
+    expect(maxContemporanee).toBe(2);
+  });
+
+  test("corsa accodata: isRunning=true anche prima che parta", async () => {
+    // Una corsa accodata e' visibile come 'in corso' (pending) finche' finisce.
+    const gate = createChecksGate({ maxConcurrent: 1 });
+    let sblocca: (() => void) | null = null;
+    const run1 = async () => {
+      await new Promise<void>((r) => { sblocca = r; });
+      return verde;
+    };
+    const run2 = async () => rosso;
+
+    // Prima gamba: t1 parte e blocca
+    const g1 = gate.leg("t1", { commit: "aa", legMs: 500, run: run1 });
+    // Seconda gamba: t2 e' accodata (legMs brevissimo per non restare in attesa)
+    gate.leg("t2", { commit: "bb", legMs: 1, run: run2 });
+    await differita(5, null);
+    // t2 e' accodata (non ancora partita), ma isRunning la vede come in corso
+    expect(gate.isRunning("t2")).toBe(true);
+    // runningCount conta solo chi STA girando davvero (non chi aspetta)
+    expect(gate.runningCount()).toBe(1);
+    // Sblocca t1: drain() fara' partire t2
+    sblocca!();
+    await g1;
+    // Aspetta che t2 finisca (e' veloce, legMs lungo per catturare il verdetto)
+    await gate.leg("t2", { commit: "bb", legMs: 500, run: run2 });
+    expect(gate.isRunning("t2")).toBe(false);
   });
 });
 

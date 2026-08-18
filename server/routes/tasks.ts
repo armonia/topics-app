@@ -299,6 +299,14 @@ export interface TasksRouterOpts {
    * motivo invece di tacere.
    */
   preparePreview?: (taskId: string, opts?: { explain?: boolean }) => Promise<void>;
+  /**
+   * Callback chiamata subito dopo che il `checksGate` interno e' stato creato.
+   * Serve a `server.ts` per passare `checksGate.runningCount` al dispatcher:
+   * il gate e' una closure della rotta, ma il dispatcher nasce prima della rotta
+   * e non puo' riceverlo al costruttore. Con questo hook il wiring e' immediato
+   * e senza accoppiamenti circolari.
+   */
+  onChecksGate?: (gate: import("../services/checks-gate").ChecksGate) => void;
 }
 
 /**
@@ -661,6 +669,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * fila dei land qui sotto.
    */
   const checksGate = createChecksGate();
+  // Notifica il chiamante non appena il gate esiste, cosi' puo' passarne
+  // `runningCount` al dispatcher senza accoppiamenti circolari.
+  try { opts?.onChecksGate?.(checksGate); } catch { /* best-effort */ }
 
   // Qui, e non nel poll del dispatcher: questo è l'unico istante in cui il
   // registro è VUOTO per costruzione, quindi ogni «running» rimasto nel db è di
