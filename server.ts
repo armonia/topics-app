@@ -10,7 +10,7 @@ import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
-  uptimeMsSince, LiveLockError, worktreeIsolationHome,
+  uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -56,7 +56,7 @@ import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
 import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
-import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
+import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess, killProcessTree, trackedScriptPidTrees } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
@@ -110,7 +110,8 @@ import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
-import { createTasksRouter } from "./server/routes/tasks";
+import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
+import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
 import { createNotificationsRouter } from "./server/routes/notifications";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
@@ -210,11 +211,18 @@ if (!process.env.GATEWAY_TOKEN) {
 if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
   const isoHome = worktreeIsolationHome(import.meta.dir, homedir());
   if (isoHome) {
-    if (!process.env.TOPICS_HOME) process.env.TOPICS_HOME = isoHome;
-    if (!process.env.PORT && !process.env.BUN_PORT) process.env.PORT = "0";
+    // La decisione sta in `services/daemon-state.ts` (`worktreeIsolationEnv`),
+    // dove un test la raggiunge: qui viveva dentro `server.ts` ed era rimasta
+    // INCOMPLETA — spostava casa e porta principale e lasciava la porta del
+    // tunnel, che ha preso giu' la produzione il 18/08.
+    const patch = worktreeIsolationEnv(process.env, isoHome);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null) delete process.env[k]; else process.env[k] = v;
+    }
     console.log(
       `[Daemon] worktree server isolated → TOPICS_HOME=${process.env.TOPICS_HOME}, ` +
-      `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT} (won't touch production)`,
+      `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT}, ` +
+      `tunnel ${process.env.TOPICS_TUNNEL_PORT ? process.env.TOPICS_TUNNEL_PORT : "off"} (won't touch production)`,
     );
   }
 }
@@ -952,7 +960,15 @@ async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boole
   return state === "unverifiable" ? null : state === "landed";
 }
 
+/**
+ * Assegnata piu' in basso, dov'e' possibile costruirla (servono gli sguardi sul
+ * worktree). Il dispatcher nasce prima e la chiama solo a turno finito, quindi
+ * il riferimento in avanti e' sicuro: prima di allora non c'e' nessun turno.
+ */
+let capturaConsegna: DeliveryCapture | null = null;
+
 const taskDispatcher = createTaskDispatcher({
+  captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
@@ -1489,6 +1505,64 @@ const worktreeGc = createWorktreeGcRunner({
 });
 
 
+/**
+ * I DUE SGUARDI SUL WORKTREE DI UNA CARD, estratti dall'oggetto della rotta
+ * perche' adesso li usa anche il DISPATCHER.
+ *
+ * `taskDeliveryRef` e `taskCheckoutRef` vivevano dentro le opzioni di
+ * `createTasksRouter`, quindi solo la rotta poteva fotografare una consegna. La
+ * consegna forzata dal sistema — che passa dal dispatcher — leggeva percio'
+ * colonne che nessuno aveva scritto e concludeva sempre «nessun ramo e nessun
+ * file toccato», anche su card che avevano committato (misurato il 18/08 su
+ * `cf15dea6`, ramo con commit `af248dcf9`).
+ */
+const taskDeliveryRef = async (taskId: string) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
+    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+    if (!repoPath) return null;
+    // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
+    // di chi stava sul checkout condiviso ha una punta che non è della card, e
+    // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
+    // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
+    const ref = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
+    if (!ref) return null;
+    // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
+    //
+    // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
+    // diff esisteva solo dietro l'apertura del drawer, una card alla volta.
+    // Calcolarlo nel feed sarebbe stato tre comandi git per card a ogni push
+    // WebSocket; calcolarlo alla consegna è una volta sola, quando il fatto
+    // accade. `worktreeDiffStat` misura dal PADRE del commit più vecchio SUO,
+    // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
+    // chi stava parcheggiato sul checkout condiviso.
+    //
+    // Best-effort come tutto il resto di questa funzione: se git inciampa la
+    // consegna passa lo stesso, senza misura (NULL, che non è zero).
+    const stat = await worktreeDiffStat(wt.absPath, { branch: wt.branchName }).catch(() => null);
+    return stat
+      ? { ...ref, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
+      : ref;
+};
+
+const taskCheckoutRef = async (taskId: string) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch") return null;
+    const commit = await resolveCommit(wt.absPath, "HEAD");
+    return { cwd: wt.absPath, commit };
+};
+
+/**
+ * La fotografia di consegna, UNA implementazione per tre chiamanti (rotta,
+ * scelta del fan-out, dispatcher). Vedi `services/task-delivery-capture.ts`.
+ */
+capturaConsegna = createDeliveryCapture({
+  svc: dispatcherSvc,
+  taskDeliveryRef,
+  taskCheckoutRef,
+  ownCommitFiles,
+});
+
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   autoMerge: taskAutoMerge,
@@ -1516,6 +1590,13 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!wt || wt.mode !== "branch") return null;
     return worktreeRealDirt(wt.absPath);
   },
+  // Come sopra, ma dice anche SE ha potuto leggere: la usa chi CANCELLA
+  // (`reapAfterLand`), dove un `git status` muto non vale «pulito».
+  taskWorktreeDirtProbe: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch") return null;
+    return worktreeDirtProbe(wt.absPath);
+  },
   // Post-landing reap guard: the branch's state relative to main read by
   // CONTENT (survives squash-landing). null = no branch worktree to protect.
   taskBranchStatus: async (taskId) => {
@@ -1534,43 +1615,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // `dd2aa40d` registrava `987cd8ae`, commit di un'altra card e già su main.
   // `null` = domanda senza risposta ⇒ nessuna fotografia (meglio del ritratto
   // sbagliato); `commit: null` = verificato, non ha prodotto codice.
-  taskDeliveryRef: async (taskId) => {
-    const wt = worktreeOfTask(taskId);
-    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
-    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-    if (!repoPath) return null;
-    // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
-    // di chi stava sul checkout condiviso ha una punta che non è della card, e
-    // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
-    // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
-    const ref = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
-    if (!ref) return null;
-    // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
-    //
-    // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
-    // diff esisteva solo dietro l'apertura del drawer, una card alla volta.
-    // Calcolarlo nel feed sarebbe stato tre comandi git per card a ogni push
-    // WebSocket; calcolarlo alla consegna è una volta sola, quando il fatto
-    // accade. `worktreeDiffStat` misura dal PADRE del commit più vecchio SUO,
-    // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
-    // chi stava parcheggiato sul checkout condiviso.
-    //
-    // Best-effort come tutto il resto di questa funzione: se git inciampa la
-    // consegna passa lo stesso, senza misura (NULL, che non è zero).
-    const stat = await worktreeDiffStat(wt.absPath, { branch: wt.branchName }).catch(() => null);
-    return stat
-      ? { ...ref, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-      : ref;
-  },
+  taskDeliveryRef,
   // Dove far girare i checks pre-review: la cartella del worktree del task e il
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
   // comandi nel checkout principale, cioè su codice che non è il suo.
-  taskCheckoutRef: async (taskId) => {
-    const wt = worktreeOfTask(taskId);
-    if (!wt || wt.mode !== "branch") return null;
-    const commit = await resolveCommit(wt.absPath, "HEAD");
-    return { cwd: wt.absPath, commit };
-  },
+  taskCheckoutRef,
   // L'esito di atterraggio della card, timbrato SUBITO dopo un land: un verdetto
   // concreto è ciò che il land ha visto e vale come fatto (`witnessed`), `"ask"`
   // è il caso in cui non sa e si chiede al repo (`auditOneLanding`, più in basso).

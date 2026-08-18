@@ -224,7 +224,12 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
     mv(s, padre.id, "in_progress");
 
-    const chiesto = s.askParkedChildren({ taskId: padre.id, by: "test" })!;
+    // `evenIfLive`: qui si prova la FORMA della domanda, non quando si alza.
+    // Dal 18/08 `askParkedChildren` rifiuta di spostare una card con un turno
+    // vivo (era il modo in cui un agente si tagliava il turno spuntando il
+    // primo passo della propria checklist), e chi CHIUDE il turno lo dichiara.
+    // Questo test sta in quel secondo caso: il turno e' finito, la domanda si fa.
+    const chiesto = s.askParkedChildren({ taskId: padre.id, by: "test", evenIfLive: true })!;
     // La firma della domanda, letta sul payload: è il predicato della sonda.
     expect(chiesto.status).toBe("review");
     expect(chiesto.deliveredReason).toBe("parked_children");
@@ -248,7 +253,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     const padre = s.create({ projectId: PID, text: "Il padre" });
     s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
     mv(s, padre.id, "in_progress");
-    s.askParkedChildren({ taskId: padre.id, by: "test" });
+    s.askParkedChildren({ taskId: padre.id, by: "test", evenIfLive: true });
 
     const r = db.prepare("SELECT status, dispatch_state, delivered_reason FROM tasks WHERE id = ?")
       .get(padre.id) as { status: string; dispatch_state: string; delivered_reason: string };
