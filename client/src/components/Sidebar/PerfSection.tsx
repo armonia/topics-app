@@ -191,7 +191,7 @@ export function PerfSection() {
           className="flex items-center justify-between px-0.5"
           title={[
             isPartial ? tr('perf.memShellTitle')
-              : memLabel === 'footprint' ? tr('perf.memFootprintTitle', { n: mem?.processCount ?? '?' })
+              : footprint.serverMetric === 'footprint' ? tr('perf.memFootprintTitle', { n: mem?.processCount ?? '?' })
               : tr('perf.memRssTitle'),
             serverSideTitle,
             !isPartial && mem ? tr('perf.residentInline', { mb: mem.residentMB }) : null,
