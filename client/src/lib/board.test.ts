@@ -2,8 +2,9 @@ import { test, expect, describe } from 'bun:test';
 import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
 
 describe('boardIdForPath', () => {
-  // Parity lock with the server (services/tasks.ts:projectIdForPath). Must stay
-  // byte-identical or the client would address a different board than the API.
+  // Regression lock: boardIdForPath e' adesso un alias di projectIdForPath da
+  // shared/board.ts. Il test pinna che l'alias punti all'algoritmo giusto;
+  // la funzione non puo' piu' divergere per costruzione.
   test('exact output matches the server algorithm', () => {
     expect(boardIdForPath('/x/proj')).toBe('proj-xwac8t');
   });

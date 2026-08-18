@@ -41,9 +41,24 @@ non-zero when it gets worse.
 
 1. **Cold start.** How many milliseconds pass between launch and the first
    usable screen. No probe, no threshold.
-2. **Memory.** Neither the server nor the shell has an RSS ceiling. The server
-   measured today sat at roughly 200 MB; that is a number, not a budget, because
-   nobody compares it against anything.
+2. **Memory.** Neither the server nor the shell has an RSS ceiling. Still a
+   number, not a budget, because nobody compares it against anything — but the
+   number moved, so here it is again, measured 2026-08-18 on a 12-core Mac:
+
+   | state | server RSS | shell |
+   |---|---|---|
+   | idle, 1014 topics, 2262 tasks | 466 MB | 54 MB |
+   | **5 board agents working at once** | 510-716 MB (six samples, 12s apart) | 54 MB |
+
+   The marginal cost of a concurrent agent is therefore roughly **50-100 MB**,
+   because they share one process and one runtime. A single Claude Code CLI on
+   the same machine, measured at the same moment: **263 MB and 297 MB**. Five of
+   those would be 1.3-1.5 GB *plus* a server, against 0.5-0.7 GB total here.
+
+   That is the "light without a CLI" claim with numbers on it, and it is also
+   why the claim needs a gate: nothing fails when the marginal cost doubles. The
+   idle 466 MB is itself worth a threshold one day — it is mostly the 675 MB
+   SQLite file's page cache and 1014 topics of bookkeeping.
 3. **The WebSocket bootstrap.** Compressed toward remote peers as of
    2026-08-14, but still ungated: nothing fails when it grows. 176.7 KB on
    connect before the fix, of which `ui-state:init` 84.5 KB (the `pane-store-v2`
