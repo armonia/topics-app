@@ -25,6 +25,7 @@ export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { killProcessTree } from "../lib/process-tree";
 
 /**
  * Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita.
@@ -231,7 +232,19 @@ async function runOne(
   let proc: ReturnType<typeof Bun.spawn> | null = null;
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const onAbort = () => { try { proc?.kill(); } catch { /* già morto */ } };
+  /**
+   * TUTTO L'ALBERO, non il solo `/bin/sh`. Il comando dichiarato e' una riga di
+   * shell (`bun run typecheck && bun test`), e chi lavora davvero e' un nipote:
+   * `proc.kill()` chiudeva il wrapper e lasciava girare il compilatore, che
+   * continuava a mangiare CPU dopo il timeout e a tenersi le sue porte.
+   * Non lancia mai e non si aspetta: la riga di esito la scrive chi legge
+   * `proc.exited`, che il SIGTERM sblocca da solo.
+   */
+  const killTree = () => {
+    const pid = proc?.pid;
+    if (pid) void killProcessTree(pid).catch(() => { /* gia' morto */ });
+  };
+  const onAbort = () => { killTree(); };
   try {
     proc = Bun.spawn(["/bin/sh", "-lc", check.cmd], {
       cwd: opts.cwd,
@@ -241,7 +254,7 @@ async function runOne(
       stderr: "pipe",
       env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
     });
-    timer = setTimeout(() => { timedOut = true; try { proc?.kill(); } catch { /* già morto */ } }, opts.timeoutMs);
+    timer = setTimeout(() => { timedOut = true; killTree(); }, opts.timeoutMs);
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     const [out, err] = await Promise.all([
       new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
