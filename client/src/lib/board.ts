@@ -505,7 +505,7 @@ export interface BoardTask {
   deliveryDeletions: number | null;
   /** Landing audit verdict: is the delivered work actually on main?
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
-  landingState: "landed" | "unlanded" | "unverifiable" | null;
+  landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | null;
   landingCheckedAt: string | null;
   /** Esito dei checks pre-review. null = mai girati — NON un verde. */
   /**
