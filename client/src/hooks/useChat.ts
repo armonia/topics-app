@@ -10,6 +10,7 @@ import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_
 import { clearPartialForReattach } from './streamReattachReset';
 import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
 import { decideCacheWrite } from './messageCacheWrite';
+import { decideCachePrune } from './messageCachePrune';
 import { useRefMirror } from './useRefMirror';
 import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
 import { buildRequestMessages } from './chatRequestPayload';
@@ -172,28 +173,6 @@ const CACHE_TOTAL_BUDGET = 2 * 1024 * 1024;
  */
 function isCacheKey(key: string): boolean {
   return key.startsWith(CACHE_PREFIX);
-}
-
-/**
- * Quali voci di cache buttare per stare dentro il budget.
- *
- * Pura, cosi' e' testabile senza toccare `localStorage`: prende le voci con la
- * loro dimensione e restituisce le chiavi da rimuovere. Tiene le PIU' PICCOLE —
- * a parita' di budget si conservano piu' conversazioni, e quella enorme e' anche
- * quella che il server ricarica volentieri.
- */
-export function decideCachePrune(
-  entries: readonly { key: string; bytes: number }[],
-  budget: number,
-): string[] {
-  const bySize = [...entries].sort((a, b) => a.bytes - b.bytes);
-  const remove: string[] = [];
-  let left = budget;
-  for (const e of bySize) {
-    if (e.bytes <= left) left -= e.bytes;
-    else remove.push(e.key);
-  }
-  return remove;
 }
 
 /**

@@ -4,7 +4,7 @@ import { boardIdForPath } from '../../lib/board';
 import { ShareControl } from '../Share/ShareControl';
 import { MODAL_OVERLAY } from '../../lib/modalStyles';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -114,7 +114,7 @@ function describeChildAttention(children: SidebarItem[] | undefined): string | u
 // PANE_CONFIG — one lookup shared with the tab bar's config, no re-mapping
 // per utility type at the call sites.
 const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
-  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, UserRound, LayoutGrid,
 };
 
 /** La pane della Board generale. È anche la sua chiave di fissaggio: al

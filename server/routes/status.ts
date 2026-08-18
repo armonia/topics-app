@@ -247,14 +247,19 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         server: {
           uptimeMs,
           startedAt: new Date(SERVER_START_TIME).toISOString(),
-          memoryMB: Math.round(memUsage.rss / 1024 / 1024),
+          // Use phys_footprint for the server process when fleet data is available
+          // (fleet.roots contains a 'server' root measured with proc_pid_rusage).
+          // Fall back to process.memoryUsage().rss only when fleet is absent.
+          // This aligns the metric with the shell side (both use phys_footprint).
+          memoryMB: fleet?.supported
+            ? (fleet.roots.find(r => r.kind === "server")?.memoryMB ?? Math.round(memUsage.rss / 1024 / 1024))
+            : Math.round(memUsage.rss / 1024 / 1024),
           heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
           heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
           // The whole server-side fleet (this process + sidecar trees), summed
-          // from `ps rss`. Absent/`supported:false` where `ps` isn't usable, so
-          // the client can fall back to the single-process number instead of
-          // showing a confident zero. NOT the same metric as the shell's
-          // footprint — the client labels the two apart on purpose.
+          // using phys_footprint (same metric as the shell side). Absent where
+          // ps is not usable (Windows). scriptsMB is the third axis: agent-
+          // launched work excluded from the server total, shown separately.
           fleet: fleet && fleet.supported ? fleet : undefined,
           // Dev bundle hot-delivery is ON (topics-dev.json in STATE_DIR): open
           // windows self-reload on each rebuild. Drives the quiet "auto-update"

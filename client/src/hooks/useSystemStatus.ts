@@ -58,6 +58,10 @@ export interface SystemStatus {
        *  tiene il bridge in tutto, questo quanto ne tiene ciascuna sessione.
        *  `cpuPercent: null` = non ancora misurata, che non è zero. */
       sessions: { sessionId: string; name: string; pid: number; processCount: number; memoryMB: number; cpuPercent: number | null }[];
+      /** Memoria dei processi-script (lavoro degli agenti): esclusa dal totale
+       *  server, mostrata come terzo asse dalla UI. */
+      scriptsMB: number;
+      scriptsProcessCount: number;
       supported: boolean;
     };
   };

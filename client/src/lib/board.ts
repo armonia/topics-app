@@ -418,6 +418,15 @@ export interface BoardTask {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /**
+   * Esito della sonda server-side sull'output_url.
+   * `'live'` = risponde, `'dead'` = morto, `'unknown'` = mai provata.
+   * `null` = nessun output_url, campo non rilevante.
+   * Il client mostra il link solo su `live`; su `dead` mostra un avviso;
+   * su `unknown` (incluso `null`) tace.
+   */
+  urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
+  urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
   previewImage: string | null;
@@ -496,7 +505,7 @@ export interface BoardTask {
   deliveryDeletions: number | null;
   /** Landing audit verdict: is the delivered work actually on main?
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
-  landingState: "landed" | "unlanded" | "unverifiable" | null;
+  landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | null;
   landingCheckedAt: string | null;
   /** Esito dei checks pre-review. null = mai girati — NON un verde. */
   /**
