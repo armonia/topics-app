@@ -64,10 +64,10 @@ describe("settleLanded / verdetto testimoniato", () => {
   test("chiudere è chiudere: la card non resta «riaperta» sopra un done, e dice CHI l'ha chiusa", () => {
     // Questa porta scrive `done` a SQL grezzo: senza le due colonne messe a mano
     // resterebbe `reopened_actor` acceso e `done_actor` vuoto, cioè «riaperta da
-    // attilio» stampato sopra una card chiusa. Uno stato che `update()` non
+    // umano» stampato sopra una card chiusa. Uno stato che `update()` non
     // produce mai.
     const id = nuovo("status = 'in_progress', dispatch_state = 'working'");
-    db.prepare("UPDATE tasks SET reopened_at = '2026-08-12T00:00:00Z', reopened_by = 'attilio', reopened_actor = 'human' WHERE id = ?").run(id);
+    db.prepare("UPDATE tasks SET reopened_at = '2026-08-12T00:00:00Z', reopened_by = 'umano', reopened_actor = 'human' WHERE id = ?").run(id);
 
     const dopo = svc.settleLanded({ taskId: id, by: "system", reason: "il land è riuscito" })!;
 
@@ -117,7 +117,7 @@ describe("settleLanded / verdetto testimoniato", () => {
     // chiude mai» e passerebbe uguale.
     const padre = nuovo("status = 'review', dispatch_state = 'working'");
     const figlio = svc.create({ projectId: "pX", text: "passo", parentTaskId: padre });
-    svc.update({ taskId: figlio.id, actor: "human", by: "attilio", patch: { status: "done" } });
+    svc.update({ taskId: figlio.id, actor: "human", by: "umano", patch: { status: "done" } });
 
     expect(svc.settleLanded({ taskId: padre, by: "system", reason: "il land è riuscito" })!.status).toBe("done");
   });
@@ -229,7 +229,7 @@ describe("settleLanded / verdetto testimoniato", () => {
     const id = conConsegna("done");
     expect(svc.get(id)!.task.deliveryCommit).toBe("a".repeat(40));
 
-    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    const dopo = svc.update({ taskId: id, actor: "human", by: "umano", patch: { status: "todo" } });
 
     expect(dopo.deliveryCommit).toBeNull();
     expect(dopo.deliveryBranch).toBeNull();
@@ -242,7 +242,7 @@ describe("settleLanded / verdetto testimoniato", () => {
     // La stessa strada di `done`, da un'altra porta: chi trascina una card da
     // Review a Todo sta chiedendo di rifarla, esattamente come chi la riapre.
     const id = conConsegna("review");
-    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    const dopo = svc.update({ taskId: id, actor: "human", by: "umano", patch: { status: "todo" } });
     expect(dopo.deliveryCommit).toBeNull();
     expect(atterraggio(id).w).toBe(0);
   });
@@ -251,45 +251,46 @@ describe("settleLanded / verdetto testimoniato", () => {
     // La controprova, e non è pedanteria: azzerare qui cancellerebbe la sola
     // descrizione di ciò che è stato approvato, cioè quello che il land legge.
     const inReview = conConsegna("review");
-    const approvata = svc.update({ taskId: inReview, actor: "human", by: "attilio", patch: { status: "done" } });
+    const approvata = svc.update({ taskId: inReview, actor: "human", by: "umano", patch: { status: "done" } });
     expect(approvata.deliveryCommit).toBe("a".repeat(40));
     expect(atterraggio(inReview).w).toBe(1);
 
     const chiusa = conConsegna("done");
-    const riletta = svc.update({ taskId: chiusa, actor: "human", by: "attilio", patch: { status: "review" } });
+    const riletta = svc.update({ taskId: chiusa, actor: "human", by: "umano", patch: { status: "review" } });
     expect(riletta.deliveryCommit).toBe("a".repeat(40));
   });
 
   test("una card che non è mai stata consegnata non perde niente: il campo era già vuoto", () => {
     const id = nuovo("status = 'done'");
-    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    const dopo = svc.update({ taskId: id, actor: "human", by: "umano", patch: { status: "todo" } });
     expect(dopo.deliveryCommit).toBeNull();
     expect(dopo.status).toBe("todo");
   });
 });
 
-// L'11/08 Attilio: «avevo visto il task fatto nella tab kanban, ora non lo vedo
-// più». Misurato: undici card uscite da `done` in sei ore, nessuna persa — ma la
-// board non lo diceva. Il motivo viveva nel thread; chi guarda la colonna vedeva
-// un buco. Due fatti sulla card, entrambi leggibili dall'API della board: chi ha
-// chiuso (`doneActor`) e che è stata riaperta (`reopened*`).
+// L'11/08, segnalato dal proprietario della board: «avevo visto il task fatto
+// nella tab kanban, ora non lo vedo più». Misurato: undici card uscite da `done`
+// in sei ore, nessuna persa — ma la board non lo diceva. Il motivo viveva nel
+// thread; chi guarda la colonna vedeva un buco. Due fatti sulla card, entrambi
+// leggibili dall'API della board: chi ha chiuso (`doneActor`) e che è stata
+// riaperta (`reopened*`).
 describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });
 
-  /** Una card chiusa da un UMANO che approva la review (il caso di Attilio). */
+  /** Una card chiusa da un UMANO che approva la review: il caso segnalato. */
   function doneByHuman(): string {
     const t = s.create({ projectId: PID, text: "consegna", status: "in_progress" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    s.reviewDecision({ taskId: t.id, by: "attilio", decision: "approve" });
+    s.reviewDecision({ taskId: t.id, by: "umano", decision: "approve" });
     return t.id;
   }
 
   /** Una card `done` senza passare da una review: `create` rifiuta `done` diretto. */
   function doneByDrag(text: string): { id: string } {
     const t = s.create({ projectId: PID, text, status: "review" });
-    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "done" } });
+    s.update({ taskId: t.id, actor: "human", by: "umano", patch: { status: "done" } });
     return { id: t.id };
   }
 
@@ -311,19 +312,19 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
     const before = s.get(id)!.task;
     expect(before.reopenedAt).toBeNull();
 
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "in_progress" } });
+    s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "in_progress" } });
 
     const after = s.get(id)!.task;
     expect(after.status).toBe("in_progress");
     expect(after.reopenedAt).not.toBeNull();
-    expect(after.reopenedBy).toBe("attilio");
+    expect(after.reopenedBy).toBe("umano");
     expect(after.reopenedActor).toBe("human");
     // …e sulla LISTA della board, che è ciò che disegna la colonna.
     const listed = s.list({ scope: "project", projectId: PID }).find((t) => t.id === id)!;
     expect(listed.reopenedAt).toBe(after.reopenedAt);
-    expect(listed.reopenedBy).toBe("attilio");
+    expect(listed.reopenedBy).toBe("umano");
     // Chiudere il ciclo azzera il segno: una card di nuovo `done` non è «riaperta».
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "done" } });
+    s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "done" } });
     const redone = s.get(id)!.task;
     expect(redone.reopenedAt).toBeNull();
     expect(redone.reopenedBy).toBeNull();
@@ -339,12 +340,12 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
 
     // Stessa cosa per un done messo a mano trascinando sulla board.
     const dragged = s.create({ projectId: PID, text: "chiusa a mano", status: "review" });
-    s.update({ taskId: dragged.id, actor: "human", by: "attilio", patch: { status: "done" } });
+    s.update({ taskId: dragged.id, actor: "human", by: "umano", patch: { status: "done" } });
     expect(() => s.update({ taskId: dragged.id, actor: "agent", by: "claude", patch: { status: "todo" } }))
       .toThrow(/decisione umana/);
 
     // L'umano invece riapre sempre: il cancello è sull'agent, non sulla board.
-    expect(s.update({ taskId: approved, actor: "human", by: "attilio", patch: { status: "review" } }).status).toBe("review");
+    expect(s.update({ taskId: approved, actor: "human", by: "umano", patch: { status: "review" } }).status).toBe("review");
   });
 
   test("il proprio sottotask, chiuso dall'agent e mai passato da una review, resta riapribile", () => {
@@ -416,7 +417,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
 
   test("una card che NON era done non prende una traccia falsa da nessuna porta", () => {
     const vivo = s.create({ projectId: PID, text: "mai chiusa", status: "in_progress" });
-    s.update({ taskId: vivo.id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    s.update({ taskId: vivo.id, actor: "human", by: "umano", patch: { status: "todo" } });
     expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
     s.release({ taskId: vivo.id, requeue: false, by: "dispatcher" });
     expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
@@ -427,7 +428,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   // ───────────────────────────────────────────────────────────────────────────
   // USCIRE DA REVIEW VALE QUANTO USCIRE DA DONE
   //
-  // Il 12/08 alle 18:26 Attilio ha chiesto un cambio di rotta e ha trascinato
+  // Il 12/08 alle 18:26 è arrivato un cambio di rotta, con la card trascinata
   // `d6baaf5e` da `review` a `in corso`. Il segno di riapertura si accendeva
   // solo uscendo da `done`, quindi per il campo nessuno aveva riaperto niente:
   // il mattino dopo la chiusura automatica del dispatcher ha chiuso la card
@@ -451,12 +452,12 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
       const id = inReviewConConsegna(`review → ${destinazione}`);
       expect(s.get(id)!.task.deliveryCommit).not.toBeNull();
 
-      s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: destinazione } });
+      s.update({ taskId: id, actor: "human", by: "umano", patch: { status: destinazione } });
 
       const after = s.get(id)!.task;
       expect(after.status).toBe(destinazione);
       expect(after.reopenedActor).toBe("human");
-      expect(after.reopenedBy).toBe("attilio");
+      expect(after.reopenedBy).toBe("umano");
       expect(after.reopenedAt).not.toBeNull();
       expect(after.deliveryCommit).toBeNull();
     },
@@ -465,13 +466,13 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   test("il rifiuto in review lascia lo stesso segno: è la quarta uscita umana", () => {
     const id = inReviewConConsegna("rifiutata");
     // Un commento umano su una card in review arriva qui come reject-con-testo
-    // (routes/tasks.ts): è LA porta da cui è passato Attilio alle 18:25.
-    const rejected = s.reviewDecision({ taskId: id, by: "attilio", decision: "reject", comment: "cambia rotta" });
+    // (routes/tasks.ts): è LA porta da cui si è passati alle 18:25.
+    const rejected = s.reviewDecision({ taskId: id, by: "umano", decision: "reject", comment: "cambia rotta" });
     expect(rejected.status).toBe("in_progress");
 
     const after = s.get(id)!.task;
     expect(after.reopenedActor).toBe("human");
-    expect(after.reopenedBy).toBe("attilio");
+    expect(after.reopenedBy).toBe("umano");
     expect(after.deliveryCommit).toBeNull();
     expect(after.landingState).toBeNull();
   });
@@ -481,26 +482,26 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
     // azzerarlo da qui riscriverebbe una decisione presa da un'altra parte.
     const id = doneByHuman();
     expect(s.get(id)!.task.doneActor).toBe("human");
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "review" } });
+    s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "review" } });
     expect(s.get(id)!.task.doneActor).toBeNull(); // uscita da done: quello sì
 
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "done" } });
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "review" } });
+    s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "done" } });
+    s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "review" } });
     db.run("UPDATE tasks SET done_actor = 'human' WHERE id = ?", [id]);
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "todo" } });
     expect(s.get(id)!.task.doneActor).toBe("human"); // review → todo non lo tocca
   });
 
   test("consegnare di nuovo chiude il ciclo: rientrare in review spegne il segno", () => {
     const id = inReviewConConsegna("riconsegnata");
-    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "in_progress" } });
+    s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "in_progress" } });
     expect(s.get(id)!.task.reopenedActor).toBe("human");
 
     s.addComment({ taskId: id, author: "claude", content: "rifatto" });
     s.update({ taskId: id, actor: "agent", by: "claude", patch: { status: "review" } });
     // Il rientro non riaccende il segno su sé stesso…
     expect(s.get(id)!.task.reopenedActor).toBe("human");
-    s.reviewDecision({ taskId: id, by: "attilio", decision: "approve" });
+    s.reviewDecision({ taskId: id, by: "umano", decision: "approve" });
     // …e l'approvazione lo spegne: il ciclo si è chiuso.
     expect(s.get(id)!.task.reopenedAt).toBeNull();
   });
