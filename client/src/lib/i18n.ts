@@ -415,6 +415,8 @@ const IT: Dict = {
    * `5cf58e29`: nessun ramo, zero file, ogni turno morto su un errore del
    * provider. Segnalato: «non capisco che succede».
    */
+  'board.card.uncommitted': 'ramo senza commit',
+  'board.card.uncommittedTitle': 'C\'e\' un ramo ma non porta un solo commit: l\'agent ha lavorato nel worktree senza committare. Il land si rifiutera\' finche\' quel lavoro non e\' committato, perche\' i file in piedi bloccano il riallineamento.',
   'board.card.nothingDelivered': 'Niente consegnato',
   'board.card.nothingDeliveredTitle': "L'agent non ha prodotto niente: nessun ramo, nessun file toccato, e ce l'ha portata qui il sistema a tentativi finiti. Non c'e' un diff da guardare. Il thread dice come e' finito l'ultimo turno: rimandalo avanti e riparte, oppure prendilo in mano tu.",
   'board.card.inPlace': 'Lavorata qui',

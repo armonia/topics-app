@@ -60,6 +60,14 @@ const NIGHTLY_ONLY_SPECS = [
   "file-explorer-panels",
   "file-context-menu",
   "file-external-drop",
+  // Dipende da un motore STT raggiungibile (ElevenLabs o whisper locale) e
+  // asserisce sul comportamento del provider reale: va bene nel notturno, non
+  // nel gate PR dove il server di test gira senza chiavi e senza modelli.
+  // Il tag @nightly nel titolo gia' esclude i singoli test con grepInvert,
+  // ma senza questa riga il FILE rimane in testIgnore=[] e viene scoperto
+  // ugualmente: il filtro grepInvert salta i test, non i file, quindi il
+  // beforeAll (che chiama /api/stt/capabilities) gira comunque.
+  "dictation-real-mic",
 ].map((name) => `**/${name}.spec.ts`);
 
 // ── Velocità vs. evidenza ────────────────────────────────────────────────────

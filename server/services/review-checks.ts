@@ -61,6 +61,22 @@ export const TAIL_LINES = 40;
 export const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 
 /**
+ * IL CODICE CHE DICE «NON HO MISURATO», e non «hai sbagliato».
+ *
+ * Lo usano i cancelli che non riescono nemmeno a partire: `typecheck-server.ts`
+ * quando `tsc` non c'e', `check-client-deps.ts` quando manca `eslint`. Succede
+ * in ogni worktree di dispatch, perche' `git worktree add` copia i file
+ * TRACCIATI e `client/node_modules` non lo e' — misurato il 18/08: 95 worktree
+ * su 103 senza.
+ *
+ * Senza questo numero quei cancelli uscivano 1, indistinguibili da un rosso
+ * vero, e la card scriveva `checks_state = 'fail'` su rami che spesso non
+ * avevano nemmeno un commit. La distinzione la facevano gia' a parole; l'uscita
+ * la buttava via.
+ */
+export const NOT_MEASURED_EXIT = 97;
+
+/**
  * Legge la colonna `board_settings.review_checks`.
  *
  * Tollerante di proposito: accetta sia `[{name,cmd}]` sia un array di stringhe
@@ -269,6 +285,10 @@ async function runOne(
       code: timedOut ? null : code,
       ms: Date.now() - started,
       timedOut,
+      // Il comando ha DICHIARATO di non aver misurato (97). Campo suo e non
+      // `timedOut`: dire «fermato oltre il tempo massimo» di un binario che non
+      // c'e' sarebbe una bugia, e il testo del commento la ripeterebbe.
+      notMeasured: code === NOT_MEASURED_EXIT,
       tail: tailOf(combined) || (timedOut ? "(nessun output prima del timeout)" : "(nessun output)"),
     };
   } catch (e) {
@@ -329,7 +349,7 @@ export function checksVerdict(runs: CheckRun[], expected?: number): "pass" | "fa
   // Un SOLO rosso vero basta a dire rosso, anche se altri sono scaduti: c'e' un
   // guasto misurato, e quello si guarda. Il verso opposto — un rosso nascosto
   // da un timeout — sarebbe il difetto.
-  return runs.some((r) => !r.ok && !r.timedOut) ? "fail" : "unknown";
+  return runs.some((r) => !r.ok && !r.timedOut && !r.notMeasured) ? "fail" : "unknown";
 }
 
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
@@ -345,6 +365,20 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   // cancelli verdi e `test:unit` fermato al tetto mentre cinque agenti
   // lavoravano — la suite da sola ne impiega tre o quattro. Il codice non
   // c'entrava: era piena la macchina.
+  // NON MISURATO, e i due modi si dicono diversi: uno SCADUTO ha girato e non e'
+  // arrivato in fondo, un cancello che non parte non ha guardato niente. Mandare
+  // «rilancia quando c'e' meno traffico» a chi ha un worktree senza dipendenze
+  // sarebbe una caccia a un guasto che non esiste.
+  if (failed.notMeasured) {
+    return [
+      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` non e' partito.`,
+      runs.map(line).join("\n"),
+      `Comando: \`${failed.cmd}\``,
+      failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",
+      "Non e' un fallimento del codice: e' un cancello che non ha potuto guardare. " +
+        "Quasi sempre e' un worktree senza le dipendenze del client (`cd client && bun install`).",
+    ].join("\n\n");
+  }
   if (checksVerdict(runs) === "unknown") {
     return [
       `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` è stato fermato oltre il tempo massimo.`,
