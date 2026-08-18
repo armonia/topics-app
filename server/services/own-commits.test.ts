@@ -295,7 +295,14 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
   }
 
   test("la cattura in review chiede il commit PROPRIO, non la punta", () => {
-    const capture = block("taskDeliveryRef: async (taskId)", "taskCheckoutRef:");
+    // L'ANCORA E' CAMBIATA IL 18/08, e vale la pena dire perche': i due sguardi
+    // sul worktree vivevano dentro l'oggetto delle opzioni di
+    // `createTasksRouter`, quindi solo la ROTTA poteva fotografare una consegna
+    // — e la consegna forzata dal sistema, che passa dal dispatcher, diceva
+    // sempre «nessun ramo e nessun file toccato». Adesso sono due const, usate
+    // da entrambi. Il cancello non cambia: quello che sorveglia e' che si
+    // continui a chiedere il commit PROPRIO.
+    const capture = block("const taskDeliveryRef = async (taskId: string)", "const taskCheckoutRef");
     expect(capture).toContain("deliveryPointer(");
     expect(capture).not.toContain("resolveCommit(");
   });
