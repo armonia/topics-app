@@ -41,6 +41,7 @@ import { makeSerialQueue } from "../lib/serial-queue";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { OwnedScript } from "../lib/ghost-script";
 
 export class WorktreeRefusalError extends Error {
   constructor(reason: string) {
@@ -98,12 +99,28 @@ export interface WorktreeManager {
   worktreesDir(): string;
 }
 
+/** Dipendenze opzionali iniettate: INIETTARE, non importare. */
+export interface WorktreeManagerGcDeps {
+  /**
+   * Uccide l'albero di un processo: pid + graceMs.
+   * Iniettato da processes.ts per evitare un secondo scrittore di stato.
+   */
+  killTree?: (pid: number, graceMs?: number) => Promise<void>;
+  /**
+   * Restituisce la lista degli script avviati da Topics (source:"script") con
+   * pid e projectPath. Usata per individuare i processi con cwd nella worktree
+   * che si sta per cancellare.
+   */
+  listOwnedScripts?: () => OwnedScript[];
+}
+
 export function createWorktreeManager(
   ctx: AppContext,
   deps: {
     projectStore: ProjectStore;
     worktreeStore: WorktreeStore;
   },
+  gcDeps: WorktreeManagerGcDeps = {},
 ): WorktreeManager {
   const worktreesDir =
     process.env.TOPICS_WORKTREES_DIR ||
@@ -112,6 +129,55 @@ export function createWorktreeManager(
   // Ensure base dir exists lazily — first create() touches the disk.
   function ensureDirSync(p: string) {
     mkdirSync(p, { recursive: true });
+  }
+
+  /**
+   * PUNTO 1 (task e3240a22): spegni PRIMA i processi Topics dentro la worktree,
+   * poi rimuovi la cartella.
+   *
+   * Cerca i processi source:"script" il cui projectPath sta dentro `wtPath`.
+   * Per ogni processo trovato, chiama killTree con identita' (pid+lstart) gia'
+   * verificata al momento dello spawn (il campo pidLstart nella registrazione).
+   *
+   * Se TOPICS_GHOST_REAP != "1", logga ma non uccide (modalita' solo-log).
+   *
+   * TRAPPOLA DI CODA: `del()` gira dentro `chainOnProjectQueue`. Non aspettare
+   * incondizionatamente 5s per ognuno: aspetta al massimo 2s SOLO se abbiamo
+   * davvero segnalato qualcuno, altrimenti niente attesa.
+   */
+  async function evictOwnedScripts(wtPath: string): Promise<void> {
+    if (!gcDeps.listOwnedScripts) return;
+    // Letto alla chiamata, non alla costruzione: permette di variare l'env
+    // in test (e di passare da solo-log ad armato senza riavviare il server).
+    const armed = process.env.TOPICS_GHOST_REAP === "1";
+    const base = wtPath.endsWith("/") ? wtPath : wtPath + "/";
+    const owned = gcDeps.listOwnedScripts().filter(s => {
+      if (s.source !== "script" || s.status !== "running" || !s.pid) return false;
+      const p = s.projectPath;
+      return p === wtPath || p.startsWith(base);
+    });
+    if (owned.length === 0) return;
+
+    for (const sp of owned) {
+      const pid = sp.pid!;
+      console.log(
+        `[ghost-reap] pid=${pid} port=? cwd sparito (${sp.projectPath}) — ` +
+        (armed ? "KILLING" : "only log (imposta TOPICS_GHOST_REAP=1 per armare)"),
+      );
+      if (armed && gcDeps.killTree) {
+        try {
+          await gcDeps.killTree(pid, 2000);
+        } catch (err) {
+          console.warn(`[ghost-reap] killTree(${pid}) fallito:`, err);
+        }
+      }
+    }
+
+    // Aspetta la sparizione dei listener SOLO se abbiamo segnalato qualcuno,
+    // e con cap 2s per non bloccare la coda del progetto.
+    if (armed && owned.length > 0) {
+      await new Promise<void>(res => setTimeout(res, 2000));
+    }
   }
 
   // Per-project async serialization (task e33820da: shared safe helper).
@@ -308,6 +374,8 @@ export function createWorktreeManager(
     return chainOnProjectQueue(wt.projectId, async () => {
       // Best-effort: remove from disk, then the branch if we own it.
       if (project && existsSync(wt.absPath)) {
+        // PUNTO 1: spegni i processi Topics dentro la worktree PRIMA di rimuoverla.
+        await evictOwnedScripts(wt.absPath);
         try {
           await runGit(project.path, ["worktree", "remove", wt.absPath, "--force"]);
         } catch (err: any) {
