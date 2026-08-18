@@ -353,11 +353,24 @@ page but are no longer built, signed, or updated.
 **I quattro cancelli** — verdi tutti e quattro prima di consegnare, non tre su quattro:
 
 ```bash
-bun run typecheck        # client + server + e2e (~20s)
-bun run lint             # eslint (client) (~17s)
-bun run check:deadcode   # knip — un file che nessuno importa È codice morto (~5s)
-bun run test:unit        # bun:test — moduli puri (~70s, ~4100 test)
+bun run typecheck        # client + server + e2e + relay (~15s)
+bun run lint             # eslint (client + relay) (~17s)
+bun run check:deadcode   # knip — un file che nessuno importa È codice morto (~30s)
+bun run test:unit        # bun:test — moduli puri (~320s, 10.600 test)
 ```
+
+**I numeri sono misurati il 2026-08-18, e uno era diventato una bugia comoda.**
+`test:unit` diceva «~70s, ~4100 test»: sono 322s e 10.619 test, cioè quattro volte
+il tempo dichiarato. Non è un dettaglio da changelog — quel comando sta anche
+nella **barra di review della board** (`reviewChecks`), quindi ogni card in review
+lo paga per intero, e cinque card insieme portano una macchina da 12 core a
+loadavg 36. Se lo rimisuri e non torna, aggiorna la riga: una barra che costa il
+quadruplo di quanto dichiara è una barra che si impara a saltare.
+
+Dove va il tempo, misurato con `--reporter=junit`: **il 50% in sette suite**, e le
+prime quattro dormono su timer veri (`pty-bridge-orphan` 42,6s per 3 test;
+`ai-bridge orphan monitor` 42,3s; `ai-bridge-ack-deadline` 23,8s). Non è volume,
+è attesa d'orologio.
 
 ```bash
 bun run test             # E2E Playwright, seriale (~35 min)
