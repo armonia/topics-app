@@ -39,7 +39,7 @@ import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
-import { createLandingQueue, type LandingTicket } from "../services/landing-queue";
+import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
@@ -950,13 +950,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
-  async function landTask(projectId: string, taskId: string): Promise<void> {
+  async function landTask(projectId: string, taskId: string): Promise<LandOutcomeResult | void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
       svc.addComment({ taskId, author: "system", content: "Landing non disponibile: merge automatico non configurato per questo host." });
       const t = svc.get(taskId, { projectId })?.task;
       if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-      return;
+      return { outcome: "skipped", reason: "merge automatico non configurato" };
     }
     const task = svc.get(taskId, { projectId })?.task;
     // La card è sparita fra il click e il suo turno in coda (archiviata, spostata
@@ -991,6 +991,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // Il caso che chiude questo difetto: la macchina crede di aver landato,
         // main dice di no. La card NON si chiude, il worktree NON si pota (è
         // l'unica copia del lavoro) e il verdetto dice il vero.
+        const proofReason = `il merge e' uscito zero ma il commit ${res.commit} NON risulta su main in ${res.repoPath}`;
         svc.addComment({
           taskId, author: "system",
           content:
@@ -1000,7 +1001,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try { await opts?.stampLanding?.(taskId, "unlanded"); } catch { /* la spia non fa fallire il resto */ }
         const t = svc.get(taskId, { projectId })?.task;
         if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-        return;
+        return { outcome: "unlanded", reason: proofReason };
       }
       if (res.status === "merged") {
         if (proof === null) {
@@ -1199,6 +1200,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try { await opts?.stampLanding?.(taskId, verdict); } catch { /* la spia non fa fallire un land */ }
       const updated = svc.get(taskId, { projectId })?.task;
       if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
+      // Restituisce l'esito al ticket della coda: GET /land lo riporta subito,
+      // senza dover rileggere il task da un secondo GET.
+      // `verdict === "ask"` copre i casi in cui il land non sa (nessun ramo, o
+      // il ramo era gia' su main): li mappa su "skipped" per il chiamante MCP.
+      const ticketOutcome: LandOutcomeResult['outcome'] =
+        verdict === "ask" ? "skipped" : verdict;
+      // La ragione e' utile solo quando il merge e' stato rifiutato: e' quella
+      // che l'MCP riporta direttamente invece di lasciare che chi chiama apra
+      // il thread della card.
+      const ticketReason: string | null =
+        verdict === "unlanded"
+          ? (res.status === "conflict"
+            ? (res.realignConflict
+              ? `il ramo era indietro di ${res.realignConflict.behind} commit e il realign ha fatto conflitto`
+              : "il merge ha fatto conflitto con main")
+            : res.status === "skipped" ? (res.reason ?? null) : null)
+          : null;
+      return { outcome: ticketOutcome, reason: ticketReason };
     } catch (e) {
       // ── Il percorso che produceva «zero commenti, zero ragione» ─────────────
       //
