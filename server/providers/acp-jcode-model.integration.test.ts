@@ -12,6 +12,24 @@
  * Si salta da solo dove `jcode` non è installato: è un test di integrazione con
  * un binario esterno, e farlo fallire su una macchina che non l'ha sarebbe
  * rumore, non un guasto.
+ *
+ * ── E SI CHIEDE ESPLICITAMENTE (TOPICS_REAL_AGENT_TESTS=1) ──────────────────
+ * Ogni caso qui dentro spende un TURNO VERO: jcode parla con un modello vero,
+ * quindi rete, quota e credenziali entrano nel verdetto. Fuori posto in
+ * `test:unit`, che su questa macchina è la barra di review di OGNI card della
+ * board: le card girano in parallelo, ognuna spawnava il suo jcode, e il primo
+ * che inciampava marchiava `checks: fail` su lavoro sano.
+ *
+ * Misurato il 18/08/2026: «jcode annuncia i suoi modelli» e «un modello
+ * inesistente non fa fallire il turno» rossi in CINQUE worktree diverse, ognuno
+ * verde rilanciato da solo — cinque card in colonna review con un rosso che non
+ * era il loro. Il costo non era il test: era il tempo speso a rileggere cinque
+ * volte lo stesso guasto altrui.
+ *
+ * Su CI non cambia niente (là `jcode` non esiste e il blocco già si saltava).
+ * Su questa macchina si lancia quando si tocca `acp.ts` o il modello per task:
+ *
+ *     bun run test:agents
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
@@ -22,7 +40,9 @@ import { AcpProvider } from "./acp";
 import type { ProviderDoneMessage, StreamHandler } from "./types";
 
 const JCODE = Bun.which("jcode");
-const describeIfJcode = JCODE ? describe : describe.skip;
+/** Opt-in esplicito: vedi l'intestazione — un turno vero non sta in una barra di review. */
+const CHIESTI = process.env.TOPICS_REAL_AGENT_TESTS === "1";
+const describeIfJcode = JCODE && CHIESTI ? describe : describe.skip;
 
 let tmpRoot: string;
 const live: AcpProvider[] = [];
