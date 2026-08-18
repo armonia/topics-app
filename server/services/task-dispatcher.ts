@@ -2431,15 +2431,28 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // ne' l'uno ne' gli altri, la card lo DICE e nomina la sola mossa che
           // ha senso, invece di chiedere una valutazione impossibile.
           const nienteDaVedere = !t.deliveryBranch && !t.deliveryFilesChanged;
+          // IL PERCHE' E' DI CHI CHIUDE IL TURNO, IL DOVE NO. Qui si sa perché il
+          // turno è finito; NON si sa dove finirà la card, perché
+          // `deliverToReviewBySystem` ha due guardie che possono mandarla in
+          // `todo` (sottotask ancora aperti, figli parcheggiati da sbloccare).
+          // Dichiarare «l'ho portato io in review» da qui era una previsione, e
+          // su tre giorni ha sbagliato 6 volte su 35 — la riga resta nel thread
+          // per sempre e il reviewer la trova quando la card arriva DAVVERO in
+          // review, chiedendogli di valutare una consegna che allora non c'era.
+          // Quindi: la mossa successiva viaggia a parte, e la scrive chi sa dove
+          // la card è atterrata.
           const base = needsHuman(end)
-            ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo: ` +
-              "l'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
+            ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo.`
             : nienteDaVedere
               ? `Nessun lavoro consegnato: ${t.dispatchAttempts} turni, nessun ramo e nessun file toccato. ` +
-                `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}. ` +
-                "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
-              : `L'agent ha lavorato ${t.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
-                "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
+                `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}.`
+              : `L'agent ha lavorato ${t.dispatchAttempts} turni ma non ha spostato il task in review da solo.`;
+          // Cosa può fare l'umano, e ha senso SOLO se la card gli arriva davvero.
+          const mossa = needsHuman(end)
+            ? "L'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
+            : nienteDaVedere
+              ? "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
+              : "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
           const reason = recovered
             ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
             : base;
@@ -2447,6 +2460,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             const delivered = deps.svc.deliverToReviewBySystem({
               taskId,
               reason,
+              nextMove: mossa,
               // Due cause distinte, non una: "ha lavorato ma è finito il budget di
               // turni" si può rimandare indietro e riparte; "il modello si è
               // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide

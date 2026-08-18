@@ -637,7 +637,19 @@ export interface TaskService {
    * well-formed block — an LLM caller passes structured options and never
    * reproduces markdown syntax by hand.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" }): TaskComment;
+  /**
+   * `once` — questa riga descrive una CONDIZIONE, non un evento.
+   *
+   * La dedupe normale ha una finestra di 10 secondi e serve contro i retry. Non
+   * morde su chi riscrive perche' la condizione dura: il GC dei worktree ripassa
+   * ogni 30 minuti e, finche' un worktree resta sporco, riscrive la stessa frase
+   * da 244 caratteri. Misurato il 18/08: 108 righe identiche su 12 card in
+   * quattro ore, dieci-dodici copie byte-per-byte sulla stessa card, e il thread
+   * cresce di una ogni mezz'ora finche' nessuno tocca quel worktree — cioe' per
+   * giorni. `once` toglie la finestra: stesso autore, stesso testo, stessa card
+   * ⇒ si scrive la prima volta e basta.
+   */
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service"; once?: boolean }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -679,6 +691,13 @@ export interface TaskService {
     taskId: string;
     reason: string;
     cause?: "retries_exhausted" | "model_refused" | "fanout";
+      /**
+     * La mossa che l'umano può fare, e che ha senso SOLO se la card gli arriva.
+     * Chi chiude il turno sa PERCHE' è finito ma non DOVE finirà la card: le due
+     * guardie qui sotto possono mandarla in coda. Separata, così la frase la
+     * scrive chi sa dov'è atterrata — e non resta nel thread una promessa falsa.
+     */
+    nextMove?: string;
   }): Task;
   /**
    * Alza la DOMANDA dello stallo: il task va in review con chip `needs_input` e
@@ -3054,7 +3073,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once }): TaskComment {
       // The kind is whitelisted, never passed through: an unknown value reads
       // as a plain comment, so a typo at a call site costs a visible row rather
       // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
@@ -3097,7 +3116,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
       // Dedupe identical author+content within the window — retries don't double-post.
       // Window boundary derives from the injected clock so tests are deterministic.
-      const since = new Date(new Date(now()).getTime() - commentDedupeMs).toISOString();
+      // `once` ⇒ nessuna finestra: la riga descrive una condizione che dura, e
+      // riscriverla a ogni verifica e' il muro di paragrafi identici documentato
+      // sull'interfaccia.
+      const since = once
+        ? "0000-01-01T00:00:00.000Z"
+        : new Date(new Date(now()).getTime() - commentDedupeMs).toISOString();
       const dupe = db.prepare(
         "SELECT * FROM task_comments WHERE task_id = ? AND author = ? AND content = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
       ).get(taskId, author, body, since);
@@ -3732,14 +3756,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason, cause }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause, nextMove }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
-      // Note first so the "why it's here" is the last word on the review card.
-      if (reason && reason.trim()) {
-        try { this.addComment({ taskId, author: "system", content: reason }); } catch { /* best-effort */ }
-      }
+      // LA RIGA SI SCRIVE DOPO LE GUARDIE, non prima. Stava in cima perché così
+      // era «l'ultima parola sulla card» — ragione caduta con `ad1516aca`, che
+      // garantisce il trasporto dell'ultima parola vera quale che sia la sua
+      // posizione. Restava solo il costo: il testo dice «L'ho portato io in
+      // review: valuta cosa ha prodotto», ma le due guardie qui sotto possono
+      // mandare la card in `todo`. Misurato il 18/08 su `171b787d`: commento
+      // alle 03:34:43.585, riga di stato `in_progress→todo` alle 03:34:43.587 —
+      // due millisecondi dopo. Su tre giorni, 35 note di questa famiglia: 29
+      // seguite da review e SEI da todo; sull'intero storico, 260 note e 87
+      // verso todo o backlog.
+      //
+      // La riga resta nel thread per sempre, e quando la card arriva davvero in
+      // review è quella che il reviewer trova: gli dice di valutare una consegna
+      // in un momento in cui non ce n'era ancora una. Si scambia «sempre
+      // presente, a volte falsa» con «a volte assente, mai falsa» — e solo sulla
+      // seconda si può decidere.
       // Un padre con sottotask aperti NON è approvabile (il gate su `done` lo
       // rifiuta), quindi metterlo in review mette in coda all'umano una card su
       // cui non può decidere niente — e ci torna a ogni turno esaurito. Misurato
@@ -3784,7 +3820,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
               dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
         ).run(note, until, ts, taskId);
         if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+        // La ragione del turno resta scritta — sparire in silenzio sarebbe
+        // peggio, e un test lo pinna — ma accompagnata dalla destinazione VERA:
+        // questa card non è in review, e nessuno deve valutarla adesso. Servizio,
+        // perché su una card in coda è contabilità: chi la riprende è il
+        // dispatcher, non un umano.
+        if (reason && reason.trim()) {
+          try { this.addComment({ taskId, author: "system", kind: "service", content: `${reason}\n\n${note}` }); }
+          catch { /* best-effort */ }
+        }
         return rowToTask(getTaskRow(taskId));
+      }
+      // Qui, e solo qui, la card va DAVVERO in review: è il punto in cui «l'ho
+      // portato io in review» smette di essere una previsione e diventa un fatto.
+      if (reason && reason.trim()) {
+        const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
+        try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
       }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).

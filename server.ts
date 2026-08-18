@@ -782,7 +782,24 @@ async function runHeadlessTurn(
 // reconcile REATTACH branch after a server restart.
 async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true });
+  // Il provider si DICHIARA, non si lascia indovinare alla rotta.
+  //
+  // `resolveProvider` risponde «con chi vorrebbe parlare questa topic», e senza
+  // un `provider` nel corpo cade sul default della macchina. Ma un riattacco
+  // non sceglie: adotta un turno che sta già girando, e qui il proprietario è
+  // `claude-code` per COSTRUZIONE — entrambi i chiamanti lo sanno già.
+  // `hasLiveSession` (poco sopra) interroga esplicitamente `claude-code`, e il
+  // setaccio di boot `reattachSurvivingChatTurns` enumera lo store del broker
+  // ai-bridge, che è del provider claude-code e di nessun altro.
+  //
+  // Senza questa riga, su una macchina il cui default è il runtime nativo
+  // (`topics`, che non ha `reattach`), ogni riadozione finiva su `sendChat` con
+  // un messaggio VUOTO: un turno fabbricato che rispondeva «Ciao! Come posso
+  // aiutarti?» e si sedeva in chat al posto della risposta vera. Nove volte in
+  // quindici minuti su topic:9fe7a291 il 2026-08-18, una per riavvio del
+  // server. La rotta adesso rifiuta quel caso (501 `reattach_unsupported`),
+  // ma la cura sta qui: chi conosce il proprietario lo scrive.
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
   // Stesso patto di runHeadlessTurn: residuo via prima di iniziare.
   takeTurnEnd(sessionKey);
   const resp = await topicsRouter(
@@ -4252,11 +4269,18 @@ function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) 
           try {
             dispatcherSvc.addComment({
               taskId: task.id, author: "system",
-              // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
-              // drawer e un badge sulla card (`landingState`), e questo commento
-              // serve solo a datare il momento in cui è successo. Ripeterci sopra
-              // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
-              // 128 commenti su 97 card, uno lungo tre righe.
+              // SERVICE, e la ragione la dichiara la riga qui sotto: lo STATO ha
+              // già una banda in cima al drawer e un badge sulla card
+              // (`landingState`), e questo commento serve solo a DATARE il
+              // momento in cui è successo. Una riga che non aggiunge un fatto è
+              // per definizione servizio, e questa era la peggiore della board:
+              // una card in review ha per definizione lavoro fuori da main,
+              // quindi la nota scatta su OGNI card della colonna, sempre DOPO la
+              // consegna, e mentre l'umano dorme resta l'ultima riga del thread.
+              // Misurata il 18/08: era la parola stampata su 3 card su 4, al
+              // posto del riassunto dell'agente — e diceva «landa il ramo» a chi
+              // in review il bottone «Landa» non ce l'ha nemmeno.
+              kind: "service",
               content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
             });
             const fresh = dispatcherSvc.get(task.id)?.task;
