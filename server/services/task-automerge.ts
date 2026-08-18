@@ -28,6 +28,7 @@ import { createHash } from "crypto";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { gitEnvFor } from "../lib/git-identity";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
+import { makeSerialQueue } from "../lib/serial-queue";
 
 export type AutoMergeResult =
   | {
@@ -328,16 +329,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const log = deps.log ?? (() => {});
 
   // Serialize per repo path so two approvals on the same project never run
-  // overlapping git operations against the same working tree.
-  const queues = new Map<string, Promise<unknown>>();
+  // overlapping git operations against the same working tree (task e33820da).
+  const repoQueue = makeSerialQueue();
   function chain<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const prev = queues.get(key) ?? Promise.resolve();
-    const next = prev.catch(() => undefined).then(fn);
-    const tail = next.finally(() => {
-      if (queues.get(key) === tail) queues.delete(key);
-    });
-    queues.set(key, tail);
-    return next;
+    return repoQueue.enqueue(key, fn);
   }
 
   /**
