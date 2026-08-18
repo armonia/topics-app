@@ -1342,6 +1342,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const CARD_COMMENTS_DEPTH = 3;
 
   /**
+   * «Parola vera», in SQL: 1 quando la riga e' la voce di qualcuno, 0 quando e'
+   * contabilita' della macchina.
+   *
+   * E' il gemello di `contorno()` — qui sotto in `cardCommentsFor`, e in
+   * `client/src/components/Board/cardComments.ts`. Le tre copie devono dire la
+   * stessa cosa: se questa fosse piu' larga, la finestra trasporterebbe una
+   * nota che il client poi scarta, e la card resterebbe muta come prima.
+   */
+  const SQL_PAROLA =
+    "CASE WHEN COALESCE(c.kind, 'comment') = 'review-note' THEN 0 " +
+    "     WHEN c.author = 'system' AND c.content NOT LIKE '%```question%' THEN 0 " +
+    "     ELSE 1 END";
+
+  /**
    * Quanto testo di un commento viaggia sulla card, e sono DUE misure perché la
    * card ne disegna due in modo diverso.
    *
@@ -1600,14 +1614,42 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     if (ids.length === 0) return out;
     let rows: any[];
     try {
+      // LA FINESTRA NON BASTA: SERVE UNA GARANZIA.
+      //
+      // `rn <= DEPTH` prende le ultime tre righe parlate, e il client poi
+      // scarta le note di macchina per trovare la parola vera. Funziona finche'
+      // le note dopo una consegna sono meno di tre. Non lo sono: dopo ogni
+      // ingresso in review ne arrivano di norma TRE — l'esito dei checks, la
+      // nota sull'anteprima, «Non e' su main: <sha> — landa il ramo prima che
+      // venga potato» — e il riassunto dell'agente esce dalla finestra prima
+      // ancora di partire. Il client filtra correttamente e non trova niente da
+      // mostrare: ripiega sulle note, e la card apre con «Non e' su main».
+      //
+      // Misurato il 2026-08-18 sulla board vera: delle 26 card in review/done
+      // lavorate davvero da un agente, 23 avevano il suo riassunto nel thread e
+      // ZERO lo mostravano; su 24 l'ultima parola era di sistema. Segnalato:
+      // «parecchi task non hanno un commento utile, hanno soltanto un commento
+      // di sistema, e questo mi fa capire che c'e' qualcosa di rotto».
+      //
+      // Quindi la seconda finestra: l'ULTIMA PAROLA VERA entra sempre, quale
+      // che sia la sua distanza dal fondo. Costa al massimo una riga per card.
+      // Il predicato e' lo stesso `contorno` di qui sotto e del client, scritto
+      // in SQL: tre copie della stessa regola sono gia' il difetto di
+      // `hasMetaRow`, ma qui la terza serve a NON trasportare cio' che le altre
+      // due poi scarterebbero.
       rows = db.query(
         `SELECT * FROM (
-           SELECT c.*, row_number() OVER (
-                    PARTITION BY c.task_id ORDER BY c.created_at DESC, c.rowid DESC) AS rn
+           SELECT c.*,
+                  row_number() OVER (
+                    PARTITION BY c.task_id ORDER BY c.created_at DESC, c.rowid DESC) AS rn,
+                  row_number() OVER (
+                    PARTITION BY c.task_id, ${SQL_PAROLA}
+                    ORDER BY c.created_at DESC, c.rowid DESC) AS rn_parola,
+                  ${SQL_PAROLA} AS parola
              FROM task_comments c
             WHERE c.task_id IN (SELECT value FROM json_each(?))
               AND COALESCE(c.kind, 'comment') NOT IN ('status', 'service')
-         ) WHERE rn <= ${CARD_COMMENTS_DEPTH}
+         ) WHERE rn <= ${CARD_COMMENTS_DEPTH} OR (parola = 1 AND rn_parola = 1)
          ORDER BY task_id ASC, rn DESC`,
       ).all(idParam(ids)) as any[];
     } catch { return out; }
