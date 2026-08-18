@@ -3865,6 +3865,33 @@ async function reattachSurvivingChatTurns(): Promise<void> {
             const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
             const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
             if (state === "open") {
+              // «Resta viva» va SCRITTA, non solo non-disfatta.
+              //
+              // Saltare la pulizia qui sotto non bastava: la riga era già stata
+              // chiusa a monte. `finalizeStream` passa `partial: undefined` e la
+              // UPDATE di `updateMessage` (server/utils.ts:330) scrive
+              // `partial = $partial` SENZA COALESCE — quindi ogni gamba di
+              // riadozione, anche quella che finisce su un turno ancora aperto,
+              // lascia `partial` spento. E `reuseOrCreatePartialForReattach`
+              // (utils.ts:1347) riusa la riga SOLO se è assistant con
+              // `partial = 1`: al riavvio successivo non trovava niente da
+              // riprendere e ne apriva una NUOVA. È il conto esatto del
+              // 2026-08-18 su topic:9fe7a291 — dieci riadozioni, 1 riusata
+              // («partial in DB») + 8 nuove («store del broker aperto») = nove
+              // righe dove doveva essercene una. Lo stesso sintomo delle cinque
+              // copie su topic:ed2070df che il commento qui sopra dice curato:
+              // la guardia c'era, ma disarmava un flag che qualcun altro aveva
+              // già spento.
+              //
+              // Il broker ha appena detto `open`: la riga è di un turno vivo, e
+              // il flag si RIACCENDE. Solo l'ultima della sessione, che è quella
+              // che il prossimo riattacco riprenderà.
+              try {
+                ctx.db.run(
+                  "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
+                  [s.id],
+                );
+              } catch { /* al peggio il prossimo riattacco apre una riga nuova, com'era prima */ }
               console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
               return;
             }
