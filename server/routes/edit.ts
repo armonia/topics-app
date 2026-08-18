@@ -3,6 +3,7 @@ import type { AIProvider, ChatMessage } from "../providers";
 import { adaptEnvelope, assembleTopicContext } from "../context";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
+import { regenerationPromptBlock, type EvidenceToolCall } from "./regenerate-evidence";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -40,6 +41,14 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
        * is a brand-new user message that IS the thread's tail.
        */
       truncateAfterAnchor?: boolean;
+      /**
+       * Le tool call della risposta che si sta RIscrivendo. Diventano le prove
+       * su cui il modello può appoggiarsi in un passaggio che non ha strumenti:
+       * vedi `regenerate-evidence.ts`. Assenti sul percorso di modifica, dove non
+       * c'è un turno precedente da riscrivere — lì resta solo la dichiarazione
+       * del vincolo, che serve comunque.
+       */
+      evidenceCalls?: EvidenceToolCall[] | null;
     },
   ): Promise<Response> {
     // O(1) lookup via UNIQUE index on session_key — replaces a full-table
@@ -71,6 +80,28 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
     // che sono stateless e vogliono l'intero thread. Per la stessa ragione NON
     // partecipa alla deduplicazione del preambolo: non c'è una sessione che se lo
     // ricordi, e ogni chiamata deve essere autosufficiente.
+    /**
+     * QUESTO PASSAGGIO NON HA LE MANI, E VA DETTO.
+     *
+     * `complete()` gira senza strumenti su entrambi i runtime — la CLI passa
+     * `--tools ""` (providers/claude/args.ts), il nativo `tools: []`. È giusto
+     * così: la stessa funzione serve all'auto-naming e ai digest. Ma l'inviluppo
+     * del topic, qui sotto, continua a descrivere al modello il progetto, il
+     * browser e i tool: gli si dice «hai Bash» e poi gli si tolgono le mani.
+     *
+     * Il 2026-08-18 il risultato è stato una risposta con dentro
+     * `<invoke name="Bash">…</invoke>` scritto come TESTO e gli output dei
+     * comandi inventati, mentre `tool_calls` restava vuoto e la sessione ferma.
+     * Sembrava un rapporto; non era mai girato niente.
+     *
+     * Il blocco dichiara il vincolo e, su una rigenerazione, porta le misure che
+     * quel turno aveva DAVVERO raccolto. Così «rigenera» vuol dire «riscrivi la
+     * stessa risposta dalle stesse misure» — le parole si rifanno, gli effetti
+     * collaterali no. Vale anche sul percorso di modifica, dove prove non ce ne
+     * sono: lì resta il vincolo da solo, che è comunque ciò che mancava.
+     */
+    const promptBlock = regenerationPromptBlock(opts?.evidenceCalls);
+
     let finalMessages: ChatMessage[];
     if (matchedTopic) {
       const envelope = assembleTopicContext(ctx, {
@@ -82,11 +113,12 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         historyOverride: activeThread,
       });
       const payload = adaptEnvelope(envelope);
-      finalMessages = [...(payload.history ?? []), { role: "user", content: payload.userContent }];
+      finalMessages = [...(payload.history ?? []), { role: "user", content: `${payload.userContent}\n\n${promptBlock}` }];
     } else {
       // Nessun topic su questa sessione: non c'è contesto da assemblare, resta il
       // thread nudo (era il comportamento anche prima, per la guardia `if (matchedTopic)`).
       finalMessages = activeThread.map(m => ({ role: m.role, content: m.content }));
+      finalMessages.push({ role: "user", content: promptBlock });
     }
 
     try {
@@ -274,7 +306,13 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       if (!anchorId) return json({ error: "message has no parent user message" }, 400);
       const anchor = getMessageById(anchorId);
       if (!anchor) return json({ error: "parent message not found" }, 404);
-      return await streamEditResponse(sessionKey, anchorId, anchor.content, { truncateAfterAnchor: true });
+      // Le misure del turno che stiamo sostituendo viaggiano col prompt: il
+      // modello riscrive le parole sugli stessi dati invece di rifare — o
+      // fingere di rifare — il lavoro. Vedi `regenerate-evidence.ts`.
+      return await streamEditResponse(sessionKey, anchorId, anchor.content, {
+        truncateAfterAnchor: true,
+        evidenceCalls: (msg.toolCalls ?? null) as EvidenceToolCall[] | null,
+      });
     }
 
     return null;
