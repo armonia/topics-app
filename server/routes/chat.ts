@@ -86,6 +86,24 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
+import { createIdempotencyCache } from "../lib/idempotency-cache";
+
+/**
+ * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
+ *
+ * TTL lungo (mezz'ora) perche' non costa niente sbagliare da questa parte: la
+ * chiave e' un uuid coniato UNA volta per invio, non un'impronta del testo.
+ * Rimandare due volte «ok» resta due messaggi distinti, con due chiavi diverse;
+ * l'unica cosa che una chiave ripetuta puo' significare e' «e' lo stesso invio
+ * che ci riprova». Tenerla in memoria a lungo copre una riconnessione lenta,
+ * scaderla presto rimetterebbe in gioco il doppione che vogliamo evitare.
+ *
+ * Vive nel processo, quindi un riavvio la perde: e' un limite accettato, non un
+ * difetto nascosto. Il caso che protegge (client che ritenta subito una richiesta
+ * caduta) si consuma in secondi, e la finestra dopo un riavvio e' coperta dalla
+ * riga utente gia' scritta, che il client rilegge dalla history.
+ */
+const chatIdempotency = createIdempotencyCache({ ttlMs: 30 * 60_000 });
 
 /**
  * Closure-local helpers from createTopicsRouter that the /api/chat block needs,
@@ -224,6 +242,49 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       if (!body) return json({ error: "body required" }, 400);
       const sessionKey = body.sessionKey;
+
+      /**
+       * LO STESSO MESSAGGIO NON SI PRENDE DUE VOLTE.
+       *
+       * Il client aveva una regola sola per sapere se un messaggio era partito:
+       * `streamStarted`, che diventa vero quando la `fetch` restituisce la
+       * risposta. Se la connessione muore PRIMA — e muore, perché su questa
+       * macchina il server si ricarica a ogni salvataggio in `server/` — per lui
+       * il server non l'ha mai ricevuto. Ma le due cose che possono essere
+       * successe sono opposte e da fuori identiche: (a) siamo morti prima di
+       * scrivere la riga, e allora il messaggio è perso e va rispedito;
+       * (b) siamo morti dopo, e allora rispedirlo lo duplica.
+       *
+       * Non potendo distinguerle, il client sceglieva: teneva il messaggio in
+       * coda e sperava. Il commento del suo drain lo dice in chiaro — «tenerlo
+       * qui significherebbe rispedirlo a un server che potrebbe averlo già
+       * preso». Misurato il 2026-08-18: un messaggio scritto durante un reload
+       * non è mai arrivato (zero righe, zero turni) e la pagina è rimasta a
+       * girare; poco prima, un altro aveva mostrato «Message queued» pur essendo
+       * arrivato benissimo.
+       *
+       * Con una chiave il dubbio sparisce: il client rispedisce SEMPRE, e siamo
+       * noi a dire se l'avevamo già preso. La chiave si ricorda solo DOPO che la
+       * riga utente è scritta (più sotto), perché è quello il momento in cui il
+       * messaggio esiste davvero: se cadiamo prima, la ripetizione deve poter
+       * ripartire pulita.
+       *
+       * Stessa meccanica di `POST /api/terminal/sessions`, stesso modulo.
+       */
+      const idempotencyKey =
+        req.headers.get("x-idempotency-key")
+        ?? (typeof body.clientMessageId === "string" && body.clientMessageId.trim() ? body.clientMessageId.trim() : null);
+      const idempotencySlot = idempotencyKey ? `${sessionKey} ${idempotencyKey}` : null;
+      if (idempotencySlot) {
+        const already = chatIdempotency.lookup(idempotencySlot);
+        if (already) {
+          console.log(`[HTTP] POST /api/chat: ripetizione di ${idempotencyKey} su ${sessionKey} — già preso come ${already}, non lo rifaccio`);
+          return json(
+            { error: "message already accepted", code: "duplicate_message", messageId: already },
+            409,
+          );
+        }
+      }
       // Turno guidato dalla board (runHeadlessTurn), non una chat umana: si
       // propaga sul `stream:end` di completamento così la push di fine risposta
       // lo esclude (vedi server/push-triggers.ts). Decine di turni d'agente = spam.
@@ -315,6 +376,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
         );
+        // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
+        // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
+        // l'unica cosa giusta da fare.
+        if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
         if (matchedTopic) {
           broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
           // Bump the topic's own timestamp on every real message, not just
@@ -501,6 +566,86 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       } else {
         topicProvider = resolveProvider(matchedTopic);
       }
+
+      /**
+       * UN RIATTACCO NON SCEGLIE IL PROVIDER: LO EREDITA.
+       *
+       * `resolveProvider` risponde alla domanda «con chi vorrebbe parlare
+       * questa topic?». Un riattacco fa una domanda diversa — «chi possiede il
+       * turno che sta GIÀ girando?» — e le due risposte possono divergere: il
+       * turno vivo è un figlio della CLI (`claude-code`, store del broker,
+       * `claude_code_sessions`), mentre la preferenza cade sul default della
+       * macchina, che qui è il runtime nativo (`topics`,
+       * providers/native/provider.ts:89, DEFAULT_AGENT_RUNTIME in shared/types.ts).
+       *
+       * Il provider nativo non ha `reattach`, e più sotto il ternario cadeva su
+       * `sendChat` con `userContent` = solo il preambolo `<context>` e NESSUNA
+       * domanda (`messages: []` è il formato del riattacco, riga ~267). Il
+       * risultato non era un degrado: era un turno FABBRICATO, pagato all'API
+       * Anthropic, che rispondeva «Ciao! Come posso aiutarti con <nome del
+       * topic>?» e si sedeva in chat al posto della risposta vera. Misurato il
+       * 2026-08-18 su topic:9fe7a291: nove saluti, uno per riavvio del server,
+       * mentre il turno CLI vero girava indisturbato e la sua risposta non
+       * arrivava mai in `messages`.
+       *
+       * Due cose lo rendevano possibile insieme, e valgono come promemoria:
+       * `isReattach` salta anche il cancello 409 «un turno per sessione» (riga
+       * ~296, ed è giusto: adottare il turno vivo è il suo mestiere), quindi il
+       * turno fantasma partiva su una sessione che ne aveva già uno in volo.
+       *
+       * Qui la regola è secca: chi non sa riattaccarsi non riattacca, e non
+       * manda niente al suo posto. Il rifiuto arriva PRIMA della riga parziale,
+       * dello stream e di qualunque chiamata al modello — non lascia traccia in
+       * chat. 501 e non 409: un 409 `rejectedTurn` (server.ts:711) lo tradurrebbe
+       * in «stream già in volo», che è un'altra storia; questo è un guasto di
+       * cablaggio e deve leggersi come tale nel log del chiamante.
+       */
+      if (isReattach && typeof (topicProvider as unknown as { reattach?: unknown }).reattach !== "function") {
+        console.warn(
+          `[Chat] riattacco RIFIUTATO su ${sessionKey}: il provider "${topicProvider.name}" non sa riattaccarsi. ` +
+          `Chi chiama un reattach deve dichiarare il provider che POSSIEDE il turno vivo (body.provider), ` +
+          `altrimenti si cade sul default della macchina. Nessun messaggio inviato.`,
+        );
+        return json(
+          { error: `provider "${topicProvider.name}" cannot reattach`, code: "reattach_unsupported", provider: topicProvider.name },
+          501,
+        );
+      }
+
+      /**
+       * UNA CONVERSAZIONE TIENE IL CERVELLO CON CUI È NATA.
+       *
+       * `topics.provider` vuoto non vuol dire «qualunque»: vuol dire «non
+       * l'abbiamo mai scritto». E siccome `resolveProvider` cade sul default
+       * della MACCHINA, e il default si ricalcola a ogni boot
+       * (`recomputeDefault`, providers/index.ts — dipende da quali provider
+       * risultano `connected` in quel momento), una chat a metà può cambiare
+       * runtime da sola, senza che nessuno abbia toccato niente.
+       *
+       * Non è teorico. Il 2026-08-18 su topic:9fe7a291: il primo turno gira su
+       * `claude-code` (JSONL, store del broker, riga in `claude_code_sessions`,
+       * modello claude-opus-5[1m]) e produce una risposta lunga e documentata;
+       * venti minuti e una ventina di riavvii dopo, il runtime nativo `topics`
+       * risulta connesso, si prende il default, e i messaggi successivi
+       * dell'utente finiscono su un provider la cui memoria è una Map in RAM
+       * azzerata a ogni riavvio. Alla domanda «fammi il report di fine
+       * giornata» ha risposto «Non ho trovato messaggi nel topic "New Chat"»:
+       * non era un guasto del modello, era un altro modello, senza la
+       * conversazione.
+       *
+       * Quindi il primo turno vero SCRIVE la scelta. Da lì la chat è stabile
+       * per costruzione, e resta modificabile a mano: il picker per-topic
+       * (`ProviderModelPicker` → PATCH /api/topics/:id) è l'unica cosa che
+       * cambia questo campo. Un riattacco non pinna niente — non è una scelta,
+       * è un'eredità.
+       */
+      if (!isReattach && matchedTopic && !matchedTopic.provider && topicProvider.name) {
+        matchedTopic.provider = topicProvider.name;
+        saveSingleTopic(matchedTopic);
+        broadcastToAll({ type: "topic:updated", topic: matchedTopic });
+        console.log(`[Chat] ${sessionKey}: runtime fissato su "${topicProvider.name}" al primo turno (era il default della macchina, che si ricalcola a ogni boot)`);
+      }
+
       // Per-message override wins; otherwise the topic's persisted model is
       // used (set by the picker via PUT /api/topics/:id and broadcast as
       // topic:updated). Falls through to the provider default when both unset.
@@ -2553,11 +2698,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Reattach mode (ai-bridge restart recovery): adopt the turn still
             // running in the broker and drive it to completion, instead of
             // starting a new one. No user message is sent; everything else
-            // (handler, partial row, SSE, finalize) is reused. Falls back to a
-            // normal send when the provider has no reattach (flag off / other providers).
+            // (handler, partial row, SSE, finalize) is reused.
+            //
+            // NIENTE RIPIEGO SU `sendChat`. Qui c'era un ternario che, se il
+            // provider non sapeva riattaccarsi, mandava un turno normale — e su
+            // un riattacco `userContent` è il solo preambolo `<context>` con
+            // NESSUNA domanda (`messages: []` è il suo formato). Non era un
+            // degrado, era un turno fabbricato: una chiamata pagata al modello
+            // che rispondeva «Ciao! Come posso aiutarti con <nome del topic>?»
+            // e finiva in chat al posto della risposta vera, su una sessione
+            // che aveva già un turno in volo (il cancello 409 è disattivato per
+            // i riattacchi, ed è giusto così). Il caso ora è respinto a monte,
+            // prima della riga parziale e di qualunque stream: vedi la guardia
+            // `reattach_unsupported` alla risoluzione del provider. `!` qui è
+            // sostenuto da quella guardia, non da un'assunzione.
             const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
-            const drive = (isReattach && typeof reattachFn === "function")
-              ? reattachFn.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
+            const drive = isReattach
+              ? reattachFn!.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,
                   userContent,

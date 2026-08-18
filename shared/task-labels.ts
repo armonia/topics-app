@@ -250,13 +250,15 @@ export function deriveKind(files: readonly TaskFile[]): KindLabel | null {
  *
  * `conductor` SOLO quando entrambe le cose sono vere: l'etichetta dice
  * `invisibile` E la barra è verde per intero. `checksState` diverso da `'pass'`
- * — compreso `null`, cioè «i comandi non sono mai girati» — non è un verde e non
- * autorizza nessuno. `visibile` e `decisione` restano all'umano comunque: è il
+ * — compreso `null` («i comandi non sono mai girati») e `'unknown'` («sono stati
+ * fermati prima della fine») — non è un verde e non autorizza nessuno. I due
+ * casi si LEGGONO diversi sulla card, ma qui valgono uguale: la barra non ha
+ * detto verde, quindi la card resta all'umano. Sbagliare verso il chiedere. `visibile` e `decisione` restano all'umano comunque: è il
  * default di questa funzione, ed è il default sicuro.
  */
 export function whoCloses(
   labels: readonly string[],
-  checksState: 'running' | 'pass' | 'fail' | null,
+  checksState: 'running' | 'pass' | 'fail' | 'unknown' | null,
 ): 'human' | 'conductor' {
   return labels.includes('invisibile') && checksState === 'pass' ? 'conductor' : 'human';
 }

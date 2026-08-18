@@ -287,6 +287,38 @@ function fmtMs(ms: number): string {
  * pistolotto. Rosso: il comando, l'exit code e la coda dell'output — cioè
  * quello che serve a rimetterci le mani senza aprire un terminale.
  */
+/**
+ * L'ESITO DI UNA BARRA, IN UNA PAROLA SOLA — e sono TRE, non due.
+ *
+ * `pass` misurato e verde · `fail` misurato e rosso · `unknown` NON misurato.
+ * Il terzo non e' una sfumatura del secondo: «rosso» dice «il tuo codice e'
+ * rotto, non approvare», «non misurato» dice «non lo sappiamo». Chi rivede
+ * decide diversamente nei due casi, e chi ha consegnato pure.
+ *
+ * ── Perche' esiste ──────────────────────────────────────────────────────────
+ * Il TESTO faceva gia' questa distinzione dal 12/08 («**Checks pre-review NON
+ * MISURATI**»), e il suo test si chiudeva con «la parola conta piu' del codice
+ * di stato». Si e' fermato li': `recordChecks` scriveva `ok ? "pass" : "fail"`,
+ * quindi lo STATO — che e' quello che la card legge, perche' `checks_json` non
+ * viaggia nel payload della lista (pesava 217 KB) — diceva rosso lo stesso.
+ *
+ * Misurato il 18/08 sul DB vivo: delle 15 card marcate `fail`, SEI erano solo
+ * scadute. Il 40% delle bocciature accusava un codice sano.
+ *
+ * `expected` e' il numero di comandi DICHIARATI: se ne sono tornati meno,
+ * qualcuno non e' arrivato in fondo e l'esito non e' misurato — non verde.
+ * Senza questo parametro un elenco troppo corto e tutto verde direbbe `pass`.
+ */
+export function checksVerdict(runs: CheckRun[], expected?: number): "pass" | "fail" | "unknown" {
+  if (!runs.length) return "unknown";
+  const failed = runs.find((r) => !r.ok);
+  if (!failed) return expected !== undefined && runs.length < expected ? "unknown" : "pass";
+  // Un SOLO rosso vero basta a dire rosso, anche se altri sono scaduti: c'e' un
+  // guasto misurato, e quello si guarda. Il verso opposto — un rosso nascosto
+  // da un timeout — sarebbe il difetto.
+  return runs.some((r) => !r.ok && !r.timedOut) ? "fail" : "unknown";
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
   const failed = runs.find((r) => !r.ok);
@@ -300,7 +332,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   // cancelli verdi e `test:unit` fermato al tetto mentre cinque agenti
   // lavoravano — la suite da sola ne impiega tre o quattro. Il codice non
   // c'entrava: era piena la macchina.
-  if (failed.timedOut) {
+  if (checksVerdict(runs) === "unknown") {
     return [
       `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` è stato fermato oltre il tempo massimo.`,
       runs.map(line).join("\n"),
