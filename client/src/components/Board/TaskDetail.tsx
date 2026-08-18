@@ -30,7 +30,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket, priorityAwaitingAgent } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -1881,15 +1881,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               ref={prioBtnRef}
               onClick={() => task && setPrioMenuOpen(true)}
               data-testid="task-priority-chip"
-              title={task.priorityAuto
+              title={priorityAwaitingAgent(task)
                 ? "Priorità automatica: la valuta l'agent appena inquadra il task"
                 : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
               className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
-                !task.priorityAuto && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
+                !priorityAwaitingAgent(task) && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
               }`}
             >
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
-              {task.priorityAuto ? tr('board.task.priorityAuto') : PRIORITY_LABEL[task.priority] ?? 'Media'}
+              {priorityAwaitingAgent(task) ? tr('board.task.priorityAuto') : PRIORITY_LABEL[task.priority] ?? 'Media'}
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
             </button>
             <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
@@ -1903,7 +1903,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 >
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
                   <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
-                  {p === task?.priority && !task?.priorityAuto && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                  {p === task?.priority && !(task && priorityAwaitingAgent(task)) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               ))}
             </Menu>
