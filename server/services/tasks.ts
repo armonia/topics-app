@@ -4010,6 +4010,47 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // quello che la rivendicazione ha appena contato.
       //
       // `1` e non `0`: questo turno e' il PRIMO della sessione nuova, e conta.
+
+      // I SOTTOTASK DEL TENTATIVO MORTO NON SOPRAVVIVONO AL TENTATIVO.
+      //
+      // Misurato il 18/08 su `eef64e32`: dopo il re-dispatch i quattro sottotask
+      // del topic precedente (`groovy-frond`) erano ancora nella checklist del
+      // padre, tre segnati `done` per lavoro che era stato buttato via e uno
+      // `in_progress` che mandava il padre in attesa di nessuno (deadlock
+      // silenzioso: la card restava in coda per sempre perche' uno step si muove
+      // solo dall'agente di quella card, e quell'agente non esiste piu').
+      //
+      // La regola: al cambio di topic (freshSession + topic diverso), i figli
+      // creati dal topic PRECEDENTE (`created_by_topic_id = vecchio_topic`)
+      // vengono archiviati, e una nota nel thread lo dice. Un `done` che descrive
+      // lavoro buttato e' peggio di un buco: meglio un archiviato visibile.
+      //
+      // Idempotente: se il topic e' lo stesso (ripresa) o non c'era (primo
+      // dispatch), non si tocca niente.
+      const oldTopicId = row.assigned_topic_id as string | null;
+      if (freshSession && oldTopicId && oldTopicId !== topicId) {
+        const ts = now();
+        const staleChildren = (db.prepare(
+          "SELECT id, text FROM tasks WHERE parent_task_id = ? AND created_by_topic_id = ? AND archived = 0",
+        ).all(taskId, oldTopicId) as Array<{ id: string; text: string }>);
+        if (staleChildren.length > 0) {
+          for (const child of staleChildren) {
+            archiveSubtree(child.id, ts);
+          }
+          const stepList = staleChildren.map((c) => `- ${c.text}`).join("\n");
+          try {
+            this.addComment({
+              taskId,
+              author: "system",
+              content:
+                `Sessione cambiata (topic \`${oldTopicId}\` → \`${topicId}\`): ` +
+                `${staleChildren.length} sottotask del tentativo precedente archiviati ` +
+                `perche' il loro stato rifletteva lavoro che non esiste piu'.\n${stepList}`,
+            });
+          } catch { /* best-effort: la nota non blocca il bind */ }
+        }
+      }
+
       db.prepare(
         "UPDATE tasks SET assigned_topic_id = ?, chat_id = ?" +
           (freshSession ? ", dispatch_attempts = 1" : "") +
