@@ -50,7 +50,7 @@ interface Harness {
  * riattaccarsi da uno che non lo sa, e quella distinzione è l'unica cosa che
  * separa «adotto il turno vivo» da «fabbrico un turno che nessuno ha chiesto».
  */
-function harness(opts?: { provider?: Record<string, unknown> }): Harness {
+function harness(opts?: { provider?: Record<string, unknown>; appendSurvives?: boolean }): Harness {
   const appended: string[] = [];
   const streaming = new Map<string, { messageId: string }>();
 
@@ -62,8 +62,13 @@ function harness(opts?: { provider?: Record<string, unknown> }): Harness {
     isStreaming: (sessionKey: string) => streaming.get(sessionKey),
     appendLocalMessage: (sessionKey: string, _role: string, content: string) => {
       appended.push(`${sessionKey}:${content}`);
-      // Oltre questo punto il test non arriva: il turno vero vuole un provider.
-      throw new Error("STOP_AFTER_APPEND");
+      // Di norma si ferma qui: alle prove sulla PORTA non serve altro.
+      // `appendSurvives` lascia proseguire di qualche riga — serve alla prova
+      // sull'idempotenza, perche' la chiave si ricorda subito DOPO la scrittura
+      // della riga, e un throw qui la salterebbe. Il turno muore comunque poco
+      // piu' avanti, su `resolveProvider`.
+      if (!opts?.appendSurvives) throw new Error("STOP_AFTER_APPEND");
+      return { id: `stored-${appended.length}`, role: "user", content, timestamp: new Date().toISOString() };
     },
   } as unknown as AppContext;
 
@@ -219,6 +224,71 @@ describe("POST /api/chat — la porta d'ingresso", () => {
     expect(sendChatCalls).toBe(0);
     // E nessuna riga in chat: il rifiuto arriva prima della riga parziale.
     expect(h.appended).toEqual([]);
+  });
+
+  /**
+   * LO STESSO INVIO NON SI PRENDE DUE VOLTE.
+   *
+   * Il client sapeva se un messaggio era partito da un solo indizio,
+   * `streamStarted`, che diventa vero quando la `fetch` restituisce la risposta.
+   * Se la connessione muore prima — e muore, perche' il server si ricarica a
+   * ogni salvataggio in `server/` — restano due possibilita' opposte e da fuori
+   * identiche: siamo morti prima di scrivere la riga (il messaggio e' perso, va
+   * rispedito) o dopo (rispedirlo lo duplica). Il commento del drain lo
+   * ammetteva: «tenerlo qui significherebbe rispedirlo a un server che potrebbe
+   * averlo gia' preso».
+   *
+   * Con la chiave, il client rispedisce sempre e la decisione torna al server.
+   * La prova: due POST con la stessa `clientMessageId`, una riga sola.
+   */
+  test("stessa clientMessageId due volte ⇒ 409 duplicate_message, e la riga NON si raddoppia", async () => {
+    const h = harness({ appendSurvives: true });
+    const key = `prova-${crypto.randomUUID()}`;
+    const body = { sessionKey: "topic:abc", messages: [{ role: "user", content: "ciao" }], clientMessageId: key };
+
+    const first = await h.attempt(body);
+    // Il primo passa la porta e scrive: muore piu' avanti, dove il finto
+    // contesto non ha un provider.
+    expect(first.wentDeeper).toBe(true);
+    expect(h.appended).toEqual(["topic:abc:ciao"]);
+
+    const second = await h.post(body);
+
+    expect(second?.status).toBe(409);
+    const payload = await second!.json();
+    expect(payload.code).toBe("duplicate_message");
+    // Il client deve poter ritrovare la riga che il server aveva gia' preso.
+    expect(payload.messageId).toBe("stored-1");
+    // E soprattutto: nessuna seconda scrittura.
+    expect(h.appended).toEqual(["topic:abc:ciao"]);
+  });
+
+  test("chiavi diverse restano messaggi diversi: due «ok» di fila passano entrambi", async () => {
+    const h = harness({ appendSurvives: true });
+    const msg = (content: string) => ({
+      sessionKey: "topic:abc",
+      messages: [{ role: "user", content }],
+      clientMessageId: `prova-${crypto.randomUUID()}`,
+    });
+
+    await h.attempt(msg("ok"));
+    await h.attempt(msg("ok"));
+
+    // La chiave e' coniata per INVIO, non ricavata dal testo: due volte lo
+    // stesso testo sono due messaggi, e devono restare due.
+    expect(h.appended).toEqual(["topic:abc:ok", "topic:abc:ok"]);
+  });
+
+  test("senza chiave si comporta come prima: nessuna deduplicazione", async () => {
+    const h = harness({ appendSurvives: true });
+    const body = { sessionKey: "topic:abc", messages: [{ role: "user", content: "ciao" }] };
+
+    await h.attempt(body);
+    await h.attempt(body);
+
+    // Un client vecchio, che la chiave non la manda, non deve trovarsi messaggi
+    // silenziosamente ingoiati.
+    expect(h.appended).toEqual(["topic:abc:ciao", "topic:abc:ciao"]);
   });
 
   test("riattacco su un provider che SA riattaccarsi passa la porta", async () => {

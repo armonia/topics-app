@@ -130,6 +130,16 @@ export interface SendMessageOptions {
   fastMode?: boolean;
   provider?: string;
   model?: string;
+  /**
+   * La chiave con cui il server riconosce che questo invio è LO STESSO di prima.
+   *
+   * Si conia una volta per messaggio e sopravvive ai tentativi: l'invio diretto
+   * la genera, la coda durevole la conserva (è l'`id` dell'item) e il drain la
+   * rimanda identica. È l'unica cosa che distingue «il server non l'ha mai
+   * ricevuto» da «l'ha ricevuto e la connessione è caduta dopo» — due casi che
+   * da qui sono indistinguibili, e che chiedono l'opposto l'uno dall'altro.
+   */
+  clientMessageId?: string;
 }
 
 export type { QueuedMessage };
@@ -1660,6 +1670,17 @@ export function useChat() {
     // per sempre, e una coda riempita più tardi non ripartirebbe mai da sola.
     releaseHold(sessionKey);
 
+    /**
+     * La chiave di QUESTO messaggio, coniata una volta sola e riusata a ogni
+     * tentativo. Arriva già fatta quando il messaggio viene dalla coda durevole
+     * (è l'`id` dell'item, che il drain rimanda identico); si conia qui al primo
+     * invio diretto. Deve nascere PRIMA della `fetch`, perché se quella cade il
+     * ramo di riaccodamento più sotto deve poter salvare la STESSA chiave — è
+     * tutto il punto: rispedire con la chiave di prima è sicuro, rispedire con
+     * una nuova è un doppione.
+     */
+    const idemKey = options?.clientMessageId ?? crypto.randomUUID();
+
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
@@ -1698,7 +1719,7 @@ export function useChat() {
         partial: true,
       });
 
-      const chatRequest: ChatRequest = { sessionKey, messages: apiMessages };
+      const chatRequest: ChatRequest = { sessionKey, messages: apiMessages, clientMessageId: idemKey };
       if (options?.fastMode) chatRequest.fastMode = true;
       if (options?.provider) chatRequest.provider = options.provider;
       if (options?.model) chatRequest.model = options.model;
@@ -1941,6 +1962,34 @@ export function useChat() {
       // 409 = stream already active for this session — queue the message for auto-send
       // when the current stream ends (Claude Code-style message queuing)
       const is409 = !!err && typeof err === 'object' && 'status' in err && (err as { status?: unknown }).status === 409;
+
+      /**
+       * DUE 409 CHE VOGLIONO L'OPPOSTO.
+       *
+       * `stream_in_flight` dice «c'è già un turno in volo»: il messaggio non è
+       * arrivato e va rimesso in testa alla coda per partire dopo.
+       * `duplicate_message` dice il contrario — il server questo messaggio ce
+       * l'ha GIÀ, è la nostra stessa chiave di prima. Riaccodarlo lo farebbe
+       * spedire una seconda volta, cioè esattamente il doppione che la chiave
+       * serve a evitare. Qui si smette: le bolle ottimiste vanno via e la
+       * history si ricarica, perché la verità di questo messaggio ora sta sul
+       * server e non più in pagina.
+       */
+      const duplicate = is409 && err instanceof Error && err.message.includes('duplicate_message');
+      if (duplicate) {
+        setMessages(prev => {
+          const sessionMessages = prev[sessionKey] || [];
+          let end = sessionMessages.length;
+          const last = sessionMessages[end - 1];
+          if (last?.role === 'assistant' && last.partial && !last.content) end -= 1;
+          const lastUser = sessionMessages[end - 1];
+          if (lastUser?.role === 'user' && lastUser.content === content) end -= 1;
+          return end === sessionMessages.length ? prev : { ...prev, [sessionKey]: sessionMessages.slice(0, end) };
+        });
+        void loadHistoryRef.current?.(sessionKey);
+        return true;
+      }
+
       if (is409) {
         // «C'è già un turno in volo»: il messaggio torna IN TESTA alla coda —
         // non in fondo, o si farebbe scavalcare da chi era dietro di lui.
@@ -1967,7 +2016,11 @@ export function useChat() {
       // If streamStarted=true, the server already has the message — do NOT re-queue.
       const isNetworkError = err instanceof TypeError || (err instanceof Error && err.message.includes('fetch'));
       if (isNetworkError && !streamStarted) {
-        const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options, id: crypto.randomUUID() };
+        // L'id dell'item in coda È la chiave di idempotenza del tentativo appena
+        // fallito, non una nuova. Coniarne una fresca qui rendeva il rinvio un
+        // messaggio diverso agli occhi del server: se il tentativo di prima era
+        // arrivato — e da qui non si può sapere — il rinvio lo duplicava.
+        const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options, id: idemKey };
         setPendingQueue(enqueue(queueStorage, OUTBOUND_QUEUE_KEY, queued));
         // Mark the user message as queued (keep it visible)
         setMessages(prev => {
@@ -2801,7 +2854,12 @@ export function useChat() {
         });
 
         try {
-          await sendMessageRef.current!(item.sessionKey, item.content, item.options);
+          // La chiave del tentativo di prima viaggia col rinvio: se il server
+          // quel messaggio l'aveva già preso, risponde `duplicate_message` e
+          // `sendMessage` lo lascia andare invece di scriverlo due volte. È ciò
+          // che rende sicura la rimozione qui sotto — prima non lo era, e il
+          // commento che segue lo diceva.
+          await sendMessageRef.current!(item.sessionKey, item.content, { ...item.options, clientMessageId: item.id });
           // Esce di coda solo ADESSO, a tentativo concluso: per tutta la durata
           // dell'invio è rimasto scritto su disco, quindi una tab che muore a
           // metà lo ritrova. Si toglie anche quando `sendMessage` ha risposto
@@ -2838,7 +2896,11 @@ export function useChat() {
     writeQueue(queueStorage, EXPIRED_QUEUE_KEY, without(getExpiredQueue()));
     setExpiredMessages(prev => without(prev));
     try {
-      await sendMessageRef.current?.(item.sessionKey, item.content, item.options);
+      // Anche il retry a mano porta la chiave di allora. Quasi sempre il server
+      // l'avrà già dimenticata (scade in mezz'ora, e un messaggio scaduto è più
+      // vecchio) e riparte pulito: portarla non può causare un doppione, può
+      // solo evitarne uno.
+      await sendMessageRef.current?.(item.sessionKey, item.content, { ...item.options, clientMessageId: item.id });
     } catch {
       setExpiredMessages(enqueue(queueStorage, EXPIRED_QUEUE_KEY, item));
     }
