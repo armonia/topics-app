@@ -215,44 +215,86 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
               done
             fi
           fi
-          if [ "$RELOAD_ASKED" != 1 ]; then
-            echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
-            kill -TERM "$SP" 2>/dev/null
-          fi
-          # Settle window: one save can emit TWO fswatch batches (write +
-          # rename straddling the 2s latency). Without this pause the second
-          # batch SIGTERMs the FRESH server mid-init — before server.ts has
-          # registered its signal handlers — killing it with code 143 and
-          # skipping gracefulShutdown. Sleeping here just delays the next
-          # batch's reload until the new process is fully up (init is ~2-4s),
-          # so every reload stays graceful.
-          sleep 10
-          # …E POI SI CONTROLLA CHE SIA MORTO DAVVERO.
-          #
-          # Prima qui c'era solo lo `sleep 10`: si mandava SIGTERM e si andava
-          # avanti, dando per scontato che fosse bastato. Se il vecchio processo
-          # NON esce — un `gracefulShutdown` che resta appeso su un turno in
-          # volo, un handler che non ritorna — nessuno se ne accorge, e quello
-          # resta su. Misurato il 2026-08-15: un `bun run server.ts` vivo da
-          # 4h18m, reparentato a pid 1, senza piu' un socket in ascolto, che
-          # teneva 89 MB per niente mentre il server nuovo lavorava accanto.
-          # Non e' solo memoria sprecata: finche' e' vivo puo' ancora avere il
-          # DB aperto e i suoi timer accesi.
-          #
-          # Dieci secondi li ha gia' avuti sopra, e sono molti piu' dei 2-4s che
-          # l'init impiega. Se e' ancora li' dopo altri cinque, non sta
-          # chiudendo con garbo: sta ignorando il segnale. Allora SIGKILL, e
-          # detto ad alta voce — un reload che deve arrivare a SIGKILL e' un
-          # fatto da leggere nel log, non da nascondere.
-          if kill -0 "$SP" 2>/dev/null; then
-            for _ in 1 2 3 4 5; do
-              sleep 1
-              kill -0 "$SP" 2>/dev/null || break
+          if [ "$RELOAD_ASKED" = 1 ]; then
+            # NON SI UCCIDE CHI NON HA ANCORA RICEVUTO IL SEGNALE.
+            #
+            # Su questo ramo il SIGTERM non l'abbiamo mandato noi: se lo manda il
+            # server, DA SOLO, quando i turni finiscono (cap suo: 5 minuti).
+            # L'escalation dell'altro ramo — sleep 10, cinque secondi di grazia,
+            # SIGKILL a 15s — e' scritta per il caso opposto: segnale partito,
+            # processo che lo ignora. Applicata anche qui ammazzava un server che
+            # stava semplicemente ASPETTANDO, e un SIGKILL salta
+            # `gracefulShutdown`: niente detach dei figli nel broker, i turni
+            # tagliati a meta' — esattamente il danno che restart-when-idle
+            # esiste per evitare. Misurato nel log il 2026-08-18: tutte e cinque
+            # le volte in cui il cancello ha davvero atteso ([quiescence]
+            # waiting…) il server e' uscito con code 137. Il cancello non ha mai
+            # potuto arrivare in fondo nemmeno una volta.
+            #
+            # Qui si aspetta la SUA finestra (5 min + margine). Se la sfora,
+            # allora si' che e' appeso — ma si comincia dal SIGTERM, non dal
+            # martello.
+            echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: 5 min)"
+            WAITED=0
+            while kill -0 "$SP" 2>/dev/null && [ "$WAITED" -lt 330 ]; do
+              sleep 2
+              WAITED=$((WAITED + 2))
             done
             if kill -0 "$SP" 2>/dev/null; then
-              echo "[start-prod] ATTENZIONE: il server $SP ha ignorato SIGTERM per 15s — SIGKILL."
-              echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
-              kill -KILL "$SP" 2>/dev/null
+              echo "[start-prod] ATTENZIONE: restart-when-idle accettato, ma il server $SP e' ancora vivo dopo ${WAITED}s — SIGTERM."
+              kill -TERM "$SP" 2>/dev/null
+              for _ in 1 2 3 4 5 6 7 8 9 10; do
+                sleep 1
+                kill -0 "$SP" 2>/dev/null || break
+              done
+              if kill -0 "$SP" 2>/dev/null; then
+                echo "[start-prod] ATTENZIONE: ha ignorato anche il SIGTERM per 10s — SIGKILL."
+                echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
+                kill -KILL "$SP" 2>/dev/null
+              fi
+            fi
+            # Il vecchio e' uscito: la finestra di settle serve lo stesso, perche'
+            # il secondo batch di fswatch non deve colpire il server FRESCO a
+            # meta' init (il perche' sta nel ramo qui sotto).
+            sleep 5
+          else
+            echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
+            kill -TERM "$SP" 2>/dev/null
+            # Settle window: one save can emit TWO fswatch batches (write +
+            # rename straddling the 2s latency). Without this pause the second
+            # batch SIGTERMs the FRESH server mid-init — before server.ts has
+            # registered its signal handlers — killing it with code 143 and
+            # skipping gracefulShutdown. Sleeping here just delays the next
+            # batch's reload until the new process is fully up (init is ~2-4s),
+            # so every reload stays graceful.
+            sleep 10
+            # …E POI SI CONTROLLA CHE SIA MORTO DAVVERO.
+            #
+            # Prima qui c'era solo lo `sleep 10`: si mandava SIGTERM e si andava
+            # avanti, dando per scontato che fosse bastato. Se il vecchio processo
+            # NON esce — un `gracefulShutdown` che resta appeso su un turno in
+            # volo, un handler che non ritorna — nessuno se ne accorge, e quello
+            # resta su. Misurato il 2026-08-15: un `bun run server.ts` vivo da
+            # 4h18m, reparentato a pid 1, senza piu' un socket in ascolto, che
+            # teneva 89 MB per niente mentre il server nuovo lavorava accanto.
+            # Non e' solo memoria sprecata: finche' e' vivo puo' ancora avere il
+            # DB aperto e i suoi timer accesi.
+            #
+            # Dieci secondi li ha gia' avuti sopra, e sono molti piu' dei 2-4s che
+            # l'init impiega. Se e' ancora li' dopo altri cinque, non sta
+            # chiudendo con garbo: sta ignorando il segnale. Allora SIGKILL, e
+            # detto ad alta voce — un reload che deve arrivare a SIGKILL e' un
+            # fatto da leggere nel log, non da nascondere.
+            if kill -0 "$SP" 2>/dev/null; then
+              for _ in 1 2 3 4 5; do
+                sleep 1
+                kill -0 "$SP" 2>/dev/null || break
+              done
+              if kill -0 "$SP" 2>/dev/null; then
+                echo "[start-prod] ATTENZIONE: il server $SP ha ignorato SIGTERM per 15s — SIGKILL."
+                echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
+                kill -KILL "$SP" 2>/dev/null
+              fi
             fi
           fi
         fi

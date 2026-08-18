@@ -31,6 +31,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { describeInFlight } from "./server/lib/quiescence";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
@@ -4559,21 +4560,100 @@ setTimeout(() => {
 // reload-resilience path resumes whatever was still running. Only for
 // CONTROLLED restarts; raw SIGTERM/SIGINT (OS shutdown) stay fast.
 const QUIESCENCE_CAP_MS = 5 * 60_000;
+/** Il broker si interroga a questa cadenza, non a ogni giro da 500ms: la sonda
+ *  legge la coda dello store di OGNI sessione viva, e a 2Hz sarebbe un costo
+ *  pagato per un'informazione che cambia di rado. */
+const QUIESCENCE_BROKER_PROBE_MS = 5_000;
+
+/**
+ * Le sessioni di chat il cui TURNO è ancora aperto secondo il broker.
+ *
+ * È l'unico oracolo che vede un turno ADOTTATO. Dopo un riavvio la gamba di
+ * riadozione (`runHeadlessReattach`) dura un attimo — è un replay muto — e
+ * quando si chiude `endStream` toglie la voce da `activeStreams`. Da quel
+ * momento, in QUESTO processo, non esiste più niente che rappresenti il figlio
+ * CLI che sta ancora lavorando: `busyCount()` e `activeStreams` dicono «fermo»,
+ * e lo dicono con verità. Solo lo store del broker sa che il figlio è vivo.
+ *
+ * Direzione del fallimento: se il broker non risponde si torna una lista VUOTA,
+ * cioè non si trattiene il riavvio. È il verso opposto a quello del reap in
+ * `reattachSurvivingChatTurns` — là il dubbio salvava un turno dall'essere
+ * ucciso, qui il dubbio costerebbe un cancello che si inchioda su ogni riavvio
+ * per un ponte rotto. Un SIGTERM, a differenza di un kill, il turno non lo
+ * ammazza: il figlio sopravvive e viene riadottato.
+ */
+async function openBrokerChatTurns(): Promise<string[]> {
+  if (!aiBridgeEnabled()) return [];
+  try {
+    const sessions = await getAiBridgeClient().list();
+    const live = sessions.filter((s) => s.alive && s.id.startsWith("topic:"));
+    if (live.length === 0) return [];
+    const prov = tryGetProvider("claude-code") as
+      { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
+    if (typeof prov?.brokerTurnState !== "function") return [];
+    const open: string[] = [];
+    for (const s of live) {
+      // Niente `park: true`: quel flag è la promessa di riadottare subito, e qui
+      // stiamo solo guardando.
+      try { if (await prov.brokerTurnState(s.id) === "open") open.push(s.id); }
+      catch { /* una sessione che non risponde non trattiene il riavvio */ }
+    }
+    return open;
+  } catch { return []; }
+}
+
+let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
+
+/**
+ * Che cosa sta ancora lavorando — e perché il riavvio aspetta. `null` = niente.
+ *
+ * Il cancello guardava UN contatore solo: `taskDispatcher.busyCount()`, cioè
+ * `inFlight.size`, una mappa chiavata sul taskId e scritta solo da `beginRun`
+ * sul cammino di dispatch di una CARD. Una chat umana non è una card: non può
+ * entrarci per costruzione, e infatti non ci entrava. Il 2026-08-18 il server
+ * si è riavviato ~1,4 volte al minuto sopra un turno di chat vivo da quattordici
+ * minuti senza che una sola riga `[quiescence]` comparisse nel log — il predicato
+ * non era mai nemmeno entrato nel `while`. Il nome della rotta prometteva
+ * «quando i turni finiscono»; manteneva «quando finiscono i turni della board».
+ *
+ * Ora le fonti sono tre, in ordine di costo: le card (contatore in RAM), le chat
+ * che stanno streammando in QUESTO processo (`activeStreams`), e i turni
+ * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
+ * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
+ */
+async function whatIsStillWorking(): Promise<string | null> {
+  const cards = taskDispatcher.busyCount();
+  const streamKeys = [...activeStreams.keys()];
+  // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
+  // economica ha già detto «occupato», la risposta non cambia.
+  let brokerOpen = brokerProbeCache.open;
+  if (cards === 0 && streamKeys.length === 0) {
+    const now = Date.now();
+    if (now - brokerProbeCache.at >= QUIESCENCE_BROKER_PROBE_MS) {
+      brokerProbeCache = { at: now, open: await openBrokerChatTurns() };
+    }
+    brokerOpen = brokerProbeCache.open;
+  }
+  return describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen });
+}
+
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
   const deadline = Date.now() + capMs;
   let logged = false;
-  while (taskDispatcher.busyCount() > 0) {
+  for (;;) {
+    const busy = await whatIsStillWorking();
+    if (!busy) break;
     if (Date.now() >= deadline) {
-      console.warn(`[quiescence] ${label}: ${taskDispatcher.busyCount()} turn(s) still in flight after ${Math.round(capMs / 1000)}s — proceeding anyway (reload-resilience will resume them)`);
+      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo dopo ${Math.round(capMs / 1000)}s, si procede lo stesso (la reload-resilience li riprende)`);
       return;
     }
     if (!logged) {
-      console.log(`[quiescence] ${label}: waiting for ${taskDispatcher.busyCount()} in-flight turn(s) to finish before restart`);
+      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}`);
       logged = true;
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  if (logged) console.log(`[quiescence] ${label}: all turns finished — proceeding with restart`);
+  if (logged) console.log(`[quiescence] ${label}: tutto finito — si procede col riavvio`);
 }
 
 // Graceful shutdown
