@@ -59,6 +59,10 @@ export interface AppSettings {
    *  `cli`, il sistema storico. Vedi la migration `agent-runtime` per i numeri
    *  che giustificano l'esistenza dell'interruttore. */
   agentRuntime: string | null;
+  /** Mostrare la spesa in dollari sulla pagina pubblica del profilo (`/public/profile`).
+   *  DEFAULT false: la spesa e' un dato personale e non compare senza consenso
+   *  esplicito. Chi la vuole visibile la attiva manualmente. */
+  profilePublishCost: boolean | null;
 }
 
 const EMPTY: AppSettings = {
@@ -77,6 +81,7 @@ const EMPTY: AppSettings = {
   discordPresenceEnabled: null,
   discordDetailLevel: null,
   agentRuntime: null,
+  profilePublishCost: null,
 };
 
 interface Row {
@@ -95,6 +100,7 @@ interface Row {
   discord_presence_enabled: number | null;
   discord_detail_level: string | null;
   agent_runtime: string | null;
+  profile_publish_cost: number | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -116,6 +122,8 @@ function rowToSettings(r: Row): AppSettings {
       r.discord_presence_enabled == null ? null : r.discord_presence_enabled === 1,
     discordDetailLevel: r.discord_detail_level ?? null,
     agentRuntime: r.agent_runtime ?? null,
+    profilePublishCost:
+      r.profile_publish_cost == null ? null : r.profile_publish_cost === 1,
   };
 }
 
@@ -134,7 +142,7 @@ export function getAppSettings(): AppSettings {
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
                 output_language, discord_presence_enabled, discord_detail_level,
-                agent_runtime
+                agent_runtime, profile_publish_cost
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -162,6 +170,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   discordPresenceEnabled: "discord_presence_enabled",
   discordDetailLevel: "discord_detail_level",
   agentRuntime: "agent_runtime",
+  profilePublishCost: "profile_publish_cost",
 };
 
 /**

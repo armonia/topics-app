@@ -95,6 +95,9 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // La meccanica di esecuzione. `null` rimette il default del codice (`cli`),
   // che è anche ciò che manda chi azzera la scelta.
   agentRuntime: { kind: "string", allow: RUNTIMES },
+  // Spesa in dollari sulla pagina pubblica del profilo: opt-in esplicito,
+  // default false — dato personale.
+  profilePublishCost: { kind: "bool" },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */

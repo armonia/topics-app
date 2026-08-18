@@ -648,6 +648,15 @@ const EN = {
   'profile.banner.copy': 'Copy for the README',
   'profile.banner.copied': 'Copied',
   'profile.banner.hint': 'An SVG with these numbers, to save and drop into a README.',
+  // ── Public profile: the shareable page.
+  'profile.public.label': 'Public page',
+  'profile.public.hint': 'A URL with no login required. Anyone who reaches it sees these stats, without the spend.',
+  'profile.public.open': 'Open',
+  'profile.public.copy': 'Copy link',
+  'profile.public.copied': 'Copied',
+  'profile.public.showCost': 'Also show spend in dollars',
+  'profile.public.showCostHint': 'Spend is personal. It does not appear on the public page by default.',
+  'profile.public.hintLanOnly': 'Reachable only on the local network. For a public URL, enable the relay in settings.',
   // ── Discord: what this app says about you, and in how much detail.
   'discord.title': 'Discord status',
   'discord.blurb': 'Topics can show on your Discord profile what it is working on. The numbers are this installation’s exact counts, not a guess based on processes.',

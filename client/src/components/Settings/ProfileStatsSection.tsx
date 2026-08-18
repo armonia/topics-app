@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { profileApi, type ProfileStats } from '../../lib/api';
+import { appSettingsApi, profileApi, type AppBehaviorSettings, type ProfileStats } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
 import { bannerMarkdown } from '../../lib/bannerShare';
 
@@ -57,6 +57,17 @@ function Sparkline({ serie }: { serie: ProfileStats['activity']['last30'] }) {
   );
 }
 
+/**
+ * Risultato della configurazione relay: URL condivisibile via relay oppure
+ * URL locale (LAN only).
+ */
+interface RelayInfo {
+  /** URL di destinazione (relay o localhost). */
+  url: string;
+  /** `true` = l'URL è raggiungibile solo sulla LAN locale. */
+  lanOnly: boolean;
+}
+
 export function ProfileStatsSection() {
   const t = useT();
   const [stats, setStats] = useState<ProfileStats | null>(null);
@@ -65,14 +76,64 @@ export function ProfileStatsSection() {
   const [copiato, setCopiato] = useState(false);
   // L'avviso vive finche' non si ricopia: e' la risposta a un gesto.
   const [avviso, setAvviso] = useState<string | null>(null);
+  const [copiatoLink, setCopiatoLink] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppBehaviorSettings | null>(null);
+  const [relayInfo, setRelayInfo] = useState<RelayInfo | null>(null);
 
   useEffect(() => {
     let vivo = true;
     profileApi.stats()
       .then((r) => { if (vivo) { setStats(r.stats); setNome(r.name); } })
       .catch(() => { if (vivo) setErrore(true); });
+    appSettingsApi.get()
+      .then((s) => { if (vivo) setAppSettings(s); })
+      .catch(() => { /* non bloccante */ });
+    // Costruisce l'URL pubblico dal relay se disponibile.
+    // `/i/:relayId/public/profile` e' il percorso del browser proxy del relay.
+    fetch('/api/auth/relay', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((r: { enabled: boolean; baseUrl: string | null; relayId: string | null }) => {
+        if (!vivo) return;
+        if (r.enabled && r.baseUrl && r.relayId) {
+          setRelayInfo({
+            url: `${r.baseUrl}/i/${r.relayId}/public/profile`,
+            lanOnly: false,
+          });
+        } else {
+          // Relay non configurato: l'URL funziona solo in LAN.
+          setRelayInfo({
+            url: `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`,
+            lanOnly: true,
+          });
+        }
+      })
+      .catch(() => {
+        if (!vivo) return;
+        setRelayInfo({
+          url: `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`,
+          lanOnly: true,
+        });
+      });
     return () => { vivo = false; };
   }, []);
+
+  // Prima che il relay risponda, usa l'URL locale come placeholder.
+  const publicUrl = relayInfo?.url
+    ?? `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`;
+  const lanOnly = relayInfo?.lanOnly ?? true;
+
+  const togglePublishCost = useCallback(async () => {
+    if (!appSettings) return;
+    const next = !appSettings.profilePublishCost;
+    setAppSettings((s) => s ? { ...s, profilePublishCost: next } : s);
+    try {
+      const updated = await appSettingsApi.update({ profilePublishCost: next });
+      setAppSettings(updated);
+    } catch {
+      // Ripristina il valore precedente in caso di errore
+      setAppSettings((s) => s ? { ...s, profilePublishCost: !next } : s);
+    }
+  }, [appSettings]);
 
   if (errore) {
     return (
@@ -199,6 +260,52 @@ export function ProfileStatsSection() {
               {avviso && (
                 <p data-testid="profile-banner-warning" className="w-full text-[10.5px] leading-snug text-amber-400">{avviso}</p>
               )}
+            </div>
+
+            {/* ── Pagina pubblica: URL da condividere, senza login. ──────── */}
+            <div className="flex flex-col gap-1.5 border-t border-app-border pt-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-app-text-secondary">{t('profile.public.label')}</span>
+                <a
+                  href={publicUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                >
+                  {t('profile.public.open')}
+                </a>
+                <button
+                  type="button"
+                  data-testid="profile-public-copy"
+                  onClick={async () => {
+                    setCopiatoLink(await copyText(publicUrl));
+                    setTimeout(() => setCopiatoLink(false), 2000);
+                  }}
+                  className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                >
+                  {copiatoLink ? t('profile.public.copied') : t('profile.public.copy')}
+                </button>
+              </div>
+              {/* Avviso LAN-only: se il relay non e' configurato, l'URL funziona
+                  solo sulla rete locale. Distinguiamo i due casi con testo diverso
+                  cosi' chi incolla sa gia' cosa aspettarsi. */}
+              <p className="text-[10.5px] text-app-text-muted">
+                {lanOnly ? t('profile.public.hintLanOnly') : t('profile.public.hint')}
+              </p>
+              {/* Toggle spesa: dato personale, opt-in esplicito. */}
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-3 w-3 flex-shrink-0 accent-primary"
+                  checked={appSettings?.profilePublishCost === true}
+                  onChange={togglePublishCost}
+                  disabled={appSettings == null}
+                />
+                <span className="text-[11px] text-app-text-secondary">
+                  {t('profile.public.showCost')}
+                  <span className="ml-1 text-[10.5px] text-app-text-muted">{t('profile.public.showCostHint')}</span>
+                </span>
+              </label>
             </div>
           </>
         )}
