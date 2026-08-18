@@ -626,6 +626,23 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
 
       if (decision.action === "keep") {
         keep(decision.reason);
+        // Modifiche non committate: il worktree sopravvive, ma l'umano deve
+        // saperlo — altrimenti non sa dove cercare il lavoro. Senza questa
+        // nota la card era silenziosa anche quando il suo worktree conteneva
+        // l'unica copia del lavoro non committato (misurato il 18/08 su
+        // `eef64e32`: `groovy-frond` era vivo ma nessuno sapeva dove guardare).
+        //
+        // La condizione legge la ragione, non un flag a parte: "modifiche non
+        // committate" è l'unica nota che `decideWorktreeReap` aggiunge quando
+        // si ferma per sporco, e nient'altro usa quella stringa.
+        if (taskId && decision.reason.includes("non committate")) {
+          const dirtNote = (!probe.ok)
+            ? `⚠️ Worktree \`${wt.branchName ?? wt.id}\` tenuto: la sonda git non ha risposto (path: \`${wt.absPath}\`). ` +
+              "Verificare a mano: potrebbe contenere lavoro non committato."
+            : `⚠️ Worktree \`${wt.branchName ?? wt.id}\` tenuto per modifiche non committate (path: \`${wt.absPath}\`). ` +
+              "Il lavoro non si perde, ma non e' su nessun commit: committare o salvare prima di eliminare il worktree.";
+          deps.noteOnTask?.(taskId, dirtNote);
+        }
         await slimKept(wt, taskStatus, taskArchived, present);
         continue;
       }
