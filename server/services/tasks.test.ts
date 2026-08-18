@@ -1760,10 +1760,13 @@ describe("il costo di una lista non cresce con le righe", () => {
    * loro `null`. Il tetto è salito da 1.600 il 16/08, quando le tre colonne
    * dell'entità della consegna (`deliveryFilesChanged`/`Insertions`/`Deletions`,
    * migration 20260816174500) hanno aggiunto ~53 byte per task: misurato 1.653.
+   * Rialzato a 1.750 il 18/08, quando `urlProbeStatus` e `urlProbeCheckedAt`
+   * (migration 20260818164410) hanno aggiunto ~40 byte per task: misurato 1.716.
    * Alzarlo è legittimo SOLO perché il pavimento è cresciuto per una ragione
-   * dichiarata — tre campi che la card in review disegna — e non perché il
-   * payload si è ingrassato di nascosto. La controprova sotto, che è la parte
-   * che non si ricalibra, resta identica. Restano poi due campi che non sono grasso ma contenuto —
+   * dichiarata — due campi che la card in review usa per decidere se mostrare
+   * il link all'anteprima viva — e non perché il payload si è ingrassato di
+   * nascosto. La controprova sotto, che è la parte che non si ricalibra, resta
+   * identica. Restano poi due campi che non sono grasso ma contenuto:
    * l'anteprima (263 byte, ed è ciò che la card disegna) e `queueReason`
    * (242 byte, la frase che dice perché la card non parte). Sotto i 700 non ci
    * si arriva accorciando: ci si arriva togliendo chiavi, che è un altro
@@ -1774,14 +1777,14 @@ describe("il costo di una lista non cresce con le righe", () => {
    * dei check, e quella condizione va rossa il giorno in cui uno dei due torna,
    * qualunque soglia si scriva sopra.
    */
-  test("proiezione magra: sotto i 1700 byte per task, con descrizioni da 2500 caratteri", () => {
+  test("proiezione magra: sotto i 1750 byte per task, con descrizioni da 2500 caratteri", () => {
     const db = freshDb();
     const s = svc(db);
     seed(db, { description: "d".repeat(2500) });
     const magra = s.list({ scope: "all", rootsOnly: true });
     expect(magra.length).toBe(300);
     const testo = JSON.stringify({ tasks: magra });
-    expect(testo.length / magra.length).toBeLessThan(1700);
+    expect(testo.length / magra.length).toBeLessThan(1750);
     // Strutturale: i due pesi che questo cambio toglie non sono nel payload.
     expect(testo).not.toContain("d".repeat(300));  // la descrizione intera
     expect(testo).not.toContain("x".repeat(300));  // la coda dei check
@@ -2052,7 +2055,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- literal e un backtick apre un'interpolazione JS. Seconda volta oggi.)
          delivery_files_changed = 7, delivery_insertions = 120, delivery_deletions = 30,
          -- 20260816214500: da quando la card aspetta una risposta umana.
-         review_at = ?
+         review_at = ?,
+         -- 20260818164410: esito sonda server-side sull'output_url.
+         url_probe_status = 'live', url_probe_checked_at = ?
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
@@ -2062,7 +2067,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
         `🎯${"d".repeat(400)}`,
         TS, TS, TS, TS, TS, bloccante.id, "2020-01-01T00:00:00.000Z",
         TS, TS, JSON.stringify([{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "ok" }]),
-        TS, TS, TS, TS, TS, t.id,
+        TS, TS, TS, TS, TS, TS, t.id,
       ],
     );
     return { id: t.id, altri: [padre.id, passo.id, bloccante.id, inCoda.id, dipendente.id] };
@@ -2147,7 +2152,7 @@ describe("bindTopic: una sessione nuova e' un tentativo nuovo", () => {
   });
 });
 
-// ── re-dispatch: archiviare i sottotask del tentativo morto ──────────────
+// ── re-dispatch: il tentativo muore, la checklist no ─────────────────────
 //
 // Misurato il 18/08 su `eef64e32`: il task era passato a `stellar-weasel` ma
 // i quattro sottotask creati dal topic `groovy-frond` erano rimasti attaccati,
@@ -2155,9 +2160,15 @@ describe("bindTopic: una sessione nuova e' un tentativo nuovo", () => {
 // checklist di un tentativo morto — tre su quattro falsi positivi — e il
 // quarto mandava il padre in attesa di nessuno (deadlock silenzioso).
 //
-// Il fix: al cambio di topic (freshSession:true), i sottotask creati dal
-// topic PRECEDENTE vengono archiviati e una nota lo dice nel thread.
-describe("bindTopic: il cambio di topic archivia i sottotask del tentativo morto (Test 2)", () => {
+// La prima cura archiviava TUTTO, e curava metà del male facendo l'altra metà:
+// un `done` che descrive lavoro buttato è una bugia e se ne deve andare, ma un
+// aperto è il PIANO — l'unica cosa buona che il tentativo morto lascia — e
+// archiviarlo faceva ripartire il nuovo agente dal foglio bianco.
+//
+// La regola di adesso: i `done` si archiviano, gli aperti cambiano PADRONE
+// (`status` a `todo`, `created_by_topic_id` al topic nuovo), e la nota dice
+// quale dei due è successo a quanti.
+describe("bindTopic: al cambio di topic i `done` si archiviano e gli aperti si ereditano", () => {
   function setup() {
     const db = freshDb();
     db.prepare("INSERT INTO topics (id) VALUES ('topic-a')").run();
@@ -2165,101 +2176,295 @@ describe("bindTopic: il cambio di topic archivia i sottotask del tentativo morto
     return { db, s: svc(db) };
   }
 
-  test("quattro figli del topic A — alcuni done, uno in_progress — passati al topic B: tutti archiviati", () => {
+  /** Come farebbe il `create_task` MCP reale: la provenienza è del topic vivo. */
+  function daTopic(db: Database, id: string, topic: string, status?: string): void {
+    db.prepare("UPDATE tasks SET created_by_topic_id = ? WHERE id = ?").run(topic, id);
+    if (status) db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, id);
+  }
+  const rigaDi = (db: Database, id: string) =>
+    db.prepare("SELECT archived, status, created_by_topic_id AS topic FROM tasks WHERE id = ?").get(id) as
+      { archived: number; status: string; topic: string | null };
+
+  test("tre `done` e un `in_progress`: i done spariscono, l'aperto resta e passa al topic nuovo", () => {
     const { db, s } = setup();
     const parent = s.create({ projectId: PID, text: "Il task padre" });
-
-    // Simula il primo dispatch: bindTopic al topic A.
     s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
 
-    // L'agent crea quattro sottotask nel suo turno (con created_by_topic_id = topic-a).
     const c1 = s.create({ projectId: PID, text: "Step 1", parentTaskId: parent.id });
     const c2 = s.create({ projectId: PID, text: "Step 2", parentTaskId: parent.id });
     const c3 = s.create({ projectId: PID, text: "Step 3", parentTaskId: parent.id });
     const c4 = s.create({ projectId: PID, text: "Step 4", parentTaskId: parent.id });
+    daTopic(db, c1.id, "topic-a", "done");
+    daTopic(db, c2.id, "topic-a", "done");
+    daTopic(db, c3.id, "topic-a", "done");
+    daTopic(db, c4.id, "topic-a", "in_progress");
 
-    // Marca i created_by_topic_id a topic-a (come farebbe il createTask MCP reale).
-    for (const c of [c1, c2, c3, c4]) {
-      db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a' WHERE id = ?").run(c.id);
-    }
-
-    // Simula lo stato della checklist al momento del re-dispatch:
-    // tre step done, uno in_progress.
-    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(c1.id);
-    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(c2.id);
-    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(c3.id);
-    db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(c4.id);
-
-    // Re-dispatch al topic B (freshSession: true = sessione nuova = tentativo nuovo).
     s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
 
-    // Tutti e quattro i figli devono essere archiviati.
-    const isArchived = (id: string) =>
-      (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as any).archived === 1;
-    for (const c of [c1, c2, c3, c4]) {
-      expect(isArchived(c.id), `Step ${c.id} deve essere archiviato`).toBe(true);
+    for (const c of [c1, c2, c3]) {
+      expect(rigaDi(db, c.id).archived, `${c.text}: un done buttato non resta a mentire`).toBe(1);
     }
+    const superstite = rigaDi(db, c4.id);
+    expect(superstite.archived, "l'aperto non si archivia: è il piano").toBe(0);
+    expect(superstite.status, "l'`in_progress` era di un turno che non gira più").toBe("todo");
+    expect(superstite.topic, "cambia padrone: ora è del topic nuovo").toBe("topic-b");
+  });
 
-    // Il padre NON deve avere figli aperti (archived esclude dalla conta).
-    const openCount = (
+  test("il piano SOPRAVVIVE: il padre resta con la sua checklist aperta, non col foglio bianco", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Quel che restava da fare", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const aperti = (
       db.prepare(
         "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
       ).get(parent.id) as any
     ).c;
-    expect(openCount, "nessun figlio aperto dopo il cambio topic").toBe(0);
+    expect(aperti, "lo step resta nella checklist del padre").toBe(1);
+    // E si vede anche dal drawer, non solo a SQL.
+    expect(s.get(parent.id)!.children.map((c) => c.id)).toEqual([step.id]);
   });
 
-  test("il cambio di topic scrive una nota nel thread con cosa c'era", () => {
+  test("l'agente NUOVO può chiudere lo step ereditato, anche dopo che `release` ha azzerato il legame", () => {
+    // È il deadlock del 18/08 preso di petto. `assigned_topic_id` è stato di
+    // DISPATCH e `release` lo azzera mentre il turno gira ancora: se la
+    // provenienza restasse al topic morto, `isOwnStep` direbbe di no e l'agente
+    // nuovo prenderebbe 409 sul proprio step. È la provenienza a scioglierlo.
     const { db, s } = setup();
     const parent = s.create({ projectId: PID, text: "Il task padre" });
     s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step ereditato", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
 
-    const child = s.create({ projectId: PID, text: "Step da archiviare", parentTaskId: parent.id });
-    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a', status = 'done' WHERE id = ?").run(child.id);
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+    // Il dispatcher rilascia il padre mentre il turno di topic-b continua.
+    db.prepare("UPDATE tasks SET assigned_topic_id = NULL, dispatch_state = 'queued' WHERE id = ?").run(parent.id);
+
+    const chiuso = s.update({
+      taskId: step.id, actor: "agent", by: "topic-b",
+      patch: { status: "done" }, agentTopicId: "topic-b",
+    });
+    expect(chiuso.status).toBe("done");
+  });
+
+  test("la nota nel thread dice quale dei due è successo, e a quanti", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const fatto = s.create({ projectId: PID, text: "Step finito", parentTaskId: parent.id });
+    const aperto = s.create({ projectId: PID, text: "Step rimasto a meta", parentTaskId: parent.id });
+    daTopic(db, fatto.id, "topic-a", "done");
+    daTopic(db, aperto.id, "topic-a", "in_progress");
 
     s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
 
-    // Deve esserci un commento di sistema che descrive l'archiviazione.
-    const comments = s.get(parent.id)!.comments;
-    const note = comments.find((c) => c.author === "system" && c.content.includes("topic-a"));
-    expect(note, "nota di sistema con il topic vecchio").toBeTruthy();
+    const nota = s.get(parent.id)!.comments.find((c) => c.author === "system" && c.content.includes("topic-a"));
+    expect(nota, "nota di sistema con il topic vecchio").toBeTruthy();
+    expect(nota!.content).toContain("topic-b");
+    expect(nota!.content, "un archiviato, al singolare").toContain("1 sottotask completato archiviato");
+    expect(nota!.content, "un ereditato, al singolare").toContain("1 sottotask incompleto ereditato");
+    expect(nota!.content, "e QUALE step si eredita, non solo quanti").toContain("- Step rimasto a meta");
+    expect(nota!.content, "lo step archiviato non si rielenca: è cronaca chiusa").not.toContain("- Step finito");
   });
 
-  test("senza freshSession (ripresa) NON si archiviano i figli", () => {
+  test("solo `done`: la nota parla di archiviazione e basta", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const fatto = s.create({ projectId: PID, text: "Solo questo", parentTaskId: parent.id });
+    daTopic(db, fatto.id, "topic-a", "done");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const nota = s.get(parent.id)!.comments.find((c) => c.author === "system" && c.content.includes("topic-a"))!;
+    expect(nota.content).toContain("archiviato");
+    expect(nota.content, "niente eredità: non c'era niente di aperto").not.toContain("ereditat");
+  });
+
+  test("niente sottotask del topic morto: nessuna nota (la board non si sporca per niente)", () => {
+    const { s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre senza step" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const note = s.get(parent.id)!.comments.filter((c) => c.author === "system" && c.content.includes("Sessione cambiata"));
+    expect(note.length, "nessun figlio, nessuna nota").toBe(0);
+  });
+
+  test("senza freshSession (ripresa) non si tocca niente", () => {
     const { db, s } = setup();
     const parent = s.create({ projectId: PID, text: "Task ripreso" });
     s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
-
     const child = s.create({ projectId: PID, text: "Step", parentTaskId: parent.id });
-    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a' WHERE id = ?").run(child.id);
+    daTopic(db, child.id, "topic-a", "in_progress");
 
-    // Ripresa della stessa sessione (freshSession: false/undefined).
     s.bindTopic({ taskId: parent.id, topicId: "topic-a" });
 
-    // Il figlio NON deve essere archiviato (stessa sessione).
-    const archivedBit = (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(child.id) as any).archived;
-    expect(archivedBit ?? 0, "stesso topic: figlio non toccato").toBe(0);
+    const r = rigaDi(db, child.id);
+    expect(r.archived ?? 0, "stesso topic: figlio non toccato").toBe(0);
+    expect(r.status, "e nemmeno lo stato: il turno è LO STESSO").toBe("in_progress");
   });
 
-  test("figli creati da altri topic non vengono toccati", () => {
+  test("figli creati da altri topic non vengono toccati, né archiviati né riassegnati", () => {
     const { db, s } = setup();
     db.prepare("INSERT INTO topics (id) VALUES ('topic-c')").run();
     const parent = s.create({ projectId: PID, text: "Task padre" });
     s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
 
-    // Un figlio creato da topic-a (vecchio) e uno da topic-c (altro agente / umano).
-    const fromA = s.create({ projectId: PID, text: "Da topic A", parentTaskId: parent.id });
-    const fromC = s.create({ projectId: PID, text: "Da topic C / umano", parentTaskId: parent.id });
-    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-a' WHERE id = ?").run(fromA.id);
-    db.prepare("UPDATE tasks SET created_by_topic_id = 'topic-c' WHERE id = ?").run(fromC.id);
+    const daA = s.create({ projectId: PID, text: "Da topic A", parentTaskId: parent.id });
+    const daC = s.create({ projectId: PID, text: "Da topic C / umano", parentTaskId: parent.id });
+    daTopic(db, daA.id, "topic-a", "in_progress");
+    daTopic(db, daC.id, "topic-c", "in_progress");
 
     s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
 
-    // Solo fromA viene archiviato.
-    const archOf = (id: string) =>
-      (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as any).archived === 1;
-    expect(archOf(fromA.id), "fromA archiviato").toBe(true);
-    // fromC NON viene toccato.
-    expect(archOf(fromC.id), "fromC non toccato").toBe(false);
+    const a = rigaDi(db, daA.id);
+    expect(a.status, "il proprio: ereditato").toBe("todo");
+    expect(a.topic).toBe("topic-b");
+    const c = rigaDi(db, daC.id);
+    expect(c.archived, "l'altrui non si archivia").toBe(0);
+    expect(c.status, "e non gli si tocca lo stato").toBe("in_progress");
+    expect(c.topic, "né la provenienza: non è roba del tentativo morto").toBe("topic-c");
+  });
+
+  test("il TASK non è uno step: la sua provenienza non si riscrive mai", () => {
+    // Se il padre stesso portasse `created_by_topic_id = topic-a` (l'ha aperto
+    // un agente su quel topic), il taglio sull'albero se lo prenderebbe e gli
+    // riscriverebbe stato e provenienza: sarebbe il deliverable rimesso in
+    // `todo` da un bind. L'esclusione della radice è quella riga.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre nato da un agente" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    daTopic(db, parent.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const r = rigaDi(db, parent.id);
+    expect(r.status, "il deliverable non torna in todo").toBe("in_progress");
+    expect(r.topic, "e resta figlio di chi l'ha aperto").toBe("topic-a");
+    expect(r.archived).toBe(0);
+  });
+
+  test("la riga di stato la scrive chi sposta: lo step ereditato non cambia colonna da solo", () => {
+    // Ogni altra porta che sposta un task scrive l'evento. Senza, il drawer
+    // dello step (che È navigabile) mostra una colonna cambiata e nessuno che
+    // l'abbia cambiata. Il `from` è quello VERO, come in `resolveParkedChildren`.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step al lavoro", parentTaskId: parent.id });
+    const fermo = s.create({ projectId: PID, text: "Step gia' in todo", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+    daTopic(db, fermo.id, "topic-a", "todo");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const eventiDi = (id: string) =>
+      (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'status'").all(id) as any[])
+        .map((r) => r.content);
+    expect(eventiDi(step.id).join(" "), "in_progress -> todo, scritto").toContain("todo");
+    expect(eventiDi(step.id).length).toBe(1);
+    expect(
+      eventiDi(fermo.id),
+      "gia' in todo: non si e' mosso, e non deve inventarsi un passaggio",
+    ).toEqual([]);
+  });
+
+  test("uno step in `review` non lascia dietro un'approvazione che nessuno puo' piu' chiudere", () => {
+    // `reviewDecision` rifiuta un task che in review non c'e' piu': se la riga
+    // resta `pending`, resta pendente per sempre. È la perdita che la migration
+    // 068 ha dovuto ripulire una volta.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step consegnato", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a");
+    // Il cancello sulla consegna muta vuole il riassunto del turno: e' la
+    // strada vera, e senza non si arriva nemmeno a `review`.
+    s.addComment({ taskId: step.id, author: "topic-a", content: "Fatto, guarda qui." });
+    s.update({
+      taskId: step.id, actor: "agent", by: "topic-a",
+      patch: { status: "review" }, agentTopicId: "topic-a",
+    });
+    const pendenti = () =>
+      (db.prepare(
+        "SELECT COUNT(*) AS c FROM approvals WHERE task_id = ? AND approval_type = 'review' AND status = 'pending'",
+      ).get(step.id) as any).c;
+    expect(pendenti(), "premessa: l'approvazione c'e' davvero").toBe(1);
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    expect(rigaDi(db, step.id).status, "lo step torna lavorabile").toBe("todo");
+    expect(pendenti(), "e l'approvazione e' chiusa, non abbandonata").toBe(0);
+  });
+
+  test("lo step ereditato non porta con se' il parcheggio del tentativo morto", () => {
+    // Le stesse colonne che `resolveParkedChildren` azzera rimettendo in coda un
+    // figlio: un mandato nuovo, non un residuo. Una finestra di rinvio rimasta
+    // sopra vuol dire uno step che dice «in coda» dentro una coda che non lo serve.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step incagliato", parentTaskId: parent.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+    db.prepare(
+      "UPDATE tasks SET dispatch_state = 'failed', dispatch_error = 'esploso', " +
+        "dispatch_attempts = 4, dispatch_deferred_until = '2099-01-01T00:00:00.000Z' WHERE id = ?",
+    ).run(step.id);
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    const r = db.prepare(
+      "SELECT dispatch_state, dispatch_error, dispatch_attempts, dispatch_deferred_until AS until FROM tasks WHERE id = ?",
+    ).get(step.id) as any;
+    expect(r.dispatch_state).toBe(null);
+    expect(r.dispatch_error).toBe(null);
+    expect(r.dispatch_attempts).toBe(0);
+    expect(r.until, "la finestra di rinvio del tentativo morto non vincola quello nuovo").toBe(null);
+  });
+
+  test("annidati: anche lo step DELLO step cambia padrone, non solo il primo livello", () => {
+    // Il buco che il taglio sui figli diretti lascerebbe: il nipote resterebbe
+    // col topic morto, e sarebbe l'unico che nessuno può chiudere — un livello
+    // più sotto, lo stesso deadlock.
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step", parentTaskId: parent.id });
+    const sotto = s.create({ projectId: PID, text: "Sotto-step", parentTaskId: step.id });
+    daTopic(db, step.id, "topic-a", "in_progress");
+    daTopic(db, sotto.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    for (const id of [step.id, sotto.id]) {
+      const r = rigaDi(db, id);
+      expect(r.archived).toBe(0);
+      expect(r.status).toBe("todo");
+      expect(r.topic, "a ogni profondità").toBe("topic-b");
+    }
+  });
+
+  test("un aperto appeso a uno step `done` se ne va con lui: non resta a pendere dal vuoto", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const fatto = s.create({ projectId: PID, text: "Step chiuso", parentTaskId: parent.id });
+    const sotto = s.create({ projectId: PID, text: "Sotto-step aperto", parentTaskId: fatto.id });
+    daTopic(db, fatto.id, "topic-a", "done");
+    daTopic(db, sotto.id, "topic-a", "in_progress");
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    expect(rigaDi(db, fatto.id).archived).toBe(1);
+    expect(rigaDi(db, sotto.id).archived, "la cascata se lo porta: il suo passo non esiste più").toBe(1);
+    // E la nota non lo elenca fra gli ereditati.
+    const nota = s.get(parent.id)!.comments.find((c) => c.author === "system" && c.content.includes("Sessione cambiata"))!;
+    expect(nota.content).not.toContain("- Sotto-step aperto");
   });
 });

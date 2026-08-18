@@ -13,6 +13,7 @@ import { PlanSection } from './PlanSection';
 import { ProfileStatsSection } from './ProfileStatsSection';
 import { DiscordSection } from './DiscordSection';
 import { FriendsSection } from './FriendsSection';
+import { OrgProjectsSection } from './OrgProjectsSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { useT } from '../../hooks/useT';
 
@@ -241,6 +242,8 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                     non voleva dire che mancassero: voleva dire che erano la
                     quarta cosa dentro la voce sbagliata. */}
                 <IdentitySection />
+                {/* I PROGETTI DELL'ORG: cosa c'e' gia' e cosa e' consigliato. */}
+                <OrgProjectsSection />
                 {/* I profili vengono DOPO l'elenco delle persone: quello dice chi
                     c'è, questo dice chi sono. */}
                 <FriendsSection />
