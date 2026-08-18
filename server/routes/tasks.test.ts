@@ -772,17 +772,36 @@ describe("board router (human, project-scoped)", () => {
     const { mkdtempSync, mkdirSync, existsSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join, resolve } = await import("node:path");
-    // NON `tmpdir()` per la home finta, e non e' un dettaglio di igiene: la
-    // regola che si sta verificando SCARTA le cartelle nascoste (un progetto
-    // creato a mano non nasce in una dot-dir, ed e' cosi' che `~/.topics/
-    // worktrees` non vince la conta). Con un `TMPDIR` dentro una dot-dir —
-    // `~/.jcode/scratch` su questa macchina, ma vale per ogni runner che lo
-    // sposti — l'intera home finta finiva scartata e il test falliva
-    // denunciando il codice giusto. La radice sta accanto al repo, dove nessun
-    // segmento inizia per punto, cosi' la deduzione misura se stessa e non
-    // l'ambiente.
+    // LA HOME FINTA NON PUO' STARE IN UNA DOT-DIR, e sceglierla e' meta' del
+    // test. La regola che si verifica SCARTA le cartelle nascoste (un progetto
+    // creato a mano non nasce in una dot-dir, ed e' cosi' che
+    // `~/.topics/worktrees` non vince la conta): una radice con un segmento che
+    // inizia per punto fa fallire il test denunciando il codice GIUSTO.
+    //
+    // Due candidati sbagliati, tutti e due gia' costati un rosso:
+    //  · `tmpdir()` — con `TMPDIR` dentro una dot-dir (`~/.jcode/scratch` su
+    //    questa macchina) la home finta e' nascosta in partenza;
+    //  · ACCANTO AL REPO — che era la correzione precedente, e funziona solo
+    //    nel checkout principale. Nel worktree di un agente il repo VIVE sotto
+    //    `~/.topics/worktrees/<repo>/<ramo>`: la radice nasce nascosta, la
+    //    deduzione ricade sul workspace e il test e' rosso. Misurato il 18/08 in
+    //    tre worktree diversi, su rami diversi: sempre rosso li', sempre verde
+    //    nel checkout principale. Costo vero: la barra di review di OGNI agente
+    //    portava questo rosso, e chi consegnava lo trovava addosso senza
+    //    averlo causato.
+    //
+    // Quindi la radice si SCEGLIE e si VERIFICA: il primo candidato senza
+    // segmenti nascosti vince, e se non ce n'e' nessuno il test lo dice invece
+    // di misurare l'ambiente.
+    const nascosta = (p: string) => p.includes("/.");
+    const candidati = [resolve(import.meta.dir, "../.."), tmpdir(), "/tmp"];
+    const radice = candidati.find((c) => !nascosta(c));
+    if (!radice) throw new Error(
+      `nessuna radice senza segmenti nascosti fra ${candidati.join(", ")}: ` +
+      "il test misurerebbe l'ambiente invece della deduzione",
+    );
     const tmpRoot = mkdtempSync(join(tmpdir(), "tasks-router-ws-"));
-    const visibleRoot = mkdtempSync(join(resolve(import.meta.dir, "../.."), "tmp-tasks-router-"));
+    const visibleRoot = mkdtempSync(join(radice, "tmp-tasks-router-"));
     const ws = tmpRoot;
     const home = visibleRoot;
     const projects = join(home, "Projects");
