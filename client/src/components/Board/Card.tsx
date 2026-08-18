@@ -572,7 +572,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Il numero, non un booleano: dentro il chip serve il VALORE, e un flag
   // separato costringerebbe a un `!` che dice al compilatore «fidati» proprio
   // dove il dato può mancare. `null` = niente chip, e la riga sotto lo sa.
-  const deliveryStat = task.status === 'review' && task.deliveryFilesChanged != null
+  // Lo ZERO non passa di qui: un ramo senza commit ha il suo chip
+  // (`senzaCommit`), e «0 file +0 -0» accanto direbbe due volte la stessa cosa
+  // con la forma di una misura buona.
+  const deliveryStat = task.status === 'review' && task.deliveryFilesChanged
     ? task.deliveryFilesChanged
     : null;
   // COME E' STATO LAVORATO, quando una misura non c'e'.
@@ -600,6 +603,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // UNA SOLA CHIP PER LA NON-CONSEGNA: la regola sta in `lib/board.ts`
   // (`nothingDeliveredWins`), dove un test la raggiunge. Qui si applica.
   const senzaConsegna = evidenza.kind === 'empty' && nothingDeliveredWins(task.deliveredReason);
+  // RAMO SENZA UN COMMIT: si dice PRIMA che qualcuno clicchi «Landa su main».
+  // Non e' una consegna piccola, e' nessuna consegna — e quel land si
+  // rifiutera', perche' i file non committati nel worktree bloccano il
+  // riallineamento. Vedi `lib/reviewEvidence.ts` per la misura.
+  const senzaCommit = evidenza.kind === 'uncommitted';
   // DA QUANTO ASPETTA UNA RISPOSTA. La data di aggiornamento in review era
   // nascosta apposta - e faceva bene, perche' `updatedAt` si muove a ogni
   // commento e diceva «ora» su una card ferma da giorni. Questo invece e'
@@ -640,7 +648,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1026,6 +1034,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
               <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
             </span>
+          )}
+          {senzaCommit && (
+            <span
+              data-testid="card-uncommitted"
+              title={tr('board.card.uncommittedTitle')}
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><CircleSlash className="h-3 w-3 shrink-0" /> {tr('board.card.uncommitted')}</span>
           )}
           {senzaConsegna && (
             <span

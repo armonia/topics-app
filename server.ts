@@ -110,6 +110,7 @@ import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProvider
 import { aiBridgeEnabled } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
+import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
@@ -1287,7 +1288,14 @@ const taskDispatcher = createTaskDispatcher({
   // spende di più risulterebbe la più economica. Vedi dispatch-usage.ts, che
   // tiene anche il ledger delle figlie ormai chiuse (una somma sulle sole vive
   // scenderebbe, e un calo il dispatcher lo appiattisce a zero).
-  getSessionUsage: (sessionKey: string) => dispatchUsageReader.read(sessionKey),
+  // IL NATIVO PRIMA, IL TRANSCRIPT COME RIPIEGO — e l'ordine e' il punto.
+  // `dispatchUsageReader` legge i JSONL di Claude Code; il runtime nativo gira
+  // in processo e non ne scrive nessuno, quindi per lui quel lettore rispondeva
+  // sempre zero. Misurato il 18/08: 43 card con turni registrati e costo zero,
+  // cioe' tutte quelle lavorate dal nativo. `readNativeUsage` torna `null` (non
+  // zero) quando il nativo non ha mai girato su quella sessione: e' cio' che
+  // lascia intatto il ripiego per le sessioni CLI.
+  getSessionUsage: (sessionKey: string) => readNativeUsage(sessionKey) ?? dispatchUsageReader.read(sessionKey),
   // Last assistant prose in the session — the dispatcher mirrors it into a task
   // comment at delivery when the agent forgot comment_task, so a review always
   // carries the agent's own summary. Reads the local message store (sync).

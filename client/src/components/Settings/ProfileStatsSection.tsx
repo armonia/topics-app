@@ -355,10 +355,16 @@ export function ProfileStatsSection() {
               </p>
               {/* Toggle spesa: dato personale, opt-in esplicito. Visibile anche
                   prima di pubblicare: la scelta si fa PRIMA di condividere. */}
-              <label className="flex cursor-pointer items-start gap-2">
+              {/* 12px bastano al mouse e non al DITO: il minimo tattile e' 44,
+                  e il cancello `settings-mobile` lo misura sull'INPUT, non sulla
+                  label che lo avvolge. `coarse:` e' la variante che il resto
+                  dell'app usa per la stessa cosa (questo device si puo' toccare,
+                  non lo schermo e' stretto), quindi col mouse la casella resta
+                  piccola com'era. */}
+              <label className="flex cursor-pointer items-start gap-2 coarse:items-center">
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-3 w-3 flex-shrink-0 accent-primary"
+                  className="mt-0.5 h-3 w-3 flex-shrink-0 accent-primary coarse:mt-0 coarse:h-11 coarse:w-11"
                   checked={appSettings?.profilePublishCost === true}
                   onChange={togglePublishCost}
                   disabled={appSettings == null}

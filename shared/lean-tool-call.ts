@@ -154,3 +154,112 @@ export function leanBlocks<T extends LeanableBlock>(blocks: readonly T[]): reado
   });
   return changed ? out : blocks;
 }
+
+// ── Strip tool detail text ──────────────────────────────────────────────────
+
+/**
+ * The fields inside `detail` that carry large text blobs — the output of a
+ * shell, the content of a Read, the result of an MCP call. These are the
+ * bytes that make the history payload fat for CLOSED tool rows: the renderer
+ * never reads them until the user actually expands the row.
+ *
+ * `plan.text` is intentionally excluded: `buildToolDisplayLabel` reads it for
+ * the summary shown on the CLOSED row (PLAN-LABEL-01), so dropping it would
+ * break the collapsed summary. Measured on the full DB: 52,106 characters
+ * total across all plan.text fields, i.e. effectively zero cost.
+ */
+const STRIP_FIELDS = ['output', 'content', 'result'] as const;
+
+/**
+ * Minimum shape needed: a toolCall that may carry a detail object.
+ *
+ * `detail?: unknown` and not `Record<string, unknown>`, for the same reason
+ * `LeanableToolCall` above does it: `ToolCallDetail` is a union of interfaces,
+ * and an interface has no index signature, so constraining it to a Record
+ * would reject the real type and force a cast at every call site. The shape is
+ * narrowed at runtime instead, where the check is real.
+ */
+type StrippableToolCall = {
+  detail?: unknown;
+  detailBytes?: number;
+};
+
+/**
+ * Replace the three large text fields inside `detail` with `''` and record the
+ * original byte count in `detailBytes` on the toolCall (NOT inside detail —
+ * Zod would discard any unknown field there).
+ *
+ * Returns the same reference when nothing was stripped (no detail, or detail
+ * carries no text in those fields).
+ *
+ * CONSTRAINT: `detailBytes` must live on the toolCall, never inside `detail`.
+ * `resolveToolDetail` -> `parseToolCallDetail` runs the Zod schema on `detail`
+ * and DISCARDS unknown fields: putting the counter inside `detail` would
+ * require adding it to all 20+ variants of the schema.
+ */
+export function stripDetailText<T extends StrippableToolCall>(tc: T): T {
+  const det = tc.detail;
+  if (!det || typeof det !== 'object') return tc;
+  let stripped = false;
+  let bytes = 0;
+  const newDet: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(det)) {
+    if ((STRIP_FIELDS as readonly string[]).includes(k) && typeof v === 'string' && v.length > 0) {
+      bytes += v.length;
+      newDet[k] = '';
+      stripped = true;
+    } else {
+      newDet[k] = v;
+    }
+  }
+  if (!stripped) return tc;
+  return { ...tc, detail: newDet, detailBytes: bytes } as T;
+}
+
+/** Strip large text from every toolCall in the blocks of a message list. */
+function stripBlocksDetailText<T extends LeanableBlock>(blocks: readonly T[]): readonly T[] {
+  let changed = false;
+  const out = blocks.map((b) => {
+    if (!b || typeof b !== 'object' || !b.toolCall) return b;
+    const stripped = stripDetailText(b.toolCall as StrippableToolCall);
+    if (stripped === b.toolCall) return b;
+    changed = true;
+    return { ...b, toolCall: stripped };
+  });
+  return changed ? out : blocks;
+}
+
+/**
+ * A message with blocks that may carry tool details to strip.
+ *
+ * No `& Record<string, unknown>`: `StoredMessage` is an interface and has no
+ * index signature, so that intersection made the real message type UNASSIGNABLE
+ * here -- the only caller would have had to cast, which is the shape in which a
+ * type stops checking anything.
+ */
+type StrippableMessage = {
+  partial?: boolean;
+  blocks?: readonly LeanableBlock[];
+};
+
+/**
+ * Strip the large text fields from every tool detail in a message list.
+ *
+ * Called in `history.ts` on the response of `GET /api/history/:sessionKey`,
+ * AFTER `leanMessagesForWire`. Only the history route uses this; the MCP
+ * `/api/topics/:id/messages` route is left as-is (agents need the full text).
+ *
+ * PARTIAL messages are left intact: the tool result is still being written
+ * to them by the streaming layer.
+ */
+export function stripToolDetailText<T extends StrippableMessage>(msgs: readonly T[]): readonly T[] {
+  let changed = false;
+  const out = msgs.map((m) => {
+    if (!m || typeof m !== 'object' || m.partial) return m;
+    const blocks = m.blocks?.length ? stripBlocksDetailText(m.blocks) : m.blocks;
+    if (blocks === m.blocks) return m;
+    changed = true;
+    return { ...m, blocks };
+  });
+  return changed ? out : msgs;
+}

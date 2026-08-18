@@ -276,6 +276,12 @@ const IT: Dict = {
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
+  // La coda del turno: le stesse parole del badge del composer, perché è la
+  // stessa coda vista da due parti (il pannello e il trascritto).
+  'chat.queue.waiting': 'da inviare',
+  'chat.queue.waitingTitle': 'Non è ancora partito. Parte quando il turno finisce.',
+  'chat.queue.sendNow': 'Invia subito',
+  'chat.queue.sendNowTitle': 'Interrompi il turno in corso e fai partire la coda adesso',
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.collapse': 'Comprimi',
   'board.task.showSteps': 'Mostra i passaggi che la sessione ha fatto qui',
@@ -409,6 +415,8 @@ const IT: Dict = {
    * `5cf58e29`: nessun ramo, zero file, ogni turno morto su un errore del
    * provider. Segnalato: «non capisco che succede».
    */
+  'board.card.uncommitted': 'ramo senza commit',
+  'board.card.uncommittedTitle': 'C\'e\' un ramo ma non porta un solo commit: l\'agent ha lavorato nel worktree senza committare. Il land si rifiutera\' finche\' quel lavoro non e\' committato, perche\' i file in piedi bloccano il riallineamento.',
   'board.card.nothingDelivered': 'Niente consegnato',
   'board.card.nothingDeliveredTitle': "L'agent non ha prodotto niente: nessun ramo, nessun file toccato, e ce l'ha portata qui il sistema a tentativi finiti. Non c'e' un diff da guardare. Il thread dice come e' finito l'ultimo turno: rimandalo avanti e riparte, oppure prendilo in mano tu.",
   'board.card.inPlace': 'Lavorata qui',
