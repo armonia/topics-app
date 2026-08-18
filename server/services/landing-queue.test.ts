@@ -118,4 +118,39 @@ describe("landing-queue", () => {
     expect(q.status("a")).toBeNull();
     expect(q.status("c")?.phase).toBe("settled");
   });
+
+  it("propaga outcome e reason dal run al ticket: landed", async () => {
+    const q = createLandingQueue();
+    q.enqueue("repo", "a", async () => ({ outcome: "landed" as const, reason: null }));
+    const t = await q.whenSettled("a");
+    expect(t?.outcome).toBe("landed");
+    expect(t?.reason).toBeNull();
+  });
+
+  it("propaga outcome e reason dal run al ticket: unlanded con ragione", async () => {
+    const q = createLandingQueue();
+    const r = "checkout sporco: 1 file non committati";
+    q.enqueue("repo", "a", async () => ({ outcome: "unlanded" as const, reason: r }));
+    const t = await q.whenSettled("a");
+    expect(t?.outcome).toBe("unlanded");
+    expect(t?.reason).toBe(r);
+  });
+
+  it("outcome resta null se run non restituisce niente (comportamento legacy)", async () => {
+    const q = createLandingQueue();
+    q.enqueue("repo", "a", async () => { /* void */ });
+    const t = await q.whenSettled("a");
+    expect(t?.phase).toBe("settled");
+    expect(t?.outcome).toBeNull();
+    expect(t?.reason).toBeNull();
+  });
+
+  it("fase failed: outcome resta null, error porta il messaggio", async () => {
+    const q = createLandingQueue();
+    q.enqueue("repo", "a", async () => { throw new Error("worktree sporco"); });
+    const t = await q.whenSettled("a");
+    expect(t?.phase).toBe("failed");
+    expect(t?.outcome).toBeNull();
+    expect(t?.error).toBe("worktree sporco");
+  });
 });

@@ -2447,6 +2447,101 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     const b = bench();
     const [id] = await b.seed(1);
     expect((await call(b.router, "GET", `/api/boards/pX/tasks/${id}/land`))!.status).toBe(404);  });
+
+  /**
+   * BOARD_LAND HONESTY — il guasto del 18/08.
+   *
+   * Il tool MCP `board_land` rispondeva «landed» anche quando il land era stato
+   * RIFIUTATO: il server accodava, rispondeva 202, e il tool tornava subito
+   * senza aspettare l'esito reale. Riprodotto tre volte in venti minuti su card
+   * con checkout sporco: thread del task diceva RIFIUTATO, tool diceva «landed».
+   *
+   * Adesso il tool fa poll su GET /land finche' il ticket non e' settled, poi
+   * legge `landingState` dal task come fallback per capire COSA e' successo.
+   * Questo test verifica che il server esponga le informazioni corrette in
+   * entrambi i casi — sono quelle che il tool MCP usa per produrre la risposta.
+   *
+   * Sporco = `tryMerge` con status "skipped" (checkout sporco, commit non
+   * isolabili): la semantica e' la stessa di un land rifiutato per WIP.
+   * Pulito = `tryMerge` con status "merged": il caso normale che deve dire
+   * «landato» e non un altro «landed» inventato.
+   */
+  test("sporco → ticket settled + stampLanding unlanded; pulito → landed", async () => {
+    // CASO 1: land rifiutato (checkout sporco / commit non isolabili)
+    const db1 = freshDb();
+    const b1: any[] = [];
+    const stamped1: Array<[string, string]> = [];
+    const router1 = createTasksRouter(
+      makeCtx(db1, b1),
+      { onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {}, resume: async () => {} } as any,
+      {
+        autoMerge: {
+          tryMerge: async () => ({ status: "skipped", reason: "checkout sporco: file non committati", code: "dirty-checkout" }),
+          buildClient: async () => ({ code: 0, stderr: "" }),
+        } as any,
+        stampLanding: async (taskId: string, verdict: string) => { stamped1.push([taskId, verdict]); },
+      } as any,
+    );
+    const t1 = await (await call(router1, "POST", "/api/boards/pX/tasks", { text: "sporco" }))!.json();
+    db1.prepare("UPDATE tasks SET status='review', delivery_branch='topics/sporco' WHERE id = ?").run(t1.id);
+    db1.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c1', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t1.id, new Date().toISOString());
+    await call(router1, "POST", `/api/boards/pX/tasks/${t1.id}/land`, {});
+    // Aspetta che il ticket sia settled
+    let ticket1: any = null;
+    for (let i = 0; i < 500; i++) {
+      const r = await (await call(router1, "GET", `/api/boards/pX/tasks/${t1.id}/land`))!.json();
+      ticket1 = r.landing;
+      if (ticket1?.phase === "settled" || ticket1?.phase === "failed") break;
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    // Il ticket e' settled (non failed: la "skipped" non e' un'eccezione)
+    expect(ticket1?.phase, "land rifiutato: ticket deve essere settled").toBe("settled");
+    // Il server ha chiamato stampLanding con 'unlanded'
+    expect(stamped1, "land rifiutato: deve produrre stamp unlanded").toContainEqual([t1.id, "unlanded"]);
+    // La card NON e' passata a done
+    expect(createTaskService(db1).get(t1.id)!.task.status, "land rifiutato: card rimane in review").toBe("review");
+
+    // CASO 2: land riuscito
+    const db2 = freshDb();
+    const b2: any[] = [];
+    const stamped2: Array<[string, string]> = [];
+    const router2 = createTasksRouter(
+      makeCtx(db2, b2),
+      { onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {}, resume: async () => {} } as any,
+      {
+        autoMerge: {
+          tryMerge: async (_id: string, _text: string, mergeOpts: { branch: string | null }) => ({
+            status: "merged", commit: "abc123", branch: mergeOpts.branch ?? "topics/pulito",
+            repoPath: "/repo", touchedClient: false, touchedServer: false, touchedNative: false,
+            landedNotLive: false, checkoutBranch: "main", deliveryDrift: null, realigned: null,
+          }),
+          buildClient: async () => ({ code: 0, stderr: "" }),
+        } as any,
+        // confermato su main = proof true → verdict "landed" (non "unverifiable")
+        confirmLandedOnMain: async () => true,
+        stampLanding: async (taskId: string, verdict: string) => { stamped2.push([taskId, verdict]); },
+      } as any,
+    );
+    const t2 = await (await call(router2, "POST", "/api/boards/pX/tasks", { text: "pulito" }))!.json();
+    db2.prepare("UPDATE tasks SET status='review', delivery_branch='topics/pulito' WHERE id = ?").run(t2.id);
+    db2.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c2', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t2.id, new Date().toISOString());
+    await call(router2, "POST", `/api/boards/pX/tasks/${t2.id}/land`, {});
+    let ticket2: any = null;
+    for (let i = 0; i < 500; i++) {
+      const r = await (await call(router2, "GET", `/api/boards/pX/tasks/${t2.id}/land`))!.json();
+      ticket2 = r.landing;
+      if (ticket2?.phase === "settled" || ticket2?.phase === "failed") break;
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    // Il ticket e' settled
+    expect(ticket2?.phase, "land riuscito: ticket deve essere settled").toBe("settled");
+    // Il server ha chiamato stampLanding con 'landed'
+    expect(stamped2, "land riuscito: deve produrre stamp landed").toContainEqual([t2.id, "landed"]);
+    // La card e' passata a done
+    expect(createTaskService(db2).get(t2.id)!.task.status, "land riuscito: card diventa done").toBe("done");
+  });
 });
 
 // Un campo che la PATCH non sa applicare non si ignora. Misurato: `archived`
