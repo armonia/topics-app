@@ -801,6 +801,56 @@ describe("tryMerge senza agente — la consegna col ramo intatto resta landabile
     expect(res.status).toBe("nothing");
   });
 
+  test("ramo potato e NESSUN commit di consegna: il merge del land basta da solo", async () => {
+    // Il difetto che questo chiude, misurato il 18/08 su `171b787d`: la prova
+    // per commit del test qui sopra pretende `delivery.commit`, e quella colonna
+    // restava vuota su 9 card su 10. Senza sha la domanda non si faceva: si
+    // cadeva su `branch-missing`, e la card veniva RIAPERTA — due volte, ogni
+    // volta che qualcuno la chiudeva — mentre il merge `a89990ecb` era su main
+    // da giorni.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+      // Il merge del land, che porta il nome della card e sopravvive al ramo.
+      log: { stdout: "a89990ecb1111222233334444555566667777888\n" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: null });
+    expect(res.status).toBe("nothing");
+    // E la domanda deve essere quella giusta: solo i MERGE, e per nome della
+    // card. Senza `--merges` un commit qualunque che citi l'id passerebbe per un
+    // atterraggio.
+    const log = git.calls.find((a) => a[0] === "log");
+    expect(log).toBeDefined();
+    expect(log).toContain("--merges");
+    expect(log).toContain("--grep=merge task t1");
+  });
+
+  test("ramo potato, nessun commit e NESSUN merge: resta un land fallito", async () => {
+    // Il rovescio del caso qui sopra. La seconda prova non deve diventare
+    // «chiudi comunque»: senza merge e senza commit non sappiamo niente, e
+    // l'unica risposta sicura è rimandare la card indietro.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+      log: { stdout: "" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: null });
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") expect(res.code).toBe("branch-missing");
+  });
+
   test("ramo potato e commit NON su main: resta un land fallito", async () => {
     // Il controllo del test qui sopra: la prova per commit non deve diventare
     // «chiudi comunque». Se il contenuto non e' su main, il lavoro e' davvero
