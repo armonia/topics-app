@@ -44,6 +44,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { decodeCol } from "../../shared/message-blob";
 import {
   controlTools,
   isControlTool,
@@ -722,7 +723,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         try {
           const r = db.prepare("SELECT content, tool_calls, blocks FROM messages WHERE id = ?")
             .get(rowId) as { content?: string; tool_calls?: string | null; blocks?: string | null } | undefined;
-          return r ? { content: r.content ?? "", toolCallsJson: r.tool_calls ?? null, blocksJson: r.blocks ?? null } : null;
+          return r ? { content: r.content ?? "", toolCallsJson: decodeCol(r.tool_calls), blocksJson: decodeCol(r.blocks) } : null;
         } catch { return null; }
       };
       /**
@@ -733,7 +734,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const appendErrorBlock = (row: CrashedTurnRow | null, text: string): ContentBlock[] | undefined => {
         if (!row?.blocksJson) return [{ kind: "error", text }];
         try {
-          const parsed = JSON.parse(row.blocksJson);
+          const parsed = JSON.parse(decodeCol(row.blocksJson) ?? "null");
           if (Array.isArray(parsed)) return [...(parsed as ContentBlock[]), { kind: "error", text }];
         } catch { /* vedi sotto */ }
         // Colonna illeggibile: NON si riscrive. Rimpiazzarla col solo verdetto
@@ -1000,8 +1001,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   return r ? {
                     content: r.content ?? "",
                     thinking: r.thinking ?? null,
-                    toolCallsJson: r.tool_calls ?? null,
-                    blocksJson: r.blocks ?? null,
+                    toolCallsJson: decodeCol(r.tool_calls),
+                    blocksJson: decodeCol(r.blocks),
                   } : null;
                 } catch { return null; }
               })()
