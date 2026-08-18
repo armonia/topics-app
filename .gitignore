@@ -158,6 +158,10 @@ docs/*
 # riferimento con cui confrontare i suoi. Su un disco solo sarebbe la memoria di
 # una persona; qui è la memoria del repo.
 !docs/perf-map.md
+# backup-pre-migration-policy.md e' la regola di scadenza dei backup creati prima
+# delle migration: dove vivono, quanti se ne tengono, chi li cancella.
+# Committata perche' e' una convenzione di squadra, non una nota personale.
+!docs/backup-pre-migration-policy.md
 # destinazioni.md dice DOVE va a finire il lavoro: le due destinazioni vere (gli
 # installer, che escono da soli a ogni push su main; la landing, a mano) e il
 # fatto che dev/stage/prod non esistono. Ignorato ha fatto il danno peggiore

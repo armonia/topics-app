@@ -320,3 +320,57 @@ describe("checksVerdict: l'esito della barra in una parola", () => {
     expect(formatChecksComment(conRosso)).toContain("ROSSI");
   });
 });
+
+/**
+ * UN CANCELLO CHE NON PARTE NON E' UN ROSSO — ed e' diverso anche da uno SCADUTO.
+ *
+ * I worktree di dispatch nascono da `git worktree add`, che copia i file
+ * TRACCIATI: `client/node_modules` non lo e', quindi non c'e'. Misurato il
+ * 18/08: 95 worktree su 103 senza. Li' `eslint` e `tsc` non partono, i loro
+ * script uscivano 1, e la card scriveva `checks_state = 'fail'` — «il tuo codice
+ * e' rotto» su rami che spesso non avevano nemmeno un commit. E' il falso rosso
+ * piu' diffuso della board.
+ *
+ * `97` e' il codice con cui quei due dichiarano «non ho misurato». La
+ * distinzione la facevano gia' A PAROLE («Il typecheck NON e' girato»), ma
+ * l'uscita 1 la buttava via: chi legge l'esito vede il numero.
+ */
+describe("uscita 97: non misurato, e si legge diverso da scaduto", () => {
+  const nonPartito: CheckRun = {
+    name: "lint", cmd: "bun run lint", ok: false, code: 97, ms: 40,
+    timedOut: false, notMeasured: true, tail: "eslint non c'e'",
+  };
+  const scaduto: CheckRun = {
+    name: "test:unit", cmd: "bun run test:unit", ok: false, code: null, ms: 1_200_000,
+    timedOut: true, tail: "",
+  };
+  const rosso: CheckRun = {
+    name: "lint", cmd: "eslint .", ok: false, code: 2, ms: 800, timedOut: false, tail: "no-unused-vars",
+  };
+
+  test("il verdetto e' `unknown`, non `fail`", () => {
+    expect(checksVerdict([nonPartito], 1)).toBe("unknown");
+  });
+
+  test("un rosso VERO accanto vince comunque: un guasto misurato non si nasconde", () => {
+    expect(checksVerdict([nonPartito, rosso], 2)).toBe("fail");
+  });
+
+  test("il testo non dice «fermato oltre il tempo massimo»: non e' vero", () => {
+    // E' la ragione per cui `notMeasured` e' un campo suo e non un riuso di
+    // `timedOut`: il testo dello scaduto manda a «rilancia quando c'e' meno
+    // traffico», che su un binario assente e' una caccia a un guasto che non c'e'.
+    const out = formatChecksComment([nonPartito]);
+    expect(out).toContain("NON MISURATI");
+    expect(out).toContain("non e' partito");
+    expect(out).not.toContain("tempo massimo");
+    expect(out).not.toContain("ROSSI");
+  });
+
+  test("lo SCADUTO tiene il suo testo, che e' un'altra cosa", () => {
+    const out = formatChecksComment([scaduto]);
+    expect(out).toContain("NON MISURATI");
+    expect(out).toContain("tempo massimo");
+  });
+});
+

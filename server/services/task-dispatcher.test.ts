@@ -3570,3 +3570,72 @@ describe("un ritentativo programmato non si fa svegliare dal poll", () => {
   });
 });
 
+
+/**
+ * NIENTE NELLA STORIA DI GIT NON VUOL DIRE NIENTE SUL DISCO.
+ *
+ * La fotografia di consegna legge ramo, commit e diffstat: la STORIA. Un turno
+ * ucciso prima del commit non ne lascia, quindi la card concludeva «nessun ramo
+ * e nessun file toccato» e mandava chi rivede a chiudere o rilanciare una card
+ * il cui lavoro era li', sul disco, intatto.
+ *
+ * Misurato il 18/08/2026 su due card in colonna review, entrambe con zero
+ * commit e la stessa frase addosso: una aveva QUATTRO file modificati (367
+ * righe, test verdi), l'altra TRE — e le ultime parole del suo agente,
+ * recuperate dalla sessione, erano «Changes are staged but not committed».
+ */
+describe("una consegna senza commit guarda anche il worktree", () => {
+  /**
+   * Porta una card fino alla consegna forzata: l'agente PARLA (cosi' la card
+   * arriva all'umano invece di essere fallita) ma non si sposta mai in review,
+   * ed esaurisce i tentativi. E' lo stesso percorso di «HANDS an
+   * exhausted-but-worked task to review».
+   */
+  async function finoAllaConsegnaForzata(h: ReturnType<typeof harness>) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "agent", content: "Ecco il piano: 1) … 2) …" });
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    expect(h.task("t1")!.status, "il banco non e' arrivato alla consegna forzata").toBe("review");
+    return (h.svc.get("t1")?.comments ?? []).map((c) => c.content).join("\n---\n");
+  }
+
+  it("i file non committati si NOMINANO, e la mossa cambia", async () => {
+    const h = harness({
+      uncommittedInWorktree: async () => ["server/services/tasks.ts", "server/mcp/topics-mcp-server.ts"],
+    });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("2 file modificati");
+    expect(thread).toContain("server/services/tasks.ts");
+    // La mossa non e' «non c'e' un diff da guardare»: c'e' qualcosa da salvare.
+    expect(thread).toContain("non e' perduto");
+  });
+
+  it("un worktree davvero pulito resta il caso storico", async () => {
+    // L'elenco VUOTO e' una misura — il worktree c'e' ed e' pulito — e deve
+    // portare al testo di prima, non a «0 file modificati».
+    const h = harness({ uncommittedInWorktree: async () => [] });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
+    expect(thread).not.toContain("file modificati");
+  });
+
+  it("non misurabile (`null`) non inventa niente", async () => {
+    // Nessun worktree, o git muto: `null` non e' «pulito». Il testo storico e'
+    // un silenzio onesto, e senza questo caso la sonda potrebbe tornare `null`
+    // per sempre senza che nessuno se ne accorga.
+    const h = harness({ uncommittedInWorktree: async () => null });
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
+  });
+
+  it("senza la sonda il comportamento e' quello di prima", async () => {
+    const h = harness();
+    const thread = await finoAllaConsegnaForzata(h);
+    expect(thread).toContain("nessun ramo e nessun file toccato");
+  });
+});
