@@ -847,6 +847,40 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
 
   /**
+   * LE ATTESE DI BACKOFF, per la stessa ragione esatta di `slotWaits`.
+   *
+   * Quando un turno cade su un guasto ricuperabile, `onTurnEnd` programma il
+   * ritentativo con un `setTimeout(backoff)` e lo annuncia sulla card («riprovo
+   * tra 60s»). Ma quel timer non TRATTIENE niente: il `finally` del chiamante
+   * libera lo slot `inFlight` subito dopo, e da quel momento la card e' una riga
+   * `in_progress` con chip `working` e nessun turno vivo — cioe' indistinguibile
+   * da un orfano di riavvio per il giro di `reconcile`, che gira ogni
+   * `DISPATCH_POLL_MS` (10 secondi).
+   *
+   * Risultato misurato il 18/08 sul DB vivo: 504 note «La sessione stava gia'
+   * rispondendo: turno non avviato: riprovo tra 60s» su 12 card. Gli istanti di
+   * quattro consecutive su `d636cfbf`: 12:43:46, 12:43:59, 12:44:09, 12:44:19 —
+   * 13, 10, 10 secondi, cioe' il POLL, non il backoff. Ogni giro sveglia una
+   * sessione che sta davvero rispondendo, si prende un 409, scrive la nota e
+   * programma un ALTRO timer: le catene si accumulano finche' il turno vero non
+   * finisce.
+   *
+   * Non e' solo rumore nel thread: ogni giro e' una chiamata alla front-door
+   * pagata per farsi dire di no, e il conto sale col numero di agenti.
+   *
+   * Come `slotWaits`: vive in memoria ACCANTO a `inFlight`, e un riavvio perde
+   * il timer e il registro insieme — a quel punto la card e' orfana davvero ed e'
+   * giusto che `reconcile` la riprenda.
+   */
+  const retryWaits = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** Il ritentativo non serve piu' (o sta partendo): via il timer e la voce. */
+  function clearRetryWait(taskId: string): void {
+    const t = retryWaits.get(taskId);
+    if (t) { clearTimeout(t); retryWaits.delete(taskId); }
+  }
+
+  /**
    * L'attesa non ha più senso: via il timer, via la memoria del suo commento.
    *
    * Il messaggio che teneva in mano NON muore col timer: `inherit` lo passa al
@@ -869,6 +903,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
     const runId = nextRunId++;
+    // Un turno che PARTE rende senza senso il ritentativo che lo aspettava: se
+    // restasse in `retryWaits` bloccherebbe il recupero orfani fino allo scadere
+    // del timer, e piu' tardi farebbe partire un secondo resume su un turno
+    // vivo. L'invariante e' «una voce nel registro se e solo se c'e' un timer
+    // che serve ancora», la stessa di `slotWaits`.
+    clearRetryWait(taskId);
     inFlight.set(taskId, { runId, sessionKey, sessionAt: Date.now(), deadSweeps: 0 });
     return runId;
   }
@@ -2379,7 +2419,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // riprovare subito dentro un'interruzione del provider brucia i
           // tentativi mentre l'interruzione è ancora in corso. La durata resta
           // un indizio valido quando la ragione non è arrivata fin qui.
-          const outage = end.end === "error" || (turnMs !== undefined && turnMs < backoff);
+          // `turn-in-flight` ASPETTA SEMPRE, e non per euristica: la front-door
+          // ci ha respinti perche' la sessione sta gia' rispondendo, quindi un
+          // ritentativo immediato incassa lo stesso 409 per costruzione. Finora
+          // ci finiva dentro solo di rimbalzo, via `turnMs < backoff` — vero in
+          // produzione (il turno non parte, quindi dura zero) ma falso appena la
+          // durata non arriva fin qui, e allora si riprovava SUBITO.
+          const outage = end.end === "error"
+            || end.cause === "turn-in-flight"
+            || (turnMs !== undefined && turnMs < backoff);
           const attempt = free
             ? `tentativo ${bumped.dispatchAttempts}/${cap}, non conteggiato`
             : `tentativo ${bumped.dispatchAttempts}/${cap}`;
@@ -2394,7 +2442,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           emit(bumped);
           // Deferred at least a tick: the caller's finally still holds the
           // inFlight slot; quick deaths wait out the backoff.
-          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, outage ? backoff : 0);
+          // Il timer si REGISTRA: senza, il poll di `reconcile` (10s) vede una
+          // card `in_progress` senza turno vivo e la sveglia comunque, contro
+          // una sessione che sta ancora rispondendo. Vedi `retryWaits`.
+          clearRetryWait(taskId);
+          const retryTimer = setTimeout(() => {
+            retryWaits.delete(taskId);
+            void resume(taskId, "", { continuation: true });
+          }, outage ? backoff : 0);
+          retryWaits.set(taskId, retryTimer);
           return;
         }
       }
@@ -3488,6 +3544,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // registro è la differenza, e vive in memoria come il timer: se il processo
       // è ripartito è vuoto, e allora la card è orfana per davvero.
       if (slotWaits.has(t.id)) continue;
+      // Un RITENTATIVO gia' programmato: stessa forma dell'attesa di slot qui
+      // sopra — nessun turno vivo, quindi nessuna traccia in `inFlight` — e
+      // stessa conseguenza se lo si ignora, moltiplicata per il poll: la card
+      // viene svegliata ogni 10 secondi contro una sessione occupata. Vedi
+      // `retryWaits` per la misura.
+      if (retryWaits.has(t.id)) continue;
       // Just buried above: its recovery is already scheduled (onTurnEnd). Without
       // this it would ALSO look like a restart orphan and get a second, wrong
       // recovery ("il server è ripartito", which never happened).
@@ -3657,6 +3719,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // creano uno per caso, non si passano le attese a vicenda.
     for (const w of slotWaits.values()) clearTimeout(w.timer);
     slotWaits.clear();
+    for (const t of retryWaits.values()) clearTimeout(t);
+    retryWaits.clear();
     waitingForSlot.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe

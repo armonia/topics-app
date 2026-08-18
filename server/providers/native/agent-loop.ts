@@ -87,7 +87,14 @@ export interface AgentTurnOptions {
 interface RoundResult {
   blocks: Block[];
   stopReason: string | null;
-  usage: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  /**
+   * `cacheWrite1h` e' la QUOTA di `cacheWrite` scritta con TTL a un'ora, che
+   * costa 2x un token fresco invece di 1.25x. Sta nell'usage
+   * (`cache_creation.ephemeral_1h_input_tokens`) e non si deduce dal tempo fra
+   * le richieste: tariffare tutto a 1.25x sottostima il conto, e su una sessione
+   * reale il 100% delle scritture era a un'ora. Sottoinsieme, non addendo.
+   */
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number };
 }
 
 /**
@@ -171,7 +178,7 @@ async function streamOnce(
   const blocks: Block[] = [];
   const partialJson = new Map<number, string>();
   let stopReason: string | null = null;
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -199,6 +206,7 @@ async function streamOnce(
           usage.input += ev.message?.usage?.input_tokens ?? 0;
           usage.cacheRead += ev.message?.usage?.cache_read_input_tokens ?? 0;
           usage.cacheWrite += ev.message?.usage?.cache_creation_input_tokens ?? 0;
+          usage.cacheWrite1h += ev.message?.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0;
           break;
 
         case "content_block_start": {
@@ -326,10 +334,10 @@ export async function runAgentTurn(
   if (!token) {
     const msg = "nessuna credenziale Claude: fai `claude` → /login una volta, poi riprova";
     handler.onError(msg);
-    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } };
   }
 
-  const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
   let finalText = "";
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {

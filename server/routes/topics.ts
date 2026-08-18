@@ -6,7 +6,7 @@ import type { AppContext, RouteHandler, Topic } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
-import { createHistoryRouter } from "./history";
+import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { leanMessagesForWire } from "../../shared/lean-tool-call";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
@@ -766,6 +766,9 @@ export function createTopicsRouter(
   // helpers injected (they close over this scope), so it's instantiated here.
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
   const historyRouter = createHistoryRouter(ctx, { matchHistoryRoute, providerForSessionKey });
+  // Il rovescio dello sfoltimento di `/api/history`: la riga di tool arriva col
+  // testo svuotato e se lo riprende da qui, la prima volta che qualcuno la apre.
+  const toolDetailRouter = createToolDetailRouter(ctx);
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
   // Il canale umano non chiede niente a questa closure: solo ctx.
   const permissionRouter = createPermissionRouter(ctx);
@@ -2354,6 +2357,12 @@ export function createTopicsRouter(
     {
       const historyResp = await historyRouter(req, url, pathname, method);
       if (historyResp) return historyResp;
+    }
+
+    // --- Tool detail on demand --- (GET /api/messages/:id/tool/:id/detail)
+    {
+      const toolDetailResp = await toolDetailRouter(req, url, pathname, method);
+      if (toolDetailResp) return toolDetailResp;
     }
 
     // --- Media serving ---

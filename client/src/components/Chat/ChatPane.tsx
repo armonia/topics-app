@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { isOwnFrame } from '@/state/wsIdentity';
-import { adoptLegacyQueue, clearQueue, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
+import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
@@ -96,6 +96,18 @@ export interface ChatPaneProps {
 /** Riferimento stabile per il caso normale (nessun messaggio appuntato): senza,
  *  ogni render passerebbe un array nuovo a `PinnedMessages`. */
 const EMPTY_MESSAGES: ChatMessage[] = [];
+
+/**
+ * Quante volte «invia subito» ripropone il drenaggio, e ogni quanto.
+ *
+ * Non è un'attesa attiva su una condizione qualunque: è la finestra fra lo stop
+ * che è tornato e il turno fermato che ha finito di smontarsi, che dura un
+ * battito. Il tetto c'è perché un ciclo senza fine su una sessione che per
+ * qualche ragione resta occupata sarebbe peggio del problema: la coda in quel
+ * caso resta dov'è, visibile, e parte con il messaggio dopo.
+ */
+const QUEUE_KICK_ATTEMPTS = 6;
+const QUEUE_KICK_RETRY_MS = 150;
 
 function ChatPaneComponent({
   topic, isFocused,
@@ -1272,6 +1284,49 @@ function ChatPaneComponent({
     if (item) removeTurn(topic.sessionKey, item.id);
   }, [messageQueue, topic.sessionKey]);
   const handleClearQueue = useCallback(() => clearQueue(topic.sessionKey), [topic.sessionKey]);
+  /**
+   * «Invia subito»: non aspettare la fine del turno, falla partire ORA.
+   *
+   * Sono tre mosse, e nessuna delle tre è di troppo.
+   *
+   *  1. **Fermare.** Finché il turno è in volo il server risponde 409 a un
+   *     secondo turno sulla stessa sessione: prima si chiude quello aperto.
+   *  2. **Togliere il freno.** Lo stop ne alza uno DUREVOLE apposta perché la
+   *     fine di uno stream non faccia ripartire la coda da sola (`holdQueue`
+   *     in `state/chatQueue.ts`): era il guasto per cui «ferma» faceva PARTIRE
+   *     il messaggio dopo. Qui è l'umano a chiedere il contrario, quindi il
+   *     freno va tolto a mano.
+   *  3. **Chiedere il drenaggio.** E questa è la mossa che non si vede: il
+   *     drenaggio automatico è appeso alla FINE di uno stream riuscito, e un
+   *     abort non ci passa (esce dal ramo `AbortError` di `performSend`).
+   *     Senza questa riga la coda resterebbe ferma fino al prossimo messaggio
+   *     scritto a mano. Si chiede all'ingresso pubblico con un testo vuoto:
+   *     `enqueueTurn` scarta le stringhe vuote, quindi non accoda niente, e
+   *     `decideSend` fa partire la testa della coda (`queue-then-drain`).
+   *
+   * Il giro serve perché lo stop può tornare un istante prima che il turno
+   * fermato abbia finito di smontarsi: finché la sessione risulta occupata la
+   * richiesta non fa nulla e la coda resta lunga uguale, che è il segnale per
+   * riprovare. Poche volte e poi basta: se non riparte, la coda è ancora tutta
+   * lì, visibile nel badge, e il messaggio successivo la fa partire comunque.
+   *
+   * La richiesta NON si aspetta, e non è pigrizia: sul ramo che drena,
+   * `sendMessage` restituisce la promessa del turno INTERO, che dura minuti.
+   * Aspettarla vorrebbe dire scambiare «il turno è finito» per «la coda non è
+   * partita» e rispedire. Quello che si guarda è la coda: se si accorcia, la
+   * testa è uscita.
+   */
+  const handleSendQueueNow = useCallback(async () => {
+    await stopSession(topic.sessionKey);
+    releaseHold(topic.sessionKey);
+    for (let tentativo = 0; tentativo < QUEUE_KICK_ATTEMPTS; tentativo++) {
+      const prima = getQueue(topic.sessionKey).length;
+      if (prima === 0) return;
+      void sendMessage(topic.sessionKey, '').catch(() => {});
+      await new Promise((r) => setTimeout(r, QUEUE_KICK_RETRY_MS));
+      if (getQueue(topic.sessionKey).length < prima) return;
+    }
+  }, [stopSession, sendMessage, topic.sessionKey]);
   // Terza scansione dell'intera cronologia a ogni flush dello streaming, per un
   // pannello che quasi sempre è chiuso e quasi sempre dà lo stesso risultato:
   // l'insieme dei messaggi appuntati cambia solo quando qualcuno clicca la
@@ -1305,7 +1360,7 @@ function ChatPaneComponent({
           altra chat. */}
       <TaskCardStrip topicId={topic.id} />
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
@@ -1361,7 +1416,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        }} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
       </div>
     </div>
   );

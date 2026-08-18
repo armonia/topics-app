@@ -836,7 +836,14 @@ function renderContentWithInlineTools(
   cleanText: string,
   toolCalls: ToolCall[],
   markdownComponents: Components,
-  sessionKey?: string
+  sessionKey?: string,
+  /**
+   * Serve a `ToolCallRow` per chiedere il DETTAGLIO del tool a richiesta:
+   * `GET /api/messages/:messageId/tool/:toolCallId/detail`. Da quando il testo
+   * dei tool non viaggia piu' nel payload di apertura (-52%), senza questo la
+   * riga non ha come andarselo a prendere e il dettaglio resta vuoto.
+   */
+  messageId?: string
 ): React.ReactNode[] {
   // Separate tool calls with contentOffset (inline) from those without (legacy)
   const inlineTools = toolCalls
@@ -894,7 +901,7 @@ function renderContentWithInlineTools(
       const tcOffset = tc.contentOffset!;
       // This tool call belongs at or before this split point
       if (i + 1 >= splitPoints.length || tcOffset < splitPoints[i + 1]) {
-        elements.push(<ToolCallRow key={`tc-${tc.id}`} toolCall={tc} sessionKey={sessionKey} />);
+        elements.push(<ToolCallRow key={`tc-${tc.id}`} toolCall={tc} sessionKey={sessionKey} messageId={messageId} />);
         toolIdx++;
       } else {
         break;
@@ -917,7 +924,7 @@ function renderContentWithInlineTools(
 
   // Any remaining tool calls (shouldn't happen, but safety)
   while (toolIdx < inlineTools.length) {
-    elements.push(<ToolCallRow key={`tc-${inlineTools[toolIdx].id}`} toolCall={inlineTools[toolIdx]} sessionKey={sessionKey} />);
+    elements.push(<ToolCallRow key={`tc-${inlineTools[toolIdx].id}`} toolCall={inlineTools[toolIdx]} sessionKey={sessionKey} messageId={messageId} />);
     toolIdx++;
   }
 
@@ -1015,6 +1022,14 @@ interface MessageContentProps {
    * downgrades to a read-only "reload to answer" hint.
    */
   sessionKey?: string;
+  /**
+   * The DB id of this message. Threaded down to `<ToolCallRow>` so that
+   * rows with stripped detail (`toolCall.detailBytes > 0`) can fetch the
+   * full text lazily on first open via
+   * `GET /api/messages/:messageId/tool/:toolCallId/detail`. Absent for
+   * streaming messages (they never have stripped detail).
+   */
+  messageId?: string;
   // WebSocket message subscription
   onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
@@ -1047,7 +1062,7 @@ function TurnErrorBanner({ text }: { text: string }) {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, invokedCommand, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, invokedCommand, sessionKey, messageId, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1257,7 +1272,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 // il margine del messaggio.
                 className="space-y-px"
               >
-                <GroupedToolRows tools={g.tools} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />
+                <GroupedToolRows tools={g.tools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
               </div>
             );
           }
@@ -1335,7 +1350,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               // aggiunto sotto ogni riga di azione, e basta.
               <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
                 {thinking && <ReasoningRow content={thinking} partial={partial} />}
-                <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />
+                <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
               </div>
             )}
 
@@ -1352,7 +1367,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
               ) : hasInline ? (
-                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey)}</div>
+                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey, messageId)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
                   <ProseBlock text={cleanText} components={markdownComponents} />
