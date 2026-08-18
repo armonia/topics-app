@@ -291,6 +291,8 @@ export interface AppContext {
   projectStore: import("./services/project-store").ProjectStore;
   worktreeStore: import("./services/worktree-store").WorktreeStore;
   worktreeManager: import("./services/worktree-manager").WorktreeManager;
+  /** Lazy closure: iniettato in server.ts dopo createProcessesRouter (task e3240a22). */
+  worktreeGcDeps: import("./services/worktree-manager").WorktreeManagerGcDeps;
   // Multi-machine (Phase D · added at migration 020-021)
   machineStore: import("./services/machine-store").MachineStore;
 

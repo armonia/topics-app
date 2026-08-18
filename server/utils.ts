@@ -23,7 +23,7 @@ import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-tr
 import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
-import { createWorktreeManager } from "./services/worktree-manager";
+import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "../shared/tool-call-detail";
 import { shouldCompressFrame } from "./lib/ws-compression";
@@ -885,9 +885,17 @@ export function createAppContext(baseDir: string): AppContext {
   // async git materialise step transitions a row from `pending` → `ready|error`.
   const projectStore = createProjectStore(db);
   const worktreeStore = createWorktreeStore(db);
+  // Le gcDeps sono closure deliberate: processes.ts nasce DOPO il manager,
+  // e queste funzioni vengono lette ALLA CHIAMATA, non alla costruzione.
+  // Lo stesso schema usato per previewManager in worktree-gc-runner.ts.
+  const _worktreeGcDeps: WorktreeManagerGcDeps = {
+    killTree: undefined,   // iniettato da server.ts dopo createProcessesRouter
+    listOwnedScripts: undefined, // idem
+  };
   const worktreeManager = createWorktreeManager(
     { broadcastToAll } as AppContext,
     { projectStore, worktreeStore },
+    _worktreeGcDeps,
   );
   // Phase D — machines (heartbeat ticker is wired in server.ts).
   const machineStore = createMachineStore(db, baseDir);
@@ -2252,6 +2260,8 @@ export function createAppContext(baseDir: string): AppContext {
   return {
     db,
     projectStore, worktreeStore, worktreeManager,
+    /** Iniettato da server.ts dopo createProcessesRouter (lazy closure). */
+    worktreeGcDeps: _worktreeGcDeps,
     machineStore,
     PORT, GATEWAY_URL,
     get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },

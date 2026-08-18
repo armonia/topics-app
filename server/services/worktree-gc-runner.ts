@@ -72,6 +72,14 @@ export interface WorktreeGcDeps {
   /** L'anteprima viva di un task, se c'e' (nasce dopo: closure). */
   previewList: () => { taskId: string }[];
   previewTeardown: (taskId: string) => Promise<void>;
+  /**
+   * PUNTO 3 (task e3240a22): lista degli script Topics (source:"script") in
+   * esecuzione con il loro projectPath. Usata per rimandare lo slim quando
+   * c'e' un processo vivo DENTRO la cartella che si vuole snellire.
+   *
+   * Closure deliberata (nasce dopo: lo stesso schema di previewList).
+   */
+  listOwnedScripts?: () => Array<{ processId: string; pid: number | null; projectPath: string; source?: string; status: string }>;
 }
 
 export interface WorktreeGcRunner {
@@ -341,6 +349,21 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       slim: async (wt) => {
         // Un'anteprima viva è un `bun run dev` che gira LÌ DENTRO: rimandare.
         if (deps.previewList().some((p) => deps.worktreeOfTask(p.taskId)?.id === wt.id)) return 0;
+        // PUNTO 3 (task e3240a22): rimanda se c'e' uno script Topics vivo dentro.
+        // L'unica guardia oggi e' previewList(), che non consulta runningScripts.
+        // Questo e' il solo modo di fabbricare un fantasma che il Punto 2 non
+        // vedra' mai: la root esiste, il contenuto e' sparito sotto i piedi.
+        if (deps.listOwnedScripts) {
+          const base = wt.absPath.endsWith("/") ? wt.absPath : wt.absPath + "/";
+          const hasLiving = deps.listOwnedScripts().some(s => {
+            if ((s.source !== "script" && s.source != null) || s.status !== "running" || !s.pid) return false;
+            return s.projectPath === wt.absPath || s.projectPath.startsWith(base);
+          });
+          if (hasLiving) {
+            console.log(`[worktree-slim] ${wt.branchName ?? wt.id}: script vivo dentro — slim rimandato`);
+            return 0;
+          }
+        }
         const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
         if (res.removed.length > 0) {
           console.log(
