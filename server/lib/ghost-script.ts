@@ -1,0 +1,156 @@
+/**
+ * Rilevamento dei processi "fantasma": script avviati da Topics (source:"script")
+ * il cui cwd sta dentro una worktree che non esiste piu'.
+ *
+ * CRITERIO DI ORFANEZZA, tutte e tre obbligatorie (spec task e3240a22):
+ *  1. PROPRIETA': source:"script" in runningScripts. Non si giudica MAI un
+ *     processo dalla riga di comando.
+ *  2. TERRENO SPARITO: cwd canonicalizzato sotto una worktree che non esiste.
+ *  3. IDENTITA': pid+lstart riverificati prima di ogni segnale.
+ *
+ * Nota: i processi con cwd in ~/Projects/* NON sono di Topics e non si toccano.
+ * Sono fuori scope, riportati da scripts/mem-report.ts.
+ *
+ * INTERRUTTORE: TOPICS_GHOST_REAP
+ *  - non impostato / 0: solo log (default)
+ *  - 1: uccide davvero
+ */
+
+import { realpathSync } from "node:fs";
+
+export interface OwnedScript {
+  processId: string;
+  pid: number | null;
+  pidLstart?: string;
+  projectPath: string;
+  source?: "script" | "detected" | "shell";
+  status: string;
+}
+
+/**
+ * Funzione PURA: dato un processo e la lista delle radici di worktree esistenti,
+ * dice se e' un fantasma.
+ *
+ * Criteri (in ordine, tutti obbligatori):
+ *   1. source === "script" (proprieta' di Topics)
+ *   2. status === "running" (non gia' finito)
+ *   3. pid presente
+ *   4. cwd canonicalizzato sotto la radice worktrees che NON esiste sul disco
+ *
+ * Il cwd viene gia' canonicalizzato (symlink risolti) al momento del check,
+ * non da questa funzione: il chiamante passa il cwd reale.
+ */
+export function isGhostScript(opts: {
+  /** cwd canonicalizzato del processo (realpathSync), gia' risolto */
+  cwdReal: string;
+  /** insieme dei path di worktree ESISTENTI (realpathSync di absPath) */
+  worktreeRoots: Set<string>;
+  /** la cartella base di tutti i worktree di Topics, es. ~/.topics/worktrees */
+  worktreesBase: string;
+  source?: string;
+  status?: string;
+  pid: number | null;
+}): boolean {
+  const { cwdReal, worktreeRoots, worktreesBase, source, status, pid } = opts;
+  // 1. Deve essere un processo avviato da Topics
+  if (source !== "script") return false;
+  // 2. Deve essere ancora segnato come running
+  if (status !== "running") return false;
+  // 3. Deve avere un pid
+  if (!pid) return false;
+  // 4. Il cwd deve stare DENTRO la base dei worktree di Topics
+  const base = worktreesBase.endsWith("/") ? worktreesBase : worktreesBase + "/";
+  if (!cwdReal.startsWith(base)) return false;
+  // 5. Nessuna worktree esistente contiene questo cwd
+  for (const root of worktreeRoots) {
+    const r = root.endsWith("/") ? root : root + "/";
+    if (cwdReal === root || cwdReal.startsWith(r)) return false;
+  }
+  return true;
+}
+
+/**
+ * Risolve il cwd reale di un processo, o null se non e' possibile.
+ * Usa realpathSync per gestire i symlink (es. /tmp vs /private/tmp su macOS).
+ */
+export function resolveRealCwd(cwd: string): string | null {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    // Se la cartella non esiste piu', non si puo' risolvere il path.
+    // In quel caso usiamo il path cosi' com'e'.
+    return cwd;
+  }
+}
+
+/**
+ * Dato l'insieme dei processi registrati, restituisce quelli che sono fantasmi.
+ *
+ * Legge il cwd di ogni processo da `getCwds` (una chiamata lsof in batch),
+ * poi chiama `isGhostScript` per ciascuno.
+ */
+export async function findGhostScripts(opts: {
+  scripts: OwnedScript[];
+  /** worktrees esistenti { absPath } */
+  existingWorktrees: Array<{ absPath: string }>;
+  worktreesBase: string;
+  /** Recupera i cwd reali per una lista di pid */
+  getCwds: (pids: number[]) => Promise<Map<number, string>>;
+}): Promise<OwnedScript[]> {
+  const { scripts, existingWorktrees, worktreesBase, getCwds } = opts;
+
+  const candidates = scripts.filter(
+    s => s.source === "script" && s.status === "running" && s.pid,
+  );
+  if (candidates.length === 0) return [];
+
+  // Recupera i cwd reali in batch
+  const pids = candidates.map(s => s.pid as number);
+  const cwdMap = await getCwds(pids);
+
+  // Costruisce l'insieme delle radici esistenti (canonicalizzate)
+  const worktreeRoots = new Set<string>();
+  for (const wt of existingWorktrees) {
+    const real = resolveRealCwd(wt.absPath);
+    if (real) worktreeRoots.add(real);
+  }
+
+  const ghosts: OwnedScript[] = [];
+  for (const sp of candidates) {
+    const rawCwd = cwdMap.get(sp.pid as number) ?? sp.projectPath;
+    const cwdReal = resolveRealCwd(rawCwd) ?? rawCwd;
+    if (
+      isGhostScript({
+        cwdReal,
+        worktreeRoots,
+        worktreesBase,
+        source: sp.source,
+        status: sp.status,
+        pid: sp.pid,
+      })
+    ) {
+      ghosts.push(sp);
+    }
+  }
+  return ghosts;
+}
+
+/**
+ * Controlla se ci sono processi "fantasma" gia' documentati in scrittura attiva
+ * del worktree dato.
+ *
+ * Usato dal runner GC per decidere se rimandare lo slim: se uno script con
+ * source:"script" ha il suo projectPath dentro la worktree, non si tocca.
+ */
+export function hasRunningScriptsInWorktree(opts: {
+  scripts: OwnedScript[];
+  worktreePath: string;
+}): boolean {
+  const { scripts, worktreePath } = opts;
+  const base = worktreePath.endsWith("/") ? worktreePath : worktreePath + "/";
+  return scripts.some(s => {
+    if (s.source !== "script" || s.status !== "running" || !s.pid) return false;
+    const p = s.projectPath;
+    return p === worktreePath || p.startsWith(base);
+  });
+}
