@@ -69,7 +69,7 @@ export type TabKind =
  *  `handleOpenAsPage` (usePanelLifecycle) sa aprire, o il link sarebbe un
  *  evento che non apre niente. `agents`, `activity` e `journal` sono usciti
  *  insieme alle loro pane. */
-export const TAB_PANELS = ['board', 'dashboard', 'cron'] as const;
+export const TAB_PANELS = ['board', 'dashboard', 'cron', 'profile'] as const;
 export type TabPanel = (typeof TAB_PANELS)[number];
 
 export interface TabTarget {
