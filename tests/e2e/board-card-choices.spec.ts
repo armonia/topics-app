@@ -24,6 +24,7 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
 hermetic(test);
 
@@ -31,17 +32,6 @@ const BASE = E2E_BASE;
 const API = `${BASE}/api`;
 const REPO = `/tmp/e2e-scelte-${Date.now()}`;
 
-/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
-function boardIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, "").split("/");
-  const dirName = parts[parts.length - 1] || "project";
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
-    hash |= 0;
-  }
-  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-}
 const PROJECT_ID = boardIdForPath(REPO);
 
 const T_RAMO = "Rifare la scheda prodotto";
