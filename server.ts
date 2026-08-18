@@ -168,6 +168,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
 import { armTurnDeadline } from "./server/lib/turn-deadline";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
+import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -1318,11 +1319,31 @@ const taskDispatcher = createTaskDispatcher({
 // branch there. Only `branch`-mode worktrees on a ready project have something to
 // land; everything else resolves to null (skip). Default branch is `main`.
 const worktreeOfTask = (taskId: string) => {
+  // Percorso primario: task → assigned_topic_id → topic.worktree_id → worktree.
+  // Funziona finché il dispatcher tiene il legame vivo.
   const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
-  if (!topicId) return null;
-  const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
-  if (!worktreeId) return null;
-  return ctx.worktreeStore.get(worktreeId) ?? null;
+  if (topicId) {
+    const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+    if (worktreeId) return ctx.worktreeStore.get(worktreeId) ?? null;
+  }
+  // Percorso di ripiego: dopo un `release()` il dispatcher azzera
+  // `assigned_topic_id`, ma il record del tentativo corrente conserva
+  // `worktree_id`. Cerchiamo l'ultimo tentativo in stato `running` (o
+  // comunque con un worktree collegato) per questo task.
+  //
+  // Incidente 18/08: card `171b787d` in review con 279 righe non committate
+  // e `deliveryFilesChanged: 0` perche' `worktreeOfTask` tornava null dopo
+  // che il dispatcher aveva rilasciato la card — e la sonda `taskWorktreeDirt`
+  // leggeva null come «pulito» invece che come «non so».
+  try {
+    const row = ctx.db.prepare(
+      `SELECT worktree_id FROM task_attempts
+        WHERE task_id = ? AND worktree_id IS NOT NULL
+        ORDER BY idx DESC LIMIT 1`,
+    ).get(taskId) as { worktree_id: string } | undefined;
+    if (row?.worktree_id) return ctx.worktreeStore.get(row.worktree_id) ?? null;
+  } catch { /* fallback is best-effort */ }
+  return null;
 };
 
 // ── Review-ready previews ──────────────────────────────────────────────────
@@ -1703,6 +1724,18 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const wt = worktreeOfTask(taskId);
     if (!wt || wt.mode !== "branch") return null;
     return worktreeDirtProbe(wt.absPath);
+  },
+  // Il task ha (o ha avuto) un tentativo con worktree di ramo registrato?
+  // Usato dal cancello `review_needs_commit` per distinguere «non ho trovato
+  // il worktree» da «questo task non ha mai avuto un ramo»: un task senza
+  // ramo (in-place) non deve essere bloccato quando la sonda torna null.
+  taskHasBranchAttempt: (taskId) => {
+    try {
+      const row = ctx.db.prepare(
+        `SELECT 1 FROM task_attempts WHERE task_id = ? AND worktree_id IS NOT NULL LIMIT 1`,
+      ).get(taskId);
+      return !!row;
+    } catch { return false; }
   },
   // Post-landing reap guard: the branch's state relative to main read by
   // CONTENT (survives squash-landing). null = no branch worktree to protect.
@@ -4261,132 +4294,20 @@ function backfillDeliveries(): Promise<void> {
 const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
 
 /**
- * Le dipendenze dell'audit, meno la lista di chi guardare — così la passata
- * periodica e il timbro su UNA card fanno lo stesso conto. Se divergessero, il
- * verdetto istantaneo dopo un land e quello del giro dopo potrebbero
- * contraddirsi, e il semaforo tornerebbe a non voler dire niente.
- *
- * `announce` è l'unica differenza legittima: la passata deve DIRE sulla card
- * che una consegna non è su main (una riga, datata); il timbro post-land no —
- * lì il thread ha appena scritto perché il land non è riuscito, e ripeterlo
- * sarebbe il commento numero due sullo stesso fatto.
+ * Il cablaggio dell'audit: il COSA sta in `services/landing-audit-pass.ts`, qui
+ * restano i cinque riferimenti che vivono davvero in questo file.
  */
-function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) {
-  // `tasks.project_id` is the BOARD id — `projectIdForPath(path)`, a one-way
-  // hash — not a ProjectStore UUID. Asking the store for it returns undefined
-  // for every real board, and the audit reads a missing repo as "can't tell":
-  // wired that way the counter sat on `unverifiable` forever and could never
-  // catch the failure it exists for. Invert the hash the way the dispatcher
-  // does (resolveProject), building the candidate list ONCE per sweep — it
-  // scans the workspace dir, and re-scanning it per task buys nothing.
-  const candidates = buildProjectCandidates({
-    projectStore: ctx.projectStore,
-    workspaceDir: DISPATCH_WORKSPACE_DIR,
-    extraPaths: dispatchExtraPaths,
-  });
-  // L'indice delle righe di main costa una `git grep` dell'intero albero, e la
-  // paga UNA volta per repo per passata: le card di una board stanno tutte nello
-  // stesso checkout, e senza cache l'avrebbero pagata una a testa.
-  const indici = new Map<string, ReadonlySet<string>>();
-  const indiceDi = async (repoPath: string): Promise<ReadonlySet<string>> => {
-    const gia = indici.get(repoPath);
-    if (gia) return gia;
-    const nuovo = await indiceRigheMain(repoPath);
-    indici.set(repoPath, nuovo);
-    return nuovo;
-  };
-  return {
-    listCandidates,
-    repoPath: (projectId: string) => resolveProjectPath(projectId, candidates)?.path ?? null,
-    commitStatus: (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit),
-    // La seconda domanda, solo su chi la prima ha già dato per fuori: è lo
-    // STESSO conto di `report:landed`, che è il modo in cui la misura a mano e la
-    // pastiglia sulla card non possono più dire due cose diverse.
-    debtVerdict: async (task: AuditTask, repoPath: string): Promise<LandingState> => {
-      const indiceMain = await indiceDi(repoPath);
-      // Col ramo ancora vivo si può chiedere tutto (patch inversa, conflitto,
-      // supersessione); potato il ramo resta la sola domanda sul contenuto.
-      const verdetto = task.deliveryBranch && (await branchExistsInRepo(repoPath, task.deliveryBranch))
-        ? await classifyBranchLanding(repoPath, task.deliveryBranch, { indiceMain })
-        : await classifyCommitLanding(repoPath, task.deliveryCommit ?? "", { indiceMain });
-      return classifyLandingEsito(verdetto.esito);
-    },
-    // LA TERZA MANIGLIA, e l'unica che risponde quando le altre due sono
-    // sparite: il merge che il land scrive su main porta il nome della card
-    // (`merge task <id>: …`) e non lo pota nessuno. La domanda e la sua
-    // prudenza stanno gia' in `landedMergeRange`, che il pannello «Modifiche»
-    // usa per la stessa identificazione: `--merges` perche' il land e' `--no-ff`
-    // e senza quel filtro un commit qualunque che citi l'id passerebbe per un
-    // atterraggio, e `-F` perche' il titolo della card e' prosa.
-    //
-    // `null` = nessun merge trovato, che non e' una smentita.
-    landedMerge: async (task: AuditTask, repoPath: string): Promise<boolean | null> => {
-      const trovato = await landedMergeRange(repoPath, task.id).catch(() => null);
-      return trovato ? true : null;
-    },
-    record: (taskId: string, state: LandingState, checkedAt: string) =>
-      dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
-    previousState: (taskId: string) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
-    // The whole point: a delivery that never reached main must SAY so, on the
-    // task, once — not sit silently in a column for 8 days.
-    onNewlyUnlanded: announce
-      ? (task: AuditTask) => {
-          try {
-            dispatcherSvc.addComment({
-              taskId: task.id, author: "system",
-              // SERVICE, e la ragione la dichiara la riga qui sotto: lo STATO ha
-              // già una banda in cima al drawer e un badge sulla card
-              // (`landingState`), e questo commento serve solo a DATARE il
-              // momento in cui è successo. Una riga che non aggiunge un fatto è
-              // per definizione servizio, e questa era la peggiore della board:
-              // una card in review ha per definizione lavoro fuori da main,
-              // quindi la nota scatta su OGNI card della colonna, sempre DOPO la
-              // consegna, e mentre l'umano dorme resta l'ultima riga del thread.
-              // Misurata il 18/08: era la parola stampata su 3 card su 4, al
-              // posto del riassunto dell'agente — e diceva «landa il ramo» a chi
-              // in review il bottone «Landa» non ce l'ha nemmeno.
-              kind: "service",
-              content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
-            });
-            const fresh = dispatcherSvc.get(task.id)?.task;
-            if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
-          } catch (err) { console.warn("[landing-audit] comment failed", err); }
-        }
-      : undefined,
-    now: () => new Date().toISOString(),
-    log: (msg: string) => console.log(msg),
-  };
-}
+const auditWiring: AuditWiring = {
+  projectStore: ctx.projectStore,
+  workspaceDir: DISPATCH_WORKSPACE_DIR,
+  extraPaths: dispatchExtraPaths,
+  svc: dispatcherSvc as unknown as AuditWiring["svc"],
+  broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
+  backfill: backfillDeliveries,
+};
+const runLandingAudit = () => runLandingAuditPass(auditWiring);
+const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, taskId);
 
-async function runLandingAudit() {
-  await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
-  return auditLandings(
-    landingAuditDeps(() => dispatcherSvc.listLandingAuditCandidates(), /*announce*/ true),
-  ).catch((err) => { console.error("[landing-audit] sweep failed", err); return null; });
-}
-
-/**
- * Il verdetto DEDOTTO per UNA card, subito. Lo chiama il land (`stampLanding`)
- * quando l'esito non l'ha visto lui — nessun ramo da guardare, o «non c'era
- * niente da portare». Dove invece l'ha visto scrive il fatto e non passa di
- * qui: una deduzione sopra una testimonianza è un declassamento.
- */
-async function auditOneLanding(taskId: string): Promise<void> {
-  const t = dispatcherSvc.get(taskId)?.task;
-  if (!t) return;
-  // Senza consegna registrata non c'e' niente da verificare, e si tace. Con
-  // un'accusa gia' scritta invece si prosegue, perche' c'e' qualcosa da
-  // RITIRARE: `markLandPending` timbra «non e' su main» appena il land viene
-  // chiesto, e questa e' la sua via d'uscita. `auditLandings` sa gia' che senza
-  // commit l'unica risposta possibile e' «non lo so», piu' il merge del land.
-  if (!t.deliveryCommit && t.landingState !== "unlanded") return;
-  const one: AuditTask = {
-    id: t.id, projectId: t.projectId,
-    deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,
-  };
-  await auditLandings(landingAuditDeps(() => [one], /*announce*/ false))
-    .catch((err) => { console.warn("[landing-audit] verdetto singolo fallito", err); return null; });
-}
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
 const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
