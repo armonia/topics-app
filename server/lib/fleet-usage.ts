@@ -1,11 +1,11 @@
 /**
- * Fleet usage — how much machine the SERVER SIDE of Topics is really using.
+ * Fleet usage: how much machine the SERVER SIDE of Topics is really using.
  *
  * WHY THIS EXISTS: `/api/system/status` used to report `process.memoryUsage().rss`,
  * i.e. the Bun process and nothing else. Measured on a live box that reads ~87 MB
- * while the work the server actually owns — the detached pty-bridge and the whole
+ * while the work the server actually owns (the detached pty-bridge and the whole
  * tree of `claude` CLIs, MCP servers and headless Chromes hanging off it, plus the
- * ai-bridge and the WebRTC sidecar — was ~5 GB across ~95 processes. The one number
+ * ai-bridge and the WebRTC sidecar) was ~5 GB across ~95 processes. The one number
  * the status bar exists to show was off by roughly 50x.
  *
  * The desktop shell has the same problem SOLVED on its side (`perf_metrics` in
@@ -14,25 +14,23 @@
  * launchd-reparented children of the SERVER and never appear in it. This module is
  * the server's half of the same answer.
  *
- * HOW: the sidecars are spawned detached (they survive a server restart and are
- * reparented to pid 1), so walking ppid from our own pid finds nothing. What is
- * stable is their COMMAND LINE: every sidecar is launched with `--socket <path>`
- * where the path is derived from the data instance, so it is unique per server
- * (prod vs test vs a second dev instance) and cannot collide. Each sidecar module
- * registers its socket path here at import time; one `ps` snapshot then resolves
- * pid + descendants for each root.
+ * ATTRIBUTION: on macOS we use `responsibility_get_pid_responsible_for_pid` (the
+ * same kernel call the Tauri shell uses). This survives launchd reparenting: a
+ * detached pty-bridge still names the server as its responsible process. Processes
+ * where resp==server.pid form the server set; processes where resp==sidecar.pid
+ * form the sidecar set. Two sets defined by two roots are disjoint by construction,
+ * no subtraction needed. On non-macOS we fall back to socket-path matching + ppid
+ * walking (the original logic), which is imprecise but always worked there.
  *
- * METRIC HONESTY (rivisto 2026-08-04): si somma `phys_footprint` — la STESSA
- * metrica della shell e della colonna "Memoria" di Monitoraggio Attività — con
- * `ps rss` come solo ripiego dove il kernel non risponde, e `memMetric` dice
- * quale delle due è finita nel totale. Prima erano due metriche diverse sommate
- * fra loro; vedi `procFootprintKB` per la misura che l'ha motivato.
+ * THREE AXES:
+ *  - server root: the Bun process and its direct children
+ *  - sidecars: pty-bridge, ai-bridge, WebRTC (identified by socket path)
+ *  - scripts: agent-launched work (registered via registerFleetScriptSource),
+ *    EXCLUDED from the server total so the UI can show it separately
  *
- * ATTRIBUZIONE: `roots` risponde «quanto tiene ciascun sidecar», `sessions`
- * «quanto ne tiene ciascuna sessione PTY dentro il pty-bridge». Le pane che NON
- * hanno un processo proprio (topic, kanban, chat, file: componenti React dentro
- * l'unico renderer) non sono attribuibili qui e non compaiono — nessun `ps` può
- * separarle, perché condividono lo stesso processo.
+ * METRIC HONESTY (revised 2026-08-04): we sum `phys_footprint` where the kernel
+ * exposes it, falling back to `ps rss` only where it does not. `memMetric` says
+ * which metric landed in the total so the client can label it instead of guessing.
  */
 
 import { machineCores } from "./machine-cores";
@@ -62,8 +60,8 @@ export function registerFleetSocket(kind: FleetKind, socketPath: string): void {
   if (socketPath) sockets.set(kind, socketPath);
 }
 
-/** Una sessione PTY e il pid di testa del suo albero. Il bridge lo riporta già
- *  su create e reconcile (`routes/terminal.ts`), quindi non c'è niente di nuovo
+/** Una sessione PTY e il pid di testa del suo albero. Il bridge lo riporta gia'
+ *  su create e reconcile (`routes/terminal.ts`), quindi non c'e' niente di nuovo
  *  da tracciare: va solo passato di qua. */
 export interface FleetSessionRef {
   sessionId: string;
@@ -71,11 +69,21 @@ export interface FleetSessionRef {
   pid: number;
 }
 
+/** Un processo lanciato da un agente (via runningScripts in processes.ts).
+ *  Identificato per pid + lstart per essere robusto ai pid riusati. */
+export interface FleetScriptRef {
+  pid: number;
+  /** Tempo di avvio del processo nel formato di `ps lstart`, per evitare di
+   *  confondere un pid riusato con quello originale. Opzionale: se assente,
+   *  si usa solo il pid. */
+  lstart?: string;
+}
+
 /** Da dove arrivano le sessioni al momento del campionamento.
  *
- *  È un seam, non un import diretto, per la stessa ragione per cui i sidecar si
- *  registrano da soli: `routes/terminal.ts` importa già questo modulo, e
- *  importarlo all'indietro chiuderebbe il ciclo. Assente ⇒ nessuna attribuzione
+ *  E' un seam, non un import diretto, per la stessa ragione per cui i sidecar si
+ *  registrano da soli: `routes/terminal.ts` importa gia' questo modulo, e
+ *  importarlo all'indietro chiuderebbe il ciclo. Assente => nessuna attribuzione
  *  per sessione, e tutto il resto continua a funzionare come prima. */
 let sessionSource: (() => FleetSessionRef[]) | null = null;
 
@@ -83,10 +91,19 @@ export function registerFleetSessionSource(fn: () => FleetSessionRef[]): void {
   sessionSource = fn;
 }
 
+/** Da dove arrivano i processi-script al momento del campionamento.
+ *  Stesso pattern di sessionSource. Assente => scriptsMB = 0. */
+let scriptSource: (() => FleetScriptRef[]) | null = null;
+
+export function registerFleetScriptSource(fn: () => FleetScriptRef[]): void {
+  scriptSource = fn;
+}
+
 /** Test seam: forget every registration (unit tests register their own). */
 export function _resetFleetSockets(): void {
   sockets.clear();
   sessionSource = null;
+  scriptSource = null;
 }
 
 export interface FleetRootUsage {
@@ -142,6 +159,12 @@ export interface FleetUsage {
    *  ciascuna sessione. Vuoto quando nessuna sorgente è registrata (o nessuna
    *  sessione è viva), e i totali non ne dipendono. */
   sessions: FleetSessionUsage[];
+  /** Memoria dei processi lanciati dagli agenti (terzo asse, escluso dal totale
+   *  server). Questi sono npm/pnpm/bun install, build, test e simili avviati
+   *  dall'agente: contano nel budget del dispositivo ma non nel costo di Topics. */
+  scriptsMB: number;
+  /** Numero di processi classificati come script-agente. */
+  scriptsProcessCount: number;
   /** False when the platform has no usable `ps` (Windows) — the client then
    *  keeps showing the single-process figure instead of a confident wrong one. */
   supported: boolean;
@@ -195,8 +218,12 @@ export function parsePsRows(text: string): PsRow[] {
 
 /**
  * Sum rss/cpu over `roots` and every descendant of theirs, counting each pid once
- * (a pid reachable from two roots must not be billed twice). Pure — the test
+ * (a pid reachable from two roots must not be billed twice). Pure: the test
  * drives it with a synthetic table instead of the live machine.
+ *
+ * When `responsibleOf` is provided (macOS), a process belongs to a root if
+ * `responsibleOf(proc.pid) == root.pid`. This survives launchd reparenting.
+ * Without it we fall back to ppid walking (the original logic).
  */
 export function summarizeFleet(
   rows: PsRow[],
@@ -207,12 +234,18 @@ export function summarizeFleet(
    *  sempre fatto) ma le sessioni lo distinguono da uno zero vero. */
   instantCpu?: (row: PsRow) => number | null,
   /** Core logici su cui normalizzare la CPU. Default 1 = scala `ps` grezza
-   *  (per-core), che è ciò che i test qui sotto verificano; `getFleetUsage`
-   *  passa i core della macchina per restituire la scala 0-100. */
+   *  (per-core), che e' cio' che i test verificano; `getFleetUsage` passa i core
+   *  della macchina per restituire la scala 0-100. */
   cpuCores = 1,
-  /** Sessioni da attribuire dentro l'albero già coperto dai root. Vuoto =
+  /** Sessioni da attribuire dentro l'albero gia' coperto dai root. Vuoto =
    *  nessuna attribuzione, e ogni altro numero resta identico. */
   sessions: FleetSessionRef[] = [],
+  /** Processi-script (lavoro degli agenti): vengono esclusi dal totale server e
+   *  contati nell'asse `scripts`. Vuoto = scriptsMB = 0. */
+  scripts: FleetScriptRef[] = [],
+  /** Opzionale: dato un pid, restituisce il suo responsible pid (macOS).
+   *  Quando presente si usa per l'attribuzione invece del ppid walk. */
+  responsibleOf?: (pid: number) => number | null,
 ): Omit<FleetUsage, "supported"> {
   const byPid = new Map<number, PsRow>();
   const children = new Map<number, number[]>();
@@ -226,53 +259,99 @@ export function summarizeFleet(
   const divisor = cpuCores > 0 ? cpuCores : 1;
   const counted = new Set<number>();
   const rootUsages: FleetRootUsage[] = [];
-  // Quale metrica di memoria è finita davvero nel totale. Un insieme misto
+  // Quale metrica di memoria e' finita davvero nel totale. Un insieme misto
   // (footprint per alcuni pid, rss per altri) si dichiara "mixed" invece di
   // presentarsi come footprint puro.
   let sawFootprint = false;
   let sawRss = false;
 
+  // Script pids: processi lanciati dagli agenti che vanno contati separatamente.
+  const scriptPidSet = new Set<number>(scripts.map(s => s.pid).filter(p => byPid.has(p)));
+
   for (const root of roots) {
     if (!byPid.has(root.pid)) continue;
     let procs = 0, rssKB = 0, cpu = 0;
-    const stack = [root.pid];
-    const seenHere = new Set<number>();
-    while (stack.length) {
-      const pid = stack.pop()!;
-      if (seenHere.has(pid)) continue;
-      seenHere.add(pid);
-      for (const c of children.get(pid) ?? []) stack.push(c);
-      if (counted.has(pid)) continue; // already billed to an earlier root
-      counted.add(pid);
-      const row = byPid.get(pid);
-      if (!row) continue;
-      procs++;
-      // Footprint quando c'è, `rss` come ripiego: la stessa riga decide anche
-      // `memMetric` sotto, così il client non deve indovinare cosa sta leggendo.
-      if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
-      rssKB += row.footprintKB ?? row.rssKB;
-      cpu += (instantCpu ? instantCpu(row) : row.cpu) ?? 0;
+
+    // ATTRIBUZIONE: usa responsible pid quando disponibile (macOS), ppid walk
+    // come ripiego. Le due strade producono lo stesso risultato su processi
+    // normali; divergono sugli orfani reparentati a launchd, dove il responsible
+    // pid sopravvive e il ppid non aiuta.
+    if (responsibleOf) {
+      // Tutti i processi con responsible == root.pid appartengono a questo root.
+      // Il root stesso e' incluso con un controllo esplicito sul pid.
+      for (const row of rows) {
+        if (row.pid !== root.pid && responsibleOf(row.pid) !== root.pid) continue;
+        if (scriptPidSet.has(row.pid)) continue; // terzo asse: escludi gli script
+        if (counted.has(row.pid)) continue;
+        counted.add(row.pid);
+        procs++;
+        if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
+        rssKB += row.footprintKB ?? row.rssKB;
+        cpu += (instantCpu ? instantCpu(row) : row.cpu) ?? 0;
+      }
+    } else {
+      // Fallback: ppid walk originale (non-macOS o FFI non disponibile).
+      const stack = [root.pid];
+      const seenHere = new Set<number>();
+      while (stack.length) {
+        const pid = stack.pop()!;
+        if (seenHere.has(pid)) continue;
+        seenHere.add(pid);
+        for (const c of children.get(pid) ?? []) stack.push(c);
+        if (scriptPidSet.has(pid)) continue; // terzo asse: escludi gli script
+        if (counted.has(pid)) continue; // already billed to an earlier root
+        counted.add(pid);
+        const row = byPid.get(pid);
+        if (!row) continue;
+        procs++;
+        // Footprint quando c'e', `rss` come ripiego.
+        if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
+        rssKB += row.footprintKB ?? row.rssKB;
+        cpu += (instantCpu ? instantCpu(row) : row.cpu) ?? 0;
+      }
     }
+
     rootUsages.push({
       kind: root.kind,
       pid: root.pid,
       processCount: procs,
       memoryMB: Math.round(rssKB / 1024),
-      // Normalizzato qui, sul singolo root: il totale è la somma dei root, che
-      // resterebbe per-core se dividessimo solo là.
+      // Normalizzato qui, sul singolo root: il totale e' la somma dei root, che
+      // resterebbe per-core se dividessimo solo la'.
       cpuPercent: Math.round((cpu / divisor) * 10) / 10,
     });
   }
 
+  // Calcola il terzo asse: processi-script e la loro memoria.
+  // Questi NON sono nella counted set e vengono misurati separatamente.
+  let scriptsTotalKB = 0;
+  let scriptsProcs = 0;
+  for (const s of scripts) {
+    // Usa ppid walk per i figli dello script (es. i nipoti di npm install).
+    const stack = [s.pid];
+    const seen = new Set<number>();
+    while (stack.length) {
+      const pid = stack.pop()!;
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      for (const c of children.get(pid) ?? []) stack.push(c);
+      const row = byPid.get(pid);
+      if (!row) continue;
+      scriptsProcs++;
+      scriptsTotalKB += row.footprintKB ?? row.rssKB;
+      if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
+    }
+  }
+
   // Le sessioni si calcolano in un passaggio SEPARATO, con un proprio insieme
-  // di pid già fatturati. Riusare `counted` dei root sottrarrebbe processi ai
+  // di pid gia' fatturati. Riusare `counted` dei root sottrarrebbe processi ai
   // root stessi (le sessioni vivono DENTRO l'albero del pty-bridge): i totali
-  // di flotta devono restare esattamente quelli di prima, e questa parte è
-  // solo una lente su una porzione già contata.
+  // di flotta devono restare esattamente quelli di prima, e questa parte e'
+  // solo una lente su una porzione gia' contata.
   const sessionUsages: FleetSessionUsage[] = [];
   const billed = new Set<number>();
   for (const s of sessions) {
-    if (!byPid.has(s.pid)) continue; // sessione registrata ma processo già morto
+    if (!byPid.has(s.pid)) continue; // sessione registrata ma processo gia' morto
     let procs = 0, memKB = 0, cpu = 0, measured = 0;
     const stack = [s.pid];
     const seenHere = new Set<number>();
@@ -296,7 +375,7 @@ export function summarizeFleet(
       pid: s.pid,
       processCount: procs,
       memoryMB: Math.round(memKB / 1024),
-      // Nessun pid con una base ⇒ non misurata. Uno `0` qui direbbe «ferma»,
+      // Nessun pid con una base => non misurata. Uno `0` qui direbbe "ferma",
       // che di una sessione appena avviata non lo sappiamo.
       cpuPercent: measured > 0 ? Math.round((cpu / divisor) * 10) / 10 : null,
     });
@@ -310,6 +389,8 @@ export function summarizeFleet(
     memMetric: sawFootprint ? (sawRss ? "mixed" : "footprint") : "rss",
     roots: rootUsages,
     sessions: sessionUsages,
+    scriptsMB: Math.round(scriptsTotalKB / 1024),
+    scriptsProcessCount: scriptsProcs,
   };
 }
 
@@ -382,6 +463,38 @@ const procFootprintKB: (pid: number) => number | null = (() => {
   }
 })();
 
+/**
+ * `responsibility_get_pid_responsible_for_pid`: dato un pid, restituisce il pid
+ * del processo "responsabile" secondo macOS. Sopravvive al reparenting a launchd:
+ * un sidecar reparentato a pid 1 mantiene il server come responsible pid.
+ *
+ * Costo: ~2 ms su ~950 pid (misurato). Nessun fork, nessun `ps`.
+ *
+ * `null` quando la piattaforma non e' macOS o la FFI non e' disponibile. In quel
+ * caso `finish()` passa `undefined` a `summarizeFleet` che ricade sul ppid walk.
+ */
+const { responsiblePidFn, responsiblePidAvailable } = (() => {
+  if (isWindows || process.platform !== "darwin") {
+    return { responsiblePidFn: (_: number): number | null => null, responsiblePidAvailable: false };
+  }
+  try {
+    const { dlopen, FFIType } = require("bun:ffi") as typeof import("bun:ffi");
+    const lib = dlopen("/usr/lib/libSystem.dylib", {
+      responsibility_get_pid_responsible_for_pid: { args: [FFIType.i32], returns: FFIType.i32 },
+    });
+    const fn = (pid: number): number | null => {
+      try {
+        const r = lib.symbols.responsibility_get_pid_responsible_for_pid(pid);
+        // -1 = pid non trovato o zombi, 0 = non applicabile.
+        return r > 0 ? r : null;
+      } catch { return null; }
+    };
+    return { responsiblePidFn: fn, responsiblePidAvailable: true };
+  } catch {
+    return { responsiblePidFn: (_: number): number | null => null, responsiblePidAvailable: false };
+  }
+})();
+
 /** Lettura precedente dei secondi di CPU per pid: e' la BASE da cui si ricava
  *  la percentuale istantanea. Senza, si potrebbe solo riportare la media di
  *  vita di `ps pcpu`, che e' il difetto che questo modulo aveva. */
@@ -425,15 +538,21 @@ function finish(
   base: { at: number; byPid: Map<number, number> } | null,
   nowMs: number,
 ): FleetUsage {
+  // Una sorgente che esplode non deve portarsi dietro tutta la misura: senza
+  // sessioni/script si perde la lente, non il totale.
+  const sessions = (() => { try { return sessionSource?.() ?? []; } catch { return []; } })();
+  const scripts = (() => { try { return scriptSource?.() ?? []; } catch { return []; } })();
+
   const usage = {
     ...summarizeFleet(
       rows,
       resolveFleetRoots(rows, process.pid),
       makeInstantCpu(base, nowMs),
       CPU_CORES(),
-      // Una sorgente che esplode non deve portarsi dietro tutta la misura: senza
-      // sessioni si perde la lente, non il totale.
-      (() => { try { return sessionSource?.() ?? []; } catch { return []; } })(),
+      sessions,
+      scripts,
+      // Usa il responsible pid su macOS (FFI disponibile), ppid walk altrove.
+      responsiblePidAvailable ? responsiblePidFn : undefined,
     ),
     supported: true,
   };
@@ -478,7 +597,7 @@ export function fleetLoadSync(): { coreUnits: number; cores: number } | null {
 }
 
 export async function getFleetUsage(): Promise<FleetUsage> {
-  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES(), memMetric: "rss", roots: [], sessions: [], supported: false };
+  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES(), memMetric: "rss", roots: [], sessions: [], scriptsMB: 0, scriptsProcessCount: 0, supported: false };
   if (isWindows) return unsupported;
   const now = Date.now();
   if (cached && now - cachedAt < FLEET_TTL_MS) return cached;

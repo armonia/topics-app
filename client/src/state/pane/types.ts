@@ -35,6 +35,7 @@ export const PANE_TYPES = [
   'context',
   'editor',
   'cron',
+  'profile',
   'remote-access',
   'system-status',
   'processes',

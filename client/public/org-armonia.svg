@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <circle cx="32" cy="32" r="32" fill="#1a1a2e"/>
+  <!-- Sound wave / harmonic arcs representing Armonia -->
+  <path d="M20 32 C20 22 24 16 32 16 C40 16 44 22 44 32 C44 42 40 48 32 48 C24 48 20 42 20 32Z" fill="none" stroke="#6366f1" stroke-width="2.5" opacity="0.3"/>
+  <!-- Inner harmonic waves -->
+  <path d="M14 32 Q14 8 32 8 Q50 8 50 32 Q50 56 32 56 Q14 56 14 32" fill="none" stroke="#818cf8" stroke-width="1.5" opacity="0.2"/>
+  <!-- Music note / A letter stylized -->
+  <path d="M24 44 L32 20 L40 44" stroke="#a5b4fc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M27 37 L37 37" stroke="#a5b4fc" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Harmonic dots -->
+  <circle cx="32" cy="20" r="2" fill="#c7d2fe"/>
+  <!-- Wave lines around -->
+  <path d="M10 28 Q12 24 14 28 Q16 32 18 28" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+  <path d="M46 28 Q48 24 50 28 Q52 32 54 28" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+  <path d="M10 36 Q12 40 14 36 Q16 32 18 36" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+  <path d="M46 36 Q48 40 50 36 Q52 32 54 36" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+</svg>
