@@ -47,10 +47,36 @@ const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
  * sia un browser. Il dominio giusto è `platform.claude.com`, e ci si arriva
  * solo con gli header sotto — verificato il 2026-08-16.
  *
- * OAUTH_TOKEN_URL_OVERRIDE: usata solo nei test per puntare a un server finto.
- * In produzione resta vuota e il valore di default vale.
+ * OAUTH_TOKEN_URL_OVERRIDE: usata solo nei test per puntare a un server finto,
+ * e accettata SOLO se punta al loopback.
+ *
+ * Il vincolo non e' formale. Questo e' l'indirizzo a cui viene spedito il
+ * REFRESH TOKEN, cioe' la credenziale piu' preziosa della macchina: senza
+ * vincolo, una variabile d'ambiente qualunque — un `.env` copiato, uno script
+ * di comodo, una riga in un profilo di shell — la manderebbe altrove, e la
+ * risposta finirebbe scritta nel file delle credenziali dell'utente. Il test
+ * che la usa alza un server finto su 127.0.0.1, quindi il vincolo non gli costa
+ * niente; a un attaccante toglie tutto.
  */
-const TOKEN_URL = process.env.OAUTH_TOKEN_URL_OVERRIDE ?? "https://platform.claude.com/v1/oauth/token";
+function tokenUrlFromEnv(raw: string | undefined): string | null {
+  if (!raw) return null;
+  let u: URL;
+  try { u = new URL(raw); } catch { return null; }
+  const host = u.hostname;
+  const loopback = host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost";
+  if (!loopback) {
+    console.warn(
+      `[auth] OAUTH_TOKEN_URL_OVERRIDE ignorata: "${raw}" non punta al loopback. ` +
+      "Quell'indirizzo riceverebbe il refresh token.",
+    );
+    return null;
+  }
+  return raw;
+}
+
+export const OAUTH_TOKEN_URL_DEFAULT = "https://platform.claude.com/v1/oauth/token";
+const TOKEN_URL = tokenUrlFromEnv(process.env.OAUTH_TOKEN_URL_OVERRIDE) ?? OAUTH_TOKEN_URL_DEFAULT;
+export { tokenUrlFromEnv };
 
 /** Gli scope che la CLI chiede, e che il rinnovo deve richiedere identici. */
 const SCOPES = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
