@@ -51,6 +51,7 @@ import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
+import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -669,6 +670,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // Return the REFRESHED row so the response and the broadcast already carry
     // the snapshot — otherwise the board only learns about it on a refetch.
     return (svc.get(task.id)?.task as T | undefined) ?? task;
+  }
+
+  /**
+   * Sonda l'output_url in background (fire-and-forget) e aggiorna il DB +
+   * manda un delta WS ai client. Non blocca la richiesta corrente.
+   *
+   * - Con cache TTL (5 min): non ri-sonda su ogni accesso alla card.
+   * - Solo se il task ha un output_url.
+   * - Il client usa `urlProbeStatus` per decidere se mostrare il link.
+   */
+  function triggerUrlProbe(taskId: string, outputUrl: string | null, projectId?: string): void {
+    if (!outputUrl) return;
+    void (async () => {
+      try {
+        const result = await probeUrl(outputUrl);
+        const updated = svc.setUrlProbeStatus({ taskId, status: result.status, checkedAt: result.checkedAt });
+        // Broadcast il delta ai client connessi (come gli altri update in questo file).
+        if (projectId) {
+          broadcastToAll({ type: "task:updated", projectId, task: updated });
+        }
+      } catch (err) {
+        console.warn("[url-probe] background probe failed", taskId, err);
+      }
+    })();
   }
 
 
@@ -1315,6 +1340,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     if (!isPreviewablePath(raw)) {
       return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
+    }
+    // IL DEFAULT E' LA COSA VERA, non un si'.
+    //
+    // Il seam esiste perche' un test possa dire «fingi che ci sia»; il suo
+    // valore di riposo pero' deve restare `existsSync`, altrimenti qualunque
+    // AppContext costruito senza quel campo perde il cancello SENZA dirlo — e
+    // un cancello che sparisce in silenzio e' peggio di uno che non c'e' mai
+    // stato. Con `?? (() => true)` bastava dimenticare una riga di cablaggio
+    // per tornare al difetto di partenza: una card che punta a un'anteprima
+    // cancellata e una PATCH che risponde 200.
+    const checkExists = ctx.fileExistsSync ?? existsSync;
+    if (!checkExists(raw)) {
+      return { ok: false, reason: `file non trovato sul disco: ${raw}` };
     }
     // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.
     //
@@ -2487,6 +2525,27 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // Approve = ACCEPT the task only (→ done, dependents claimable). It no
           // longer merges/builds/reaps "da sotto": landing is now an EXPLICIT step
           // — the agent's "Landa su main" option above, or POST …/land.
+          // CHIUSA APPOSTA SENZA LANDARE, e la card deve poterlo dire.
+          //
+          // Un `approve` che non atterra lascia la card `unlanded` con un commit
+          // vero: da fuori e' identico a una dimenticanza, quindi accende il chip
+          // «non su main» e il contatore rosso in cima alla board, per sempre.
+          // Misurato il 18/08/2026: tre card chiuse deliberatamente — due il cui
+          // ramo portava il doppione di un cancello gia' su main, una in cui fra
+          // due rimedi allo stesso guasto era stato scelto l'altro — tutte e tre
+          // contate come debito. Un debito che nessuno intende pagare rende
+          // inguardabile il contatore di quelli veri.
+          //
+          // `superseded: true` e' un gesto ESPLICITO di chi rivede, non una
+          // deduzione: nessuno puo' sapere dal repo se un ramo fuori da main sia
+          // stato scartato o dimenticato. L'audit poi non lo tocca piu'.
+          if (decision === "approve" && body?.superseded === true) {
+            try {
+              svc.recordLandingState({
+                taskId: bReview.taskId, state: "superseded", checkedAt: new Date().toISOString(),
+              });
+            } catch { /* la decisione conta piu' del suo timbro */ }
+          }
           if (dispatcher && decision === "approve" && task.status === "done") {
             dispatcher.onBlockerDone(bReview.taskId);
             // Accepted (not landed): the preview server is no longer needed.
@@ -2682,6 +2741,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
           try {
             const prevStatus = svc.get(taskId, { projectId })?.task.status;
+            // Invalidate probe cache when output_url changes (new URL needs a fresh probe).
+            if (parsed.patch.outputUrl !== undefined) {
+              const old = svc.get(taskId, { projectId })?.task.outputUrl;
+              if (old) invalidateProbeCache(old);
+            }
             let task = svc.update({
               taskId, actor: "human", by: HUMAN, projectId,
               patch: parsed.patch,
@@ -2690,6 +2754,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             broadcastToAll({ type: "task:updated", projectId, task });
             emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
               () => svc.get(taskId)?.comments);
+            triggerUrlProbe(taskId, task.outputUrl, projectId);
             // Auto-dispatch trigger: the human dragging a task INTO todo is the
             // "vai" signal; dragging it back OUT while still queued cancels it.
             // The dispatcher itself no-ops when auto_dispatch is off for the board.
@@ -3117,6 +3182,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
             () => svc.get(task.id)?.comments);
+          triggerUrlProbe(item.taskId, task.outputUrl, sess.projectId);
           return json(task);
         } catch (e) { return fail(e); }
       }

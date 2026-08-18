@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, realpathSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
@@ -10,6 +10,7 @@ import { getDescendantPids, getPidStartTimes } from "../lib/process-tree";
 import { getTerminalSessionById } from "./terminal";
 import { getSessionCliPid } from "../providers/session-pids";
 import { backgroundShellBanner, shellProcessKey } from "../../shared/background-shell-registry";
+import { registerFleetScriptSource } from "../lib/fleet-usage";
 
 interface ScriptProcess {
   processId: string;
@@ -105,6 +106,14 @@ const MAX_RECENT = 10;
 
 const runningScripts = new Map<string, ScriptProcess>();
 const recentScripts: ScriptProcess[] = [];
+
+// Terzo asse del calcolatore di memoria: processi lanciati dagli agenti.
+// Vengono esclusi dal totale server (fleet-usage.ts) e mostrati separatamente.
+registerFleetScriptSource(() =>
+  Array.from(runningScripts.values())
+    .filter(sp => sp.status === "running" && sp.pid !== null)
+    .map(sp => ({ pid: sp.pid as number, lstart: sp.pidLstart })),
+);
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
@@ -536,6 +545,24 @@ function invalidateScriptsCache() {
 // Build current scripts list (without port detection for WS broadcasts — ports are fetched on GET)
 // Esportata per i test: è la lista che viaggia sulla WS, e deve dire le stesse
 // cose della risposta HTTP — se le due divergono la divergenza si vede solo dal vivo.
+/**
+ * Restituisce gli script avviati da Topics (source:"script") ancora in esecuzione,
+ * con pid, pidLstart e projectPath. Usato da worktree-manager per trovare i
+ * processi da spegnere prima di rimuovere una worktree (Punto 1 task e3240a22).
+ */
+export function listOwnedScripts(): import("../lib/ghost-script").OwnedScript[] {
+  return Array.from(runningScripts.values())
+    .filter(sp => (sp.source === "script" || !sp.source) && sp.status === "running" && sp.pid)
+    .map(sp => ({
+      processId: sp.processId,
+      pid: sp.pid,
+      pidLstart: sp.pidLstart,
+      projectPath: sp.projectPath,
+      source: (sp.source ?? "script") as "script",
+      status: sp.status,
+    }));
+}
+
 export function getScriptsSnapshot(): any[] {
   const running = Array.from(runningScripts.values()).map(sp => ({
     processId: sp.processId,
@@ -1214,7 +1241,86 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
     changed = true;
   }
 
+  // PUNTO 2 (task e3240a22): ghost sweep.
+  // Cerca i processi source:"script" il cui projectPath sta sotto la base dei
+  // worktree di Topics, ma la root della worktree non esiste piu' su disco.
+  // Il ciclo ha gia' backoff e tabella in cache — questo sweep non aggiunge I/O.
+  changed = changed || (await reapGhostScripts(ctx));
+
   if (changed) broadcastScriptsUpdate(ctx);
+  return changed;
+}
+
+/**
+ * PUNTO 2 (task e3240a22): sweep di recupero per i fantasmi gia' nati.
+ *
+ * Criterio: source:"script", cwd registrato sotto ~/.topics/worktrees/,
+ * e la root della worktree (project/name) non esiste piu' su disco.
+ *
+ * L'identita' (pid+lstart) e' gia' catturata al momento della registrazione
+ * (campo pidLstart) e riverificata da killProcessTree prima di ogni segnale.
+ *
+ * Se TOPICS_GHOST_REAP != "1": solo log.
+ * Se TOPICS_GHOST_REAP === "1": uccide.
+ */
+async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
+  const GHOST_REAP_ARMED = process.env.TOPICS_GHOST_REAP === "1";
+  const wtBase = ctx.worktreeManager.worktreesDir();
+  const wtBaseSlash = wtBase.endsWith("/") ? wtBase : wtBase + "/";
+
+  // Candidati: script registrati con projectPath sotto la base dei worktree
+  const candidates = [...runningScripts.values()].filter(sp => {
+    if ((sp.source !== "script" && sp.source != null) || sp.status !== "running" || !sp.pid) return false;
+    const p = sp.projectPath;
+    return p === wtBase || p.startsWith(wtBaseSlash);
+  });
+  if (candidates.length === 0) return false;
+
+  // Per ogni candidato: verifica il cwd reale via lsof (un solo batch)
+  const pids = candidates.map(s => s.pid as number);
+  const cwdMap = await getProcessCwds(pids).catch(() => new Map<number, string>());
+
+  let changed = false;
+  for (const sp of candidates) {
+    // cwd reale: preferisce lsof; cade sul projectPath registrato
+    const rawCwd = cwdMap.get(sp.pid as number) ?? sp.projectPath;
+    // Risolvi symlink (es. /tmp vs /private/tmp su macOS)
+    let cwdReal = rawCwd;
+    try { cwdReal = realpathSync(rawCwd); } catch { /* cartella sparita: il path e' gia' il vero */ }
+
+    // Verifica: il cwd deve stare DENTRO la base
+    if (!cwdReal.startsWith(wtBaseSlash)) continue;
+
+    // La root della worktree e' il secondo componente dopo la base:
+    // ~/.topics/worktrees/<project-slug>/<worktree-name>
+    const rel = cwdReal.slice(wtBaseSlash.length);
+    const parts = rel.split("/");
+    if (parts.length < 2) continue;
+    const worktreeRoot = wtBaseSlash + parts[0] + "/" + parts[1];
+
+    if (existsSync(worktreeRoot)) continue; // ancora viva
+
+    // Fantasma confermato
+    const pid = sp.pid as number;
+    // Recupera le porte per il log
+    const ports = await getPortsForProcess(pid).catch(() => [] as number[]);
+    console.log(
+      `[ghost-reap] pid=${pid} port=${ports.join(",") || "?"} cwd sparito (${worktreeRoot}) — ` +
+      (GHOST_REAP_ARMED ? "KILLING" : "only log (imposta TOPICS_GHOST_REAP=1 per armare)"),
+    );
+
+    if (GHOST_REAP_ARMED) {
+      try {
+        await killProcessTree(pid, 2000);
+      } catch (err) {
+        console.warn(`[ghost-reap] killProcessTree(${pid}) fallito:`, err);
+      }
+      // Rimuovi dal registro dopo aver ucciso
+      runningScripts.delete(sp.processId);
+      saveState();
+      changed = true;
+    }
+  }
   return changed;
 }
 

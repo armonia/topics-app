@@ -179,6 +179,16 @@ export interface Task {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /**
+   * Esito dell'ultima sonda server-side sull'output_url.
+   * - `'live'`    : la sonda ha risposto 2xx/3xx
+   * - `'dead'`    : la sonda non risponde o risponde 4xx/5xx
+   * - `'unknown'` : sonda mai eseguita (default dopo la migration)
+   * `null` = nessun output_url, campo non rilevante.
+   */
+  urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
+  /** Timestamp dell'ultima sonda (ISO string). */
+  urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
@@ -936,6 +946,11 @@ export interface TaskService {
   setDispatchWeight(args: { taskId: string; weight: TaskWeight | null }): Task;
   /** Toglie l'anteprima e scrive sulla card PERCHÉ (stato, non messaggio). */
   retirePreview(args: { taskId: string; reason: string }): Task;
+  /**
+   * Scrive l'esito della sonda sull'output_url.
+   * Chiamato dal background probe trigger dopo ogni sonda HTTP.
+   */
+  setUrlProbeStatus(args: { taskId: string; status: 'live' | 'dead' | 'unknown'; checkedAt: string }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
@@ -1021,7 +1036,7 @@ export interface TaskService {
    * (merge uscito zero, o fallito), non chi lo deduce dopo: quel verdetto
    * diventa definitivo finché la card non riconsegna.
    */
-  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable"; checkedAt: string; witnessed?: boolean }): void;
+  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable" | "superseded"; checkedAt: string; witnessed?: boolean }): void;
   /**
    * Lo stato terminale che un land RIUSCITO impone alla card: `done`, chip di
    * dispatch spento, nessuna finestra di ri-tentativo. Idempotente — su una card
@@ -1922,6 +1937,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
+      urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
+      urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
@@ -2370,6 +2387,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * Il predicato del gate `review_needs_summary`, estratto per essere chiamato
+   * anche dalle porte di sistema (`deliverToReviewBySystem`, `askParkedChildren`)
+   * che non passano da `update()`.
+   *
+   * Dentro `update()` il predicato BLOCCA (l'agente può riprovare). Dalle porte
+   * di sistema NON blocca — il turno e' gia' finito, la card deve andare da
+   * qualche parte — ma il fatto si ANNOTA: chi rivede sa subito che l'agente non
+   * ha dichiarato nulla, e non deve scoprirlo aprendo il worktree.
+   *
+   * `true` = il turno ha prodotto almeno un commento dell'agente = consegna non
+   * muta. `false` = nessuna parola fresca = annotare.
+   */
+  function hasFreshAgentComment(taskId: string): boolean {
+    const turnStart = lastTurnStart(taskId);
+    const c = (db.prepare(
+      `SELECT COUNT(*) AS c FROM task_comments
+        WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
+          AND (? IS NULL OR created_at >= ?)`,
+    ).get(taskId, turnStart, turnStart) as any).c as number;
+    return c > 0;
+  }
+
+  /**
    * Segna che una card è USCITA da `done` o da `review`, per le porte che
    * scrivono lo status a SQL grezzo (release, deferForWait,
    * deliverToReviewBySystem, il rifiuto in review). `update()` scrive le stesse
@@ -2790,13 +2830,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // (the newest `…→in_progress` status event). Coach a retry — same
           // pattern as comment_too_long. kind='comment' only: an agent-authored
           // status flip must not satisfy the gate.
-          const turnStart = lastTurnStart(taskId);
-          const fresh = (db.prepare(
-            `SELECT COUNT(*) AS c FROM task_comments
-              WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
-                AND (? IS NULL OR created_at >= ?)`,
-          ).get(taskId, turnStart, turnStart) as any).c as number;
-          if (fresh === 0) {
+          if (!hasFreshAgentComment(taskId)) {
             throw new TaskServiceError(
               "review_needs_summary",
               "post a delivery summary for THIS turn first. Use comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason), THEN set status='review'",
@@ -3824,6 +3858,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // Qui, e solo qui, la card va DAVVERO in review: è il punto in cui «l'ho
       // portato io in review» smette di essere una previsione e diventa un fatto.
+      // PREDICATO review_needs_summary, PORTA DI SISTEMA.
+      //
+      // PRIMA di cio' che parla all'umano, e non dopo: l'ULTIMA parola del
+      // thread e' quella a cui si risponde. Una domanda porta le sue opzioni
+      // (`questionOptions`) e il client legge l'ultimo commento; una nota di
+      // contabilita' appesa dopo la seppelliva, e sette casi di
+      // `tasks.parked-stall.test.ts` sono diventati rossi leggendo `[]` dove
+      // c'erano due bottoni. Il rosso era il sintomo: il guasto vero e' che
+      // chi apriva la card trovava per ultima una riga di macchina invece
+      // della decisione che gli si chiede.
+      //
+      // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
+      // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
+      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
+      // contabilita', non conversazione.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
+      }
       if (reason && reason.trim()) {
         const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
         try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
@@ -3917,6 +3974,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           `Archivio cio' che non serve piu', oppure la prendi in mano tu?`
         : `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
           `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
+      // PREDICATO review_needs_summary, PORTA DI SISTEMA.
+      //
+      // PRIMA di cio' che parla all'umano, e non dopo: l'ULTIMA parola del
+      // thread e' quella a cui si risponde. Una domanda porta le sue opzioni
+      // (`questionOptions`) e il client legge l'ultimo commento; una nota di
+      // contabilita' appesa dopo la seppelliva, e sette casi di
+      // `tasks.parked-stall.test.ts` sono diventati rossi leggendo `[]` dove
+      // c'erano due bottoni. Il rosso era il sintomo: il guasto vero e' che
+      // chi apriva la card trovava per ultima una riga di macchina invece
+      // della decisione che gli si chiede.
+      //
+      // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
+      // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
+      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
+      // contabilita', non conversazione.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
+      }
       try {
         this.addComment({
           taskId, author: "system", content: question,
@@ -4095,7 +4175,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // `1` e non `0`: questo turno e' il PRIMO della sessione nuova, e conta.
 
-      // I SOTTOTASK DEL TENTATIVO MORTO NON SOPRAVVIVONO AL TENTATIVO.
+      // IL TENTATIVO MUORE, LA CHECKLIST NO: I `done` SI ARCHIVIANO, GLI APERTI
+      // CAMBIANO PADRONE.
       //
       // Misurato il 18/08 su `eef64e32`: dopo il re-dispatch i quattro sottotask
       // del topic precedente (`groovy-frond`) erano ancora nella checklist del
@@ -4104,33 +4185,98 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // silenzioso: la card restava in coda per sempre perche' uno step si muove
       // solo dall'agente di quella card, e quell'agente non esiste piu').
       //
-      // La regola: al cambio di topic (freshSession + topic diverso), i figli
-      // creati dal topic PRECEDENTE (`created_by_topic_id = vecchio_topic`)
-      // vengono archiviati, e una nota nel thread lo dice. Un `done` che descrive
-      // lavoro buttato e' peggio di un buco: meglio un archiviato visibile.
+      // I due guasti NON sono lo stesso guasto, e non hanno la stessa cura:
+      //
+      //  · un `done` e' una BUGIA. Descrive lavoro che il worktree nuovo non ha;
+      //    l'agente che arriva lo legge come fatto e non lo rifa'. Si archivia.
+      //  · un aperto e' un PIANO. Dice cosa restava da fare, ed e' l'unica cosa
+      //    di buono che il tentativo morto lascia. Archiviarlo faceva ripartire
+      //    il nuovo agente dal foglio bianco, a ricostruire la stessa lista.
+      //
+      // Quindi gli aperti restano, ma cambiano padrone: `status` torna a `todo`
+      // (l'`in_progress` era di un turno che non gira piu') e
+      // `created_by_topic_id` passa al topic NUOVO. Il secondo pezzo e' quello
+      // che scioglie il deadlock, ed e' il motivo per cui `isOwnStep` guarda la
+      // PROVENIENZA e non solo il legame di dispatch: `assigned_topic_id` lo
+      // azzera `release` mentre il turno gira ancora, e senza la provenienza
+      // aggiornata l'agente nuovo vedeva lo step e prendeva 409 nel chiuderlo.
+      //
+      // Ricorsivo sull'ALBERO, non sui figli diretti: uno step annidato del
+      // tentativo morto avrebbe lo stesso problema un livello piu' sotto, e
+      // sarebbe l'unico rimasto che nessuno puo' chiudere.
       //
       // Idempotente: se il topic e' lo stesso (ripresa) o non c'era (primo
       // dispatch), non si tocca niente.
       const oldTopicId = row.assigned_topic_id as string | null;
       if (freshSession && oldTopicId && oldTopicId !== topicId) {
         const ts = now();
-        const staleChildren = (db.prepare(
-          "SELECT id, text FROM tasks WHERE parent_task_id = ? AND created_by_topic_id = ? AND archived = 0",
-        ).all(taskId, oldTopicId) as Array<{ id: string; text: string }>);
-        if (staleChildren.length > 0) {
-          for (const child of staleChildren) {
-            archiveSubtree(child.id, ts);
+        // L'albero INTERO sotto il task, filtrato sulla provenienza: quello che
+        // ha creato un altro topic (un umano, un altro agente) non si tocca.
+        // Il task stesso e' escluso: e' il deliverable, non uno step.
+        const staleOf = (): Array<{ id: string; text: string; status: string }> =>
+          db.prepare(
+            `WITH RECURSIVE subtree(id) AS (
+               SELECT id FROM tasks WHERE id = ?
+               UNION ALL
+               SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+             )
+             SELECT t.id, t.text, t.status FROM tasks t
+              WHERE t.id IN (SELECT id FROM subtree WHERE id != ?)
+                AND t.created_by_topic_id = ?
+                AND t.archived = 0
+              ORDER BY t.kanban_order ASC`,
+          ).all(taskId, taskId, oldTopicId) as Array<{ id: string; text: string; status: string }>;
+
+        const archiviati = staleOf().filter((c) => c.status === "done");
+        // Prima gli archiviati, e in cascata: un aperto che pendeva da uno step
+        // `done` se ne va con lui invece di restare appeso a un padre sparito.
+        for (const c of archiviati) archiveSubtree(c.id, ts);
+        // Poi si rilegge: quello che e' ancora aperto DOPO la cascata e' quello
+        // che il nuovo agente eredita davvero.
+        const ereditati = staleOf().filter((c) => c.status !== "done");
+        for (const c of ereditati) {
+          // Le colonne sono ESATTAMENTE quelle che `resolveParkedChildren`
+          // azzera quando rimette in coda un figlio, e per la stessa ragione:
+          // e' un mandato NUOVO, non un residuo. Lasciare la finestra di rinvio
+          // o il chip vecchio vuol dire uno step che dice «in coda» sopra una
+          // coda che non lo serve, che e' il modo in cui una card si ferma
+          // senza dirlo a nessuno.
+          db.prepare(
+            "UPDATE tasks SET status = 'todo', created_by_topic_id = ?, dispatch_state = NULL, " +
+              "dispatch_error = NULL, dispatch_attempts = 0, dispatch_deferred_until = NULL, " +
+              "updated_at = ? WHERE id = ?",
+          ).run(topicId, ts, c.id);
+          // La riga di stato la scrive CHI SPOSTA, sempre: senza, la storia
+          // dello step mostra una colonna cambiata e nessuno che l'ha cambiata.
+          // Il `from` e' quello vero e non una costante — uno step gia' in
+          // `todo` non si e' mosso, e scrivergli «todo -> todo» sarebbe mettere
+          // nella sua storia un passaggio mai avvenuto (stessa regola, e stessa
+          // riga, di `resolveParkedChildren`).
+          if (c.status !== "todo") logStatus(c.id, c.status, "todo", "system");
+          // Uno step in `review` stava aspettando una decisione. Tirandolo
+          // fuori, quella approvazione non ha piu' oggetto: se resta `pending`
+          // non la chiude piu' niente, perche' `reviewDecision` rifiuta un task
+          // che in review non c'e' piu'. E' la stessa chiusura che
+          // `resolveParkedChildren` fa sul padre quando la domanda decade.
+          if (c.status === "review") settleReviewApproval(c.id, "expired", "system", ts);
+        }
+        if (archiviati.length > 0 || ereditati.length > 0) {
+          const righe: string[] = [`Sessione cambiata (topic \`${oldTopicId}\` -> \`${topicId}\`).`];
+          if (archiviati.length > 0) {
+            righe.push(
+              `${archiviati.length} ${archiviati.length === 1 ? "sottotask completato archiviato" : "sottotask completati archiviati"}: ` +
+                `segnavano lavoro del tentativo precedente, che non esiste piu'.`,
+            );
           }
-          const stepList = staleChildren.map((c) => `- ${c.text}`).join("\n");
+          if (ereditati.length > 0) {
+            righe.push(
+              `${ereditati.length} ${ereditati.length === 1 ? "sottotask incompleto ereditato" : "sottotask incompleti ereditati"} ` +
+                `dal nuovo agente: rimessi in todo, sono il piano che il tentativo precedente lascia.`,
+            );
+            righe.push(ereditati.map((c) => `- ${c.text}`).join("\n"));
+          }
           try {
-            this.addComment({
-              taskId,
-              author: "system",
-              content:
-                `Sessione cambiata (topic \`${oldTopicId}\` → \`${topicId}\`): ` +
-                `${staleChildren.length} sottotask del tentativo precedente archiviati ` +
-                `perche' il loro stato rifletteva lavoro che non esiste piu'.\n${stepList}`,
-            });
+            this.addComment({ taskId, author: "system", content: righe.join("\n") });
           } catch { /* best-effort: la nota non blocca il bind */ }
         }
       }
@@ -4201,6 +4347,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
       ).run(now(), reason.trim() || null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setUrlProbeStatus({ taskId, status, checkedAt }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare(
+        "UPDATE tasks SET url_probe_status = ?, url_probe_checked_at = ?, updated_at = ? WHERE id = ?",
+      ).run(status, checkedAt, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -4415,6 +4570,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           WHERE archived = 0
             AND (delivery_commit IS NOT NULL OR landing_state = 'unlanded')
             AND status IN ('review', 'done')
+            -- Una DECISIONE non si rimisura: superseded dice «non e' su main,
+            -- e va bene cosi'». L'audit chiede al repo, e il repo risponderebbe
+            -- di nuovo unlanded cancellando la scelta a ogni passata.
+            AND COALESCE(landing_state, '') <> 'superseded'
             AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
       ).all().map((r: any) => ({
         id: r.id,
