@@ -8,7 +8,7 @@
  * `--chrome-overlay-bg` DIVERSO da `transparent`. Cosi' scritta contraddiceva
  * `chrome-bar-continuity.spec.ts` («la riga di chrome NON dipinge — il vetro e'
  * il blur»), che porta una decisione presa e motivata: «il bg tabbar doveva
- * essere trasparente cosi' appariva tutto in floating» (Attilio, 09/08).
+ * essere trasparente cosi' appariva tutto in floating» (il proprietario, 09/08).
  *
  * Due test dello stesso repo che pretendono il contrario sono peggio di
  * nessuno dei due: il primo che gira detta la regola, e chi arriva dopo
