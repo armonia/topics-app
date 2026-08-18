@@ -51,6 +51,7 @@ import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
+import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -669,6 +670,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // Return the REFRESHED row so the response and the broadcast already carry
     // the snapshot — otherwise the board only learns about it on a refetch.
     return (svc.get(task.id)?.task as T | undefined) ?? task;
+  }
+
+  /**
+   * Sonda l'output_url in background (fire-and-forget) e aggiorna il DB +
+   * manda un delta WS ai client. Non blocca la richiesta corrente.
+   *
+   * - Con cache TTL (5 min): non ri-sonda su ogni accesso alla card.
+   * - Solo se il task ha un output_url.
+   * - Il client usa `urlProbeStatus` per decidere se mostrare il link.
+   */
+  function triggerUrlProbe(taskId: string, outputUrl: string | null, projectId?: string): void {
+    if (!outputUrl) return;
+    void (async () => {
+      try {
+        const result = await probeUrl(outputUrl);
+        const updated = svc.setUrlProbeStatus({ taskId, status: result.status, checkedAt: result.checkedAt });
+        // Broadcast il delta ai client connessi (come gli altri update in questo file).
+        if (projectId) {
+          broadcastToAll({ type: "task:updated", projectId, task: updated });
+        }
+      } catch (err) {
+        console.warn("[url-probe] background probe failed", taskId, err);
+      }
+    })();
   }
 
 
@@ -2685,6 +2710,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
           try {
             const prevStatus = svc.get(taskId, { projectId })?.task.status;
+            // Invalidate probe cache when output_url changes (new URL needs a fresh probe).
+            if (parsed.patch.outputUrl !== undefined) {
+              const old = svc.get(taskId, { projectId })?.task.outputUrl;
+              if (old) invalidateProbeCache(old);
+            }
             let task = svc.update({
               taskId, actor: "human", by: HUMAN, projectId,
               patch: parsed.patch,
@@ -2693,6 +2723,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             broadcastToAll({ type: "task:updated", projectId, task });
             emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
               () => svc.get(taskId)?.comments);
+            triggerUrlProbe(taskId, task.outputUrl, projectId);
             // Auto-dispatch trigger: the human dragging a task INTO todo is the
             // "vai" signal; dragging it back OUT while still queued cancels it.
             // The dispatcher itself no-ops when auto_dispatch is off for the board.
@@ -3120,6 +3151,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
             () => svc.get(task.id)?.comments);
+          triggerUrlProbe(item.taskId, task.outputUrl, sess.projectId);
           return json(task);
         } catch (e) { return fail(e); }
       }
