@@ -32,6 +32,7 @@ import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowli
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { describeInFlight } from "./server/lib/quiescence";
+import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
@@ -528,6 +529,20 @@ const claudeSessionTracker = createClaudeSessionTracker({
 // su una chat che non ha più né riga né tab. Configurata qui perché il tracker
 // nasce DOPO il contesto; i tre percorsi di archiviazione la chiamano.
 configureSessionParkingForTracker(claudeSessionTracker);
+
+// Il runtime nativo tiene le conversazioni in una Map di processo e dichiara
+// alla rotta «la storia me la ricordo io» (`contextStrategy: inline-system`).
+// Vero finché il processo vive — e qui il processo si riavvia a ogni
+// salvataggio in `server/`. Da qui in poi, quando una sua sessione nasce, se la
+// va a riprendere dal DB: `loadActiveThread` è la stessa lettura che alimenta la
+// chat, quindi il modello riparte esattamente da ciò che l'utente ha davanti.
+configureNativeHistorySource((sessionKey) =>
+  ctx.loadActiveThread(sessionKey).map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
+    partial: (m as { partial?: number | boolean | null }).partial ?? null,
+  })),
+);
 
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
@@ -4187,10 +4202,25 @@ const worktreeGcTimer = setInterval(() => { void worktreeGc.runWorktreeGc(); }, 
 //  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
 //     the verdict; the edge into `unlanded` posts a comment on the task.
 async function backfillDeliveries(): Promise<void> {
+  // ANCHE CHI IL COMMIT CE L'HA MA NON HA I NUMERI. La condizione guardava solo
+  // `delivery_commit IS NULL`, e i numeri non li scriveva comunque nessuno qui:
+  // `recordDelivery` senza `stat` mette NULL per contratto. Risultato misurato il
+  // 18/08 su topics-app: 294 card in review/done con un ramo, un commit e nessun
+  // numero — la colonna chiedeva «Approva» senza dire cosa si approva. Su
+  // `7588f2c1` il ramo portava 3 file +190 −12, su `348559d3` 3 file +39 −137, e
+  // la card non lo diceva.
+  //
+  // Il buco sta nei percorsi che portano una card in review SENZA passare da
+  // fine turno: `askParkedChildren` chiamata da un cambio di stato dei figli
+  // scrive `status='review'` con una UPDATE grezza, e `captureDelivery` — che
+  // vive nel dispatcher e nella rotta — non passa di li'. E' la QUARTA copia
+  // mancante dello stesso gesto (vedi `task-delivery-capture.ts`): invece di
+  // aggiungerne una quinta, la passata periodica la ripara per tutti.
   const rows = ctx.db.prepare(
-    `SELECT id FROM tasks
-      WHERE archived = 0 AND delivery_commit IS NULL AND status IN ('review', 'done')`,
-  ).all() as Array<{ id: string }>;
+    `SELECT id, delivery_commit FROM tasks
+      WHERE archived = 0 AND status IN ('review', 'done')
+        AND (delivery_commit IS NULL OR delivery_files_changed IS NULL)`,
+  ).all() as Array<{ id: string; delivery_commit: string | null }>;
   // I candidati di progetto una volta sola: costruirli scandisce la cartella di
   // lavoro, e qui si cicla su tutte le card senza consegna.
   const candidati = buildProjectCandidates({
@@ -4217,7 +4247,33 @@ async function backfillDeliveries(): Promise<void> {
     // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
     // stessa domanda cambia risposta da sola. In particolare NON si ripiega
     // sulla punta: vedi `taskDeliveryRef`, dove c'è la misura del perché.
-    if (ptr?.commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: ptr.branch, commit: ptr.commit });
+    // I NUMERI, anche quando il commit c'è già. Due strade distinte apposta:
+    // se la consegna è NUOVA (commit mai registrato) la scrive `recordDelivery`,
+    // che azzera anche il verdetto — ed è giusto, un verdetto su un'altra
+    // consegna non vale. Se invece manca solo la MISURA su una consegna che non
+    // è cambiata, si scrive solo quella: passare da `recordDelivery` butterebbe
+    // via il verdetto testimoniato a ogni giro.
+    const commitNuovo = !row.delivery_commit;
+    if (!ptr?.commit) continue;
+    // QUANTO lavoro c'è dentro, con lo stesso misuratore del worktree vivo: si
+    // conta dal PADRE del commit proprio più vecchio, non dalla punta, così una
+    // card non si prende il lavoro di un'altra sessione. `null` = non misurabile
+    // (git in errore, ramo sparito a metà), e allora `stat: null` lascia la
+    // colonna vuota: un silenzio onesto, mai uno zero che direbbe «non ha
+    // prodotto niente». I ref sono condivisi fra i worktree, quindi il checkout
+    // principale basta a misurare il ramo.
+    const stat = await worktreeDiffStat(ref.repoPath, { branch: ptr.branch }).catch(() => null);
+    if (commitNuovo) {
+      dispatcherSvc.recordDelivery({
+        taskId: row.id, branch: ptr.branch, commit: ptr.commit,
+        stat: stat ? { filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions } : null,
+      });
+    } else if (stat) {
+      dispatcherSvc.setDeliveryStat({
+        taskId: row.id,
+        filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions,
+      });
+    }
   }
 }
 
