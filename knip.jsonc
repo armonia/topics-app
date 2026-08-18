@@ -37,6 +37,7 @@
         "server.ts",
         "server/ai-bridge.mjs!", // spawned as a detached daemon
         "server/pty-bridge.mjs!", // idem
+        "server/lib/serial-queue-survivor.ts!", // spawned as a child process by serial-queue.test.ts
         "cli/topics.ts!", // the `topics` CLI binary
         // Il Worker del relay: è il `main` di `relay/wrangler.jsonc`, cioè
         // codice che sta IN PRODUZIONE su Cloudflare. Knip ha un plugin

@@ -8,17 +8,38 @@
  * map tail never rejects.
  *
  * Tests:
- *  1. Process survives a failing fn when the caller handles the error.
- *  2. Subsequent calls on the same key still run (queue keeps working).
- *  3. The internal map is GC-d after work completes (no memory leak).
- *  4. Concurrent calls on the same key are serialized (no interleaving).
- *  5. Different keys run independently (no cross-key blocking).
+ *  1. SUBPROCESS: child process exits 0 after a rejecting fn (proves the real bug).
+ *  2. In-process: caller handles rejection without killing the runner.
+ *  3. Queue continues serializing after a failure.
+ *  4. The internal map is GC-d after work completes (no memory leak).
+ *  5. Concurrent calls on the same key are serialized (no interleaving).
+ *  6. Different keys run independently (no cross-key blocking).
  */
 
+import path from "node:path";
 import { describe, expect, it } from "bun:test";
 import { makeSerialQueue } from "./serial-queue";
 
 describe("makeSerialQueue", () => {
+  it("SUBPROCESS: child exits 0 after rejecting fn (proves the real process-kill bug)", async () => {
+    // A test running in the same process cannot prove the process stays alive:
+    // if it died, it would take the runner with it and produce no readable red.
+    // Spawn a CHILD process instead. The script keeps a live setInterval — the
+    // exact condition that triggered the bug — and enqueues a fn that rejects.
+    // With the old `.finally()` form the child exits 1; with the fix it exits 0.
+    const script = path.join(import.meta.dir, "serial-queue-survivor.ts");
+    const proc = Bun.spawn(["bun", "run", script], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("caller handled");
+  });
+
   it("caller handles rejection without killing the process", async () => {
     const q = makeSerialQueue();
     const err = new Error("git worktree add fallita");
