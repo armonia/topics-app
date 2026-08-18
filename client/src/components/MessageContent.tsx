@@ -836,7 +836,14 @@ function renderContentWithInlineTools(
   cleanText: string,
   toolCalls: ToolCall[],
   markdownComponents: Components,
-  sessionKey?: string
+  sessionKey?: string,
+  /**
+   * Serve a `ToolCallRow` per chiedere il DETTAGLIO del tool a richiesta:
+   * `GET /api/messages/:messageId/tool/:toolCallId/detail`. Da quando il testo
+   * dei tool non viaggia piu' nel payload di apertura (-52%), senza questo la
+   * riga non ha come andarselo a prendere e il dettaglio resta vuoto.
+   */
+  messageId?: string
 ): React.ReactNode[] {
   // Separate tool calls with contentOffset (inline) from those without (legacy)
   const inlineTools = toolCalls
@@ -1360,7 +1367,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
               ) : hasInline ? (
-                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey)}</div>
+                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey, messageId)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
                   <ProseBlock text={cleanText} components={markdownComponents} />
