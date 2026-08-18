@@ -33,6 +33,7 @@ import type { Database } from "bun:sqlite";
 import { getSessionContext } from "../db/session-context";
 import { calculateCostWithCache } from "./pricing";
 import { contextWindowFor, windowCoveringMeasure } from "./context-window";
+import { decodeCol } from "../../shared/message-blob";
 
 /** Un messaggio, ridotto ai soli fatti che parlano di costo. */
 export interface CostProbeRow {
@@ -209,7 +210,7 @@ export function readCostProbeRows(
     cacheCreationTokens: n(r.cache_creation_tokens),
     costCents: n(r.cost_cents),
     model: r.model != null ? String(r.model) : null,
-    callTokens: parseCallTokens(r.tool_calls),
+    callTokens: parseCallTokens(decodeCol(r.tool_calls)),
   }));
 }
 

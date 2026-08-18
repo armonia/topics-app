@@ -18,6 +18,7 @@ import {
 } from "./lib/project-visibility";
 import { readMutedProjects } from "./lib/muted-projects";
 import { resolveStateDir } from "./lib/data-dir";
+import { decodeCol, encodeCol } from "../shared/message-blob";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
 import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
@@ -570,7 +571,7 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.thinking) msg.thinking = row.thinking;
     if (row.tool_calls && opts?.withToolCalls !== false) {
       try {
-        const parsed = JSON.parse(row.tool_calls);
+        const parsed = JSON.parse(decodeCol(row.tool_calls) ?? "null");
         msg.toolCalls = Array.isArray(parsed)
           ? parsed.map(sanitizeToolCallDetail)
           : parsed;
@@ -582,7 +583,7 @@ export function createAppContext(baseDir: string): AppContext {
     }
     if (row.blocks && opts?.withBlocks !== false) {
       try {
-        const parsed = JSON.parse(row.blocks);
+        const parsed = JSON.parse(decodeCol(row.blocks) ?? "null");
         if (Array.isArray(parsed)) {
           // v3 foundations NORM-01 DB hydration: each block of kind 'tool'
           // carries a toolCall whose `detail` may be a legacy / drifted
@@ -1645,22 +1646,24 @@ export function createAppContext(baseDir: string): AppContext {
           }
           return false;
         };
-        let tcStr: string | null = row?.tool_calls ?? null;
-        let blStr: string | null = row?.blocks ?? null;
+        let tcStr: string | Uint8Array | null = row?.tool_calls ?? null;
+        let blStr: string | Uint8Array | null = row?.blocks ?? null;
         let changed = false;
         if (row?.tool_calls) {
-          const toolCalls = JSON.parse(row.tool_calls) as ToolCall[];
+          const toolCallsDecoded = decodeCol(row.tool_calls);
+          const toolCalls = JSON.parse(toolCallsDecoded ?? "null") as ToolCall[];
           let c = false;
           for (const tc of toolCalls) if (fix(tc)) { c = true; interrupted.push(tc); }
-          if (c) { tcStr = JSON.stringify(toolCalls); changed = true; }
+          if (c) { tcStr = encodeCol(JSON.stringify(toolCalls)) ?? null; changed = true; }
         }
         // The client renders tool state from `blocks` (the timeline) when
         // present, so finalize the block copy too or the spinner keeps ticking.
         if (row?.blocks) {
-          const bl = JSON.parse(row.blocks) as any[];
+          const blocksDecoded = decodeCol(row.blocks);
+          const bl = JSON.parse(blocksDecoded ?? "null") as any[];
           let c = false;
           for (const b of bl) if (b?.kind === 'tool' && fix(b.toolCall)) c = true;
-          if (c) { blStr = JSON.stringify(bl); changed = true; }
+          if (c) { blStr = encodeCol(JSON.stringify(bl)) ?? null; changed = true; }
         }
         if (changed) {
           db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`).run(tcStr, blStr, stream.messageId);
