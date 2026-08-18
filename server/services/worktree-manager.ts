@@ -361,7 +361,7 @@ export function createWorktreeManager(
     console.log(
       `[WorktreeManager] created { project: ${projectPath}, worktree: ${absPath}, mode: ${input.mode}, base_ref: ${input.baseRef}, ms: ${ms} }`,
     );
-    await installClientDeps(absPath);
+    await installDeps(absPath);
   }
 
   /**
@@ -394,29 +394,29 @@ export function createWorktreeManager(
    * cancelli che non partono adesso lo DICONO invece di andare rossi (uscita 97,
    * vedi `scripts/check-client-deps.ts`). Il silenzio qui e' un degrado onesto.
    */
-  async function installClientDeps(absPath: string): Promise<void> {
-    const clientDir = join(absPath, "client");
-    if (!existsSync(join(clientDir, "package.json"))) return;
+  async function installDeps(absPath: string): Promise<void> {
+    // DUE INSTALLAZIONI, non una. La radice porta `bun-types`: senza, il
+    // typecheck del server muore su «Cannot find type definition file for
+    // 'bun'» — che e' un errore vero solo in apparenza, misurato su
+    // `soaring-cypress`: con le dipendenze di radice quel ramo fa 0 errori.
+    // `client/` porta eslint e tsc. Ne manca una, e mezza barra tace.
     const started = Date.now();
-    try {
-      const proc = Bun.spawn(["bun", "install", "--frozen-lockfile"], {
-        cwd: clientDir,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const code = await proc.exited;
-      const ms = Date.now() - started;
-      if (code === 0) {
-        console.log(`[WorktreeManager] client deps installed { worktree: ${absPath}, ms: ${ms} }`);
-      } else {
-        console.warn(
-          `[WorktreeManager] client deps NON installate (exit ${code}) { worktree: ${absPath} } — ` +
-            "lint e typecheck diranno «non misurato», non «rosso»",
-        );
+    let ok = 0;
+    for (const dir of [absPath, join(absPath, "client")]) {
+      if (!existsSync(join(dir, "package.json"))) continue;
+      try {
+        const proc = Bun.spawn(["bun", "install", "--frozen-lockfile"], {
+          cwd: dir, stdout: "pipe", stderr: "pipe",
+        });
+        if ((await proc.exited) === 0) ok += 1;
+        else console.warn(`[WorktreeManager] deps NON installate in ${dir}`);
+      } catch (err) {
+        console.warn(`[WorktreeManager] deps NON installate in ${dir}: ${String(err)}`);
       }
-    } catch (err) {
-      console.warn(`[WorktreeManager] client deps NON installate { worktree: ${absPath} }: ${String(err)}`);
     }
+    console.log(
+      `[WorktreeManager] deps installed { worktree: ${absPath}, ok: ${ok}/2, ms: ${Date.now() - started} }`,
+    );
   }
 
   async function del(
