@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
@@ -1373,14 +1373,44 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
   let broadcasts: any[];
   beforeEach(() => { db = freshDb(); broadcasts = []; });
 
+  /**
+   * FILE VERI, per i casi che devono PASSARE.
+   *
+   * `acceptPreview` ha tre cancelli in fila — allowlist del path, estensione
+   * mostrabile, e il file DEVE esistere sul disco (`existsSync`). L'ultimo e'
+   * arrivato dopo, perche' due card puntavano a preview cancellate e la PATCH
+   * rispondeva 200: giusto cosi', e la sua prova sta in
+   * `tests/integration/preview-image-nonexistent.test.ts`.
+   *
+   * Ma i casi qui sotto provano ALTRO: che l'anteprima si scriva, che una forma
+   * non misurabile non sia un rifiuto, che i tre rami del protocollo passino.
+   * Con dei path inventati (`/allowed/x.png`) misuravano soltanto l'ultimo
+   * cancello, e sono diventati rossi il giorno in cui e' nato — tre rossi che
+   * non nominavano la propria ragione, addosso a CINQUE card della colonna
+   * review che non li avevano causati.
+   *
+   * Quindi i path buoni sono file veri in una cartella temporanea: cosi' il
+   * caso arriva davvero dove voleva arrivare. I casi che devono FALLIRE non ne
+   * hanno bisogno — il loro cancello scatta prima.
+   */
+  let mediaDir = "";
+  const media = (nome: string) => join(mediaDir, nome);
+  beforeAll(() => {
+    mediaDir = mkdtempSync(join(tmpdir(), "topics-preview-"));
+    for (const nome of ["diagramma.svg", "x.png", "schermata.png", "schema.svg", "clip.webm"]) {
+      writeFileSync(join(mediaDir, nome), "x");
+    }
+  });
+  afterAll(() => { if (mediaDir) rmSync(mediaDir, { recursive: true, force: true }); });
+
   test("PATCH /api/sessions/:sk/tasks/:id con previewImage la SCRIVE (prima spariva in silenzio)", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts));
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "un piano" }))!.json();
     const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
-      previewImage: "/allowed/diagramma.svg",
+      previewImage: media("diagramma.svg"),
     }))!;
     expect(resp.status).toBe(200);
-    expect((await resp.json()).previewImage).toBe("/allowed/diagramma.svg");
+    expect((await resp.json()).previewImage).toBe(media("diagramma.svg"));
   });
 
   // Il path fuori allowlist non passa, e ora lo DICE: prima il 200 con la card
@@ -1422,13 +1452,13 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     ctx.imageShapeOf = () => null;
     const r = createTasksRouter(ctx);
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: "/allowed/x.png" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: media("x.png") }))!;
     expect(resp.status).toBe(200);
   });
 
   test("e non travolge i tre rami del protocollo: png, svg e webm entrano", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts));
-    for (const p of ["/allowed/schermata.png", "/allowed/schema.svg", "/allowed/clip.webm"]) {
+    for (const p of [media("schermata.png"), media("schema.svg"), media("clip.webm")]) {
       const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: p }))!.json();
       const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: p }))!;
       expect((await resp.json()).previewImage).toBe(p);

@@ -83,6 +83,27 @@ export interface DispatcherDeps {
    */
   captureDelivery?: (taskId: string) => Promise<boolean>;
   /**
+   * I FILE LASCIATI NEL WORKTREE E MAI COMMITTATI, o `null` se non si sa.
+   *
+   * ── Perche' esiste ────────────────────────────────────────────────────────
+   * La fotografia di consegna legge la STORIA di git: ramo, commit, diffstat.
+   * Un turno che muore prima del commit non lascia storia, quindi la card
+   * concludeva «nessun ramo e nessun file toccato» — e chi rivedeva chiudeva o
+   * rilanciava una card il cui lavoro era li', sul disco, intatto.
+   *
+   * Misurato il 18/08/2026 su due card in colonna review, entrambe con zero
+   * commit e la stessa frase addosso: `fervent-snow` aveva QUATTRO file
+   * modificati (la regola sui sottotask del tentativo morto, 367 righe, test
+   * verdi) e `bashful-wren` TRE. Le ultime parole dell'agente della seconda,
+   * recuperate dalla sessione, erano letteralmente «Changes are staged but not
+   * committed». Nessuno dei due l'avrebbe mai saputo dalla card.
+   *
+   * `null` = non misurabile (nessun worktree, git muto): resta il testo
+   * storico, che e' un silenzio onesto. Un elenco vuoto invece e' una misura:
+   * il worktree c'e' ed e' davvero pulito.
+   */
+  uncommittedInWorktree?: (taskId: string) => Promise<string[] | null>;
+  /**
    * IL PAVIMENTO: perché la MACCHINA non regge un altro agente adesso, o `null`
    * se lo regge. Non è il tetto — il tetto è una preferenza e può valere
    * «nessun limite», questo no. Assente (test, host degradato) = non blocca
@@ -2498,6 +2519,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // ne' l'uno ne' gli altri, la card lo DICE e nomina la sola mossa che
           // ha senso, invece di chiedere una valutazione impossibile.
           const nienteDaVedere = !t.deliveryBranch && !t.deliveryFilesChanged;
+          // NIENTE NELLA STORIA NON VUOL DIRE NIENTE SUL DISCO. Si chiede solo
+          // quando la storia e' vuota: e' l'unico caso in cui la risposta
+          // cambia cosa deve fare chi legge, e su una card con un diff da
+          // guardare sarebbe una domanda a git per niente.
+          const sporchi = nienteDaVedere && deps.uncommittedInWorktree
+            ? await deps.uncommittedInWorktree(taskId).catch(() => null)
+            : null;
+          const lavoroNonCommittato = sporchi && sporchi.length > 0 ? sporchi : null;
           // IL PERCHE' E' DI CHI CHIUDE IL TURNO, IL DOVE NO. Qui si sa perché il
           // turno è finito; NON si sa dove finirà la card, perché
           // `deliverToReviewBySystem` ha due guardie che possono mandarla in
@@ -2510,16 +2539,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // la card è atterrata.
           const base = needsHuman(end)
             ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo.`
-            : nienteDaVedere
-              ? `Nessun lavoro consegnato: ${t.dispatchAttempts} turni, nessun ramo e nessun file toccato. ` +
-                `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}.`
-              : `L'agent ha lavorato ${t.dispatchAttempts} turni ma non ha spostato il task in review da solo.`;
+            : lavoroNonCommittato
+              // IL LAVORO C'E', NON E' COMMITTATO. Non e' la stessa card di una
+              // dove non c'e' niente, e la mossa non e' la stessa: qui c'e'
+              // qualcosa da salvare, e va nominato prima che qualcuno decida
+              // di ributtare via il worktree.
+              ? `Il turno e' finito prima del commit: ${t.dispatchAttempts} turni, nessun commit, ` +
+                `ma nel worktree ci sono ${lavoroNonCommittato.length} file modificati ` +
+                `(${lavoroNonCommittato.slice(0, 6).join(", ")}${lavoroNonCommittato.length > 6 ? ", …" : ""}). ` +
+                `L'ultimo turno e' finito cosi': ${describeTurnEnd(end).toLowerCase()}.`
+              : nienteDaVedere
+                ? `Nessun lavoro consegnato: ${t.dispatchAttempts} turni, nessun ramo e nessun file toccato. ` +
+                  `L'ultimo e' finito cosi': ${describeTurnEnd(end).toLowerCase()}.`
+                : `L'agent ha lavorato ${t.dispatchAttempts} turni ma non ha spostato il task in review da solo.`;
           // Cosa può fare l'umano, e ha senso SOLO se la card gli arriva davvero.
           const mossa = needsHuman(end)
             ? "L'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
-            : nienteDaVedere
-              ? "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
-              : "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
+            : lavoroNonCommittato
+              ? "Quel lavoro non e' perduto: rimandalo indietro e riparte sulla stessa sessione, nello stesso worktree, e la prima cosa che deve fare e' committare."
+              : nienteDaVedere
+                ? "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
+                : "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
           const reason = recovered
             ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
             : base;
