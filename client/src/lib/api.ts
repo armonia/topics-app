@@ -1279,6 +1279,9 @@ export interface AppBehaviorSettings {
    *  `jcode` (sessioni ACP dentro un demone condiviso). `null` = il default
    *  del server, `cli`. */
   agentRuntime: AgentRuntime | null;
+  /** Mostrare la spesa in dollari sulla pagina pubblica del profilo. `null`
+   *  o `false` = spesa non visibile (default sicuro: dato personale). */
+  profilePublishCost: boolean | null;
 }
 
 /**

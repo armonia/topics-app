@@ -132,6 +132,7 @@ import {
   resolveAgentRuntime,
 } from "./server/services/app-settings";
 import { createProfileRouter } from "./server/routes/profile";
+import { createPublicProfileHandler } from "./server/routes/public-profile";
 import { startDiscordPresence } from "./server/services/discord-presence";
 import { computePresenceCounts } from "./server/services/profile-stats";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
@@ -1869,6 +1870,8 @@ const openRouter = createOpenRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 const profileRouter = createProfileRouter(ctx);
+// Pagina pubblica del profilo — senza autenticazione, prima del gate.
+const publicProfileHandler = createPublicProfileHandler(ctx);
 // Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
 const tabsRouter = createTabsRouter(ctx, browserService);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
@@ -2365,6 +2368,14 @@ const opzioniServer = {
         });
       }
       return new Response("Not Found", { status: 404 });
+    }
+
+    // ── Pagina pubblica del profilo — senza autenticazione.
+    // Risponde prima del gate: l'URL e' pensato per essere condiviso con chi
+    // non ha un account Topics. Raggiungibile via LAN e via relay.
+    {
+      const r = publicProfileHandler(pathname, method);
+      if (r) return r;
     }
 
     // ── Origin gate — guards /api, /ws, /preview, /media, /uploads.
