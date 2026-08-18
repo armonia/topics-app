@@ -398,8 +398,21 @@ const IT: Dict = {
   'settings.section.notifications': 'Notifiche',
   'settings.section.providers': 'Provider AI',
   'settings.section.profile': 'Profilo',
+  // ORGANIZZAZIONE e AMICI erano il quarto e il sesto riquadro dentro
+  // «Profilo»: c'erano, ma si raggiungevano solo scorrendo, e una cosa che si
+  // raggiunge solo scorrendo per chi la cerca non c'e'. Adesso sono due voci.
+  'settings.section.organization': 'Organizzazione',
+  'settings.section.friends': 'Amici',
   'settings.section.devices': 'Dispositivi',
   'settings.section.plan': 'Piano',
+  // Le intestazioni delle tre pagine. Una pagina senza titolo e senza una riga
+  // che dica a cosa serve e' un riquadro, non una pagina.
+  'settings.page.profile.title': 'Il tuo profilo',
+  'settings.page.profile.blurb': 'Chi sei su questa macchina e fuori: le tue misure d’uso, lo stato che pubblichi, l’account.',
+  'settings.page.organization.title': 'La tua organizzazione',
+  'settings.page.organization.blurb': 'Il gruppo con cui condividi: nome, persone, ruoli e i progetti che gli appartengono.',
+  'settings.page.friends.title': 'Amici',
+  'settings.page.friends.blurb': 'Le facce e i numeri di chi lavora con te: profilo GitHub, prompt scritti, token consumati.',
   // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
   'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
