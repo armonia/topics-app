@@ -170,6 +170,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 import { armTurnDeadline } from "./server/lib/turn-deadline";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
+import { decodeCol, encodeCol } from "./shared/message-blob";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -3710,16 +3711,20 @@ function finalizeOrphanedRunningTools() {
     // 'running' più vecchio di un mese non è un turno che qualcuno riprenderà,
     // e il suo timer non lo sta guardando nessuno. L'indice
     // idx_messages_timestamp (migration 074) rende il filtro una SEARCH.
-    const rows = db.prepare(
+    // WHERE usa solo l'indice timestamp (migration 074): LIKE su BLOB compresso
+    // non funzionerebbe comunque. Il filtro sullo stato si fa in JS dopo decodeCol.
+    const rawRows = db.prepare(
       `SELECT id, session_key, content, tool_calls, blocks FROM messages
-       WHERE timestamp >= date('now', '-30 days') AND partial = 0 AND (
-         tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%'
-         OR tool_calls LIKE '%"status":"waiting_for_input"%'
-         OR tool_calls LIKE '%"status":"awaiting_permission"%'
-         OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%'
-         OR blocks LIKE '%"status":"waiting_for_input"%'
-         OR blocks LIKE '%"status":"awaiting_permission"%')`
-    ).all() as Array<{ id: string; session_key: string | null; content: string | null; tool_calls: string | null; blocks: string | null }>;
+       WHERE timestamp >= date('now', '-30 days') AND partial = 0
+         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
+    ).all() as Array<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }>;
+    // Filtro in JS: la regex non buca il JSON compresso.
+    const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
+    const rows = rawRows.filter((r) => {
+      const tc = decodeCol(r.tool_calls) ?? "";
+      const bl = decodeCol(r.blocks) ?? "";
+      return RUNNING_RE.test(tc + bl);
+    });
     if (rows.length === 0) return;
     const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
     const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
@@ -3736,23 +3741,26 @@ function finalizeOrphanedRunningTools() {
       const alive = !!r.session_key && liveBrokerChatSessions.has(r.session_key);
       if (alive) spared++;
       let changed = false;
-      let tcStr = r.tool_calls, blStr = r.blocks;
+      const tcDecoded = decodeCol(r.tool_calls);
+      const blDecoded = decodeCol(r.blocks);
+      let tcStr: string | Uint8Array | null = r.tool_calls as string | null;
+      let blStr: string | Uint8Array | null = r.blocks as string | null;
       // The client renders tool state from `blocks` (the chronological timeline)
       // when present — so BOTH columns must be finalized, or the spinner keeps
       // ticking off the stale block copy even though tool_calls is fixed.
       try {
-        if (r.tool_calls) {
-          const tcs = JSON.parse(r.tool_calls) as Array<Record<string, unknown>>;
+        if (tcDecoded) {
+          const tcs = JSON.parse(tcDecoded) as Array<Record<string, unknown>>;
           let c = false; for (const tc of tcs) if (finalizeOrphanTool(tc, { childAlive: alive, now })) { c = true; tools++; }
-          if (c) { tcStr = JSON.stringify(tcs); changed = true; }
+          if (c) { tcStr = encodeCol(JSON.stringify(tcs)) ?? null; changed = true; }
         }
       } catch { /* skip malformed tool_calls */ }
       try {
-        if (r.blocks) {
-          const bl = JSON.parse(r.blocks) as Array<Record<string, unknown>>;
+        if (blDecoded) {
+          const bl = JSON.parse(blDecoded) as Array<Record<string, unknown>>;
           let c = false;
           for (const b of bl) if (b && b.kind === "tool" && finalizeOrphanTool(b.toolCall as Record<string, unknown>, { childAlive: alive, now })) { c = true; tools++; }
-          if (c) { blStr = JSON.stringify(bl); changed = true; }
+          if (c) { blStr = encodeCol(JSON.stringify(bl)) ?? null; changed = true; }
         }
       } catch { /* skip malformed blocks */ }
       if (changed) {
@@ -3770,12 +3778,26 @@ function finalizeOrphanedRunningTools() {
     // Second pass: an assistant turn already finalized as interrupted (its tool
     // carries the "Interrotto" marker) but with no final prose renders as a bare
     // unexplained error X. Give it the explanation. Idempotent — once content is
-    // set the row no longer matches.
-    const explained = db.prepare(
-      `UPDATE messages SET content = ? WHERE role = 'assistant' AND (content IS NULL OR trim(content) = '')
-         AND (tool_calls LIKE '%Interrotto%' OR blocks LIKE '%Interrotto%')`
-    ).run(INTERRUPTED_MARKER);
-    if (explained.changes > 0) console.log(`[boot] added interruption explanation to ${explained.changes} message(s)`);
+    // set the row no longer matches. Uses decoded text — LIKE on compressed blobs
+    // would not match.
+    const explainCandidates = db.prepare(
+      `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
+         AND (content IS NULL OR trim(content) = '')
+         AND timestamp >= date('now', '-30 days') AND partial = 0
+         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
+    ).all() as Array<{ id: string; tool_calls: unknown; blocks: unknown }>;
+    const INTERROTTO_RE = /Interrotto/;
+    let explainCount = 0;
+    const explainUpd = db.prepare(`UPDATE messages SET content = ? WHERE id = ?`);
+    for (const row of explainCandidates) {
+      const tc = decodeCol(row.tool_calls) ?? "";
+      const bl = decodeCol(row.blocks) ?? "";
+      if (INTERROTTO_RE.test(tc + bl)) {
+        explainUpd.run(INTERRUPTED_MARKER, row.id);
+        explainCount++;
+      }
+    }
+    if (explainCount > 0) console.log(`[boot] added interruption explanation to ${explainCount} message(s)`);
   } catch (e) {
     console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
   }
