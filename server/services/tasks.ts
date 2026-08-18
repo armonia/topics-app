@@ -280,7 +280,7 @@ export interface Task {
    * worktree, task precedenti al gate) — che NON è un verde e non va disegnato come
    * tale. 'running' mentre il server li esegue.
    */
-  checksState: "running" | "pass" | "fail" | null;
+  checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksAt: string | null;
   /** Il commit su cui sono girati: se il branch è avanzato, un 'pass' è scaduto. */
   checksCommit: string | null;
@@ -991,7 +991,7 @@ export interface TaskService {
   /** Esito dei checks pre-review sul task (evidenza per il reviewer). */
   recordChecks(args: {
     taskId: string;
-    state: "running" | "pass" | "fail" | null;
+    state: "running" | "pass" | "fail" | "unknown" | null;
     commit?: string | null;
     runs?: CheckRun[] | null;
   }): Task;

@@ -41,7 +41,7 @@ import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
 import { createLandingQueue, type LandingTicket } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { MAX_CHECKS, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { MAX_CHECKS, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
@@ -719,7 +719,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
         const comment = formatChecksComment(runs, { commit: ref.commit });
         try {
-          svc.recordChecks({ taskId, state: ok ? "pass" : "fail", commit: ref.commit, runs });
+          // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
+          // la parola del commento: uno SCADUTO non ha misurato niente, e
+          // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
+          // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
+          // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
+          // qualcuno non e' arrivato in fondo.
+          svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
           // VERDE ⇒ servizio, ROSSO ⇒ parola. Il verde è già un chip sulla card
           // (`card-checks-green`) e il paragrafo lo ripete comando per comando,
           // bruciando uno slot su OGNI consegna — misurate 92 copie in 7 giorni.

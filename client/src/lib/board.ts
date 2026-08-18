@@ -499,7 +499,13 @@ export interface BoardTask {
   landingState: "landed" | "unlanded" | "unverifiable" | null;
   landingCheckedAt: string | null;
   /** Esito dei checks pre-review. null = mai girati — NON un verde. */
-  checksState: "running" | "pass" | "fail" | null;
+  /**
+   * `unknown` = i comandi non sono arrivati in fondo (quasi sempre il tetto dei
+   * 20 minuti su una macchina carica). NON e' una sfumatura di `fail`: rosso
+   * dice «il codice e' rotto, non approvare», non-misurato dice «non lo
+   * sappiamo». Misurate il 18/08: 6 card su 15 marcate rosse erano solo scadute.
+   */
+  checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksAt: string | null;
   /** Commit su cui sono girati: se il branch è avanzato, il verde è scaduto. */
   checksCommit: string | null;
