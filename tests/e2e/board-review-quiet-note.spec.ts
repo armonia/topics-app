@@ -15,6 +15,14 @@
  * (le spec sorelle — board-diff-review, board-task-changes-panel — seminano in
  * `todo` proprio perché in review il commento faceva partire un dispatch vero).
  *
+ * DOVE VIVE IL GESTO QUIETO, dal 18/08 (`1cc5c7d48`): nel DRAWER, non piu' sulla
+ * card. In una colonna dove ogni voce e' un'uscita, un bottone che non fa
+ * avanzare niente non e' una decisione di review — «se uno vuole fare una nota
+ * lo mette il backlog». Sulla card resta il campo (il suo testo lo raccoglie la
+ * scelta principale) ma senza un bottone tutto suo. Questo test segue il gesto
+ * dove e' andato, e sulla card verifica che NON ci sia piu': se tornasse,
+ * tornerebbe anche la colonna con due uscite che non escono.
+ *
  * DUE STATI, e servono entrambi: la nota COMPARE nel thread, e la card RESTA
  * dove sta. Uno solo dei due non dice niente.
  */
@@ -138,31 +146,44 @@ test.describe("Una nota su una card in review non la rigetta", () => {
     const card = page.locator(`[data-task-card="${taskId}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
 
-    // (1) IL GESTO QUIETO SI VEDE E SI CHIAMA COME IL SUO EFFETTO. Un'icona con
-    //     tooltip non basterebbe: era proprio il nome a mentire.
-    const nota = card.getByTestId("card-reply-quiet-note");
-    await expect(nota).toContainText("Nota");
-    // E IL GEMELLO NON C'E' PIU'. «Rimanda» accanto al campo chiamava la stessa
-    // `review('reject', testo)` di «Rimandalo avanti» nella riga qui sopra, che
-    // da quando porta `pendingText` si prende pure lo stesso testo: due bottoni
-    // per una porta sola, a due centimetri di distanza. Segnalato: «e' ripetuto
-    // due volte». Il drawer lo aveva gia' tolto, la card era rimasta indietro.
+    // (1) SULLA CARD IL GESTO QUIETO NON C'E' PIU', ed e' il cambiamento del
+    //     18/08 (`1cc5c7d48`): un commento che non risveglia nessuno non e' una
+    //     decisione di review, e in una colonna dove ogni voce e' un'uscita era
+    //     l'unica che non faceva avanzare niente. Il gesto NON sparisce dal
+    //     prodotto: si sposta nel drawer, dove si scrive per esteso e si vede il
+    //     thread. Questo test lo segue li'.
+    await expect(card.getByTestId("card-reply-quiet-note")).toHaveCount(0);
+    // E il gemello di prima resta via: «Rimanda» accanto al campo chiamava la
+    // stessa `review('reject', testo)` di «Rimandalo avanti» nella riga qui
+    // sopra — due bottoni per una porta sola, a due centimetri di distanza.
     await expect(card.getByTestId("card-reply-send-back")).toHaveCount(0);
-    // Il gesto che risveglia resta raggiungibile: e' nella riga delle scelte.
-    await expect(card.getByTestId("task-choice-send-back")).toBeVisible();
-    // E il campo dice cosa fa PRIMA che uno scriva, nominando il bottone vero.
+    // IL GESTO CHE RISVEGLIA RESTA RAGGIUNGIBILE, ed e' nella riga delle scelte.
+    // Qui e' «Rifai cosi'…» (`redo`, che prende il testo) e non «Rimandalo
+    // avanti»: questa card e' `review-plain`, perche' `taskChoiceState` sceglie
+    // `review-branch` solo con un RAMO e `review-unfinished` solo con
+    // `delivered_by = 'system'`, e questa l'ha portata in review una PATCH
+    // umana. La riga di prima pretendeva `send-back`, che in `review-plain` non
+    // c'e' mai stato: era verde per un'altra ragione, non perche' misurasse
+    // questo.
+    await expect(card.getByTestId("task-choice-redo")).toBeVisible();
+    // E il campo resta, e dice cosa fa PRIMA che uno scriva: il testo lo
+    // raccoglie la scelta principale, non un bottone tutto suo.
     await expect(card.getByPlaceholder(/Una nota, che resta qui/)).toBeVisible();
     await beat(page);
 
-    // (2) Si scrive la nota e si preme il gesto quieto.
-    await card.getByPlaceholder(/Una nota, che resta qui/).fill(NOTA);
-    await beat(page);
-    await nota.click();
-
-    // (3) PRIMO STATO: la nota c'è davvero, e si legge nel thread della card.
+    // (2) Si apre il drawer e si scrive li' la nota, col gesto quieto.
     await page.getByTestId("kanban-column-review").getByText(T_CONSEGNA).click({ timeout: 15000 });
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    const nota = drawer.getByTestId("task-reply-quiet-note");
+    // Si chiama come il suo effetto: un'icona con tooltip non basterebbe, era
+    // proprio il nome a mentire («Commenta» che rigettava).
+    await expect(nota).toContainText("Nota");
+    await drawer.locator("textarea").first().fill(NOTA);
+    await beat(page);
+    await nota.click();
+
+    // (3) PRIMO STATO: la nota c'è davvero, e si legge nel thread.
     await expect(drawer.getByText(NOTA)).toBeVisible({ timeout: 10000 });
     await beat(page);
 
