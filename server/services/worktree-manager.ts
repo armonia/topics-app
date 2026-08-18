@@ -361,6 +361,62 @@ export function createWorktreeManager(
     console.log(
       `[WorktreeManager] created { project: ${projectPath}, worktree: ${absPath}, mode: ${input.mode}, base_ref: ${input.baseRef}, ms: ${ms} }`,
     );
+    await installClientDeps(absPath);
+  }
+
+  /**
+   * LE DIPENDENZE DEL CLIENT, SUBITO — e costano meno di quanto sembrano.
+   *
+   * `git worktree add` copia i file TRACCIATI, e `client/node_modules` non lo e':
+   * un worktree nasce senza. Li' `eslint` e `tsc` non partono, quindi due dei
+   * cinque cancelli di review NON MISURANO NIENTE. Misurato il 18/08 prima di
+   * questa riga: 95 worktree su 103 erano cosi', cioe' quasi ogni card
+   * dispacciata veniva giudicata su meta' della barra.
+   *
+   * ── Perche' installare e non collegare ──────────────────────────────────
+   * Un symlink a `client/node_modules` del checkout principale sembra gratis, ma
+   * ha un bordo affilato: un `bun install` dentro il worktree scriverebbe nelle
+   * dipendenze del checkout VERO, e un ramo che cambia `client/package.json`
+   * userebbe quelle di main — cioe' le sbagliate, in silenzio. Un rosso
+   * plausibile e' peggio di uno palese.
+   *
+   * ── E il costo non e' quello che dice `du` ──────────────────────────────
+   * `du` riporta 357-409 MB e su 95 worktree farebbe ~38 GB: e' la stima che mi
+   * aveva fatto scartare questa strada, ed era SBAGLIATA. Misurato con `df`
+   * prima e dopo un'installazione vera in un worktree: **7 MB** e 0,8 secondi.
+   * Bun clona dalla sua cache globale e APFS condivide i blocchi (clonefile),
+   * quindi `du` conta la dimensione apparente di file che sul disco non
+   * esistono due volte.
+   *
+   * ── Best-effort, sempre ─────────────────────────────────────────────────
+   * Un `bun install` che fallisce (rete giu', lockfile incoerente col ramo) non
+   * deve impedire la nascita del worktree: l'agente puo' lavorare lo stesso, e i
+   * cancelli che non partono adesso lo DICONO invece di andare rossi (uscita 97,
+   * vedi `scripts/check-client-deps.ts`). Il silenzio qui e' un degrado onesto.
+   */
+  async function installClientDeps(absPath: string): Promise<void> {
+    const clientDir = join(absPath, "client");
+    if (!existsSync(join(clientDir, "package.json"))) return;
+    const started = Date.now();
+    try {
+      const proc = Bun.spawn(["bun", "install", "--frozen-lockfile"], {
+        cwd: clientDir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const code = await proc.exited;
+      const ms = Date.now() - started;
+      if (code === 0) {
+        console.log(`[WorktreeManager] client deps installed { worktree: ${absPath}, ms: ${ms} }`);
+      } else {
+        console.warn(
+          `[WorktreeManager] client deps NON installate (exit ${code}) { worktree: ${absPath} } — ` +
+            "lint e typecheck diranno «non misurato», non «rosso»",
+        );
+      }
+    } catch (err) {
+      console.warn(`[WorktreeManager] client deps NON installate { worktree: ${absPath} }: ${String(err)}`);
+    }
   }
 
   async function del(

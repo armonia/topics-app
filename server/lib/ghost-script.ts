@@ -16,8 +16,6 @@
  *  - 1: uccide davvero
  */
 
-import { realpathSync } from "node:fs";
-
 export interface OwnedScript {
   processId: string;
   pid: number | null;
@@ -67,72 +65,6 @@ export function isGhostScript(opts: {
     if (cwdReal === root || cwdReal.startsWith(r)) return false;
   }
   return true;
-}
-
-/**
- * Risolve il cwd reale di un processo, o null se non e' possibile.
- * Usa realpathSync per gestire i symlink (es. /tmp vs /private/tmp su macOS).
- */
-export function resolveRealCwd(cwd: string): string | null {
-  try {
-    return realpathSync(cwd);
-  } catch {
-    // Se la cartella non esiste piu', non si puo' risolvere il path.
-    // In quel caso usiamo il path cosi' com'e'.
-    return cwd;
-  }
-}
-
-/**
- * Dato l'insieme dei processi registrati, restituisce quelli che sono fantasmi.
- *
- * Legge il cwd di ogni processo da `getCwds` (una chiamata lsof in batch),
- * poi chiama `isGhostScript` per ciascuno.
- */
-export async function findGhostScripts(opts: {
-  scripts: OwnedScript[];
-  /** worktrees esistenti { absPath } */
-  existingWorktrees: Array<{ absPath: string }>;
-  worktreesBase: string;
-  /** Recupera i cwd reali per una lista di pid */
-  getCwds: (pids: number[]) => Promise<Map<number, string>>;
-}): Promise<OwnedScript[]> {
-  const { scripts, existingWorktrees, worktreesBase, getCwds } = opts;
-
-  const candidates = scripts.filter(
-    s => s.source === "script" && s.status === "running" && s.pid,
-  );
-  if (candidates.length === 0) return [];
-
-  // Recupera i cwd reali in batch
-  const pids = candidates.map(s => s.pid as number);
-  const cwdMap = await getCwds(pids);
-
-  // Costruisce l'insieme delle radici esistenti (canonicalizzate)
-  const worktreeRoots = new Set<string>();
-  for (const wt of existingWorktrees) {
-    const real = resolveRealCwd(wt.absPath);
-    if (real) worktreeRoots.add(real);
-  }
-
-  const ghosts: OwnedScript[] = [];
-  for (const sp of candidates) {
-    const rawCwd = cwdMap.get(sp.pid as number) ?? sp.projectPath;
-    const cwdReal = resolveRealCwd(rawCwd) ?? rawCwd;
-    if (
-      isGhostScript({
-        cwdReal,
-        worktreeRoots,
-        worktreesBase,
-        source: sp.source,
-        status: sp.status,
-        pid: sp.pid,
-      })
-    ) {
-      ghosts.push(sp);
-    }
-  }
-  return ghosts;
 }
 
 /**
