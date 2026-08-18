@@ -1773,4 +1773,20 @@ export interface LandingTicket {
   settledAt: string | null;
   /** Il motivo del `failed`. `null` in ogni altra fase. */
   error: string | null;
+  /**
+   * L'esito del land, disponibile su `phase === 'settled'`. `null` finche'
+   * non e' finito o se l'esito non e' determinabile.
+   * - `landed` il commit e' su main
+   * - `unlanded` il merge e' stato rifiutato (checkout sporco, conflitto, ecc.)
+   * - `unverifiable` il merge e' uscito zero ma non si e' potuto rileggere main
+   * - `skipped` non c'era niente da atterrare (nessun ramo proprio)
+   * - `nothing` il ramo non portava commit che main non avesse gia'
+   */
+  outcome: 'landed' | 'unlanded' | 'unverifiable' | 'skipped' | 'nothing' | null;
+  /**
+   * La ragione del rifiuto quando `outcome === 'unlanded'`. Corrisponde al
+   * testo scritto nel thread della card dal sistema. `null` in tutti gli
+   * altri casi.
+   */
+  reason: string | null;
 }
