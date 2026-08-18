@@ -2920,6 +2920,59 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
    * `GET /api/tasks/:id` per ogni card in review solo per leggere il fondo del
    * thread — e quel dettaglio carica l'INTERO thread.
    */
+  /**
+   * LA PAROLA DELL'AGENTE ARRIVA SEMPRE, ANCHE SE E' LONTANA DAL FONDO.
+   *
+   * La finestra `rn <= 3` prendeva le ultime tre righe parlate, e il client poi
+   * scarta le note di macchina per trovare la parola vera. Funziona finche' le
+   * note dopo una consegna sono meno di tre. Non lo sono: dopo ogni ingresso in
+   * review ne arrivano di norma TRE — l'esito dei checks, la nota
+   * sull'anteprima, «Non e' su main: <sha>» — e il riassunto dell'agente esce
+   * dalla finestra prima ancora di partire. Il client filtrava correttamente e
+   * non trovava niente: ripiegava sulle note, e la card apriva con «Non e' su
+   * main», identica su tre card su quattro.
+   *
+   * Misurato il 2026-08-18 sulla board vera: delle 26 card in review/done
+   * lavorate davvero da un agente, 23 avevano il riassunto nel thread e ZERO lo
+   * mostravano. Segnalato: «parecchi task non hanno un commento utile, hanno
+   * soltanto un commento di sistema».
+   */
+  test("recentComments: il riassunto dell'agente entra anche con quattro note di sistema dopo", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    s.addComment({ taskId: t.id, author: "claude", content: "Consegna: ramo topics/x, 5 file +100 -20" });
+    // Le quattro che il sistema scrive davvero dopo ogni consegna.
+    s.addComment({ taskId: t.id, author: "system", content: "L'agent ha lavorato 4 turni…" });
+    s.addComment({ taskId: t.id, author: "system", kind: "review-note", content: "Consegna SENZA anteprima…" });
+    s.addComment({ taskId: t.id, author: "system", content: "**Checks pre-review verdi** su abc1234…" });
+    s.addComment({ taskId: t.id, author: "system", content: "Non è su main: `abc1234` — landa il ramo…" });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true, ids: [t.id] });
+    const testi = card!.recentComments.map((c) => c.content);
+    expect(
+      testi.some((x) => x.startsWith("Consegna: ramo topics/x")),
+      `la parola dell'agente non e' arrivata alla card: ${JSON.stringify(testi)}`,
+    ).toBe(true);
+    // …ed e' la PRIMA: le righe viaggiano dal piu' vecchio al piu' recente.
+    expect(testi[0]!.startsWith("Consegna: ramo topics/x")).toBe(true);
+  });
+
+  /**
+   * UNA DOMANDA DEL SISTEMA E' UNA PAROLA VERA, e non deve essere promossa due
+   * volte ne' scartata: il recinto ```question e' la firma di qualcosa che
+   * aspetta una risposta, ed e' l'unica nota di macchina che tiene ferma la
+   * card. Il predicato SQL deve dire esattamente quello che dice `contorno()`
+   * nel client — se fosse piu' largo, la finestra trasporterebbe righe che il
+   * client scarta e la card resterebbe muta come prima.
+   */
+  test("recentComments: una domanda del sistema conta come parola, una nota no", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "review" });
+    s.addComment({ taskId: t.id, author: "system", content: "```question\nRimetto in coda?\n- Si\n- No\n```" });
+    for (const n of [1, 2, 3, 4]) s.addComment({ taskId: t.id, author: "system", content: `nota ${n}` });
+
+    const testi = s.list({ scope: "all", rootsOnly: true, ids: [t.id] })[0]!.recentComments.map((c) => c.content);
+    expect(testi.some((x) => x.includes("```question"))).toBe(true);
+  });
+
   test("recentComments: gli ultimi tre PARLATI, senza cronologia né contabilità", () => {
     const t = s.create({ projectId: PID, text: "work", status: "review" });
     for (const n of [1, 2, 3, 4]) s.addComment({ taskId: t.id, author: "claude", content: `parola ${n}` });
