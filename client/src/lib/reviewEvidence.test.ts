@@ -117,3 +117,50 @@ describe('cosa mostra una card in review', () => {
     });
   });
 });
+
+/**
+ * UNO ZERO MISURATO NON E' UNA CONSEGNA PICCOLA: E' NESSUNA CONSEGNA.
+ *
+ * `deliveryFilesChanged === 0` con un ramo vuol dire che su quel ramo non c'e'
+ * un solo commit proprio: l'agente ha lavorato nel worktree e non ha committato.
+ * Cadeva in `measured` — «il caso buono, si mostra il numero» — e la card
+ * disegnava «0 file +0 -0» con la stessa forma di una misura buona.
+ *
+ * Il costo non e' estetico: i file non committati bloccano il riallineamento,
+ * quindi il land si rifiuta e la card resta ferma finche' qualcuno non pulisce a
+ * mano. Misurato il 18/08 su `bb9fdc41` (tre file in piedi) e `acc16ffb` (due),
+ * entrambe rimaste in review senza che la colonna lo dicesse.
+ */
+describe("un ramo senza commit lo dice, prima che qualcuno clicchi Landa", () => {
+  const inReview = (o: Record<string, unknown>) =>
+    reviewEvidence({ status: 'review', assignedTopicId: 't1', ...o } as never);
+
+  test("ramo + ZERO file ⇒ uncommitted, non measured", () => {
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 0 }).kind).toBe('uncommitted');
+  });
+
+  test("ramo + file veri ⇒ measured, come prima", () => {
+    // Il controllo: la distinzione non deve diventare «ogni ramo e' sospetto».
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 3 }).kind).toBe('measured');
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 1 }).kind).toBe('measured');
+  });
+
+  test("ramo + misura ASSENTE ⇒ unmeasured: null non e' zero", () => {
+    // Le due assenze sono diverse: `null` = git non ha risposto, `0` = ha
+    // risposto «niente». Confonderle direbbe «non hai committato» a chi magari
+    // ha committato e basta.
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: null }).kind).toBe('unmeasured');
+    expect(inReview({ deliveryBranch: 'topics/x' }).kind).toBe('unmeasured');
+  });
+
+  test("resta isolato: il ramo c'e', e' il commit che manca", () => {
+    // `isolated` governa se ha senso parlare di diff e di land. Qui il ramo
+    // esiste davvero, quindi la risposta resta si'.
+    expect(inReview({ deliveryBranch: 'topics/x', deliveryFilesChanged: 0 }).isolated).toBe(true);
+  });
+
+  test("fuori da review la domanda non si pone", () => {
+    expect(reviewEvidence({ status: 'in_progress', deliveryBranch: 'topics/x', deliveryFilesChanged: 0 } as never).kind).toBe('none');
+  });
+});
+
