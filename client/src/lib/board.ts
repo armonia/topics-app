@@ -168,6 +168,30 @@ export function systemDeliveryChip(
 }
 
 /**
+ * DUE CHIP PER LO STESSO FATTO SONO UNO SOLO, e questa e' la regola che sceglie.
+ *
+ * `systemDeliveryChip` esiste dal 29/07 e dice «non l'ha consegnato l'agent».
+ * `reviewEvidence(...).kind === 'empty'` e' arrivato il 17/08 e dice «l'agent
+ * non ha prodotto niente». Il secondo insieme e' contenuto nel primo per
+ * costruzione — `empty` pretende `delivered_by = 'system'` in review, che e'
+ * esattamente la condizione del primo — quindi ogni card `empty` ne portava
+ * DUE, stesso ambra e stessa icona: sulla card `5cf58e29` si leggeva «non
+ * consegnato» e «Niente consegnato» a 268px di larghezza, uno accanto all'altro.
+ *
+ * Chi vince. Quando la ragione di sistema e' `null` o `retries_exhausted` le
+ * due chip dicono le STESSE parole, e vince «niente consegnato» perche' il suo
+ * tooltip e' quello utile: dice che non c'e' un diff da guardare e cosa fare
+ * invece. Le altre tre ragioni (`model_refused`, `fanout`, `parked_children`)
+ * aggiungono un fatto che l'altra non ha, e allora vince la ragione.
+ *
+ * Nessun test lo prendeva: `card-meta-row-completeness` verifica che una chip
+ * si MONTI, non che due non dicano la stessa cosa.
+ */
+export function nothingDeliveredWins(reason: BoardTask['deliveredReason']): boolean {
+  return reason === null || reason === undefined || reason === 'retries_exhausted';
+}
+
+/**
  * La card è in review SENZA che nessuno abbia consegnato niente.
  *
  * Misurato il 13/08 su due card vere: 5472e584 aveva consegnato, c0849d9d era

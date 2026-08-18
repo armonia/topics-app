@@ -411,7 +411,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       const ready = await waitReady(probeUrl, proc);
       if (!ready) {
         log(`[preview] server for ${taskId} never became ready on :${port} — killing`);
-        try { proc.kill(); } catch { /* ignore */ }
+        await spegniAlbero(proc, taskId);
         return no(`\`${command.cmd.join(" ")}\` non ha risposto su :${port} entro ${Math.round(readyTimeoutMs / 1000)}s (dipendenze non installate? build mancante?)`);
       }
 
@@ -420,7 +420,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       const owns = await ownership(port, { pid: proc.pid, cwd: wt.absPath });
       if (owns === "foreign") {
         log(`[preview] :${port} answers but belongs to another process — refusing to adopt it for ${taskId}`);
-        try { proc.kill(); } catch { /* ignore */ }
+        await spegniAlbero(proc, taskId);
         return no(`su :${port} risponde un processo che non è di questo worktree, e non lo adotto come anteprima`);
       }
       if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
@@ -548,6 +548,25 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     } catch (err) {
       log(`[preview] prepareForReview failed for ${taskId}`, err);
     }
+  }
+
+  /**
+   * SPEGNE L'ALBERO, non l'handle.
+   *
+   * `proc.kill()` uccide il WRAPPER (`bun run dev`, `npm run dev`), non il dev
+   * server che ha generato: quello viene reparentato a init e resta vivo con la
+   * porta presa e la CPU accesa. E' esattamente cio' che il commento di
+   * `teardown` spiega qui sotto, e le due uscite di errore di `bootPreview` lo
+   * facevano lo stesso — cioe' proprio dove il server e' mezzo avviato e
+   * nessuno lo sta piu' guardando. Il pool 3400-3450 si consuma cosi', finche'
+   * una card in review non ha piu' dove nascere («nessuna porta libera»), che e'
+   * il messaggio d'errore che il codice stesso prevede.
+   */
+  async function spegniAlbero(proc: PreviewProcess, taskId: string): Promise<void> {
+    if (proc.pid && deps.killTree) {
+      try { await deps.killTree(proc.pid); } catch (err) { log(`[preview] killTree failed for ${taskId}`, err); }
+    }
+    try { proc.kill(); } catch { /* ignore */ }
   }
 
   async function teardown(taskId: string): Promise<void> {

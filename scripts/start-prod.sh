@@ -179,8 +179,46 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
             sleep 2
             continue
           fi
-          echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
-          kill -TERM "$SP" 2>/dev/null
+          # PRIMA SI CHIEDE AL SERVER, e solo se non risponde si taglia.
+          #
+          # Il SIGTERM secco taglia i TURNI DEGLI AGENTI in volo. Misurato il
+          # 18/08 mentre cinque card della board lavoravano: «Turno annullato:
+          # riprovo tra 60s» tre volte in un minuto sulla stessa card, con il
+          # budget dei tentativi che si svuotava e nessun lavoro che arrivava
+          # mai in fondo. La causa erano i salvataggi su `server/` di chi stava
+          # sviluppando: sviluppare e dispacciare insieme era impossibile.
+          #
+          # `/__daemon/restart-when-idle` esiste esattamente per questo: risponde
+          # 202 subito, ASPETTA che i turni finiscano (cap suo) e poi si manda da
+          # solo il SIGTERM, cosi' `gracefulShutdown` gira per intero. Lo dice
+          # anche il commento della rotta: «use this instead of kickstart -k,
+          # which SIGKILLs mid-turn».
+          #
+          # Se il server non risponde — non e' su, token illeggibile, curl
+          # assente — si ricade sul SIGTERM di prima: un reload che non parte
+          # sarebbe peggio.
+          RELOAD_ASKED=0
+          DSTATE="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json"
+          if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
+            DTOKEN=$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
+            DPORT=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
+            if [ -n "$DTOKEN" ] && [ -n "$DPORT" ]; then
+              for SCHEME in https http; do
+                RESP=$(curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
+                  -H "Authorization: Bearer $DTOKEN" \
+                  "$SCHEME://127.0.0.1:$DPORT/__daemon/restart-when-idle" 2>/dev/null)
+                if [ "$RESP" = "202" ]; then
+                  echo "[start-prod] server source changed → riavvio quando i turni finiscono (restart-when-idle)"
+                  RELOAD_ASKED=1
+                  break
+                fi
+              done
+            fi
+          fi
+          if [ "$RELOAD_ASKED" != 1 ]; then
+            echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
+            kill -TERM "$SP" 2>/dev/null
+          fi
           # Settle window: one save can emit TWO fswatch batches (write +
           # rename straddling the 2s latency). Without this pause the second
           # batch SIGTERMs the FRESH server mid-init — before server.ts has

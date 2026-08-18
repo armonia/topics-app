@@ -269,11 +269,26 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   const [notesError, setNotesError] = useState<string | null>(null);
   const notesLoaded = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // VINCE L'ULTIMA RICHIESTA, non l'ultima risposta.
+  //
+  // `bump` scatta a ogni aggiornamento del task e arriva a raffica mentre un
+  // agente lavora; il diff di un worktree grosso non e' istantaneo. Due
+  // `taskDiff` in volo insieme sono normali, e senza questo contatore il
+  // pannello «Modifiche» mostrava quella che tornava per SECONDA — cioe' poteva
+  // restare su un diff piu' vecchio di quello che il server aveva appena
+  // calcolato, finche' un altro bump non lo salvava per caso.
+  //
+  // Un contatore e non il solito `alive`: `alive` copre lo smontaggio, non il
+  // sorpasso fra due richieste vive.
+  const diffReq = useRef(0);
   const fetchDiff = useCallback(() => {
     // Il bundle precedente NON si azzera mentre si ricarica: `bump` scatta a ogni
     // aggiornamento del task, e svuotare qui faceva sparire e riapparire il
     // pannello sotto le mani di chi stava leggendo.
-    boardApi.taskDiff(projectId, taskId).then(setState).catch(() => setState('error'));
+    const mio = ++diffReq.current;
+    boardApi.taskDiff(projectId, taskId)
+      .then((b) => { if (mio === diffReq.current) setState(b); })
+      .catch(() => { if (mio === diffReq.current) setState('error'); });
   }, [projectId, taskId]);
   // Eager (not lazy): visibility depends on whether the worktree has changes, so
   // we must probe up-front. Re-runs when the task advances (bump) — the agent
