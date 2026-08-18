@@ -123,6 +123,7 @@ import m20260817165727_profile_publish_cost from "./migrations/20260817165727-pr
 import m20260818052603_profile_share_token from "./migrations/20260818052603-profile-share-token.sql" with { type: "text" };
 import m20260818110000_machine_notes_are_service from "./migrations/20260818110000-machine-notes-are-service.sql" with { type: "text" };
 import m20260818120000_timeout_is_not_a_red from "./migrations/20260818120000-timeout-is-not-a-red.sql" with { type: "text" };
+import m20260818164410_url_probe_status from "./migrations/20260818164410-url-probe-status.sql" with { type: "text" };
 import m20260818151850_org_logo_url from "./migrations/20260818151850-org-logo-url.sql" with { type: "text" };
 import m20260818152057_armonia_bootstrap from "./migrations/20260818152057-armonia-bootstrap.sql" with { type: "text" };
 
@@ -252,6 +253,7 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260818052603, name: "20260818052603-profile-share-token.sql", sql: m20260818052603_profile_share_token },
   { version: 20260818110000, name: "20260818110000-machine-notes-are-service.sql", sql: m20260818110000_machine_notes_are_service },
   { version: 20260818120000, name: "20260818120000-timeout-is-not-a-red.sql", sql: m20260818120000_timeout_is_not_a_red },
+  { version: 20260818164410, name: "20260818164410-url-probe-status.sql", sql: m20260818164410_url_probe_status },
   { version: 20260818151850, name: "20260818151850-org-logo-url.sql", sql: m20260818151850_org_logo_url },
   { version: 20260818152057, name: "20260818152057-armonia-bootstrap.sql", sql: m20260818152057_armonia_bootstrap },
 ];
