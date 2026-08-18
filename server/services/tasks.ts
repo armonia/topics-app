@@ -929,6 +929,18 @@ export interface TaskService {
      *  niente», ed è una frase che va detta solo quando è vera. */
     stat?: { filesChanged: number; insertions: number; deletions: number } | null;
   }): void;
+  /**
+   * Timbra SOLO il `delivery_branch`, senza toccare commit, diffstat o
+   * landing_state. Usato dal GC (`stampDeliveryBranch`) prima di liberare la
+   * cartella di un worktree: scrive l'unico pezzo che mancherebbe dopo la
+   * rimozione, senza azzerare la testimonianza di una consegna precedente.
+   *
+   * `recordDelivery` con `commit: null` avrebbe azzerato anche il commit e il
+   * diffstat (per progetto: un dato non aggiornato insieme al suo soggetto
+   * mente). Questo setter esiste per il caso in cui non ci sono nuovi dati da
+   * scrivere, solo un indirizzo da conservare.
+   */
+  setDeliveryBranch(taskId: string, branch: string): void;
   /** Esito dei checks pre-review sul task (evidenza per il reviewer). */
   recordChecks(args: {
     taskId: string;
@@ -4205,6 +4217,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         stat?.filesChanged ?? null, stat?.insertions ?? null, stat?.deletions ?? null,
         taskId,
       );
+    },
+
+    setDeliveryBranch(taskId: string, branch: string): void {
+      // Scrive SOLO delivery_branch, senza toccare commit, diffstat o
+      // landing_state. L'invariante di recordDelivery (un dato non aggiornato
+      // insieme al suo soggetto mente) non si applica qui: non ci sono nuovi
+      // dati da scrivere, solo un indirizzo da conservare prima che la cartella
+      // sparisca. Toccare commit/diffstat/landing_state sarebbe distruttivo.
+      db.prepare("UPDATE tasks SET delivery_branch = ? WHERE id = ?").run(branch, taskId);
     },
 
     listLandingAuditCandidates() {
