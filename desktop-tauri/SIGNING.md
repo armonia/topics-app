@@ -20,8 +20,8 @@ Everything below presumes a paid membership. We don't have one yet, and it is th
 part of this document that **cannot be scripted**: creating the Apple Account, accepting
 the agreement that binds the company, and paying are legal and financial acts. Per
 [Apple's own rules](https://developer.apple.com/help/account/membership/program-enrollment/),
-they must be done by someone with **legal binding authority** for the company — for us,
-Attilio. Nobody else, and no tool.
+they must be done by someone with **legal binding authority** for the company. Nobody
+else, and no tool.
 
 Enrol as an **organization**, not as an individual: only an organization membership puts
 the COMPANY on the certificate (an individual one would sign as a natural person, and
@@ -72,7 +72,7 @@ Add all six under **repo → Settings → Secrets and variables → Actions**.
 |--------|-------|
 | `APPLE_CERTIFICATE` | `base64 -i topics-signing.p12 \| pbcopy` — paste the base64 |
 | `APPLE_CERTIFICATE_PASSWORD` | the .p12 export password you chose |
-| `APPLE_SIGNING_IDENTITY` | exact cert name, e.g. `Developer ID Application: Attilio Cianci (TEAMID)` |
+| `APPLE_SIGNING_IDENTITY` | exact cert name, e.g. `Developer ID Application: <Legal Name> (TEAMID)` |
 | `APPLE_ID` | Apple ID email of the developer account |
 | `APPLE_PASSWORD` | an **app-specific** password (appleid.apple.com → *Sign-In & Security → App-Specific Passwords → +*) — **not** the account password |
 | `APPLE_TEAM_ID` | 10-char Team ID (developer.apple.com → *Membership*) |
