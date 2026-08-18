@@ -331,6 +331,21 @@ export const chatApi = {
       body: JSON.stringify({ branchIndex }),
     });
   },
+
+  /**
+   * Recupera il `detail` completo di una singola chiamata tool.
+   *
+   * La rotta `/api/history` spedisce i detail CON i campi di testo grossi
+   * (`output`, `content`, `result`) svuotati, e mette sul toolCall il contatore
+   * dei byte tolti (`detailBytes`). Questa chiamata li recupera la prima volta
+   * che la riga viene APERTA: la risposta resta in uno stato locale della riga
+   * e non rientra nello store. Niente si perde, si paga solo quando serve.
+   */
+  async fetchToolDetail(messageId: string, toolCallId: string): Promise<{ detail: unknown }> {
+    return request<{ detail: unknown }>(
+      `/messages/${encodeURIComponent(messageId)}/tool/${encodeURIComponent(toolCallId)}/detail`,
+    );
+  },
 };
 
 // Search API
