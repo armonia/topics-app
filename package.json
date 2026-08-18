@@ -54,7 +54,6 @@
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:sleeps": "bun run scripts/check-e2e-sleeps.ts",
     "check:bloat": "bun run scripts/check-bloat.ts",
-    "check:sicurezza": "bun run scripts/check-sicurezza.ts",
     "check:security": "bun run scripts/check-security.ts",
     "check:migrations": "bun run scripts/check-migration-numbers.ts",
     "migration:new": "bun run scripts/new-migration.ts",
