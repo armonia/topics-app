@@ -1,0 +1,137 @@
+// boot-partial-sweep.ts — notifica nella chat quando un turno viene resettato
+// al riavvio del server.
+//
+// PERCHE' E' UN MODULO. Il partial sweep di boot (`server.ts`) tocca ogni
+// sessione con `partial=1` e decide se tenerla (figlio vivo nel broker) o
+// resettarla (figlio morto). Fino al 2026-08-18, quando resettava non diceva
+// niente nella chat: l'utente vedeva solo il cartello "Interrotto" dentro il
+// blocco del tool, non un messaggio leggibile nel thread.
+//
+// Questo modulo isola la logica: inserimento della notifica E decisione
+// kept/reset. Si iniettano il database e il set di sessioni vive nel broker;
+// non si aprono connessioni, non si fa broadcast. Testabile in isolamento con
+// un database in-memory senza avviare il server intero.
+//
+// QUALE RAMO SCATTA DAVVERO. Il ramo "kept" (figlio vivo nel broker) resta qui
+// perche' e' il fail-safe corretto e le chat su provider `claude-code` possono
+// ancora prenderlo. Ma per le card sul runtime nativo `topics` e' irraggiungibile
+// per costruzione: il nativo non ha `reattach`, un turno nativo vive DENTRO il
+// processo del server, e quando il server muore non resta nessun figlio da
+// adottare. Misura sul database vivo: 365 riprese in diretta il 13/08, zero dal
+// 17/08, 303 riprese da capo il 18/08. Il muro e' il 16/08, quando le card sono
+// passate al nativo. Quindi per una card il ramo che scatta e' SEMPRE il reset,
+// ed e' esattamente per questo che il reset non puo' piu' essere muto.
+//
+// IL MESSAGGIO CHE INSERISCE usa il prefisso ⚠️ che il client gia' riconosce
+// come "turno in errore" (LEGACY_ERROR_PREFIX in turnError.ts). Questo attiva
+// due comportamenti esistenti senza nessun cambiamento al client:
+//   1. il banner ambra che spiega cosa e' andato storto;
+//   2. il bottone "Riprova" (turnIsOnlyError = true, niente tool_calls).
+// Il bottone ripesca l'ultimo messaggio dell'utente e lo reinvia: esattamente
+// quello che la task chiedeva come "modo per riprendere senza riscrivere".
+
+/**
+ * Il testo del messaggio di notifica.
+ *
+ * Sta qui (non solo in server.ts) cosi' i test possono asserire sul contenuto
+ * esatto senza accoppiare la stringa letterale in piu' posti.
+ */
+export const RESTART_INTERRUPTED_MARKER =
+  "\u26a0\ufe0f Turno interrotto da un riavvio del server. Il messaggio che hai inviato e' ancora qui: premi Riprova per inviarlo di nuovo.";
+
+/** Minimo di database che serve per il sweep e l'inserimento della notifica. */
+export interface PartialSweepDb {
+  query(sql: string): {
+    get(...args: unknown[]): unknown;
+    all(...args: unknown[]): unknown[];
+  };
+  run(sql: string, params?: unknown[]): { changes: number };
+}
+
+/** Il risultato di un singolo giro del partial sweep. */
+export interface SweepResult { cleared: number; kept: number }
+
+/**
+ * Esegue il partial sweep su un database gia' aperto.
+ *
+ * La decisione per ogni session_key con partial=1:
+ *   - `listConfirmed=false` → nessun reset (fail-safe: non orfaniamo turni forse vivi).
+ *   - `listConfirmed=true && liveSessions.has(sk)` → tenuto (il figlio e' vivo nel broker).
+ *   - `listConfirmed=true && !liveSessions.has(sk)` → reset + notifica nella chat.
+ *
+ * La funzione e' pura rispetto al resto del server: non apre connessioni, non
+ * fa broadcast, non conosce il broker. Chi la chiama ha gia' risolto queste
+ * dipendenze e passa `liveSessions` gia' popolato.
+ *
+ * `generateId` e `now` sono iniettati per rendere la funzione deterministica
+ * in test (comportamento identico a `insertRestartNotification`).
+ */
+export function runBootPartialSweep(
+  db: PartialSweepDb,
+  opts: {
+    listConfirmed: boolean;
+    liveSessions: ReadonlySet<string>;
+    generateId?: () => string;
+    now?: () => string;
+  }
+): SweepResult {
+  const { listConfirmed, liveSessions, generateId, now } = opts;
+  let cleared = 0, kept = 0;
+
+  const skRows = db
+    .query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1")
+    .all() as Array<{ sk: string }>;
+
+  for (const row of skRows) {
+    // Teniamo il segnale mid-turn quando:
+    //   - la lista broker non e' confermata (fail-safe), OPPURE
+    //   - il figlio e' ancora vivo nel broker (riadozione al riavvio).
+    if (!listConfirmed || liveSessions.has(row.sk)) {
+      kept++;
+      continue;
+    }
+
+    const resetChanges = db.run(
+      "UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1",
+      [row.sk]
+    ).changes;
+    cleared += resetChanges;
+
+    if (resetChanges > 0) {
+      insertRestartNotification(db, row.sk, { generateId, now });
+    }
+  }
+
+  return { cleared, kept };
+}
+
+/**
+ * Inserisce un messaggio di notifica nella sessione `sessionKey` dopo che il
+ * partial sweep ha resettato i suoi messaggi parziali.
+ *
+ * Richiamata solo quando `resetChanges > 0` — cioe' solo se c'era davvero un
+ * messaggio parziale da resettare. Se la query fallisce, l'errore viene
+ * rilanciato al chiamante (che puo' scegliere di loggarlo e andare avanti).
+ *
+ * `generateId` e' iniettato per rendere la funzione deterministica in test.
+ * `now` e' iniettato per lo stesso motivo.
+ */
+export function insertRestartNotification(
+  db: PartialSweepDb,
+  sessionKey: string,
+  opts: { generateId?: () => string; now?: () => string } = {},
+): void {
+  const generateId = opts.generateId ?? (() => crypto.randomUUID());
+  const now = opts.now ?? (() => new Date().toISOString());
+
+  const maxRow = db.query(
+    "SELECT COALESCE(MAX(sort_order), -1) AS mo FROM messages WHERE session_key = ?"
+  ).get(sessionKey) as { mo: number } | null;
+  const nextOrder = (maxRow?.mo ?? -1) + 1;
+
+  db.run(
+    `INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order)
+     VALUES (?, ?, 'assistant', ?, 0, ?, ?)`,
+    [generateId(), sessionKey, RESTART_INTERRUPTED_MARKER, now(), nextOrder]
+  );
+}
