@@ -285,6 +285,80 @@ Non è magia né un trucco di misura. Obscura fa tre rinunce strutturali:
 Il 30x di risparmio e i buchi sono **la stessa scelta vista da due lati**. Il che rende
 la valutazione facile: dove quelle tre cose non servono, Obscura è un affare enorme.
 
+## Possiamo usarlo, o serve un progetto nostro?
+
+La domanda naturale dopo una patch che funziona. Risposta breve: **usarlo, contribuendo
+upstream. Un motore nostro non ha senso, e nemmeno un fork.**
+
+### Cosa dice la licenza (il vincolo che decide tutto)
+
+**Apache-2.0**, dichiarata sia in `LICENSE` che in `Cargo.toml`. Topics è MIT: sono
+compatibili, si può incorporare, ridistribuire, modificare e vendere. Apache-2.0 dà
+anche una **concessione esplicita di brevetto**, che MIT non ha — per un motore di
+rendering è una tutela in più, non in meno.
+**Nessun CLA**: `CONTRIBUTING.md` dice solo "contribuendo accetti Apache-2.0". Non c'è
+cessione di copyright a un'azienda, quindi nessuno può ritirare da sotto i piedi il
+lavoro già pubblicato. E **zero dipendenze GPL** in `Cargo.lock` (468 crate).
+
+### Come sta il progetto — i numeri, non le stelle
+
+| | |
+|---|---|
+| stelle / fork | 21 688 / 1 568 |
+| contributori | 49 |
+| **commit del contributore principale** | **75%** (676 su 902) |
+| PR esterne mergiate (ultimi 40 chiusi) | **85%** |
+| **mediana tempo di merge** | **4.9 ore** |
+| ritmo | 17 commit il giorno stesso di questa analisi |
+| **età del progetto** | **4 mesi** (creato 2026-04-13) |
+
+I due numeri buoni sono quelli che contano per noi: **accettano contributi esterni e li
+mergiano in ore**, non mesi. Nella lista dei PR chiusi ci sono nomi esterni (`aech`,
+`xrip`, `lisa0314`, `marcoripa96`) con fix di sostanza — cioè la strada per cui abbiamo
+appena scritto una patch è una strada battuta, non una speranza.
+
+### I tre rischi veri (nominati, non generici)
+
+1. **Bus factor 1.** Una persona firma il 75% dei commit. Se sparisce, il ritmo crolla.
+   Mitigazione reale: Apache-2.0 + niente CLA significa che **il fork resta sempre
+   possibile**, e il codice che ci serve è già sul nostro disco.
+2. **Quattro mesi di vita.** Non ha ancora attraversato un ciclo di manutenzione lungo.
+   L'`innerText` da 1.3 MB e le `filter` mancanti sono sintomi di questo, non anomalie.
+3. **Obscura Cloud in arrivo.** Il README annuncia una versione hosted a pagamento. È il
+   classico bivio open-core: oggi promettono "no feature gating, ever", ma la promessa
+   non è nella licenza. **Mitigazione: la Apache-2.0 già concessa è irrevocabile** — al
+   massimo cambierebbe il futuro, mai la versione che abbiamo.
+
+### Perché NON scriverne uno nostro
+
+Obscura è **138 000 righe di Rust** (di cui 67 000 solo di motore di rendering) più V8.
+Scrivere un motore che disegna CSS moderno è il lavoro di Ladybird, che dopo anni è
+ancora pre-alpha e ha appena **chiuso i contributi pubblici** per arrivare a una prima
+release. Non è un progetto che si affianca a Topics: è un progetto che *sostituisce*
+Topics.
+
+E il fork non conviene per un motivo aritmetico: la patch che ha chiuso due buchi è
+**143 righe su un file di JavaScript**. Mantenere un fork di 138k righe per portarsi
+dietro 143 righe è il rapporto peggiore possibile. Upstream le stesse 143 righe le fa
+mantenere a loro.
+
+### La strategia che regge
+
+**Usare Obscura come dipendenza binaria, non come sorgente.** Concretamente:
+- il binario è **un singolo eseguibile** che parla CDP su una porta — la stessa
+  interfaccia che Topics già usa per Chromium. Sostituirlo non tocca i `browser_*`;
+- le nostre fix vanno **upstream** (85% di PR accettate, 4.9 ore di mediana): zero costo
+  di manutenzione per noi, e il resto del mondo le testa al posto nostro;
+- **la patch resta in questo repo** (`obscura-canvas-fix.patch`): se upstream sparisse o
+  rifiutasse, `git apply` + `cargo build` la riporta in 17 minuti. È l'assicurazione;
+- si mantiene Chromium come fallback finché i buchi noti non sono chiusi. Non è un
+  ripiego: è la stessa struttura a due motori che Topics ha già (`nativo` + `chromium`),
+  con un terzo che si aggiunge senza togliere niente.
+
+Tradotto: **il rischio di adottarlo è basso perché non ci leghiamo al codice, ma a un
+protocollo che parlano tutti.** Se Obscura muore, si torna a Chromium cambiando un
+endpoint — è esattamente ciò che rende questa scelta reversibile, e quindi facile.
+
 ## Il quadro completo — chi vince cosa
 
 | per sessione, react.dev / app dev | RAM | render | CDP | context multipli |
