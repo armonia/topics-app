@@ -25,7 +25,7 @@ import { useSheetDrag } from '@/hooks/useSheetDrag';
 import { SheetGrabber } from '@/components/Shared/SheetGrabber';
 import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
-import { SpinnerFallback } from '../Shared/Spinner';
+import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { CHAT_STRIP, CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { AutonomyPicker } from './AutonomyPicker';
 import { fastModeUi } from '../../lib/fastMode';
@@ -1636,7 +1636,11 @@ export function ChatInput({
                       aria-label={isAnswer ? 'Rispondi alla domanda' : isQueue ? 'Queue message' : 'Send message'}
                     >
                       {uploading ? (
-                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        /* `current`: il bottone porta già il suo colore
+                           (`text-white` sul pieno, il testo tenue quando è
+                           spento), e l'anello lo eredita invece di ricopiarsi
+                           un bianco che sul bottone spento era invisibile. */
+                        <Spinner size="sm" tone="current" />
                       ) : (
                         <Send size={14} />
                       )}

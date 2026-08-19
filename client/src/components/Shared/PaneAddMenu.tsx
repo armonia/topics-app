@@ -338,8 +338,12 @@ export function PaneAddMenu({
     // nasceva piatta, e un comando che prende colore solo sotto il dito non si
     // trova. Il raggio resta standard su tutti e quattro gli angoli perché
     // questo tasto sta in MEZZO, dove l'arco dello schermo non arriva.
+    // `flex-1` e non una larghezza minima: la fila divide TUTTA la larghezza
+    // fra i suoi quattro, e un tasto che si tenesse la sua misura lascerebbe
+    // agli altri il resto — cioè quattro bersagli disuguali per quattro porte
+    // che valgono uguale.
     triggerVariant === 'bar'
-      ? `edge-lit flex min-w-[64px] h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-3 ${RAISED_CONTROL} text-app-text transition-colors`
+      ? `edge-lit flex flex-1 min-w-0 h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 ${RAISED_CONTROL} text-app-text transition-colors`
       : triggerVariant === 'header'
       ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
