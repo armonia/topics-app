@@ -35,13 +35,23 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * vedo la possibilità di aprire la Kanban, non vedo il tasto» (chi usa la app, da
  * PWA). Un link solo-andata avrebbe risposto a metà della frase.
  *
- * ── LA FILA SEGUE LA CURVA DELLO SCHERMO ───────────────────────────────────
- * Gli estremi salgono di quanto l'arco dell'angolo mangia alla loro ascissa, e
- * quelli in mezzo non salgono affatto: così la fila può stare a 8px dai bordi
- * invece dei 32 con cui la barra di stato si tiene larga, e nessuno finisce
- * dentro il vetro tondo. Il calcolo — e il perché del raggio stimato dalla
- * fascia — sta tutto in `lib/safeAreaArc.ts`. Su uno schermo squadrato il
- * raggio è zero e la fila torna dritta da sé: nessun ramo dedicato.
+ * ── LA FILA ARRIVA AL BORDO DEL TELEFONO, E NE SEGUE LA CURVA ──────────────
+ * Il primo e l'ultimo tasto hanno il bordo esterno SUL bordo dello schermo:
+ * niente rientro, solo la fascia di sicurezza quando c'è (in orizzontale, il
+ * notch). Ci arrivano perché il loro angolo basso esterno è tondo e concentrico
+ * a quello del vetro, e un angolo tondo dentro l'arco costa molta meno alzata
+ * di uno appuntito — 32 invece di 54, su un iPhone in verticale. Gli estremi
+ * salgono di quel tanto, quelli in mezzo non salgono affatto. Il calcolo — e il
+ * perché del raggio stimato dalla fascia — sta tutto in `lib/safeAreaArc.ts`.
+ * Su uno schermo squadrato il raggio è zero e la fila torna dritta da sé:
+ * nessun ramo dedicato.
+ *
+ * ── E RIEMPIONO TUTTA LA LARGHEZZA ─────────────────────────────────────────
+ * Quattro tasti `flex-1`, sei pixel fra l'uno e l'altro e nient'altro. Prima
+ * erano quattro scatole da 64 minimi spinte agli angoli da uno `justify-
+ * between`: fra una e l'altra restavano trenta pixel di barra che sembravano
+ * premibili e non lo erano, ed è il modo più comune di sbagliare il bersaglio
+ * su un telefono. Adesso ogni pixel della fila appartiene a un tasto.
  *
  * ── L'ALTEZZA LA PUBBLICA LA BARRA, NON LA RICALCOLA CHI LE STA SOPRA ──────
  * `--mobile-chrome-h` sul documento: la barra si misura e la scrive, la radice
@@ -58,9 +68,9 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
 /** L'altezza pubblicata: la leggono la radice dell'app e il cassetto. */
 export const MOBILE_CHROME_H_VAR = '--mobile-chrome-h';
 
-/** Rientro laterale della fila. Stretto DI PROPOSITO: è l'arco a tenere gli
- *  estremi fuori dal vetro tondo, non un margine grande abbastanza per tutti. */
-const RIENTRO = 8;
+/** Il passo fra un tasto e il suo vicino. È l'unico spazio orizzontale della
+ *  fila: ai lati non ce n'è, perché il primo e l'ultimo stanno A FILO. */
+const PASSO = 6;
 /** Aria sopra le scatole, dentro la barra. */
 const SOPRA = 6;
 /** Altezza di un bottone della fila (h-11). Serve al calcolo della curvatura:
@@ -181,12 +191,16 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       // compone la sua trasparenza con quella del vetro (la trappola descritta
       // su `--chrome-bg`). E comunque esiste solo sotto i 768px, dove la shell
       // mac non arriva.
-      className="fixed bottom-0 left-0 right-0 flex items-end justify-between bg-app-chrome border-t border-app-border"
+      className="fixed bottom-0 left-0 right-0 flex items-end bg-app-chrome border-t border-app-border"
       style={{
         zIndex: 60,
-        paddingLeft: `max(${RIENTRO}px, var(--sal))`,
-        paddingRight: `max(${RIENTRO}px, var(--sar))`,
+        // A FILO. Nessun rientro scelto a mano: resta solo la fascia di
+        // sicurezza dichiarata dal sistema, che in verticale è zero e in
+        // orizzontale è il notch — l'unico posto dove il vetro davvero manca.
+        paddingLeft: 'var(--sal)',
+        paddingRight: 'var(--sar)',
         paddingTop: SOPRA,
+        gap: `${PASSO}px`,
         height: `${Math.round(SOPRA + 44 + massima)}px`,
       }}
     >
@@ -195,7 +209,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
           come prop è la mutazione di un argomento, e il cancello del lint la
           ferma — giustamente, perché renderebbe la misura di questa fila una
           cosa che un altro componente può rompere da fuori. */}
-      <div ref={(n) => { slotRefs.current[0] = n; }} className="flex" style={{ marginBottom: forma(0).alzata }}>
+      <div ref={(n) => { slotRefs.current[0] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(0).alzata }}>
         <BottoneFila etichetta="Cerca" onClick={onSearch} testId="mobile-chrome-search" forma={forma(0)}>
           <Search size={22} aria-hidden="true" />
         </BottoneFila>
@@ -203,11 +217,11 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
 
       {/* Il «+» sta in mezzo, dove nessun bordo arriva: il suo raggio è quello
           standard di `triggerVariant="bar"` e non c'è niente da passargli. */}
-      <div ref={(n) => { slotRefs.current[1] = n; }} className="flex" style={{ marginBottom: forma(1).alzata }}>
+      <div ref={(n) => { slotRefs.current[1] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(1).alzata }}>
         {addSlot}
       </div>
 
-      <div ref={(n) => { slotRefs.current[2] = n; }} className="flex" style={{ marginBottom: forma(2).alzata }}>
+      <div ref={(n) => { slotRefs.current[2] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(2).alzata }}>
         <BottoneFila
           etichetta={boardInFront ? 'Tab' : 'Task'}
           onClick={onToggleBoard}
@@ -216,6 +230,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
           forma={forma(2)}
           // Il tasto dice DOVE PORTA, e lo dice anche a chi non vede: con la
           // board davanti porta indietro alla lista, altrimenti alla board.
+          // Ed è per questo che NON dichiara `aria-pressed`: vedi `BottoneFila`.
           titolo={boardInFront ? 'Torna alla lista delle tab' : 'Apri la lista dei task'}
         >
           {boardInFront ? <List size={22} aria-hidden="true" /> : <BoardGlyph size={22} aria-hidden="true" />}
@@ -227,7 +242,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
           e torna standard. Il verso non è scritto qui — lo decide `formaFila`
           guardando da che bordo dista meno — e per questo aggiungere una porta
           non ha richiesto di toccare l'arco. */}
-      <div ref={(n) => { slotRefs.current[3] = n; }} className="flex" style={{ marginBottom: forma(3).alzata }}>
+      <div ref={(n) => { slotRefs.current[3] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(3).alzata }}>
         <PortaProfilo onClick={onOpenProfile} forma={forma(3)} />
       </div>
     </div>
@@ -281,6 +296,19 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
  * e qui le stanze sono quattro, di cui una cambia faccia: senza la parola,
  * «Task»/«Tab» sarebbero due glifi che si alternano senza dire perché.
  *
+ * ── DICONO DOVE PORTANO, NON DI ESSERE PREMUTI ─────────────────────────────
+ * Nessuno dei quattro dichiara `aria-pressed`, e quello della board l'ha perso.
+ * Un `aria-pressed` è la promessa di un interruttore: il nome resta fermo e a
+ * cambiare è lo STATO. Qui succedeva il contrario — con la board davanti il
+ * tasto si chiamava «Tab» ed era «premuto», cioè ad alta voce diventava «Tab,
+ * premuto» per un tasto che serviva a USCIRE dalla board. Due informazioni che
+ * si contraddicono valgono meno di una sola: resta il nome, che dice dove si
+ * va («Torna alla lista delle tab» / «Apri la lista dei task»), e la campitura,
+ * che dice dove si è. Per la stessa ragione la fila è una `toolbar` e non un
+ * `tablist`: `role="tab"` promette un `tabpanel` che questi tasti non
+ * governano — la ricerca apre una palette, il «+» un menu — e una selezione fra
+ * quattro che non è mai esistita.
+ *
  * ── HANNO LA FACCIA DI UN TASTO, NON DI UN LINK ────────────────────────────
  * `raised-control` + `edge-lit`, cioè la pelle che porta ogni comando
  * dell'app: campitura di un gradino sopra il fondo e il filo di luce in cima.
@@ -311,8 +339,7 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
       data-testid={testId}
       title={titolo ?? etichetta}
       aria-label={titolo ?? etichetta}
-      aria-pressed={attivo}
-      className={`edge-lit flex min-w-[64px] h-11 flex-col items-center justify-center gap-0.5 px-3 transition-colors ${
+      className={`edge-lit flex flex-1 min-w-0 h-11 flex-col items-center justify-center gap-0.5 px-1 transition-colors ${
         attivo ? `${SIDEBAR_ACTIVE} text-primary` : `${RAISED_CONTROL} text-app-text`
       }`}
       style={angoliFila(forma)}

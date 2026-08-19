@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal, MonitorSmartphone, Trash2 } from 'lucide-react';
 import { AgentActivityPill } from './AgentActivityPill';
+import { BrowserFavicon } from './BrowserFavicon';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
 import { DownloadsMenu, type DownloadsMenuProps } from './DownloadsMenu';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
@@ -132,7 +133,6 @@ export function BrowserToolbar({
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyBtnRef = useRef<HTMLButtonElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
-  const [faviconError, setFaviconError] = useState(false);
   const urlParts = useMemo(() => splitUrlParts(url), [url]);
 
   // Responsiveness — when the pane is squeezed narrow, the trailing controls
@@ -221,10 +221,6 @@ export function BrowserToolbar({
     onMouseUp: hasHover ? () => { if (mousePressRef.current) { clearTimeout(mousePressRef.current); mousePressRef.current = null; } } : undefined,
     onMouseLeave: hasHover ? () => { if (mousePressRef.current) { clearTimeout(mousePressRef.current); mousePressRef.current = null; } } : undefined,
   });
-
-  // Reset favicon error state when URL changes (new favicon may load).
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local error flag to the faviconUrl prop; resets to a constant so it converges immediately and can't loop (faviconUrl is not derived from this state)
-  useEffect(() => { setFaviconError(false); }, [faviconUrl]);
 
   // Phase 30.1 polish — register focus-bar callback so Cmd+L can focus
   // the URL input even when the panel itself isn't focused.
@@ -386,22 +382,22 @@ export function BrowserToolbar({
       {/* URL bar. When idle, the raw input text is hidden and a Chrome-style
           pretty overlay (host emphasized, scheme/path muted) is painted on top;
           the overlay is pointer-events:none so a click falls through to focus
-          the input for editing. No globe icon — just the favicon when present. */}
+          the input for editing.
+
+          L'icona a sinistra è uno SLOT di larghezza fissa (BrowserFavicon): c'è
+          sempre, con la favicon del sito o col segnaposto, quindi il testo
+          dell'indirizzo comincia sempre allo stesso pixel invece di scivolare
+          di 18px quando l'icona finisce di caricare. */}
       <form onSubmit={handleSubmit} className="flex-1 min-w-[80px]">
         <div className="relative flex items-center">
-          {faviconUrl && !faviconError && (
-            <img
-              src={faviconUrl}
-              alt=""
-              className="absolute left-2 w-3.5 h-3.5 object-contain pointer-events-none"
-              onError={() => setFaviconError(true)}
-              data-testid="browser-favicon"
-            />
-          )}
+          <BrowserFavicon
+            url={url}
+            faviconUrl={faviconUrl}
+            className="absolute left-2 pointer-events-none"
+          />
           {(() => {
-            const hasFav = !!(faviconUrl && !faviconError);
-            const padL = hasFav ? 'pl-7' : 'pl-2.5';
-            const leftClass = hasFav ? 'left-7' : 'left-2.5';
+            const padL = 'pl-7';
+            const leftClass = 'left-7';
             const showPretty = !editing && !!urlParts;
             return (
               <>
