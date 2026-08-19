@@ -190,6 +190,14 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // ogni PUT è event loop fermo, e su HTTP/1.1 occupa una delle SEI
       // connessioni per host — cioè ritarda le letture che disegnano la board.
       //
+      // QUESTA GUARDIA CHIUDE UNA CAUSA, NON IL FENOMENO. Il ciclo di scritture
+      // a riposo ha (almeno) due sorgenti indipendenti, e questa era solo la
+      // prima: togliendola il cancello passò da 26 scritture a 0, e ore dopo
+      // ne rileggeva 12-17 da una seconda sorgente che questa correzione stava
+      // mascherando — le idratazioni remote che alzano `lastSeq` (la nota sta
+      // in `middleware/syncWS.ts`). Chi legge qui non concluda che il problema
+      // sia risolto: questo pezzo lo è.
+      //
       // Il confronto è SUPERFICIALE, e basta: i campi di `Pane` sono scalari
       // (id, url, title, projectPath, timestamp…). Un confronto profondo
       // costerebbe più di quello che evita, e per un campo oggetto la
