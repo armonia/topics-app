@@ -10,7 +10,7 @@ import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
-import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -537,7 +537,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Always shown: the eyebrow row carries the click-to-copy task id on every card
   // (plus project/state/model/tab when present).
   const showTopRow = true;
-  const showPriority = !task.priorityAuto && task.priority !== 2;
+  const showPriority = !priorityAwaitingAgent(task) && task.priority !== 2;
   // Review expands the subtask checklist on the card; elsewhere the count chip suffices.
   const checklist = task.status === 'review' ? children : [];
   // "done" that never reached main — the 19/07 loss, made visible. Il predicato

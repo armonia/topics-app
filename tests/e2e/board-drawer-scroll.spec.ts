@@ -407,4 +407,52 @@ test.describe("Drawer del task — un solo scroll", () => {
     await drawer.getByTitle(/Riduci il drawer/).click();
     await expect(drawer.getByTestId("task-drawer-right")).toHaveCount(0);
   });
+  /**
+   * DRAWER-03 — l'invariante NUOVA: l'output e la sessione stanno insieme.
+   *
+   * Finché la sessione era una pane del gruppo, aprire quello che il task ha
+   * prodotto (una tab, il piano, un allegato) la NASCONDEVA: si guardava
+   * l'output senza il thread che lo spiega, o il thread senza l'output di cui
+   * parla. Non era un difetto visibile in uno screenshot — le due cose erano
+   * entrambe "a posto", una alla volta.
+   *
+   * Adesso sono due sezioni sorelle in colonna sola: l'output sopra, la
+   * sessione sotto attaccata al composer. Il test misura proprio quello che
+   * prima era impossibile: le due zone alte insieme, e la sessione FUORI dal
+   * gruppo di tab (dentro sarebbe la vecchia struttura con un'etichetta nuova).
+   */
+  test("DRAWER-03: aperto l'output, la sessione resta sotto gli occhi", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const task = await seedWorstCaseTask(page.request, previewPath);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    await openTaskDrawer(page, task.text);
+
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expandEverySection(page);
+
+    const session = drawer.getByTestId("task-session-column");
+    const body = drawer.getByTestId("task-drawer-body");
+    await expect(session).toBeVisible();
+    await expect(body).toBeVisible();
+
+    const sessionBox = (await session.boundingBox())!;
+    const bodyBox = (await body.boundingBox())!;
+    // Alte tutte e due: aperto non vuol dire "c'è la barra delle tab".
+    expect(bodyBox.height).toBeGreaterThan(80);
+    expect(sessionBox.height).toBeGreaterThan(80);
+    // Sorelle e non annidate: la sessione comincia dove finisce l'output, ed è
+    // lei quella attaccata al composer.
+    expect(sessionBox.y).toBeGreaterThanOrEqual(bodyBox.y + bodyBox.height - 2);
+    // La sessione ha lasciato le tab: dentro il gruppo non c'è più.
+    expect(await body.getByTestId("task-session-column").count()).toBe(0);
+
+    // Chiuso lo Spazio di lavoro la sessione RESTA: è la sola zona del drawer
+    // che non si chiude, ed è il punto di tutta la riorganizzazione.
+    await drawer.getByTestId("task-workspace-toggle").click();
+    await expect(body).toHaveCount(0);
+    await expect(session).toBeVisible();
+    expect((await session.boundingBox())!.height).toBeGreaterThan(80);
+  });
 });

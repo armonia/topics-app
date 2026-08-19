@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Bell, Cpu, CreditCard, Palette, UserRound, MonitorSmartphone } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
@@ -7,13 +7,9 @@ import { AppearanceSection } from './AppearanceSection';
 import { NotificationsSection } from './NotificationsSection';
 import { AIProvidersSection } from './AIProvidersSection';
 import { DevicesSection } from './DevicesSection';
-import { IdentitySection } from './IdentitySection';
-import { AccountSection } from './AccountSection';
 import { PlanSection } from './PlanSection';
-import { ProfileStatsSection } from './ProfileStatsSection';
-import { DiscordSection } from './DiscordSection';
-import { FriendsSection } from './FriendsSection';
-import { OrgProjectsSection } from './OrgProjectsSection';
+import { ProfilePage, OrganizationPage, FriendsPage } from './IdentityPages';
+import { SETTINGS_SECTIONS, type SectionId } from './sections';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { useT } from '../../hooks/useT';
 
@@ -52,41 +48,13 @@ interface GlobalSettingsProps {
 // vuoto — un pannello vuoto per default non merita un posto fisso nel menu —
 // mentre il controllo che si cerca pensando «permessi», il livello di autonomia,
 // è per-chat e sta nel composer.
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'profile' | 'devices' | 'plan';
-
-// L'id resta `devices` — è la chiave interna a cui punta il deep-link della
-// riga d'identità nella sidebar (`onOpenDevices` in App.tsx). L'ETICHETTA no:
-// la scheda porta il profilo (chi sei, le tue statistiche d'uso, lo stato
-// pubblicato su Discord) prima delle persone e dei dispositivi, e chi cerca
-// «come mi chiamo qui» non apre uno smartphone. Da «Account» a «Profile»
-// perché l'account è ormai UNA delle cose che ci sono dentro, e nemmeno la
-// prima: su un'installazione senza servizio degli account quella sezione non
-// si disegna affatto, mentre le statistiche ci sono sempre.
-// `plan` è una voce di PRIMO livello e non un riquadro dentro «Profile», per
-// due ragioni. La prima: non è mai vuota — c'è sempre un piano, e sul gratuito
-// dice cosa hai invece di cosa ti manca, quindi l'obiezione qui sopra non la
-// tocca. La seconda: quanto paghi e chi sei sono domande diverse, e chi cerca
-// «dove si paga» non apre la scheda dell'identità.
-// L'ETICHETTA E' UNA CHIAVE, non una parola. Erano cinque stringhe inglesi in
-// un'app italiana: quando una voce non si chiama come la parola che hai in
-// testa, la lista si scorre senza vederla e la conclusione e' «non c'e'» -
-// che e' letteralmente cio' che e' successo con le organizzazioni, presenti
-// dentro una voce chiamata «Profile».
-const SECTIONS: Array<{ id: SectionId; labelKey: string; icon: typeof Palette }> = [
-  { id: 'appearance', labelKey: 'settings.section.appearance', icon: Palette },
-  { id: 'notifications', labelKey: 'settings.section.notifications', icon: Bell },
-  { id: 'providers', labelKey: 'settings.section.providers', icon: Cpu },
-  // CHI SEI e CHE FERRI HAI sono due domande, e per un anno sono state una
-  // voce sola: la sezione si chiamava `devices` e l'etichetta diceva
-  // «Profile». Chi cercava i dispositivi apriva il profilo, chi cercava il
-  // profilo apriva i dispositivi, e dentro trovavano entrambi cinque schede.
-  // Il nome interno e quello mostrato che non coincidono non sono un dettaglio
-  // di stile: sono la prova che la voce risponde a due domande.
-  { id: 'profile', labelKey: 'settings.section.profile', icon: UserRound },
-  { id: 'devices', labelKey: 'settings.section.devices', icon: MonitorSmartphone },
-  { id: 'plan', labelKey: 'settings.section.plan', icon: CreditCard },
-];
-
+// L'ELENCO DELLE VOCI sta in `./sections.ts`, come dato: lo legge anche il
+// pane «Profilo» standalone, e un test lo controlla senza montare un DOM.
+//
+// «Profilo» era UNA voce con dentro sei riquadri, e le organizzazioni erano il
+// quarto: c'erano, ma per trovarle bisognava scorrere una scheda che si
+// chiamava con un'altra parola. Adesso CHI SEI, CON CHI STAI e CHI C'E'
+// INTORNO sono tre voci, ognuna con la sua intestazione.
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, onOpenShortcuts, initialSection }: GlobalSettingsProps & { initialSection?: SectionId }) {
   const t = useT();
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
@@ -173,7 +141,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Sidebar (desktop) / riga di schede scorrevole (mobile) */}
           <nav className="flex flex-shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-app-border bg-app-hover/30 px-2 py-2 md:w-[180px] md:flex-col md:gap-0.5 md:overflow-x-visible md:border-b-0 md:border-r md:py-3">
-            {SECTIONS.map(({ id, labelKey, icon: Icon }) => (
+            {SETTINGS_SECTIONS.map(({ id, labelKey, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setSection(id)}
@@ -217,38 +185,9 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             )}
             {section === 'providers' && <AIProvidersSection />}
             {section === 'plan' && <PlanSection />}
-            {section === 'profile' && (
-              // CHI SEI: l'identità dentro e fuori questa macchina.
-              <div className="space-y-6">
-                {/* Le statistiche aprono la scheda perché sono l'unica cosa
-                    che c'è SEMPRE: l'account può non essere configurato, le
-                    persone possono essere una sola. */}
-                <ProfileStatsSection />
-                {/* Lo stato pubblicato fuori viene subito dopo le misure che
-                    pubblica: è la stessa materia, vista da chi non è qui. */}
-                <DiscordSection />
-                {/* L'account viene prima delle persone perché risponde a una
-                    domanda che le precede — «chi sono io fuori da questa
-                    macchina» — e perché su un'installazione senza servizio
-                    degli account non si disegna affatto: in quel caso questa
-                    schermata resta esattamente com'era. */}
-                <AccountSection />
-                {/* I GRUPPI stanno qui e non sotto «Devices», ed è il pezzo che
-                    prima non si trovava: `IdentitySection` gestisce già le
-                    organizzazioni per intero — elenco da `/api/auth/orgs`,
-                    selettore quando sono più di uno, membri, creazione — ma
-                    viveva in fondo a una scheda che si chiamava «Profile» e
-                    conteneva i dispositivi. «Non vedo più le organizzazioni»
-                    non voleva dire che mancassero: voleva dire che erano la
-                    quarta cosa dentro la voce sbagliata. */}
-                <IdentitySection />
-                {/* I PROGETTI DELL'ORG: cosa c'e' gia' e cosa e' consigliato. */}
-                <OrgProjectsSection />
-                {/* I profili vengono DOPO l'elenco delle persone: quello dice chi
-                    c'è, questo dice chi sono. */}
-                <FriendsSection />
-              </div>
-            )}
+            {section === 'profile' && <ProfilePage />}
+            {section === 'organization' && <OrganizationPage />}
+            {section === 'friends' && <FriendsPage />}
             {section === 'devices' && (
               // CHE FERRI HAI: una domanda di sicurezza, non di identità —
               // «quali macchine possono entrare, e come gliela tolgo». Da sola

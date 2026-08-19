@@ -49,6 +49,7 @@ import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { prefersReducedMotion } from '../../lib/reducedMotion';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -465,9 +466,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       // comando in testa alla riga, identico nelle due modalita': vedi
       // `tests/e2e/reduced-motion-chrome-controls.spec.ts`, che ora misura
       // posizione e cliccabilita' con e senza movimento ridotto.
-      const riduciMovimento =
-        typeof window !== 'undefined' &&
-        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const riduciMovimento = prefersReducedMotion();
       const behavior: ScrollBehavior =
         didInitialScrollRef.current && !riduciMovimento ? 'smooth' : 'auto';
       const containerRect = container.getBoundingClientRect();

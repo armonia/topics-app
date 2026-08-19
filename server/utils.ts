@@ -27,6 +27,7 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "../shared/tool-call-detail";
+import { blocksForDisk, toolCallsForDisk } from "../shared/lean-tool-call";
 import { shouldCompressFrame } from "./lib/ws-compression";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
@@ -652,7 +653,12 @@ export function createAppContext(baseDir: string): AppContext {
       // gia' scritti, in silenzio. Su `updateMessage` il COALESCE lo tiene fermo.
       $author_person_id: msg.authorPersonId ?? null,
       $author_device_id: msg.authorDeviceId ?? null,
-      $blocks: msg.blocks ? JSON.stringify(msg.blocks) : null,
+      // `blocksForDisk` e non `JSON.stringify`: dentro un tool block, `result`
+      // e `detail` portano spesso la STESSA stringa byte per byte, e quella
+      // copia e' il 30% del payload misurato (shared/lean-tool-call.ts). Qui si
+      // scarta prima che tocchi il disco; quando la copia non c'e', il testo
+      // passa intero.
+      $blocks: blocksForDisk(msg.blocks),
     };
   }
 
@@ -1200,7 +1206,7 @@ export function createAppContext(baseDir: string): AppContext {
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+          $tool_calls: toolCallsForDisk(msg.toolCalls),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: msg.partial ? 1 : 0,
           $streamed_at: msg.streamedAt || null,
@@ -1280,7 +1286,7 @@ export function createAppContext(baseDir: string): AppContext {
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+          $tool_calls: toolCallsForDisk(msg.toolCalls),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: 0,
           $streamed_at: null,
@@ -1392,7 +1398,7 @@ export function createAppContext(baseDir: string): AppContext {
       $id: msg.id,
       $content: 'content' in updates ? (msg.content || '') : null,
       $thinking: 'thinking' in updates ? (msg.thinking || null) : null,
-      $tool_calls: 'toolCalls' in updates ? (msg.toolCalls ? JSON.stringify(msg.toolCalls) : null) : null,
+      $tool_calls: 'toolCalls' in updates ? toolCallsForDisk(msg.toolCalls) : null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -1473,7 +1479,7 @@ export function createAppContext(baseDir: string): AppContext {
       // Owns tool_calls only — see updateToolCallResult.
       $content: null,
       $thinking: null,
-      $tool_calls: JSON.stringify(msg.toolCalls),
+      $tool_calls: toolCallsForDisk(msg.toolCalls),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -1502,7 +1508,7 @@ export function createAppContext(baseDir: string): AppContext {
         // buffer) must never overwrite the assistant's text.
         $content: null,
         $thinking: null,
-        $tool_calls: JSON.stringify(msg.toolCalls),
+        $tool_calls: toolCallsForDisk(msg.toolCalls),
         $media: msg.media ? JSON.stringify(msg.media) : null,
         $partial: msg.partial ? 1 : 0,
         $streamed_at: msg.streamedAt || null,
@@ -1557,13 +1563,13 @@ export function createAppContext(baseDir: string): AppContext {
       $id: msg.id,
       $content: null,
       $thinking: null,
-      $tool_calls: JSON.stringify(msg.toolCalls),
+      $tool_calls: toolCallsForDisk(msg.toolCalls),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
       $plan_status: msg.planStatus || null,
       ...metaParams({}),
-      $blocks: nextBlocks ? JSON.stringify(nextBlocks) : null,
+      $blocks: blocksForDisk(nextBlocks),
     });
     return msg;
   }
@@ -1654,7 +1660,11 @@ export function createAppContext(baseDir: string): AppContext {
           const toolCalls = JSON.parse(toolCallsDecoded ?? "null") as ToolCall[];
           let c = false;
           for (const tc of toolCalls) if (fix(tc)) { c = true; interrupted.push(tc); }
-          if (c) { tcStr = encodeCol(JSON.stringify(toolCalls)) ?? null; changed = true; }
+          // `toolCallsForDisk` anche qui: questa riga la scrive di nuovo
+          // INTERA, quindi e' una scrittura come le altre. Le tool call che
+          // arrivano fin qui sono gia' magre (le ha scritte questo stesso
+          // percorso), ma una riga vecchia riaperta da un riavvio no.
+          if (c) { tcStr = encodeCol(toolCallsForDisk(toolCalls) ?? "null") ?? null; changed = true; }
         }
         // The client renders tool state from `blocks` (the timeline) when
         // present, so finalize the block copy too or the spinner keeps ticking.
@@ -1663,7 +1673,7 @@ export function createAppContext(baseDir: string): AppContext {
           const bl = JSON.parse(blocksDecoded ?? "null") as any[];
           let c = false;
           for (const b of bl) if (b?.kind === 'tool' && fix(b.toolCall)) c = true;
-          if (c) { blStr = encodeCol(JSON.stringify(bl)) ?? null; changed = true; }
+          if (c) { blStr = encodeCol(blocksForDisk(bl) ?? "null") ?? null; changed = true; }
         }
         if (changed) {
           db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`).run(tcStr, blStr, stream.messageId);

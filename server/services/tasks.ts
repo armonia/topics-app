@@ -680,6 +680,38 @@ export interface TaskService {
    * l'interruzione è già raccontata.
    */
   claimInterruption(args: { taskId: string; note: string; by?: string }): TaskComment | null;
+  /**
+   * LO SPEGNIMENTO SCRIVE UN BIT.
+   *
+   * Prima, `gracefulShutdown` fermava timer, provider e DB senza toccare una
+   * riga di `tasks`: per tutta la finestra morta la board diceva «sta
+   * lavorando» sopra un processo che non esisteva, e lo stato «interrotto»
+   * veniva indovinato dal boot successivo guardando il chip rimasto li'.
+   *
+   * Qui si stampa il fatto sulle card che stavano DAVVERO lavorando (la mappa
+   * `inFlight` del dispatcher, letta un istante prima di svuotarla). Solo le
+   * `in_progress`: una card gia' passata in review nel frattempo non e' stata
+   * tagliata a meta' turno. Ritorna quante ne ha marcate, che e' anche il
+   * numero della riga di log.
+   */
+  markInterrupted(args: { taskIds: string[]; by: string }): number;
+  /**
+   * «Qui non verra' nessuno», detto una volta sola.
+   *
+   * Il cancello del recupero riprende solo i chip `working|starting|queued`:
+   * una `in_progress` con chip `null` / `needs_input` / `delivered` viene
+   * saltata a ogni giro PER SEMPRE, senza una riga, senza un commento. Questa
+   * nota e' quella riga, e ha due guardie che la rendono onesta:
+   *
+   *  - esce solo se la card porta `interrupted_at`, cioe' solo se e' il server
+   *    ad averla tagliata: una card trascinata a mano in In Progress da una
+   *    persona non e' un'orfana e non riceve niente;
+   *  - esce UNA volta per interruzione (`interrupted_notified_at`), perche' il
+   *    reconcile ripassa ogni 10 secondi e ripeterla sarebbe rumore.
+   *
+   * Ritorna la nota scritta, oppure `null` se una delle due guardie ha chiuso.
+   */
+  noteStranded(args: { taskId: string; note: string }): TaskComment | null;
   /** Human-only review decision on a task sitting in `review`. */
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
   /**
@@ -3191,6 +3223,39 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // libero per chi viene dopo invece di zittirlo su una riga mai apparsa.
       const written = this.addComment({ taskId, author: by ?? "system", content: body, kind: "service" });
       db.prepare("UPDATE tasks SET interrupt_claimed_at = ? WHERE id = ?").run(now(), taskId);
+      return written;
+    },
+
+    markInterrupted({ taskIds, by }): number {
+      const ids = [...new Set(taskIds)].filter((id) => typeof id === "string" && id.length > 0);
+      if (!ids.length) return 0;
+      const ts = now();
+      let marcate = 0;
+      // Riga per riga, ognuna col suo try: siamo dentro uno spegnimento, e una
+      // card che non si lascia scrivere non deve portarsi via le altre.
+      const stmt = db.prepare(
+        "UPDATE tasks SET interrupted_at = ?, interrupted_by = ?, updated_at = ? WHERE id = ? AND status = 'in_progress'",
+      );
+      for (const id of ids) {
+        try { if (stmt.run(ts, by, ts, id).changes > 0) marcate++; }
+        catch { /* best-effort: lo spegnimento non fallisce per una nota */ }
+      }
+      return marcate;
+    },
+
+    noteStranded({ taskId, note }): TaskComment | null {
+      const body = (note ?? "").trim();
+      if (!body) return null;
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      const tagliata = typeof row.interrupted_at === "string" ? row.interrupted_at : null;
+      if (!tagliata) return null; // non l'abbiamo tagliata noi: non e' un'orfana
+      const detto = typeof row.interrupted_notified_at === "string" ? row.interrupted_notified_at : null;
+      if (detto && detto >= tagliata) return null; // gia' raccontata questa interruzione
+      // La nota PRIMA del campo, come in `claimInterruption`: se la scrittura
+      // fallisce il dedupe resta aperto invece di zittire una riga mai apparsa.
+      const written = this.addComment({ taskId, author: "system", content: body, kind: "service" });
+      db.prepare("UPDATE tasks SET interrupted_notified_at = ? WHERE id = ?").run(now(), taskId);
       return written;
     },
 

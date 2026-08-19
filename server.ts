@@ -1510,10 +1510,10 @@ previewManager = createPreviewManager({
       ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
     } catch (err) { console.error("[preview] setPreviewImage", err); }
   },
-  addReviewNote: (taskId, { content, media }) => {
+  addReviewNote: (taskId, { content, media, kind }) => {
     const projectId = dispatcherSvc.get(taskId)?.task.projectId;
     try {
-      dispatcherSvc.addComment({ taskId, author: "verifier", content, media, projectId, kind: "review-note" });
+      dispatcherSvc.addComment({ taskId, author: "verifier", content, media, projectId, kind: kind ?? "review-note" });
       const t = dispatcherSvc.get(taskId)?.task;
       if (t) ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
     } catch (err) { console.error("[preview] addReviewNote", err); }
@@ -1600,6 +1600,9 @@ const worktreeGc = createWorktreeGcRunner({
   getTopicBySessionKey: (sessionKey) => ctx.getTopicBySessionKey(sessionKey),
   resolveTopicCwd: (topic) => ctx.resolveTopicCwd(topic),
   svc: dispatcherSvc,
+  // La potatura scrive sulle card da un timer: senza questo filo la board
+  // resterebbe ferma sulla versione di prima fino a un ricaricamento.
+  broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
   projectIdForPath: (path) => projectIdForPath(path),
@@ -4691,6 +4694,12 @@ async function gracefulShutdown(signal: string) {
   clearTimeout(landingAuditBoot);
   clearInterval(landingAuditTimer);
   clearInterval(relayLicenzaTimer);
+  // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
+  // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
+  // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva
+  // INDOVINATO dal boot successivo guardando il chip rimasto sulla card.
+  try { taskDispatcher.markInterrupted(signal); }
+  catch { /* uno spegnimento non fallisce per una nota */ }
   taskDispatcher.shutdown();
   void previewManager?.teardownAll(); // kill any live preview servers
   stopUiStateBackup();

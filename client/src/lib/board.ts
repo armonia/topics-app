@@ -336,6 +336,42 @@ export function subtaskWorkChip(
 }
 
 /**
+ * La ragione di coda da disegnare sulla riga di uno step, o `null` se la riga
+ * non deve dire niente.
+ *
+ * Uno step non compare MAI in una colonna della board (le colonne sono
+ * `rootsOnly` e recuperano i soli step orfani): l'albero dei sottotask del
+ * padre è l'unico posto dove quella riga sta già sotto gli occhi. Il dato
+ * viaggia già nel payload di ogni figlio — mancava solo chi lo disegnasse.
+ *
+ * Filtro su `stalled` e non su «c'è una ragione»: `queued` e `waiting` sono la
+ * vita normale di uno step (in coda, oppure in mano al padre) e riempirebbero la
+ * checklist di chip che non chiedono niente a nessuno. La visibilità comprata
+ * col rumore non è visibilità: la riga davvero ferma sparirebbe tra le altre.
+ */
+export function subtaskQueueChip(
+  task: Pick<BoardTask, 'queueReason'>,
+): QueueReason | null {
+  const reason = task.queueReason;
+  if (!reason || reason.tone !== 'stalled') return null;
+  return reason;
+}
+
+/**
+ * Se la riga di uno step si apre nel drawer.
+ *
+ * Una riga nuda (niente descrizione, niente figli, nessun tab d'agente) non ha
+ * niente da mostrare: resta uno `span`, così non finge un click che non porta
+ * da nessuna parte. Ma una riga FERMA ha qualcosa da dire — il motivo per
+ * esteso, che nel chip sta troncato — e allora deve potersi aprire.
+ */
+export function subtaskOpenable(
+  task: Pick<BoardTask, 'description' | 'assignedTopicId' | 'subtaskCount' | 'queueReason'>,
+): boolean {
+  return !!task.description || task.subtaskCount > 0 || !!task.assignedTopicId || !!subtaskQueueChip(task);
+}
+
+/**
  * Il chip «riaperta»: una card che ERA consegnata e non lo è più lo dice sulla
  * card, dove si guarda — non solo nel thread.
  *
@@ -368,6 +404,27 @@ export function reopenedChip(
     title: `Aveva consegnato: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
   };
 }
+
+
+/**
+ * La priorità «auto» è una promessa SULLA CODA, e come tutte le promesse ha una
+ * scadenza.
+ *
+ * `priorityAuto` vuol dire: nessuno ha scelto, la sceglierà l'agent appena
+ * inquadra il lavoro. Ha senso finché il task è ancora in coda — è lì che la
+ * priorità serve, perché è l'ordine con cui i task partono. Appena il task È
+ * partito, la coda l'ha già servito: la priorità non ordina più niente, e quella
+ * valutazione, se non è arrivata, non arriverà.
+ *
+ * Continuare a scrivere «Priorità auto» sulla scheda di un task in lavorazione
+ * promette all'umano una cosa che non succederà, e nasconde il valore
+ * effettivamente in vigore (il default, Media, se nessuno ha toccato niente).
+ * Dopo la coda si mostra il valore vero.
+ */
+export function priorityAwaitingAgent(task: { status: TaskStatus; priorityAuto: boolean }): boolean {
+  return task.priorityAuto && (task.status === 'backlog' || task.status === 'todo');
+}
+
 
 export interface BoardTask {
   id: string;
