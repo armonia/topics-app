@@ -113,6 +113,20 @@ afterAll(() => { g.fetch = realFetch as unknown as StubFetch; });
 /** Lascia sfilare le micro-task della verifica (e i timer a 0ms). */
 const settle = () => new Promise((r) => setTimeout(r, 5));
 
+/**
+ * Attesa DETERMINISTICA: si aspetta il fatto atteso, non un cronometro.
+ *
+ * I casi qui sotto aspettavano 5 ms perche' la catena e' fatta di timer a 0 ms:
+ * su una macchina scarica bastano, dentro `test:unit` intero (853 file, altri
+ * processi vivi) no, e il caso cadeva a intermittenza misurando il carico
+ * invece del codice. Qui il tempo e' solo il TETTO di pazienza.
+ */
+const settleUntil = async (ready: () => boolean, timeoutMs = 2_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 1));
+  await new Promise((r) => setTimeout(r, 1));
+};
+
 /** Un lettore dei layout di progetto in memoria (nessun localStorage nei test). */
 function panesReader(records: Record<string, unknown>): ProjectPanesReader {
   const raw = new Map(Object.entries(records).map(([k, v]) => [k, JSON.stringify(v)]));
@@ -329,7 +343,7 @@ describe('openTabInApp — browser: la pane esiste già, va solo trovata', () =>
       { kind: 'browser', key: 'ctx-2', projectPath: '/work/x' },
       { notify, projectPanes: reader, retry: { attempts: 4, intervalMs: 0 } },
     );
-    await new Promise((r) => setTimeout(r, 5));
+    await settleUntil(() => events.length >= 5);
     expect(events.map((e) => e.type)).toEqual([
       'topics:open-tab',         // arma l'intento di focus
       'browser:request-focus',   // il tentativo immediato
@@ -384,7 +398,7 @@ describe('openTabInApp — file/diff: due hop, e il secondo aspetta la finestra'
       { kind: 'file', key: '/work/x/src/a.ts', projectPath: '/work/x' },
       { retry: { attempts: 4, intervalMs: 0 } },
     );
-    await new Promise((r) => setTimeout(r, 5));
+    await settleUntil(() => events.length >= 4);
     expect(events.map((e) => e.type)).toEqual([
       // L'intento di focus di un file è la FINESTRA DI PROGETTO che lo ospita:
       // la pane del file ha un id sorteggiato a ogni apertura.
@@ -406,7 +420,7 @@ describe('openTabInApp — file/diff: due hop, e il secondo aspetta la finestra'
       { kind: 'diff', key: '/work/x/src/a.ts', projectPath: '/work/x' },
       { retry: { attempts: 4, intervalMs: 0 } },
     );
-    await new Promise((r) => setTimeout(r, 5));
+    await settleUntil(() => events.length >= 3);
     expect(events[0]!.type).toBe('topics:open-tab');
     expect(events[1]!.type).toBe('topics:open-project');
     expect(events[2]).toEqual({ type: 'open-file-diff', detail: { filePath: 'src/a.ts', projectPath: '/work/x' } });
@@ -422,7 +436,11 @@ describe('openTabInApp — file/diff: due hop, e il secondo aspetta la finestra'
       { kind: 'file', key: 'src/a.ts', projectPath: '/work/mai-aperto' },
       { notify, retry: { attempts: 2, intervalMs: 0 }, settleMs: 5000 },
     );
-    await new Promise((r) => setTimeout(r, 5));
+    await settleUntil(
+      () =>
+        events.filter((e) => e.type === 'open-file').length >= 2 &&
+        events.some((e) => e.type === 'topics:tab-opened'),
+    );
     expect(events.filter((e) => e.type === 'open-file').length).toBe(2);
     // Il retry esaurito è un vicolo cieco come gli altri: rilascia l'intento…
     const acks = events.filter((e) => e.type === 'topics:tab-opened');
@@ -456,7 +474,7 @@ describe('openTabInApp — file/diff: due hop, e il secondo aspetta la finestra'
         settleMs: 5000,
       },
     );
-    await new Promise((r) => setTimeout(r, 5));
+    await settleUntil(() => seen.length >= 2);
     // L'ordine è il punto: `routed` PRIMA di `notify`, così chi ripiega sa già
     // che qualcosa in casa si è aperto e sta fermo.
     expect(seen).toEqual(['routed', 'notify']);

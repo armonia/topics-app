@@ -185,6 +185,12 @@ docs/*
 # Arc/Chrome/Safari/Dia e i 5 gap ordinati. Il passo 4 (la mappa) lo legge come
 # fonte: fuori dal repo la serie si spezza.
 !docs/browser-confronto-browser-veri.md
+# browser-mappa.md e' la sintesi della serie «cosa manca al browser di Topics»:
+# l'elenco spuntato contro un browser nativo vero, il criterio pane/scheda con
+# cui si decide cosa vale la pena, e le quattro cose scelte. E' il documento che
+# chi apre una card sul browser deve leggere PRIMA di proporre una funzione, e
+# in ogni worktree di agente un file ignorato e' un file assente.
+!docs/browser-mappa.md
 
 # Reference repos (local only)
 .reference/
