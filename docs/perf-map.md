@@ -38,6 +38,7 @@ intentions.
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
 | **Boot memory peak** | `phys_footprint (peak)` of a FRESH server booted on a copy of the real DB | `bun run probe:boot-memory` | not yet — new 2026-08-19 |
+| **What the memory panel SAYS** | that the headline number is explained when most of it is swapped, and that the advice matches the case | `tests/e2e/perf-panel.spec.ts` | yes (E2E shard) — new 2026-08-19 |
 
 ## 2026-08-19: what "1.8 GB and 57 fps" actually was
 
@@ -396,11 +397,30 @@ app, which is exactly what `phys_footprint` means and exactly what the status ba
 (correctly, deliberately) reports.
 
 That reframes the remaining work honestly: the number on screen is real as a
-metric and misleading as a claim about pressure. The useful next step is NOT to
-hunt a purge SPI that WebKit does not expose; it is to decide what the status bar
-should say when 700 of 726 MB are swapped — because a user reading "1.8 GB" and a
-machine that has 690 MB of Topics resident are two different facts, and only one
-of them is a defect.
+metric and misleading as a claim about pressure. The useful step was NOT to hunt
+a purge SPI that WebKit does not expose — it was to make the panel SAY what the
+number contains.
+
+**And that is done.** When the compressed share passes half the footprint (with
+a 300 MB floor, so small windows stay quiet), the panel now reads *"the 78% is
+already compressed or swapped: 234 MB in RAM right now"* — a ratio, not an
+absolute threshold, because 300 MB of 400 says the same thing as 1.2 GB of 1.8
+while 1 GB of 6 explains nothing. It deliberately does NOT say "close
+something": that advice belongs to the real-pressure line above it, and here it
+would send someone to do something useless. Verified against the live window's
+own numbers: 1,041 MB footprint / 234 resident = 78% ceded, and the line fires.
+
+The proof runs through the real path, and it took two attempts to become one.
+The first E2E only opened the panel and hoped — and could not work, because
+outside Tauri `usePerfMetrics` has no source at all, so the verdict never
+appeared and the file stayed green even with an i18n key broken on purpose. The
+second simulates the shell at the boundary Tauri itself injects
+(`__TAURI_INTERNALS__`), so the hook, the footprint math, the decision, the
+strings and the JSX all run for real. It was then proven able to fail: raising
+`MIN_COMPRESSI_MB` from 300 to 5000 turns it red, putting it back turns it
+green. Four cases cover every branch that reaches the screen — the user's own
+numbers, real pressure (which must say the opposite), a partial measurement
+(which must stay quiet), and the chain from the status-bar button.
 
 **What follows was measured earlier and is kept for its method, but read it in
 that light.**
