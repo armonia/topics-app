@@ -175,6 +175,31 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       if (!pane) break;
       const { id: _ignoreId, type: _ignoreType, ...safe } = updates;
       void _ignoreId; void _ignoreType;
+      // UN AGGIORNAMENTO CHE NON AGGIORNA NIENTE NON È UN AGGIORNAMENTO.
+      //
+      // Il merge `{...pane, ...safe}` produceva un oggetto NUOVO anche quando
+      // ogni valore era identico a quello che c'era già, e la freschezza di
+      // quell'oggetto arriva fino in fondo alla catena: il dispatcher alza
+      // `lastSeq`, il middleware di sync vede il contatore muoversi e manda al
+      // server uno snapshot da 75 KB. Misurato il 2026-08-19 su una finestra
+      // FERMA, senza un gesto dell'utente: **16 PUT in 25 secondi**, uno ogni
+      // 1,15 s, con l'unica differenza fra un corpo e il successivo che era
+      // `lastSeq` (+2). Per sempre, finché la finestra resta aperta.
+      //
+      // E non è solo banda: il server è Bun con `bun:sqlite` SINCRONO, quindi
+      // ogni PUT è event loop fermo, e su HTTP/1.1 occupa una delle SEI
+      // connessioni per host — cioè ritarda le letture che disegnano la board.
+      //
+      // Il confronto è SUPERFICIALE, e basta: i campi di `Pane` sono scalari
+      // (id, url, title, projectPath, timestamp…). Un confronto profondo
+      // costerebbe più di quello che evita, e per un campo oggetto la
+      // disuguaglianza di riferimento sbaglia solo in DIREZIONE SICURA — un
+      // aggiornamento in più, mai uno perso.
+      let cambiato = false;
+      for (const k of Object.keys(safe) as (keyof typeof safe)[]) {
+        if (!Object.is(pane[k as keyof typeof pane], safe[k])) { cambiato = true; break; }
+      }
+      if (!cambiato) break;
       state.panes[id] = { ...pane, ...safe };
       break;
     }
