@@ -4592,7 +4592,25 @@ setTimeout(() => {
 // turn can't wedge the restart forever — past the cap we proceed and the
 // reload-resilience path resumes whatever was still running. Only for
 // CONTROLLED restarts; raw SIGTERM/SIGINT (OS shutdown) stay fast.
-const QUIESCENCE_CAP_MS = 5 * 60_000;
+//
+// IL TETTO STA SOPRA LA DURATA DI UN TURNO, NON SOTTO.
+//
+// Un turno d'agente ha gia' un limite suo — `dispatchTimeoutMin`, 20 minuti di
+// default (`tasks.ts`) — oltre il quale e' il dispatcher a chiuderlo. Questo cap
+// serve SOLO contro un turno che ha sfondato anche quello, quindi deve stargli
+// sopra. A cinque minuti stava sotto, e il cancello scritto per non tagliare i
+// turni li tagliava quasi sempre: misurato il 19/08, salvato un file di
+// `server/` con quattro agenti `working`, cinque minuti dopo tutti e quattro
+// «Il server e' ripartito mentre l'agent lavorava: task rimesso in coda».
+//
+// Il tentativo non si perde (viene fatto il rollback) e nemmeno il lavoro gia'
+// committato sul ramo. Si perde il turno: quello che l'agente stava scrivendo,
+// e il tempo. Con venticinque minuti un turno sano arriva in fondo da solo, che
+// e' l'unico esito in cui questo cancello ha fatto il suo mestiere.
+//
+// La stessa variabile la legge `scripts/start-prod.sh` per la propria finestra
+// d'attesa: erano due numeri in due file che dovevano dire la stessa cosa.
+const QUIESCENCE_CAP_MS = Math.max(60_000, Number(process.env.TOPICS_QUIESCENCE_CAP_MS) || 25 * 60_000);
 /** Il broker si interroga a questa cadenza, non a ogni giro da 500ms: la sonda
  *  legge la coda dello store di OGNI sessione viva, e a 2Hz sarebbe un costo
  *  pagato per un'informazione che cambia di rado. */
