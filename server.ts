@@ -3753,18 +3753,39 @@ function finalizeOrphanedRunningTools() {
     // idx_messages_timestamp (migration 074) rende il filtro una SEARCH.
     // WHERE usa solo l'indice timestamp (migration 074): LIKE su BLOB compresso
     // non funzionerebbe comunque. Il filtro sullo stato si fa in JS dopo decodeCol.
-    const rawRows = db.prepare(
+    // SI SCORRE, NON SI CARICA — ed è la differenza fra 148 MB e 2,6 GB.
+    //
+    // Questa `.all()` materializzava OGNI riga di trenta giorni prima di
+    // guardarne una: misurato su questo DB, 8.354 righe per **706 MB** di
+    // `content` + `tool_calls` + `blocks`, che `decodeCol` poi raddoppia
+    // decomprimendo ognuna in una stringa UTF-16. Il footprint del server
+    // saliva a **2,6 GB in diciotto secondi di boot** e ricadeva a 148 MB —
+    // cioè il picco non era l'esercizio, era questa riga. Ed è il picco che
+    // lascia dietro di sé le pagine swappate che il footprint non restituisce
+    // più (vedi `server/lib/idle-gc.ts`): il costo non finisce col boot.
+    //
+    // `iterate()` tiene in RAM una riga per volta, e delle 8.354 ne sopravvive
+    // una manciata — quelle che hanno davvero un tool in corso. Il picco
+    // diventa proporzionale ai TROVATI, non al DB.
+    //
+    // Il filtro resta in JS, e non è una svista: la regex non buca il JSON
+    // compresso con zstd (`shared/message-blob.ts`), quindi un `LIKE` in SQL su
+    // quelle colonne non troverebbe niente. Ciò che cambia è dove si paga la
+    // decompressione: una riga alla volta, e subito buttata.
+    const rowIter = db.prepare(
       `SELECT id, session_key, content, tool_calls, blocks FROM messages
        WHERE timestamp >= date('now', '-30 days') AND partial = 0
          AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
-    ).all() as Array<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }>;
-    // Filtro in JS: la regex non buca il JSON compresso.
+    ).iterate() as Iterable<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }>;
     const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
-    const rows = rawRows.filter((r) => {
+    const rows: Array<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }> = [];
+    for (const r of rowIter) {
       const tc = decodeCol(r.tool_calls) ?? "";
       const bl = decodeCol(r.blocks) ?? "";
-      return RUNNING_RE.test(tc + bl);
-    });
+      // Si trattiene SOLO ciò che verrà riscritto: le altre righe escono di
+      // scope qui e il collettore se le riprende.
+      if (RUNNING_RE.test(tc + bl)) rows.push(r);
+    }
     if (rows.length === 0) return;
     const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
     const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
@@ -3820,23 +3841,28 @@ function finalizeOrphanedRunningTools() {
     // unexplained error X. Give it the explanation. Idempotent — once content is
     // set the row no longer matches. Uses decoded text — LIKE on compressed blobs
     // would not match.
-    const explainCandidates = db.prepare(
+    // Stessa forma, stesso rimedio: questa scorre le sole righe SENZA prosa,
+    // che sono molte meno, ma legge comunque due colonne pesanti per ognuna.
+    // Scorrerla costa quanto la riga più grande, non quanto la loro somma.
+    const explainIter = db.prepare(
       `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
          AND (content IS NULL OR trim(content) = '')
          AND timestamp >= date('now', '-30 days') AND partial = 0
          AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
-    ).all() as Array<{ id: string; tool_calls: unknown; blocks: unknown }>;
+    ).iterate() as Iterable<{ id: string; tool_calls: unknown; blocks: unknown }>;
     const INTERROTTO_RE = /Interrotto/;
     let explainCount = 0;
     const explainUpd = db.prepare(`UPDATE messages SET content = ? WHERE id = ?`);
-    for (const row of explainCandidates) {
+    // Gli id da riscrivere si raccolgono PRIMA di scrivere: aggiornare la
+    // stessa tabella che si sta scorrendo è un comportamento che SQLite non
+    // definisce, e qui l'`UPDATE` tocca proprio la colonna del `WHERE`.
+    const daSpiegare: string[] = [];
+    for (const row of explainIter) {
       const tc = decodeCol(row.tool_calls) ?? "";
       const bl = decodeCol(row.blocks) ?? "";
-      if (INTERROTTO_RE.test(tc + bl)) {
-        explainUpd.run(INTERRUPTED_MARKER, row.id);
-        explainCount++;
-      }
+      if (INTERROTTO_RE.test(tc + bl)) daSpiegare.push(row.id);
     }
+    for (const id of daSpiegare) { explainUpd.run(INTERRUPTED_MARKER, id); explainCount++; }
     if (explainCount > 0) console.log(`[boot] added interruption explanation to ${explainCount} message(s)`);
   } catch (e) {
     console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
