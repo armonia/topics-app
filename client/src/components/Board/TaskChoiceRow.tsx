@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { MoreHorizontal, PackageCheck, Square } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import { boardApi, isAgentWorking, type BoardTask } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useT } from '../../hooks/useT';
@@ -9,6 +9,7 @@ import { Spinner } from '../Shared/Spinner';
 // questo file è già nel mirino di una spec unitaria (`taskChoices.test.ts`).
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { sendBackComment, taskChoices, type TaskChoice, type TaskChoiceId } from './taskChoices';
+import { TASK_ACTION_ICON, TASK_ACTION_ICON_TONE } from './taskActionIcons';
 
 /**
  * Le SCELTE di una card che non è chiusa, in due forme.
@@ -41,13 +42,20 @@ const TONE_CLS: Record<TaskChoice['tone'], string> = {
   danger: 'bg-white/10 text-rose-300 hover:bg-rose-500/20',
 };
 
-/** Il glifo di una voce nel menu. Una riga di menu senza icona sta storta
- *  accanto a quelle che ce l'hanno, e queste sono le stesse del menu al tasto
- *  destro della card (`Square` per fermare). */
-const CHOICE_ICON: Partial<Record<TaskChoiceId, React.ReactNode>> = {
-  'stop': <Square className="h-3.5 w-3.5 fill-current text-rose-400" />,
-  'deliver-now': <PackageCheck className="h-3.5 w-3.5 text-emerald-400" />,
-};
+/**
+ * Il glifo di una voce, dalla tabella unica (`taskActionIcons.ts`).
+ *
+ * Prima ce n'erano DUE, scritte qui a mano (`stop`, `deliver-now`), e solo per
+ * la forma a menu: la riga di bottoni — la superficie su cui si decide — era
+ * fatta di sole parole tutte uguali. Segnalato: «ci sono una serie di tasti,
+ * forse standard, che non capisco effettivamente». Adesso ogni azione ha la
+ * sua, identica in riga, a menu e nel drawer.
+ */
+function ChoiceIcon({ id, className }: { id: TaskChoiceId; className: string }) {
+  const Glyph = TASK_ACTION_ICON[id];
+  if (!Glyph) return null;
+  return <Glyph className={`shrink-0 ${className} ${TASK_ACTION_ICON_TONE[id] ?? ''}`} aria-hidden />;
+}
 
 interface RunnerOpts {
   exclude?: TaskChoiceId[];
@@ -155,7 +163,10 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
           onClick={(e) => { e.stopPropagation(); void run(c); }}
           className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs disabled:opacity-50 ${TONE_CLS[c.tone]}`}
         >
-          {running === c.id && <Spinner size="sm" tone="current" />}
+          {/* La rotella PRENDE IL POSTO dell'icona mentre l'azione gira: se si
+              aggiungesse accanto, il bottone si allargherebbe di 14px al click
+              e la riga andrebbe a capo sotto il dito che l'ha premuta. */}
+          {running === c.id ? <Spinner size="sm" tone="current" /> : <ChoiceIcon id={c.id} className="h-3 w-3" />}
           {c.label}
         </button>
       ))}
@@ -210,7 +221,7 @@ export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, cla
             title={c.title}
             onClick={(e) => { e.stopPropagation(); setOpen(false); void run(c); }}
             className={c.tone === 'danger' ? POPOVER_ITEM_DANGER : POPOVER_ITEM}
-          >{CHOICE_ICON[c.id] ?? <span className="h-3.5 w-3.5" />} {c.label}</button>
+          ><ChoiceIcon id={c.id} className="h-3.5 w-3.5" /> {c.label}</button>
         ))}
       </Menu>
     </>

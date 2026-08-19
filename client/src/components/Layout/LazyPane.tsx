@@ -11,13 +11,16 @@
  */
 
 import { Suspense, type ReactNode } from 'react';
+import { SpinnerFallback } from '../Shared/Spinner';
 
-/** Small inline spinner used as the Suspense fallback. */
-export const LazySpinner = (
-  <div className="flex items-center justify-center h-full">
-    <div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" />
-  </div>
-);
+/**
+ * L'attesa di una pane, che è ESATTAMENTE il caso per cui esiste
+ * `SpinnerFallback`. Qui viveva una copia a mano dello stesso anello, e
+ * copiata male: il cerchio spento lo prendeva da `app-border-light` invece che
+ * da `app-spinner`, cioè la pane che carica girava di un grigio diverso da
+ * ogni altro pannello che carica. Il markup adesso è uno solo, il tono anche.
+ */
+export const LazySpinner = <SpinnerFallback />;
 
 export function LazyPane({ children }: { children: ReactNode }) {
   return <Suspense fallback={LazySpinner}>{children}</Suspense>;

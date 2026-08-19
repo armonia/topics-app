@@ -24,7 +24,7 @@ import { taskChoiceState } from './taskChoices';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
-import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
+import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
@@ -600,6 +600,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // di lettura, non un dato. Chi apre una card la ritrova aperta finche' la
   // board resta montata.
   const [commentoAperto, setCommentoAperto] = useState(false);
+  /** Stessa natura: la richiesta umana citata sta ripiegata a tre righe finche'
+   *  non la si apre, e la scelta vale per questa card e basta. */
+  const [richiestaAperta, setRichiestaAperta] = useState(false);
   const evidenza = reviewEvidence(task);
   const lavoroInPlace = evidenza.kind === 'in-place';
   const spostataAMano = evidenza.kind === 'manual';
@@ -641,6 +644,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const reopened = reopenedChip(task);
   // Quale famiglia di scelte disegna questa card (una sola, vedi taskChoices).
   const choiceState = taskChoiceState(task);
+  /**
+   * LA SCELTA CHE L'INVIO DEL CAMPO ESEGUE, disegnata sul tasto d'invio.
+   *
+   * Il campo libero della review non aveva nessun bottone: l'unica strada era
+   * Invio da tastiera, cioè una scorciatoia che non si vede. Chi non la
+   * conosceva scriveva l'indicazione e poi premeva il bottone grande, e finché
+   * quello non portava il testo la card tornava all'agente MUTA — il difetto
+   * che `sendBackText` ha chiuso a metà, perché il gesto restava invisibile.
+   * Adesso l'invio c'è, e porta il GLIFO e il NOME della scelta che eseguirà
+   * («Rimanda indietro», «Landa su main»…): non un secondo bottone con un
+   * effetto suo, la stessa azione della riga sopra con dentro la frase.
+   */
+  const primaChoice = useMemo(() => taskChoices(task, { t: tr })[0] ?? null, [task, tr]);
   // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
   // Anche questo numero è un fatto del DB, non della lista fetchata — un
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
@@ -1022,26 +1038,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
-          {deliveryStat !== null && (
-            <span
-              data-testid="card-delivery-stat"
-              title={tr('board.card.deliveryStatTitle', {
-                files: deliveryStat,
-                add: task.deliveryInsertions ?? 0,
-                del: task.deliveryDeletions ?? 0,
-                commit: task.deliveryCommit?.slice(0, 8) ?? '?',
-              })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
-            >
-              <FileDiff className="h-3 w-3 shrink-0" />
-              {tr('board.card.deliveryFiles', { n: deliveryStat })}
-              {/* I due numeri con i loro colori: il verde e il rosso qui non
-                  sono uno stato ma un VERSO, ed è l'unica cosa che distingue
-                  una consegna che aggiunge da una che cancella. */}
-              <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
-              <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
-            </span>
-          )}
           {senzaCommit && (
             <span
               data-testid="card-uncommitted"
@@ -1123,6 +1119,38 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.conductorCloses')}</span>
           )}
+          {/* I FILE MODIFICATI CHIUDONO LA RIGA, e non e' una questione di
+              gusto. Stavano in mezzo — dopo l'eta' della review, prima dei
+              checks — quindi «3 file +120 -8» si leggeva come un chip di stato
+              qualunque, in fila con «in attesa da 2h» e «checks verdi».
+              Segnalato: «per i file modificati li potremmo mettere in fondo,
+              invece che mischiarli con le altre chip». In fondo e per ultimo:
+              e' l'unico chip che misura la CONSEGNA invece di descrivere la
+              card, e a fine riga (o su una riga sua, quando la riga va a capo)
+              si stacca da sola dagli altri.
+              Solo in review: nelle altre colonne non c'è ancora una consegna da
+              pesare. `null` (non misurato) non disegna niente, perché uno zero
+              direbbe «non ha prodotto niente», che è un'altra affermazione. */}
+          {deliveryStat !== null && (
+            <span
+              data-testid="card-delivery-stat"
+              title={tr('board.card.deliveryStatTitle', {
+                files: deliveryStat,
+                add: task.deliveryInsertions ?? 0,
+                del: task.deliveryDeletions ?? 0,
+                commit: task.deliveryCommit?.slice(0, 8) ?? '?',
+              })}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
+            >
+              <FileDiff className="h-3 w-3 shrink-0" />
+              {tr('board.card.deliveryFiles', { n: deliveryStat })}
+              {/* I due numeri con i loro colori: il verde e il rosso qui non
+                  sono uno stato ma un VERSO, ed è l'unica cosa che distingue
+                  una consegna che aggiunge da una che cancella. */}
+              <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
+              <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
+            </span>
+          )}
         </div>
       )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
@@ -1188,12 +1216,29 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               context, not content: muted, clamped, and quoted only when a real
               reply followed it (`selectCardComments`). No human word, no row:
               nothing empty is ever reserved here. */}
+          {/* IL TESTO C'E' TUTTO, e se e' lungo si RIPIEGA — non si taglia.
+              `truncate` teneva una riga sola e buttava il resto nel tooltip:
+              su una richiesta di due frasi la card mostrava la prima meta' di
+              una domanda, e chi rivedeva leggeva la risposta senza sapere a
+              che cosa. Stesso pieghevole della parola dell'agente qui sotto,
+              con una soglia piu' bassa perche' questa riga e' contesto. */}
           {showsQuestion && humanContextText && (
-            <p
-              data-testid="card-human-context"
-              className="truncate border-l-2 border-sky-400/40 pl-1.5 text-xs md:text-[11px] leading-relaxed text-app-text-muted"
-              title={tr('board.card.yourRequest', { text: humanContextText })}
-            >{humanContextText}</p>
+            <div className="border-l-2 border-sky-400/40 pl-1.5">
+              <p
+                data-testid="card-human-context"
+                className={`break-words text-xs md:text-[11px] leading-relaxed text-app-text-muted ${richiestaAperta ? '' : 'line-clamp-3'}`}
+                title={tr('board.card.yourRequest', { text: humanContextText })}
+              >{humanContextText}</p>
+              {humanContextText.length > RICHIESTA_PIEGA_CHARS && (
+                <button
+                  data-testid="card-human-context-toggle"
+                  onClick={(e) => { e.stopPropagation(); setRichiestaAperta((v) => !v); }}
+                  className="text-xs md:text-[10px] text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+                >
+                  {richiestaAperta ? tr('board.card.commentLess') : tr('board.card.commentMore')}
+                </button>
+              )}
+            </div>
           )}
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
@@ -1328,7 +1373,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               si scrive per esteso e si vede il thread (`task-reply-quiet-note`).
               Qui la card resta quello che deve essere in review: un elenco di
               uscite, e una riga per dire perche'. */}
-          <div onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             <input
               ref={freeTextRef}
               value={freeText} disabled={busy}
@@ -1344,8 +1389,25 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               placeholder={isAgentReview
                 ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
                 : tr('board.card.commentPlaceholder')}
-              className="w-full rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
+            {/* L'INVIO SI VEDE. È la stessa azione del primo bottone qui sopra,
+                con dentro la frase appena scritta: stessa icona, e il tooltip
+                la nomina per esteso, così non c'è da indovinare dove va a
+                finire quello che si sta scrivendo. Acceso solo con del testo
+                dentro: senza, l'azione la offre già il bottone della riga. */}
+            <button
+              data-testid="card-reply-send"
+              disabled={busy || !freeText.trim()}
+              onClick={() => void primaryChoiceWithText()}
+              title={primaChoice
+                ? tr('board.card.replySendTitle', { action: primaChoice.label })
+                : tr('board.card.steerSendTitle')}
+              aria-label={primaChoice
+                ? tr('board.card.replySendTitle', { action: primaChoice.label })
+                : tr('board.card.steerSendTitle')}
+              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
+            ><Send className="h-3.5 w-3.5" /></button>
           </div>
         </div>
       )}

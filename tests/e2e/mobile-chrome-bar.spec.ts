@@ -264,6 +264,40 @@ test.describe.serial("La chrome del telefono", () => {
       expect(p.altezza).toBeGreaterThanOrEqual(44);
       expect(p.larghezza).toBeGreaterThanOrEqual(44);
     }
+
+    // A FILO: il primo e l'ultimo toccano il bordo dello schermo, e ci arrivano
+    // con l'angolo esterno tondo. Senza quell'angolo la stessa posizione
+    // costerebbe tutto il raggio dell'arco di alzata, cioè più dell'altezza del
+    // tasto: è il conto di `alzataCurva`.
+    expect(Math.round(sx.daBordo)).toBe(0);
+    expect(Math.round(dx.daBordo)).toBe(0);
+    expect(sx.raggi.bassoSx).toBeGreaterThan(sx.raggi.altoSx);
+    expect(dx.raggi.bassoDx).toBeGreaterThan(dx.raggi.altoDx);
+  });
+
+  test("MOBILE-CHROME-03b — i quattro tasti si dividono TUTTA la larghezza", async ({ page }) => {
+    await apri(page);
+    await fascia(page, FASCIA_IPHONE);
+
+    const misure = await porte(page);
+    expect(misure.length).toBe(4);
+
+    // Larghi uguale: quattro porte che valgono uguale non hanno bersagli
+    // diversi.
+    const larghezze = misure.map((p) => Math.round(p.larghezza));
+    expect(new Set(larghezze).size).toBe(1);
+
+    // E fra loro, e ai lati, non resta barra premibile per finta: la somma dei
+    // tasti più i tre passi è la larghezza intera dello schermo.
+    const larghezzaSchermo = await page.evaluate(() => window.innerWidth);
+    const primo = misure[0];
+    const ultimo = misure[misure.length - 1];
+    expect(Math.round(primo.x)).toBe(0);
+    expect(Math.round(ultimo.x + ultimo.larghezza)).toBe(Math.round(larghezzaSchermo));
+    for (let i = 1; i < misure.length; i++) {
+      const buco = misure[i].x - (misure[i - 1].x + misure[i - 1].larghezza);
+      expect(Math.round(buco)).toBeLessThanOrEqual(8);
+    }
   });
 
   test("MOBILE-CHROME-04 — «task» è un interruttore: lista dei task ⇄ tab", async ({ page }) => {
