@@ -73,6 +73,26 @@ reads that draw the board. Measured with `scripts/hol-probe.mjs`: with 12 heavy
 requests in flight, a **212-byte** request waited **19.3 seconds**. That queue,
 not any single slow route, is what made a refresh feel slow.
 
+**The fix is one line in the reducer, and the second half was withdrawn.** The
+first attempt paired the reducer guard with a gate in the sync middleware:
+"don't PUT a snapshot identical to the last one the server accepted". It passed
+its unit tests and broke tab closing — `pane-undo.spec.ts` went red on
+"closedStack must have at least one entry after CLOSE_PANE". Built at the
+previous commit in a throwaway worktree, the same test passes: so the red was
+mine, and without that check it would have been filed as noise.
+
+The reason is worth keeping. This middleware is NOT the only writer of the row:
+`flushPaneStoreNow` (closing a browser pane), the teardown flushes, and every
+hydrate from the server touch the same state on their own schedule. A memory of
+"what the server has", kept by one of those paths, ends up speaking for all of
+them, and the next PUT gets skipped for resembling a body that was not its own.
+Three patches moved the defect without removing it, at which point the question
+stopped being "how do I fix this" and became "is it needed": measured without
+it, **0-2 writes at rest in 30s** against 26 with the defect. The cause was
+upstream and already fixed — no idle dispatch, no `lastSeq` bump, no debounce,
+nothing to filter. A second net over a closed hole, costing a silent
+regression.
+
 | | before | after |
 |---|---|---|
 | first board card after reload | 7,176 ms | **464 ms** |
