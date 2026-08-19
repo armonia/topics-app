@@ -224,6 +224,7 @@ const EN = {
   'board.task.steerPlaceholder': 'Write to the agent while it works. It gets it on the next turn.',
   'board.task.commentPlaceholder': 'Comment…',
   'board.task.workspaceLabel': 'Workspace',
+  'board.task.sessionLabel': 'Session',
   'board.task.deliveryLabel': 'Delivery',
   'board.task.noWorkspaceTabs': 'No tab open on this task.',
   'board.task.openTab': 'Open a tab',
