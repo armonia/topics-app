@@ -371,6 +371,49 @@ ancora fatto.
 - **Nessuna integrazione nativa**: menu di sistema, notifiche, portachiavi, PiP — tutto
   ciò che Tauri+WKWebView dà gratis andrebbe reimplementato.
 
+### Il confronto "36 MB contro 353" era truccato — ecco perché
+
+Va detto prima di tutto il resto, perché quel numero da solo mente. **Non stavo
+misurando la stessa cosa nei due casi:**
+
+- la **WKWebView reale** regge la sessione vera: N topic aperti, board, terminali,
+  editor, thread di chat. I ~353 MB sono *quello*.
+- **Obscura** ha caricato `public/` servita da una porta diversa (`:4800`), quindi
+  l'app non ha riconosciuto l'origine e si è fermata al **gate di autorizzazione: 31 nodi
+  DOM**. I 36 MB sono il costo di una schermata di login, non dell'app.
+
+Confrontare 353 MB di app viva con 36 MB di una pagina di login è confrontare due cose
+diverse. Il numero onesto per l'app completa **non lo abbiamo**, e per averlo servirebbe
+servire il client dall'origine giusta con una sessione valida. Tutto ciò che quel test
+dimostra davvero è che **il guscio parte e il CSS moderno funziona** — che non è poco,
+ma non è un confronto di consumo.
+
+### Si può sostituire il webview DENTRO Tauri? — sì come idea, no in pratica
+
+Questa è la domanda giusta, e l'architettura ti dà ragione: Tauri **non** è legato a
+WKWebView. La catena è `tauri` → `wry` → `WKWebView` (`wry-0.55.1/src/wkwebview/mod.rs`),
+e sopra c'è un **trait `Runtime` sostituibile** (`tauri-runtime-2.11.3/src/lib.rs:402`).
+Non è teoria: **`tauri-runtime-verso` esiste già** e sostituisce il backend con Servo.
+
+Quindi la strada è reale. Il problema è cosa ci si dovrebbe mettere dentro:
+
+| | |
+|---|---|
+| metodi da implementare per un runtime Tauri | **151** (`Runtime` 19 + `WindowDispatch` 80 + `WebviewDispatch` 31 + `RuntimeHandle` 20 + proxy) |
+| dipendenze di windowing in Obscura | **zero** — `grep -c winit\|cocoa\|objc2\|core-graphics\|raw-window-handle\|wgpu\|metal` su `Cargo.lock` → **0** |
+| come disegna | `tiny-skia`, su un buffer in RAM |
+
+**Ed è qui che casca.** Un runtime Tauri deve creare finestre, riceverne gli eventi,
+gestire focus, resize, drag, IME, menu, cursori — 151 metodi di roba di sistema
+operativo. Obscura non ha **niente** di tutto ciò e non per caso: è headless *per
+costruzione*, disegna in un buffer e non ha mai visto una finestra. `tauri-runtime-verso`
+può esistere perché **Servo una finestra la sa fare** (ha winit, un compositor, un
+event loop). Obscura no.
+
+Quindi non è "sostituire un webview con un altro": è **scrivere da zero il livello
+finestra + input + compositor** che Obscura non ha, e poi implementarci sopra 151 metodi.
+Non si patcha ciò che manca: manca lo strato, non delle funzioni.
+
 ### E se lo migrassimo davvero, reimplementando i pezzi di Tauri?
 
 Domanda posta bene, quindi misurata invece che opinata. Il costo della UI di Topics
