@@ -10,6 +10,13 @@ describe('taskActionErrorMessage', () => {
       .toBe('Ci sono sottotask aperti: completali o archiviali prima di chiudere il task.');
   });
 
+  it('traduce il 409 di «Ferma» senza agente, e dice come rimettere in moto la card', () => {
+    const detto = taskActionErrorMessage(new Error('no active agent on this task'));
+    expect(detto).not.toMatch(/no active agent/i);
+    expect(detto).toMatch(/niente da fermare/);
+    expect(detto).toMatch(/Todo/);
+  });
+
   it('lascia passare gli altri errori come sono', () => {
     expect(taskActionErrorMessage(new Error('checks pre-review rossi'))).toBe('checks pre-review rossi');
   });
