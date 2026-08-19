@@ -47,6 +47,30 @@ describe("formatRegenerationEvidence — le prove del turno che si riscrive", ()
     expect(out).toContain("NON dare per scontato");
   });
 
+  /**
+   * La riga scritta oggi sul disco puo' NON avere `result`: quando `detail`
+   * porta gia' quella stessa stringa byte per byte, la copia non viene piu'
+   * scritta (`toolCallsForDisk`). Rigenera e' l'unico consumatore server che
+   * leggeva l'esito da li', e senza questo l'operazione «senza perdita»
+   * perderebbe proprio la cosa che serve al modello: le misure.
+   */
+  test("l'esito si recupera da `detail` quando la copia in `result` non e' stata scritta", () => {
+    const out = formatRegenerationEvidence([{
+      name: "Bash", args: { command: "wc -l" }, status: "success",
+      detail: { type: "shell", command: "wc -l", output: "15164 total" },
+    }])!;
+    expect(out).toContain("15164 total");
+    expect(out).not.toContain("nessun esito registrato");
+  });
+
+  test("una chiamata senza esito NE' in `result` NE' in `detail` resta dichiarata muta", () => {
+    const out = formatRegenerationEvidence([{
+      name: "Read", args: { file_path: "/x" }, status: "running",
+      detail: { type: "read", filePath: "/x" },
+    }])!;
+    expect(out).toContain("nessun esito registrato");
+  });
+
   test("un'azione fallita si legge come fallita", () => {
     const out = formatRegenerationEvidence([bash("gws-mail armonia search", undefined, { error: "command not found" })])!;
     expect(out).toContain("ERRORE");
