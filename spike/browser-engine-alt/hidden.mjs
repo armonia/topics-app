@@ -1,0 +1,10 @@
+import { launch, CDP, newPage, sleep } from "./bench.mjs";
+const engine=process.argv[2],port=+process.argv[3];
+const b=await launch(engine,port); const br=await CDP.connect(b.wsUrl); const {sessionId:s}=await newPage(br);
+const ev=async e=>(await br.send("Runtime.evaluate",{expression:e,returnByValue:true},s)).result?.value;
+const html=`data:text/html,<body><p>VISIBILE</p><p style="display:none">SEGRETO_DISPLAY</p><p style="visibility:hidden">SEGRETO_VIS</p><div style="height:0;overflow:hidden"><p>SEGRETO_CLIP</p></div><script>document.title='ok'</script></body>`;
+await br.send("Page.navigate",{url:html},s); await sleep(1200);
+const it=await ev("document.body.innerText");
+const tc=await ev("document.body.textContent");
+console.log(JSON.stringify({engine,innerText:String(it||"").replace(/\s+/g,' ').trim(), leaksHidden: /SEGRETO/.test(String(it||"")), textContentLeaks:/SEGRETO/.test(String(tc||""))}));
+br.close();b.dispose();process.exit(0);
