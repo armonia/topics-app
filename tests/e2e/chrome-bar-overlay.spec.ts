@@ -168,4 +168,64 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
       }, fondoBarra);
     }, { timeout: 10000, message: "nessun messaggio è finito sotto la barra" }).toBeGreaterThan(0);
   });
+
+  /**
+   * L'ALTRA META' DELL'EFFETTO, e quella che si rompe per prima.
+   *
+   * OVERLAY-2 misura il varco dove la lista NON scorre. Il caso che si vede
+   * usando l'app e' l'opposto: chat lunga, si risale fino in cima, e li' il
+   * primo messaggio deve FERMARSI al fondo della barra invece di scivolarci
+   * dietro. E' il caso in cui il varco lavora davvero: senza di lui la risalita
+   * arriva in cima con il messaggio 1 nascosto per l'altezza della barra, e
+   * nessuna quantita' di scroll lo tira fuori, perche' non c'e' piu' niente da
+   * scorrere.
+   *
+   * Si risale con la ROTELLA e non scrivendo `scrollTop`. Due ragioni, e sono
+   * state entrambe misurate su questa spec: `chat-scroll-container` e'
+   * l'involucro, non lo scroller (Virtuoso si crea il proprio li' dentro),
+   * quindi assegnargli `scrollTop` non muove niente; e cercare "il primo
+   * antenato scrollabile" trova un elemento che accetta il valore e poi si
+   * riancora al fondo, cioe' un test verde su una chat mai risalita. La rotella
+   * passa dal vero gestore di scroll, come il dito di chi usa l'app.
+   *
+   * La condizione di arrivo non e' un numero di pixel ma l'ESISTENZA di
+   * `data-index="0"`: e' Virtuoso stesso a dire che il primo messaggio della
+   * conversazione e' montato, cioe' che siamo davvero in cima.
+   */
+  test("OVERLAY-5: risalita fino in cima, il primo messaggio si ferma al fondo della barra", async ({ page, request }) => {
+    await apri(page, request, lungaId, lungaNome);
+    const b = barra(page);
+    await expect(b).toBeVisible({ timeout: 15000 });
+    await page.waitForSelector('[data-testid="virtuoso-item-list"]', { timeout: 15000 });
+
+    const primo = page.locator('[data-testid="virtuoso-item-list"] > [data-index="0"]');
+    const area = (await contenitore(page).boundingBox())!;
+    const cx = area.x + area.width / 2;
+    const cy = area.y + area.height / 2;
+    await page.mouse.move(cx, cy);
+
+    // Si risale a strappi finche' il messaggio 1 non e' montato: la chat si
+    // apre ancorata in fondo, quindi in cima ci si arriva solo scorrendo.
+    for (let giro = 0; giro < 60; giro++) {
+      if (await primo.count()) break;
+      await page.mouse.wheel(0, -600);
+      await page.waitForTimeout(80);
+    }
+    await expect(primo, "il messaggio 1 non e' mai stato montato: la risalita non ha funzionato").toHaveCount(1);
+    // Un altro strappo a vuoto: se la lista si riancorasse al fondo, qui lo
+    // farebbe, e la misura sotto lo direbbe.
+    await page.mouse.wheel(0, -600);
+    await page.waitForTimeout(300);
+
+    const rBarra = (await b.boundingBox())!;
+    const fondoBarra = rBarra.y + rBarra.height;
+    const cimaPrimo = (await primo.boundingBox())!.y;
+
+    // Tolleranza di UN pixel: l'arrotondamento del layout, non un margine di
+    // comodo. Senza varco lo scarto sarebbe l'altezza intera della barra.
+    expect(
+      cimaPrimo,
+      `la cima del primo messaggio (${cimaPrimo}px) sta sopra il fondo della barra (${fondoBarra}px): il testo e' coperto`,
+    ).toBeGreaterThanOrEqual(fondoBarra - 1);
+  });
 });

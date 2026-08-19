@@ -45,8 +45,28 @@ const API_VERSION = "2023-06-01";
  */
 const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 
-/** Quanti giri di tool prima di fermarsi. Un agente in loop non deve girare all'infinito. */
-const MAX_ITERATIONS = 60;
+/**
+ * Quanti giri di tool prima di fermarsi. Un agente in loop non deve girare
+ * all'infinito — ma questo tetto CONTA IL LAVORO, non riconosce un loop, e a 60
+ * i due erano indistinguibili.
+ *
+ * Misurato il 18-19/08/2026 sul log del server: `fermato dopo 60 giri di tool`
+ * cento volte, su SESSANTASETTE topic distinti. Non è una manciata di agenti
+ * impazziti: è il tetto che sega il lavoro normale. Un compito vero — «verifica
+ * lo skeleton di tutta l'app» — di giri ne fa centinaia.
+ *
+ * Cosa costava. Il turno finisce `provider-error`, il dispatcher aspetta 60s e
+ * riprende la STESSA sessione (quindi il lavoro non si perde), ma
+ * `FREE_PROVIDER_ERRORS` è 3: dal quarto singhiozzo la card inizia a pagare
+ * tentativi, e a tentativi finiti viene consegnata in review a metà. Sulla card
+ * l'umano legge «Errore del provider» per una cosa che non è un errore e non è
+ * del provider.
+ *
+ * 300 lascia finire un compito grosso dentro il primo giro e tiene comunque un
+ * fondo alla corsa: 3 finestre da 300 sono 900 giri prima che una card paghi
+ * qualcosa. Regolabile senza ricompilare per il caso raro che sfora davvero.
+ */
+const MAX_ITERATIONS = Number(process.env.TOPICS_MAX_TOOL_ROUNDS) || 300;
 
 export interface Block {
   type: string;
@@ -58,6 +78,11 @@ export interface Block {
   tool_use_id?: string;
   is_error?: boolean;
   thinking?: string;
+  /** La firma del pensiero: arriva a pezzi via `signature_delta`, e senza di
+   *  lei il blocco non e' rimandabile indietro. */
+  signature?: string;
+  /** Il corpo di un `redacted_thinking`, che l'API rimanda cifrato. */
+  data?: string;
 }
 
 export interface AgentMessage {
@@ -211,7 +236,19 @@ async function streamOnce(
 
         case "content_block_start": {
           const b = ev.content_block ?? {};
-          blocks[ev.index] = { ...b, text: b.text ?? "", input: b.input ?? {} };
+          // L'impalcatura va SOLO dove serve accumulare. Metterla su ogni
+          // blocco significa appiccicare `text: ""` e `input: {}` anche a un
+          // `thinking`, e l'API rifiuta la richiesta al giro dopo:
+          // `messages.N.content.0.thinking.text: Extra inputs are not
+          // permitted`. Misurato il 19/08/2026 su OTTO topic in una volta, il
+          // minuto dopo che il catalogo ha smesso di declassare a un modello
+          // che i blocchi di pensiero non li produceva.
+          blocks[ev.index] =
+            b.type === "text"
+              ? { ...b, text: b.text ?? "" }
+              : b.type === "tool_use"
+                ? { ...b, input: b.input ?? {} }
+                : { ...b };
           if (b.type === "tool_use") {
             partialJson.set(ev.index, "");
             handler.onToolStart(b.id, b.name, {});
@@ -228,6 +265,10 @@ async function streamOnce(
           } else if (d.type === "thinking_delta") {
             if (block) block.thinking = (block.thinking ?? "") + d.thinking;
             handler.onThinkingDelta?.(d.thinking);
+          } else if (d.type === "signature_delta") {
+            // Senza firma il pensiero non torna indietro: l'API la pretende
+            // per verificare che il blocco sia suo e non riscritto.
+            if (block) block.signature = (block.signature ?? "") + d.signature;
           } else if (d.type === "input_json_delta") {
             // I frammenti si CONCATENANO: parsarli singolarmente è l'errore
             // classico su questo stream.
@@ -296,7 +337,7 @@ function stripMessageCacheMarks(messages: AgentMessage[]): void {
  *
  * Si manda a ogni tipo di blocco esattamente ciò che quel tipo ammette.
  */
-function forApi(blocks: Block[]): Block[] {
+export function forApi(blocks: Block[]): Block[] {
   return blocks.map((b) => {
     switch (b.type) {
       case "text":
@@ -304,9 +345,15 @@ function forApi(blocks: Block[]): Block[] {
       case "tool_use":
         return { type: "tool_use", id: b.id, name: b.name, input: b.input ?? {} };
       case "thinking":
-        // Il pensiero torna indietro INTERO, firma compresa: rimandarlo mutilato
-        // fa rifiutare la richiesta sui modelli con extended thinking.
-        return b;
+        // Il pensiero torna indietro INTERO — firma compresa, perche' senza
+        // firma l'API lo rifiuta — ma SOLO con i campi che quel tipo ammette.
+        // «Intero» non vuol dire «cosi' com'e'»: il blocco che abbiamo in mano
+        // e' quello che abbiamo costruito noi durante lo streaming, e prima di
+        // questa riga si portava dietro la nostra impalcatura.
+        return { type: "thinking", thinking: b.thinking ?? "", ...(b.signature ? { signature: b.signature } : {}) };
+      case "redacted_thinking":
+        // Cifrato dall'API: si rimanda il corpo e nient'altro.
+        return { type: "redacted_thinking", data: b.data };
       default:
         return b;
     }
@@ -413,9 +460,14 @@ export async function runAgentTurn(
     opts.history.push({ role: "user", content: results });
   }
 
-  // Tetto raggiunto. È una fine anomala e va detta: un agente che gira in
-  // tondo su 60 giri ha un problema che il silenzio nasconderebbe.
-  const detail = `fermato dopo ${MAX_ITERATIONS} giri di tool`;
+  // Tetto raggiunto. È una fine anomala e va detta — ma va detta per quello che
+  // è. `fermato dopo N giri di tool` su una card diventa «Errore del provider»,
+  // e manda a cercare un guasto di rete che non c'è: il turno ha finito il
+  // budget di giri, il lavoro è salvo, e la ripresa continua la stessa sessione.
+  const detail =
+    `il turno ha esaurito i ${MAX_ITERATIONS} giri di tool a disposizione (non è un guasto: ` +
+    `il lavoro resta, la ripresa continua la stessa sessione). Se questo compito ne serve di più, ` +
+    `alza TOPICS_MAX_TOOL_ROUNDS`;
   handler.onError(detail);
   return { turnEnd: { end: "error", cause: "provider-error", detail }, text: finalText, usage: total };
 }
