@@ -318,11 +318,34 @@ export function initServerSync(): void {
   if (started) return;
   started = true;
 
-  usePaneStore.subscribe(
-    (s: PaneStore) => s.lastSeq,
-    () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
+  // SI OSSERVA `localSeq`, NON `lastSeq` — ed e' la riga che chiude il ciclo.
+  //
+  // `lastSeq` sale anche quando arriva lo stato di un PARI (il reducer lo porta
+  // a `max(lastSeq, clean.lastSeq)` per tenere fresche le PUT successive), e
+  // questo timer si armava anche li': mezzo secondo dopo rimandavamo 75 KB
+  // identici a quelli appena ricevuti, quel PUT alzava `server_seq`, il server
+  // ritrasmetteva, e il pari faceva lo stesso. Misurato a schermo fermo: **27
+  // scritture in 30 secondi**, tutte su `pane-store-v2`, una ogni 1,1 s.
+  //
+  // `localSeq` sale SOLO su una modifica di questo dispositivo (store.ts, dopo
+  // la guardia sulle azioni server-autoritative). Cambia la domanda da «il
+  // contatore si e' mosso» a «ci siamo mossi NOI», che e' quella a cui questo
+  // middleware ha sempre voluto rispondere.
+  //
+  // Due tentativi precedenti hanno provato a filtrare l'INVIO qui sotto,
+  // confrontando il corpo con l'ultimo stato ricevuto, e sono stati ritirati
+  // perche' rompevano la sincronizzazione (`cross-window-topic-sync`,
+  // `pane-undo`): un gate che scambia una scrittura vera per banda risparmiata
+  // e' un cattivo affare in qualunque direzione lo si guardi. Qui non si filtra
+  // niente: cio' che partiva parte ancora, semplicemente non parte piu' per
+  // conto di una scrittura che non e' nostra.
+  //
+  // `armaSpinta` esiste per un motivo solo: la guardia di boot qui sotto deve
+  // poter RIPROVARE, e prima non ne aveva bisogno perche' l'idratazione stessa
+  // la risvegliava.
+  const armaSpinta = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
         // ── Hydrate guard (post-mortem fix) ──────────────────────────────
         // Don't push our snapshot until the server has hydrated us. Without
         // this guard, an `OPEN_PANE` / `FOCUS_PANE` dispatched in the first
@@ -338,9 +361,22 @@ export function initServerSync(): void {
         // and stays flipped for the rest of the session, so this is a
         // boot-time check only — there is no perpetual gating on PUTs.
         if (!hasReceivedServerHydrate()) {
-          // Re-arm: try again next time lastSeq changes. By then the WS
-          // init should have arrived (or the GET fallback inside
-          // bootstrap will have fired markServerHydrated).
+          // SI RIPROVA, NON SI RINUNCIA — e questa riga è cambiata insieme a
+          // quella che fa osservare `localSeq` invece di `lastSeq`.
+          //
+          // Prima bastava tornare: la prossima sveglia sarebbe arrivata comunque,
+          // perché `lastSeq` saliva anche sull'idratazione stessa. Ora l'hydrate
+          // NON sveglia più (è tutto il punto), quindi una modifica che cade in
+          // questa finestra — l'utente chiude una scheda mentre il primo
+          // `ui-state:init` è ancora in volo — non avrebbe più nessuno a
+          // ricordarsene, e resterebbe solo in locale. È esattamente il rosso
+          // che `pane-undo` ha dato qui: `closedStack` vuoto sul server dopo una
+          // chiusura vera, cioè lavoro perso a schermo.
+          //
+          // Riarmare il timer costa un giro da DEBOUNCE_MS finché l'hydrate non
+          // arriva (poche centinaia di ms al boot, poi mai più: il flag si alza
+          // una volta sola per sessione).
+          armaSpinta();
           return;
         }
         // selectSyncableSnapshot excludes focusedPaneId and pane.scrollOffset —
@@ -378,9 +414,10 @@ export function initServerSync(): void {
         // Gli agganci restano pubblicati (`alreadyOnServer`, `noteLocalWrite`)
         // con i loro commenti: servono a chi riprende, non a questo giro.
         void pushSnapshot(REMOTE_KEY, snap, state.lastSeq);
-      }, DEBOUNCE_MS);
-    },
-  );
+    }, DEBOUNCE_MS);
+  };
+
+  usePaneStore.subscribe((s: PaneStore) => s.localSeq, armaSpinta);
 
   // Review-round-13: abort any inflight PUT on WS close. Rationale: when the
   // socket drops, the connection that would deliver our PUT's ack is gone,
@@ -492,5 +529,4 @@ export function __pushSnapshotForTests(
 export function __teardownFlushUrlForTests(baseServerSeq: number): string {
   return teardownFlushUrl(baseServerSeq);
 }
-
 

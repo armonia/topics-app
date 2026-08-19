@@ -99,6 +99,55 @@ describe("usePaneStore.dispatch (lastSeq monotonicity)", () => {
     expect(rec.seq).toBe(afterClose);
   });
 
+  test("l'arrivo dello stato di un PARI non conta come una nostra modifica", () => {
+    // È l'invariante che chiude il ciclo di scritture a riposo, misurato a 27
+    // PUT in 30 secondi con lo schermo fermo.
+    //
+    // Il meccanismo: `lastSeq` DEVE salire su un hydrate (il reducer lo porta a
+    // `max(lastSeq, clean.lastSeq)`, altrimenti le PUT successive nascono con
+    // un seq che il server considera vecchio). Ma il middleware di sync usava
+    // proprio `lastSeq` come sveglia, quindi il frame di un pari lo svegliava:
+    // mezzo secondo dopo rimandava 75 KB identici a quelli appena ricevuti,
+    // quel PUT alzava `server_seq`, il server ritrasmetteva, il pari faceva lo
+    // stesso. Serve piu' di una finestra per vederlo — con una sola non gira, ed
+    // e' il motivo per cui ogni misura precedente leggeva «0 scritture».
+    //
+    // `localSeq` risponde all'altra domanda: non «il contatore si e' mosso» ma
+    // «ci siamo mossi NOI».
+    const serverSeq = 2_000_000;
+    const primaLocal = usePaneStore.getState().localSeq;
+
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          seq: serverSeq, server_seq: serverSeq, lastSeq: serverSeq,
+          panes: {}, groups: {}, closedStack: [],
+        },
+      },
+    });
+
+    const dopo = usePaneStore.getState();
+    // `lastSeq` sale: serve a tenere fresche le PUT successive, e toglierlo
+    // romperebbe la sincronizzazione (e' cio' che due rimedi ritirati facevano).
+    expect(dopo.lastSeq).toBe(serverSeq);
+    // `localSeq` NO: nessuno su questo dispositivo ha cambiato niente.
+    expect(dopo.localSeq).toBe(primaLocal);
+  });
+
+  test("una modifica NOSTRA alza localSeq — il canale non e' stato zittito", () => {
+    // L'altra meta' dell'invariante, e la piu' importante da difendere: un
+    // cancello che porta le scritture a zero smettendo di sincronizzare non ha
+    // risolto niente, ha spostato il danno su qualcosa che si nota di piu'.
+    // Due tentativi precedenti sono stati ritirati esattamente per questo.
+    const prima = usePaneStore.getState().localSeq;
+    usePaneStore.getState().dispatch({
+      type: "OPEN_PANE",
+      payload: { id: "chat:mio", type: "chat", title: "M", groupId: "g1" },
+    });
+    expect(usePaneStore.getState().localSeq).toBe(prima + 1);
+  });
+
   test("HYDRATE carrying a spaces registry stays server-authoritative (I1: no dispatcher lastSeq bump)", () => {
     // Enlarging the snapshot with `spaces` must not change HYDRATE's
     // classification: the reducer installs the payload's lastSeq verbatim
