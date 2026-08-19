@@ -4,7 +4,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, Sparkles, Square, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -38,6 +38,7 @@ import { TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './taskActionWords';
+import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
@@ -146,14 +147,21 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
     ? 'bg-amber-600/80 hover:bg-amber-600 text-white'
     : 'bg-emerald-500/80 hover:bg-emerald-500 text-white';
   const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
+  // I GLIFI VENGONO DALLA TABELLA UNICA, non da qui. Erano `ShieldCheck` e
+  // `ShieldX`, cioè gli scudi dei CHECKS: sulla stessa schermata lo scudo verde
+  // è già il chip «checks verdi», quindi il bottone che chiude la card portava
+  // il segno di un'altra affermazione. Adesso la spunta è «chiudi» e la freccia
+  // è «torna indietro», le stesse identiche della riga di scelte sulla card.
+  const AcceptIcon = TASK_ACTION_ICON['accept'];
+  const SendBackIcon = TASK_ACTION_ICON['send-back'];
   const buttons = [
     {
       id: 'accept' as const, word: d.accept, testId: 'task-approve',
-      icon: <ShieldCheck className="h-3.5 w-3.5" />, onClick: onAccept,
+      icon: <AcceptIcon className="h-3.5 w-3.5" />, onClick: onAccept,
     },
     {
       id: 'send-back' as const, word: d.sendBack, testId: 'task-send-back',
-      icon: <ShieldX className="h-3.5 w-3.5" />, onClick: onSendBack,
+      icon: <SendBackIcon className="h-3.5 w-3.5" />, onClick: onSendBack,
     },
   ];
   // Il verde va per primo: è il posto dove il pollice arriva da solo, ed è
