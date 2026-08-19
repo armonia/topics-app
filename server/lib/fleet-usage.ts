@@ -436,7 +436,7 @@ const FLEET_TTL_MS = 4000;
  * FFI): il chiamante ripiega su `rss`, che è impreciso ma esiste ovunque —
  * meglio la stima vecchia che nessun numero.
  */
-const procFootprintKB: (pid: number) => number | null = (() => {
+export const procFootprintKB: (pid: number) => number | null = (() => {
   if (isWindows) return () => null;
   try {
     // rusage_info_v2: 16 byte di uuid, poi `uint64_t`; `ri_phys_footprint` è il
