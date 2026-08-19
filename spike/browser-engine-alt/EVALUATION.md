@@ -371,6 +371,49 @@ ancora fatto.
 - **Nessuna integrazione nativa**: menu di sistema, notifiche, portachiavi, PiP — tutto
   ciò che Tauri+WKWebView dà gratis andrebbe reimplementato.
 
+### E se lo migrassimo davvero, reimplementando i pezzi di Tauri?
+
+Domanda posta bene, quindi misurata invece che opinata. Il costo della UI di Topics
+disegnata da Obscura (`uicost.mjs`, la `public/` buildata a 1440x900 @2x):
+
+| | WKWebView (oggi) | Obscura |
+|---|---|---|
+| RAM della UI | ~353 MB | **36 MB** |
+| **fps del disegno in finestra** | nativo (60+) | **12.2** |
+| **CPU per disegnare** | 6.7% (idle reale) | **68%** |
+
+**Il primo numero seduce, il terzo chiude la questione.** Far *girare* la UI su Obscura
+costa **2.9% di CPU**: il motore non è il problema, e 36 MB contro 353 sarebbe un affare.
+Ma per **mostrarla in una finestra** serve portare i pixel fuori dal processo, e oggi
+l'unica strada è `Page.startScreencast`: JPEG, un frame alla volta, via WebSocket. Quel
+trasporto costa **68% di CPU per 12 fps** — cioè un core intero bruciato per
+un'interfaccia che scatta. Chrome sullo stesso giro fa 45.6 fps.
+
+Non è un limite di Obscura come motore: è che **screencast è una pipe di debug, non un
+compositor**. La WKWebView invece disegna direttamente nella finestra, senza mai
+serializzare un pixel.
+
+**Esisterebbe la strada giusta?** Sì, ed è nel codice: `paint_prepared()` restituisce una
+`tiny_skia::Pixmap` (`crates/obscura-render/src/paint.rs:2637`). Un embedding vero
+scriverebbe quella Pixmap in una `IOSurface` condivisa e la darebbe a `CALayer` — zero
+serializzazione, zero JPEG. **Ma quell'API non esiste**: andrebbe scritta noi, in Rust,
+dentro il motore, più il ponte macOS. E poi andrebbe rifatta per Windows e Linux.
+
+**Cosa andrebbe reimplementato oltre a quello**, cioè tutto ciò che Tauri dà gratis:
+menu di sistema, notifiche, portachiavi/`safeStorage` (Topics ci tiene i login delle
+pane), file picker, drag&drop, PiP, aggiornamenti firmati, gestione finestre multiple.
+Più i buchi noti del motore: WebGL assente, `filter` CSS ignorate.
+
+**Il conto:** si scambierebbero ~320 MB di RAM contro un compositor da scrivere in Rust
+su tre piattaforme, un livello nativo da reimplementare, e un rendering oggi a 12 fps.
+Su una macchina da 32 GB, 320 MB sono l'1%. **Non è un buon affare, ed è il motivo per
+cui la risposta resta no** — non perché "è rischioso", ma perché il numero che si
+guadagna è piccolo e quello che si paga è grande.
+
+Quando cambierebbe: se Obscura esponesse un'API di embedding zero-copy (Pixmap →
+IOSurface) e chiudesse `filter` + WebGL. Allora il confronto diventerebbe 36 MB contro
+353 **a parità di fluidità**, e varrebbe la pena rifare i conti.
+
 **Verdetto: interessante, non adesso.** Il renderer dell'app è la superficie che l'utente
 guarda per otto ore: là la WKWebView costa **37 MB a sessione**, ha rendering perfetto,
 integrazione nativa e zero rischio. Obscura come renderer risolverebbe un problema che
