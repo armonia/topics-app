@@ -14,19 +14,18 @@ import { hermetic } from './fixtures/hermetic';
  * Questo file esercita la catena vera: aprire il pannello dalla barra di stato,
  * leggere quello che c'è scritto.
  *
- * COSA NON PUÒ FARE, detto qui perché una prova che non sa fallire va nominata
- * invece che sottintesa. Lo swap non si comanda: su una macchina di test la
- * riga del verdetto non compare, e verificato — rompendo di proposito una
- * chiave i18n e rieseguendo — **questo file resta verde**. Quindi NON è il
- * cancello del verdetto: quello è `verdict.test.ts`, che prova la decisione,
- * più il controllo sulle chiavi di `i18n-keys.test.ts`, che prova che le
- * stringhe esistono in entrambe le lingue.
+ * COME FA A VEDERE LA RIGA, visto che lo swap non si comanda. Il primo tentativo
+ * si limitava ad aprire il pannello e sperare, e non poteva funzionare: fuori da
+ * Tauri `usePerfMetrics` non ha nessuna fonte (`getMetrics` è `null`), quindi il
+ * verdetto non compariva mai e il file restava verde anche con una chiave i18n
+ * rotta di proposito — verificato. Una prova che non sa fallire non è una prova.
  *
- * Quello che questo file prende, e che nessuno dei due prende, è la CATENA: il
- * bottone della barra di stato apre davvero il pannello, e il pannello mostra
- * numeri invece di trattini. Un pannello che non si apre più renderebbe inutile
- * ogni riga che ci abbiamo messo dentro, e nessun test di funzione se ne
- * accorgerebbe.
+ * Qui il guscio Tauri viene simulato al confine giusto: `__TAURI_INTERNALS__`,
+ * l'oggetto che Tauri stesso inietta e che `detectShell()` interroga. Da lì in
+ * giù gira TUTTO il codice vero — l'hook, `computeTopicsFootprint`,
+ * `scegliVerdetto`, le stringhe, la JSX. Non è uno stub del componente: è
+ * l'unico ingresso che una macchina di test non può avere, sostituito con i
+ * numeri MISURATI sulla finestra dell'utente il 2026-08-19.
  */
 hermetic(test);
 
@@ -61,5 +60,45 @@ test.describe('pannello prestazioni', () => {
       expect(v.length).toBeGreaterThan(0);
       expect(v).not.toMatch(/\bperf\.[a-zA-Z.]+/);
     }
+  });
+
+  test('col footprint quasi tutto in swap, il pannello lo DICE invece di lasciarlo credere', async ({ page }) => {
+    // I numeri sono quelli misurati sulla finestra dell'utente: 1.788 MB di
+    // footprint contro 517 residenti. Prima di questo lavoro il pannello
+    // mostrava «1,8 GB» e nient'altro — la sola riga che parlava di swap si
+    // accendeva sopra i 2 GB, quindi 1.271 MB compressi non la raggiungevano.
+    await page.addInitScript(() => {
+      const MB = { total_mb: 1788, resident_mb: 517 };
+      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+        metadata: { currentWindow: { label: 'main' } },
+        invoke: async (cmd: string) => {
+          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
+          return {
+            version: 'e2e', ...MB,
+            renderer_mb: 1200, gpu_mb: 88, other_mb: 500,
+            cpu_percent: 12, cpu_renderer: 6, cpu_gpu: 2,
+            cpu_sampled: 3, cpu_pids: 3, process_count: 3,
+            partial: false, // misura completa: senza questo la riga tace, ed è giusto
+          };
+        },
+      };
+    });
+
+    await page.goto('/');
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    await page.locator('[data-testid="connection-status"]').click();
+
+    const verdetto = page.locator('[data-testid="perf-verdict"]');
+    await expect(verdetto).toBeVisible({ timeout: 10_000 });
+    const testo = await verdetto.innerText();
+
+    // 1.271 su 1.788 = 71%, e i 517 MB sono la risposta alla domanda vera:
+    // quanto di questo numero è memoria che qualcun altro non può avere.
+    expect(testo).toContain('71');
+    expect(testo).toContain('517');
+    // E NON consiglia di chiudere niente: quel consiglio appartiene al caso
+    // della pressione vera, e qui manderebbe a fare una cosa inutile.
+    expect(testo.toLowerCase()).not.toContain('chiudi');
+    expect(testo).not.toMatch(/\bperf\.[a-zA-Z.]+/);
   });
 });
