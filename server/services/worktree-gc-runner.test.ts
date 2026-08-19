@@ -278,3 +278,41 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
     expect(toccati).toContain("release");
   });
 });
+
+/**
+ * UNA PASSATA ALLA VOLTA.
+ *
+ * Quattro punti lanciano la potatura (boot, timer, rotta `/__daemon`, `runGc`).
+ * Finché leggeva soltanto, due giri sovrapposti erano lavoro doppio e basta.
+ * Da quando SCRIVE — il residuo committato sul ramo — due `git add` nella
+ * stessa cartella si contendono `index.lock`, e chi perde non riprova.
+ * Misurato il 19/08/2026 al primo giro col codice nuovo: sette worktree persi
+ * per «Unable to create index.lock: File exists».
+ */
+describe("rientro della potatura", () => {
+  it("due chiamate sovrapposte condividono LA STESSA passata", async () => {
+    let giri = 0;
+    const { deps } = depsFinte({ worktreeStore: { list: () => { giri += 1; return []; } } });
+    const gc = createWorktreeGcRunner(deps);
+
+    const a = gc.runWorktreeGc();
+    const b = gc.runWorktreeGc();
+
+    // Non «due passate che finiscono uguale»: proprio lo stesso oggetto, così
+    // chi arriva secondo legge l'esito vero invece di un `null` da interpretare.
+    expect(a).toBe(b);
+    await Promise.all([a, b]);
+    expect(giri).toBe(1);
+  });
+
+  it("finita la passata, la successiva riparte davvero (non è un interruttore a senso unico)", async () => {
+    let giri = 0;
+    const { deps } = depsFinte({ worktreeStore: { list: () => { giri += 1; return []; } } });
+    const gc = createWorktreeGcRunner(deps);
+
+    await gc.runWorktreeGc();
+    await gc.runWorktreeGc();
+
+    expect(giri).toBe(2);
+  });
+});

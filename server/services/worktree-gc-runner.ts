@@ -249,7 +249,42 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     } catch { /* best-effort */ }
   }
 
-  function runWorktreeGc() {
+  /**
+   * UNA PASSATA ALLA VOLTA.
+   *
+   * Quattro punti la lanciano — il giro dopo il boot, il timer dei 30 minuti,
+   * la rotta `/__daemon/worktree-gc` e `runGc` — e finché la potatura si
+   * limitava a LEGGERE, due passate sovrapposte erano solo lavoro doppio.
+   *
+   * Da quando salva il residuo, SCRIVE: due `git add` nella stessa cartella si
+   * contendono `index.lock`, e chi perde non riprova. Misurato il 19/08/2026,
+   * al primo giro col codice nuovo: sette worktree persi per
+   * «Unable to create index.lock: File exists», tutti su `guidoai`.
+   *
+   * Chi arriva mentre una passata è in volo riceve LA STESSA promessa: nessuna
+   * coda che si accumula, nessun secondo giro, e il chiamante ottiene comunque
+   * il riepilogo vero invece di un `null` da interpretare.
+   */
+  /** La passata in volo, o `null` se non ce n'e' nessuna. */
+  let inVolo: Promise<WorktreeGcSummary | null> | null = null;
+
+  function runWorktreeGc(): Promise<WorktreeGcSummary | null> {
+    const corrente = inVolo;
+    if (corrente) return corrente;
+    const avviata = sweepOnce();
+    inVolo = avviata;
+    // Si registra la pulizia SENZA incatenarci sopra: chi aspetta riceve la
+    // passata vera, non un anello di `.finally` che ne cambia il tipo e
+    // sposterebbe anche il punto in cui un rifiuto si propaga. Il confronto
+    // `=== avviata` evita che una passata finita azzeri quella dopo.
+    void avviata.finally(() => { if (inVolo === avviata) inVolo = null; });
+    return avviata;
+  }
+
+  // `null` quando la passata e' fallita: il `.catch` in fondo la trasforma in
+  // un esito invece che in un rifiuto, e chi la lancia da un timer non deve
+  // gestire una promessa rifiutata.
+  function sweepOnce(): Promise<WorktreeGcSummary | null> {
     /**
      * QUALCOSA STA GIRANDO LÀ DENTRO?
      *
