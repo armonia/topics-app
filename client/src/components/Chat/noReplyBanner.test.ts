@@ -54,3 +54,36 @@ describe('banner «Nessuna risposta» — la tabella di verità completa', () =>
     }
   });
 });
+
+/**
+ * I MODI DI FALLIRE AI BORDI, che è dove una condizione booleana fa i danni.
+ *
+ * `serverTurnOpen` arriva da `useTopicLoading(topic?.id)`, e quell'hook risponde
+ * `false` per un id assente. `false` qui significa «il server non lo dice vivo»,
+ * che su una chat senza topic (una bozza appena aperta) è la lettura giusta: non
+ * c'è nessun turno da dichiarare aperto. Ma è anche il valore che FA PARLARE il
+ * banner, quindi vale la pena tenere fermo che in quello stato il banner non
+ * possa comparire per un'altra via.
+ */
+describe('banner «Nessuna risposta» — i bordi', () => {
+  test('chat senza messaggi: nessun banner, qualunque cosa dicano i testimoni', () => {
+    // `lastMessageIsUser` è falso su una lista vuota (non c'è ultimo messaggio),
+    // e questo è il gate che tiene il banner fuori da una chat mai usata — il
+    // caso di una bozza appena aperta, dove `topic?.id` può anche essere
+    // `undefined` e `serverTurnOpen` di conseguenza `false`.
+    for (const local of [false, true]) {
+      for (const server of [false, true]) {
+        expect(turnLooksUnanswered({ lastMessageIsUser: false, locallyStreaming: local, serverSaysOpen: server })).toBe(false);
+      }
+    }
+  });
+
+  test('la decisione dipende SOLO dai tre ingressi: nessuno stato nascosto', () => {
+    // Due chiamate identiche danno lo stesso esito. Sembra ovvio ed è la
+    // proprietà che rende il banner testabile senza montare React: se un giorno
+    // qualcuno ci infilasse una lettura di store o un `Date.now()`, questo
+    // smetterebbe di valere e il resto del file mentirebbe.
+    const a = { lastMessageIsUser: true, locallyStreaming: false, serverSaysOpen: false };
+    expect(turnLooksUnanswered(a)).toBe(turnLooksUnanswered({ ...a }));
+  });
+});
