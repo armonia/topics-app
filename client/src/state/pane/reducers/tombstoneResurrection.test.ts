@@ -31,6 +31,7 @@ const blank = (): PaneState => ({
   focusedPaneId: null,
   groupOrder: [],
   lastSeq: 0,
+  localSeq: 0,
   lastServerSeq: 0,
 });
 
