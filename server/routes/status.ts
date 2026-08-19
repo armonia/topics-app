@@ -7,6 +7,8 @@ import { getFleetUsage } from "../lib/fleet-usage";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
+import { computePresenceCounts } from "../services/profile-stats";
+import { countBusyAgentTerminals } from "./terminal";
 
 const SERVER_START_TIME = Date.now();
 
@@ -194,6 +196,24 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       return new Response(JSON.stringify({ version: readAppVersion() }), {
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
+    }
+
+    /**
+     * IL RIEPILOGO, in quattro numeri e niente altro.
+     *
+     * Perché non è un campo di `/api/system/status`: quella rotta, per
+     * rispondere, fa una scansione `ps` dell'intera flotta e interroga le porte
+     * in ascolto, quindi la barra la interroga ogni 60 secondi. Un riepilogo
+     * che dice «3 al lavoro» un minuto dopo che hanno finito non è un
+     * riepilogo. Qui ci sono tre COUNT indicizzati e una lettura di due mappe
+     * in memoria: si può chiedere ogni pochi secondi senza pagare niente.
+     *
+     * Sono gli STESSI numeri che finiscono sul profilo Discord (li calcola
+     * `computePresenceCounts`, uno solo per entrambe le superfici): la barra
+     * non stima per conto suo ciò che la presence sa.
+     */
+    if (method === "GET" && pathname === "/api/system/presence") {
+      return json(computePresenceCounts(db, activeStreams.size + countBusyAgentTerminals()));
     }
 
     if (method === "GET" && pathname === "/api/system/status") {

@@ -1327,6 +1327,32 @@ export function countAttachedTerminalSessions(): number {
   return n;
 }
 
+/**
+ * Quanti AGENTI in un terminale stanno producendo output adesso.
+ *
+ * Serve al riepilogo (la barra di stato e la presence Discord), e colma un buco
+ * che quel riepilogo aveva dalla nascita: «quante sessioni stanno lavorando»
+ * contava i turni in streaming (`activeStreams`, cioè le chat e i task della
+ * board) e basta. Una `claude-code` che macina in una tab terminale non passa
+ * di lì, quindi non veniva contata: il posto in cui questa applicazione fa
+ * lavorare gli agenti più spesso era proprio quello che il numero non vedeva.
+ *
+ * La shell resta fuori: `cat` di un file lungo è output, non un agente al
+ * lavoro. È la stessa esclusione — e per la stessa ragione — che applica il
+ * conteggio del client (`useAgentActivityCounts`), così le due letture della
+ * stessa barra non possono raccontare due cose diverse.
+ */
+export function countBusyAgentTerminals(): number {
+  let n = 0;
+  for (const [id, a] of terminalActivity) {
+    if (!a.busy) continue;
+    const s = sessions.get(id);
+    if (!s || s.type === "shell") continue;
+    n++;
+  }
+  return n;
+}
+
 export async function getTerminalBuffer(sessionId: string): Promise<string> {
   const bytes = await requestBuffer(sessionId);
   return new TextDecoder().decode(bytes);

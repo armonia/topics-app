@@ -978,6 +978,7 @@ const EN = {
   'statusBar.agents.awaitingInput': '· {n} waiting for an answer from you',
   'statusBar.agents.toLookAt': '· {n} to look at (turn finished or paused)',
   'statusBar.agents.notCounted': 'Archived chats and closed sessions are not counted: they have no row where you could shut them down.',
+  'statusBar.presenceTitle': 'The same summary Topics publishes on the Discord presence. Open sessions, how many are working now, board tasks running.',
   'statusBar.wsTitle': 'Realtime connection status to the Topics server',
   'statusBar.versionTitle': 'Version info and updates',
   'statusBar.devBuildTitle': 'Development build (Vite dev server / hot reload). In production this badge disappears.',

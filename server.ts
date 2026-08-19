@@ -41,7 +41,7 @@ import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
@@ -1902,7 +1902,7 @@ startProcessDetection(ctx, getClaudeSessionsForDetection);
 const SERVER_STARTED_AT = Date.now();
 startDiscordPresence({
   getSnapshot: () => ({
-    ...computePresenceCounts(ctx.db, ctx.activeStreams.size),
+    ...computePresenceCounts(ctx.db, ctx.activeStreams.size + countBusyAgentTerminals()),
     since: SERVER_STARTED_AT,
   }),
   getSettings: () => {
