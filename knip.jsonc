@@ -245,7 +245,13 @@
       // Quindi qui: non e' una dipendenza morta nascosta, e' un limite del tool
       // scritto con la prova. Se un giorno knip la vede, questa riga va tolta e
       // il cancello resta verde da solo.
-      "ignoreDependencies": ["ws", "@types/ws"],
+      // `axe-core` sta qui per una ragione piu' netta: non viene MAI importato.
+      // `chat-layout-audit.spec.ts` lo inietta nella pagina per PATH
+      // (`page.addScriptTag({ path: .../node_modules/axe-core/axe.min.js })`),
+      // quindi nessun analizzatore di import puo' vederlo. Toglierlo dal
+      // package.json romperebbe l'audit a11y, che e' l'unica misura di contrasto
+      // che il repo ha.
+      "ignoreDependencies": ["ws", "@types/ws", "axe-core"],
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec
