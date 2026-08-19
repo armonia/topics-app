@@ -1064,8 +1064,8 @@ export function GroupLayout({
                   paneKey={stableKeyOf(pane)}
                   isVisible={isPaneActive}
                   // Cell background tier (paneCellBg): `project`/`terminal`
-                  // fully transparent (they frost themselves), chat + kanban
-                  // in the frosted tier (`pane-frost`), the rest opaque
+                  // fully transparent (they frost themselves), chat + kanban +
+                  // browser in the frosted tier (`pane-frost`), the rest opaque
                   // `bg-surface` so dense text stays crisp over the vibrancy.
                   className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                 >

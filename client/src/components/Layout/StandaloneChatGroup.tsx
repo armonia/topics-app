@@ -839,7 +839,7 @@ export function StandaloneChatGroup({
             `chrome-glass`: under Electron-mac this backdrop goes transparent so
             the native vibrancy reads through; each content pane wrapper below
             picks its tier via paneCellBg — `project`/`terminal` transparent,
-            chat + kanban frosted (`pane-frost`), the rest opaque `bg-surface`
+            chat + kanban + browser frosted (`pane-frost`), the rest opaque `bg-surface`
             (matching GroupLayout so a standalone shell rides the vibrancy like
             one inside a project). Outside Electron, `bg-surface` is the
             backdrop. */}
