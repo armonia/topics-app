@@ -46,8 +46,12 @@ test.describe("External File Drop", () => {
       el.dispatchEvent(dragOver);
     });
 
-    // The directory should show the drag-over indicator (ring class)
-    await expect(srcDir).toHaveClass(/ring-1|ring-primary/);
+    // Il bersaglio si DICHIARA: `data-drop-active` e' il contratto unico
+    // (`DROP_ACTIVE_ATTR` in lib/dragPreview), disegnato da una regola sola in
+    // index.css. Prima qui c'era un anello scritto a mano riga per riga, e
+    // questo caso ne assertava la CLASSE: quando l'anello e' diventato una
+    // regola condivisa il segno c'era ancora e il test no.
+    await expect(srcDir).toHaveAttribute('data-drop-active', 'into');
   });
 
   test("EXTDROP-02: dragover on file shows visual indicator", async ({ fileExplorerPage, page }) => {
@@ -68,7 +72,7 @@ test.describe("External File Drop", () => {
     });
 
     // File node should also show drag indicator during external drag
-    await expect(packageJson).toHaveClass(/ring-1|ring-primary/);
+    await expect(packageJson).toHaveAttribute('data-drop-active', 'into');
   });
 
   test("EXTDROP-03: drop file on directory uploads it", async ({ fileExplorerPage, page }) => {
@@ -130,7 +134,7 @@ test.describe("External File Drop", () => {
       el.dispatchEvent(new DragEvent("dragenter", { dataTransfer: dt, bubbles: true, cancelable: true }));
       el.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
     });
-    await expect(packageJson).toHaveClass(/ring-1|ring-primary/);
+    await expect(packageJson).toHaveAttribute('data-drop-active', 'into');
 
     // Move to src dir — package.json should lose indicator, src should gain it
     await srcDir.evaluate((el) => {
@@ -141,8 +145,8 @@ test.describe("External File Drop", () => {
     });
 
     // src should now be highlighted
-    await expect(srcDir).toHaveClass(/ring-1|ring-primary/);
+    await expect(srcDir).toHaveAttribute('data-drop-active', 'into');
     // package.json should NOT be highlighted anymore
-    await expect(packageJson).not.toHaveClass(/ring-1|ring-primary/);
+    await expect(packageJson).not.toHaveAttribute('data-drop-active', 'into');
   });
 });

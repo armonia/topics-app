@@ -94,7 +94,10 @@ test.describe("Profili degli amici", () => {
 
     await page.goto("/");
     await settingsPage.openSettings();
-    await page.locator('nav button:has-text("Profilo")').click();
+    // «Amici» ha una voce sua: le persone non stanno piu' in fondo a «Profilo».
+    // Le impostazioni si sono separate per materia (Profilo / Organizzazione /
+    // Amici), e questo caso apre la porta che porta dove guarda.
+    await page.locator('nav button:has-text("Amici")').click();
 
     const sezione = page.getByTestId("friends-section");
     await expect(sezione).toBeVisible();
