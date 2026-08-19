@@ -110,6 +110,19 @@ let lastAppliedServerSeq = 0;
  * il che avrebbe dovuto insospettirmi subito — un'app che parla col server via
  * WebSocket non ne riceve zero.
  *
+ * SERVONO DUE FINESTRE, ed e' anche il motivo per cui il ciclo si e' nascosto
+ * cosi' a lungo: la correlazione misurata e' 12 PUT inviati, 24 frame ricevuti,
+ * 2 id di scrittura distinti — ogni nostra scrittura torna come frame, e quella
+ * del pari pure. Il secondo client era l'app dell'utente, aperta accanto alla
+ * finestra di prova. Una finestra sola non gira: OGNI misura che ha letto «0
+ * scritture a riposo» era stata presa con una sola finestra aperta.
+ *
+ * E questo sposta anche dove cercare il rimedio. Il gate ritirato provava a
+ * fermare l'INVIO; la domanda piu' economica e' perche' la scrittura di un pari
+ * debba far avanzare il NOSTRO contatore di dispatch (`reducers/panes.ts`, il
+ * `max(state.lastSeq, clean.lastSeq)` di HYDRATE_FROM_SNAPSHOT). Il prossimo
+ * tentativo parta da li'.
+ *
  * Il filtro dell'eco (`selfEcho`) non copre questo: protegge dalla PROPRIA
  * scrittura che torna indietro, non dallo stato di un PARI che ci arriva
  * legittimamente e che noi ri-annunciamo per il solo fatto di averlo ricevuto.
