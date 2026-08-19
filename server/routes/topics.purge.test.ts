@@ -43,8 +43,28 @@ describe("removeTopicFromUiStateValue", () => {
     expect((v.groups.g1 as { activePaneId?: string }).activePaneId).toBeUndefined();
   });
 
-  it("drops the topic from a closedStack undo record", () => {
-    const v = {
+  it("KEEPS the closedStack undo record, and tombstones its id instead", () => {
+    // Cambiato il 2026-08-19, dopo che questa riga si e' rivelata la causa di
+    // un difetto piu' grosso di quello che proteggeva.
+    //
+    // La catena: l'utente chiude la tab di una chat → il reducer crea il record
+    // di undo → la cascata del ritiro archivia quel topic («tab-close») →
+    // `archiveTopicFully` chiama questa purge → il record appena creato
+    // spariva. E il tombstone non lo sostituiva, perche' guarda le pane tolte
+    // da `panes`, e una pane gia' chiusa li' non c'e' piu': la chiusura non
+    // lasciava NESSUNA traccia.
+    //
+    // Cancellarlo non serviva. Il difetto che questa purge protegge e' la TAB
+    // FANTASMA — una chat archiviata che ricompare APERTA altrove — e quella
+    // vive in `panes`, che continua a essere ripulito. `closedStack`, sul
+    // client, alimenta `bumpClosed`: lo stesso segnale di CHIUSURA dei
+    // tombstone. Non riapriva niente.
+    const v: {
+      panes: Record<string, unknown>;
+      groups: Record<string, unknown>;
+      closedStack: Array<{ id: string; pane: { id: string; type: string; topicId?: string } }>;
+      tombstones?: Record<string, number>;
+    } = {
       panes: {},
       groups: {},
       closedStack: [
@@ -53,8 +73,31 @@ describe("removeTopicFromUiStateValue", () => {
       ],
     };
     const changed = removeTopicFromUiStateValue(v, TID);
+    // Entrambi i record restano: l'undo dell'utente e' lavoro suo.
+    expect(v.closedStack.map((r) => r.id)).toEqual(["r1", "r2"]);
+    // Ma l'id viene TIMBRATO, che e' cio' che tiene in piedi la protezione: un
+    // pari che avesse ancora quella tab aperta la lascia cadere.
+    expect(v.tombstones?.[TID]).toBeGreaterThan(0);
     expect(changed).toBe(true);
-    expect(v.closedStack.map((r) => r.id)).toEqual(["r2"]);
+  });
+
+  it("una chat archiviata DAL MENU sparisce comunque: la tab fantasma resta chiusa", () => {
+    // L'altro caso, quello per cui la purge esiste. Qui non c'e' nessun record
+    // di undo — la tab e' APERTA — e il comportamento non cambia di una virgola.
+    const v: {
+      panes: Record<string, unknown>;
+      groups: Record<string, { id: string; paneIds: string[] }>;
+      closedStack: unknown[];
+      tombstones?: Record<string, number>;
+    } = {
+      panes: { [TID]: { id: TID, type: "chat", topicId: TID } },
+      groups: { g: { id: "g", paneIds: [TID] } },
+      closedStack: [],
+    };
+    expect(removeTopicFromUiStateValue(v, TID)).toBe(true);
+    expect(Object.keys(v.panes)).toHaveLength(0);
+    expect(v.groups.g.paneIds).toEqual([]);
+    expect(v.tombstones?.[TID]).toBeGreaterThan(0);
   });
 
   it("removes the topic from the legacy/project openChatTopicIds shape", () => {
