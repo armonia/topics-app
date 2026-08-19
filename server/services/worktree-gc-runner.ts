@@ -48,6 +48,18 @@ export interface WorktreeGcDeps {
   resolveTopicCwd: (topic: any) => string | null;
   /** Il servizio task: card, impostazioni, park, commenti, consegna. */
   svc: any;
+  /**
+   * IL FILO VERSO I CLIENT, e la ragione per cui e' una dipendenza e non una
+   * comodita'.
+   *
+   * Questa potatura scrive sulle card — le parcheggia `failed`, ci commenta
+   * sopra, ci timbra il ramo di consegna — ma parte da un TIMER, non da una
+   * rotta: dietro non c'e' nessuno che trasmetta l'esito. Senza questo, una
+   * card parcheggiata dal giro delle 3 di notte continua a leggersi «in
+   * lavorazione» su ogni schermo aperto fino al ricaricamento successivo, e
+   * la board dice una cosa mentre il database ne dice un'altra.
+   */
+  broadcast: (msg: unknown) => void;
   /** Un turno dispatchato e' in volo su questo task: non si tocca niente. */
   isInFlight: (taskId: string) => boolean;
   /** Il worktree di un task, risolto dal server (task -> topic -> worktree). */
@@ -105,6 +117,28 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
   // A week: dispatch turns are capped at minutes, so seven days of total silence
   // on a task that claims an agent is working can only mean nobody is.
   const WORKTREE_ABANDON_DAYS = Number(process.env.TOPICS_WORKTREE_ABANDON_DAYS ?? 7);
+
+  /**
+   * La card com'e' ADESSO, a tutti i client aperti.
+   *
+   * `projectId` si legge dal TASK e non dal worktree, ed e' la stessa trappola
+   * che `autoMergeEnabled` documenta piu' sotto: `wt.projectId` e' l'uuid del
+   * projectStore, mentre la board filtra per l'id di BOARD, che e' quello
+   * scritto sulla card. Col primo il frame arriverebbe e verrebbe scartato dal
+   * client, cioe' esattamente il silenzio che questa funzione esiste per
+   * togliere — senza nemmeno un errore a dirlo.
+   *
+   * Best-effort come ogni altro effetto collaterale di questo giro: un filo
+   * rotto non deve fermare una potatura.
+   */
+  function annuncia(taskId: string): void {
+    try {
+      const fresh = deps.svc.get(taskId)?.task;
+      if (fresh) deps.broadcast({ type: "task:updated", projectId: fresh.projectId, task: fresh });
+    } catch (err) {
+      console.warn("[worktree-gc] annuncio della card fallito", err);
+    }
+  }
 
   /**
    * Days since the LAST SIGN OF LIFE on a task, or null if we can't tell.
@@ -286,6 +320,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
           console.warn("[worktree-gc] scioglimento del legame fallito", err);
           return false;
         }
+        annuncia(taskId);
         try { await deps.previewTeardown(taskId); } catch { /* best-effort */ }
         return deps.worktreeManager.delete(wt.id, { deleteBranch: false });
       },
@@ -318,6 +353,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
           console.warn("[worktree-gc] park del task abbandonato fallito", err);
           return false;
         }
+        annuncia(taskId);
         try { await deps.previewTeardown(taskId); } catch { /* best-effort */ }
         // `deleteBranch: false` is the whole point of this path.
         return deps.worktreeManager.delete(wt.id, { deleteBranch: false });
@@ -379,6 +415,10 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       noteOnTask: (taskId, message, opts) => {
         try { deps.svc.addComment({ taskId, author: "system", content: message, kind: opts?.kind, once: opts?.once }); }
         catch (err) { console.warn("[worktree-gc] noteOnTask failed", err); }
+        // Il commento e' il posto dove l'umano viene a sapere che una cartella
+        // e' sparita: se arriva solo al prossimo ricaricamento, arriva dopo che
+        // ha gia' cercato il suo lavoro dove non c'e' piu'.
+        annuncia(taskId);
       },
       // Il ramo scritto sulla card mentre e' ancora noto: e' cio' che la tiene
       // landabile dopo che la cartella se n'e' andata (vedi `stampDeliveryBranch`).
@@ -390,6 +430,10 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       stampDeliveryBranch: (taskId, branch) => {
         try { deps.svc.setDeliveryBranch(taskId, branch); }
         catch (err) { console.warn("[worktree-gc] stampDeliveryBranch failed", err); }
+        // Il ramo appena timbrato e' cio' che rende la card ancora landabile:
+        // il bottone che lo usa vive sullo schermo, quindi il dato deve
+        // arrivarci senza aspettare un F5.
+        annuncia(taskId);
       },
       log: (msg) => console.log(msg),
     }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
