@@ -15,6 +15,37 @@ cd "$APP_DIR"
 export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"
 
+# ─── Descrittori di file (2026-08-19) ──────────────────────────────────────
+# launchd consegna a questo job il default di sistema: `maxfiles 256`. Una
+# shell interattiva ne ha 1.048.576, quindi il server misurato a mano sembra
+# sano e sotto launchd non lo e'.
+#
+# 256 non basta a questo processo nemmeno da fermo: tiene una WebSocket per
+# ogni client aperto, un socket unix per ogni figlio (pty-bridge, ai-bridge,
+# un server MCP per agente dispacciato), e le connessioni verso l'API. Con
+# dieci agenti al lavoro sono gia' un centinaio prima di servire una pagina.
+#
+# COSA SUCCEDE QUANDO FINISCONO, ed e' il motivo per cui questa riga esiste:
+# il processo NON muore e non scrive niente in log. Continua a lavorare sulle
+# connessioni che ha gia' — gli agenti proseguono, il DB si aggiorna — ma ogni
+# connessione NUOVA viene accettata e chiusa subito dopo l'handshake TLS. Dal
+# di fuori e' un server vivo che non risponde: il client non riesce a
+# riconnettersi e l'interfaccia resta ferma sull'ultimo stato che aveva, che e'
+# esattamente il sintomo «devo aggiornare l'app per vedere lo stato giusto».
+#
+# Misurato il 19/08/2026 sul server di produzione: 287 descrittori aperti
+# contro un tetto di 256, di cui 133 socket in stato CLOSED e 22 in CLOSE_WAIT
+# — cioe' connessioni gia' finite che tenevano ancora il posto. Il conto
+# cresceva di 4 ogni 45 secondi (~320/ora), quindi il blackout arrivava in meno
+# di un'ora dall'avvio.
+#
+# Questo alza il TETTO, non ferma la perdita: il socket che resta appeso a una
+# richiesta abortita e' un difetto suo, e ha la sua card. Ma senza questa riga
+# la perdita diventa un'interruzione di servizio invece di un numero da
+# guardare.
+ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+echo "[start-prod] descrittori disponibili: $(ulimit -n)"
+
 # ─── Optional LOCAL env overrides (per-machine, NOT committed) ──────────────
 # A developer's own machine can enable experimental server flags (e.g.
 # TOPICS_AI_BRIDGE=1 to run the detached AI broker) by dropping `export FOO=bar`

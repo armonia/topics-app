@@ -430,6 +430,13 @@ export interface TaskDispatcher {
    *  2. Then tick every board with queued todos.
    */
   reconcile(): Promise<void>;
+  /**
+   * Lo spegnimento scrive un bit sulle card che stavano lavorando.
+   *
+   * Si chiama PRIMA di `shutdown()`, che svuota `inFlight`: dopo, la mappa e'
+   * vuota e questa riga varrebbe zero. Ritorna quante card ha marcato.
+   */
+  markInterrupted(by: string): number;
   /** Cancel all timers (test teardown / shutdown). */
   shutdown(): void;
   /** True while a launch for this task is in flight (test/introspection). */
@@ -3574,6 +3581,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let running: Task[] = [];
     try { running = deps.svc.list({ scope: "all", status: "in_progress" }); }
     catch (err) { log("reconcile list failed", err); }
+    // IL RECUPERO ARRIVA NEL LOG. Il 18/08 il server ha ripreso 303 card e
+    // `grep 'Server ripartito' topics-server.log` ne trovava ZERO: le note
+    // andavano solo in `task_comments`, quindi per sapere quante card aveva
+    // ripreso un riavvio bisognava interrogare il database. I contatori qui
+    // sotto diventano UNA riga sola in fondo al passo, non una riga per card:
+    // con 303 riprese il per-card e' un allagamento, non una misura.
+    let inDiretta = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0;
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
       // Un'attesa di slot VIVA (il resume rinviato a tetto pieno) non ha un turno,
@@ -3600,7 +3614,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // (queued — an attesa that lived only in memory). A human who drags a
       // review/done card (chip null or needs_input) into In Progress is NOT an
       // orphan — leave it be.
-      if (!RECOVERABLE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
+      if (!RECOVERABLE_DISPATCH_STATES.has(t.dispatchState ?? "")) {
+        // ...ma se e' stato IL SERVER a tagliarla (solo allora la card porta
+        // `interrupted_at`, scritto dallo spegnimento), il salto va detto: qui
+        // non passera' mai piu' nessun recupero, e finora era un `continue`
+        // muto. `noteStranded` tace da sola per le card mosse a mano e per
+        // l'interruzione gia' raccontata, quindi il conteggio si incrementa
+        // solo quando la nota e' uscita davvero.
+        try {
+          const chip = t.dispatchState ? `«${t.dispatchState}»` : "nessun chip";
+          const detta = deps.svc.noteStranded({
+            taskId: t.id,
+            note:
+              `Il server e' ripartito mentre questa card lavorava, ma il suo stato (${chip}) non e' fra quelli che il recupero riprende: ` +
+              "nessun turno ripartira' da solo. Per rimetterla in moto riportala in Todo, oppure chiudila.",
+          });
+          if (detta) nonRecuperabili++;
+        } catch { /* best-effort: il reconcile non si ferma per una nota */ }
+        continue;
+      }
       // Un FAN-OUT orfano non si "riprende sulla stessa sessione": di sessioni
       // ne aveva N, e `assigned_topic_id` ne punta una sola (il tentativo 1).
       // Riprendere quella abbandonerebbe le altre in silenzio. Si chiude il giro
@@ -3616,6 +3648,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               "i turni sono morti col processo, ma i worktree no. Chiudo il giro con quello che avevano committato.",
           });
         } catch { /* best-effort */ }
+        fanOut++;
         void recoverOrphanedFanOut(t.id);
         continue;
       }
@@ -3640,6 +3673,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // Broker survived the restart with the turn STILL RUNNING → reattach
           // in place (seamless, no re-run). Only when there's no live session do
           // we fall back to resume-from-scratch (the pre-broker behaviour).
+          //
+          // DAL 16/08 QUESTA SONDA RISPONDE SEMPRE FALSE, E DICE LA VERITA'.
+          // Le card girano sul runtime nativo, il cui turno vive DENTRO il
+          // processo del server: quando il server muore, il turno muore, e non
+          // c'e' nessun figlio da adottare. L'unica cosa adottabile e' un
+          // figlio del broker ai-bridge, ed e' per quello che la sonda
+          // interroga solo `claude-code`. Il salto nella misura (365 riadozioni
+          // il 13/08, 0 il 18/08) e' quel cambio di runtime, non una
+          // regressione: il ramo `resume(continuation)` qui sotto non e' un
+          // ripiego difettoso, per il nativo e' l'unica strada. Farla
+          // rispondere vero sarebbe il guasto peggiore, ed e' gia' successo
+          // una volta (vedi il commento a server.ts:812-826).
           let live = false;
           if (deps.hasLiveSession && deps.reattach) {
             const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
@@ -3652,6 +3697,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
                 note: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
+            inDiretta++;
             void reattachTask(t.id);
             continue;
           }
@@ -3661,6 +3707,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               note: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
+          daCapo++;
           // Sets inFlight synchronously → the 10s poll can never double-fire.
           void resume(t.id, "", { continuation: true });
           continue;
@@ -3692,7 +3739,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // On a board that never dispatches the requeue's `queued` chip would
         // strand forever (tick no-ops with the switch off) — clear it.
         if (!autoOn) emit(deps.svc.setDispatchState({ taskId: t.id, state: null }));
+        inCoda++;
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
+    }
+    if (inDiretta + daCapo + inCoda + nonRecuperabili + fanOut > 0) {
+      log(
+        `riavvio: ${inDiretta + daCapo} riprese (${inDiretta} in diretta, ${daCapo} da capo), ` +
+        `${inCoda} rimesse in coda, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
+      );
     }
     // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
     //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
@@ -3751,6 +3805,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
+  /**
+   * `inFlight` in quel momento contiene ESATTAMENTE le card che stanno
+   * lavorando: e' la sola fotografia che il processo ha, e muore con lui.
+   * Costa una UPDATE per card e una riga di log.
+   */
+  function markInterrupted(by: string): number {
+    try {
+      const ids = [...inFlight.keys()];
+      if (!ids.length) return 0;
+      const marcate = deps.svc.markInterrupted({ taskIds: ids, by });
+      if (marcate > 0) {
+        log(`spegnimento (${by}): ${marcate} ${marcate === 1 ? "card tagliata" : "card tagliate"} a meta' turno`);
+      }
+      return marcate;
+    } catch (err) {
+      log("spegnimento: le card in volo non si sono lasciate marcare", err);
+      return 0;
+    }
+  }
+
   function shutdown(): void {
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
@@ -3804,5 +3878,5 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     };
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, shutdown, nightStatus, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
+  return { tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted, shutdown, nightStatus, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
 }
