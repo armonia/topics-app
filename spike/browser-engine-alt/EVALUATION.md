@@ -79,6 +79,58 @@ Il punto quindi non è "Topics è pesante": a riposo non costa nulla e la superf
 normale è nativa. Il punto è che **quando l'agente apre contesti, ognuno costa 219 MB** —
 ed è esattamente lo scenario che `agent-inline-browser` moltiplica.
 
+### E se la sessione dovesse stare in 50 MB? — WKWebView misurata (`wkbench.swift`)
+
+L'obiettivo dichiarato ("una sessione browser dovrebbe stare in ~50 MB") non è un sogno,
+ma **non lo raggiunge nessun Chromium**. Lo raggiunge WebKit, che è il motore che Topics
+già usa per la pane nativa. Misurato con un binario Swift che apre N `WKWebView` vere
+nello stesso processo e attribuisce i processi WebKit per diff di pid (i figli XPC sono
+reparented a launchd, quindi il ppid non serve): `swiftc -O wkbench.swift -o wkbench`.
+
+| sito | 1 sessione | 8 sessioni | 16 sessioni | **marginale** |
+|---|---|---|---|---|
+| app dev locale (`app/index.html`) | 99 MB | 318 MB | 590 MB | **37 MB** |
+| example.com | 85 MB | 254 MB | — | **32 MB** |
+| Wikipedia | 176 MB | 625 MB | — | **78 MB** |
+| react.dev (SPA) | 172 MB | 825 MB | 731 MB | **46 MB** |
+
+**Sì, 50 MB è possibile — con WebKit, e su pagine normali.** Il costo marginale reale è
+**32-46 MB** su app dev, example.com e react.dev; sale a 78 MB solo su Wikipedia, che è
+una pagina enorme. Il primo carico paga ~60 MB di processi condivisi (Networking + GPU)
+che poi non si ripagano più: da qui il crollo da 99 MB (una) a 37 MB (marginale).
+
+Confronto diretto, **stesso sito, stesso momento**:
+
+| per sessione | WKWebView | headless-shell | Obscura |
+|---|---|---|---|
+| react.dev ×8 | **46 MB** | 140 MB | 9 MB |
+| app dev locale ×8 | **37 MB** | 95 MB | 2 MB |
+
+Due cose che questo tavolo dice e le tabelle precedenti no:
+- **WKWebView è 3× più leggera di headless-shell** sullo stesso contenuto, ed è già
+  dentro Topics. Il target 50 MB è raggiunto *oggi* dal motore che l'app usa di default.
+- **Obscura scende a 2-9 MB per sessione** perché non ha processi separati né
+  compositor: tutto in un processo, un heap V8 per contesto. È un ordine di grandezza
+  sotto tutti, e conferma che i 29 MB della tabella Wikipedia erano il *caso peggiore*.
+- **`WKProcessPool` è deprecato dal 2012**: il compilatore avvisa che istanze multiple
+  "no longer have any effect". La leva §1.4 del catalogo performance
+  (`server/browser-pane-performance-catalog.md`) va riscritta: WebKit decide da sé come
+  condividere i processi, e lo fa già bene (18 processi per 16 webview, non 16 alberi).
+  Anche `dataStore` isolato per sessione costa uguale a condiviso (37 vs 37 MB): l'
+  isolamento non è la voce di costo.
+
+### Pippo Browser (`~/Downloads/browser-main`) — cos'è e cosa non è
+
+È un browser macOS nativo completo: SwiftUI + AppKit + WebKit, GPL-3.0, spaces, tab
+verticali, PiP, session restore, content blocking. Il README dice "not ready for daily
+use"; le estensioni sono in roadmap, non fatte.
+
+**Non è un componente da incorporare.** È un'*app*, non una libreria: il valore per
+Topics non è il codice ma la conferma architetturale — un browser serio su macOS si fa
+con WKWebView, ed è esattamente la scelta che Topics ha già fatto per la pane nativa.
+Vale come riferimento di implementazione (gestione tab, dataStore per spazio, content
+blocking), non come dipendenza.
+
 ## Dove si rompono
 
 Il banco vero non è Wikipedia, è **un'app dev locale** (`app/index.html`: grid, sticky,
@@ -158,6 +210,10 @@ processo per pagina, quindi va usato come fetcher usa-e-getta, non come sessione
 
 ## File
 
+- `wkbench.swift` — **il bench che risponde alla domanda dei 50 MB**: N `WKWebView` vere
+  in un processo, attribuzione dei processi WebKit per diff di pid.
+  `swiftc -O wkbench.swift -o wkbench && ./wkbench 8 https://react.dev shared`
+- `ctx2.mjs` — lo stesso test per gli engine CDP, così il confronto è sullo stesso sito.
 - `bench.mjs` — client CDP minimale, launcher per i tre engine, RSS dell'albero processi.
 - `run-engine.mjs` — startup, RSS, 6 siti, screenshot, screencast, RTT input.
 - `interact.mjs` — il caso Topics: app locale, click, digitazione, DOM API, screenshot.
