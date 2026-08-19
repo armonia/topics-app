@@ -250,10 +250,35 @@ put back. That check is the reason this row will not silently regress — every
 functional test passes either way, because the defect never got an answer
 wrong, it just paid too much for it.
 
+*The database, 888 MB of which 778 in `blocks` + `tool_calls` against 19 MB of
+message text.* Not old rot to prune — 648 of those MB are from THIS month. The
+waste is elsewhere and simpler: `shared/message-blob.ts` compresses those two
+columns with zstd, every reader already goes through `decodeCol` (checked: all
+five files that SELECT them), but the codec acts on WRITE, so it only ever
+touched rows written after it existed:
+
+    blocks      273 rows compressed (4 MB)  ·  4,131 plaintext (481 MB)
+    tool_calls  291 rows compressed (4 MB)  ·  8,762 plaintext (288 MB)
+
+`bun run db:compress` backfills them. Measured on a coherent snapshot of the
+real database: **775 MB → 152 MB (5.11x)**, and after `VACUUM` the file goes
+from **848 MB to 213**. Every row is read back before it is replaced, and the
+whole thing was verified column by column against the untouched snapshot:
+**18,877 rows, zero differences**.
+
+That verification is also where a lesson sits. The first run compared a `cp` of
+a live database and found TWO differences — real ones: a row the server was
+rewriting mid-copy. A `cp` of a SQLite file in use is not a snapshot, and
+treating it as one would have filed that noise as data loss, or (worse) real
+loss as noise. The rerun used `.backup`.
+
+The script does NOT touch production on its own and says so: it is a `db:*`
+command, not a migration, because a `server/db/migrations/*.sql` file gets
+applied to the LIVE database by the watcher within seconds — which is not where
+a 13,000-row rewrite belongs.
+
 Still open on the server side: the steady state has no budget (only the boot
-peak does), and the DB is **888 MB, 778 of them in `blocks` + `tool_calls`
-against 19 MB of message text**, which is what every page cache and every scan
-scales with.
+peak does).
 
 **The idle-write cycle: a remedy that WORKS, parked on a branch, and what it
 uncovered.** `wip/ciclo-scritture-localseq`, 2026-08-19. Not merged, and the
