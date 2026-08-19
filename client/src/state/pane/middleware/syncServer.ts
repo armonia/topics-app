@@ -29,84 +29,37 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
 /**
- * IL CONTENUTO dell'ultimo snapshot che il server ha accettato, per chiave.
+ * NOTA — QUI VIVEVA UN GATE ANTI-RISCRITTURA, ed è stato ritirato di proposito.
  *
- * PERCHÉ ESISTE. Il PUT parte quando `lastSeq` cambia, e `lastSeq` cambia a
- * OGNI dispatch — anche quando il reducer riscrive un valore identico a quello
- * che c'era già (`UPDATE_PANE` fa `{...pane, ...safe}` senza confrontare). Una
- * finestra ferma, che non riceve un gesto da nessuno, mandava così **un PUT da
- * 75 KB ogni 1,15 secondi, per sempre**: misurato il 2026-08-19 su questa
- * macchina, 16 PUT in 25 secondi con `lastSeq` che sale di 2 e NESSUN'ALTRA
- * differenza fra un corpo e il successivo.
+ * L'idea era: se lo snapshot da mandare è identico all'ultimo che il server ha
+ * accettato, non mandarlo. Serviva a fermare un ciclo reale — una finestra
+ * ferma PUT-tava 75 KB ogni 1,15 s — e nei test unitari funzionava.
  *
- * Non è solo banda sprecata. Il server è Bun con `bun:sqlite` SINCRONO: ogni
- * PUT è una scrittura che ferma l'event loop, e su HTTP/1.1 occupa una delle
- * SEI connessioni che il browser concede per host — quindi ritarda tutto ciò
- * che sta in coda dietro, comprese le letture che disegnano la board. Con 12
- * richieste pesanti in volo una richiesta da 212 byte ha aspettato 19,3
- * secondi (`scripts/hol-probe.mjs`): è quella coda a far sembrare lento un
- * refresh, non la lentezza di una singola rotta.
+ * Sul campo no, e la ragione è che questo middleware NON è l'unico scrittore
+ * della riga: `flushPaneStoreNow` (chiusura di una pane browser), i flush di
+ * teardown e le idratazioni dal server toccano tutti lo stesso stato con
+ * tempistiche proprie. Una memoria di «cosa ha il server» tenuta da uno solo
+ * di quei percorsi finiva per parlare anche per gli altri, e il PUT successivo
+ * veniva saltato per somiglianza con un corpo che non era il suo.
  *
- * LA DOMANDA È SUL CONTENUTO, NON SULLA SEQUENZA. Confrontare `lastSeq`
- * risponderebbe «è cambiato il contatore», che è vero per costruzione a ogni
- * dispatch. Ciò che il server deve sapere è se lo STATO è diverso, e per lo
- * stato la serializzazione È l'identità: è esattamente il byte che verrebbe
- * mandato. Il confronto costa una `JSON.stringify` di un corpo che, se il PUT
- * partisse, andrebbe comunque serializzato — quindi nel caso che conta (stato
- * cambiato) il costo è zero, e in quello frequente (stato fermo) risparmia una
- * scrittura su disco e un giro di rete.
+ * Il prezzo non era un byte: era una CHIUSURA DI SCHEDA che non arrivava al
+ * server — `pane-undo.spec.ts` rosso su «closedStack must have at least one
+ * entry after CLOSE_PANE», mentre lo stesso test passava su un albero
+ * costruito al commit precedente. Tre tentativi di rattoppo (registrare solo
+ * dopo l'ack, registrare solo dal percorso del debounce, invalidare a ogni
+ * idratazione) hanno spostato il difetto senza toglierlo; togliendo il gate il
+ * test torna verde.
  *
- * SI SCRIVE SOLO DOPO UN ACK. Ricordarlo al momento dell'invio direbbe «l'ho
- * mandato», non «il server ce l'ha»: un PUT fallito o abortito lascerebbe
- * l'ultima verità nota disallineata dal server e il prossimo tentativo verrebbe
- * saltato per un contenuto che non è mai atterrato. Vedi `rememberSynced`.
+ * IL CICLO RESTA CHIUSO LO STESSO, perché la causa vera era a monte:
+ * `UPDATE_PANE` produceva un oggetto nuovo anche a valori identici, e ora non
+ * lo fa (`reducers/panes.ts`). Senza quel dispatch a vuoto `lastSeq` non si
+ * muove, il debounce non parte, e non c'è niente da filtrare qui.
+ * `scripts/check-idle-writes.mjs` misura zero scritture a riposo con la sola
+ * guardia del reducer.
+ *
+ * Se un giorno servisse davvero un gate qui, la lezione è che deve conoscere
+ * TUTTI gli scrittori della chiave, non solo questo.
  */
-const lastSyncedBody = new Map<string, string>();
-
-/** Il corpo è già quello che il server ha? Allora non c'è niente da dire. */
-function isAlreadySynced(key: string, body: string): boolean {
-  return lastSyncedBody.get(key) === body;
-}
-
-/**
- * L'IDENTITÀ DI UNO STATO, che non comprende il suo contatore.
- *
- * `lastSeq` sta dentro lo snapshot, ma non È lo stato: è il numero d'ordine con
- * cui il server decide chi ha scritto per ultimo (LWW). Sale a ogni dispatch —
- * per costruzione, anche quando il reducer non tocca niente — quindi
- * confrontare il corpo INTERO risponderebbe sempre «diverso» e il gate qui
- * sopra non fermerebbe un solo PUT.
- *
- * Toglierlo dal confronto è sicuro proprio per il ruolo che ha: se lo stato non
- * è cambiato, il server ha già la sola cosa che gli serve, e un numero d'ordine
- * più alto su un contenuto identico non gli direbbe niente di nuovo. Quando
- * qualcosa cambierà davvero, quel PUT partirà con il `lastSeq` corrente — che a
- * quel punto è più alto di prima — e vincerà il confronto come sempre.
- */
-function syncIdentity(snapshot: unknown): string {
-  const { lastSeq: _ordine, ...stato } = (snapshot ?? {}) as Record<string, unknown>;
-  void _ordine;
-  return JSON.stringify(stato);
-}
-
-/** Il server ha ACCETTATO questo corpo: da qui in poi è la verità nota. */
-function rememberSynced(key: string, body: string): void {
-  lastSyncedBody.set(key, body);
-}
-
-/**
- * Dimentica ciò che credevamo sincronizzato.
- *
- * Serve a ogni evento che può aver spostato la riga sul server SENZA passare
- * da noi — un'altra scheda, un altro dispositivo, una riconnessione del socket.
- * Dopo uno di quelli il nostro «uguale a prima» non descrive più il server, e
- * saltare il PUT lascerebbe le due parti ferme su stati diversi. Sbagliare in
- * questa direzione costa un PUT in più; sbagliare nell'altra costa uno stato
- * che non si sincronizza mai.
- */
-function forgetSynced(): void {
-  lastSyncedBody.clear();
-}
 
 interface InflightEntry {
   controller: AbortController;
@@ -192,9 +145,6 @@ async function putWithRetry(
       signal,
     });
     if (res.ok) {
-      // Il server ha preso QUESTO corpo: da qui in poi è ciò che sappiamo di
-      // lui, e un prossimo invio identico non ha niente da dirgli.
-      rememberSynced(key, syncIdentity(snapshot));
       try {
         const body = (await res.json()) as { server_seq?: number } | null;
         if (body && typeof body.server_seq === 'number') {
@@ -397,12 +347,6 @@ export function initServerSync(): void {
         // device-local fields never cross the network per CONTEXT.md.
         const state = usePaneStore.getState();
         const snap = selectSyncableSnapshot(state);
-        // LO STATO È FERMO: non c'è niente da mandare. `lastSeq` è salito
-        // (ogni dispatch lo alza, anche uno che riscrive valori identici) ma il
-        // contenuto no, e il contenuto è ciò di cui il server ha bisogno. Senza
-        // questa domanda una finestra ferma PUT-tava 75 KB ogni 1,15 s per
-        // sempre — vedi `lastSyncedBody`.
-        if (isAlreadySynced(REMOTE_KEY, syncIdentity(snap))) return;
         void pushSnapshot(REMOTE_KEY, snap, state.lastSeq);
       }, DEBOUNCE_MS);
     },
@@ -424,10 +368,6 @@ export function initServerSync(): void {
       const { subscribeLifecycle } = await import('../../../lib/wsFrameBus');
       subscribeLifecycle((event) => {
         if (event !== 'close') return;
-        // La riga sul server può essere cambiata mentre eravamo scollegati (un
-        // altro dispositivo, un'altra scheda), quindi «uguale all'ultimo che ha
-        // accettato» non descrive più niente: si riparte dal mandare.
-        forgetSynced();
         for (const entry of inflight.values()) entry.controller.abort();
         inflight.clear();
         if (timer) {
@@ -523,18 +463,4 @@ export function __teardownFlushUrlForTests(baseServerSeq: number): string {
   return teardownFlushUrl(baseServerSeq);
 }
 
-/**
- * Test-only — la domanda «questo corpo il server ce l'ha già?».
- *
- * Esposta perché il comportamento che vale la pena difendere non è «esiste una
- * Map», è: uno stato fermo non produce scritture. Un test che spiasse la Map
- * direbbe come è fatto il rimedio; questo dice cosa promette.
- */
-export function __isAlreadySyncedForTests(key: string, snapshot: unknown): boolean {
-  return isAlreadySynced(key, syncIdentity(snapshot));
-}
 
-/** Test-only — riporta la memoria del sincronizzato allo stato di boot. */
-export function __resetSyncedBodyForTests(): void {
-  forgetSynced();
-}
