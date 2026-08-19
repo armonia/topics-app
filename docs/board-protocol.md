@@ -41,6 +41,17 @@ queste regole.
    commento di sintesi nel thread + spostamento in `review` fatto DALL'AGENTE
    (`update_task(status="review")`). L'umano approva; l'agente non porta mai a `done`.
 
+1-bis. **Una card in review si deve poter LEGGERE senza rileggere il diff.**
+   Quando un turno viene tagliato prima che l'agente commenti (riavvio del
+   server, watchdog, sessione morta) la card sale in `review` con un ramo
+   addosso, una descrizione vuota e un avviso di servizio come ultima riga:
+   chi rivede trova un id e deve rifare da capo l'indagine che l'agente aveva
+   gia' fatto. Succede: tre volte in un pomeriggio il 19/08/2026, su consegne
+   che valevano fino a 265 righe.
+   Chi se ne accorge lo ripara scrivendo lui descrizione e riassunto — il diff
+   c'e', il lavoro non e' perso — e il controllo `review-card-is-mute` di
+   `scripts/board-doctor.ts` le trova senza doverle cercare a mano.
+
 2. **La consegna include l'ULTIMO MIGLIO.** Installer, hook, migration, deploy di
    test: fanno parte della consegna, non di un "poi qualcuno farà X". Il reviewer
    deve poter VEDERE il risultato finito, non un pezzo a metà da completare a mano.

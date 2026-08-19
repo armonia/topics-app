@@ -1200,6 +1200,12 @@ const IT: Dict = {
   'perf.verdict.noAccel': 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.',
   'perf.verdict.compressed': '{gb} GB compressi o in swap. Chiudi qualche pannello browser.',
   'perf.verdict.loaded': 'Processo Topics sotto carico',
+  // ── Scheda vuota del browser (NewTabPage).
+  'browser.newTab.title': 'Nuova scheda',
+  'browser.newTab.searchPlaceholder': 'Cerca o digita un indirizzo',
+  'browser.newTab.topSites': 'I tuoi siti',
+  'browser.newTab.empty': 'I siti che apri più spesso compaiono qui.',
+  'browser.newTab.forget': 'Togli {host} dai tuoi siti',
   // ── Gruppi (spaces) nella barra laterale. Il nome accessibile della freccia
   //    tiene il valore IT alla lettera: `sidebar-group-lifecycle.spec.ts` lo
   //    ancora come `/^(Apri|Chiudi) Gruppo 2$/`.
