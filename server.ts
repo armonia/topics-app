@@ -169,6 +169,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
 // palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
 import { armTurnDeadline } from "./server/lib/turn-deadline";
+import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
@@ -2204,18 +2205,18 @@ const liveBrokerChatSessions = new Set<string>();
   } else {
     listConfirmed = true; // bridge disabled → no detached survivors possible → safe to reset
   }
+  // Popola midTurnAtBoot prima del sweep (il set serve al reattach successivo).
+  for (const { sk } of db.query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1").all() as Array<{ sk: string }>) {
+    midTurnAtBoot.add(sk);
+  }
   let cleared = 0, kept = 0;
   try {
-    const rows = db.query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1").all() as Array<{ sk: string }>;
-    for (const row of rows) {
-      midTurnAtBoot.add(row.sk);
-      // Keep the mid-turn signal when the child survived OR when we could not
-      // confirm it's dead (fail-safe — an unconfirmed read must never orphan a
-      // live turn, the bug that surfaced as "la sessione si è chiusa mentre un
-      // tool era ancora in corso").
-      if (!listConfirmed || liveBrokerChatSessions.has(row.sk)) { kept++; continue; }
-      cleared += db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [row.sk]).changes;
-    }
+    // La logica kept/reset e l'inserimento della notifica sono in
+    // boot-partial-sweep.ts (testabile in isolamento con un db in-memory).
+    ({ cleared, kept } = runBootPartialSweep(db, {
+      listConfirmed,
+      liveSessions: liveBrokerChatSessions,
+    }));
   } catch { /* capture is best-effort; the sweep degrades to reaping */ }
   console.log(`[Startup] partial sweep: reset ${cleared}, kept ${kept} (mid-turn ${midTurnAtBoot.size}, broker-alive ${liveBrokerChatSessions.size}, listConfirmed=${listConfirmed})`);
 }
