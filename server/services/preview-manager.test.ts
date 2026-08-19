@@ -409,7 +409,7 @@ describe("content gate in prepareForReview", () => {
     // l'abbiamo scelto noi, quindi il suo fallimento e' una notizia e va detto
     // dove l'umano guarda — non nel raggruppamento delle righe di servizio.
     const h = harness({
-      outputUrl: "http://localhost:9999",
+      currentOutputUrl: () => "http://localhost:9999",
       probe: async () => true,
       screenshot: async () => { throw new Error("non deve nemmeno provarci"); },
     });
