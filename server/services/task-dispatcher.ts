@@ -2678,6 +2678,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // end-allow-emdash
 
+  /** Il sollecito filtrato dalla rivendicazione sul task, con la ripresa che
+   *  vince sempre sul cancello: se il servizio non risponde, parte il testo
+   *  intero (un sollecito di troppo è rumore, uno mancato è un turno cieco). */
+  function claimNudge(taskId: string, text: string): string {
+    try { return deps.svc.claimNudge({ taskId, text }) || text; }
+    catch { return text; }
+  }
+
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
@@ -2772,7 +2780,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const t0 = Date.now();
       const usage0 = anchorUsage(taskId, sessionKey);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
-      const content = opts?.continuation ? buildContinueNudge(t, retryCap(t.projectId)) : buildResume(t, humanMessage);
+      // IL SOLLECITO PASSA DAL CANCELLO, LA RIPRESA NO.
+      //
+      // Il turno riparte comunque: quello che il cancello decide è il TESTO.
+      // Primo sollecito della finestra = paragrafo intero; le riprese che
+      // seguono = una riga corta e numerata. Senza, la stessa frase copriva la
+      // chat quattro volte in novanta secondi (topic:7d043b7e, 19/08). Un
+      // resume UMANO non passa di qui: quello lo ha scritto una persona, e non
+      // si riassume la voce di chi guarda.
+      const content = opts?.continuation
+        ? claimNudge(t.id, buildContinueNudge(t, retryCap(t.projectId)))
+        : buildResume(t, humanMessage);
       // Resume (human answer) or continuation (post-timeout nudge): the session
       // already carries the full envelope from kickoff — re-injecting CLAUDE.md
       // & co. only compounds cache write/read. Lean = role prompt + cwd only.

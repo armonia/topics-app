@@ -26,6 +26,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
 import { imageShape } from "./image-shape";
+import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readGlobalCap } from "./dispatch-capacity";
 import { liveAgentCount } from "./agent-census";
 
@@ -600,6 +601,8 @@ interface ServiceOpts {
   commentDedupeMs?: number;
   /** Window within which a second interruption note on the same task stays silent. */
   interruptClaimMs?: number;
+  /** Window within which a repeated chat nudge on the same task collapses to one line. */
+  nudgeClaimMs?: number;
   /** Injectable for tests: whether a media path exists on disk (default node:fs existsSync). */
   fileExists?: (p: string) => boolean;
 }
@@ -682,6 +685,26 @@ export interface TaskService {
    * l'interruzione è già raccontata.
    */
   claimInterruption(args: { taskId: string; note: string; by?: string }): TaskComment | null;
+  /**
+   * Una interruzione, un SOLLECITO.
+   *
+   * Il gemello di `claimInterruption` per l'altro canale: non il thread della
+   * card, ma la CHAT del task, dove a ogni ripresa il dispatcher inietta il
+   * sollecito come messaggio dell'utente. Su `topic:7d043b7e` ne sono finite
+   * quattro copie identiche in novanta secondi (00:37:07, 00:38:01, 00:38:18,
+   * 00:38:28): quattro paragrafi sopra la conversazione vera.
+   *
+   * Qui il cancello non può zittire chi arriva secondo: un turno si accende
+   * con un messaggio, e senza messaggio la card non riparte. Quindi il
+   * verdetto è sul TESTO. Ritorna quello da mandare davvero: il sollecito
+   * intero la prima volta della finestra, una riga corta e numerata dopo. La
+   * regola sta in `nudge-gate.ts`, la memoria sul task (colonne `nudge_*`),
+   * e non in RAM: il terzo che sollecita è quasi sempre un processo NUOVO.
+   *
+   * Un task che non esiste ottiene il testo intero: un sollecito di troppo è
+   * rumore, uno mancato è un turno che riparte cieco.
+   */
+  claimNudge(args: { taskId: string; text: string }): string;
   /**
    * LO SPEGNIMENTO SCRIVE UN BIT.
    *
@@ -1117,6 +1140,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const uuid = opts.uuid ?? (() => crypto.randomUUID());
   const commentDedupeMs = opts.commentDedupeMs ?? 10_000;
   const interruptClaimMs = opts.interruptClaimMs ?? INTERRUPT_CLAIM_MS;
+  const nudgeClaimMs = opts.nudgeClaimMs ?? NUDGE_CLAIM_MS;
   const fileExists = opts.fileExists ?? existsSync;
 
   // ── Review-evidence promotion ──
@@ -3297,6 +3321,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const written = this.addComment({ taskId, author: by ?? "system", content: body, kind: "service" });
       db.prepare("UPDATE tasks SET interrupt_claimed_at = ? WHERE id = ?").run(now(), taskId);
       return written;
+    },
+
+    claimNudge({ taskId, text }): string {
+      const row = getTaskRow(taskId);
+      if (!row) return text;
+      const verdict = gateNudge({
+        text,
+        claim: {
+          at: typeof row.nudge_claimed_at === "string" ? row.nudge_claimed_at : null,
+          fingerprint: typeof row.nudge_fingerprint === "string" ? row.nudge_fingerprint : null,
+          repeats: typeof row.nudge_repeats === "number" ? row.nudge_repeats : 0,
+        },
+        now: now(),
+        windowMs: nudgeClaimMs,
+        taskId,
+      });
+      // La scrittura non deve poter zittire il turno: se il campo non si lascia
+      // aggiornare, il sollecito parte lo stesso (al massimo si ripete).
+      try {
+        db.prepare("UPDATE tasks SET nudge_claimed_at = ?, nudge_fingerprint = ?, nudge_repeats = ? WHERE id = ?")
+          .run(verdict.claim.at, verdict.claim.fingerprint, verdict.claim.repeats, taskId);
+      } catch { /* best-effort: la ripresa vale più del cancello */ }
+      return verdict.text;
     },
 
     markInterrupted({ taskIds, by }): number {
