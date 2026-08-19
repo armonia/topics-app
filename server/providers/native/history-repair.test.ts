@@ -99,3 +99,54 @@ describe("una storia con tool_use orfani non deve mai partire verso l'API", () =
     expect(pruneDanglingToolUses(semplice)).toBe(semplice as AgentMessage[]);
   });
 });
+
+/**
+ * LA REGOLA E' POSIZIONALE, e questo caso e' nato da un 400 vero.
+ *
+ * Il 19/08 `topic:f83e6b57` e' morto con la frase di sempre — «`tool_use` ids
+ * were found without `tool_result` blocks IMMEDIATELY AFTER» — su una sessione
+ * che la potatura aveva gia' attraversato. Il predicato raccoglieva TUTTI i
+ * `tool_result` della storia in un insieme e dichiarava risposto chiunque
+ * comparisse li' dentro: una risposta separata dalla domanda da un altro
+ * messaggio contava come risposta, e l'API no.
+ */
+describe("il tool_result deve stare nel messaggio SUBITO DOPO", () => {
+  const A = "toolu_lontano";
+  const separata = (): AgentMessage[] => [
+    { role: "user", content: "vai" },
+    { role: "assistant", content: [{ type: "tool_use", id: A, name: "read", input: {} }] },
+    // Qualcosa si e' infilato in mezzo: l'API rifiuta anche se la risposta c'e'.
+    { role: "assistant", content: [{ type: "text", text: "un attimo" }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: A, content: "ok" }] },
+  ];
+
+  test("una risposta LONTANA non salva il tool_use: e' comunque orfano", () => {
+    expect(orphanToolUseIds(separata())).toEqual([A]);
+  });
+
+  test("e la potatura lo toglie, insieme al messaggio che non conteneva altro", () => {
+    const out = pruneDanglingToolUses(separata());
+    expect(out).toHaveLength(3);
+    expect(out.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .some((b) => b.type === "tool_use")).toBe(false);
+  });
+
+  test("un tool_result nel messaggio giusto NON e' toccato, e l'array torna identico", () => {
+    const sana: AgentMessage[] = [
+      { role: "user", content: "vai" },
+      { role: "assistant", content: [{ type: "tool_use", id: A, name: "read", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: A, content: "ok" }] },
+    ];
+    expect(orphanToolUseIds(sana)).toEqual([]);
+    // Identita' referenziale: quando non c'e' niente da potare non si ricostruisce.
+    expect(pruneDanglingToolUses(sana)).toBe(sana);
+  });
+
+  test("un tool_result in un messaggio ASSISTANT non conta: quel posto e' dell'utente", () => {
+    const storta: AgentMessage[] = [
+      { role: "assistant", content: [{ type: "tool_use", id: A, name: "read", input: {} }] },
+      { role: "assistant", content: [{ type: "tool_result", tool_use_id: A, content: "ok" }] },
+    ];
+    expect(orphanToolUseIds(storta)).toEqual([A]);
+  });
+});

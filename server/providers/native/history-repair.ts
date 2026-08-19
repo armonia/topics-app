@@ -57,15 +57,34 @@ function blocksOf(m: AgentMessage): Block[] {
  * lo fa, ma una storia importata o modificata a mano si').
  */
 export function orphanToolUseIds(history: readonly AgentMessage[]): string[] {
-  const risposti = new Set<string>();
-  for (const m of history) {
-    for (const b of blocksOf(m)) {
-      if (b.type === "tool_result" && b.tool_use_id) risposti.add(b.tool_use_id);
-    }
-  }
+  // LA REGOLA E' POSIZIONALE, e per un po' qui non lo era.
+  //
+  // Il messaggio dell'API dice esattamente dove guardare: «`tool_use` ids were
+  // found without `tool_result` blocks IMMEDIATELY AFTER». Non chiede che una
+  // risposta esista da qualche parte nella conversazione, chiede che stia nel
+  // messaggio SUBITO DOPO. Qui invece si raccoglievano tutti i `tool_result`
+  // della storia in un insieme e si dichiarava risposto chiunque comparisse
+  // li' dentro: una storia in cui fra la domanda e la risposta si e' infilato
+  // un altro messaggio passava la potatura e veniva rifiutata dall'API con
+  // quella frase, cioe' la conversazione restava avvelenata esattamente come
+  // prima della cura.
+  //
+  // Misurato il 19/08 in laboratorio, dopo un 400 su `topic:f83e6b57`: quattro
+  // messaggi, il `tool_result` presente ma separato, e il `tool_use`
+  // sopravviveva intatto alla potatura.
   const orfani: string[] = [];
-  for (const m of history) {
+  for (let i = 0; i < history.length; i++) {
+    const m = history[i]!;
     if (m.role !== "assistant") continue;
+    // Solo il messaggio successivo puo' rispondere, e solo se e' dell'utente:
+    // e' quello il posto che il protocollo riserva ai risultati.
+    const dopo = history[i + 1];
+    const risposti = new Set<string>();
+    if (dopo && dopo.role === "user") {
+      for (const b of blocksOf(dopo)) {
+        if (b.type === "tool_result" && b.tool_use_id) risposti.add(b.tool_use_id);
+      }
+    }
     for (const b of blocksOf(m)) {
       if (b.type === "tool_use" && b.id && !risposti.has(b.id)) orfani.push(b.id);
     }
