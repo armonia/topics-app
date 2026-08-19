@@ -100,11 +100,31 @@ bar reports is system pressure, not live Topics memory. What stays true is that
 the footprint never comes back down (1,638 → 1,741 MB in that same window), and
 that a window nobody touches should not cost ten times a fresh one.
 
-Not chased down to a culprit yet. The next step is naming WHICH promoted
-element leaves backings behind (`scripts/check-layers.mjs` lists who promotes:
-today 10 elements, 6 of them infinite animations plus 2 `backdrop-filter`
-surfaces), and reproducing it somewhere `vmmap` can watch — which the Playwright
-route cannot do, for the reason written in `layer-growth.ts`.
+**And a fresh window, watched properly, does not leak.** Once the probe stopped
+lying — the first version wrapped `window.WebSocket`, which broke the app's boot
+and reported 27 nodes and a flat 0 MB, a FALSE green that would have closed the
+investigation on nothing — five minutes of a live, idle window read:
+
+| | t+1m | t+2m | t+3m | t+4m | t+5m |
+|---|---|---|---|---|---|
+| footprint | 205 MB | 213 MB | 221 MB | 200 MB | 205 MB |
+| DOM nodes | 1,844 | 1,858 | 1,858 | 1,858 | 1,858 |
+| listeners | 1,477 | 1,471 | 1,471 | 1,471 | 1,471 |
+| intervals | 14 | 14 | 14 | 14 | 14 |
+
+Nodes, listeners and timers all FLAT; the footprint oscillates within 21 MB and
+comes back down. **+2 MB over five minutes.** So there is no runaway in a fresh
+window: what separates 205 MB from the user's 1.5 GB is sixteen hours of real
+use — panes opened and closed, chats hydrated, browser panes navigated — and
+memory the allocator never returns to the OS.
+
+That reframes the remaining work, and it is worth being precise about it,
+because "find the leak" would now be chasing something these measurements say
+is not there. The open questions are (a) which surfaces allocate proportionally
+to a session's HISTORY rather than to what is on screen, and (b) whether the
+shell should ever recycle a content process that has lived a working day. Both
+are answered by measuring a window through real use — not by staring at an idle
+one, which is now known to be quiet.
 
 ## What is NOT measured
 
