@@ -33,7 +33,7 @@ intentions.
 | Pane residency cap | how many panes stay mounted | `tests/e2e/pane-residency-cap.spec.ts` | yes (E2E shard) |
 | Transcript eviction | how many chats stay hydrated | `tests/e2e/chat-transcript-residency.spec.ts` | yes (E2E shard) |
 | Browser pane streaming | fps, p95 input latency, bandwidth, first frame | `tests/e2e/browser-ws-streaming.spec.ts` plus `perf-baseline.json` | yes (E2E shard) |
-| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **RED, see below** |
+| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **RED (27/30s); a working remedy is parked on `wip/ciclo-scritture-localseq`, see below** |
 | Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
@@ -254,6 +254,49 @@ Still open on the server side: the steady state has no budget (only the boot
 peak does), and the DB is **888 MB, 778 of them in `blocks` + `tool_calls`
 against 19 MB of message text**, which is what every page cache and every scan
 scales with.
+
+**The idle-write cycle: a remedy that WORKS, parked on a branch, and what it
+uncovered.** `wip/ciclo-scritture-localseq`, 2026-08-19. Not merged, and the
+reason is the interesting part.
+
+The cause was already named on this page: `lastSeq` rises on
+`HYDRATE_FROM_SNAPSHOT` too (the reducer takes it to `max(lastSeq, clean.lastSeq)`
+so later PUTs stay fresh), and the sync middleware used it as its wake-up. So a
+PEER's frame woke us, and half a second later we re-sent 75 KB identical to what
+we had just received. A third counter — `localSeq`, raised ONLY by a local
+change — takes the gate from **27 writes in 30s to 0**. It filters nothing
+outbound, which is precisely why it is not a third repeat of the two withdrawn
+gates: it changes the question from "did the counter move" to "did WE move".
+
+It turns `pane-undo` red, verified the way this repo demands (stash the fix,
+rebuild, re-run: without it the test passes). But the probe says something more
+useful than "I broke it":
+
+| | writes seen after the close | server ends at | test |
+|---|---|---|---|
+| without the fix | `closed=0 seq18` · `closed=1 seq25` · **`closed=1 seq27`** | `closed=1` | green |
+| with the fix | `closed=0 seq18` · `closed=1 seq26` | **`closed=0`** | red |
+
+The PUT carrying the close returns **200 in both cases** and is the LAST write
+to reach the server (probed server-side too: no bulk PUT, no reset, no later
+write). Yet the row read immediately after has `closed=0` — carrying that same
+PUT's `lastSeq`. So the close does not persist on its own, and without the fix
+the defect was merely MASKED by a third rebound PUT that the hydrate produced.
+
+Which means the write cycle was propping up a close that does not land by
+itself. Closing the cycle without closing THAT trades bandwidth for work lost on
+screen — the same bad trade that already had two remedies withdrawn here. Where
+to resume: why a PUT accepted with 200 does not keep its `closedStack`. Not in
+the middleware, which has done its part.
+
+**The bundle ratchet is red, and it is not from this work.** `check:bundle`,
+2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
+exhausted), critical_path likewise. Measured against the 2026-08-13 baseline:
++22,629 net lines in `client/src` for +11,918 gz, i.e. **0.53 gz bytes per net
+line** — BELOW both previous rounds (1.3 and 3.7), no dependency entered the
+entry chunk, no `lazy(` went static. Healthy growth, not a bad import. The
+baseline's own rule says the number is raised in the commit that grew it, so it
+is left alone here and noted instead.
 
 **The CLIENT half of the number is a different animal** — what follows was
 measured before the server work and still stands.
