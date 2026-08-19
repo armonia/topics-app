@@ -118,7 +118,13 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- avvisa quando nessun recupero passera' mai di li'.
   interrupted_at TEXT DEFAULT NULL,
   interrupted_by TEXT DEFAULT NULL,
-  interrupted_notified_at TEXT DEFAULT NULL
+  interrupted_notified_at TEXT DEFAULT NULL,
+  -- 20260819122701: la rivendicazione del SOLLECITO in chat (una interruzione,
+  -- un sollecito). La regola sta in server/services/nudge-gate.ts; qui c'e' solo
+  -- cosa il task ricorda: quando, quale testo, quante riprese.
+  nudge_claimed_at TEXT,
+  nudge_fingerprint TEXT,
+  nudge_repeats INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**
