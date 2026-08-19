@@ -1145,6 +1145,10 @@ const IT: Dict = {
   'perf.q2': 'Quanto costa',
   'perf.fpsAvg': 'media {n}',
   'perf.procCount': '{n} processi',
+  // La percentuale in anteprima: e' il TOTALE (app + agenti e servizi), sulla
+  // scala 0-100 dell'intera macchina. La stessa chiave serve alle due tessere,
+  // dove dice invece quanto ne mette ciascuna meta'.
+  'perf.cpuTotal': '{pct}% CPU',
   // Due tessere e non cinque: sono le uniche due meta' che si chiudono in modo
   // diverso - una chiudendo pannelli, l'altra fermando sessioni.
   'perf.tileApp': "L'app",
