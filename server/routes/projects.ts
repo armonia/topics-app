@@ -30,6 +30,7 @@ import { extname, join } from "node:path";
 import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 import { knownProjectDirs } from "../services/known-project-dirs";
 import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/project-visibility";
+import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
 
 const NAME_MAX = 200;
@@ -206,6 +207,36 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       try {
         return new Response(readFileSync(realIcon), { headers: iconHeaders(ct) });
       } catch { return new Response(null, { status: 404 }); }
+    }
+
+    // GET /api/projects/resolve-open?path=<abs> → la tab da aprire per un path
+    // consegnato dal sistema operativo («Apri con Topics»), o null.
+    //
+    // Sta qui perché la domanda è «di che progetto fa parte questo path»: la
+    // regola è pura (`shared/os-open-path.ts`), la sonda del disco è in
+    // `server/lib/os-open-path.ts`, e questa riga è solo la porta.
+    //
+    // Niente allowlist, e non è una svista: il senso della funzione è aprire
+    // una cartella che l'app NON conosce ancora, quindi un elenco di path
+    // ammessi la spegnerebbe. Quello che esce di qui è solo il verdetto sul
+    // path che il chiamante ha già scritto (esiste? è cartella? qual è la
+    // radice), mai un contenuto: il confine sui contenuti resta dov'era.
+    // MUST stay above the `/api/projects/:id` matcher.
+    if (method === "GET" && pathname === "/api/projects/resolve-open") {
+      const raw = url.searchParams.get("path");
+      if (!raw) return errorResponse(400, "path required");
+      const chi = osservatore(req);
+      const target = resolveOsOpenPath(
+        raw,
+        fsProbe(() =>
+          projectStore
+            .list({ archived: false })
+            .filter((p) => vedeProgetto(chi, visibilitaDi(p)))
+            .map((p) => p.path)
+            .filter((p): p is string => typeof p === "string" && p.length > 0),
+        ),
+      );
+      return json({ target });
     }
 
     // POST /api/projects

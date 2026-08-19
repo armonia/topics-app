@@ -23,5 +23,141 @@
     <key>NSAllowsLocalNetworking</key>
     <true/>
   </dict>
+
+  <!-- I TIPI CHE TOPICS SA APRIRE, su macOS.
+
+       Perché sono QUI e non solo in `tauri.conf.json`. Il bundler scrive
+       `CFBundleDocumentTypes` a partire da `bundle.fileAssociations`, poi
+       fonde questo file SOPRA il plist generato chiave per chiave: la nostra
+       `CFBundleDocumentTypes` non si aggiunge alla sua, la SOSTITUISCE. Quindi
+       o le associazioni macOS stanno tutte qui, o mettendo qui la sola
+       cartella si perderebbero tutte le estensioni. La lista in tauri.conf
+       resta e vale per Windows e Linux; un test unitario tiene allineate le
+       due copie e la lista in `shared/os-open-path.ts`.
+
+       La CARTELLA (`public.folder`) è il motivo per cui questo blocco esiste:
+       non è un'estensione, e per l'OS un'app che apre le cartelle si dichiara
+       solo così. È la voce che mette Topics nell'«Apri con» del Finder su una
+       cartella di progetto.
+
+       `LSHandlerRank` è `Alternate` ovunque, di proposito: Topics vuole essere
+       NELL'elenco «Apri con», non diventare l'app predefinita del .md di
+       qualcun altro il giorno dell'installazione. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Testo e documentazione</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>md</string>
+        <string>markdown</string>
+        <string>mdx</string>
+        <string>txt</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Codice sorgente</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>ts</string>
+        <string>tsx</string>
+        <string>js</string>
+        <string>jsx</string>
+        <string>mjs</string>
+        <string>cjs</string>
+        <string>rs</string>
+        <string>py</string>
+        <string>go</string>
+        <string>rb</string>
+        <string>java</string>
+        <string>kt</string>
+        <string>swift</string>
+        <string>c</string>
+        <string>h</string>
+        <string>cc</string>
+        <string>cpp</string>
+        <string>hpp</string>
+        <string>cs</string>
+        <string>php</string>
+        <string>lua</string>
+        <string>sql</string>
+        <string>vue</string>
+        <string>svelte</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Configurazione</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>json</string>
+        <string>jsonc</string>
+        <string>yaml</string>
+        <string>yml</string>
+        <string>toml</string>
+        <string>ini</string>
+        <string>env</string>
+        <string>conf</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Web</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>css</string>
+        <string>scss</string>
+        <string>less</string>
+        <string>html</string>
+        <string>htm</string>
+        <string>svg</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Script di shell</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>sh</string>
+        <string>bash</string>
+        <string>zsh</string>
+        <string>fish</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Cartella di progetto</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.folder</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>
