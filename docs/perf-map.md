@@ -93,14 +93,30 @@ upstream and already fixed — no idle dispatch, no `lastSeq` bump, no debounce,
 nothing to filter. A second net over a closed hole, costing a silent
 regression.
 
-| | before | after |
-|---|---|---|
-| first board card after reload | 7,176 ms | **464 ms** |
-| API requests at boot | 97 | 92 |
-| bytes downloaded at boot | 9.35 MB | 6.61 MB |
-| reads of the 1.2 MB feed | 4 | 2 |
-| PUTs while idle (25s) | 16 | 1 |
-| writes at rest (45s) | — | **0** |
+| | before | after | stable under load? |
+|---|---|---|---|
+| writes at rest (30s) | 26 | **0** | yes — the gate reads 0 at load 114 too |
+| PUTs of `pane-store-v2` while idle (25s) | 16 | 1 | yes |
+| first board card after reload | 7,176 ms | 464 ms | **no** — see below |
+| API requests at boot | 97 | 82-96 | roughly |
+| bytes downloaded at boot | 9.35 MB | 5.4-8.0 MB | roughly |
+| reads of the 1.2 MB feed | 4 | 2-4 | **no** |
+
+**The bottom three rows are not a ratchet, and saying so is the point.** The
+464 ms was measured on a quiet machine; re-measured hours later at load 114-221
+the same probe read 6,200-8,400 ms with no relevant code change, and the feed
+read 3-4 times instead of 2. Checked rather than assumed: `event-loop-lag.ts`
+found the SERVER healthy at that same moment (median 3.3 ms, no stall over half
+a second) and the feed's bytes reached the client at 1,809 ms while the card
+appeared at 8,375 — so the time went into the renderer's main thread, which on
+a contended CPU cannot keep up. The multiple feed reads are likewise
+independent coalescers firing at boot (there are seven `createCoalescedReader`
+call sites), not a loop: each has a 400 ms window, and a slow machine spreads
+their triggers further apart than the window.
+
+`boot-audit.mjs` now prints the load next to the number and says out loud when
+it is describing the machine instead of the app. **The rows that hold under
+load are the first two**, which is why they are the ones with a gate.
 
 **The memory is not a leak, and it is not in the heap.** A freshly-opened window
 costs **164-187 MB**; the user's was at **1,633 MB**. But `devHeapProbe`, armed
