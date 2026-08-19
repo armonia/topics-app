@@ -285,6 +285,50 @@ Non è magia né un trucco di misura. Obscura fa tre rinunce strutturali:
 Il 30x di risparmio e i buchi sono **la stessa scelta vista da due lati**. Il che rende
 la valutazione facile: dove quelle tre cose non servono, Obscura è un affare enorme.
 
+## Potrebbe reggere anche la UI di Topics? — misurato, con un limite dichiarato
+
+Domanda naturale: se Obscura disegna bene e costa 30x meno, perché non usarlo come
+**renderer dell'app**, al posto della WKWebView? Test fatto, e la risposta è
+sorprendentemente incoraggiante — ma con un confine onesto.
+
+**Le API che il nostro stack richiede** (`apis.mjs`, sulla build patchata): su 23
+verificate ne manca **una sola**.
+
+| famiglia | esito |
+|---|---|
+| React 19: `IntersectionObserver`, `ResizeObserver`, `MutationObserver`, `requestIdleCallback`, `queueMicrotask` | ✅ tutte |
+| Tailwind 4: `CSS.supports`, `color-mix`, `oklch`, variabili CSS | ✅ tutte |
+| CodeMirror: `Range`, `getSelection`, `ClipboardEvent` | ✅ tutte |
+| xterm: `canvas2d`, `measureText` | ✅ |
+| piattaforma: `WebSocket`, `fetch`, `localStorage`, `customElements`, `ShadowRoot`, `matchMedia` | ✅ tutte |
+| **`WebGL`** | ❌ **assente** |
+
+**La UI vera di Topics ci gira** (`topicsui.mjs`, servendo `public/` già buildata):
+React monta, **zero errori JS**, e il rendering è a **0.58% da Chrome** (ink 0.985 in
+entrambi, 558 colori contro 574).
+
+**Il limite, dichiarato:** la schermata raggiunta senza sessione è il **gate di
+autorizzazione — 31 nodi DOM**, non l'app completa con board, terminali ed editor. Il
+test dimostra che *il guscio parte e il CSS moderno funziona*, **non** che l'intera UI
+regga. Per dirlo servirebbe una sessione autenticata, ed è una misura che non abbiamo
+ancora fatto.
+
+**Cosa già sappiamo che si romperebbe:**
+- **`WebGL` assente** → xterm cade sul renderer canvas (più lento, ma funziona); qualsiasi
+  vista 3D/accelerata no.
+- **`filter` CSS ignorate** (§ sopra) → ogni `blur`, `drop-shadow`, `backdrop-filter`
+  dell'interfaccia sparisce. Su una UI moderna si vede.
+- **Screencast a 20 fps** contro 92: per un'app che si guarda tutto il giorno, non per una
+  pane che si consulta.
+- **Nessuna integrazione nativa**: menu di sistema, notifiche, portachiavi, PiP — tutto
+  ciò che Tauri+WKWebView dà gratis andrebbe reimplementato.
+
+**Verdetto: interessante, non adesso.** Il renderer dell'app è la superficie che l'utente
+guarda per otto ore: là la WKWebView costa **37 MB a sessione**, ha rendering perfetto,
+integrazione nativa e zero rischio. Obscura come renderer risolverebbe un problema che
+**non abbiamo**. Vale la pena ricontrollarlo quando `filter` e WebGL saranno chiusi —
+e a quel punto la domanda cambierà da "regge?" a "conviene?".
+
 ## Possiamo usarlo, o serve un progetto nostro?
 
 La domanda naturale dopo una patch che funziona. Risposta breve: **usarlo, contribuendo
@@ -471,10 +515,13 @@ endpoint risponda. Lì il render serve solo per l'ultimo fotogramma della card, 
 preciso non serve, e il costo per contesto passerebbe da 219 MB a 29. Con dieci contesti
 inline aperti sono 2.2 GB contro 290 MB.
 
-Il blocco resta **uno solo**: 1.3 MB di `innerText` al posto di 5.5 KB, un bug che
-colpisce esattamente il caso d'uso proposto (l'agente che legge). Serve un
-`browser_get_text` che non passi da `innerText` — o una patch upstream. È una condizione
-verificabile, non un'opinione: `hidden.mjs` la misura in 4 secondi.
+Il blocco era 1.3 MB di `innerText` al posto di 5.5 KB — **chiuso da
+`patches/0002-innertext-rendered-text.patch`**. `innerText` era un alias di
+`textContent`, quindi restituiva il sorgente di ogni `<script>` e `<style>` più i
+sottoalberi `display:none`: quasi tutta quella differenza era JavaScript, pagato in token
+da chiunque lo passi a un LLM. Ora cammina l'albero rispettando
+`display`/`visibility`/`hidden` e i confini di blocco. 12 asserzioni in
+`innertext-proof.mjs`, ~100 ms, senza compilare.
 
 E il fatto che le due primitive canvas siano state chiuse in 143 righe di JavaScript dice
 qualcosa sul progetto: **i buchi di Obscura sono superficie non ancora scritta, non
@@ -505,7 +552,9 @@ processo per pagina, quindi va usato come fetcher usa-e-getta, non come sessione
 - `obscura-canvas-fix.patch` — **la patch**: 143 righe su `bootstrap.js` che
   implementano `stroke`, i gradienti e il fill dei poligoni. `git apply` sul repo
   Obscura, poi `cargo build --release -p obscura-cli --bins --features render`.
-- `canvas-proof.mjs` — 14 asserzioni sulla logica patchata, **senza compilare** (~200 ms).
+- `canvas-proof.mjs` / `innertext-proof.mjs` — 14 + 12 asserzioni sulla logica patchata,
+  **senza compilare** (~200 ms in tutto): il ciclo veloce mentre si scrive una patch.
+- `apis.mjs`, `topicsui.mjs` — regge la UI di Topics? (23 API + la app buildata).
 - `chart/index.html` + `chart-test.mjs` + `vs/CHART-prima-dopo.png` — la prova
   end-to-end: la stessa dashboard prima, dopo, e su Chrome.
 - `vs/OBSCURA-vs-CHROME.png` — **il pannello da guardare**: tre confronti affiancati.
