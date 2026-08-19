@@ -2493,7 +2493,7 @@ describe("uscire da Todo spegne il chip della coda", () => {
   const inCoda = (stato: "backlog" | "in_progress" | "review" | "done") => {
     const t = s.create({ projectId: PID, text: "c", status: "todo" });
     db.prepare("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?").run(t.id);
-    return s.update({ taskId: t.id, patch: { status: stato } });
+    return s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: stato } });
   };
 
   test.each(["backlog", "in_progress", "review", "done"] as const)(
@@ -2503,7 +2503,7 @@ describe("uscire da Todo spegne il chip della coda", () => {
   test("restare in Todo NON spegne il chip (un riordino non è un'uscita)", () => {
     const t = s.create({ projectId: PID, text: "c", status: "todo" });
     db.prepare("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?").run(t.id);
-    const r = s.update({ taskId: t.id, patch: { status: "todo", priority: 1 } });
+    const r = s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "todo", priority: 1 } });
     expect(r.dispatchState).toBe("queued");
   });
 
@@ -2513,6 +2513,6 @@ describe("uscire da Todo spegne il chip della coda", () => {
     // sta ancora scrivendo file.
     const t = s.create({ projectId: PID, text: "c", status: "todo" });
     db.prepare("UPDATE tasks SET dispatch_state = 'working' WHERE id = ?").run(t.id);
-    expect(s.update({ taskId: t.id, patch: { status: "backlog" } }).dispatchState).toBe("working");
+    expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "backlog" } }).dispatchState).toBe("working");
   });
 });

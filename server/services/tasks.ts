@@ -3112,8 +3112,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (patch.status === "todo" && actor === "human") {
           put("dispatch_attempts", 0);
           put("dispatch_deferred_until", null);
-          put("dispatch_state", null);
           put("dispatch_error", null);
+          // IL CHIP SI SPEGNE PERCHE' RACCONTA UN PARCHEGGIO VECCHIO
+          // (`failed`, `blocked`, `waiting`): quello e' il residuo che questo
+          // blocco sta togliendo. `queued` non e' un residuo, e' la coda di
+          // ADESSO — e su una card GIA' in Todo questo blocco scatta anche per
+          // un riordino (cambio di priorita', trascinamento dentro la stessa
+          // colonna), che spegneva il badge «in coda» di una card in coda
+          // davvero. Su una card che ARRIVA in Todo si spegne comunque: li'
+          // qualunque chip precedente descrive il mandato di prima.
+          if (current !== "todo" || row.dispatch_state !== "queued") put("dispatch_state", null);
         }
         // E con lo stesso gesto finisce la SERIE DI ATTESE. È la risposta alla
         // domanda che il park `waited_out` ha posto: l'umano ha guardato e ha
