@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset=utf-8><title>Topics Dev App</title>
+<style>
+ :root{--bg:#0e1116;--fg:#e6edf3;--acc:#4c8dff}
+ *{box-sizing:border-box}
+ body{margin:0;font:14px/1.5 -apple-system,system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+ header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #222c3a;position:sticky;top:0;backdrop-filter:blur(8px)}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;padding:20px}
+ .card{background:linear-gradient(160deg,#151b24,#101620);border:1px solid #222c3a;border-radius:12px;padding:14px;box-shadow:0 6px 20px rgba(0,0,0,.4);transition:transform .2s}
+ .card:hover{transform:translateY(-3px)}
+ .flexrow{display:flex;gap:8px;align-items:center}
+ button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}
+ input{background:#0b0f14;border:1px solid #2a3648;border-radius:8px;padding:8px 10px;color:var(--fg);width:100%}
+ .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#1d2a3d;font-size:11px}
+ svg{display:block}
+ .marq{overflow:hidden;white-space:nowrap}
+ .marq span{display:inline-block;animation:m 6s linear infinite}
+ @keyframes m{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+</style></head><body>
+<header><strong>Topics</strong><span class=badge id=count>0 items</span>
+<div class=flexrow style="margin-left:auto"><input id=q placeholder="filtra..."><button id=add>Aggiungi</button></div></header>
+<div class=marq><span>flex · grid · sticky · gradient · transform · animation · svg · canvas · webfont · </span></div>
+<div class=grid id=g></div>
+<canvas id=cv width=300 height=120 style="margin:20px"></canvas>
+<svg width=200 height=80 style="margin:20px"><circle cx=40 cy=40 r=30 fill="#4c8dff"/><rect x=90 y=20 width=90 height=40 rx=8 fill="#22c55e"/></svg>
+<script>
+ const g=document.getElementById('g');let n=0;
+ function add(){n++;const d=document.createElement('div');d.className='card';d.innerHTML=`<h3>Task ${n}</h3><p>Stato <span class=badge>ready</span></p><button class=go>Apri</button>`;g.appendChild(d);document.getElementById('count').textContent=n+' items';}
+ for(let i=0;i<9;i++)add();
+ document.getElementById('add').onclick=add;
+ document.getElementById('q').oninput=e=>{const v=e.target.value.toLowerCase();[...g.children].forEach(c=>c.style.display=c.textContent.toLowerCase().includes(v)?'':'none')};
+ document.addEventListener('click',e=>{if(e.target.classList.contains('go')){e.target.textContent='APERTO';window.__opened=(window.__opened||0)+1}});
+ const cx=document.getElementById('cv').getContext('2d');let t=0;
+ (function loop(){t+=.05;cx.fillStyle='#0b0f14';cx.fillRect(0,0,300,120);cx.strokeStyle='#4c8dff';cx.lineWidth=2;cx.beginPath();for(let x=0;x<300;x++)cx.lineTo(x,60+Math.sin(x/20+t)*40);cx.stroke();requestAnimationFrame(loop)})();
+ window.__ready=true;
+</script></body></html>

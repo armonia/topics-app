@@ -1,0 +1,18 @@
+{"engine":"headless-shell","phase":"load","ready":true,"cards":9,"countText":"9 items","canvasPainted":1493,"computedGrid":"grid","cardRect":"{\"x\":20,\"y\":99,\"width\":236.796875,\"height\":154.8125,\"top\":99,\"right\":256.796875,\"bottom\":253.8125,\"left\":20}"}
+{"engine":"headless-shell","phase":"dom-api","nodeId":20,"box":[1188.25,21,1246,21]}
+{"engine":"headless-shell","phase":"click","x":1217,"y":29,"before":9,"after":10,"worked":true}
+{"engine":"headless-shell","phase":"type","value":"Task 3","visibleCards":1,"worked":true}
+{"engine":"headless-shell","phase":"shot","bytes":38496}
+{"engine":"headless-shell","phase":"rss-final","mb":383.4,"procs":5}
+{"engine":"lightpanda","phase":"load","ready":true,"cards":9,"countText":"9 items","canvasPainted":0,"computedGrid":"block","cardRect":"{\"x\":140,\"y\":140,\"width\":5,\"height\":5,\"top\":140,\"right\":145,\"bottom\":145,\"left\":140}"}
+{"engine":"lightpanda","phase":"dom-api","nodeId":4,"box":[100,100,105,100]}
+{"engine":"lightpanda","phase":"click","x":103,"y":103,"before":9,"after":10,"worked":true}
+{"engine":"lightpanda","phase":"type","value":"","visibleCards":10,"worked":false}
+{"engine":"lightpanda","phase":"shot","bytes":10704}
+{"engine":"lightpanda","phase":"rss-final","mb":39,"procs":1}
+{"engine":"obscura","phase":"load","ready":true,"cards":9,"countText":"9 items","canvasPainted":0,"computedGrid":"grid","cardRect":"{\"x\":20,\"y\":103,\"width\":237,\"height\":159,\"top\":103,\"right\":257,\"bottom\":262,\"left\":20}"}
+{"engine":"obscura","phase":"dom-api","nodeId":20,"box":[1175,12,1260,12]}
+{"engine":"obscura","phase":"click","x":1218,"y":31,"before":9,"after":10,"worked":true}
+{"engine":"obscura","phase":"type","value":"","visibleCards":10,"worked":false}
+{"engine":"obscura","phase":"shot","bytes":36505}
+{"engine":"obscura","phase":"rss-final","mb":54.8,"procs":1}

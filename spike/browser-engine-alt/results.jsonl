@@ -1,0 +1,33 @@
+{"engine":"headless-shell","phase":"startup","startupMs":1894.7,"product":"HeadlessChrome/148.0.7778.96"}
+{"engine":"headless-shell","phase":"rss-idle","mb":241.4,"procs":4}
+{"engine":"headless-shell","phase":"caps","caps":{"Page.enable":true,"Runtime.enable":true,"DOM.enable":true,"Network.enable":true,"Emulation.setDeviceMetricsOverride":true,"Input.dispatchMouseEvent":true}}
+{"engine":"headless-shell","phase":"site","site":"blank","navMs":27,"loaded":true,"rssMB":322.2,"procs":5,"title":"","textLen":0,"domNodes":3,"shotMs":20,"shotKB":6.6}
+{"engine":"headless-shell","phase":"site","site":"example","navMs":193,"loaded":true,"rssMB":356.1,"procs":5,"title":"Example Domain","textLen":129,"domNodes":12,"shotMs":17,"shotKB":15.3}
+{"engine":"headless-shell","phase":"site","site":"hn","navMs":1099,"loaded":true,"rssMB":371.2,"procs":5,"title":"Hacker News","textLen":4014,"domNodes":817,"shotMs":16,"shotKB":101.3}
+{"engine":"headless-shell","phase":"site","site":"wikipedia","navMs":446,"loaded":true,"rssMB":443.6,"procs":5,"title":"Web browser - Wikipedia","textLen":20359,"domNodes":4172,"shotMs":25,"shotKB":123.5}
+{"engine":"headless-shell","phase":"site","site":"github","navMs":1628,"loaded":true,"rssMB":572.2,"procs":5,"title":"browser · GitHub Topics · GitHub","textLen":5501,"domNodes":1969,"shotMs":25,"shotKB":68.4}
+{"engine":"headless-shell","phase":"site","site":"react-app","navMs":1034,"loaded":true,"rssMB":418.9,"procs":5,"title":"React","textLen":6589,"domNodes":1846,"shotMs":20,"shotKB":34.3}
+{"engine":"headless-shell","phase":"screencast","frames":238,"fps":47.6,"kbPerFrame":6.6}
+{"engine":"headless-shell","phase":"input","hits":10,"p50":0.86,"avg":2.01}
+{"engine":"lightpanda","phase":"startup","startupMs":1204.4,"product":"Lightpanda/1.0"}
+{"engine":"lightpanda","phase":"rss-idle","mb":21.2,"procs":1}
+{"engine":"lightpanda","phase":"caps","caps":{"Page.enable":true,"Runtime.enable":true,"DOM.enable":true,"Network.enable":true,"Emulation.setDeviceMetricsOverride":true,"Input.dispatchMouseEvent":true}}
+{"engine":"lightpanda","phase":"site","site":"blank","navMs":27,"loaded":true,"rssMB":25.1,"procs":1,"title":"","textLen":0,"domNodes":3,"shotMs":"ERR:unsupported screenshot format.","shotKB":null}
+{"engine":"lightpanda","phase":"site","site":"example","navMs":119,"loaded":true,"rssMB":30.3,"procs":1,"title":"Example Domain","textLen":129,"domNodes":12,"shotMs":"ERR:unsupported screenshot format.","shotKB":null}
+{"engine":"lightpanda","phase":"site","site":"hn","navMs":1280,"loaded":true,"rssMB":31.9,"procs":1,"title":"Hacker News","textLen":4042,"domNodes":817,"shotMs":"ERR:unsupported screenshot format.","shotKB":null}
+{"engine":"lightpanda","phase":"site","site":"wikipedia","navMs":676,"loaded":true,"rssMB":57.4,"procs":1,"title":"Web browser - Wikipedia","textLen":30026,"domNodes":4168,"shotMs":"ERR:unsupported screenshot format.","shotKB":null}
+{"engine":"lightpanda","phase":"site","site":"github","navMs":2713,"loaded":true,"rssMB":89.8,"procs":1,"title":"browser · GitHub Topics · GitHub","textLen":7168,"domNodes":1969,"shotMs":"ERR:unsupported screenshot format.","shotKB":null}
+{"engine":"lightpanda","phase":"site","site":"react-app","navMs":510,"loaded":true,"rssMB":100.8,"procs":1,"title":"React","textLen":8243,"domNodes":1847,"shotMs":"ERR:unsupported screenshot format.","shotKB":null}
+{"engine":"lightpanda","phase":"screencast","error":"UnknownMethod"}
+{"engine":"lightpanda","phase":"input","hits":10,"p50":0.34,"avg":0.45}
+{"engine":"obscura","phase":"startup","startupMs":1745.5,"product":"Chrome/145.0.0.0"}
+{"engine":"obscura","phase":"rss-idle","mb":19.9,"procs":1}
+{"engine":"obscura","phase":"caps","caps":{"Page.enable":true,"Runtime.enable":true,"DOM.enable":true,"Network.enable":true,"Emulation.setDeviceMetricsOverride":true,"Input.dispatchMouseEvent":true}}
+{"engine":"obscura","phase":"site","site":"blank","navMs":29,"loaded":true,"rssMB":28.1,"procs":1,"title":"","textLen":0,"domNodes":3,"shotMs":18,"shotKB":28}
+{"engine":"obscura","phase":"site","site":"example","navMs":15187,"loaded":false,"rssMB":47.1,"procs":1,"title":"Example Domain","textLen":126,"domNodes":12,"shotMs":28,"shotKB":36}
+{"engine":"obscura","phase":"site","site":"hn","navMs":1756,"loaded":true,"rssMB":55.3,"procs":1,"title":"Hacker News","textLen":3820,"domNodes":818,"shotMs":94,"shotKB":105.7}
+{"engine":"obscura","phase":"site","site":"wikipedia","navMs":1376,"loaded":true,"rssMB":175.9,"procs":1,"title":"Web browser - Wikipedia","textLen":46213,"domNodes":4102,"shotMs":780,"shotKB":129.9}
+{"engine":"obscura","phase":"site","site":"github","navMs":2983,"loaded":true,"rssMB":264.8,"procs":1,"title":"browser · GitHub Topics · GitHub","textLen":1322939,"domNodes":1544,"shotMs":222,"shotKB":86.5}
+{"engine":"obscura","phase":"site","site":"react-app","navMs":1461,"loaded":true,"rssMB":246,"procs":1,"title":"React","textLen":12179,"domNodes":1845,"shotMs":527,"shotKB":54.5}
+{"engine":"obscura","phase":"screencast","frames":6,"fps":1.2,"kbPerFrame":61.2}
+{"engine":"obscura","phase":"input","error":"JS error: Uncaught SyntaxError: Unexpected token ';'\n    at <eval-remote>:4:16"}
