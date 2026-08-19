@@ -345,7 +345,7 @@ export function subtaskWorkChip(
  * viaggia già nel payload di ogni figlio — mancava solo chi lo disegnasse.
  *
  * Filtro su `stalled` e non su «c'è una ragione»: `queued` e `waiting` sono la
- * vita normale di uno step (in coda, la lavora il padre) e riempirebbero la
+ * vita normale di uno step (in coda, oppure in mano al padre) e riempirebbero la
  * checklist di chip che non chiedono niente a nessuno. La visibilità comprata
  * col rumore non è visibilità: la riga davvero ferma sparirebbe tra le altre.
  */
