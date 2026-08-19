@@ -71,19 +71,32 @@ let lastAppliedServerSeq = 0;
  * L'IDENTITA' DELL'ULTIMO STATO ARRIVATO DAL SERVER, per chi deve decidere se
  * vale la pena rimandarlo indietro.
  *
- * PERCHE' ESISTE (2026-08-19). A schermo fermo una finestra mandava 12-17 PUT di
- * `pane-store-v2` in 25 secondi, uno ogni 1,5 s, con `lastSeq` che saliva e
+ * PERCHE' ESISTE (2026-08-19). A schermo fermo una finestra manda 12-17 PUT di
+ * `pane-store-v2` in 25 secondi, uno ogni 1,5 s, con `lastSeq` che sale e
  * NESSUN'ALTRA differenza fra un corpo e il successivo. Strumentando il
- * dispatcher: sedici `HYDRATE_FROM_SNAPSHOT` nella stessa finestra, uno per PUT.
+ * dispatcher (la sonda va messa PRIMA del `return` che salta le azioni
+ * server-autoritative, o e' cieca proprio a quelle): sedici
+ * `HYDRATE_FROM_SNAPSHOT` nella stessa finestra, uno per PUT. La catena e'
+ * quella: un HYDRATE porta `lastSeq` a `max(lastSeq, clean.lastSeq)`
+ * (`reducers/panes.ts`), il middleware di sync osserva `lastSeq` e mezzo
+ * secondo dopo rimanda 75 KB identici. Su un server con `bun:sqlite` sincrono
+ * e su HTTP/1.1 quelle scritture si mettono davanti alle letture della board.
  *
- * Il ciclo: `server_seq` e' allocato dal SERVER e cresce a ogni scrittura di
- * CHIUNQUE (questa macchina dichiarava ventuno sessioni aperte); ogni
- * idratazione remota porta `lastSeq` a `max(lastSeq, clean.lastSeq)`
- * (`reducers/panes.ts`); il middleware di sync osserva `lastSeq` e, mezzo
- * secondo dopo, manda 75 KB identici a quelli appena RICEVUTI. Quel PUT alza
- * `server_seq`, il server lo ritrasmette a tutti, e ogni pari fa lo stesso.
- * Su un server con `bun:sqlite` sincrono e su HTTP/1.1 quelle scritture si
- * mettono davanti alle letture che disegnano la board.
+ * CHI DISPACCIA QUEGLI HYDRATE, PERO', NON L'HO TROVATO — e la mia prima
+ * risposta era sbagliata, quindi vale la pena scrivere anche quella. Avevo
+ * concluso «sono i PARI»: ventuno sessioni aperte, ognuna che scrive e fa
+ * salire il `server_seq` di tutte. La previsione che ne segue e' verificabile —
+ * ogni PUT dovrebbe seguire un frame `ui-state:*` in arrivo — ed e' FALSA:
+ * misurando i frame WebSocket ricevuti, **zero** frame contenenti `ui-state` in
+ * venticinque secondi, contro quindici PUT partiti. Nessun pari stava
+ * scrivendo. Gli HYDRATE nascono dentro questa finestra.
+ *
+ * Cosa resta escluso, per chi riprende: non e' `syncCrossTab` (scarta i frame
+ * col proprio `senderId` e ha il suo gate LWW), non e' `persistLocal` (gira una
+ * volta al boot), e non sono i due rami di questo file (nessun frame arriva).
+ * Il quarto chiamante va cercato con uno stack NON minificato — un build di
+ * sviluppo, dove i nomi dei moduli sopravvivono: da minificato lo stack dice
+ * solo `dispatch@index-*.js`, che e' quanto sono riuscito a leggere.
  *
  * Il filtro dell'eco (`selfEcho`) non copre questo: protegge dalla PROPRIA
  * scrittura che torna indietro, non dallo stato di un PARI che ci arriva
