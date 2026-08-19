@@ -371,6 +371,44 @@ ancora fatto.
 - **Nessuna integrazione nativa**: menu di sistema, notifiche, portachiavi, PiP — tutto
   ciò che Tauri+WKWebView dà gratis andrebbe reimplementato.
 
+### E con 1000 sessioni? — il renderer non scala, ed è il punto
+
+L'intuizione è giusta (un costo fisso pesa meno quando il resto cresce), ma qui porta
+alla conclusione opposta: **il renderer è l'unico pezzo che NON cresce**, quindi più
+sessioni ci sono, meno conta cambiarlo.
+
+Dai bench già nel repo (`bench/results/`, app reale):
+
+| | costo | scala con le sessioni? |
+|---|---|---|
+| sessione agente (runtime nativo) | **2.26 MB** | **sì, lineare** |
+| UI con 0 / 5 / 10 / 25 topic aperti | 209 / 269 / 244 / 263 MB | **no** — da 5 a 25 topic il valore *scende*: la crescita è sotto il rumore |
+| pane browser (Chromium) | 371 MB | sì, lineare |
+
+**A 1000 sessioni agente** (2.26 MB l'una = ~2.3 GB):
+
+| | renderer | + 1000 sessioni | quota del renderer |
+|---|---|---|---|
+| Tauri oggi | 316 MB | **2571 MB** | 12% |
+| Servo | 301 MB | 2556 MB | 12% |
+| Obscura + finestra | ~255 MB | 2510 MB | 10% |
+
+Cambiare renderer a 1000 sessioni fa risparmiare **15 MB con Servo (0.6%)** o ~60 MB con
+un Obscura che non esiste (2.4%). **La scala peggiora l'affare, non lo migliora**: gli
+agenti girano nel server Bun, non nella WebView, quindi il denominatore cresce e il
+numeratore no.
+
+**Dove la scala conta davvero è l'altro motore.** A 1000 pane browser aperte:
+
+| | totale |
+|---|---|
+| Chromium (371 MB/pane) | **363 GB** |
+| Obscura (68 MB/pane) | **66 GB** |
+
+Numeri irreali su una macchina sola — nessuno tiene 1000 pane aperte — ma la pendenza è
+quella, ed è dove **5.5× moltiplica**. Il renderer è un costo fisso da 316 MB: a 10
+sessioni pesa il 60%, a 1000 pesa il 12%, e in nessuno dei due casi cambiarlo è la leva.
+
 ### Quanto costa la finestra? ~100 MB — misurato, non dedotto
 
 Domanda giusta: i 155 MB di Obscura sono senza finestra, quindi **quanto se ne va nel
