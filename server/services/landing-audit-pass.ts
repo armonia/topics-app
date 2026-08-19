@@ -106,8 +106,28 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
       const trovato = await landedMergeRange(repoPath, task.id).catch(() => null);
       return trovato ? true : null;
     },
-    record: (taskId: string, state: LandingState, checkedAt: string) =>
-      deps.svc.recordLandingState({ taskId, state, checkedAt }),
+    // IL VERDETTO DEVE ARRIVARE ALLO SCHERMO, non solo alla colonna del database.
+    //
+    // `landingState` e' l'unica cosa che questa riga cambia, ed e' cio' che
+    // disegna la pastiglia «non e' su main» sulla card, la banda in cima al
+    // drawer e il contatore del debito in testa alla board. La passata gira da
+    // un timer, quindi nessuna rotta trasmette il suo esito: senza il frame,
+    // una card che ATTERRA resta accusata su ogni schermo aperto finche'
+    // qualcuno non ricarica, e il rimedio a un guasto sembra il guasto.
+    //
+    // SOLO SUL CAMBIO. `record` timbra ogni candidata a ogni giro, anche le
+    // duecento che ripetono da settimane la stessa risposta, e ogni
+    // `task:updated` fa ri-scaricare l'intera board a ogni client: senza il
+    // confronto, la cura per una board ferma sarebbe una board che si ricarica
+    // duecento volte ogni mezz'ora. Solo `landingCheckedAt` cambia in quel caso,
+    // e non lo guarda nessuna superficie.
+    record: (taskId: string, state: LandingState, checkedAt: string) => {
+      const prima = deps.svc.get(taskId)?.task.landingState ?? null;
+      deps.svc.recordLandingState({ taskId, state, checkedAt });
+      if (prima === state) return;
+      const fresh = deps.svc.get(taskId)?.task;
+      if (fresh) deps.broadcast({ type: "task:updated", projectId: fresh.projectId, task: fresh });
+    },
     previousState: (taskId: string) => deps.svc.get(taskId)?.task.landingState ?? null,
     // The whole point: a delivery that never reached main must SAY so, on the
     // task, once — not sit silently in a column for 8 days.
