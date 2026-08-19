@@ -199,3 +199,135 @@ describe("scrivere sulla riga di un turno non idrata le due colonne grosse", () 
     expect(ctx.getMessageById(placeholder.id)).toBeNull();
   });
 });
+
+/**
+ * La stessa stringa scritta DUE volte sulla stessa riga.
+ *
+ * `ToolCall.result` e `ToolCall.detail` portano lo stesso testo byte per byte
+ * per tutti gli strumenti che restituiscono testo: 2,48 MB su 8,20 misurati,
+ * il 30% del payload (shared/lean-tool-call.ts). Quella copia era gia' tolta
+ * SUL FILO (`leanMessagesForWire` in routes/history.ts e routes/topics.ts) ma
+ * sul disco restava, e il disco e' il posto dove non se ne va piu'.
+ *
+ * Qui si pinna sul percorso di SCRITTURA, e le due meta' contano uguale:
+ * la copia non arriva, e cio' che copia non e' arriva INTERO.
+ */
+
+/** Un output di shell della taglia che si vede davvero su un turno agentico. */
+const OUTPUT = "riga di output ripetuta\n".repeat(2_000);
+
+/** La tool call che porta la copia: `result` identico a `detail.output`. */
+function shellDoppia(id: string): ToolCall {
+  return {
+    id, name: "Bash", args: { command: "ls -la" }, status: "success",
+    result: OUTPUT,
+    detail: { type: "shell", command: "ls -la", output: OUTPUT },
+    startedAt: 1, endedAt: 2,
+  } as ToolCall;
+}
+
+/**
+ * La tool call che NON porta la copia: `result` e' la conferma di scrittura,
+ * `detail.content` e' il file scritto. Due testi diversi, e nessuno dei due si
+ * puo' buttare. E' il caso `write`, l'unico che divergeva nella misura.
+ */
+function scritturaSenzaCopia(id: string): ToolCall {
+  return {
+    id, name: "Write", args: { file_path: "/tmp/x.txt" }, status: "success",
+    result: "Scritto /tmp/x.txt (3 righe)",
+    detail: { type: "write", filePath: "/tmp/x.txt", content: "alfa\nbeta\ngamma" },
+    startedAt: 1, endedAt: 2,
+  } as ToolCall;
+}
+
+/** I byte grezzi delle due colonne grosse, sommati come li conta la barra. */
+function pesoRiga(ctx: AppContext, id: string): number {
+  const row = ctx.db.prepare(
+    "SELECT COALESCE(LENGTH(blocks), 0) + COALESCE(LENGTH(tool_calls), 0) AS n FROM messages WHERE id = ?",
+  ).get(id) as { n: number };
+  return row.n;
+}
+
+/** Scrive un turno con quella tool call passando dai mutatori veri dello stream. */
+function turnoConTool(ctx: AppContext, sk: string, tc: ToolCall): string {
+  ctx.saveLocalMessages(sk, [
+    { id: `${sk}-u`, role: "user", content: "fai una cosa", timestamp: new Date(1).toISOString() },
+  ]);
+  const placeholder = ctx.createPartialMessage(sk, "assistant");
+  // Come nello stream: prima la chiamata parte senza esito, poi arriva.
+  const { result: _esito, detail: _det, ...aperta } = tc as ToolCall & { detail?: unknown };
+  ctx.addToolCallToLastMessage(sk, { ...aperta, status: "running" } as ToolCall);
+  ctx.updateToolCallResult(sk, tc.id, tc.result!, undefined, { detail: tc.detail, endedAt: 2 });
+  ctx.updateLastMessage(sk, {
+    content: "ecco",
+    blocks: [{ kind: "text", text: "ecco" }, { kind: "tool", toolCall: tc }] as ContentBlock[],
+    partial: undefined, streamedAt: undefined,
+  });
+  return placeholder.id;
+}
+
+describe("la copia che nessuno guarda non arriva sul disco", () => {
+  test("`result` gia' presente in `detail` non viene scritto, ne' nei blocchi ne' nelle tool call", async () => {
+    const ctx = await createTestAppContext();
+    const sk = "topic:disk-lean-copia";
+    const id = turnoConTool(ctx, sk, shellDoppia("tc-copia"));
+
+    const grezzo = ctx.db.prepare("SELECT blocks, tool_calls FROM messages WHERE id = ?").get(id) as
+      { blocks: string | null; tool_calls: string | null };
+    // L'output c'e' UNA volta per colonna: quella dentro `detail`, che e' il
+    // campo che il disegno legge davvero. Si cerca la forma ESCAPED, che e'
+    // come la stringa vive dentro il JSON della colonna.
+    const inJson = JSON.stringify(OUTPUT).slice(1, -1);
+    expect(occorrenze(grezzo.blocks ?? "", inJson)).toBe(1);
+    expect(occorrenze(grezzo.tool_calls ?? "", inJson)).toBe(1);
+    expect(grezzo.blocks).not.toContain('"result"');
+    expect(grezzo.tool_calls).not.toContain('"result"');
+
+    // E il testo si legge ancora, dal campo dove vive.
+    const riga = ctx.getMessageById(id)!;
+    const tool = riga.blocks?.find((b) => b.kind === "tool");
+    expect(tool?.kind === "tool" && (tool.toolCall.detail as { output?: string }).output).toBe(OUTPUT);
+  });
+
+  test("SENZA PERDITA: un `result` che non compare identico in `detail` arriva intero", async () => {
+    const ctx = await createTestAppContext();
+    const sk = "topic:disk-lean-senza-copia";
+    const id = turnoConTool(ctx, sk, scritturaSenzaCopia("tc-write"));
+
+    const riga = ctx.getMessageById(id)!;
+    expect(riga.toolCalls?.[0]?.result).toBe("Scritto /tmp/x.txt (3 righe)");
+    const tool = riga.blocks?.find((b) => b.kind === "tool");
+    expect(tool?.kind === "tool" && tool.toolCall.result).toBe("Scritto /tmp/x.txt (3 righe)");
+    // E il contenuto scritto, che sta solo in `detail`, non e' stato toccato.
+    expect(tool?.kind === "tool" && (tool.toolCall.detail as { content?: string }).content).toBe("alfa\nbeta\ngamma");
+  });
+
+  test("LA MISURA: sulle righe NUOVE la media di LENGTH(blocks)+LENGTH(tool_calls) scende del 30% e passa", async () => {
+    // La barra del task, fatta sul campione che conta: le righe scritte DOPO il
+    // cambio, non la tabella intera, che e' dominata dal passato.
+    const ctx = await createTestAppContext();
+    const id = turnoConTool(ctx, "topic:disk-lean-misura", shellDoppia("tc-misura"));
+    const dopo = pesoRiga(ctx, id);
+
+    // Il PRIMA e' lo stesso identico payload serializzato com'era prima del
+    // cambio: `JSON.stringify` nudo, senza togliere la copia. Non un numero
+    // scritto a mano, che invecchierebbe al primo campo aggiunto a `ToolCall`.
+    const riga = ctx.getMessageById(id)!;
+    const conCopia = (b: ContentBlock) => (b.kind === "tool"
+      ? { ...b, toolCall: { ...b.toolCall, result: OUTPUT } }
+      : b);
+    const prima = JSON.stringify((riga.blocks ?? []).map(conCopia)).length
+      + JSON.stringify((riga.toolCalls ?? []).map((t) => ({ ...t, result: OUTPUT }))).length;
+
+    expect(dopo).toBeLessThan(prima * 0.7);
+  });
+});
+
+/** Quante volte `ago` compare dentro `pagliaio`. */
+function occorrenze(pagliaio: string, ago: string): number {
+  if (!ago) return 0;
+  let n = 0;
+  let i = pagliaio.indexOf(ago);
+  while (i !== -1) { n++; i = pagliaio.indexOf(ago, i + ago.length); }
+  return n;
+}
