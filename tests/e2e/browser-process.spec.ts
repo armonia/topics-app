@@ -365,8 +365,10 @@ test.describe("RemoteBrowserPanel", () => {
   //     indicator transitions live -> fallback -> disconnected)
   // Original test was: assert "No browser session" message when REST 404.
 
-  // BROWSER-07: REWRITTEN — ready state asserted on connected-but-no-URL flow.
-  test("BROWSER-07: Browser ready state with no URL", async ({
+  // BROWSER-07: REWRITTEN twice. Ready state asserted on the connected-but-no-URL
+  // flow, and da qui in poi quello stato non e' piu' un cartello ("Browser
+  // ready") ma la pagina Nuovo Tab: campo di ricerca e griglia dei siti.
+  test("BROWSER-07: la scheda senza URL mostra la pagina Nuovo Tab", async ({
     page,
     browserProcessPage,
     request,
@@ -385,12 +387,12 @@ test.describe("RemoteBrowserPanel", () => {
     try {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
-      // Mount with about:blank — the panel's "Browser ready" placeholder
-      // renders when connected && (!url || url === 'about:blank').
+      // Mount with about:blank — the New Tab Page renders when
+      // connected && (!url || url === 'about:blank').
       await mountBrowserPaneViaEvent(page, topic.id, "about:blank");
 
-      await expect(page.getByText("Browser ready")).toBeVisible({ timeout: 10000 });
-      await expect(page.getByText("Enter a URL above to navigate")).toBeVisible();
+      await expect(page.getByTestId("browser-new-tab")).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("browser-new-tab-input")).toBeVisible();
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -442,7 +444,7 @@ test.describe("RemoteBrowserPanel", () => {
 
 /**
  * Helper for BROWSER-07: REST returns connected=true with empty URL so the
- * RemoteBrowserPanel renders its "Browser ready / Enter a URL above" state.
+ * RemoteBrowserPanel renders its New Tab Page.
  */
 async function browserProcessPageMockReady(
   fixture: import("./fixtures/browser.fixture").BrowserProcessPage,
