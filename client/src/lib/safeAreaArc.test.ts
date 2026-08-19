@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { alzataArco, curvaturaEsterna, formaFila, pavimentoFila, raggioSchermo } from './safeAreaArc';
+import { alzataCurva, curvaturaEsterna, formaFila, pavimentoFila, raggioSchermo } from './safeAreaArc';
 
 /** La fila vera: 44 di altezza, angoli standard da 12. */
 const ALTEZZA = 44;
@@ -25,31 +25,58 @@ describe('raggioSchermo', () => {
   });
 });
 
-describe('alzataArco', () => {
+describe('alzataCurva, angolo appuntito (curvatura 0)', () => {
   test('sul bordo l’arco mangia tutto il raggio, alla sua fine niente', () => {
-    expect(alzataArco(0, 54)).toBeCloseTo(54, 6);
-    expect(alzataArco(54, 54)).toBe(0);
-    expect(alzataArco(200, 54)).toBe(0);
+    expect(alzataCurva(0, 54, 0)).toBeCloseTo(54, 6);
+    expect(alzataCurva(54, 54, 0)).toBe(0);
+    expect(alzataCurva(200, 54, 0)).toBe(0);
   });
 
   test('raggio zero ⇒ alzata zero, sempre', () => {
-    expect(alzataArco(0, 0)).toBe(0);
-    expect(alzataArco(8, 0)).toBe(0);
+    expect(alzataCurva(0, 0, 0)).toBe(0);
+    expect(alzataCurva(8, 0, 0)).toBe(0);
   });
 
   test('a metà raggio vale R − √(R²−(R/2)²), non la metà di R', () => {
     // La curva NON è una rampa: a 27 di 54 l'arco mangia 7,24 e non 27.
-    expect(alzataArco(27, 54)).toBeCloseTo(54 - Math.sqrt(54 * 54 - 27 * 27), 6);
-    expect(alzataArco(27, 54)).toBeCloseTo(7.23, 2);
+    expect(alzataCurva(27, 54, 0)).toBeCloseTo(54 - Math.sqrt(54 * 54 - 27 * 27), 6);
+    expect(alzataCurva(27, 54, 0)).toBeCloseTo(7.23, 2);
   });
 
   test('è monotona: più ci si allontana dal bordo, meno l’arco mangia', () => {
     let prec = Infinity;
     for (let d = 0; d <= 60; d += 4) {
-      const a = alzataArco(d, 54);
+      const a = alzataCurva(d, 54, 0);
       expect(a).toBeLessThanOrEqual(prec + 1e-9);
       prec = a;
     }
+  });
+});
+
+describe('alzataCurva, angolo tondo: è ciò che permette di stare a filo', () => {
+  test('a filo del bordo un angolo tondo costa R meno il proprio raggio', () => {
+    // L'iPhone in verticale: 54 di arco, un tasto da 44 che porta 22 di raggio.
+    // Appuntito, stare a x=0 costerebbe 54 di alzata; tondo ne costa 32.
+    expect(alzataCurva(0, 54, 22)).toBeCloseTo(32, 6);
+    expect(alzataCurva(0, 54, 0)).toBeCloseTo(54, 6);
+  });
+
+  test('un angolo tondo quanto l’arco non paga niente: è lo stesso cerchio', () => {
+    expect(alzataCurva(0, 54, 54)).toBe(0);
+    // E nemmeno se lo si chiede più tondo dell'arco: il raggio viene tagliato.
+    expect(alzataCurva(0, 54, 90)).toBe(0);
+  });
+
+  test('costa sempre meno o quanto l’angolo appuntito, a ogni distanza', () => {
+    for (let d = 0; d <= 60; d += 3) {
+      expect(alzataCurva(d, 54, 22)).toBeLessThanOrEqual(alzataCurva(d, 54, 0) + 1e-9);
+    }
+  });
+
+  test('fuori dall’arco non alza nessuno, tondo o appuntito che sia', () => {
+    expect(alzataCurva(54, 54, 22)).toBe(0);
+    expect(alzataCurva(200, 54, 22)).toBe(0);
+    expect(alzataCurva(10, 0, 22)).toBe(0);
   });
 });
 
@@ -97,10 +124,10 @@ describe('curvaturaEsterna', () => {
 });
 
 describe('formaFila', () => {
-  /** La fila vera: tre scatole spinte ai bordi, 8px di rientro per lato. È lo
-   *  scopo del modulo — se si sta larghi 32 come la barra di stato, l'arco non
-   *  tocca nessuno e non c'era niente da calcolare. */
-  const treScatole = (larghezza: number, l = 84, rientro = 8) => {
+  /** La fila vera: tre scatole A FILO dei bordi, nessun rientro. È lo scopo del
+   *  modulo — se si sta larghi 32 come la barra di stato, l'arco non tocca
+   *  nessuno e non c'era niente da calcolare. */
+  const treScatole = (larghezza: number, l = 84, rientro = 0) => {
     const passo = (larghezza - 2 * rientro - l) / 2;
     return [0, 1, 2].map((i) => ({ x: rientro + i * passo, larghezza: l }));
   };
@@ -134,7 +161,7 @@ describe('formaFila', () => {
     expect(forme.map((f) => f.lato)).toEqual(['sinistra', null, 'destra']);
     // Il raggio degli estremi è quello che l'arco impone (qui il tetto di
     // mezza altezza), MAI un numero scelto a mano.
-    expect(forme[0].curvatura).toBe(curvaturaEsterna(8, raggioSchermo(34), ALTEZZA, STANDARD));
+    expect(forme[0].curvatura).toBe(curvaturaEsterna(0, raggioSchermo(34), ALTEZZA, STANDARD));
     expect(forme[0].curvatura).toBe(forme[2].curvatura);
     expect(forme[1].curvatura).toBe(STANDARD);
   });
@@ -143,11 +170,21 @@ describe('formaFila', () => {
     // Una scatola larga il doppio, ancorata allo stesso x: il suo angolo basso
     // sinistro non si è mosso, quindi nemmeno l'alzata.
     const comune = { larghezza: 390, raggio: 54, pavimento: 22, altezza: ALTEZZA, standard: STANDARD };
-    const stretta = formaFila({ ...comune, scatole: [{ x: 8, larghezza: 44 }] });
-    const larga = formaFila({ ...comune, scatole: [{ x: 8, larghezza: 120 }] });
+    const stretta = formaFila({ ...comune, scatole: [{ x: 0, larghezza: 44 }] });
+    const larga = formaFila({ ...comune, scatole: [{ x: 0, larghezza: 120 }] });
     expect(larga[0].alzata).toBe(stretta[0].alzata);
-    // e vale l'arco a 8px dal bordo, non il pavimento
-    expect(stretta[0].alzata).toBeCloseTo(54 - Math.sqrt(54 * 54 - 46 * 46), 2);
+    // A filo del bordo vale l'arco (32, col suo angolo da 22), non il pavimento.
+    expect(stretta[0].alzata).toBeCloseTo(32, 2);
+  });
+
+  test('a filo la fila sale di 32 e non di 54: la differenza è l’angolo tondo', () => {
+    // La prova che il primo e l'ultimo tasto POSSONO stare sul bordo. Con
+    // l'angolo appuntito servivano 54 di alzata, cioè più dell'altezza del
+    // tasto: la fila sarebbe uscita dalla barra invece di seguirne la curva.
+    const forme = fila(390, 34);
+    expect(forme[0].alzata).toBeCloseTo(32, 2);
+    expect(forme[0].curvatura).toBe(22);
+    expect(forme[1].alzata).toBe(22);
   });
 
   test('il pavimento è un minimo, non un addendo', () => {
