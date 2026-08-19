@@ -1600,6 +1600,9 @@ const worktreeGc = createWorktreeGcRunner({
   getTopicBySessionKey: (sessionKey) => ctx.getTopicBySessionKey(sessionKey),
   resolveTopicCwd: (topic) => ctx.resolveTopicCwd(topic),
   svc: dispatcherSvc,
+  // La potatura scrive sulle card da un timer: senza questo filo la board
+  // resterebbe ferma sulla versione di prima fino a un ricaricamento.
+  broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
   projectIdForPath: (path) => projectIdForPath(path),
