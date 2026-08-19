@@ -1146,9 +1146,16 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
       "SELECT parent_task_id AS p, COUNT(*) AS n FROM tasks WHERE parent_task_id IS NOT NULL AND archived = 0 GROUP BY 1",
     ).all() as unknown as Array<{ p: string; n: number }>) subCounts.set(r.p, r.n);
 
+    // L'ULTIMA COSA CHE L'AGENTE HA DETTO, e le note di servizio non sono
+    // parlato. `service` esce insieme a `status`: l'avviso «Anteprima non
+    // allegata: 503» lo scrive il sistema sotto il nome dell'agente, e finche'
+    // contava come sua ultima parola una card senza nessun riassunto sembrava
+    // averne uno (visto il 19/08 su `0377f150`, dove nascondeva sia la
+    // descrizione vuota sia dei check pre-review rossi).
     const lastAgent = db.prepare(
       `SELECT content, created_at FROM task_comments
-        WHERE task_id = ? AND author NOT IN ('user','system') AND COALESCE(kind,'comment') <> 'status'
+        WHERE task_id = ? AND author NOT IN ('user','system')
+          AND COALESCE(kind,'comment') NOT IN ('status','service')
         ORDER BY created_at DESC LIMIT 1`,
     );
     const lastHuman = db.prepare(
