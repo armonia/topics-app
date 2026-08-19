@@ -30,7 +30,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket, priorityAwaitingAgent } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -2898,10 +2898,9 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   const [open, setOpen] = useState(false);
   const [kids, setKids] = useState<BoardTask[] | null>(null);
   const hasKids = node.subtaskCount > 0;
-  // A bare row (no description, no subtasks, no agent tab) has nothing to show
-  // in the drawer — no click affordance, so it doesn't look openable when it
-  // isn't.
-  const openable = !!node.description || hasKids || !!node.assignedTopicId;
+  // Riga nuda = nessun affordance di click; riga con qualcosa da dire = si apre.
+  // La regola per esteso sta su `subtaskOpenable`.
+  const openable = subtaskOpenable(node);
   // Questa riga è dove il triage guarda davvero: le colonne mostrano solo le
   // radici (`rootsOnly`), quindi uno step non è MAI una card — l'albero del
   // padre è l'unico posto in cui si vede senza averlo cercato per id.
@@ -2912,6 +2911,9 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   // padre che la lavora è il drawer che stai guardando. Resta come icona muta,
   // che risponde al passaggio del mouse.
   const work = subtaskWorkChip(node);
+  // La ragione di coda, ma solo quando è FERMA: `subtaskQueueChip` è dove sta
+  // scritto il perché del filtro.
+  const stalled = subtaskQueueChip(node);
   const toggle = async () => {
     if (!open && kids === null) {
       try { const { children } = await boardApi.get(projectId, node.id); setKids(children ?? []); }
@@ -2940,6 +2942,11 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
         ) : (
           <span className={`min-w-0 flex-1 truncate text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-secondary'}`}>{node.text}</span>
         )}
+        {stalled ? (
+          <span data-testid={`subtask-queue-reason-${node.id}`} className="flex min-w-0 shrink">
+            <QueueReasonChip reason={stalled} />
+          </span>
+        ) : null}
         {work && (work.kind === 'unattended' ? (
           <span
             data-testid={`subtask-work-${node.id}`}
