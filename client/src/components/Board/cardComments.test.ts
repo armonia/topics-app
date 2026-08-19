@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { cardCommentsFromRow, cardDetailNeed, selectCardComments, isHumanComment, isMachineVoice, showsCardThread, type CardThreadRow } from './cardComments';
-import { NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, noteParkedChildrenResolved } from '../../../../shared/board';
+import { NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, noteParkedChildrenResolved } from '../../../../shared/board';
 import type { CardComment, TaskComment } from '../../lib/board';
 
 /**
@@ -152,6 +152,7 @@ describe('selectCardComments', () => {
    */
   test.each([
     ['stop', NOTE_STOPPED_BY_HUMAN],
+    ['stop on a queued card', NOTE_UNQUEUED_BY_HUMAN],
     ['archive with a live agent', NOTE_ARCHIVED_BY_HUMAN],
     ['parked children requeued', noteParkedChildrenResolved('requeue', 3)],
     ['parked children archived', noteParkedChildrenResolved('archive', 1)],
