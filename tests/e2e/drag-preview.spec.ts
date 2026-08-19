@@ -304,35 +304,20 @@ test.describe("Anteprima del trascinamento: le tessere della sidebar", () => {
 
   test("DPREV-02: la riga dell'albero mostra il nome della chat, e la card del gruppo si dichiara", async ({ page }) => {
     await scena(page);
-    // SONDA TEMPORANEA
-    {
-      const fs = await import("node:fs");
-      const dump = await page.evaluate(() => {
-        const tl = document.querySelector('[data-testid="sidebar-timeline"]');
-        const roles = Array.from(document.querySelectorAll("[role]")).map((e) => ({
-          role: e.getAttribute("role"),
-          label: e.getAttribute("aria-label"),
-          txt: (e.textContent || "").trim().slice(0, 60),
-        }));
-        const counts: Record<string, number> = {};
-        for (const r of roles) counts[r.role || "?"] = (counts[r.role || "?"] || 0) + 1;
-        return {
-          timelineExists: !!tl,
-          timelineHtml: tl ? tl.innerHTML.slice(0, 4000) : null,
-          roleCounts: counts,
-          treeitems: roles.filter((r) => r.role === "treeitem").slice(0, 40),
-          dprevNodes: Array.from(document.querySelectorAll("*"))
-            .filter((e) => e.children.length === 0 && (e.textContent || "").includes("DPREV"))
-            .slice(0, 40)
-            .map((e) => ({ tag: e.tagName, txt: (e.textContent || "").trim().slice(0, 60), cls: e.className?.toString?.().slice(0, 80) })),
-        };
-      });
-      fs.writeFileSync("/tmp/dprev-02-probe.json", JSON.stringify(dump, null, 2));
-    }
     // Il locator per nome accessibile E' la lettura dalla superficie: risolve
     // solo se e' la riga a portare quel nome.
+    //
+    // L'antenato e' la sidebar intera e NON `sidebar-timeline`. Quel contenitore
+    // vive nel ramo SENZA gruppi di `TopicTree`, e i due rami si escludono a
+    // vicenda. Questa scena un gruppo ce l'ha per forza, perche' la card
+    // bersaglio esiste solo li': quindi la timeline non viene disegnata affatto,
+    // e le righe fuori dai gruppi finiscono in `sidebar-loose`. Misurato sul DOM
+    // della scena: `sidebar-timeline` assente, e la riga presente come
+    // `treeitem` con il nome giusto. La sidebar come antenato tiene fuori la
+    // barra delle tab e l'intestazione della pane, che portano lo stesso testo
+    // ma non sono righe dell'albero.
     const riga = page
-      .getByTestId("sidebar-timeline")
+      .locator('[aria-label="Topics sidebar"]')
       .getByRole("treeitem", { name: new RegExp(nomeRiga) })
       .first();
     await expect(riga).toBeVisible({ timeout: 10_000 });
