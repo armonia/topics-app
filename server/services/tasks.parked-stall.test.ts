@@ -58,10 +58,47 @@ describe("l'anello: rimettere in coda una seconda volta non si offre piu'", () =
     return testo.split("\n").filter((r) => r.startsWith("- ")).map((r) => r.slice(2).trim());
   };
 
-  test("la PRIMA volta offre di rimettere in coda", () => {
+  test("la PRIMA volta offre tutte e tre le uscite", () => {
     const { padre } = padreConFiglioParcheggiato(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
-    expect(opzioni(padre)).toEqual(["Rimetti in coda i sottotask", "Archivia i sottotask"]);
+    // Uno step NUDO — creato e mai toccato — e' la decomposizione del titolo:
+    // archiviarlo per primo. «Promuovi» resta a portata perche' la lettura e' un
+    // suggerimento, non un verdetto.
+    expect(opzioni(padre)).toEqual([
+      "Archivia i sottotask", "Promuovi i sottotask a task", "Rimetti in coda i sottotask",
+    ]);
+  });
+
+  /**
+   * IL SUGGERIMENTO, che e' la differenza fra chiedere e chiedere a freddo.
+   *
+   * Delle card ferme sui propri step il 19/08 4 su 4 e il 18/08 15 su 16
+   * portavano una traccia di INTERRUZIONE: quegli step sono lavoro vero rimasto
+   * senza turno, non disobbedienza. Il servizio sa distinguerli — sessione,
+   * tentativi, commenti — e chi rivede no: la domanda glielo dice, e mette per
+   * primo il bottone che non butta via niente.
+   */
+  test("uno step con lavoro proprio si SUGGERISCE di promuoverlo, e la domanda lo dice", () => {
+    const { padre, figlio } = padreConFiglioParcheggiato(s);
+    s.addComment({ taskId: figlio, author: "agent", content: "meta' fatto: manca la migrazione" });
+    s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
+
+    expect(opzioni(padre)[0]).toBe("Promuovi i sottotask a task");
+    expect(ultimoCommento(s, padre)).toContain("hanno lavoro proprio");
+  });
+
+  test("«promuovi»: il figlio perde il padre e va in coda, il padre riparte libero", () => {
+    const { padre, figlio } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
+    const esito = s.resolveParkedChildren({ taskId: padre, decision: "promote", by: "chi rivede" })!;
+
+    const f = db.prepare("SELECT status, parent_task_id, archived FROM tasks WHERE id = ?").get(figlio) as any;
+    expect(f.parent_task_id).toBeNull();
+    expect(f.status).toBe("todo");
+    expect(f.archived).toBe(0);
+    expect(esito.task.status).toBe("todo");
+    // Il padre non aspetta piu' nessuno: la domanda non si rialza al giro dopo.
+    expect(s.sweepParkedChildren({ by: "tick" }).map((t) => t.id)).not.toContain(padre);
   });
 
   test("la SECONDA volta no: quella strada si e' gia' dimostrata circolare", () => {

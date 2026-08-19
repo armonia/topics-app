@@ -32,7 +32,7 @@ import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type Field
 import { getTerminalSessionById } from "./terminal";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
-import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPromoteParkedLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
@@ -2492,8 +2492,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: preso });
             return json(preso);
           }
-          if (isRequeueParkedLabel(comment) || isArchiveParkedLabel(comment)) {
-            const decision = isRequeueParkedLabel(comment) ? "requeue" as const : "archive" as const;
+          // LA TERZA RISPOSTA che risolve i figli, e l'unica che li rende
+          // servibili: senza `parent_task_id` la coda li prende come qualunque
+          // card, mentre «rimetti in coda» li lascia fermi in `todo` sotto un
+          // padre (il tick lista `rootsOnly`). Stessa porta delle altre due,
+          // perche' e' la stessa cosa: un UPDATE, non un turno d'agente.
+          if (isRequeueParkedLabel(comment) || isArchiveParkedLabel(comment) || isPromoteParkedLabel(comment)) {
+            const decision = isRequeueParkedLabel(comment)
+              ? "requeue" as const
+              : isPromoteParkedLabel(comment) ? "promote" as const : "archive" as const;
             const esito = svc.resolveParkedChildren({ taskId: bReview.taskId, decision, by: HUMAN });
             if (!esito) {
               return json({
@@ -2507,6 +2514,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // ripartire e i sottotask ancora parcheggiati finché non ricarica.
             for (const c of esito.children) broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: c });
             if (dispatcher && esito.task.status === "todo") dispatcher.onEnterTodo(bReview.projectId, bReview.taskId);
+            // PROMUOVERE E' METTERE IN CODA, altrimenti e' solo togliere un
+            // padre: un figlio promosso e' una card come le altre, e il turno
+            // glielo deve dare qualcuno adesso, non il tick fra dieci minuti.
+            // Il broadcast qui sopra lo fa gia' comparire nel feed della board.
+            if (dispatcher && decision === "promote") {
+              for (const c of esito.children) {
+                if (c.status === "todo") dispatcher.onEnterTodo(bReview.projectId, c.id);
+              }
+            }
             return json(esito.task);
           }
           if (isLandActionLabel(comment)) {

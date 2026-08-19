@@ -5,6 +5,7 @@ import {
   PARKED_STOPPED,
   PUBLISH_ACTION_LABEL,
   QUEUE_REASON_UNKNOWN,
+  PROMOTE_PARKED_LABEL,
   REQUEUE_PARKED_LABEL,
   STATUS_EVENT_REASON_MAX,
   deriveQueueReason,
@@ -782,8 +783,8 @@ describe("questionAsksHuman", () => {
     expect(questionAsksHuman(undefined)).toBe(false);
   });
 
-  test("isBoardActionLabel covers the four the server runs, and nothing else", () => {
-    for (const l of [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL]) {
+  test("isBoardActionLabel covers the five the server runs, and nothing else", () => {
+    for (const l of [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL]) {
       expect(isBoardActionLabel(l)).toBe(true);
     }
     // A plan verdict resumes the AGENT with the human's words: an answer, not
