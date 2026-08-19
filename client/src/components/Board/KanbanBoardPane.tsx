@@ -1752,6 +1752,42 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     if (plan) dropTo(task, plan); else flushDeferredRead();
   }, [tasks, byStatus, dropTo, endDrag, flushDeferredRead, orderScope, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
+  /**
+   * COSA HO IN MANO, in parole: la riga di contesto e i badge che la scheda di
+   * trascinamento porta sotto al titolo (il `DragOverlay` in fondo al render).
+   *
+   * Si calcola qui e non dentro il JSX perché mentre la card è in mano questa
+   * pane ridisegna a ogni movimento del puntatore, e `resolveProjectRefs`
+   * ricostruirebbe l'indice dei progetti a ogni fotogramma per leggere un nome
+   * solo.
+   */
+  const dragPreview = useMemo(() => {
+    if (!activeTask) return null;
+    // Il progetto SOLO dove distingue qualcosa. Su una board di progetto
+    // sarebbe la stessa parola su ogni card, cioè rumore. Il nome lo dà
+    // `resolveProjectRefs`, lo stesso indice condiviso da cui lo prendono il
+    // filtro e la card: un id senza progetto (`isProjectlessId`) non ha nome da
+    // mostrare, esattamente come la card che non disegna il chip.
+    const progetto = mode === 'all' && !isProjectlessId(activeTask.projectId)
+      ? resolveProjectRefs([activeTask.projectId], projectIndex)[0]?.name ?? null
+      : null;
+    // La colonna di partenza è il fatto che il titolo non dice mai. Trascinando
+    // fra cinque colonne, «da dove viene» è metà di quello che serve sapere.
+    const subtitle = [STATUS_LABEL[activeTask.status], progetto].filter(Boolean).join(' · ');
+    // Tre al massimo, priorità per prima perché è l'unica che c'è sempre. Le
+    // etichette sono già la parola che si legge (`shared/task-labels`: il
+    // vocabolario È il testo), e restano nell'ordine in cui le disegna la card,
+    // così l'anteprima non racconta una card diversa da quella che hai preso.
+    // Oltre il terzo badge la scheda cresce più di quanto dica.
+    //
+    // `filter(Boolean)` copre una priorità fuori scala, che nella mappa dei
+    // nomi non ha nessuna voce e lascerebbe un badge senza testo.
+    const badges = [
+      PRIORITY_LABEL[activeTask.priority],
+      ...activeTask.labels.map((l) => l.label),
+    ].filter(Boolean).slice(0, 3);
+    return { subtitle, badges };
+  }, [activeTask, mode, projectIndex]);
 
   const create = useCallback(async (status: TaskStatus, text: string) => {
     // A task can't be created directly in Done — land it in Todo instead.
@@ -2056,11 +2092,49 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                 pointer. On body there is no transform above it, ever. */}
             {createPortal(
               <DragOverlay dropAnimation={null}>
-                {activeTask ? (
-                  <div className="w-64 rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-xl">
+                {activeTask && dragPreview ? (
+                  // QUESTA È L'ANTEPRIMA DEL CONTRATTO (`lib/dragPreview`), e
+                  // per questo porta `data-drag-preview`: chi legge il DOM, e i
+                  // test, la trovano qui con lo stesso attributo che marca ogni
+                  // altra superficie trascinabile dell'app.
+                  //
+                  // Il nodo però lo disegna dnd-kit, e la board NON chiama
+                  // `startTouchDragPreview`. Per due ragioni, entrambe misurate.
+                  // La prima: questo fantasma esiste già e segue il puntatore da
+                  // solo, quindi una seconda scheda sotto lo stesso dito sarebbe
+                  // il «si vede doppio» contro cui il contratto mette in
+                  // guardia. La seconda: la board si trascina anche da TASTIERA
+                  // (`PoliteKeyboardSensor`), e lì l'evento che apre il gesto è
+                  // un `KeyboardEvent` senza `clientX`/`clientY`. Una scheda
+                  // montata con quelle coordinate resterebbe piantata a 0,0
+                  // mentre la card si muove altrove. È la stessa scelta già
+                  // presa in `Sidebar/PinnedTile` e `Sidebar/PinnedTiles`:
+                  // quando la superficie disegna già l'anteprima con la cosa
+                  // VERA, quella vince sul nodo generico e il contratto si
+                  // adotta marcandola.
+                  //
+                  // Cosa mostra, oltre al titolo: la colonna di partenza (più il
+                  // progetto quando la board le tiene tutte insieme) e i badge
+                  // di priorità ed etichette. Vedi il memo `dragPreview`.
+                  <div
+                    data-drag-preview=""
+                    className="w-64 rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-xl"
+                  >
                     <div className="flex items-start gap-2">
                       <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
-                      <span className="flex-1 leading-snug">{activeTask.text}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="leading-snug">{activeTask.text}</div>
+                        {dragPreview.subtitle && (
+                          <div className="mt-1 truncate text-[11px] text-app-text-muted">{dragPreview.subtitle}</div>
+                        )}
+                        {dragPreview.badges.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                            {dragPreview.badges.map((b) => (
+                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-app-text-secondary">{b}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ) : null}
