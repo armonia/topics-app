@@ -10,7 +10,6 @@
 import { describe, test, expect } from "bun:test";
 import {
   dropRegionStyle,
-  caretStyle,
   fullRowZoneStyle,
   FULL_ROW_GUTTER_PX,
   DROP_SEAM_PX,
@@ -81,20 +80,6 @@ describe("dropRegionStyle — fullWidth + gutterInset", () => {
     expect(dropRegionStyle("bottom", { gutterInset: 26 }).bottom).toBe(26);
     expect(dropRegionStyle("left", { gutterInset: 26 }).bottom).toBe(26);
     expect(dropRegionStyle("top", { gutterInset: 26 }).bottom).toBe("50%");
-  });
-});
-
-describe("caretStyle — 1-D insert marker", () => {
-  test("is a thin solid bar with no fill region", () => {
-    const s = caretStyle("left");
-    expect(s.left).toBe(0);
-    expect(s.width).toBe(DROP_SEAM_PX);
-    expect(String(s.background)).toContain("var(--primary)");
-    expect(s.background).not.toContain?.("color-mix"); // solid, not a translucent fill
-  });
-
-  test("right caret pins to the right edge", () => {
-    expect(caretStyle("right").right).toBe(0);
   });
 });
 

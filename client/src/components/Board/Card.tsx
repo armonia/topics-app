@@ -120,11 +120,18 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   const widthCls = isReview
     ? 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
     : 'min-w-0 grow basis-72 max-w-[26rem]';
-  const borderCls = isOver ? 'border-emerald-400/60' : 'border-app-border';
-  const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
-
   return (
-    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex ${widthCls} shrink-0 flex-col rounded-lg border ${snapCls} ${borderCls} ${bgCls}`}>
+    <div
+      ref={setNodeRef}
+      data-testid={`kanban-column-${status}`}
+      // DOVE CADRÀ: `into`, perché la card entra DENTRO questa colonna. Il verde
+      // scritto a mano era il disegno di questo file soltanto, mentre lo stesso
+      // rilascio nel resto dell'app si dipinge con la regola unica di
+      // `index.css` (vedi DROP_ACTIVE_ATTR in `lib/dragPreview`): la board
+      // diceva «qui» in un colore che nessun'altra superficie usava.
+      data-drop-active={isOver ? 'into' : undefined}
+      className={`flex ${widthCls} shrink-0 flex-col rounded-lg border border-app-border bg-white/5 ${snapCls}`}
+    >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-app-text-heading">
           <StatusIcon status={status} />

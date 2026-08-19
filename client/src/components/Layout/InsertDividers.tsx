@@ -111,6 +111,12 @@ export function ColumnInsertDivider({
       className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-divider-row={rowIdx}
       data-panel-divider-col={colIdx}
+      // DOVE CADRÀ: `before`, cioè «la cosa entra qui, fra queste due celle».
+      // La barra accesa era un figlio dipinto a mano proprio qui — colore,
+      // raggio e alone — mentre lo stesso inserimento sulla barra delle tab lo
+      // dice ora con l'attributo del contratto. Sta sul DIVISORE e non su un
+      // figlio, perché il divisore È il bersaglio.
+      data-drop-active={hoverDuringDrag ? 'before' : undefined}
       title={onEqualize ? 'Double-click to equalize widths' : undefined}
       onMouseDown={onResizeStart}
       onDoubleClick={onEqualize}
@@ -128,14 +134,6 @@ export function ColumnInsertDivider({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-        />
-      )}
-      {/* Visible drop indicator centered on the divider */}
-      {hoverDuringDrag && (
-        <div
-          aria-hidden
-          className="absolute inset-y-0 -left-[2px] -right-[2px] bg-primary rounded-sm pointer-events-none"
-          style={{ boxShadow: '0 0 0 1px var(--primary)' }}
         />
       )}
     </div>
@@ -205,6 +203,11 @@ export function RowInsertDivider({
       data-resize-axis="row"
       className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-row-divider={rowIdx}
+      // Come il divisore di colonna, ma su una fila IMPILATA: qui si entra
+      // sopra o sotto, quindi la lama è orizzontale e l'asse lo dichiara il
+      // bersaglio (`data-drop-axis`, vedi index.css).
+      data-drop-axis="y"
+      data-drop-active={hoverDuringDrag ? 'before' : undefined}
       title={onEqualize ? 'Double-click to equalize heights' : undefined}
       onMouseDown={onResizeStart}
       onDoubleClick={onEqualize}
@@ -220,13 +223,6 @@ export function RowInsertDivider({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-        />
-      )}
-      {hoverDuringDrag && (
-        <div
-          aria-hidden
-          className="absolute inset-x-0 -top-[2px] -bottom-[2px] bg-primary rounded-sm pointer-events-none"
-          style={{ boxShadow: '0 0 0 1px var(--primary)' }}
         />
       )}
     </div>
