@@ -2231,6 +2231,12 @@ pub struct NotifyActionArg {
 /// `actions` sono i TASTI (rispondi alla domanda dell'agente, approva, rimetti
 /// in coda). Solo macOS li disegna: il percorso plugin di Windows/Linux non
 /// espone azioni, e là un banner resta il link di sempre.
+///
+/// `task_id` è il nome STORICO del campo, e resta tale apposta: quello che ci
+/// passa è un token opaco che dice dove porta il click (un task, oppure un
+/// topic di chat), composto e riletto dal client
+/// (client/src/lib/notify/notifyTarget.ts). Ribattezzarlo spegnerebbe il click
+/// su tutti i gusci già installati, che quel nome lo leggono così.
 #[tauri::command]
 fn notify(
     app: tauri::AppHandle,

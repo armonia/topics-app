@@ -359,11 +359,18 @@ define_class!(
             response: &UNNotificationResponse,
             completion: &block2::DynBlock<dyn Fn()>,
         ) {
-            // A task-bound banner encodes its task id in the request identifier
-            // (`topics-task-<id>`, see post()). Read it here (on the delegate
+            // A banner with a destination encodes it in the request identifier
+            // (`topics-task-<token>`, see post()). Read it here (on the delegate
             // queue), then hop to the main thread to surface the window AND open
-            // the task in the webview. Charset-gated to UUID-safe chars so the
-            // id can be inlined into the eval'd JS with no injection surface.
+            // that destination in the webview. Charset-gated to UUID-safe chars
+            // so the token can be inlined into the eval'd JS with no injection
+            // surface.
+            //
+            // TOKEN, not a task id: what it points at (a task, a chat topic) is
+            // decided and decoded on the client side
+            // (client/src/lib/notify/notifyTarget.ts). The shell only carries
+            // the string, which is why a client can add a new kind of
+            // destination without a new shell.
             let task_id: Option<String> = {
                 let ident = response.notification().request().identifier().to_string();
                 ident
@@ -595,7 +602,7 @@ fn register_category(actions: &[NotifyAction]) -> String {
 /// una svista: la 2.0.0 di Homebrew non ha `-actions` (`-execute`/`-open`
 /// sono tutto ciò che offre), quindi là un banner resta un link. Meglio un
 /// banner senza tasti che un tasto che non esiste.
-pub fn post(title: &str, body: &str, task_id: Option<&str>, actions: &[NotifyAction]) {
+pub fn post(title: &str, body: &str, target_token: Option<&str>, actions: &[NotifyAction]) {
     if !is_bundled() {
         return;
     }
@@ -619,11 +626,13 @@ pub fn post(title: &str, body: &str, task_id: Option<&str>, actions: &[NotifyAct
         ));
         content.setCategoryIdentifier(&NSString::from_str(&cat));
     }
-    // The task id (when the banner is task-bound) rides in the request
+    // The destination TOKEN (when the banner has one) rides in the request
     // IDENTIFIER — a plain string we read back verbatim from the click
     // response in the delegate (no NSDictionary/userInfo plumbing). A stable
-    // `topics-task-<id>` also means a task's newer banner replaces its older.
-    let id = match task_id {
+    // `topics-task-<token>` also means a newer banner for the same destination
+    // replaces its older one. The token's meaning lives on the client
+    // (notifyTarget.ts): here it is opaque transport.
+    let id = match target_token {
         Some(t) => format!("topics-task-{t}"),
         None => format!(
             "topics-notif-{}-{}",
