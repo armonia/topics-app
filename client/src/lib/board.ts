@@ -405,6 +405,27 @@ export function reopenedChip(
   };
 }
 
+
+/**
+ * La priorità «auto» è una promessa SULLA CODA, e come tutte le promesse ha una
+ * scadenza.
+ *
+ * `priorityAuto` vuol dire: nessuno ha scelto, la sceglierà l'agent appena
+ * inquadra il lavoro. Ha senso finché il task è ancora in coda — è lì che la
+ * priorità serve, perché è l'ordine con cui i task partono. Appena il task È
+ * partito, la coda l'ha già servito: la priorità non ordina più niente, e quella
+ * valutazione, se non è arrivata, non arriverà.
+ *
+ * Continuare a scrivere «Priorità auto» sulla scheda di un task in lavorazione
+ * promette all'umano una cosa che non succederà, e nasconde il valore
+ * effettivamente in vigore (il default, Media, se nessuno ha toccato niente).
+ * Dopo la coda si mostra il valore vero.
+ */
+export function priorityAwaitingAgent(task: { status: TaskStatus; priorityAuto: boolean }): boolean {
+  return task.priorityAuto && (task.status === 'backlog' || task.status === 'todo');
+}
+
+
 export interface BoardTask {
   id: string;
   projectId: string;
