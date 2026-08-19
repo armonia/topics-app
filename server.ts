@@ -4610,6 +4610,11 @@ setTimeout(() => {
 //
 // La stessa variabile la legge `scripts/start-prod.sh` per la propria finestra
 // d'attesa: erano due numeri in due file che dovevano dire la stessa cosa.
+/** L'attesa quando a lavorare e' solo una CHAT (nessuna card in volo). Corta di
+ *  proposito: una chat la reload-resilience la riadotta, e con l'attesa lunga il
+ *  hot-reload non scatterebbe mai mentre si sviluppa. */
+const QUIESCENCE_CHAT_CAP_MS = Math.max(10_000, Number(process.env.TOPICS_QUIESCENCE_CHAT_CAP_MS) || 60_000);
+
 const QUIESCENCE_CAP_MS = Math.max(60_000, Number(process.env.TOPICS_QUIESCENCE_CAP_MS) || 25 * 60_000);
 /** Il broker si interroga a questa cadenza, non a ogni giro da 500ms: la sonda
  *  legge la coda dello store di OGNI sessione viva, e a 2Hz sarebbe un costo
@@ -4672,7 +4677,7 @@ let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<string | null> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number }> {
   const cards = taskDispatcher.busyCount();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
@@ -4685,17 +4690,33 @@ async function whatIsStillWorking(): Promise<string | null> {
     }
     brokerOpen = brokerProbeCache.open;
   }
-  return describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen });
+  return { busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen }), cards };
 }
 
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
-  const deadline = Date.now() + capMs;
+  let deadline = Date.now() + QUIESCENCE_CHAT_CAP_MS;
   let logged = false;
   for (;;) {
-    const busy = await whatIsStillWorking();
+    const { busy, cards } = await whatIsStillWorking();
     if (!busy) break;
+    // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
+    //
+    // Un turno di CARD tagliato a meta' e' lavoro perso: l'agente stava
+    // scrivendo file, e il turno non torna. Merita l'attesa lunga.
+    //
+    // Una CHAT che sta streammando no: la reload-resilience la riadotta, chi
+    // guarda vede una pausa. Aspettarla quanto una card significa che il
+    // hot-reload MUORE per chiunque abbia una conversazione aperta — cioe'
+    // sempre, mentre si sviluppa. Misurato il 19/08 alzando il cap a 25
+    // minuti: `restart-when-idle` rispondeva 202 e il server non usciva piu',
+    // perche' a non drenare era la chat di chi stava lavorando.
+    //
+    // La scadenza si ALZA quando compaiono delle card, e non si riabbassa: una
+    // card che parte mentre si aspetta ha diritto all'attesa lunga, e togliergliela
+    // perche' e' finita mezzo secondo dopo sarebbe la stessa svista al contrario.
+    if (cards > 0) deadline = Math.max(deadline, Date.now() + capMs);
     if (Date.now() >= deadline) {
-      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo dopo ${Math.round(capMs / 1000)}s, si procede lo stesso (la reload-resilience li riprende)`);
+      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza, si procede lo stesso (la reload-resilience li riprende)`);
       return;
     }
     if (!logged) {
