@@ -312,3 +312,11 @@ tmp-tasks-router-*/
 .topics-claims.md
 .scrub-map.txt
 preview/
+# browser-inventario.md e' la mappa di cosa il browser di Topics fa DAVVERO:
+# le tre rese di una pane, i comandi della toolbar, i 30 comandi nativi con la
+# parita' Windows/Linux, i 16 tool dell'agente e cosa di quelli la pane nativa
+# non sa fare. E' il passo 2 di una serie in cui i passi 3 e 4 (confronto con i
+# browser veri, mappa di cosa vale la pena) partono da qui: ignorato, il
+# documento vivrebbe sul disco di un worktree che il GC cancella, e la card
+# successiva ricomincerebbe la stessa lettura da zero.
+!docs/browser-inventario.md
