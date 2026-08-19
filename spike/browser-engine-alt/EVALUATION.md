@@ -344,13 +344,16 @@ mantenere a loro.
 
 ### La strategia che regge
 
-**Usare Obscura come dipendenza binaria, non come sorgente.** Concretamente:
+**Usare Obscura come dipendenza binaria, non come sorgente** — e la meccanica è già
+scritta ed eseguibile: `scripts/obscura-track.ts` + `UPSTREAM.md`. Concretamente:
 - il binario è **un singolo eseguibile** che parla CDP su una porta — la stessa
   interfaccia che Topics già usa per Chromium. Sostituirlo non tocca i `browser_*`;
 - le nostre fix vanno **upstream** (85% di PR accettate, 4.9 ore di mediana): zero costo
   di manutenzione per noi, e il resto del mondo le testa al posto nostro;
-- **la patch resta in questo repo** (`obscura-canvas-fix.patch`): se upstream sparisse o
-  rifiutasse, `git apply` + `cargo build` la riporta in 17 minuti. È l'assicurazione;
+- **la patch resta in questo repo** (`patches/`, con manifest e stato): se upstream
+  sparisse o rifiutasse, `bun run obscura:build` la riapplica e ricompila. È
+  l'assicurazione. E `bun run obscura:check` esce non-zero il giorno in cui upstream
+  tocca le nostre righe — così lo scopre la CI, non l'utente;
 - si mantiene Chromium come fallback finché i buchi noti non sono chiusi. Non è un
   ripiego: è la stessa struttura a due motori che Topics ha già (`nativo` + `chromium`),
   con un terzo che si aggiunge senza togliere niente.
