@@ -13,7 +13,7 @@ interface Harness {
   deps: PreviewManagerDeps;
   outputUrl: { v: string | null };
   previewImage: string | null;
-  reviewNotes: { content: string; media?: string[] }[];
+  reviewNotes: { content: string; media?: string[]; kind?: "review-note" | "service" }[];
   registered: any[];
   unregistered: string[];
   spawned: { cmd: string[]; cwd: string; env: Record<string, string> }[];
@@ -380,8 +380,43 @@ describe("content gate in prepareForReview", () => {
     const pm = createPreviewManager(h.deps);
     await pm.prepareForReview("t1");
     expect(h.previewImage).toBe("");                       // evidenza ritirata
-    expect(h.reviewNotes[0].content).toContain("Nessuna anteprima allegata");
+    expect(h.reviewNotes[0].content).toContain("Anteprima non allegata");
     expect(h.reviewNotes[0].media).toBeUndefined();
+  });
+
+  /**
+   * IL PESO DELLA NOTA SEGUE CHI HA APERTO LA PORTA.
+   *
+   * Il 19/08 sette card in review su sette avevano come ULTIMA riga del thread
+   * lo stesso avviso «nessuna anteprima allegata: localhost:340x ha risposto
+   * 503» — sopra il riassunto dell'agente, cioè esattamente dove l'umano cerca
+   * «cos'è stato fatto». Non era una scoperta: era un worktree senza bundle
+   * costruito, la condizione normale di quasi ogni card, detta con l'enfasi di
+   * un guasto.
+   */
+  it("l'anteprima che abbiamo avviato NOI e non serve: nota di servizio, non in evidenza", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 503, body: "Bundle not built yet." }),
+      screenshot: async () => { throw new Error("non deve nemmeno provarci"); },
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.reviewNotes[0].kind).toBe("service");
+  });
+
+  it("un output_url messo da una PERSONA che non regge resta in evidenza", async () => {
+    // Stessa famiglia del caso sopra, verso opposto: qui l'indirizzo non
+    // l'abbiamo scelto noi, quindi il suo fallimento e' una notizia e va detto
+    // dove l'umano guarda — non nel raggruppamento delle righe di servizio.
+    const h = harness({
+      outputUrl: "http://localhost:9999",
+      probe: async () => true,
+      screenshot: async () => { throw new Error("non deve nemmeno provarci"); },
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    const prominenti = h.reviewNotes.filter((n) => (n.kind ?? "review-note") === "review-note");
+    expect(prominenti.length, "il fallimento di un url umano non si nasconde").toBeGreaterThan(0);
   });
 
   it("pagina vera ⇒ si fotografa come prima", async () => {

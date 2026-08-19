@@ -119,7 +119,16 @@ export interface PreviewManagerDeps {
    */
   retirePreview?(taskId: string, reason: string): void;
   /** Add a `review-note` comment (does NOT wake the agent). */
-  addReviewNote(taskId: string, args: { content: string; media?: string[] }): void;
+  /**
+   * Una riga nel thread della card.
+   *
+   * `kind` decide DOVE finisce, e non è cosmetica: `review-note` sta in
+   * evidenza (è una cosa che una persona deve leggere), `service` cade nel
+   * raggruppamento che il thread già fa. La distinzione serve perché la stessa
+   * frase può essere una scoperta o una condizione strutturale — vedi
+   * `prepareForReview`.
+   */
+  addReviewNote(taskId: string, args: { content: string; media?: string[]; kind?: "review-note" | "service" }): void;
   /** Surface the preview in the Processes panel (Stop button + logs). Optional. */
   registerProcess?(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void;
   unregisterProcess?(taskId: string): void;
@@ -478,9 +487,13 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         if (await reusable(taskId, cur)) url = cur;
         else refusedLocal = true;
       }
+      // Chi ha scelto questo indirizzo? Cambia il PESO di ciò che si dice dopo:
+      // un url messo da una persona che smette di rispondere è una notizia; una
+      // porta che abbiamo aperto noi in un worktree senza bundle è la normalità.
+      let nostro = false;
       if (!url) {
         const res = await bootPreview(taskId);
-        if (res.preview) { url = res.preview.url; deps.setOutputUrl(taskId, url); }
+        if (res.preview) { url = res.preview.url; nostro = true; deps.setOutputUrl(taskId, url); }
         else bootFailure = res.reason;
       }
 
@@ -524,9 +537,25 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
           if (deps.retirePreview) deps.retirePreview(taskId, `l'anteprima viva ${why}`);
           else deps.setPreviewImage(taskId, "");
         } catch (err) { log(`[preview] clearPreviewImage failed for ${taskId}`, err); }
+        // IL PESO DELLA FRASE SEGUE CHI HA APERTO LA PORTA.
+        //
+        // Quando l'indirizzo è nostro — l'abbiamo appena avviato noi nel
+        // worktree — un 503 non è una scoperta: è un worktree senza bundle
+        // costruito, cioè la condizione normale di quasi ogni card. Scritta come
+        // `review-note` diventava l'ULTIMA riga del thread di OGNI consegna,
+        // sopra il riassunto dell'agente: misurato il 19/08 su sette card in
+        // review su sette, tutte con lo stesso avviso in coda. Una nota che
+        // compare sempre non informa nessuno, e occupa il posto in cui l'umano
+        // cerca «cos'è stato fatto».
+        //
+        // Se invece l'indirizzo l'aveva messo una persona (`output_url`) e
+        // adesso non risponde, quella è una notizia e resta in evidenza.
         deps.addReviewNote(taskId, {
-          content: `⚠️ Nessuna anteprima allegata: ${url} ${why}. ` +
-            "Un'evidenza falsa è peggio di nessuna evidenza. Se il worktree serve un bundle, costruiscilo (`cd client && bun run build`) e allega tu l'anteprima.",
+          kind: nostro ? "service" : "review-note",
+          content: nostro
+            ? `Anteprima non allegata: ${url} ${why}. Il worktree probabilmente non ha un bundle costruito (\`cd client && bun run build\`).`
+            : `⚠️ Nessuna anteprima allegata: ${url} ${why}. ` +
+              "Un'evidenza falsa è peggio di nessuna evidenza. Se il worktree serve un bundle, costruiscilo (`cd client && bun run build`) e allega tu l'anteprima.",
         });
         return;
       }
