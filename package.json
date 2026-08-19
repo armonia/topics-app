@@ -72,6 +72,7 @@
     "check:drag": "bun run scripts/check-drag-frames.ts",
     "check:growth": "bun run scripts/check-session-growth.ts",
     "check:boot-memory": "bun run scripts/check-boot-memory.ts",
+    "db:compress": "bun run scripts/compress-message-blobs.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
     "report:webcontent": "bun run scripts/webcontent-owners.ts",
