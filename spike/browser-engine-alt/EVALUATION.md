@@ -371,9 +371,38 @@ ancora fatto.
 - **Nessuna integrazione nativa**: menu di sistema, notifiche, portachiavi, PiP — tutto
   ciò che Tauri+WKWebView dà gratis andrebbe reimplementato.
 
-### Il confronto "36 MB contro 353" era truccato — ecco perché
+### Il guadagno VERO sostituendo il renderer dell'app — misurato bene
 
-Va detto prima di tutto il resto, perché quel numero da solo mente. **Non stavo
+Rifatto il confronto come andava fatto: **stessa app, stessa origine, stesso momento**.
+Il client servito dall'origine che l'app usa davvero (proxy HTTP verso il server TLS,
+`proxy.ts`), così la board carica sul serio invece di fermarsi al gate di autorizzazione.
+
+| engine | RAM | nodi DOM | vs Tauri |
+|---|---|---|---|
+| **WKWebView (Tauri oggi)** | **316 MB** | 1025 | — |
+| **Servo 0.4** | **301 MB** | — | **+15 MB (5%)** |
+| **Obscura** | **155 MB** | 968 | +161 MB (51%) |
+
+**Servo guadagna 15 MB. Il 5%.** È questo il numero che chiude la domanda "se con Tauri
+è già tutto pronto, facciamolo": `tauri-runtime-verso` esiste davvero, quindi la strada è
+percorribile — ma si spenderebbe l'integrazione di un runtime alternativo, i suoi bug e
+la sua manutenzione **per 15 MB su 316**. Su una macchina da 32 GB sono lo 0.05% della
+RAM. E in cambio si prenderebbero i problemi già misurati di Servo: le SPA con
+`IntersectionObserver` che crashano, nessun context multiplo, e un runtime Tauri di terza
+parte fra noi e il sistema.
+
+Obscura invece dimezzerebbe davvero (155 contro 316), **ma non può fare da renderer**:
+non ha finestra, input né compositor (§ sotto). I 155 MB sono ciò che costa *far girare*
+l'app, non mostrarla.
+
+**Conclusione onesta: il renderer non si tocca, e ora sappiamo perché con un numero.**
+Non è "rischioso": è che il migliore dei candidati integrabili vale il 5%.
+
+### Nota su una misura precedente sbagliata: "36 MB contro 353"
+
+
+
+Quel numero mentiva, ed è il motivo per cui la tabella sopra esiste. **Non stavo
 misurando la stessa cosa nei due casi:**
 
 - la **WKWebView reale** regge la sessione vera: N topic aperti, board, terminali,
