@@ -62,6 +62,7 @@
     "check:previews": "bun run scripts/check-preview-evidence.ts",
     "check:route-latency": "bun run scripts/check-route-latency.ts",
     "probe:stalls": "bun run scripts/stalled-parents.ts",
+    "probe:fdleak": "bun run scripts/fd-leak-probe.ts",
     "check:occlusion": "node scripts/check-occlusion.mjs",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:ink": "bun run scripts/check-ink-latency.ts",
