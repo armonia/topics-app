@@ -49,3 +49,7 @@ if (stallo.length) {
   const totale = stallo.reduce((s, c) => s + c.ms, 0);
   console.log(`\ntotale event loop fermo (solo gli stalli visti): ${(totale / 1000).toFixed(1)}s su ${secondi}s`);
 }
+
+// Un file senza import/export non e' un modulo, e il `await` in cima non
+// e' permesso: questo lo rende un modulo senza cambiargli il comportamento.
+export {};
