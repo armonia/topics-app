@@ -409,6 +409,15 @@ export const HUMAN_AUTHOR = 'user';
 export const NOTE_STOPPED_BY_HUMAN =
   'Fermato da te: agent interrotto. Rimetti il task in Todo per ripartire.';
 
+/**
+ * Lo stesso bottone su una card che era solo IN CODA. «Ferma» accetta anche
+ * `queued`, e li' non c'e' nessun turno da tagliare: raccontare «agent
+ * interrotto» a chi ha fermato una card mai partita descrive un fatto che non
+ * e' successo, e lascia credere che del lavoro sia andato perso.
+ */
+export const NOTE_UNQUEUED_BY_HUMAN =
+  'Tolto dalla coda da te: nessun agent era ancora partito. Rimetti il task in Todo per ripartire.';
+
 /** Archiving a task with a live agent: same shape, same signature. */
 export const NOTE_ARCHIVED_BY_HUMAN =
   'Archiviato da te mentre l\'agent lavorava: turno interrotto.';
@@ -465,6 +474,7 @@ const PARKED_CHILDREN_NOTE = /^Sbloccato: \d+ sottotask (?:rimessi in coda|archi
 export function isMachineNote(content: string): boolean {
   const text = content.trim();
   return text === NOTE_STOPPED_BY_HUMAN
+    || text === NOTE_UNQUEUED_BY_HUMAN
     || text === NOTE_ARCHIVED_BY_HUMAN
     || PARKED_CHILDREN_NOTE.test(text);
 }

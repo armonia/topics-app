@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -2311,7 +2311,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const got = svc.get(bStop.taskId, { projectId: bStop.projectId });
           if (!got) return json({ error: "task not found", code: "not_found" }, 404);
-          const parked = detachLiveAgent(got.task, NOTE_STOPPED_BY_HUMAN);
+          // «Ferma» copre due fatti diversi: tagliare un turno che gira, e
+          // togliere dalla coda una card che non e' mai partita. La riga nel
+          // thread lo dice, perche' e' l'unica traccia che resta a chi torna a
+          // guardare la card domani.
+          const parked = detachLiveAgent(
+            got.task,
+            got.task.dispatchState === "queued" ? NOTE_UNQUEUED_BY_HUMAN : NOTE_STOPPED_BY_HUMAN,
+          );
           if (!parked) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
           broadcastToAll({ type: "task:updated", projectId: bStop.projectId, task: parked });
           return json(parked);
