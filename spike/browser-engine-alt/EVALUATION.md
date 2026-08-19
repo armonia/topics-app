@@ -371,6 +371,45 @@ ancora fatto.
 - **Nessuna integrazione nativa**: menu di sistema, notifiche, portachiavi, PiP — tutto
   ciò che Tauri+WKWebView dà gratis andrebbe reimplementato.
 
+### Quanto costa la finestra? ~100 MB — misurato, non dedotto
+
+Domanda giusta: i 155 MB di Obscura sono senza finestra, quindi **quanto se ne va nel
+sistema di finestre?** Servo permette di misurarlo, perché esiste headless *e* headful,
+stessa app, stesso binario:
+
+| Servo, app Topics | RAM |
+|---|---|
+| `--headless` (nessuna finestra) | **108 MB** |
+| headful (finestra vera + compositor) | **208 MB** |
+| **costo della finestra** | **~100 MB** |
+
+**Quindi i 155 MB di Obscura non sono confrontabili con i 316 della WKWebView.** Con una
+finestra vera diventerebbero **~255 MB**, e il guadagno reale scenderebbe da 161 MB
+(51%) a circa **60 MB (19%)** — prima di aver scritto una riga.
+
+### "Vediamo come l'hanno fatto gli altri e rifacciamolo" — l'ho guardato
+
+`tauri-runtime-verso` è **2507 righe**, quindi sembra fattibile. Ma leggendolo si vede
+che quelle righe sono **solo colla**: `src/window.rs` (902 righe) non crea finestre, le
+chiede a `VersoviewController` — un processo separato che la finestra ce l'ha già.
+`Cargo.toml` dipende da `verso` e `tao`; il lavoro vero è tutto là sotto.
+
+La catena reale è: `tauri-runtime-verso` (2.5k righe di colla) → **`versoview`** (il
+guscio che possiede finestra, event loop, compositor) → **Servo** (1.9 GB di sorgente).
+
+Per Obscura mancherebbe **tutto il pezzo di mezzo**, e non è un dettaglio:
+- **nessuna finestra**: zero dipendenze di windowing in `Cargo.lock` (né `winit`, né
+  `cocoa`/`objc2`, né `core-graphics`, né `wgpu`/`metal`);
+- **nessun input di sistema**: `crates/obscura-cdp/src/domains/input.rs` riceve eventi
+  **solo via CDP**, cioè da un debugger, non da tastiera e mouse veri;
+- **nessun compositor**: `paint_prepared()` dipinge una `Pixmap` a richiesta; non esiste
+  un ciclo che ridisegna a 60 Hz e presenta alla GPU.
+
+Quindi "rifarlo al volo sull'esempio degli altri" significherebbe scrivere il
+`versoview` di Obscura — finestra, event loop, input, compositor, per macOS, Windows e
+Linux — **prima** di poter scrivere le 2500 righe di colla. E il premio, dopo tutto ciò,
+sarebbe ~60 MB su 316.
+
 ### Il guadagno VERO sostituendo il renderer dell'app — misurato bene
 
 Rifatto il confronto come andava fatto: **stessa app, stessa origine, stesso momento**.
@@ -391,9 +430,10 @@ RAM. E in cambio si prenderebbero i problemi già misurati di Servo: le SPA con
 `IntersectionObserver` che crashano, nessun context multiplo, e un runtime Tauri di terza
 parte fra noi e il sistema.
 
-Obscura invece dimezzerebbe davvero (155 contro 316), **ma non può fare da renderer**:
-non ha finestra, input né compositor (§ sotto). I 155 MB sono ciò che costa *far girare*
-l'app, non mostrarla.
+Obscura sembra dimezzare (155 contro 316), **ma quel confronto è ancora sbilanciato**:
+i suoi 155 MB sono senza finestra. Misurato su Servo, la finestra costa **~100 MB**
+(108 headless → 208 headful), quindi il numero onesto per Obscura è **~255 MB** e il
+guadagno vero **~60 MB, il 19%** — dopo aver scritto il livello finestra che non ha.
 
 **Conclusione onesta: il renderer non si tocca, e ora sappiamo perché con un numero.**
 Non è "rischioso": è che il migliore dei candidati integrabili vale il 5%.
