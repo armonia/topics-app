@@ -59,3 +59,51 @@ export function turnIsOnlyError(msg: {
   if (!c.startsWith(LEGACY_ERROR_PREFIX)) return true; // il verdetto sta nei blocchi, e content è vuoto
   return c.slice(LEGACY_ERROR_PREFIX.length).split(/\n\s*\n/).length === 1;
 }
+
+/**
+ * IL TURNO È ANCORA VIVO? La domanda che decide se mostrare «Nessuna risposta».
+ *
+ * IL DIFETTO CHE ESISTE PER CHIUDERE, riportato il 2026-08-19: mando un
+ * messaggio, ricarico la finestra, e il messaggio **sparisce**; poi ricompare
+ * con la scatola ambra «Nessuna risposta — la connessione può essersi
+ * interrotta», mentre l'agente sta lavorando eccome. Due bugie in fila su un
+ * turno sano: la prima fa temere di aver perso ciò che si è scritto, la seconda
+ * invita a rimandarlo — e rimandarlo significa un SECONDO turno, a pagamento,
+ * mentre il primo è ancora in corso.
+ *
+ * PERCHÉ SUCCEDEVA. Il banner guardava `currentStreaming`, cioè
+ * `isSessionStreaming` → la mappa `streaming` locale di `useChat`. Quella mappa
+ * è memoria di PROCESSO: un reload la azzera, e nessuno la ripopola. Il fatto
+ * che il server stia ancora servendo quel turno c'è ed è autorevole — la rotta
+ * `GET /api/topics/streaming`, che `useSignalsSync` interroga ogni 15 s
+ * versando gli id in `hydratedStreamTopics` — ma il banner non lo consultava.
+ * Il commento accanto al banner affermava il contrario («il caso "il turno è
+ * ancora vivo" non passa di qui»), e affermarlo non lo rendeva vero:
+ * `reconcileServerStreams` SPEGNE gli spinner rimasti accesi per una fine
+ * persa, non li riaccende dopo un reload. Fa il verso opposto a quello che
+ * serviva qui.
+ *
+ * LA REGOLA, in una riga: il banner è per un turno che NON risponde, e «non
+ * risponde» richiede che nessuno dei due testimoni lo dica vivo — né la sessione
+ * locale, né il registro del server. Basta uno dei due.
+ *
+ * PERCHÉ SBAGLIARE DA UN LATO È PEGGIO. Un banner mancante su un turno davvero
+ * morto costa un'attesa e un gesto in più (il messaggio resta lì, si rimanda).
+ * Un banner di troppo su un turno VIVO invita a duplicarlo: due agenti sulla
+ * stessa richiesta, due conti da pagare, e un thread che nessuno dei due
+ * riconosce più come suo. Nel dubbio si tace.
+ */
+export function turnLooksUnanswered(input: {
+  /** L'ultimo messaggio della chat è dell'utente? Senza questo non c'è attesa. */
+  lastMessageIsUser: boolean;
+  /** La sessione LOCALE sta streammando (memoria di processo, muore al reload). */
+  locallyStreaming: boolean;
+  /**
+   * Il SERVER dice che questo topic ha un turno aperto — streaming o fermo su
+   * una domanda. Sopravvive al reload, ed è la testimonianza che mancava.
+   */
+  serverSaysOpen: boolean;
+}): boolean {
+  if (!input.lastMessageIsUser) return false;
+  return !input.locallyStreaming && !input.serverSaysOpen;
+}
