@@ -2057,7 +2057,12 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20260816214500: da quando la card aspetta una risposta umana.
          review_at = ?,
          -- 20260818164410: esito sonda server-side sull'output_url.
-         url_probe_status = 'live', url_probe_checked_at = ?
+         url_probe_status = 'live', url_probe_checked_at = ?,
+         -- 20260818234959: il turno tagliato da un riavvio, scritto invece che
+         -- dedotto. Le tre colonne entrano qui perche' il cancello sotto le
+         -- prenderebbe comunque: una colonna che resta NULL non e' coperta dal
+         -- confronto fra lista e dettaglio, e il test lo dice invece di tacere.
+         interrupted_at = ?, interrupted_by = 'SIGTERM', interrupted_notified_at = ?
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
@@ -2067,7 +2072,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
         `🎯${"d".repeat(400)}`,
         TS, TS, TS, TS, TS, bloccante.id, "2020-01-01T00:00:00.000Z",
         TS, TS, JSON.stringify([{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "ok" }]),
-        TS, TS, TS, TS, TS, TS, t.id,
+        TS, TS, TS, TS, TS, TS, TS, TS, t.id,
       ],
     );
     return { id: t.id, altri: [padre.id, passo.id, bloccante.id, inCoda.id, dipendente.id] };
