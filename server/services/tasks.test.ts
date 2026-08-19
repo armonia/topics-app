@@ -2473,3 +2473,46 @@ describe("bindTopic: al cambio di topic i `done` si archiviano e gli aperti si e
     expect(nota.content).not.toContain("- Sotto-step aperto");
   });
 });
+
+/**
+ * IL CHIP «IN CODA» SU UNA CARD CHE NESSUNO METTERÀ IN CODA.
+ *
+ * Il claim del dispatcher pesca `status = 'todo'` e basta. Una card trascinata
+ * fuori da Todo esce quindi dalla coda per sempre — ma il chip `queued`
+ * restava acceso, promettendo una partenza che non arriva, e con lui il tasto
+ * «Ferma»: l'offerta di interrompere un agente mai nato.
+ *
+ * Segnalato il 19/08 («l'ho spostato in backlog, ho premuto, non è successo
+ * nulla») e riprodotto sull'API viva prima di scrivere la riga: `todo/queued`
+ * → PATCH `backlog` → `backlog/queued`.
+ */
+describe("uscire da Todo spegne il chip della coda", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  const inCoda = (stato: "backlog" | "in_progress" | "review" | "done") => {
+    const t = s.create({ projectId: PID, text: "c", status: "todo" });
+    db.prepare("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?").run(t.id);
+    return s.update({ taskId: t.id, patch: { status: stato } });
+  };
+
+  test.each(["backlog", "in_progress", "review", "done"] as const)(
+    "todo → %s: il chip si spegne", (dove) => { expect(inCoda(dove).dispatchState).toBeNull(); },
+  );
+
+  test("restare in Todo NON spegne il chip (un riordino non è un'uscita)", () => {
+    const t = s.create({ projectId: PID, text: "c", status: "todo" });
+    db.prepare("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?").run(t.id);
+    const r = s.update({ taskId: t.id, patch: { status: "todo", priority: 1 } });
+    expect(r.dispatchState).toBe("queued");
+  });
+
+  test("un turno VIVO non lo chiude un trascinamento: 'working' sopravvive", () => {
+    // Quello lo chiude chi lo possiede (`/stop`, che taglia il turno prima di
+    // parcheggiare). Spegnerlo qui vorrebbe dire perdere di vista un agente che
+    // sta ancora scrivendo file.
+    const t = s.create({ projectId: PID, text: "c", status: "todo" });
+    db.prepare("UPDATE tasks SET dispatch_state = 'working' WHERE id = ?").run(t.id);
+    expect(s.update({ taskId: t.id, patch: { status: "backlog" } }).dispatchState).toBe("working");
+  });
+});

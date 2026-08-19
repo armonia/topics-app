@@ -10,7 +10,8 @@ import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeig
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
-import { spawnDragGhost } from './dragGhost';
+import { startDragPreview } from '../../lib/dragPreview';
+import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { detachPaneToNewSpace } from '../../lib/popOutSpace';
 import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
@@ -790,22 +791,6 @@ export function PanelGrid({
 
   const { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical } = useGridResize(containerRef, resizeCallbacks, resizeOptions);
 
-  // ISSUE 19 FIX: Track ghost DOM elements so they can be cleaned up
-  // if the component unmounts during a rAF callback.
-  const activeGhostsRef = useRef<Set<HTMLElement>>(new Set());
-  useEffect(() => {
-    return () => {
-      // Cleanup any ghost elements still in the DOM on unmount
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional unmount-time read: activeGhostsRef holds one stable Set (never reassigned, only mutated); cleanup must drain whatever ghosts are live AT unmount, so reading .current here (not a mount snapshot) is correct
-      for (const ghost of activeGhostsRef.current) {
-        if (ghost.parentElement) {
-          ghost.parentElement.removeChild(ghost);
-        }
-      }
-      activeGhostsRef.current.clear();
-    };
-  }, []);
-
   // Render-time mirror so handlers reading the ref always see the current
   // render's value — not the previously-committed one. The earlier effect-
   // based assignment lagged a commit behind, which mattered if a handler
@@ -1320,11 +1305,15 @@ export function PanelGrid({
     e.dataTransfer.effectAllowed = 'move';
 
     const topic = topics[topicId];
-    spawnDragGhost(
-      e,
-      { text: `${topic?.icon || '\uD83D\uDCAC'} ${topic?.name || 'Chat'}`, size: 'md' },
-      activeGhostsRef.current,
-    );
+    // La scheda intera, decisa in un posto solo (`lib/dragPreview`). Il registro
+    // dei nodi da drenare non serve più: l'anteprima non si smonta a un rAF di
+    // distanza, resta viva per tutto il gesto e si spegne da sé su cinque porte
+    // agganciate al documento — comprese quelle per il `dragend` che nella
+    // WKWebView non arriva.
+    startDragPreview(e, {
+      title: topic?.name || 'Chat',
+      subtitle: topic?.projectPath ? getProjectLabel(topic.projectPath) : undefined,
+    });
 
     if (windowId) {
       sendWS({ type: 'drag:start', topicId, windowId });

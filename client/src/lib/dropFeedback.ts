@@ -8,8 +8,13 @@ import type { EdgeZone } from './dropZone';
  * The law (VS Code / Chrome / JetBrains): a drag shows EXACTLY ONE indicator,
  * and the SHAPE encodes the meaning, never mixed:
  *
- *   - CARET  = a thin SOLID bar, NO fill        → "insert at an ordinal slot in
- *                                                  a bar" (1-D: reorder / add tab).
+ *   - CARET  = una lama sottile e piena, senza campitura → «entra qui, in questa
+ *              posizione della fila» (1-D: riordino / aggiungi come tab). NON
+ *              sta più qui: è l'attributo `data-drop-active="before|after"` del
+ *              contratto condiviso (`lib/dragPreview`), disegnato da una regola
+ *              sola in `index.css`, perché la stessa lama serve a superfici che
+ *              con la griglia non c'entrano niente — l'albero dei file, le
+ *              tessere fissate, le righe della sidebar.
  *   - REGION = a translucent FILL (the footprint of the resulting pane) plus a
  *              single SOLID seam accent on the inner edge, with NO dashed
  *              perimeter                          → "occupy this area" (2-D split).
@@ -36,11 +41,13 @@ export const DROP_SEAM_PX = 2;
 export const FULL_ROW_GUTTER_PX = 26;
 
 // z-index, centralized so the two tiling subsystems agree on which indicator
-// wins when regions briefly overlap: caret < region < full-row < external drop.
+// wins when regions briefly overlap: region < full-row < external drop.
 // The full-row gutter sits ABOVE the per-column regions so it stays visible at
 // the bottom/top corners (where a column's left/right region would otherwise
 // cover it) — that occlusion was part of why it wasn't discoverable.
-export const Z_DROP_CARET = 20;
+// La lama d'inserimento non ha più un piano suo: sta nel contratto condiviso
+// (`data-drop-active`), che la disegna con uno pseudo-elemento DENTRO al
+// bersaglio, quindi non entra mai in gara con queste regioni.
 export const Z_DROP_REGION = 40;
 export const Z_DROP_FULLROW = 50;
 
@@ -106,20 +113,6 @@ export function centerRegionStyle(): CSSProperties {
     background: DROP_REGION_FILL,
     borderRadius: 10,
     transition: 'all 140ms ease',
-  };
-}
-
-/** The 1-D insert caret drawn at a tab's left/right edge. Solid bar, no fill. */
-export function caretStyle(side: 'left' | 'right'): CSSProperties {
-  return {
-    position: 'absolute',
-    [side]: 0,
-    top: 4,
-    bottom: 4,
-    width: DROP_SEAM_PX,
-    background: DROP_ACCENT,
-    borderRadius: 2,
-    zIndex: Z_DROP_CARET,
   };
 }
 
