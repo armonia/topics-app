@@ -434,6 +434,7 @@ const EN = {
   'board.card.conductorClosesTitle': 'Invisible and all green: the conductor can close this card without going through you.',
   'board.card.steerPlaceholder': '…or write to the agent',
   'board.card.steerSendTitle': 'Send to the agent. It arrives on its next turn, the way Claude Code does it.',
+  'board.card.replySendTitle': '{action}, carrying this note.',
   'board.card.turnActions': 'Actions on this turn',
   'board.card.yourRequest': 'Your request: {text}',
   'board.card.commentPlaceholder': '…or comment',
