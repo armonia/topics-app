@@ -2545,10 +2545,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             che è montata sempre. Con `flex-1` il brief e la sessione si
             dividevano l'altezza a metà — e un brief lungo (descrizione +
             sottotask + tentativi) spingeva la sessione a una finestrella di tre
-            righe. Prende quanto gli serve fino a metà colonna, oltre scorre lui:
-            è già un contenitore di scroll, quindi il tetto non taglia niente. */}
+            righe. Prende quanto gli serve fino al tetto, oltre scorre lui: è già
+            un contenitore di scroll, quindi il tetto non taglia niente.
+
+            IL TETTO SI STRINGE QUANDO LE ZONE SONO TRE. Con lo Spazio di lavoro
+            aperto la colonna deve reggere brief + output + sessione, e a 720px
+            di finestra un tetto a metà colonna lasciava all'output 45px, cioè
+            la sola barra delle tab: un pannello «aperto» che non mostra niente.
+            Chi cede è il brief, perché è l'unico dei tre che scorre — gli altri
+            due o si vedono o non ci sono. Chiuso l'output, il tetto torna
+            largo: non c'è più niente con cui dividere. */}
         <div
-          className={twoCol ? 'max-h-[40%] shrink-0 overflow-y-auto' : 'max-h-[50%] shrink-0 overflow-y-auto'}
+          className={`shrink-0 overflow-y-auto ${twoCol ? 'max-h-[40%]' : (workspaceOpen && hasWorkspacePanes ? 'max-h-[25%]' : 'max-h-[50%]')}`}
           data-testid="task-brief-scroll"
         >
           {/* L'ANTEPRIMA È LA CONSEGNA, e sta in cima: è la cosa per cui il
