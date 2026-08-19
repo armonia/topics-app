@@ -318,6 +318,27 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       break;
     }
     case 'FOCUS_PANE': {
+      // FOCALIZZARE CIO' CHE E' GIA' FOCALIZZATO NON E' UN CAMBIAMENTO.
+      //
+      // Stessa forma della guardia in `UPDATE_PANE`, e come quella costa un
+      // confronto per evitare un dispatch a vuoto: `lastSeq` sale a OGNI
+      // dispatch, e chi guarda quel contatore (il middleware di sync) manda un
+      // PUT da 75 KB anche quando non c'e' un byte di differenza — `focusedPaneId`
+      // e' device-local e `selectSyncableSnapshot` lo toglie dallo snapshot,
+      // quindi una rifocalizzazione a vuoto e' rumore puro sul filo.
+      //
+      // ONESTA' SU COSA QUESTA RIGA NON RISOLVE. L'ho scritta credendo fosse la
+      // causa di un ciclo di PUT ricomparso dopo il rimedio a `UPDATE_PANE` (17
+      // scritture in 25 s a schermo fermo, `scripts/check-idle-writes.mjs`).
+      // NON lo era: strumentando il dispatcher ho contato **zero azioni** in
+      // quella finestra, con quindici PUT partiti lo stesso. Quel ciclo non
+      // nasce da qui e resta aperto — vedi la nota in `middleware/syncWS.ts`.
+      //
+      // `Object.is` e non `===`: `null` e `undefined` significano entrambi
+      // «nessuna pane focalizzata» ma non sono lo stesso valore, e trattarli
+      // come diversi rimetterebbe un dispatch a vuoto ogni volta che il boot
+      // passa dall'uno all'altro.
+      if (Object.is(state.focusedPaneId, action.payload.id)) break;
       state.focusedPaneId = action.payload.id;
       break;
     }

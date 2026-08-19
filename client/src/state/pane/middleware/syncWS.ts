@@ -116,6 +116,44 @@ export function initWSSync(
         return;
       }
       lastAppliedServerSeq = metaEntry.server_seq;
+      // ─────────────────────────────────────────────────────────────────────
+      // APERTO (2026-08-19): un ciclo di PUT che passa DA QUI, e la caccia
+      // lasciata a meta' con quel che si sa gia'.
+      //
+      // SINTOMO: a schermo fermo, con una chat aperta, questa finestra manda
+      // 12-17 PUT di `pane-store-v2` in 25 secondi — uno ogni 1,5 s, da 75 KB,
+      // con `lastSeq` che sale e NESSUN'ALTRA differenza fra un corpo e il
+      // successivo. Si misura con `scripts/check-idle-writes.mjs` (tetto 3).
+      //
+      // COSA E' GIA' ESCLUSO, misurato e non dedotto:
+      //  · non e' `UPDATE_PANE` (guardia aggiunta, e il ciclo e' RIMASTO);
+      //  · non e' `FOCUS_PANE` (guardia aggiunta, ciclo rimasto);
+      //  · non e' NESSUNA azione: strumentando il dispatcher per contare le
+      //    azioni per tipo, in quella finestra ne ho contate **zero**, con
+      //    quindici PUT partiti nello stesso intervallo. Il `lastSeq` che fa
+      //    partire il debounce non viene dal reducer;
+      //  · i PUT partono DA QUESTA finestra (contati sul suo `fetch`), non sono
+      //    scritture altrui viste passare.
+      //
+      // IL SOSPETTO CHE RESTA, ed e' il motivo per cui la nota sta QUI: la riga
+      // qui sotto porta `lastSeq` a `max(currentSeq, server_seq)`. `server_seq`
+      // e' allocato dal SERVER e cresce a ogni scrittura di CHIUNQUE — su questa
+      // macchina `/api/system/presence` ne dichiarava ventuno di sessioni
+      // aperte. Ogni idratazione remota alza quindi il nostro contatore, il
+      // middleware vede il contatore muoversi e manda uno snapshot identico;
+      // quel PUT alza `server_seq`, il server lo ritrasmette a tutti, e ogni
+      // altro client fa lo stesso. Il filtro dell'eco (`isSelfEcho`) protegge
+      // dalla PROPRIA scrittura, non da quella dei pari.
+      //
+      // PERCHE' NON L'HO CHIUSA: la riga esiste per una ragione vera —
+      // post-idratazione i nostri PUT devono portare un seq che il server
+      // consideri fresco, o il suo LWW li rifiuta — e toccarla senza capire
+      // quale delle due meta' vale in ogni caso significa scegliere fra due
+      // guasti peggiori: un client che non sincronizza piu', o uno che
+      // sovrascrive i pari. Ho gia' ritirato oggi un rimedio scritto con meno
+      // certezza di questa, e mi era costato una chiusura di scheda che non
+      // arrivava al server.
+      // ─────────────────────────────────────────────────────────────────────
       const currentSeq = usePaneStore.getState().lastSeq;
       usePaneStore.getState().dispatch({
         type: 'HYDRATE_FROM_SNAPSHOT',
