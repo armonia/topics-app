@@ -128,7 +128,11 @@ describe("ai-bridge · socket ownership", () => {
 
     const proc = spawnDaemon(sock, store);
 
-    const deadline = Date.now() + 8_000;
+    // La pazienza e' un TETTO, non una misura: il daemon deve solo prendersi il
+    // socket. Con 8 s cadeva dentro `test:unit` intero, dove far nascere un
+    // processo Bun mentre 853 file girano prende molto piu' del solito, e il
+    // rosso raccontava il carico della macchina invece del comportamento.
+    const deadline = Date.now() + 25_000;
     let taken = false;
     while (Date.now() < deadline && !taken) {
       taken = await someoneListening(sock);
@@ -136,7 +140,7 @@ describe("ai-bridge · socket ownership", () => {
     }
     expect(taken).toBe(true);
     expect(readFileSync(pidPathFor(sock), "utf8").trim()).toBe(String(proc.pid));
-  }, 20_000);
+  }, 40_000);
 
   test("five daemons racing for a free socket leave exactly ONE listening", async () => {
     const sock = socketPath("race");

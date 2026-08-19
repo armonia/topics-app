@@ -174,6 +174,23 @@ docs/*
 # 105 commit senza un installer, ultimo tag tauri-v2.2.158. Un documento
 # ignorato ha smesso di far uscire il prodotto.
 !docs/destinazioni.md
+# browser-gap-map.md e' la mappa dei buchi del browser: l'elenco spuntato delle
+# funzioni di un browser nativo confrontate con quelle della pane di Topics, il
+# metro dei browser di consumo, e le cinque cose che valgono la pena. Committata
+# perche' e' il documento da cui nascono le card del browser: fuori dal repo
+# sarebbe l'appunto di una persona, dentro e' il punto da cui riparte chiunque.
+!docs/browser-gap-map.md
+# browser-confronto-browser-veri.md e' il passo 3 della serie «Browser: cosa ci
+# manca davvero» (card a68393f4): la matrice delle aspettative utente contro
+# Arc/Chrome/Safari/Dia e i 5 gap ordinati. Il passo 4 (la mappa) lo legge come
+# fonte: fuori dal repo la serie si spezza.
+!docs/browser-confronto-browser-veri.md
+# browser-mappa.md e' la sintesi della serie «cosa manca al browser di Topics»:
+# l'elenco spuntato contro un browser nativo vero, il criterio pane/scheda con
+# cui si decide cosa vale la pena, e le quattro cose scelte. E' il documento che
+# chi apre una card sul browser deve leggere PRIMA di proporre una funzione, e
+# in ogni worktree di agente un file ignorato e' un file assente.
+!docs/browser-mappa.md
 
 # Reference repos (local only)
 .reference/
@@ -295,3 +312,11 @@ tmp-tasks-router-*/
 .topics-claims.md
 .scrub-map.txt
 preview/
+# browser-inventario.md e' la mappa di cosa il browser di Topics fa DAVVERO:
+# le tre rese di una pane, i comandi della toolbar, i 30 comandi nativi con la
+# parita' Windows/Linux, i 16 tool dell'agente e cosa di quelli la pane nativa
+# non sa fare. E' il passo 2 di una serie in cui i passi 3 e 4 (confronto con i
+# browser veri, mappa di cosa vale la pena) partono da qui: ignorato, il
+# documento vivrebbe sul disco di un worktree che il GC cancella, e la card
+# successiva ricomincerebbe la stessa lettura da zero.
+!docs/browser-inventario.md

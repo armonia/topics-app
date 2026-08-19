@@ -126,3 +126,50 @@ il testo della cosa trascinata; passando sopra un bersaglio valido, quello si
 marca `[data-drop-active]`. La stessa asserzione ripetuta nel motore WebKit non
 e' zelo, e' il punto: e' li' che lo snapshot torna vuoto, ed e' li' che l'app
 viene usata. Una suite che gira solo su Chromium resta verde mentendo.
+
+La seconda ora esiste: `tests/e2e/drag-preview.spec.ts`, quattro test su tre
+superfici, e il progetto `webkit` di `playwright.config.ts` la ripete nel motore
+del guscio.
+
+## La prova che sa diventare rossa
+
+Verde e' un'informazione debole finche' nessuno mostra il rosso. Le tre
+promesse del contratto sono state rotte una alla volta, ricostruendo il bundle
+e rigirando la spec nei DUE motori; poi il file e' stato ripristinato e la
+misura rifatta. Il comando e' sempre lo stesso:
+
+```
+bun run build:client
+npx playwright test drag-preview --project=chromium --project=webkit --retries=0
+```
+
+| Mutazione | Dove | Chromium | WebKit |
+| --- | --- | --- | --- |
+| nessuna (riferimento) | - | 4 verdi | 4 verdi |
+| l'anteprima non porta il NOME della cosa presa (titolo fisso) | `lib/dragPreview.ts`, `costruisci` | 3 rossi | 3 rossi |
+| l'anteprima non si SPEGNE a fine gesto (niente `remove()`) | `lib/dragPreview.ts`, `endDragPreview` | 3 rossi | 3 rossi |
+| il BERSAGLIO non si dichiara (via `data-drop-active` dalla card del gruppo) | `Sidebar/SpaceGroups.tsx` | 2 rossi | 2 rossi |
+
+Ogni mutazione cade in entrambi i motori, e cade citando la promessa rotta: «e
+porta il nome della cosa presa», «a gesto finito l'anteprima sparisce», «il
+bersaglio si dichiara con uno fra into». Nessuna passa in un motore e cade
+nell'altro: non c'e' asserzione che stia in piedi solo grazie a Chromium.
+
+Quello che le mutazioni dicono ANCHE, ed e' la parte che serve a chi tocchera'
+il codice dopo:
+
+- **DPREV-04 (la board) non passa da `lib/dragPreview`.** Le prime due
+  mutazioni non la sfiorano, perche' li' la scheda la disegna il `DragOverlay`
+  di dnd-kit e il contratto si adotta MARCANDO quel nodo. E' scritto nel
+  commento della spec, e la mutazione lo conferma sul campo.
+- **Il bersaglio e' una promessa PER SUPERFICIE.** La terza mutazione tocca una
+  sola card e infatti abbatte solo i due test che la usano: nessuna superficie
+  copre le altre, e una superficie nuova che nascesse muta non farebbe rossa
+  nessuna di queste righe. E' esattamente il buco che la guardia STATICA qui
+  sopra deve chiudere.
+- **Le costanti del contratto non sono importate dalle superfici**:
+  `DRAG_PREVIEW_ATTR` e `DROP_ACTIVE_ATTR` esistono in `lib/dragPreview.ts`, ma
+  chi marca il DOM scrive la stringa a mano (`data-drop-active={...}` in sei
+  file). Rinominare la costante non muove niente: il legame regge perche' il
+  test unitario del contratto confronta le costanti con le regole di
+  `index.css`, non perche' il codice le usi.

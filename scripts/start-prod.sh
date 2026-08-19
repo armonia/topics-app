@@ -262,12 +262,22 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
             # waiting…) il server e' uscito con code 137. Il cancello non ha mai
             # potuto arrivare in fondo nemmeno una volta.
             #
-            # Qui si aspetta la SUA finestra (5 min + margine). Se la sfora,
+            # Qui si aspetta la SUA finestra, piu' un margine. Se la sfora,
             # allora si' che e' appeso — ma si comincia dal SIGTERM, non dal
             # martello.
-            echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: 5 min)"
+            #
+            # LA FINESTRA SI DERIVA, NON SI RISCRIVE. Era 330 fissi, cioe' i 5
+            # minuti che il server usava allora: due numeri in due file che
+            # devono dire la stessa cosa, e che al primo cambio da una parte si
+            # sarebbero contraddetti. Adesso li decide la stessa variabile
+            # (`TOPICS_QUIESCENCE_CAP_MS`, default 25 minuti = il tetto di un
+            # turno d'agente piu' margine), e qui si aggiunge solo il margine
+            # per il commiato.
+            QCAP_S=$(( ${TOPICS_QUIESCENCE_CAP_MS:-1500000} / 1000 ))
+            QWAIT=$(( QCAP_S + 30 ))
+            echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: $((QCAP_S / 60)) min)"
             WAITED=0
-            while kill -0 "$SP" 2>/dev/null && [ "$WAITED" -lt 330 ]; do
+            while kill -0 "$SP" 2>/dev/null && [ "$WAITED" -lt "$QWAIT" ]; do
               sleep 2
               WAITED=$((WAITED + 2))
             done
