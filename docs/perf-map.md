@@ -1,6 +1,6 @@
 # The performance map: what has a number and what does not
 
-Updated **2026-08-14**. It serves one purpose: to know WHERE a performance
+Updated **2026-08-19**. It serves one purpose: to know WHERE a performance
 regression would be seen and where it would pass in silence. It is not a list of
 good intentions. Every row names the command that exits non-zero, or says that
 there is none.
@@ -33,6 +33,78 @@ intentions.
 | Pane residency cap | how many panes stay mounted | `tests/e2e/pane-residency-cap.spec.ts` | yes (E2E shard) |
 | Transcript eviction | how many chats stay hydrated | `tests/e2e/chat-transcript-residency.spec.ts` | yes (E2E shard) |
 | Browser pane streaming | fps, p95 input latency, bandwidth, first frame | `tests/e2e/browser-ws-streaming.spec.ts` plus `perf-baseline.json` | yes (E2E shard) |
+| Writes at rest | API writes an IDLE window sends in 30s | `node scripts/check-idle-writes.mjs` | not yet |
+| Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
+| Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
+| Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
+
+## 2026-08-19: what "1.8 GB and 57 fps" actually was
+
+A day of measurements against the user's own window, kept because the three
+answers were each different from the complaint that produced them.
+
+**"57 fps" was the panel.** `lib/fpsMonitor` counts delivered
+`requestAnimationFrame`s, which on a still page measures itself: the browser has
+nothing to compose and delivers when it likes, correctly. The measured frame
+interval here is 17-21 ms, i.e. **48-59 Hz** — so 57 was the ceiling, not a
+loss. The question that pays is how many frames DROP during a gesture:
+median **1.7%** over five runs (min 1.1, max 4.7) while scrolling.
+
+That number took three attempts to become trustworthy, which is the part worth
+keeping. The first version measured even when it found no scroll container — a
+still page judged by a gesture's threshold — and gave 0.6% then 13.2% with the
+app unchanged. The second still swung 13.9 / 1.7 / 7.1 / 1.7 / 2.9 across three
+minutes on a machine carrying 8.6 GB of swap and other agents. One run would
+have licensed both "fine" and "severe regression". Five runs and the MEDIAN
+decide; the spread stays printed, because when it is wide this machine is not a
+place to judge smoothness, and knowing that beats a coin-flip verdict.
+
+**A still window was writing 75 KB per second, forever.** No gesture, no agent:
+16 PUTs of `pane-store-v2` in 25 seconds, one every 1.15 s, the only difference
+between one body and the next being `lastSeq` (+2). Three reasonable links
+closing into a loop: `UPDATE_PANE` merged `{...pane, ...updates}` without
+comparing, so it produced a fresh object at identical values; the dispatcher
+bumps `lastSeq` on every dispatch; the sync middleware watches `lastSeq`.
+
+It was not bandwidth. This server is Bun with SYNCHRONOUS `bun:sqlite`, so every
+PUT is a stalled event loop for everyone, and on **HTTP/1.1** it occupies one of
+the SIX connections a browser grants per host — i.e. it queues ahead of the
+reads that draw the board. Measured with `scripts/hol-probe.mjs`: with 12 heavy
+requests in flight, a **212-byte** request waited **19.3 seconds**. That queue,
+not any single slow route, is what made a refresh feel slow.
+
+| | before | after |
+|---|---|---|
+| first board card after reload | 7,176 ms | **464 ms** |
+| API requests at boot | 97 | 92 |
+| bytes downloaded at boot | 9.35 MB | 6.61 MB |
+| reads of the 1.2 MB feed | 4 | 2 |
+| PUTs while idle (25s) | 16 | 1 |
+| writes at rest (45s) | — | **0** |
+
+**The memory is not a leak, and it is not in the heap.** A freshly-opened window
+costs **164-187 MB**; the user's was at **1,633 MB**. But `devHeapProbe`, armed
+on the real window, measured a perfectly FLAT DOM (1,864 nodes, 209 `<svg>`,
+unchanged sample after sample) under a megabyte declared, and `mem-growth.ts`
+measured a FLAT curve (1,412 → 1,446 MB over nine idle minutes). The bytes are
+in **`owned unmapped (graphics)`** — the IOSurface backing of CoreAnimation
+layers, invisible to any probe written in JavaScript: 3,127 regions at 13:41,
+5,585 at 14:49, 6,120 at 15:17, with **1.2 GB of it swapped out**.
+
+Two honest caveats, both of which change what to do next. Watched for eight
+minutes the count does NOT climb monotonically — 6,120 → 5,518 → 5,666, so
+WebKit does recycle backings and "unstoppable leak" would have been the wrong
+conclusion to draw from two data points. And the machine itself was at 12.6 GB
+of swap with Dia holding 1,075 MB and Spotify 921: part of the number the status
+bar reports is system pressure, not live Topics memory. What stays true is that
+the footprint never comes back down (1,638 → 1,741 MB in that same window), and
+that a window nobody touches should not cost ten times a fresh one.
+
+Not chased down to a culprit yet. The next step is naming WHICH promoted
+element leaves backings behind (`scripts/check-layers.mjs` lists who promotes:
+today 10 elements, 6 of them infinite animations plus 2 `backdrop-filter`
+surfaces), and reproducing it somewhere `vmmap` can watch — which the Playwright
+route cannot do, for the reason written in `layer-growth.ts`.
 
 ## What is NOT measured
 
