@@ -2062,7 +2062,11 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- dedotto. Le tre colonne entrano qui perche' il cancello sotto le
          -- prenderebbe comunque: una colonna che resta NULL non e' coperta dal
          -- confronto fra lista e dettaglio, e il test lo dice invece di tacere.
-         interrupted_at = ?, interrupted_by = 'SIGTERM', interrupted_notified_at = ?
+         interrupted_at = ?, interrupted_by = 'SIGTERM', interrupted_notified_at = ?,
+         -- 20260819122701: la rivendicazione del sollecito nella chat del task.
+         -- Stessa ragione delle tre qui sopra: una colonna che resta NULL non e'
+         -- coperta dal confronto fra lista e dettaglio.
+         nudge_claimed_at = ?, nudge_fingerprint = 'fp-sollecito', nudge_repeats = 2
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
@@ -2072,7 +2076,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
         `🎯${"d".repeat(400)}`,
         TS, TS, TS, TS, TS, bloccante.id, "2020-01-01T00:00:00.000Z",
         TS, TS, JSON.stringify([{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "ok" }]),
-        TS, TS, TS, TS, TS, TS, TS, TS, t.id,
+        TS, TS, TS, TS, TS, TS, TS, TS, TS, t.id,
       ],
     );
     return { id: t.id, altri: [padre.id, passo.id, bloccante.id, inCoda.id, dipendente.id] };
