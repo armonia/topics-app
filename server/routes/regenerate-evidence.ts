@@ -32,6 +32,8 @@
  * modello senza mani e senza dati può solo dire che non può misurare.
  */
 
+import { toolCallResultText } from "../../shared/lean-tool-call";
+
 /** Ciò che serve di una `ToolCall` per raccontarla come prova. */
 export interface EvidenceToolCall {
   name?: string;
@@ -39,6 +41,16 @@ export interface EvidenceToolCall {
   status?: string;
   result?: string;
   error?: string;
+  /**
+   * L'esito tipato. Serve perché sul disco `result` può non esserci: quando
+   * `detail` porta già quella stessa stringa byte per byte, la copia non viene
+   * più scritta (`toolCallsForDisk`, shared/lean-tool-call.ts). Rigenera è
+   * l'UNICO consumatore server che leggeva l'esito da `result` letto dal DB, e
+   * senza questo campo un turno riscritto oggi si vedrebbe dire «nessun esito
+   * registrato» su tool call andate benissimo: il difetto peggiore, perché il
+   * modello resterebbe onesto e cieco insieme.
+   */
+  detail?: unknown;
 }
 
 export interface EvidenceLimits {
@@ -114,8 +126,12 @@ export function formatRegenerationEvidence(
     // questo file.
     let outcome: string;
     if (call.error) outcome = `ERRORE: ${clip(call.error, maxChars)}`;
-    else if (typeof call.result === "string" && call.result.length > 0) outcome = clip(call.result, maxChars);
-    else outcome = "(nessun esito registrato: NON dare per scontato che sia andata bene)";
+    else {
+      // NON `call.result`: l'esito si chiede a chi sa dove vive, perché sul
+      // disco può portarlo `detail` invece di `result` (vedi il campo sopra).
+      const testo = toolCallResultText(call);
+      outcome = testo ? clip(testo, maxChars) : "(nessun esito registrato: NON dare per scontato che sia andata bene)";
+    }
     lines.push(`${i + 1}. ${name}${call.status ? ` [${call.status}]` : ""}`);
     const args = describeArgs(call.args, maxChars);
     if (args) lines.push(`   ingresso: ${args.replace(/\n/g, "\n   ")}`);
