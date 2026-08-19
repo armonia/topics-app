@@ -1217,7 +1217,7 @@ const taskDispatcher = createTaskDispatcher({
     const base = await resolveWorktreeBaseRef(ctx.projectStore.get(projectStoreId)?.path);
     if (base.fallback) console.warn(`[dispatch] ${base.reason}: il worktree parte da HEAD`);
     const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
-    const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
+    const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, WORKTREE_READY_MS);
     if (ready.status !== "ready") {
       throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
     }
@@ -2006,6 +2006,20 @@ const machinesRouter = createMachinesRouter(ctx);
 // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
 // and flips other machines that haven't checked in for 5 minutes to
 // `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
+// QUANTO SI ASPETTA CHE UN WORKTREE SIA PRONTO, E PERCHE' NON SONO DUE MINUTI.
+//
+// Un worktree diventa `ready` solo DOPO l'install delle dipendenze (la fine di
+// `installDeps`, in `worktree-manager.ts`). Due minuti bastano a un repo
+// piccolo e non bastano a uno grosso: misurato il 19/08 su dancerooms,
+// 242 secondi. Il risultato non era «parte lento», era «NON PARTE»: chi
+// aspettava mollava a 120s, il dispatch falliva, e la card restava ferma senza
+// che niente dicesse che il ritardo era di `pnpm install`.
+//
+// Dieci minuti sono un tetto contro un install BLOCCATO (rete morta, lock di
+// un registry), non una stima del caso normale: quando l'install va, si torna
+// appena finisce. Regolabile per chi ha un repo piu' lento di dancerooms.
+const WORKTREE_READY_MS = Math.max(60_000, Number(process.env.TOPICS_WORKTREE_READY_MS) || 600_000);
+
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const STALE_THRESHOLD_MS = 5 * 60_000;
 function tickHeartbeat() {
