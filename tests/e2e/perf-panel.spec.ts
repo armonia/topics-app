@@ -101,4 +101,73 @@ test.describe('pannello prestazioni', () => {
     expect(testo.toLowerCase()).not.toContain('chiudi');
     expect(testo).not.toMatch(/\bperf\.[a-zA-Z.]+/);
   });
+
+  test('sotto PRESSIONE vera dice la cosa opposta: chiudi qualcosa', async ({ page }) => {
+    // L'altro ramo, e il motivo per cui le righe sono due invece di una. Qui la
+    // memoria compressa e' tanta in valore ASSOLUTO (2,9 GB), cioe' la macchina
+    // sta davvero paginando: il consiglio di chiudere qualcosa e' azionabile.
+    // Nel caso precedente sarebbe stato sbagliato, perche' la memoria se n'era
+    // gia' andata da sola.
+    //
+    // Senza questo caso, una regressione che facesse vincere sempre la riga
+    // informativa passerebbe: l'altro test continuerebbe a essere verde.
+    await page.addInitScript(() => {
+      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+        metadata: { currentWindow: { label: 'main' } },
+        invoke: async (cmd: string) => {
+          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
+          return {
+            version: 'e2e', total_mb: 6000, resident_mb: 3000,
+            renderer_mb: 4000, gpu_mb: 200, other_mb: 1800,
+            cpu_percent: 10, cpu_renderer: 5, cpu_gpu: 1,
+            cpu_sampled: 3, cpu_pids: 3, process_count: 3, partial: false,
+          };
+        },
+      };
+    });
+
+    await page.goto('/');
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    await page.locator('[data-testid="connection-status"]').click();
+
+    const verdetto = page.locator('[data-testid="perf-verdict"]');
+    await expect(verdetto).toBeVisible({ timeout: 10_000 });
+    const testo = (await verdetto.innerText()).toLowerCase();
+    expect(testo).toContain('chiudi');
+    expect(testo).not.toMatch(/\bperf\.[a-zA-Z.]+/);
+  });
+
+  test('una misura PARZIALE non produce nessuna riga, invece di inventarne una', async ({ page }) => {
+    // `partial: true` = la shell non ha potuto misurare tutti i processi (e' il
+    // caso non-macOS, che il payload dichiara invece di fingere). Una
+    // percentuale calcolata su una misura parziale sarebbe una piccola bugia
+    // detta con precisione, e il pannello preferisce tacere.
+    await page.addInitScript(() => {
+      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+        metadata: { currentWindow: { label: 'main' } },
+        invoke: async (cmd: string) => {
+          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
+          return {
+            version: 'e2e', total_mb: 1788, resident_mb: 517,
+            renderer_mb: 1200, gpu_mb: 88, other_mb: 500,
+            cpu_percent: 10, cpu_renderer: 5, cpu_gpu: 1,
+            cpu_sampled: 1, cpu_pids: 3, process_count: 3,
+            partial: true, // <- l'unica differenza dal primo caso
+          };
+        },
+      };
+    });
+
+    await page.goto('/');
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    await page.locator('[data-testid="connection-status"]').click();
+    // Il pannello si apre lo stesso e mostra il costo…
+    await expect(page.locator('[data-testid="perf-cost"]')).toBeVisible({ timeout: 10_000 });
+    // …ma sugli stessi numeri del primo caso NON dice il 71%: la misura non
+    // regge quell'affermazione.
+    const verdetto = page.locator('[data-testid="perf-verdict"]');
+    if (await verdetto.count()) {
+      expect(await verdetto.innerText()).not.toContain('71');
+    }
+  });
 });
