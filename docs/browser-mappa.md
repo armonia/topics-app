@@ -17,89 +17,150 @@ aiuta a trovarla, e domani non se la ricorda. Il lato agente, che ad agosto era
 il buco (rete, dialoghi), nel frattempo si è chiuso: quel confronto oggi lo
 vinciamo.
 
-## 1. Elenco spuntato
+> **Una mappa sola.** Il 19/08 questa serie ne aveva prodotte DUE: questa e
+> `browser-gap-map.md`, scritta dalla card padre mentre il suo passo 4 scriveva
+> questa. Si contraddicevano sulle priorita' — una metteva per prime `target=_blank`
+> e lo zoom nativo, l'altra le identita' salvate e il motore di ricerca — e una
+> serie con due mappe che dicono cose diverse non e' una serie: e' il posto dove
+> si smette di guardarla. Sono state fuse qui, e sotto le priorita' ci sono
+> entrambe le liste, non una scelta fra le due.
 
-Legenda: **sì** presente, **metà** parziale o indiretto, **no** assente,
-**n/a** non ha senso in quel prodotto.
+## Il metro: due aspettative, non una
 
-### A. Navigazione, cioè quello che fa una persona
+Si confondono sempre, e vanno tenute separate perche' il metro e' diverso.
 
-| | Topics | Pippo |
+| Superficie | Aspettativa | Chi la delude |
 |---|---|---|
-| indietro/avanti, con la cronologia sul tasto premuto a lungo | sì | sì |
-| ricarica | sì | sì |
-| ferma il caricamento | no (c'è la barra di avanzamento, non il tasto) | sì |
-| barra indirizzo con host in evidenza e `https://` nascosto | sì | sì |
-| suggerimenti mentre scrivi | **no** | sì (`Features/Launcher/Suggestions`) |
-| motore di ricerca scelto dall'utente | **no** (Google fisso in `browserNavUrl.ts:204`) | sì (`SearchEngineService`) |
-| pagina della scheda nuova | metà (in costruzione, card `3bf61316`) | sì |
-| cronologia globale, cercabile | **no** (solo gli URL recenti della pane) | sì (`Features/History`) |
-| preferiti | no (si fissa la *tab di Topics*, non il sito) | no (stessa scelta: tab fissate) |
-| trova nella pagina, con n/m | sì | sì |
-| download con avanzamento | sì | sì |
-| menu contestuale nella pagina | sì | sì |
-| favicon, con segnaposto quando manca | sì | sì |
-| zoom | sì | sì |
-| picture in picture | metà (quello che dà WebKit dal player, nessun comando nostro) | sì (`Features/Player`) |
-| blocco contenuti e pubblicità | no | sì (`AdBlockService` + liste filtro) |
-| password e passkey | no (deleghiamo al sistema) | sì (`Features/Passwords`) |
-| importazione da un altro browser | metà (solo i cookie da Chrome) | sì (`Features/Importer`) |
-| lettore, traduzione, stampa | no | metà |
-| browser predefinito del sistema | n/a | sì (`DefaultBrowserManager`) |
+| **Pane browser** dentro un progetto o un task | «una scheda che funziona»: se il sito chiede la webcam deve chiederla, se premo zoom deve zoomare, se un link apre una scheda nuova deve aprirla | i buchi tecnici del motore |
+| **Nuova scheda** (pane aperta senza URL) | «una pagina d'ingresso curata»: qualcosa da cui ripartire | il vuoto: oggi e' una pane bianca con il cursore messo nella barra |
 
-### B. Identità e sessione
+Una pane che apre `about:blank` mette il fuoco nella barra dell'indirizzo
+(`RemoteBrowserPanel.tsx`, effetto `urlBarAutoFocusedRef`) e non disegna nient'altro.
+Pippo, al posto suo, disegna `HomeView`: sfondo sfocato, logo, una riga di testo e
+il Launcher con i suggerimenti. Anche lui non ha i «siti piu' visitati»: la
+differenza non e' la ricchezza, e' che una pagina c'e'.
 
-| | Topics | Pippo |
+## 1. Elenco spuntato: Pippo contro Topics
+
+Legenda: **si'** = c'e' e regge il confronto, **meta'** = c'e' ma con un limite
+che si vede all'uso, **no** = non c'e'.
+
+### Navigazione e motore
+
+| Funzione di Pippo | Topics | Nota |
 |---|---|---|
-| profilo dati isolato per scheda | sì (uno store per `contextId`) | sì (spaces e profili) |
-| navigazione privata | metà (ogni pane nasce già isolata) | sì |
-| «dimentica questo sito», che elenca prima di cancellare | **sì** | no |
-| import dei cookie dal Chrome dell'utente | **sì** (`browser_import_chrome`) | n/a |
-| stato di login salvato e reiniettabile altrove | **sì** (`browser_save_state`/`load_state`) | no |
-| pulizia della cache senza perdere il login | **sì** (`browser_purge_cache`) | no |
+| Motore WebKit nativo | si' | WKWebView via wry su macOS, WebView2 e WebKitGTK altrove |
+| Barra indirizzo, avanti, indietro, ricarica | si' | `BrowserToolbar.tsx` |
+| Cronologia della scheda (lista avanti/indietro, menu a pressione lunga) | si' | `browser_nav_entries` + `browser_go_to_index` |
+| Pagina di errore di rete | si' | `navErrorMessage.ts` traduce i codici Cocoa, la strip offre «Riprova» e un secondo rigo di spiegazione. Qui Topics sta MEGLIO di Pippo: `StatusPageView` mostra il `localizedDescription` grezzo |
+| Favicon | si' | letta dal DOM col fallback `/favicon.ico` (`browserPagePoll.ts`), segnaposto a monogramma quando manca (`faviconPlaceholder.ts`) |
+| `target=_blank` e `window.open` | **no** | il gestore `on_new_window` in `lib.rs` NAVIGA LA STESSA PANE e nega la finestra. Un link «apri in una scheda nuova» dirotta la pagina che stavi leggendo |
+| Zoom in / out / reset | meta' | fatto iniettando `document.body.style.zoom`. Non e' il page zoom: non scala gli elementi `fixed`, va riaffermato a ogni giro di poll, e su un layout rigido rompe la pagina |
+| Trova nella pagina, con n/m | meta' | `window.find()` piu' un conteggio camminato a mano (`findInPageModel.ts`). Nessuna evidenziazione di tutti i risultati, nessun `_findString` nativo |
+| Stampa | **no** | nessun percorso, ne' scorciatoia ne' comando |
+| Dialoghi della pagina (`alert`, `confirm`, `prompt`) | **da misurare** | la sessione condivisa li chiude e li riporta (`browser-service.ts`, `lastDialog`); nella pane nativa non c'e' un nostro delegato. Prova da fare: una pagina che chiama `alert()` dentro una pane |
 
-### C. Guida da agente (qui il metro è chrome-devtools, non Pippo)
+### Schede, finestre, spazi
 
-16 tool montati in `server/browser-tool-spec.ts`. I due buchi nominati il 04/08
-sono **chiusi**: `browser_network` esiste, e i dialoghi non bloccano più la
-pagina in silenzio (`browser_status.lastDialog`). Restano nostri e non
-replicati altrove: snapshot **incrementale** con `[ref]` stabili, screenshot che
-torna un *path* e non entra nel contesto, sessioni salvabili, lettura a video
-via modello di visione.
+| Funzione di Pippo | Topics | Nota |
+|---|---|---|
+| Schede, riordino, fissaggio | si' | ma sono le pane di Topics, non schede del browser: una pane = una pagina |
+| Schede verticali, sidebar | si' | la sidebar di Topics fa lo stesso lavoro |
+| Split view | si' | e in Topics vale per ogni tipo di pane, non solo per il web |
+| Spaces / Containers (profili scelti dall'utente) | meta' | l'isolamento per `contextId` c'e' (data store separato, `browser_purge_data_store`), ma non e' un gesto dell'utente: non si sceglie «apri questo in un altro profilo» |
+| Navigazione privata come gesto | **no** | tecnicamente possibile, non esposta |
+| Ripristino della sessione | meta' | si ripristina l'URL della pane (`browserOriginStore.ts`), non la lista avanti/indietro ne' la posizione dello scorrimento |
+| Launcher / cambio scheda al volo (⌘T con suggerimenti) | **no** | c'e' la palette dell'app, che pero' non cerca fra le schede web aperte |
+| Anteprima del link al passaggio del mouse | **no** | non c'e' nemmeno la riga di stato in basso con la URL di destinazione |
 
-### D. Il guscio, dove non c'è partita
+### Dati dell'utente
 
-Schede, split e gruppi del progetto; la stessa pane vista dal telefono (co-browse
-cross device); tre motori sotto la stessa superficie (WKWebView nativa,
-Chromium dell'utente per le estensioni, sessione condivisa sul server);
-reclamo e smontaggio delle viste orfane; la pane come **tab di un task**, che
-resta lì per chi rivede il lavoro.
+| Funzione di Pippo | Topics | Nota |
+|---|---|---|
+| Cronologia globale, con titolo e data | **no** | esiste solo `useBrowserHistory`: 50 URL per topic in `localStorage`, stringhe nude, senza titolo, senza data, senza ricerca. Non e' una cronologia, e' un menu «recenti» |
+| Preferiti / segnalibri | **no** | il fissaggio in Topics e' della pane, non dell'indirizzo |
+| Download: elenco, avanzamento, apri, mostra nel Finder | si' | `downloadsModel.ts` + `DownloadsMenu.tsx`, con percentuale reale dal Rust |
+| Download: annulla, riprendi, storico che sopravvive | **no** | la lista e' in memoria e si taglia a 20 voci; gli stati `cancelled`/`interrupted` esistono ma nessun comando li produce |
+| Autofill password (portachiavi iCloud) | **no** | in Topics esiste solo una proposta OpenSpec di credential store |
+| Importazione dati da un altro browser | **no** | e per Topics non ha molto senso |
+| Motore di ricerca configurabile | **no** | Google e' cablato in `normalizeUrl` (`browserNavUrl.ts`). Pippo ne offre quindici, comprese le capsule verso i modelli |
+| Suggerimenti mentre si scrive nella barra | meta' | c'e' un menu «Recent URLs» che pesca dallo storico locale; nessun completamento in linea, nessun suggerimento dal motore |
 
-## 2. Pane oppure scheda nuova: il criterio
+### Privacy e permessi
 
-È la domanda che decide tutte le altre, e la risposta non è «quanto browser
-vogliamo fare», è **di chi è la pagina**.
+| Funzione di Pippo | Topics | Nota |
+|---|---|---|
+| Blocco contenuti (`WKContentRuleList`, cataloghi di filtri, aggiornamento liste) | **no** | tre servizi in Pippo: catalogo, compilazione, archivio degli artefatti |
+| Difese anti tracciamento iniettate | **no** | `BrowserPrivacyService` in Pippo copre anche il ramo `permissions.query` |
+| Permessi del sito (camera, microfono, posizione, notifiche) | **no** | Pippo ha il `requestMediaCapturePermissionFor`; Topics non ha nessun percorso: un sito che chiede la webcam fallisce in silenzio |
+| Passkey | **no** | in nessuno dei due (roadmap di Pippo) |
+| Notifiche web | **no** | in nessuno dei due (roadmap di Pippo) |
+| Dimentica questo sito | **si', solo Topics** | `browser_forget_site` piu' il dialogo che elenca cosa cancella PRIMA di cancellarlo. Pippo non ce l'ha |
 
-- **Pane dentro un topic = uno strumento.** La pagina appartiene a un lavoro:
-  l'ha aperta l'agente o l'hai aperta tu per quel lavoro, si guida da fuori,
-  regge l'evidenza, e muore quando il lavoro finisce. Qui non servono preferiti
-  né spaces: serve che la sessione sia solida, che la memoria si liberi, che
-  quello che è successo si possa dimostrare.
-- **Scheda nuova = un luogo.** Ci arrivi senza sapere dove vai. Qui servono
-  ingresso (suggerimenti, motore di ricerca, pagina iniziale) e memoria
-  (cronologia, riapertura), cioè esattamente le tre righe in grassetto della
-  tabella A.
+### Il resto
 
-Da qui la regola con cui abbiamo scelto le cose che valgono la pena:
+| Funzione di Pippo | Topics | Nota |
+|---|---|---|
+| DevTools | si' | ⌥⌘I, piu' una console a tendina con livelli e filtro (`consoleLogModel.ts`) |
+| Menu contestuale nella pagina | si' | `PaneContextMenu.tsx` |
+| Scorciatoie da tastiera | meta' | quelle del browser sono fisse (registro condiviso TS/Rust); Pippo le fa ridefinire |
+| Tema e aspetto | si' | card `63c3332a` in review per lo sfondo coerente di scheda e toolbar |
+| Picture in picture, controller media globale | **no** | |
+| Registrarsi come browser di sistema | **no** | Topics registra l'apertura di file e cartelle, non il protocollo `http` |
+| Estensioni | **no** | in nessuno dei due (beta nella roadmap di Pippo) |
+| Aggiornamento dell'app | si' | a livello di app |
+| Guida dell'agente: screenshot, eval, cookie, user agent, co-browse, upload | **si', solo Topics** | non esiste in nessun browser di consumo, ed e' il motivo per cui questo browser sta qui dentro |
 
-> Vale la pena tutto ciò che serve ad **aprire** e a **ritrovare**.
-> Non vale la pena ciò che serve ad **abitare** il browser.
+## 2. Il taglio: cosa manca alla pane, cosa manca alla nuova scheda
 
-Abitare è il mestiere di Safari e di Pippo: preferiti, spaces, blocco contenuti,
-gestore di password, lettore, essere il browser predefinito. Se lo facciamo,
-manteniamo un secondo browser per sempre e non lo useremo comunque.
+**Alla pane** (aspettativa: una scheda che funziona) mancano cose tecniche, e
+sono quasi tutte nel guscio Rust:
 
-## 3. Le quattro cose che valgono la pena
+- `target=_blank` che dirotta la pagina corrente invece di aprire una scheda
+- zoom e ricerca fatti iniettando JavaScript invece dei comandi nativi
+- nessun percorso per i permessi del sito
+- niente stampa
+- dialoghi della pagina non verificati
+
+**Alla nuova scheda** (aspettativa: una pagina d'ingresso curata) manca tutto:
+oggi e' bianca. E il pezzo che la rende possibile non e' grafico, e' il dato:
+senza una cronologia vera non c'e' niente da mettere in quella pagina. La card
+`3bf61316` la sta costruendo e ha gia' un passo chiuso sul modello di frecency:
+e' li' che va il primo colpo, non nel disegno.
+
+## 3. Le cose che valgono la pena
+
+Due letture, tenute separate perche' ordinano con criteri diversi e la
+differenza e' informativa: la prima ordina per **quanto duole**, la seconda
+per **ritorno contro costo**. Dove concordano (storico globale, scheda nuova
+che ricorda) non c'e' piu' niente da decidere: e' il primo colpo.
+
+### Per quanto duole
+
+1. **Cronologia vera, globale, cercabile** (titolo, data, conteggio visite).
+   Perche' e' il prerequisito di tre cose diverse: la nuova scheda, il
+   completamento nella barra e il «riapri quello che avevo». Oggi al suo posto
+   c'e' un array di 50 stringhe per topic in `localStorage`.
+2. **La nuova scheda diventa una pagina** (card `3bf61316` gia' aperta).
+   Perche' e' l'unica superficie che ogni apertura di pane attraversa, ed e'
+   l'unico punto dove Topics puo' mostrare cio' che gli altri browser non hanno:
+   le anteprime dei task, le sessioni, i progetti.
+3. **Zoom e ricerca nativi al posto del JavaScript iniettato.**
+   Perche' sono i due comandi che l'utente prova per primo per capire se «e' un
+   browser vero», e sono anche gli unici due dove la nostra imitazione si vede a
+   occhio nudo (elementi fissi che non scalano, risultati non evidenziati).
+4. **`target=_blank` apre una scheda.**
+   Perche' e' il gesto piu' comune del web, e oggi non fallisce: fa una cosa
+   diversa, che e' peggio. Il menu contestuale promette gia' «apri il link in una
+   nuova scheda» e quel comando finisce fuori dall'app.
+5. **Permessi del sito, con una riga che dice chi chiede cosa.**
+   Perche' un sito che chiede microfono o webcam oggi fallisce in silenzio, e una
+   pane che non risponde sembra rotta, non sembra severa.
+
+Subito sotto la soglia, e vale la pena dirlo: motore di ricerca configurabile
+(una riga di impostazione, oggi Google e' cablato) e download che si annullano.
+
+### Per ritorno contro costo
 
 **1. La barra che suggerisce, e la scheda nuova che ricorda.** Storico globale
 dei siti con frecency, suggerimenti mentre scrivi, e la pagina iniziale che
@@ -129,7 +190,7 @@ schermata di impostazioni.
 Una quinta, minore, se avanza tempo: il **tasto ferma** accanto a ricarica, che
 oggi manca e su una pagina che non finisce di caricare lascia senza uscita.
 
-## 4. Cosa non copiare, e perché
+## 4. Cosa non copiare, e perche'
 
 - **Preferiti e spaces.** Nemmeno Pippo ha i preferiti: usa le tab fissate. Noi
   le abbiamo già, e sono a livello di guscio, dove servono.
@@ -142,3 +203,10 @@ oggi manca e su una pagina che non finisce di caricare lascia senza uscita.
   chi *abita* il browser.
 - **Il ramo performance/audit di chrome-devtools.** Già escluso il 04/08:
   appartiene al livello QA, non al browser dell'agente.
+
+## Gia' fatto, da non riscoprire
+
+Card `9a4e8f64`: modello dei log di console (`consoleLogModel.ts`), segnaposto
+delle favicon (`faviconPlaceholder.ts`), https prima nella barra
+(`browserNavUrl.ts`). Card `63c3332a`: sfondo di scheda e toolbar coerenti col
+tema, in review. Card `3bf61316`: pagina della nuova scheda, in corso.
