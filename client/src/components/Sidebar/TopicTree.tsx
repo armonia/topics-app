@@ -39,7 +39,7 @@ import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
-import { spawnDragGhost } from '@/components/Layout/dragGhost';
+import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
@@ -220,12 +220,6 @@ function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HT
  * da solo. Il commento di SpaceGroups lo scriveva già: «il posto suo è
  * lib/selectionStyles, accanto a ROW_PX e ROW_INSET».
  */
-
-/** I fantasmi di trascinamento ancora attaccati al DOM. `spawnDragGhost` li
- *  aggiunge e li toglie da sé al frame dopo; il Set è il registro condiviso che
- *  la sua firma pretende, e vale da rete di sicurezza se una riga sparisce a
- *  metà trascinamento. */
-const DRAG_GHOSTS = new Set<HTMLElement>();
 
 /**
  * Una riga che, TENUTA PREMUTA, apre LO STESSO menu del tasto destro.
@@ -1062,11 +1056,17 @@ export function TopicTree({
             e.dataTransfer.setData(DND_TYPES.PANEL_ID, createPaneId('project', pp));
             rememberDraggedPane(createPaneId('project', pp));
             e.dataTransfer.effectAllowed = 'move';
-            // Il fantasma è quello CONDIVISO (`dragGhost.ts`), non una terza
+            // L'anteprima è quella CONDIVISA (`lib/dragPreview`), non una terza
             // copia: erano tre pillole scritte a mano con tre ombre e tre
             // padding diversi, e le tre superfici che trascinano mostravano tre
-            // cose leggermente diverse per lo stesso gesto.
-            spawnDragGhost(e, { text: item.name, size: 'md' }, DRAG_GHOSTS);
+            // cose leggermente diverse per lo stesso gesto. Sotto il nome sta il
+            // percorso, perché due progetti si chiamano quasi sempre come la
+            // loro cartella e la cartella è l'unica cosa che li distingue.
+            startDragPreview(e, {
+              title: item.name,
+              subtitle: pp,
+              badges: item.notificationCount > 0 ? [String(item.notificationCount)] : [],
+            });
           }}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -1608,6 +1608,10 @@ export function TopicTree({
               e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
               rememberDraggedPane(BOARD_ID);
               e.dataTransfer.effectAllowed = 'copyMove';
+              // Qui non c'era NESSUNA immagine di trascinamento, ed è il caso
+              // peggiore: senza `setDragImage` macOS ripiega sull'icona generica
+              // di documento, cioè trascinando la board si vedeva un file.
+              startDragPreview(e, { title: BOARD_LABEL });
             }}
             onContextMenu={e => {
               e.preventDefault();

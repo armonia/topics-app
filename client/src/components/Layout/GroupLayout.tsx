@@ -4,7 +4,7 @@ import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
 import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
-import { spawnDragGhost } from './dragGhost';
+import { startDragPreview } from '../../lib/dragPreview';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
@@ -208,21 +208,6 @@ export function GroupLayout({
     const h = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', h);
     return () => window.removeEventListener('resize', h);
-  }, []);
-
-  // Track drag-ghost DOM nodes so they can be drained on unmount. The rAF that
-  // removes a ghost can be throttled indefinitely on a backgrounded tab, so a
-  // ghost appended to document.body would otherwise accumulate across drags.
-  // Mirrors PanelGrid's "ISSUE 19 FIX".
-  const activeGhostsRef = useRef<Set<HTMLElement>>(new Set());
-  useEffect(() => {
-    return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional unmount-time read: activeGhostsRef holds one stable Set (never reassigned, only mutated); cleanup must drain whatever ghosts are live AT unmount
-      for (const ghost of activeGhostsRef.current) {
-        if (ghost.parentElement) ghost.parentElement.removeChild(ghost);
-      }
-      activeGhostsRef.current.clear();
-    };
   }, []);
 
   const { getBadgeCount, clearPane } = useTabNotifications();
@@ -627,9 +612,16 @@ export function GroupLayout({
     setDraggingRowIdx(rowIdx);
     e.dataTransfer.setData(DND_TYPES.LAYOUT_ROW, String(rowIdx));
     e.dataTransfer.effectAllowed = 'move';
-
-    spawnDragGhost(e, { text: `Row ${rowIdx + 1}`, size: 'sm' }, activeGhostsRef.current);
-  }, [onReorderRows]);
+    // Una riga non ha un nome, quindi il sottotitolo dice l'unica cosa che la
+    // distingue dalle sorelle: quante pane ci stanno dentro. Il registro dei
+    // fantasmi da drenare non serve più — vedi `lib/dragPreview`, che si spegne
+    // da sé su cinque porte agganciate al documento.
+    const quante = rows[rowIdx]?.groupIds.length ?? 0;
+    startDragPreview(e, {
+      title: `Riga ${rowIdx + 1}`,
+      subtitle: quante > 0 ? `${quante} ${quante === 1 ? 'riquadro' : 'riquadri'}` : undefined,
+    });
+  }, [onReorderRows, rows]);
 
   const handleRowDragOver = useCallback((rowIdx: number) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.LAYOUT_ROW)) return;
@@ -1128,7 +1120,14 @@ export function GroupLayout({
       <div
         data-group-cell={`${rowIdx}-${groupIdx}`}
         className={`relative flex w-full h-full min-h-0 min-w-0 overflow-hidden ${isDraggingRow ? 'opacity-40' : ''}`}
-        style={{ boxShadow: rowDropSide === 'top' ? 'inset 0 4px 0 0 var(--primary)' : rowDropSide === 'bottom' ? 'inset 0 -4px 0 0 var(--primary)' : undefined }}
+        // DOVE CADRÀ, con l'attributo del contratto invece di un'ombra scritta
+        // qui: `before`/`after` sono lo stesso inserimento posizionale della
+        // barra delle tab, e adesso lo dicono con la stessa lama. L'asse lo
+        // dichiara il bersaglio perché qui la fila è IMPILATA — si entra sopra
+        // o sotto, non a sinistra o a destra (vedi `data-drop-axis` in
+        // index.css).
+        data-drop-axis="y"
+        data-drop-active={rowDropSide === 'top' ? 'before' : rowDropSide === 'bottom' ? 'after' : undefined}
         onDragOver={handleRowDragOver(rowIdx)}
         onDrop={handleRowDrop}
       >

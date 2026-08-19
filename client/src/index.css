@@ -3483,6 +3483,36 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
   width: 3px;
 }
 
+/* LA LAMA SEGUE L'ASSE DELLA FILA, e l'asse lo dichiara il bersaglio.
+ *
+ * `before` e `after` dicono da che parte entra la cosa, non come è impilata la
+ * fila che la accoglie: in una barra di tab si entra a sinistra o a destra, fra
+ * due righe della griglia si entra sopra o sotto. La lama verticale qui sopra è
+ * quella giusta per una fila orizzontale, e su una fila VERTICALE punta di
+ * traverso rispetto al movimento. Chi disegna la fila è l'unico che sa come la
+ * sua fila è impilata, quindi lo dice con `data-drop-axis="y"`.
+ *
+ * A tutta larghezza, e non rientrata come la sorella: una riga della griglia è
+ * fatta di più celle affiancate, ognuna delle quali si marca, e con il rientro
+ * la linea si vedrebbe spezzata in tanti tratti quante sono le colonne. */
+[data-drop-axis='y'][data-drop-active='before']::after,
+[data-drop-axis='y'][data-drop-active='after']::after {
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: auto;
+  width: auto;
+  height: 3px;
+}
+
+[data-drop-axis='y'][data-drop-active='before']::after {
+  top: 0;
+}
+
+[data-drop-axis='y'][data-drop-active='after']::after {
+  bottom: 0;
+}
+
 [data-drop-active='split']::after {
   inset: 0;
   background: color-mix(in srgb, var(--primary) 14%, transparent);

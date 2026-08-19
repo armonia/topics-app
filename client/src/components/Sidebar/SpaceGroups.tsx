@@ -172,14 +172,18 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
       // COLUMN_GAP/2), così che fra due vicine ne cadano sei e la prima non
       // debba sapere chi ha sopra. Con l'aria tutta sotto, la distanza fra due
       // gruppi era 4 e quella fra un gruppo e ciò che gli sta SOPRA era zero.
+      // DOVE CADRÀ: `into`, perché il rilascio porta la tab DENTRO il gruppo.
+      // Il bordo e il fondo accesi erano scritti qui, cioè una copia locale di
+      // un disegno che ora sta in `index.css` in una regola sola (vedi
+      // DROP_ACTIVE_ATTR in `lib/dragPreview`). Si spegne con `dropping`, che il
+      // `dragleave` e il `drop` azzerano già.
+      data-drop-active={dropping ? 'into' : undefined}
       className={`mx-1.5 my-[3px] flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
-        dropping
-          ? 'border-primary bg-primary/10'
-          : card.detachedLabel
-            ? 'border-dashed border-app-border/70'
-            : card.active
-              ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.06]'
-              : 'border-app-border/50'
+        card.detachedLabel
+          ? 'border-dashed border-app-border/70'
+          : card.active
+            ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.06]'
+            : 'border-app-border/50'
       }`}
     >
       <div
