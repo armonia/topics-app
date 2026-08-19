@@ -138,20 +138,33 @@ actions by type recorded **zero** in the same window that saw fifteen PUTs. The
 PUTs do leave this window (counted on its own `fetch`), so they are not someone
 else's writes seen in passing.
 
-The remaining suspect is written where it will be found, in
-`state/pane/middleware/syncWS.ts`: a remote hydrate sets `lastSeq` to
-`max(currentSeq, server_seq)`, and `server_seq` is server-allocated, so it grows
-with EVERY client's writes — this machine reported 21 open sessions. Each peer's
-write would then bump our counter, the debounce would fire, and our identical
-snapshot would bump theirs. The self-echo filter guards against one's own write,
-not a peer's.
+The cause is now known, measured rather than guessed. Instrumenting the
+dispatcher to count actions by type — **including** the server-authoritative
+ones the first probe skipped, which is why it reported "zero actions" and sent
+me down two wrong paths — recorded **16 `HYDRATE_FROM_SNAPSHOT` for 15 PUTs**.
+The loop: `server_seq` is server-allocated and grows with EVERY client's writes
+(21 open sessions here); a remote hydrate sets `lastSeq` to
+`max(currentSeq, server_seq)` (`reducers/panes.ts:760`); the sync middleware
+watches `lastSeq` and, half a second later, PUTs 75 KB identical to what it just
+RECEIVED; that write bumps `server_seq`, the server rebroadcasts, and every peer
+does the same. The self-echo filter guards against one's own write, not a peer's.
 
-It is left open on purpose: that line exists so post-hydrate PUTs carry a seq
-the server's LWW accepts, and changing it without knowing which half applies
-when trades this cycle for a worse failure — a client that stops syncing, or one
-that overwrites its peers. A remedy written with less certainty than this was
-already withdrawn today, after it cost a tab close that never reached the
-server.
+**A remedy that works was written and withdrawn.** Comparing the outbound
+snapshot against the identity of the last HYDRATED state takes the gate to
+**0 writes, three runs in a row**. It also breaks `cross-window-topic-sync`:
+open a chat, reload, and it is no longer open. Verified the red was mine by
+disabling that single line — the test goes green.
+
+It stays withdrawn because the trade is bad in the direction that matters: the
+gain is bandwidth and some event loop, the cost is state that does not
+synchronise, i.e. work lost on screen. The same lesson was already paid today by
+a different gate that made a tab close vanish before reaching the server.
+
+Where to resume: not in the middleware but at `syncWS.ts`, on the line that
+folds a peer's `server_seq` into our local dispatch counter. That is what turns
+someone else's write into our own, and until it changes every downstream gate is
+patching a symptom. The hooks (`alreadyOnServer`, `noteLocalWrite`) stay
+published with their reasoning for whoever picks it up.
 
 **The memory is not a leak, and it is not in the heap.** A freshly-opened window
 costs **164-187 MB**; the user's was at **1,633 MB**. But `devHeapProbe`, armed

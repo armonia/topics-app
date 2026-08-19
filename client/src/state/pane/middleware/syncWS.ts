@@ -68,6 +68,75 @@ let started = false;
 let lastAppliedServerSeq = 0;
 
 /**
+ * L'IDENTITA' DELL'ULTIMO STATO ARRIVATO DAL SERVER, per chi deve decidere se
+ * vale la pena rimandarlo indietro.
+ *
+ * PERCHE' ESISTE (2026-08-19). A schermo fermo una finestra mandava 12-17 PUT di
+ * `pane-store-v2` in 25 secondi, uno ogni 1,5 s, con `lastSeq` che saliva e
+ * NESSUN'ALTRA differenza fra un corpo e il successivo. Strumentando il
+ * dispatcher: sedici `HYDRATE_FROM_SNAPSHOT` nella stessa finestra, uno per PUT.
+ *
+ * Il ciclo: `server_seq` e' allocato dal SERVER e cresce a ogni scrittura di
+ * CHIUNQUE (questa macchina dichiarava ventuno sessioni aperte); ogni
+ * idratazione remota porta `lastSeq` a `max(lastSeq, clean.lastSeq)`
+ * (`reducers/panes.ts`); il middleware di sync osserva `lastSeq` e, mezzo
+ * secondo dopo, manda 75 KB identici a quelli appena RICEVUTI. Quel PUT alza
+ * `server_seq`, il server lo ritrasmette a tutti, e ogni pari fa lo stesso.
+ * Su un server con `bun:sqlite` sincrono e su HTTP/1.1 quelle scritture si
+ * mettono davanti alle letture che disegnano la board.
+ *
+ * Il filtro dell'eco (`selfEcho`) non copre questo: protegge dalla PROPRIA
+ * scrittura che torna indietro, non dallo stato di un PARI che ci arriva
+ * legittimamente e che noi ri-annunciamo per il solo fatto di averlo ricevuto.
+ *
+ * Si registra l'identita' e non il seq perche' la domanda del middleware non e'
+ * «quale numero d'ordine ho visto» ma «cio' che sto per mandare e' gia' cio' che
+ * il server ha». Vedi `alreadyOnServer`.
+ */
+let lastHydratedIdentity: string | null = null;
+
+/**
+ * L'identita' di uno stato ai fini di questo confronto: tutto tranne i due
+ * contatori di trasporto.
+ *
+ * `lastSeq` e `server_seq` NON sono lo stato — sono i numeri d'ordine con cui il
+ * server decide chi ha scritto per ultimo. Salgono per costruzione a ogni giro,
+ * quindi confrontare il corpo intero direbbe sempre «diverso» e non fermerebbe
+ * un solo PUT.
+ */
+function stateIdentity(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const { lastSeq: _a, server_seq: _b, seq: _c, ...rest } = value as Record<string, unknown>;
+  void _a; void _b; void _c;
+  return JSON.stringify(rest);
+}
+
+/**
+ * Cio' che sto per mandare e' esattamente cio' che il server mi ha appena
+ * mandato? Allora rimandarglielo non gli dice niente di nuovo.
+ *
+ * Sbagliare qui in un senso costa un PUT in piu' (innocuo); nell'altro costa uno
+ * stato che non si sincronizza — per questo la risposta e' `false` ogni volta
+ * che non c'e' un'idratazione recente con cui confrontarsi, e ogni scrittura
+ * LOCALE la invalida (vedi `noteLocalWrite`).
+ */
+export function alreadyOnServer(snapshot: unknown): boolean {
+  return lastHydratedIdentity !== null && stateIdentity(snapshot) === lastHydratedIdentity;
+}
+
+/**
+ * Una scrittura NOSTRA e' partita: da qui in poi lo stato non e' piu' «quello
+ * che il server mi ha mandato», e il confronto va rifatto da capo.
+ *
+ * Senza questo, una modifica locale che riportasse per caso lo stato alla forma
+ * appena idratata verrebbe saltata — e quella e' la direzione in cui il rimedio
+ * diventa peggiore del difetto.
+ */
+export function noteLocalWrite(): void {
+  lastHydratedIdentity = null;
+}
+
+/**
  * Register a subscription against the app's existing WS event bus. The caller
  * supplies a `subscribe` function that invokes our handler with each incoming
  * frame — we do NOT open our own socket.
@@ -116,44 +185,6 @@ export function initWSSync(
         return;
       }
       lastAppliedServerSeq = metaEntry.server_seq;
-      // ─────────────────────────────────────────────────────────────────────
-      // APERTO (2026-08-19): un ciclo di PUT che passa DA QUI, e la caccia
-      // lasciata a meta' con quel che si sa gia'.
-      //
-      // SINTOMO: a schermo fermo, con una chat aperta, questa finestra manda
-      // 12-17 PUT di `pane-store-v2` in 25 secondi — uno ogni 1,5 s, da 75 KB,
-      // con `lastSeq` che sale e NESSUN'ALTRA differenza fra un corpo e il
-      // successivo. Si misura con `scripts/check-idle-writes.mjs` (tetto 3).
-      //
-      // COSA E' GIA' ESCLUSO, misurato e non dedotto:
-      //  · non e' `UPDATE_PANE` (guardia aggiunta, e il ciclo e' RIMASTO);
-      //  · non e' `FOCUS_PANE` (guardia aggiunta, ciclo rimasto);
-      //  · non e' NESSUNA azione: strumentando il dispatcher per contare le
-      //    azioni per tipo, in quella finestra ne ho contate **zero**, con
-      //    quindici PUT partiti nello stesso intervallo. Il `lastSeq` che fa
-      //    partire il debounce non viene dal reducer;
-      //  · i PUT partono DA QUESTA finestra (contati sul suo `fetch`), non sono
-      //    scritture altrui viste passare.
-      //
-      // IL SOSPETTO CHE RESTA, ed e' il motivo per cui la nota sta QUI: la riga
-      // qui sotto porta `lastSeq` a `max(currentSeq, server_seq)`. `server_seq`
-      // e' allocato dal SERVER e cresce a ogni scrittura di CHIUNQUE — su questa
-      // macchina `/api/system/presence` ne dichiarava ventuno di sessioni
-      // aperte. Ogni idratazione remota alza quindi il nostro contatore, il
-      // middleware vede il contatore muoversi e manda uno snapshot identico;
-      // quel PUT alza `server_seq`, il server lo ritrasmette a tutti, e ogni
-      // altro client fa lo stesso. Il filtro dell'eco (`isSelfEcho`) protegge
-      // dalla PROPRIA scrittura, non da quella dei pari.
-      //
-      // PERCHE' NON L'HO CHIUSA: la riga esiste per una ragione vera —
-      // post-idratazione i nostri PUT devono portare un seq che il server
-      // consideri fresco, o il suo LWW li rifiuta — e toccarla senza capire
-      // quale delle due meta' vale in ogni caso significa scegliere fra due
-      // guasti peggiori: un client che non sincronizza piu', o uno che
-      // sovrascrive i pari. Ho gia' ritirato oggi un rimedio scritto con meno
-      // certezza di questa, e mi era costato una chiusura di scheda che non
-      // arrivava al server.
-      // ─────────────────────────────────────────────────────────────────────
       const currentSeq = usePaneStore.getState().lastSeq;
       usePaneStore.getState().dispatch({
         type: 'HYDRATE_FROM_SNAPSHOT',
@@ -190,6 +221,10 @@ export function initWSSync(
         return;
       }
       lastAppliedServerSeq = upd.server_seq;
+      // Terzo (e piu' frequente) punto in cui uno stato arriva DAL server: e' il
+      // broadcast di una scrittura di un PARI. Registrarne l'identita' qui e'
+      // cio' che impedisce di ri-annunciarla come se fosse nostra.
+      lastHydratedIdentity = stateIdentity(upd.value);
       const currentSeq = usePaneStore.getState().lastSeq;
       usePaneStore.getState().dispatch({
         type: 'HYDRATE_FROM_SNAPSHOT',
@@ -227,6 +262,9 @@ export function initWSSync(
         return;
       }
       lastAppliedServerSeq = entry.server_seq;
+      // Come nell'altro ramo: questo stato viene DAL server, e registrarne
+      // l'identita' e' cio' che evita di rimandarglielo indietro.
+      lastHydratedIdentity = stateIdentity(entry.data);
       const currentSeq = usePaneStore.getState().lastSeq;
       // Back-compat: reuse HYDRATE_FROM_SNAPSHOT — sanitizer + LWW gate in
       // the reducer handle the shape exactly like `ui-state:updated`. The
