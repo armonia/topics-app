@@ -134,23 +134,45 @@ const BUBBLE_LINES = [2, 5, 2, 3, 1];
  *
  * DAL BASSO, come la chat vera: una conversazione è ancorata al fondo, e uno
  * scheletro allineato in cima prometterebbe il contrario di ciò che arriva.
- * `justify-end` + il gutter di 24px sotto sono gli stessi del contenuto vero
- * (`CHAT_BOTTOM_GUTTER_PX` nel Footer di Virtuoso).
+ *
+ * LE DUE FASCE CHE NON SONO SUE. Il contenitore del trascritto
+ * (`.chat-under-chrome`) si prende TUTTA la cella: risale sotto la barra di
+ * chrome con un margine negativo e continua sotto il composer, che gli sta
+ * sopra in `absolute bottom-0`. Il contenuto vero non ci finisce dentro perché
+ * Virtuoso apre un Header alto `--chat-gutter` e un Footer alto
+ * `inputAreaHeight + CHAT_BOTTOM_GUTTER_PX`. Questo scheletro è un fratello
+ * `absolute` dello scroller, quindi quei due varchi non li eredita: con
+ * `inset-0` nasceva mezzo coperto dal vetro in cima e con le bolle basse
+ * dietro al composer, cioè l'attesa mostrava una forma che il contenuto vero
+ * non ha mai avuto.
+ *
+ * Il rientro è sul BOX (`top`/`bottom`), non su un padding: `overflow-hidden`
+ * taglia al bordo del padding, quindi con `justify-end` una pila di bolle più
+ * alta dello spazio disponibile sarebbe rispuntata DENTRO il padding, sotto la
+ * barra. Spostando i bordi il taglio cade dove deve.
  *
  * `chat-measure` e `px-4`/`px-2` sono le stesse dei messaggi: la colonna finta
  * cade esattamente dove cadrà quella vera, quindi non c'è un movimento
  * orizzontale al momento del cambio.
  */
-export function SkeletonChatMessages({ isMobile = false, count = BUBBLE_LINES.length }: {
+export function SkeletonChatMessages({ isMobile = false, count = BUBBLE_LINES.length, bottomInset = 24 }: {
   isMobile?: boolean;
   count?: number;
+  /**
+   * La fascia in fondo che il composer occupa, in px: la passa CHI CHIAMA
+   * perché l'altezza del composer la misura solo lui (`inputAreaHeight`), e
+   * ci somma lo stesso gutter del Footer vero. Il default è il solo gutter,
+   * per una lista montata dove non c'è nessun composer sopra.
+   */
+  bottomInset?: number;
 }) {
   const righe = BUBBLE_LINES.slice(-count);
   return (
     <div
       aria-hidden="true"
       data-testid="chat-skeleton"
-      className={`absolute inset-0 flex flex-col justify-end overflow-hidden pointer-events-none pb-6 ${isMobile ? 'px-2' : 'px-4'}`}
+      className={`absolute inset-x-0 flex flex-col justify-end overflow-hidden pointer-events-none ${isMobile ? 'px-2' : 'px-4'}`}
+      style={{ top: 'var(--chat-gutter, 0px)', bottom: bottomInset }}
     >
       <div className="chat-measure space-y-3">
         {righe.map((linee, i) => {

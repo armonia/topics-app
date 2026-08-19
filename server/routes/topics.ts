@@ -7,7 +7,7 @@ import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvide
 import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
-import { leanMessagesForWire } from "../../shared/lean-tool-call";
+import { blocksForDisk, leanMessagesForWire, toolCallsForDisk } from "../../shared/lean-tool-call";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import { e2eRoutesEnabled } from "./e2e";
@@ -1979,12 +1979,12 @@ export function createTopicsRouter(
           $role: body.role,
           $content: body.content || '',
           $thinking: body.thinking || null,
-          $tool_calls: body.toolCalls ? JSON.stringify(body.toolCalls) : null,
+          $tool_calls: toolCallsForDisk(body.toolCalls),
           // `blocks` è la cronologia che il client rende quando c'è — e quando
           // c'è, `content` non viene stampato affatto. Senza questa colonna nel
           // seed, nessun test poteva riprodurre la classe di difetti che vive
           // proprio in quella divergenza.
-          $blocks: body.blocks ? JSON.stringify(body.blocks) : null,
+          $blocks: blocksForDisk(body.blocks),
           $media: body.media ? JSON.stringify(body.media) : null,
           $timestamp: timestamp,
           $sort_order: sortOrder,
