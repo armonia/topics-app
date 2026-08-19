@@ -623,6 +623,10 @@ const IT: Dict = {
   'board.card.conductorClosesTitle': 'Invisibile e barra verde: questa card la può chiudere il conduttore senza passare da te.',
   'board.card.steerPlaceholder': "…oppure scrivi all'agent",
   'board.card.steerSendTitle': "Invia all'agent. Lo riceve al prossimo turno, come Claude Code.",
+  // L'invio del campo libero in review NON e' un'azione sua: e' la scelta
+  // principale della card con dentro la frase appena scritta, quindi il tooltip
+  // la nomina invece di dire un generico «invia».
+  'board.card.replySendTitle': '{action}, con questa indicazione dentro.',
   'board.card.turnActions': 'Azioni su questo turno',
   'board.card.yourRequest': 'La tua richiesta: {text}',
   'board.card.commentPlaceholder': '…oppure commenta',
