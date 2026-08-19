@@ -43,8 +43,62 @@ import type {
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
 
-/** Il modello di partenza quando nessuno ne chiede uno. */
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+/**
+ * Il modello di partenza quando nessuno ne chiede uno.
+ *
+ * Stesso gradino di prima (sonnet, non opus: è il default, non la scelta), ma
+ * della generazione corrente. Era fermo a `claude-sonnet-4-6`, e siccome la
+ * guardia in `routes/chat.ts` scartava ogni override alla famiglia 5, questo
+ * valore non era il default: era il modello di TUTTI.
+ */
+export const DEFAULT_MODEL = "claude-sonnet-5";
+
+/**
+ * DA QUANTO FERMA UNA SESSIONE PUÒ ESSERE SFRATTATA DALLA MEMORIA.
+ *
+ * `sessions` non veniva svuotata mai: solo `resetSession` e `stop()` toglievano
+ * qualcosa, quindi OGNI topic che aveva avuto un turno teneva la sua
+ * conversazione intera nel processo finché il server non ripartiva. Con 127
+ * topic nati in un giorno sul runtime nativo è crescita senza fondo, e si
+ * misura: il 19/08/2026 il server stava a 2.220 MB e **non scendeva quando un
+ * agente finiva** — la storia restava lì.
+ *
+ * Sfrattare è sicuro PER COSTRUZIONE, e non è un compromesso:
+ *
+ *  · `sessionFor` ricostruisce la storia dal DB (`rehydrateHistory`) quando la
+ *    sessione non c'è. È la stessa strada che si percorre a ogni riavvio del
+ *    server, cioè decine di volte al giorno su questa macchina.
+ *  · il modello arriva con OGNI turno (`routes/chat.ts` mette `sendOptions.model`
+ *    dall'override della topic), quindi non si perde.
+ *  · la radice si ri-deriva da `getTopicWorkspaceForSession`.
+ *  · `ownsSession` dirà «non è mia», e `resolveTurnAlive` risponde `null` invece
+ *    di `false`: «non lo so» al posto di «è morto», che è la risposta più
+ *    prudente delle due (vedi il commento di `resolveTurnAlive`).
+ *
+ * Una sessione con un TURNO VIVO non si sfratta mai: la guardia è l'`abort`,
+ * che esiste per la durata del turno e sparisce alla fine.
+ */
+const SESSION_TTL_MS = Math.max(1, Number(process.env.TOPICS_NATIVE_SESSION_TTL_MIN) || 15) * 60_000;
+/** Ogni quanto si passa a guardare. Non serve precisione: serve che accada. */
+const SESSION_SWEEP_MS = 60_000;
+
+/**
+ * Questa sessione si può togliere dalla memoria?
+ *
+ * Pura e esportata apposta: la regola dello sfratto è la cosa che deve essere
+ * MISURATA, non il timer che la chiama. Due condizioni, ed entrambe contano —
+ * un turno vivo non si tocca mai, e «ferma» vuol dire ferma da più del tetto.
+ */
+export function sessionIsEvictable(
+  s: { abort?: unknown; lastUsedAt: number },
+  now: number,
+  ttlMs: number = SESSION_TTL_MS,
+): boolean {
+  if (s.abort) return false;
+  return now - s.lastUsedAt > ttlMs;
+}
+
+
 
 /**
  * Cosa si dice all'agente quando la topic non ha un progetto.
@@ -65,8 +119,28 @@ const NO_WORKSPACE_NOTE =
  * OAuth, e inventarne uno interrogando `/v1/models` con credenziali da
  * abbonamento darebbe una lista che non corrisponde a ciò che l'abbonamento
  * copre. Meglio pochi nomi veri che un elenco lungo e sbagliato.
+ *
+ * ── Perché la famiglia 5 è arrivata in ritardo, e cosa è costata ──────────
+ * Questa lista non è cosmetica: `routes/chat.ts` la usa come GUARDIA. Un
+ * modello richiesto che non compare qui viene scartato con
+ * `Dropping stale model override`, e la sessione cade su {@link DEFAULT_MODEL}.
+ *
+ * Finché la lista si è fermata alla generazione 4-6, ogni card della board che
+ * chiedeva `claude-opus-5[1m]` — cioè tutte — è girata in silenzio su
+ * `claude-sonnet-4-6`. Il picker diceva Opus 5, la barra sotto al composer
+ * diceva Opus 5, e il turno era Sonnet. Il 18/08 quella riga di scarto compare
+ * a raffica nel log, e `agent-loop.ts` sapeva già eseguire il suffisso `[1m]`
+ * (vedi `long-window.ts`, atterrato il 17/08): mancava solo il permesso.
+ *
+ * Gli id qui sotto sono PROVATI, non dedotti: una richiesta da 1 token per id
+ * sull'endpoint OAuth con gli stessi header del loop, tutti 200 (19/08/2026).
+ * Se un domani se ne aggiunge uno, si prova allo stesso modo prima di scriverlo.
  */
 const MODELS = [
+  "claude-opus-5[1m]",
+  "claude-opus-5",
+  "claude-sonnet-5",
+  "claude-fable-5",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
@@ -78,6 +152,8 @@ interface NativeSession {
   workspace: string | null;
   abort?: AbortController;
   model?: string;
+  /** Quando questa sessione è stata toccata l'ultima volta. Serve allo sfratto. */
+  lastUsedAt: number;
 }
 
 export interface NativeProviderConfig {
@@ -122,10 +198,23 @@ export class NativeProvider implements AIProvider {
     return !this.stopped && hasCredentials();
   }
 
-  start(): void { this.stopped = false; }
+  /** Il passaggio periodico dello sfratto. `unref` così non tiene su il processo. */
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+  start(): void {
+    this.stopped = false;
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => {
+      try { this.sweepIdleSessions(); } catch { /* meglio non sfrattare che rompere un turno */ }
+    }, SESSION_SWEEP_MS);
+    // Un timer che tiene vivo il processo trasformerebbe uno spegnimento pulito
+    // in un'attesa di un minuto.
+    (this.sweepTimer as unknown as { unref?: () => void }).unref?.();
+  }
 
   stop(): void {
     this.stopped = true;
+    if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
     for (const s of this.sessions.values()) {
       try { s.abort?.abort(); } catch { /* già finito */ }
     }
@@ -181,9 +270,25 @@ export class NativeProvider implements AIProvider {
     return Boolean(this.sessions.get(sessionKey)?.abort);
   }
 
+  /**
+   * Toglie dalla memoria le sessioni ferme da più di {@link SESSION_TTL_MS}.
+   * Mai quelle con un turno in volo. Vedi il commento della costante per il
+   * perché è sicuro.
+   */
+  private sweepIdleSessions(): number {
+    const ora = Date.now();
+    let tolte = 0;
+    for (const [k, s] of this.sessions) {
+      if (!sessionIsEvictable(s, ora)) continue;
+      this.sessions.delete(k);
+      tolte++;
+    }
+    return tolte;
+  }
+
   private sessionFor(sessionKey: string): NativeSession {
     const existing = this.sessions.get(sessionKey);
-    if (existing) return existing;
+    if (existing) { existing.lastUsedAt = Date.now(); return existing; }
     // La radice: il progetto della topic, poi quella dichiarata a config.
     //
     // `process.cwd()` NON è nella catena, ed è una scelta pagata: era il
@@ -213,7 +318,7 @@ export class NativeProvider implements AIProvider {
     // finché il processo vive; oltre, l'unico posto dove la conversazione è
     // sopravvissuta è il DB. Si va a prenderla lì — una volta sola, quando la
     // sessione nasce, non a ogni turno.
-    const fresh: NativeSession = { history: rehydrateHistory(sessionKey), workspace };
+    const fresh: NativeSession = { history: rehydrateHistory(sessionKey), workspace, lastUsedAt: Date.now() };
     this.sessions.set(sessionKey, fresh);
     return fresh;
   }
