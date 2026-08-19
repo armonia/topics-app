@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { resolveBrowserNavigateUrl, normalizeUrl, displayUrl, toNavigableUrl } from './browserNavUrl';
+import { resolveBrowserNavigateUrl, normalizeUrl, displayUrl, toNavigableUrl, httpsFirstUrl } from './browserNavUrl';
 
 // Stub the parts of `window` the resolver reads. Each case sets its own.
 function setWindow(opts: {
@@ -134,5 +134,92 @@ describe('barra indirizzo di un file locale', () => {
     setWindow({ hostname: '127.0.0.1', protocol: 'http:', origin: 'http://127.0.0.1:13333' });
     expect(toNavigableUrl('come fare la pasta')).toContain('google.com/search');
     expect(toNavigableUrl('github.com')).toBe('https://github.com');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTTPS-First
+//
+// La promozione a https e' quella che fanno Chrome e Safari, ma qui la regola
+// interessante e' l'ELENCO DELLE ECCEZIONI: questa pane apre soprattutto server
+// locali effimeri, e su quelli una promozione non e' una precauzione, e' un
+// guasto. Ogni caso qui sotto e' un modo diverso di dire "questo indirizzo non
+// esce dalla stanza".
+// ---------------------------------------------------------------------------
+
+describe('httpsFirstUrl', () => {
+  it('un host pubblico in chiaro sale a https', () => {
+    expect(httpsFirstUrl('http://example.com/x')).toBe('https://example.com/x');
+    expect(httpsFirstUrl('http://sub.domain.co.uk/a?b=1#c')).toBe('https://sub.domain.co.uk/a?b=1#c');
+    // Maiuscole nello schema comprese.
+    expect(httpsFirstUrl('HTTP://example.com/x')).toBe('https://example.com/x');
+  });
+
+  it('il :80 scritto a mano se ne va con lo schema che lo sottintendeva', () => {
+    // Tenerlo darebbe `https://example.com:80`, cioe' TLS su una porta in
+    // chiaro: peggio del punto di partenza.
+    expect(httpsFirstUrl('http://example.com:80/x')).toBe('https://example.com/x');
+    expect(httpsFirstUrl('http://example.com:80')).toBe('https://example.com');
+  });
+
+  it('non tocca il loopback in nessuna delle sue forme', () => {
+    for (const u of [
+      'http://localhost/',
+      'http://localhost:3000/app',
+      'http://app.localhost/',
+      'http://127.0.0.1/',
+      'http://127.1.2.3/',
+      'http://0.0.0.0/',
+      'http://[::1]/',
+      'http://[::1]:5173/',
+    ]) {
+      expect(httpsFirstUrl(u)).toBe(u);
+    }
+  });
+
+  it('non tocca gli indirizzi privati di una LAN', () => {
+    for (const u of [
+      'http://10.0.0.5/',
+      'http://192.168.1.10/admin',
+      'http://172.16.0.4/',
+      'http://172.31.255.254/',
+      'http://169.254.10.1/',
+    ]) {
+      expect(httpsFirstUrl(u)).toBe(u);
+    }
+  });
+
+  it("172.32 non e' privato: il blocco privato finisce a 172.31", () => {
+    expect(httpsFirstUrl('http://172.32.0.4/')).toBe('https://172.32.0.4/');
+    expect(httpsFirstUrl('http://172.15.0.4/')).toBe('https://172.15.0.4/');
+  });
+
+  it('non tocca i nomi mDNS in .local', () => {
+    expect(httpsFirstUrl('http://mac-di-casa.local/')).toBe('http://mac-di-casa.local/');
+    expect(httpsFirstUrl('http://stampante.local/setup')).toBe('http://stampante.local/setup');
+  });
+
+  it("non tocca un host senza punto, che non e' un dominio ma una macchina", () => {
+    expect(httpsFirstUrl('http://portatile/')).toBe('http://portatile/');
+    expect(httpsFirstUrl('http://build-server/ci')).toBe('http://build-server/ci');
+  });
+
+  it("non tocca una porta esplicita diversa da 80: e' la firma di un dev server", () => {
+    expect(httpsFirstUrl('http://qualcosa.it:8080/')).toBe('http://qualcosa.it:8080/');
+    expect(httpsFirstUrl('http://example.com:3000/x')).toBe('http://example.com:3000/x');
+    expect(httpsFirstUrl('http://example.com:8443/x')).toBe('http://example.com:8443/x');
+  });
+
+  it("lascia stare tutto cio' che non e' http://", () => {
+    for (const u of ['https://example.com/', 'about:blank', 'file:///x', 'data:text/plain,x', 'non un url']) {
+      expect(httpsFirstUrl(u)).toBe(u);
+    }
+  });
+
+  it("normalizeUrl la applica: e' la stessa porta di ingresso della barra", () => {
+    expect(normalizeUrl('http://example.com/x')).toBe('https://example.com/x');
+    // E le eccezioni restano eccezioni anche passando di li'.
+    expect(normalizeUrl('http://localhost:3000/')).toBe('http://localhost:3000/');
+    expect(normalizeUrl('http://127.0.0.1:5173/app')).toBe('http://127.0.0.1:5173/app');
   });
 });

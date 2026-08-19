@@ -14,6 +14,7 @@ import { TurnActivityIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
+import { Spinner } from './Shared/Spinner';
 import { InvokedCommandRow } from './Chat/InvokedCommandRow';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
@@ -767,8 +768,10 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
             </button>
           )}
           {applyAllState === 'applying' && (
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            <div className="flex items-center gap-2 text-emerald-500">
+              {/* `current`: il verde lo porta la riga, l'anello lo eredita —
+                  l'ultima copia a mano del cerchietto è finita qui. */}
+              <Spinner size="sm" tone="current" />
               <span className="text-[12px] text-app-text-secondary">
                 Applying {applyProgress.applied}/{applyProgress.total}...
                 {applyProgress.failed > 0 && <span className="text-red-500 ml-1">({applyProgress.failed} failed)</span>}
