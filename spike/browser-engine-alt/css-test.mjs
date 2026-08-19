@@ -1,0 +1,11 @@
+import { launch, CDP, newPage, sleep } from "./bench.mjs";
+import { writeFileSync } from "node:fs";
+const eng=process.argv[2], port=+process.argv[3];
+const b=await launch(eng,port); const br=await CDP.connect(b.wsUrl); const {sessionId:s}=await newPage(br);
+await br.send("Emulation.setDeviceMetricsOverride",{width:400,height:800,deviceScaleFactor:1,mobile:false},s).catch(()=>{});
+await br.send("Page.navigate",{url:"http://127.0.0.1:4702/"},s); await sleep(2500);
+const r=await br.send("Runtime.evaluate",{expression:`JSON.stringify([...document.querySelectorAll('div[id]')].map(e=>{const b=e.getBoundingClientRect();return{id:e.id,x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}}))`,returnByValue:true},s);
+console.log(eng,"boxes:",r.result?.value);
+const sc=await br.send("Page.captureScreenshot",{format:"png"},s);
+writeFileSync(`vs/css-${eng}.png`,Buffer.from(sc.data,"base64"));
+br.close();b.dispose();process.exit(0);

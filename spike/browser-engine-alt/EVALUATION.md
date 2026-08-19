@@ -164,6 +164,72 @@ Screenshot in 2-3 secondi, `-o out.png -x` da riga di comando, senza CDP.
    `/json/version`. Tutti i `browser_*` di Topics sono scritti su CDP: adottare Servo
    significa riscrivere il transport, non cambiare un endpoint.
 
+## Obscura al microscopio — cosa si rompe DAVVERO (`vs/`)
+
+"9.3% di diff su Hacker News" non dice cosa vedresti. Questa sezione lo isola:
+tre pagine costruite apposta, ogni feature una banda di colore piatto, campionata a
+coordinate fisse. Pannello unico: **`vs/OBSCURA-vs-CHROME.png`**.
+
+### Il layout è giusto. È il *disegno* che perde pezzi.
+
+Su undici box misurati con `getBoundingClientRect` (`css/index.html`), Chrome e Obscura
+danno **numeri identici al pixel** — stesse x, y, larghezze, altezze, incluso
+`transform: scale(.5)` che sposta il box a (30, 293) in entrambi. Questo spiega il
+paradosso di Hacker News: là il layout sbagliava perché sono tabelle annidate del 1996,
+non perché Obscura non sappia fare layout.
+
+| effetto CSS | Chrome | Obscura | |
+|---|---|---|---|
+| box-shadow (alone 20px) | `#ff0000` | `#ff0000` | ✅ |
+| border-radius | angolo tagliato | angolo tagliato | ✅ |
+| transform scale | box a (30,293) | box a (30,293) | ✅ |
+| gradient lineare | `#7f0081` | `#7e0081` | ✅ (1 su 255) |
+| flex gap | spazio corretto | spazio corretto | ✅ |
+| z-index / overlay | `#008000` | `#008000` | ✅ |
+| opacity .5 | `#7f7fff` | `#8080ff` | ✅ (arrotondamento) |
+| **`filter: grayscale(1)`** | `#b6b6b6` | **`#00ff00`** | ❌ **ignorato** |
+
+Un solo vero buco: **le `filter` CSS non vengono applicate**. Il verde resta verde. Ogni
+`blur`, `grayscale`, `drop-shadow` viene disegnato come se il filtro non ci fosse.
+
+### Il canvas: metà funziona, e la metà che manca è quella dei grafici
+
+Qui la prima misura ("canvas nero") era **troppo severa**. Il canvas si dipinge; a
+mancare sono due primitive precise (`canvas/index.html`, verificato sia con
+`getImageData` *dentro* la pagina sia sui pixel dello screenshot — concordano):
+
+| primitiva | Chrome | Obscura | |
+|---|---|---|---|
+| `fillRect` | `#ff0000` | `#ff0000` | ✅ |
+| `strokeRect` | `#00ff00` | `#00ff00` | ✅ |
+| `arc` + `fill` | `#ff00ff` | `#ff00ff` | ✅ |
+| `fillText` | disegnato | disegnato | ✅ |
+| **`beginPath` + `lineTo` + `stroke`** | `#0000ff` | **bianco** | ❌ **perso** |
+| **`createLinearGradient`** | `#80ff7e` | **bianco** | ❌ **perso** |
+
+Il grafico della pagina di prova lo mostra bene: le **barre rosse ci sono**
+(`fillRect`, 1200 px esatti in entrambi), la **linea azzurra no** (`#38bdf8`: 639 px in
+Chrome, **0** in Obscura). Cioè: rettangoli e cerchi sì, **tracciati e sfumature no**.
+Tradotto: un grafico a barre passa, una sparkline o un line-chart resta vuoto — ed è
+proprio la forma che ha il 90% dei grafici in una dashboard.
+
+### Perché è così leggero (e perché il prezzo è coerente)
+
+Non è magia né un trucco di misura. Obscura fa tre rinunce strutturali:
+- **Un processo solo, zero sandbox.** Chromium ne apre 8-13 (renderer per origine, GPU,
+  network, utility): è il prezzo dell'isolamento di sicurezza. Obscura mette tutto in un
+  processo, con un heap V8 per contesto — da qui i **2-9 MB per sessione** contro i 219.
+- **Nessun compositor GPU.** Niente layer, niente tile, niente texture: disegna a CPU con
+  `tiny_skia`. Da qui i **20 fps di screencast** contro 92, e i **780 ms** per uno
+  screenshot di Wikipedia contro 25.
+- **Un motore di rendering giovane, scritto da zero.** `filter`, `stroke` di path e i
+  gradienti canvas semplicemente **non sono ancora implementati**. Non è un bug: è
+  superficie non ancora coperta, dichiarata nel loro README ("long-tail CSS, some Web
+  APIs... may differ from Chromium").
+
+Il 30x di risparmio e i buchi sono **la stessa scelta vista da due lati**. Il che rende
+la valutazione facile: dove quelle tre cose non servono, Obscura è un affare enorme.
+
 ## Il quadro completo — chi vince cosa
 
 | per sessione, react.dev / app dev | RAM | render | CDP | context multipli |
@@ -223,8 +289,11 @@ il bottone era l'unico elemento a quelle coordinate finte.
   Su Hacker News (tabelle annidate anni '90) crolla a 2 su 60 entro 2 px, 35 oltre 20 px.
   Il DOM diff pixel contro Chrome: react.dev 0.9%, github 8.7%, HN 9.3%, Wikipedia 15.1%
   (il grosso è il font rasterizzato diverso e la sidebar Vector 2022 fuori posto).
-- **Canvas 2D non viene dipinto**: `getImageData` torna 0 pixel non-neri dove Chrome ne
-  conta 1493. Grafici, sparkline, WebGL, ogni anteprima che disegna su canvas resta nera.
+- **Canvas 2D: metà primitive mancano** (misura affinata in `vs/`, vedi sotto — la prima
+  lettura "canvas nero" era troppo severa). `fillRect`, `strokeRect`, `arc` e `fillText`
+  funzionano; **`stroke` di un path e `createLinearGradient` no**. Un grafico a barre
+  passa, una sparkline resta vuota. Nel test iniziale il canvas disegnava solo con
+  `lineTo`+`stroke`, da cui gli 0 pixel.
 - **`textContent` invece di `innerText`**: su github.com/topics ha restituito **1.3 MB**
   di testo contro i 5.5 KB di Chrome — dentro c'è il sorgente degli `<script>`. Su una
   pagina di prova `document.body.innerText` include `display:none`, `visibility:hidden`
@@ -295,6 +364,9 @@ processo per pagina, quindi va usato come fetcher usa-e-getta, non come sessione
 - `cast.mjs` — screencast su pagina animata. `hidden.mjs` — fedeltà di `innerText`.
 - `type2.mjs` — quali varianti CDP di digitazione funzionano dove.
 - `app/index.html` — l'app dev sintetica (grid, canvas, animazioni) usata come banco.
+- `vs/OBSCURA-vs-CHROME.png` — **il pannello da guardare**: tre confronti affiancati.
+  `cases/`, `canvas/`, `css/` sono le pagine sorgente; `cases-shot.mjs`,
+  `canvas-test.mjs`, `css-test.mjs` le rigenerano.
 - `app2/index.html` + `feat/` — **il test feature-per-feature**: cinque bande di colore
   piatto (canvas, grid, flex, gradient, SVG) campionate a quattro punti. Risponde a
   "questo motore disegna davvero?" senza doverlo guardare a occhio.
