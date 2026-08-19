@@ -215,10 +215,12 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
  * Quante sessioni sono aperte e quante stanno lavorando in questo momento.
  *
  * È il numero che il daemon sostituito provava a indovinare con `ps` e un
- * campionamento di CPU. Qui non si indovina: `liveTurns` è il conto dei turni
- * che il server sta TRASMETTENDO (`ctx.activeStreams`, una voce per sessione),
- * e i task al lavoro sono quelli che la board ha dispatchato e non ha ancora
- * chiuso.
+ * campionamento di CPU. Qui non si indovina: `liveTurns` è il conto delle
+ * sessioni che stanno producendo adesso — i turni che il server sta
+ * TRASMETTENDO (`ctx.activeStreams`, una voce per sessione) più gli agenti che
+ * macinano in una tab terminale (`countBusyAgentTerminals`, che il chiamante
+ * somma) — e i task al lavoro sono quelli che la board ha dispatchato e non ha
+ * ancora chiuso.
  */
 export function computePresenceCounts(
   db: Database,

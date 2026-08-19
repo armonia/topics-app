@@ -1239,6 +1239,7 @@ const IT: Dict = {
   'statusBar.agents.awaitingInput': '· {n} in attesa di una tua risposta',
   'statusBar.agents.toLookAt': '· {n} da guardare (turno finito o in pausa)',
   'statusBar.agents.notCounted': 'Non contano le chat archiviate e le sessioni chiuse: non hanno una riga dove andarle a spegnere.',
+  'statusBar.presenceTitle': 'Lo stesso riepilogo che Topics pubblica sulla presence Discord. Sessioni aperte, quante lavorano adesso, task della board in corso.',
   'statusBar.wsTitle': 'Stato connessione realtime al server Topics',
   'statusBar.versionTitle': 'Info versione e aggiornamenti',
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',

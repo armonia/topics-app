@@ -24,66 +24,33 @@
  */
 
 import type { DiscordActivity, DiscordDetailLevel, OutputLanguage } from "../../shared/types";
+import {
+  PRESENCE_APP_NAME,
+  presenceLines,
+  presenceProjectPhrase,
+  type PresenceCounts,
+} from "../../shared/presence-phrase";
 // La forma dell'attività sta in `shared/`: la card in Impostazioni ne disegna
 // l'anteprima, quindi i due lati devono leggere la STESSA dichiarazione.
 export type { DiscordActivity };
 
-/** Lo stato vero, misurato da chi lo conosce. Tutti i numeri sono conteggi
- *  ESATTI del server, non stime su processi. */
-export interface PresenceSnapshot {
-  /** Le sessioni aperte: i topic non archiviati di questa installazione. */
-  openSessions: number;
-  /** Quelle che stanno lavorando ADESSO: turni in streaming + agenti della
-   *  board con un task in mano. È la somma di due fatti che il server osserva,
-   *  non una soglia su una percentuale di CPU. */
-  workingSessions: number;
-  /** I task che la board sta eseguendo in questo momento. */
-  activeTasks: number;
-  /** Il progetto su cui c'è lavoro adesso. Esce di qui SOLO a `detailed`. */
-  focusProject: string | null;
-  /** Da quando questa installazione è in piedi (ms epoch): diventa il
+/**
+ * Lo stato vero, misurato da chi lo conosce: i conteggi esatti del server
+ * (`shared/presence-phrase.ts`, gli stessi che legge la barra di stato) piu'
+ * l'istante da cui parte il cronometro, che serve solo a Discord.
+ */
+export interface PresenceSnapshot extends PresenceCounts {
+  /** Da quando questa installazione e' in piedi (ms epoch): diventa il
    *  cronometro che Discord mostra sotto la card. */
   since: number;
 }
 
 /** Discord tronca a 128 caratteri; troncare qui significa che l'anteprima
- *  mostra il troncamento invece di prometterne uno che non ci sarà. */
+ *  mostra il troncamento invece di prometterne uno che non ci sara'. */
 const MAX = 128;
 
 function cut(s: string): string {
   return s.length <= MAX ? s : `${s.slice(0, MAX - 1)}…`;
-}
-
-const IT = {
-  idle: (n: number) => (n === 1 ? "1 sessione aperta" : `${n} sessioni aperte`),
-  working: (w: number, n: number) =>
-    `${w} al lavoro · ${n} apert${n === 1 ? "a" : "e"}`,
-  tasks: (n: number) => (n === 1 ? "1 task in corso" : `${n} task in corso`),
-  onProject: (p: string) => `su ${p}`,
-  app: "Topics",
-  quiet: "Nessun agente al lavoro",
-};
-
-const EN = {
-  idle: (n: number) => (n === 1 ? "1 session open" : `${n} sessions open`),
-  working: (w: number, n: number) => `${w} working · ${n} open`,
-  tasks: (n: number) => (n === 1 ? "1 task running" : `${n} tasks running`),
-  onProject: (p: string) => `on ${p}`,
-  app: "Topics",
-  quiet: "No agent working",
-};
-
-/**
- * La lingua delle due righe.
- *
- * `auto` non è una lingua (shared/types.ts): per l'interfaccia significa
- * «segui il browser», ma qui il pubblico non è il browser di nessuno — è
- * chiunque nei tuoi server Discord. In assenza di una scelta si parla inglese,
- * e chi vuole l'italiano lo dice nel selettore della lingua, che governa già
- * l'interfaccia e le risposte del modello.
- */
-function dict(lang: OutputLanguage) {
-  return lang === "it" ? IT : EN;
 }
 
 /**
@@ -99,14 +66,12 @@ export function buildActivity(
   lang: OutputLanguage = "auto",
   image?: string | null,
 ): DiscordActivity | null {
-  const d = dict(lang);
-
   if (level !== "minimal" && snapshot.openSessions <= 0 && snapshot.activeTasks <= 0) {
     return null;
   }
 
   const assets = image
-    ? { assets: { large_image: image, large_text: d.app } }
+    ? { assets: { large_image: image, large_text: PRESENCE_APP_NAME } }
     : {};
   const timestamps = { timestamps: { start: Math.floor(snapshot.since / 1000) } };
 
@@ -114,20 +79,13 @@ export function buildActivity(
   // il ramo «zero sessioni», perché a questo livello non si dichiara nulla di
   // ciò che sta succedendo, quindi non c'è nulla da nascondere quando è fermo.
   if (level === "minimal") {
-    return { details: d.app, ...timestamps, ...assets };
+    return { details: PRESENCE_APP_NAME, ...timestamps, ...assets };
   }
 
-  // ── activity: i conteggi. Numeri, che non nominano nessun cliente.
-  const working = snapshot.workingSessions;
-  const details = working > 0
-    ? d.working(working, snapshot.openSessions)
-    : d.idle(snapshot.openSessions);
-
-  const seconda = snapshot.activeTasks > 0
-    ? d.tasks(snapshot.activeTasks)
-    : working > 0
-      ? d.app
-      : d.quiet;
+  // ── activity: i conteggi. Numeri, che non nominano nessun cliente. Le due
+  // righe le compone `shared/presence-phrase.ts`, che è anche ciò che legge la
+  // barra di stato: la frase è una, non due copie destinate a divergere.
+  const { details, state: seconda } = presenceLines(snapshot, lang);
 
   if (level === "activity") {
     return { details: cut(details), state: cut(seconda), ...timestamps, ...assets };
@@ -139,7 +97,7 @@ export function buildActivity(
   // progetto in primo piano il livello degrada su `activity` invece di
   // pubblicare «su null».
   const state = snapshot.focusProject
-    ? d.onProject(snapshot.focusProject)
+    ? presenceProjectPhrase(snapshot.focusProject, lang)
     : seconda;
 
   return { details: cut(details), state: cut(state), ...timestamps, ...assets };

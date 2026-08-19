@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Users } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Users, Activity } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
@@ -25,6 +25,7 @@ import { useAgentActivityCounts } from '@/state/signals';
 import { useMobile } from '@/hooks/useMobile';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useT } from '@/hooks/useT';
+import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 
 declare const __BUILD_TIME__: string;
 declare const __BUILD_SHA__: string;
@@ -479,6 +480,13 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           Sul computer non compare: li' l'identita' e' il fatto di essere seduti
           davanti alla macchina, e ripeterlo sarebbe rumore a ogni riga. */}
       <DeviceIdentityRow onOpenDevices={onOpenDevices} />
+      {/* IL RIEPILOGO A PAROLE, subito sopra i numeri che lo riassumono in
+          glifi. Sta qui e non dentro la riga sotto perche' quella riga e' UNA
+          SOLA per costruzione (vedi il blocco piu' in basso: il suo unico
+          elemento elastico e' gia' conteso da memoria, CPU e fps su una colonna
+          da ~244px) — infilarci una frase avrebbe voluto dire troncarla al
+          terzo carattere, cioe' non mostrarla. */}
+      <PresenceSummaryRow />
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -852,6 +860,63 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         <ChangelogModal currentVersion={appVersion} onClose={() => setShowChangelog(false)} />
       )}
     </>
+  );
+}
+
+/**
+ * IL RIEPILOGO, in fondo alla colonna: cosa sta succedendo, in una frase.
+ *
+ * ── PERCHE' UNA FRASE E NON ALTRI DUE GLIFI ─────────────────────────────────
+ * La riga qui sotto dice l'attivita' con dei simboli e dei numeri (un robot, una
+ * clessidra, «3»), che sono compatti e si imparano, ma vanno LETTI due volte:
+ * la prima per ricordarsi cosa conta ciascun glifo. Il riepilogo del profilo
+ * Discord la stessa cosa la dice a parole — «3 al lavoro · 12 aperte · 2 task
+ * in corso» — e quella frase esisteva gia', solo che era visibile a chiunque su
+ * Discord e non a chi ha l'app davanti. Adesso e' qui.
+ *
+ * ── E' LA STESSA FRASE, NON UNA CHE LE SOMIGLIA ────────────────────────────
+ * Le parole vengono da `shared/presence-phrase.ts` e i numeri da
+ * `/api/system/presence`, cioe' esattamente cio' che la presence pubblica. Una
+ * copia scritta di qua sarebbe divergita al primo caso di bordo, e la copia
+ * sbagliata sarebbe stata questa: quella che si guarda tutto il giorno.
+ *
+ * L'UNICA differenza voluta e' il nome del progetto, che sul profilo esce solo
+ * al gradino `detailed` (li' il pubblico e' chiunque condivida un server con
+ * te) e qui esce sempre: qui il pubblico e' chi ha l'app aperta.
+ *
+ * ── QUANDO NON C'E' NIENTE DA DIRE, NON DICE NIENTE ────────────────────────
+ * Zero sessioni e zero task e' anche il caso in cui la presence si PULISCE
+ * invece di lasciare appeso l'ultimo stato noto: la riga sparisce per la stessa
+ * ragione, non per fare spazio.
+ */
+function PresenceSummaryRow() {
+  const tr = useT();
+  const { counts, summary } = usePresenceSummary();
+  if (!summary) return null;
+  const attivo = (counts?.workingSessions ?? 0) > 0 || (counts?.activeTasks ?? 0) > 0;
+  return (
+    <div
+      data-testid="presence-summary"
+      // Stesse misure della riga dell'identita' qui sotto: stesso rientro,
+      // stesso filo sopra, stessa altezza col dito. Sono due righe della stessa
+      // fascia, e una che si impagina per conto suo si legge come un pezzo
+      // incollato.
+      className="flex w-full items-center gap-1.5 border-t border-app-border text-[11px] min-h-6 max-md:min-h-9"
+      style={{ paddingInline: ROW_INSET }}
+      // Il tooltip dice DA DOVE viene il numero: senza, «12 aperte» sembra un
+      // conteggio inventato dalla barra invece del contatore che finisce sul
+      // profilo.
+      title={`${summary}\n${tr('statusBar.presenceTitle')}`}
+    >
+      {/* Il glifo pulsa solo quando qualcosa lavora davvero: a fermo resta
+          spento, cosi' il movimento in fondo alla colonna significa una cosa
+          sola. */}
+      <Activity
+        size={10}
+        className={`flex-shrink-0 ${attivo ? `${SEGNALE_OK} animate-pulse` : 'text-app-text-muted'}`}
+      />
+      <span className="truncate text-app-text-secondary">{summary}</span>
+    </div>
   );
 }
 
