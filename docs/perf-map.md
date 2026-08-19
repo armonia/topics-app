@@ -334,10 +334,44 @@ number the status bar reports.
 
 That is the same fault the server had — memory of past peaks, swapped out and
 never handed back — and on the server it took `Bun.gc(true)` to release it,
-because the footprint never comes down on its own. The client has no equivalent
-lever exposed today: no `window.gc` in a WKWebView, and no memory-pressure hook
-in the Tauri shell. THAT is the next piece of work, and it is a different piece
-from "find who promotes layers".
+because the footprint never comes down on its own.
+
+**The client lever does not exist, and that was checked rather than assumed.**
+A probe compiled against WebKit on this machine (macOS 26.2) asks the CLASS which
+selectors it answers, the same way the shell already does for `_close`. Of the
+memory-releasing SPI worth having, WKWebView answers **none**: no `_purgeMemory`,
+no `releaseMemory`, no `_didReceiveMemoryWarning`. What exists is
+`_killWebContentProcess` / `_killWebContentProcessAndResetState` (blow the render
+process away and reload — visible to the user, loses in-page state) and, on
+`_WKProcessPoolConfiguration`, `memoryFootprintNotificationThresholds`, which
+notifies rather than frees. So the server's remedy has no client twin to port.
+
+**And before building one, the size of the prize was measured — it is smaller
+than the status bar suggests.** Resident set of every Topics process at 00:29,
+against the machine's own pressure at that moment (17.3 GB swap used, 859 MB
+unused):
+
+| process | RSS |
+|---|---|
+| shell (`app`) | 78 MB |
+| server (`bun`) | 173 MB |
+| WebContent, 55 min old | **25 MB** (footprint 726 MB) |
+| WebContent, 4 h old | 414 MB (footprint 755 MB) |
+| **Topics total, resident** | **690 MB** |
+
+On the same machine at the same instant: Dia 2,414 MB, Spotify 972 MB, ffmpeg
+835 MB — none of which are Topics. So the RAM Topics is actually holding is
+690 MB, and the 55-minute renderer is holding **25 MB** while being charged 726.
+The gap is pages the system has already reclaimed and still attributes to the
+app, which is exactly what `phys_footprint` means and exactly what the status bar
+(correctly, deliberately) reports.
+
+That reframes the remaining work honestly: the number on screen is real as a
+metric and misleading as a claim about pressure. The useful next step is NOT to
+hunt a purge SPI that WebKit does not expose; it is to decide what the status bar
+should say when 700 of 726 MB are swapped — because a user reading "1.8 GB" and a
+machine that has 690 MB of Topics resident are two different facts, and only one
+of them is a defect.
 
 **What follows was measured earlier and is kept for its method, but read it in
 that light.**
