@@ -8,9 +8,11 @@
  * processo del server finché il server non ripartiva — e su questa macchina
  * nascono ~127 topic al giorno sul runtime nativo.
  *
- * Misurato: server a 2.220 MB con 6 agenti al lavoro, e il numero NON scendeva
- * quando gli agenti finivano. La memoria non era degli agenti vivi: erano le
- * storie dei morti.
+ * La prova è il codice, non una lettura di RSS: su dieci minuti il processo
+ * oscilla fra 284 MB e 2 GB seguendo il carico, quindi nessun campione di RSS
+ * dimostra un trattenimento. Quello che dimostra è che non esisteva NESSUNA
+ * strada per togliere una sessione ferma — la crescita è senza fondo per
+ * costruzione.
  *
  * ── Perché sfrattare è sicuro, e non un compromesso ────────────────────────
  * `sessionFor` ricostruisce la storia dal DB quando la sessione manca — è la

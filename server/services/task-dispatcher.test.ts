@@ -1599,6 +1599,48 @@ describe("task-dispatcher", () => {
     expect(comments.some((c) => c.author === "system" && c.content.includes("ripreso in diretta"))).toBe(true);
   });
 
+  it("runtime NATIVO: un turno interrotto riprende la stessa sessione senza consumare un tentativo", async () => {
+    // BARRA-1, riscritta sulla realta' misurata (card f832b25a). Il ramo di
+    // riadozione dal broker non e' degradato: e' IRRAGGIUNGIBILE per le card,
+    // per costruzione. `hasLiveSession` interroga solo il provider claude-code,
+    // le card girano sul runtime nativo `topics`, che non ha `reattach` e la cui
+    // rotta risponde `reattach_unsupported`. Un turno nativo vive DENTRO il
+    // processo del server: quando il server muore non resta nessun figlio da
+    // adottare. Misura: 365 riprese in diretta il 13/08, zero dal 17/08, e 303
+    // riprese da capo il 18/08; il muro e' il 16/08, quando le card sono
+    // passate al nativo.
+    //
+    // Quindi la garanzia che va inchiodata NON e' «il figlio sopravvive», che
+    // sul nativo non puo' succedere: e' che il turno riparta sulla STESSA
+    // sessione (stesso topic, stesso worktree, stessa conversazione) e che il
+    // riavvio non venga addebitato all'agent come tentativo fallito.
+    const reattached: string[] = [];
+    const h = harness({
+      topicExists: () => true,
+      // Cablati come in produzione: la coppia c'e', ma sul nativo la sonda non
+      // trova mai un figlio staccato perche' un figlio staccato non esiste.
+      hasLiveSession: async () => false,
+      reattach: (sk: string) => { reattached.push(sk); return new Promise<void>(() => {}); },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(reattached).toEqual([]);                 // niente riadozione: sul nativo non c'e' nulla da adottare
+    expect(t.dispatchAttempts).toBe(1);             // il riavvio non e' colpa dell'agent: nessun tentativo bruciato
+    expect(t.status).toBe("in_progress");           // mai un rimbalzo da todo
+    expect(t.assignedTopicId).toBe("topic-live");   // STESSO topic: stesso worktree, stessa conversazione
+    expect(h.topicsCreated.length).toBe(0);         // nessun topic nuovo, nessuna ripartenza da zero
+    expect(h.turns.length).toBe(1);                 // un solo turno di continuazione
+    expect(h.turns[0].sessionKey).toBe("topic:" + "topic-live".slice(0, 8));
+    expect(h.turns[0].contextMode).toBe("lean");    // la busta e' gia' nella storia della sessione
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((c) => c.author === "system" && c.content.includes("nessun tentativo consumato"))).toBe(true);
+  });
+
   it("due riavvii ravvicinati sullo stesso task lasciano UNA riga di interruzione", async () => {
     // Il 13/08, sul database vivo, il task ae61fb5a portava quattro note per un
     // riavvio solo: tre «Server ripartito a metà turno» a quindici secondi
