@@ -32,8 +32,27 @@
  * schermo fermo. Il tetto è basso ma non zero: una scrittura sporadica è
  * legittima (l'ultima lettura di una chat, un heartbeat). Un CICLO no.
  *
- * QUELLO CHE HA GIÀ TROVATO, e la sua correzione. Tolto il ciclo di
- * `pane-store-v2`, sotto sono comparse alcune scritture su
+ * ⚠ QUESTO CANCELLO OGGI È ROSSO, E LA RAGIONE È SCRITTA. Non è una svista né
+ * una soglia da alzare: a schermo fermo si contano 12-17 PUT di
+ * `pane-store-v2` in 25 secondi. La causa è nota e misurata — strumentando il
+ * dispatcher, **16 `HYDRATE_FROM_SNAPSHOT` per 15 PUT**: `server_seq` cresce
+ * con le scritture di CHIUNQUE (ventuno sessioni aperte su questa macchina),
+ * ogni idratazione remota alza il nostro `lastSeq`, e il middleware di sync
+ * rimanda al server ciò che ha appena RICEVUTO.
+ *
+ * Il rimedio esiste, porta questo cancello a zero su tre giri, ed è stato
+ * RITIRATO: rompe `cross-window-topic-sync` (apri una chat, ricarichi, non è
+ * più aperta), verificato che il rosso fosse mio disattivando la sola riga del
+ * gate. Perdere stato sincronizzato è peggio della banda che si risparmia. La
+ * pista per riprendere sta in `state/pane/middleware/syncWS.ts`, alla riga che
+ * fonde il `server_seq` di un pari nel contatore locale.
+ *
+ * Un cancello rosso con la sua spiegazione accanto vale più di un verde
+ * comprato alzando la soglia: la soglia resta 3, e dice la verità.
+ *
+ * QUELLO CHE HA GIÀ TROVATO, e la sua correzione. Chiuso il primo ciclo (quello
+ * di `UPDATE_PANE`, che era una causa diversa da questa e resta corretta),
+ * sotto sono comparse alcune scritture su
  * `topics-project-panes-<hash>` con corpi IDENTICI, e le avevo chiamate «un
  * secondo ciclo». Non lo sono: misurate su cinquanta secondi con la chiave e il
  * corpo per esteso, sono **tre PUT tutti dentro i primi sei secondi**, poi
