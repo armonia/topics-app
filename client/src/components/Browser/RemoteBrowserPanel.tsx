@@ -1,6 +1,6 @@
 import { BrowserToolbar } from './BrowserToolbar';
 import { createPortal } from 'react-dom';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay, CaseSensitive } from 'lucide-react';
+import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay, CaseSensitive } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -9,9 +9,11 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
+import { NewTabPage } from './NewTabPage';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
+import { recordSiteVisit, noteSiteMeta } from '../../state/browserSiteHistory';
 import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
@@ -357,6 +359,9 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     if (browser.url) {
       onUrlChange?.(browser.url);
       pushHistory(browser.url);
+      // E nello storico GLOBALE dei siti, che è un'altra cosa: quello sopra è
+      // l'elenco di QUESTA pane, questo è la griglia della scheda nuova.
+      recordSiteVisit(browser.url);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on url change only
   }, [browser.url]);
@@ -368,6 +373,12 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     if (browser.title) onTitleChange?.(browser.title);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on title change only
   }, [browser.title]);
+
+  // Titolo e icona arrivano DOPO l'indirizzo (li dà la pagina quando carica):
+  // il riquadro della scheda nuova li raccoglie qui, senza contare una visita.
+  useEffect(() => {
+    if (browser.url) noteSiteMeta(browser.url, { title: browser.title, favicon: browser.faviconUrl });
+  }, [browser.url, browser.title, browser.faviconUrl]);
 
   // External navigation (agent / spawner / restored pane url).
   useEffect(() => {
@@ -588,6 +599,12 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           checking={browser.parkedChecking}
           onRetry={() => { void browser.retryParked?.(); }}
         />
+      ) : (!browser.url || browser.url === 'about:blank') ? (
+        // Scheda vuota: al posto del placeholder ci va la pagina Nuovo Tab, per
+        // la stessa ragione del parcheggio qui sopra. La view nativa nasce fuori
+        // schermo (browser_open a x=-100000) e senza placeholder nessuno le
+        // spinge un rettangolo: resta lì finché non si naviga davvero.
+        <NewTabPage onNavigate={(u) => { void browser.navigate(u); }} />
       ) : (
         <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
       )}
@@ -806,6 +823,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     if (browser.url) {
       onUrlChange?.(browser.url);
       pushHistory(browser.url);
+      // Gemello del ramo nativo: lo storico globale dei siti alimenta la
+      // griglia della scheda nuova, qui senza icona (questo ramo non ne ha una).
+      recordSiteVisit(browser.url);
     }
   }, [browser.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -813,6 +833,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   useEffect(() => {
     if (browser.title) onTitleChange?.(browser.title);
   }, [browser.title]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (browser.url) noteSiteMeta(browser.url, { title: browser.title });
+  }, [browser.url, browser.title]);
 
   // Phase 30 BROWSER-CHAT-04 — Cmd+Shift+E enters select-element mode (Cursor pattern).
   // Esc exits the mode without picking. Window-level listener so the shortcut works
@@ -1186,12 +1210,11 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             </div>
           </div>
         ) : (!browser.url || browser.url === 'about:blank') ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Globe size={36} className="mx-auto mb-3 text-app-spinner" />
-              <p className="text-[13px] text-app-text-muted mb-1">Browser ready</p>
-              <p className="text-[11px] text-app-text-faint">Enter a URL above to navigate</p>
-            </div>
+          // Qui i fratelli sono tutti in posizione assoluta (il video, l'errore,
+          // lo spinner): la scheda nuova prende lo stesso rettangolo, o dentro
+          // un genitore senza flex non avrebbe altezza.
+          <div className="absolute inset-0 flex flex-col">
+            <NewTabPage onNavigate={(u) => { browser.navigate(u); }} />
           </div>
         ) : (browser.webrtcActive || browser.renderMode === 'dom') ? null : (
           // DOM mode renders nothing HERE on purpose: DomCoBrowse above owns this

@@ -54,6 +54,9 @@ function task(over: Partial<DoctorTask> = {}): DoctorTask {
   return {
     id: "task-1",
     text: "una card qualsiasi",
+    // Una descrizione che PARLA: il default non deve far scattare
+    // `review-card-is-mute` in ogni altro caso del file.
+    description: "Una descrizione lunga abbastanza da leggersi come tale, cioe' sopra la soglia dei caratteri minimi.",
     status: "review",
     dispatchState: null,
     dispatchAttempts: 0,
@@ -383,6 +386,59 @@ describe("needs-input-unanswered", () => {
 
 // ── 5. Rosso ambientale ──────────────────────────────────────────────────────
 
+/**
+ * LA CARD MUTA, che il 19/08 e' comparsa tre volte in un pomeriggio.
+ *
+ * Il turno viene tagliato (riavvio, watchdog, sessione morta) prima che
+ * l'agente commenti: il server scrive «Consegna senza riassunto», la card sale
+ * in review con un ramo addosso e chi rivede trova un id e un avviso di
+ * servizio. Il lavoro c'e' — 265 righe, nel caso peggiore — e nessuno sa cosa
+ * sia finche' non rilegge il diff da capo.
+ */
+describe("review-card-is-mute", () => {
+  const muta = task({
+    id: "t-muta",
+    status: "review",
+    description: null,
+    deliveryBranch: "topics/boundless-shore",
+    lastAgentComment: { at: ago(H), content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse." },
+  });
+
+  it("SCATTA: descrizione vuota, riassunto assente, ma un ramo consegnato c'e'", () => {
+    const f = runChecks(input({ tasks: [muta] }), only("review-card-is-mute"));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.what).toContain("topics/boundless-shore");
+    // L'azione deve dire DOVE guardare: senza il comando, il rilievo sposta il
+    // lavoro invece di iniziarlo.
+    expect(f[0]?.action).toContain("git diff --stat");
+  });
+
+  it("NON scatta: basta la descrizione, anche senza riassunto", () => {
+    const conDesc = task({ ...muta, description: "Il click su un banner di chat non apriva la sua tab: il bersaglio viaggia ora codificato nel campo storico." });
+    expect(runChecks(input({ tasks: [conDesc] }), only("review-card-is-mute"))).toHaveLength(0);
+  });
+
+  it("NON scatta: basta il riassunto, anche senza descrizione", () => {
+    const conRiassunto = task({ ...muta, lastAgentComment: { at: ago(H), content: "Fatto: il fondo della cella lo decide il tipo di pane. Test verdi." } });
+    expect(runChecks(input({ tasks: [conRiassunto] }), only("review-card-is-mute"))).toHaveLength(0);
+  });
+
+  it("NON scatta senza un ramo: una card portata in review a mano non ha consegnato niente", () => {
+    const aMano = task({ ...muta, deliveryBranch: null });
+    expect(runChecks(input({ tasks: [aMano] }), only("review-card-is-mute"))).toHaveLength(0);
+  });
+
+  it("NON scatta fuori da review: in `todo` non c'e' ancora niente da raccontare", () => {
+    expect(runChecks(input({ tasks: [task({ ...muta, status: "todo" })] }), only("review-card-is-mute"))).toHaveLength(0);
+  });
+
+  it("una descrizione che e' solo il titolo ricopiato NON conta come parlante", () => {
+    // Sotto la soglia: e' la forma con cui una card sembra descritta e non lo e'.
+    const corta = task({ ...muta, description: "Sfondo tab browser" });
+    expect(runChecks(input({ tasks: [corta] }), only("review-card-is-mute"))).toHaveLength(1);
+  });
+});
+
 describe("environmental-red", () => {
   const t = task({ id: "t-red" });
   const red: RedObservation = {
@@ -624,6 +680,12 @@ function everythingWrong(): DoctorInput {
       task({ id: "e" }),
       task({ id: "f", sizeClass: "medium", readTotalTokens: 90_000_000 }),
       task({ id: "g", deliveryBranch: "topics/g", deliveryCommit: "nonmio1" }),
+      // la card MUTA: un ramo consegnato, e niente da leggere ne' nella
+      // descrizione ne' nel thread.
+      task({
+        id: "h", status: "review", description: null, deliveryBranch: "topics/h",
+        lastAgentComment: { at: ago(H), content: "Consegna senza riassunto: il turno e' finito prima." },
+      }),
     ],
     branches: [
       { taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, foreignHead: "f00d", ownShas: ["own1"], deliveryInHistory: null, otherBranches: ["topics/y"] },

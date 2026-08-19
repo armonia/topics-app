@@ -945,6 +945,12 @@ const EN = {
   'perf.verdict.noAccel': 'Hardware acceleration is OFF. That is the main reason for the low FPS.',
   'perf.verdict.compressed': '{gb} GB compressed or swapped out. Close a few browser panes.',
   'perf.verdict.loaded': 'The Topics process is under load',
+  // ── Empty browser tab (NewTabPage).
+  'browser.newTab.title': 'New tab',
+  'browser.newTab.searchPlaceholder': 'Search or type an address',
+  'browser.newTab.topSites': 'Your sites',
+  'browser.newTab.empty': 'The sites you open most often show up here.',
+  'browser.newTab.forget': 'Remove {host} from your sites',
   // ── Sidebar groups (spaces).
   'space.collapse': 'Collapse {name}',
   'space.expand': 'Expand {name}',

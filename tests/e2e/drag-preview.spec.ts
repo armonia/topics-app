@@ -40,7 +40,10 @@
  * file, e solo questo, nel motore del guscio.
  */
 import { test, expect, type JSHandle, type Locator, type Page } from "@playwright/test";
+import { existsSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
+import { clipDiConsegna, isClipRun } from "./helpers/clip";
+import { beat, didascalia } from "./helpers/evidence";
 import {
   createTopic,
   deleteTask,
@@ -422,5 +425,90 @@ test.describe("Anteprima del trascinamento: le card della board", () => {
     // Terza porta di spegnimento: il pulsante che si solleva.
     await page.mouse.up();
     await anteprimaSpenta(page);
+  });
+
+  /**
+   * LA CLIP DI CONSEGNA, e perche' e' un video e non una fotografia.
+   *
+   * Cio' che va provato qui sono DUE stati in fila: la scheda che compare al
+   * cursore mentre il gesto e' in corso, e la stessa scheda che SPARISCE quando
+   * il gesto finisce. Un fermo immagine puo' mostrare il primo e non dice
+   * niente del secondo, che e' meta' del difetto (un'anteprima rimasta accesa
+   * resta incollata sopra l'interfaccia).
+   *
+   * Gira SOLO sotto `E2E_CLIP=1`, come `SLOT-3`: senza registrazione le pause
+   * di lettura sarebbero secondi spesi davanti a una telecamera spenta, e le
+   * asserzioni che restano sono le stesse quattro di DPREV-04, che le fa gia'.
+   * Il tetto dei 20s del protocollo lo misura `clipDiConsegna` sul .webm.
+   */
+  test("DPREV-05: la clip di consegna (scheda al cursore, poi spenta)", async ({ page }) => {
+    test.skip(!isClipRun(), "produce la clip di consegna: gira solo con E2E_CLIP=1");
+    // Il progetto `webkit` fa girare questo stesso file, ma la clip apre un
+    // browser TUTTO SUO (Chromium, vedi helpers/clip.ts): registrarla due volte
+    // darebbe due file identici e il secondo sovrascriverebbe il primo.
+    test.skip(test.info().project.name === "webkit", "la clip la registra il progetto chromium");
+    await resetPaneStore(page.request, ["__board__"]);
+
+    const clip = await clipDiConsegna({
+      nome: "drag-preview",
+      // Il contesto e' NOSTRO: niente del `use` di playwright.config arriva qui
+      // da solo. 1280x720 = 0,563 di rapporto, sotto lo 0,70 oltre il quale la
+      // card taglia la clip dal basso invece di rimpicciolirla; e a 268px di
+      // larghezza — la misura a cui una card la mostra — la didascalia resta
+      // leggibile, cosa che a 1600 non sarebbe piu' vera.
+      context: {
+        baseURL: BASE,
+        locale: "it-IT",
+        viewport: { width: 1280, height: 720 },
+      },
+      // Fuori dalla registrazione: aprire la board e montarla e' lavoro di
+      // scena, non la scena. Il layout resta scritto sul server e nel
+      // `localStorage` del contesto, che la pagina della scena condivide.
+      prologo: async (p) => {
+        await p.goto("/");
+        await p.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
+        await p.locator('[data-pane-id="__board__"]').first().click();
+        await expect(p.getByTestId("kanban-board")).toBeVisible({ timeout: 20_000 });
+        await expect(p.locator(`[data-task-card="${idTask}"]`)).toBeVisible({ timeout: 20_000 });
+      },
+      scena: async (p) => {
+        await p.goto("/");
+        const card = p.locator(`[data-task-card="${idTask}"]`);
+        await expect(card).toBeVisible({ timeout: 20_000 });
+        const colonna = p.getByTestId("kanban-column-backlog");
+        const corpo = p.getByTestId("kanban-column-body-backlog");
+        await expect(colonna).toBeVisible({ timeout: 10_000 });
+
+        await didascalia(p, "Prendo la card");
+        await beat(p, 1400);
+
+        const presa = await punto(card, 0.5, 0.15);
+        const arrivo = await punto(corpo, 0.5, 0.35);
+        await p.mouse.move(presa.x, presa.y);
+        await p.mouse.down();
+        await p.mouse.move(presa.x + 8, presa.y + 8);
+        await p.mouse.move(presa.x + 40, presa.y + 24, { steps: 8 });
+        await anteprimaMostra(p, testoTask);
+        await didascalia(p, "La scheda intera segue il cursore");
+        await beat(p, 2200);
+
+        await p.mouse.move(arrivo.x, arrivo.y, { steps: 24 });
+        await p.mouse.move(arrivo.x, arrivo.y + 1, { steps: 2 });
+        await anteprimaMostra(p, testoTask);
+        await bersaglioDichiara(colonna, ["into"]);
+        await didascalia(p, "La colonna di arrivo dice dove cade");
+        await beat(p, 2200);
+
+        await p.mouse.up();
+        await anteprimaSpenta(p);
+        await didascalia(p, "A gesto finito la scheda sparisce");
+        await beat(p, 2000);
+      },
+    });
+
+    if (clip) {
+      expect(existsSync(clip.path), `la clip deve stare su disco: ${clip.path}`).toBe(true);
+      expect(clip.durataMs, "e durare abbastanza da leggersi a 268px").toBeGreaterThan(5_000);
+    }
   });
 });
