@@ -33,7 +33,7 @@ intentions.
 | Pane residency cap | how many panes stay mounted | `tests/e2e/pane-residency-cap.spec.ts` | yes (E2E shard) |
 | Transcript eviction | how many chats stay hydrated | `tests/e2e/chat-transcript-residency.spec.ts` | yes (E2E shard) |
 | Browser pane streaming | fps, p95 input latency, bandwidth, first frame | `tests/e2e/browser-ws-streaming.spec.ts` plus `perf-baseline.json` | yes (E2E shard) |
-| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **RED (27/30s); a working remedy is parked on `wip/ciclo-scritture-localseq`, see below** |
+| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **GREEN since 2026-08-19: 0 writes, see below** |
 | Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
@@ -280,56 +280,60 @@ a 13,000-row rewrite belongs.
 Still open on the server side: the steady state has no budget (only the boot
 peak does).
 
-**The idle-write cycle: a remedy that WORKS, parked on a branch, and what it
-uncovered.** `wip/ciclo-scritture-localseq`, 2026-08-19. Not merged, and the
-reason is the interesting part.
+**The idle-write cycle is CLOSED — and it took closing a second defect first.**
+`check:idle-writes` on main: **27 writes in 30s → 0**. Two commits, and the
+order is the whole story.
 
-The cause was already named on this page: `lastSeq` rises on
-`HYDRATE_FROM_SNAPSHOT` too (the reducer takes it to `max(lastSeq, clean.lastSeq)`
-so later PUTs stay fresh), and the sync middleware used it as its wake-up. So a
-PEER's frame woke us, and half a second later we re-sent 75 KB identical to what
-we had just received. A third counter — `localSeq`, raised ONLY by a local
-change — takes the gate from **27 writes in 30s to 0**. It filters nothing
-outbound, which is precisely why it is not a third repeat of the two withdrawn
-gates: it changes the question from "did the counter move" to "did WE move".
+*The cycle itself.* `lastSeq` rises on `HYDRATE_FROM_SNAPSHOT` too (the reducer
+takes it to `max(lastSeq, clean.lastSeq)` so later PUTs stay fresh), and the
+sync middleware used it as its wake-up. So a PEER's frame woke us, and half a
+second later we re-sent 75 KB identical to what we had just received; that PUT
+bumped `server_seq`, the server rebroadcast, and the peer did the same. A third
+counter — `localSeq`, raised ONLY by a local change — moves the question from
+"did the counter move" to "did WE move". It filters nothing outbound, which is
+what separates it from the two gates withdrawn before it.
 
-It turns `pane-undo` red, verified the way this repo demands (stash the fix,
-rebuild, re-run: without it the test passes). But the probe says something more
-useful than "I broke it":
+*Why it could not land alone.* With the cycle removed, `pane-undo.spec.ts` went
+red — and the red was real, not collateral. Probed on both sides: the PUT
+carrying the close returns **200** and is the LAST write to reach the server, yet
+the row reads back `closed=0`. A direct PUT (no browser in the loop) proved the
+server keeps `closedStack` fine, so the loss was downstream of it:
 
-| | writes seen after the close | server ends at | test |
-|---|---|---|---|
-| without the fix | `closed=0 seq18` · `closed=1 seq25` · **`closed=1 seq27`** | `closed=1` | green |
-| with the fix | `closed=0 seq18` · `closed=1 seq26` | **`closed=0`** | red |
+    the user closes a chat tab
+      → the reducer creates the undo record and PUTs it
+      → the retirement cascade archives that topic ("tab-close")
+      → `archiveTopicFully` calls `purgeTopicFromUiState`
+      → the freshly-created record is FILTERED OUT
 
-The PUT carrying the close returns **200 in both cases** and is the LAST write
-to reach the server (probed server-side too: no bulk PUT, no reset, no later
-write). Yet the row read immediately after has `closed=0` — carrying that same
-PUT's `lastSeq`. So the close does not persist on its own, and without the fix
-the defect was merely MASKED by a third rebound PUT that the hydrate produced.
+And the tombstone did not replace it: that block reads `removedPaneIds`, i.e.
+panes removed from `panes`, and an already-closed pane is no longer there. So a
+close left **no trace at all** — neither record nor marker.
 
-Which means the write cycle was propping up a close that does not land by
-itself. Closing the cycle without closing THAT trades bandwidth for work lost on
-screen — the same bad trade that already had two remedies withdrawn here.
+`pane-undo` had been seeing this all along and stayed green, because the write
+cycle re-sent the state a moment later and put the record back. One defect was
+propping up another: removing the cycle exposed it. That is why the remedy sat
+on a branch overnight instead of being forced through.
 
-**And the next question is already answered: the SERVER is not losing it.** A
-direct PUT carrying a `closedStack` of one, straight at the production route with
-no browser in the loop, reads back as one:
+*The fix, and why deleting was never needed.* The defect that purge protects is
+the GHOST TAB — an archived chat reappearing OPEN on another device — and that
+lives in `panes`, still cleaned. On the client `closedStack` feeds `bumpClosed`
+(`reducers/panes.ts`), the same CLOSURE signal the tombstones feed: it reopens
+nothing. So the record now stays and its id is stamped instead — the peer that
+still holds the tab drops it, and the user's undo survives.
 
-    before: closed = 47   → PUT 200 → after: closed = 1
+Measured on main, not on a branch:
 
-So `stripDeviceLocalFields` keeps the record, the CAS does not silently reject
-it, and the row holds what was sent. The loss is on the CLIENT side, between the
-snapshot the reducer builds — verified correct, the record is complete and
-well-formed on the wire — and what survives the round trip. Ruled out along the
-way by reading the code rather than guessing: the hydrate MERGES `closedStack` by
-`id@closedAt` and never replaces it, `CLEAR_CLOSED_STACK` is not dispatched here,
-and `selectSyncableSnapshot` filters only drafts.
+| check | result |
+|---|---|
+| `check:idle-writes` | 27 → **0** in 30s (ceiling 3) |
+| `pane-undo` + `cross-window-topic-sync` | 8 green |
+| `perf-panel` + `idle-frame-budget` | 5 green |
+| pane-store unit tests | 450 green |
 
-Worth handing over: on the LIVE app the same close DOES persist, because closing
-a browser pane calls `flushPaneStoreNow()` — which cancels the debounce and PUTs
-immediately. The E2E closes a CHAT pane, which has no such path. That asymmetry
-is the shape of what is left.
+The second row is the one that matters: those two E2E are what failed the two
+previous attempts, and a gate that reaches zero writes by no longer
+synchronising has not fixed anything — it has moved the damage somewhere more
+visible.
 
 **The bundle ratchet is red, and it is not from this work.** `check:bundle`,
 2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
