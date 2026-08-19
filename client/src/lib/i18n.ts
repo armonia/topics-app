@@ -321,6 +321,9 @@ const IT: Dict = {
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
+  // La sessione ha un'etichetta perché ora è una sezione, non una tab: si legge
+  // insieme a quel che le sta sopra invece che al posto suo.
+  'board.task.sessionLabel': 'Sessione',
   // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
   // brief per cui il drawer si apre (e che ora si chiude da sé).
   'board.task.deliveryLabel': 'Consegna',
