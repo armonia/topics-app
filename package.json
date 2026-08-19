@@ -71,7 +71,7 @@
     "check:ink": "bun run scripts/check-ink-latency.ts",
     "check:drag": "bun run scripts/check-drag-frames.ts",
     "check:growth": "bun run scripts/check-session-growth.ts",
-    "check:boot-memory": "bun run scripts/check-boot-memory.ts",
+    "probe:boot-memory": "bun run scripts/probe-boot-memory.ts",
     "db:compress": "bun run scripts/compress-message-blobs.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",

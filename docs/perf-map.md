@@ -37,7 +37,7 @@ intentions.
 | Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
-| **Boot memory peak** | `phys_footprint (peak)` of a FRESH server booted on a copy of the real DB | `bun run check:boot-memory` | not yet — new 2026-08-19 |
+| **Boot memory peak** | `phys_footprint (peak)` of a FRESH server booted on a copy of the real DB | `bun run probe:boot-memory` | not yet — new 2026-08-19 |
 
 ## 2026-08-19: what "1.8 GB and 57 fps" actually was
 
@@ -244,7 +244,7 @@ were **four**. With `iterate()` the peak is proportional to what is FOUND, not
 to the database. Verified against the real DB before touching the code: both
 paths return the same 4 ids.
 
-`bun run check:boot-memory` now guards it, and the guard was proven able to say
+`bun run probe:boot-memory` now guards it, and the guard was proven able to say
 no: **353 MB green** with the fix, **801 MB red (exit 1)** with the `.all()`
 put back. That check is the reason this row will not silently regress — every
 functional test passes either way, because the defect never got an answer
@@ -456,7 +456,7 @@ non-zero when it gets worse.
 1. **Cold start.** How many milliseconds pass between launch and the first
    usable screen. No probe, no threshold.
 2. **Memory.** The shell still has no ceiling; the SERVER's boot peak got one
-   on 2026-08-19 (`check:boot-memory`, above). Its steady state is still a
+   on 2026-08-19 (`probe:boot-memory`, above). Its steady state is still a
    number without a budget. Still a
    number, not a budget, because nobody compares it against anything — but the
    number moved, so here it is again, measured 2026-08-18 on a 12-core Mac:
