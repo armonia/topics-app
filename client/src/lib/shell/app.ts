@@ -3,7 +3,7 @@
 
 import { shellKind } from './index';
 import { tauriInvoke } from './tauri';
-import { openTaskInApp } from '../openTaskLink';
+import { encodeNotifyTarget, openNotifyTarget, type NotifyTarget } from '../notify/notifyTarget';
 import { markReloadFlash } from '../reloadFlash';
 import type { NotifyAction } from '../../../../shared/notify-actions';
 
@@ -51,12 +51,17 @@ export async function selectDirectory(): Promise<string | null> {
 export function notifyNative(
   title: string,
   body: string,
-  opts?: { silent?: boolean; tag?: string; taskId?: string; actions?: NotifyAction[] },
+  opts?: { silent?: boolean; tag?: string; target?: NotifyTarget | null; actions?: NotifyAction[] },
 ): boolean {
+  const targetToken = encodeNotifyTarget(opts?.target);
   if (shellKind === 'tauri') {
-    // taskId rides into the native notification's userInfo; the Rust delegate
-    // reads it back on click and emits `open-task` → the client opens the drawer
-    // (see the listener in App). null when the banner isn't task-bound.
+    // Il BERSAGLIO del click viaggia qui dentro, codificato: il guscio lo
+    // trasporta e basta (lo mette nell'identificatore della notifica e al click
+    // lo ridà a `window.__topicsOpenTask`, che lo decodifica). Il campo si
+    // chiama ancora `taskId` di proposito: e' il nome che i gusci GIA'
+    // INSTALLATI leggono, e ribattezzarlo spegnerebbe il click su tutti loro.
+    // La codifica sta in lib/notify/notifyTarget.ts. null = banner senza
+    // destinazione.
     //
     // `actions` sono i TASTI del banner (rispondi alla domanda, approva,
     // rimetti in coda): il guscio ne fa `UNNotificationAction` e al click
@@ -67,7 +72,7 @@ export function notifyNative(
     void tauriInvoke('notify', {
       title,
       body,
-      taskId: opts?.taskId ?? null,
+      taskId: targetToken,
       actions: opts?.actions?.length ? opts.actions : null,
     });
     return false;
@@ -75,12 +80,16 @@ export function notifyNative(
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
     const n = new Notification(title, { body, silent: opts?.silent, tag: opts?.tag });
-    // Click a task-bound banner → focus the app and open that task's drawer.
-    if (opts?.taskId) {
-      const taskId = opts.taskId;
+    // Click su un banner con un bersaglio → finestra a fuoco e destinazione
+    // aperta. Il bersaglio e' il task quando c'e', altrimenti il TOPIC: prima
+    // qui passava solo il task, quindi i banner della chat (fine turno,
+    // messaggio nuovo, terminale) erano cliccabili senza portare da nessuna
+    // parte.
+    const target = opts?.target;
+    if (target?.id) {
       n.onclick = () => {
-        try { window.focus(); } catch { /* focus may be blocked — the deep-link still opens */ }
-        openTaskInApp({ taskId });
+        try { window.focus(); } catch { /* focus may be blocked, the deep-link still opens */ }
+        openNotifyTarget(target);
         n.close();
       };
     }

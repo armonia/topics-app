@@ -6,6 +6,7 @@ import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { runNotificationAction } from './lib/notify/notificationAction';
+import { decodeNotifyTarget, openNotifyToken } from './lib/notify/notifyTarget';
 import { boardNotificationDeps } from './lib/notify/boardActionDeps';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
@@ -497,10 +498,18 @@ function App() {
   const taskForTopic = useTaskTopicIndex();
 
   // A stable global the native (Tauri) notification delegate can call on click to
-  // open a task — the web/Electron path opens it directly via notifyNative.onclick.
+  // open a banner's destination. Il percorso web/Electron ci arriva da solo
+  // (notifyNative.onclick).
+  //
+  // Riceve un TOKEN, non un id di task: il guscio trasporta e basta, e la
+  // stessa stringa vale per un task (`/task/<id>`) o per un topic
+  // (`/topic/<id>`). Prima qui si assumeva «e' sempre un task», quindi ogni
+  // banner di chat partiva senza bersaglio e il click alzava solo la finestra.
+  // Il nome della globale resta questo perche' e' quello che i gusci gia'
+  // installati chiamano: la decodifica sta in lib/notify/notifyTarget.ts.
   useEffect(() => {
     (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask =
-      (id: string) => { if (id) openTaskInApp({ taskId: id }); };
+      (id: string) => { openNotifyToken(id); };
     return () => { delete (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask; };
   }, []);
 
@@ -523,9 +532,15 @@ function App() {
   useEffect(() => {
     type ActionGlobal = { __topicsNotificationAction?: (taskId: string, actionId: string) => void };
     (window as unknown as ActionGlobal).__topicsNotificationAction = (taskId: string, actionId: string) => {
+      // Il guscio manda lo stesso token del click sul corpo: qui si esegue solo
+      // se e' un token di TASK, perche' i tasti sono azioni di board. Un token
+      // di topic non porta tasti, ma decodificarlo costa niente e toglie la
+      // possibilita' che una chiamata parta con un id che non e' un task.
+      const target = decodeNotifyTarget(taskId);
+      if (target?.kind !== 'task') return;
       // Le stesse dipendenze che usa il banner in pagina della push `in-app`
       // (`InAppBanners`): due superfici, un esecutore e un cablaggio solo.
-      void runNotificationAction(taskId, actionId, boardNotificationDeps());
+      void runNotificationAction(target.id, actionId, boardNotificationDeps());
     };
     return () => { delete (window as unknown as ActionGlobal).__topicsNotificationAction; };
   }, []);

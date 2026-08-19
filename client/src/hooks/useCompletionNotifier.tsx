@@ -18,6 +18,7 @@ import { boardApi, isAgentWorking } from '../lib/board';
 import { inPageBannerAllowed, type NotifyEventKind } from '../lib/notify/pushVoice';
 import { isPushSubscribed } from '../state/pushDevice';
 import { recordNotificationSent } from '../lib/notify/history';
+import type { NotifyTarget } from '../lib/notify/notifyTarget';
 import {
   chatNotificationKey,
   taskParkedNotificationKey,
@@ -250,7 +251,18 @@ export function useCompletionNotifier({
     // solo il rumore. `isFocusSilencing()` è false su web e ovunque lo stato non
     // sia leggibile → di default si notifica normalmente (nessun falso silenzio).
     if (isFocusSilencing()) return;
-    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag, actions });
+    // IL BERSAGLIO, calcolato UNA volta: il TASK se c'è (il click apre il suo
+    // drawer), altrimenti il TOPIC (il click apre la conversazione). Lo stesso
+    // oggetto va al banner e al registro, così il click sul banner e il click
+    // sulla riga di cronologia non possono atterrare in due posti diversi.
+    // Prima il registro lo aveva e il banner no: ogni notifica di chat era un
+    // banner che si poteva cliccare senza andare da nessuna parte.
+    const target: NotifyTarget | null = taskId
+      ? { kind: 'task', id: taskId }
+      : log.topicId
+        ? { kind: 'topic', id: log.topicId }
+        : null;
+    notifyNative(title, body, { silent: true, target, tag, actions });
     if (sound) playCompletionTone();
     // IL REGISTRO, dopo la consegna e mai prima: si registra ciò che è stato
     // MANDATO, non ciò che si aveva intenzione di mandare. I due `return` qui
@@ -265,11 +277,11 @@ export function useCompletionNotifier({
       kind: REGISTRY_KIND[kind],
       title,
       body,
-      // Il bersaglio: il TASK se c'è (il click apre il suo drawer, come fa il
-      // banner), altrimenti il TOPIC. Derivato da ciò che `fire` ha già in
-      // mano, così non può divergere da dove porta la notifica vera.
-      targetKind: taskId ? 'task' : log.topicId ? 'topic' : null,
-      targetId: taskId ?? log.topicId ?? null,
+      // Lo stesso bersaglio del banner, letto dalla stessa variabile: dove
+      // porta la riga di cronologia e dove porta la notifica sono un fatto
+      // solo, non due `if` gemelli che prima o poi divergono.
+      targetKind: target?.kind ?? null,
+      targetId: target?.id ?? null,
       dedupeKey: log.dedupeKey,
       source: 'banner',
     });
