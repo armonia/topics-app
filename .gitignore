@@ -174,6 +174,12 @@ docs/*
 # 105 commit senza un installer, ultimo tag tauri-v2.2.158. Un documento
 # ignorato ha smesso di far uscire il prodotto.
 !docs/destinazioni.md
+# browser-gap-map.md e' la mappa dei buchi del browser: l'elenco spuntato delle
+# funzioni di un browser nativo confrontate con quelle della pane di Topics, il
+# metro dei browser di consumo, e le cinque cose che valgono la pena. Committata
+# perche' e' il documento da cui nascono le card del browser: fuori dal repo
+# sarebbe l'appunto di una persona, dentro e' il punto da cui riparte chiunque.
+!docs/browser-gap-map.md
 
 # Reference repos (local only)
 .reference/
