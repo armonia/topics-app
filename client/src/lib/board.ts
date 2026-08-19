@@ -336,6 +336,42 @@ export function subtaskWorkChip(
 }
 
 /**
+ * La ragione di coda da disegnare sulla riga di uno step, o `null` se la riga
+ * non deve dire niente.
+ *
+ * Uno step non compare MAI in una colonna della board (le colonne sono
+ * `rootsOnly` e recuperano i soli step orfani): l'albero dei sottotask del
+ * padre è l'unico posto dove quella riga sta già sotto gli occhi. Il dato
+ * viaggia già nel payload di ogni figlio — mancava solo chi lo disegnasse.
+ *
+ * Filtro su `stalled` e non su «c'è una ragione»: `queued` e `waiting` sono la
+ * vita normale di uno step (in coda, la lavora il padre) e riempirebbero la
+ * checklist di chip che non chiedono niente a nessuno. La visibilità comprata
+ * col rumore non è visibilità: la riga davvero ferma sparirebbe tra le altre.
+ */
+export function subtaskQueueChip(
+  task: Pick<BoardTask, 'queueReason'>,
+): QueueReason | null {
+  const reason = task.queueReason;
+  if (!reason || reason.tone !== 'stalled') return null;
+  return reason;
+}
+
+/**
+ * Se la riga di uno step si apre nel drawer.
+ *
+ * Una riga nuda (niente descrizione, niente figli, nessun tab d'agente) non ha
+ * niente da mostrare: resta uno `span`, così non finge un click che non porta
+ * da nessuna parte. Ma una riga FERMA ha qualcosa da dire — il motivo per
+ * esteso, che nel chip sta troncato — e allora deve potersi aprire.
+ */
+export function subtaskOpenable(
+  task: Pick<BoardTask, 'description' | 'assignedTopicId' | 'subtaskCount' | 'queueReason'>,
+): boolean {
+  return !!task.description || task.subtaskCount > 0 || !!task.assignedTopicId || !!subtaskQueueChip(task);
+}
+
+/**
  * Il chip «riaperta»: una card che ERA consegnata e non lo è più lo dice sulla
  * card, dove si guarda — non solo nel thread.
  *
