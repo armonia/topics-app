@@ -40,6 +40,20 @@ const BASE = E2E_BASE;
  * metà opposte: dopo uno STOP il banner compare e dice «Turno interrotto», e su
  * una risposta mai arrivata dice «Nessuna risposta». Insieme coprono i tre
  * stati in cui la pagina ha la stessa forma e la causa è diversa.
+ *
+ * E QUEL FILE NON PUÒ SOSTITUIRE QUESTO, verificato invece che supposto. Dopo
+ * aver corretto il banner ho eseguito `empty-turn-on-stop` per assicurarmi di
+ * non aver soppresso il caso «stop»: 5 verdi, e per un attimo ho scambiato quel
+ * verde per la prova che la correzione fosse difesa. Non lo è. Rimettendo il
+ * difetto (il banner torna a guardare solo la sessione locale) quei 5 test
+ * restano VERDI: nei loro scenari il server non dichiara mai aperto il turno,
+ * quindi il ramo `serverSaysOpen` non viene mai esercitato.
+ *
+ * Il che è il motivo per cui questo file esiste, e vale la pena scriverlo: un
+ * test verde dice che non hai rotto CIÒ CHE COPRE, mai che la tua correzione
+ * funziona. Le due domande si somigliano abbastanza da confondersi, e la
+ * seconda ha una sola risposta onesta — rimettere il difetto e guardare quale
+ * test diventa rosso. Qui è questo, e solo questo.
  */
 test.describe.serial("Il banner tace su un turno vivo", () => {
   let topicId: string;
