@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset=utf-8><style>
+body{margin:0;background:#fff}
+/* riga 1: canvas dipinto di rosso puro se il canvas funziona */
+#cv{position:absolute;left:0;top:0;width:400px;height:100px}
+/* riga 2: grid — 4 celle verdi solo se display:grid funziona (fallback block = 1 colonna) */
+#g{position:absolute;left:0;top:100px;width:400px;height:100px;display:grid;grid-template-columns:repeat(4,1fr)}
+#g div{background:#00c000}#g div:nth-child(2){background:#008000}
+/* riga 3: flex */
+#f{position:absolute;left:0;top:200px;width:400px;height:100px;display:flex}
+#f div{flex:1;background:#0000ff}#f div:nth-child(2){background:#000080}
+/* riga 4: transform+gradient */
+#t{position:absolute;left:0;top:300px;width:400px;height:100px;background:linear-gradient(90deg,#ff00ff,#ffff00);transform:skewX(0deg)}
+/* riga 5: SVG */
+</style></head><body>
+<canvas id=cv width=400 height=100></canvas>
+<div id=g><div></div><div></div><div></div><div></div></div>
+<div id=f><div></div><div></div><div></div><div></div></div>
+<div id=t></div>
+<svg id=s style="position:absolute;left:0;top:400px" width=400 height=100><rect width=400 height=100 fill="#ff8800"/></svg>
+<script>const c=document.getElementById('cv').getContext('2d');c.fillStyle='#ff0000';c.fillRect(0,0,400,100);</script>
+</body></html>

@@ -119,6 +119,79 @@ Due cose che questo tavolo dice e le tabelle precedenti no:
   Anche `dataStore` isolato per sessione costa uguale a condiviso (37 vs 37 MB): l'
   isolamento non è la voce di costo.
 
+### Servo 0.4.0 — l'unico vero candidato Rust, misurato (non dal blog)
+
+Domanda naturale: se non Obscura, c'è qualcosa di serio in Rust/C++? Ho scaricato la
+release macOS del 4 agosto 2026 (`servo-aarch64-apple-darwin.dmg`, 110 MB, app 269 MB) e
+l'ho passata allo stesso banco. **È il candidato più forte fra tutti gli alternativi**, e
+per una ragione che nessuna tabella di RAM cattura: è l'unico che *renderizza davvero*.
+
+Test mirato (`app2/index.html`, artefatti in `feat/`): cinque bande di colore piatto, una
+per feature, campionate a quattro punti orizzontali. Se la feature funziona il colore
+atteso c'è; se il layout collassa a `block`, le quattro colonne diventano una.
+
+| feature | Chrome | **Servo** (`--enable-experimental-web-platform-features`) | Servo (default) | Obscura |
+|---|---|---|---|---|
+| canvas 2D | ✅ `#ff0000` | ✅ `#ff0000` | ✅ `#ff0000` | ❌ bianco |
+| CSS grid 4 col | ✅ | ✅ | ❌ collassa | ❌ |
+| flexbox | ✅ | ✅ | ✅ | ❌ |
+| gradient | ✅ | ✅ | ✅ | ❌ |
+| SVG | ✅ | ✅ | ✅ | ❌ |
+
+**Servo con il flag sperimentale passa tutto, identico a Chrome.** Obscura fallisce
+quattro prove su cinque su un test che è colore piatto, cioè il caso più facile
+possibile. Il grid in Servo è dietro flag ma **funziona**: `-Z layout_grid_enabled` non
+esiste più (l'help lo elenca ma il parser lo rifiuta), la leva giusta è
+`--enable-experimental-web-platform-features`.
+
+Su Wikipedia, Servo produce **11 173 colori distinti contro gli 11 359 di Chrome**
+(Obscura: 6 309) — cioè disegna praticamente tutto, font antialiasing compreso.
+Screenshot in 2-3 secondi, `-o out.png -x` da riga di comando, senza CDP.
+
+**E allora perché non è la risposta?** Tre motivi misurati:
+
+1. **Costa più di Chromium, non meno.** 8 processi Servo su Wikipedia: 1785 MB, cioè
+   **223 MB per sessione** — contro i 219 del Chromium di Topics e i 78 di WKWebView.
+   Su app locale: 110 MB per sessione. Servo **non ha context multipli**: un processo per
+   sessione, punto. Il risparmio non esiste.
+2. **Le SPA moderne crashano.** `react.dev` restituisce una **pagina bianca**: un solo
+   colore in tutto il PNG, ink 0.000. La causa è precisa e nei log:
+   `ReferenceError: IntersectionObserver is not defined` → Next.js va in
+   "client-side exception". Per Topics, che guarda soprattutto dev server React/Vue/Next,
+   è il caso d'uso centrale che si rompe.
+3. **Non parla CDP.** La porta `--devtools` risponde con l'handshake del **Firefox Remote
+   Debugging Protocol** (`{"from":"root","applicationType":"browser"...}`), non con
+   `/json/version`. Tutti i `browser_*` di Topics sono scritti su CDP: adottare Servo
+   significa riscrivere il transport, non cambiare un endpoint.
+
+## Il quadro completo — chi vince cosa
+
+| per sessione, react.dev / app dev | RAM | render | CDP | context multipli |
+|---|---|---|---|---|
+| **WKWebView** (già in Topics) | **46 / 37 MB** | ✅ perfetto | n/a (nativo) | ✅ |
+| Chromium full (Topics oggi) | 219 MB | ✅ perfetto | ✅ | ✅ |
+| headless-shell | 140 / 95 MB | ✅ perfetto | ✅ | ✅ |
+| Obscura | **9 / 2 MB** | ⚠️ no canvas/grid | ✅ | ✅ |
+| Servo 0.4 | 223 / 110 MB | ✅ ma SPA crashano | ❌ (RDP Firefox) | ❌ |
+| Lightpanda | 53 MB | ❌ nessuno | ✅ | ❌ |
+
+Non c'è un engine da adottare al posto di quello che c'è. Il motore leggero che cerchi
+**è già dentro Topics** e si chiama WKWebView: 37-46 MB a sessione, render perfetto,
+zero dipendenze nuove. Gli sfidanti si dividono in "leggeri ma ciechi" (Obscura,
+Lightpanda) e "vedono ma costano più di Chromium" (Servo). Nessuno è entrambe le cose.
+
+### Ladybird, Ultralight, CEF — perché non li ho nemmeno misurati
+
+- **Ladybird**: dichiarato **pre-alpha**, prima alpha attesa nel 2026 "per sviluppatori e
+  early adopter". Ha appena chiuso i contributi pubblici. Nessun binario da provare.
+- **Ultralight**: fork WebKit proprietario, gratis solo sotto i 100K$ di fatturato,
+  licenza commerciale a pagamento oltre. Un motore closed dentro un prodotto MIT è una
+  decisione di licenza, non di performance.
+- **CEF**: è Chromium — 200-300 MB di binari e lo stesso modello multi-processo che
+  stiamo cercando di evitare. Non risolve niente.
+- **litehtml / Blitz**: nessun JavaScript. Per una pane che deve guardare un dev server è
+  discriminante.
+
 ### Pippo Browser (`~/Downloads/browser-main`) — cos'è e cosa non è
 
 È un browser macOS nativo completo: SwiftUI + AppKit + WebKit, GPL-3.0, spaces, tab
@@ -222,3 +295,18 @@ processo per pagina, quindi va usato come fetcher usa-e-getta, non come sessione
 - `cast.mjs` — screencast su pagina animata. `hidden.mjs` — fedeltà di `innerText`.
 - `type2.mjs` — quali varianti CDP di digitazione funzionano dove.
 - `app/index.html` — l'app dev sintetica (grid, canvas, animazioni) usata come banco.
+- `app2/index.html` + `feat/` — **il test feature-per-feature**: cinque bande di colore
+  piatto (canvas, grid, flex, gradient, SVG) campionate a quattro punti. Risponde a
+  "questo motore disegna davvero?" senza doverlo guardare a occhio.
+
+## Riprodurre Servo
+
+```bash
+curl -LO https://github.com/servo/servo/releases/download/v0.4.0/servo-aarch64-apple-darwin.dmg
+hdiutil attach servo-aarch64-apple-darwin.dmg -nobrowse
+/Volumes/Servo/Servo.app/Contents/MacOS/servoshell --headless --temporary-storage \
+  --enable-experimental-web-platform-features --window-size=400x500 \
+  -o feat-servo.png -x http://127.0.0.1:4600/
+```
+Senza `--enable-experimental-web-platform-features` il grid collassa. `-Z
+layout_grid_enabled` è elencato nell'help ma **il parser lo rifiuta**: usa il flag lungo.
