@@ -59,9 +59,17 @@ export const DEFAULT_MODEL = "claude-sonnet-5";
  * `sessions` non veniva svuotata mai: solo `resetSession` e `stop()` toglievano
  * qualcosa, quindi OGNI topic che aveva avuto un turno teneva la sua
  * conversazione intera nel processo finché il server non ripartiva. Con 127
- * topic nati in un giorno sul runtime nativo è crescita senza fondo, e si
- * misura: il 19/08/2026 il server stava a 2.220 MB e **non scendeva quando un
- * agente finiva** — la storia restava lì.
+ * topic nati in un giorno sul runtime nativo è crescita senza fondo.
+ *
+ * LA PROVA È IL CODICE, NON UNA LETTURA DI RSS — e vale la pena dirlo perché la
+ * prima stesura di questo commento affermava il contrario. Su una finestra di 40
+ * secondi il server sembrava tenere 2.220 MB senza scendere quando un agente
+ * finiva; su una finestra di dieci minuti lo stesso processo oscilla fra 284 MB
+ * e 2 GB seguendo il carico, e quel 2.220 era un picco, non un trattenimento.
+ * Due campioni non sono una tendenza. Ciò che regge è la lettura del codice:
+ * non esisteva NESSUNA strada che togliesse una sessione ferma, quindi la
+ * crescita è senza fondo per costruzione, che il picco di ieri fosse quello o un
+ * altro.
  *
  * Sfrattare è sicuro PER COSTRUZIONE, e non è un compromesso:
  *
