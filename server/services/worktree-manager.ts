@@ -40,6 +40,7 @@ import {
 import { makeSerialQueue } from "../lib/serial-queue";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { topicsHome } from "./daemon-state";
 import { join, resolve } from "node:path";
 import type { OwnedScript } from "../lib/ghost-script";
 
@@ -114,6 +115,30 @@ export interface WorktreeManagerGcDeps {
   listOwnedScripts?: () => OwnedScript[];
 }
 
+/**
+ * LA RADICE DEI WORKTREE — e perché non è `homedir()`.
+ *
+ * Era `join(homedir(), ".topics", "worktrees")`, cablata. Ma `TOPICS_HOME`
+ * esiste apposta perché un server possa avere una casa TUTTA SUA: lo usano il
+ * server di test (`scripts/start-test-server.sh`, «dedicated TOPICS_HOME so the
+ * test server doesn't…») e l'isolamento di un server avviato per sbaglio da una
+ * worktree di dispatch.
+ *
+ * Con la radice cablata quell'isolamento era vero a metà: il database andava
+ * dove doveva, i WORKTREE no. Misurato il 19/08/2026 nella casa vera:
+ * **55 cartelle** appartenenti a progetti `e2e-naming-…`, `e2e-rename-…`,
+ * `e2e-archive-…` — cioè checkout fabbricati da una suite di test che si
+ * credeva confinata, mai puliti da nessuno perché nessun registro li
+ * conosceva.
+ *
+ * Derivarla da `topicsHome()` rende l'isolamento una PROPRIETÀ invece che una
+ * cosa da ricordarsi due volte. `TOPICS_WORKTREES_DIR` resta, ed è l'override
+ * esplicito per chi vuole staccare solo questa.
+ */
+export function worktreeRootDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.TOPICS_WORKTREES_DIR || join(topicsHome(env), "worktrees");
+}
+
 export function createWorktreeManager(
   ctx: AppContext,
   deps: {
@@ -122,9 +147,7 @@ export function createWorktreeManager(
   },
   gcDeps: WorktreeManagerGcDeps = {},
 ): WorktreeManager {
-  const worktreesDir =
-    process.env.TOPICS_WORKTREES_DIR ||
-    join(homedir(), ".topics", "worktrees");
+  const worktreesDir = worktreeRootDir();
 
   // Ensure base dir exists lazily — first create() touches the disk.
   function ensureDirSync(p: string) {
