@@ -944,6 +944,7 @@ const EN = {
   'perf.topCpuScope': 'system · per core',
   'perf.verdict.noAccel': 'Hardware acceleration is OFF. That is the main reason for the low FPS.',
   'perf.verdict.compressed': '{gb} GB compressed or swapped out. Close a few browser panes.',
+  'perf.verdict.mostlySwapped': '{pct}% is already compressed or swapped: {mb} MB in RAM right now.',
   'perf.verdict.loaded': 'The Topics process is under load',
   // ── Empty browser tab (NewTabPage).
   'browser.newTab.title': 'New tab',
