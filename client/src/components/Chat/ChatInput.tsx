@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
+import { useTopicLoading } from '../../state/signals';
+import { turnLooksUnanswered } from './turnError';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
@@ -589,6 +591,16 @@ export function ChatInput({
 }: ChatInputProps) {
   const tr = useT();
   const toast = useToast();
+  /**
+   * IL SECONDO TESTIMONE sul fatto che il turno sia vivo, e l'unico che
+   * sopravvive a un ricarico: il registro del server, servito da
+   * `GET /api/topics/streaming` (`useSignalsSync` lo interroga ogni 15 s) e
+   * letto da qui attraverso `useTopicLoading`, che unisce lo stream live e
+   * quello «idratato». `currentStreaming` da solo non basta — è memoria di
+   * processo — ed è precisamente il buco da cui usciva «Nessuna risposta» su un
+   * agente al lavoro. Vedi `turnLooksUnanswered`.
+   */
+  const serverTurnOpen = useTopicLoading(topic?.id);
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the
   // Context inspector and the envelope assembler use, and the only one the
@@ -1203,9 +1215,23 @@ export function ChatInput({
           la stessa forma di un turno mai arrivato. Senza distinguerle, premere
           «ferma» faceva comparire «la connessione può essersi interrotta» —
           il composer accusava la rete di una cosa che avevi appena fatto tu.
-          Il caso «il turno è ancora vivo» non passa di qui: `currentStreaming`
-          lo tiene acceso anche dopo un reload (vedi reconcileServerStreams). */}
-      {!currentStreaming && currentMessages.length > 0 && currentMessages[currentMessages.length - 1]?.role === 'user' && (
+
+          E IL TURNO ANCORA VIVO NON DEVE PASSARE DI QUI. Il commento che stava
+          qui sosteneva che `currentStreaming` bastasse «anche dopo un reload»:
+          non è vero, e il 19/08 è arrivato il referto — messaggio inviato,
+          finestra ricaricata, scatola ambra «la connessione può essersi
+          interrotta» su un agente che stava lavorando. `currentStreaming` legge
+          la mappa `streaming` di `useChat`, che è memoria di PROCESSO e muore
+          col reload; `reconcileServerStreams` fa il verso opposto a quello che
+          serviva (spegne gli spinner rimasti accesi, non li riaccende).
+          Il secondo testimone è il registro del server, che sopravvive:
+          `GET /api/topics/streaming` → `hydratedStreamTopics` → `useTopicLoading`.
+          La regola sta in `turnLooksUnanswered`, con i suoi test. */}
+      {turnLooksUnanswered({
+        lastMessageIsUser: currentMessages[currentMessages.length - 1]?.role === 'user',
+        locallyStreaming: currentStreaming,
+        serverSaysOpen: serverTurnOpen,
+      }) && (
         <div
           data-testid="no-reply-banner"
           data-reason={stoppedByUser ? 'stopped' : 'interrupted'}

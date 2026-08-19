@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { turnErrorOf, turnIsOnlyError } from './turnError';
+import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered } from './turnError';
 
 /**
  * «Questo turno è finito male?» e «c'è SOLO l'errore?».
@@ -63,5 +63,47 @@ describe('turnIsOnlyError — il cancello del bottone Riprova', () => {
 
   test('nessun errore, nessun bottone', () => {
     expect(turnIsOnlyError({ content: 'tutto bene' })).toBe(false);
+  });
+});
+
+/**
+ * «NESSUNA RISPOSTA» NON SI DICE A UN TURNO CHE STA RISPONDENDO.
+ *
+ * Il caso riportato il 19/08: messaggio inviato, finestra ricaricata, e la
+ * scatola ambra «la connessione può essersi interrotta» compariva su un turno
+ * che stava lavorando. Il banner leggeva solo la mappa `streaming` di `useChat`
+ * — memoria di processo, azzerata da ogni reload — e ignorava il registro del
+ * server (`GET /api/topics/streaming` → `hydratedStreamTopics`), che invece
+ * sopravvive.
+ *
+ * Questi test tengono ferme entrambe le direzioni, e non sono simmetriche: un
+ * banner mancante costa un'attesa, un banner di troppo invita a rimandare il
+ * messaggio e a pagare un SECONDO turno mentre il primo è ancora in corso.
+ */
+describe('turnLooksUnanswered — il banner tace se qualcuno dice che il turno è vivo', () => {
+  const caso = (p: Partial<Parameters<typeof turnLooksUnanswered>[0]>) =>
+    turnLooksUnanswered({ lastMessageIsUser: true, locallyStreaming: false, serverSaysOpen: false, ...p });
+
+  test('turno davvero senza risposta: il banner si mostra', () => {
+    expect(caso({})).toBe(true);
+  });
+
+  test('È IL DIFETTO: dopo un reload la sessione locale è muta ma il SERVER dice che il turno è aperto', () => {
+    // La riga che vale tutto il resto. `locallyStreaming` è false perché il
+    // reload ha azzerato la mappa di processo; senza il secondo testimone il
+    // banner accusava la rete di un turno perfettamente vivo.
+    expect(caso({ locallyStreaming: false, serverSaysOpen: true })).toBe(false);
+  });
+
+  test('la sessione locale che streamma basta da sola (nessun poll ancora arrivato)', () => {
+    // Il poll gira ogni 15 s: nei primi istanti di un turno appena inviato il
+    // server può non essere ancora stato interrogato. La testimonianza locale
+    // regge il caso, ed è la ragione per cui ne servono DUE e non una.
+    expect(caso({ locallyStreaming: true, serverSaysOpen: false })).toBe(false);
+  });
+
+  test("se l'ultimo messaggio non è dell'utente non c'è nessuna attesa da dichiarare", () => {
+    expect(caso({ lastMessageIsUser: false })).toBe(false);
+    expect(caso({ lastMessageIsUser: false, serverSaysOpen: true })).toBe(false);
   });
 });
