@@ -42,6 +42,7 @@ import { InAppBanners } from './components/Notifications/InAppBanners';
 import { PushEnrollPrompt } from './components/Notifications/PushEnrollPrompt';
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
+import { installOsOpenPathBridge, defaultOsOpenDeps } from './lib/osOpenPath';
 import { useDismissable } from './hooks/useDismissable';
 import { useSheetDrag } from './hooks/useSheetDrag';
 import { SheetGrabber } from './components/Shared/SheetGrabber';
@@ -2272,6 +2273,21 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     // Boot window only — never yank focus long after load.
     const deadline = setTimeout(stop, 8000);
     return stop;
+  }, [isDetached, toast]);
+
+  // «APRI CON TOPICS» dal sistema operativo: un file o una cartella aperti dal
+  // Finder, o trascinati sull'icona nel dock. È un deep-link come quelli qui
+  // sopra, solo che a consegnarlo è l'OS: il guscio Rust accoda il path e suona
+  // il campanello, qui si svuota la coda e si apre dalla stessa porta
+  // (`openTabInApp`), che sa già aspettare il mount della finestra di progetto.
+  //
+  // Il giro fatto al montaggio è la meta' che conta: il path del LANCIO A
+  // FREDDO arriva prima che questa pagina esista, quindi nessun evento avrebbe
+  // potuto raccoglierlo. Le finestre staccate non instradano niente, come sopra;
+  // fuori da Tauri il ponte non registra nemmeno il listener.
+  useEffect(() => {
+    if (isDetached) return;
+    return installOsOpenPathBridge(defaultOsOpenDeps((message) => toast.warning(message)));
   }, [isDetached, toast]);
   return null;
 }

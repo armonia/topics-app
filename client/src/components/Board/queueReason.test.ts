@@ -43,14 +43,24 @@ function walk(dir: string, out: string[] = []): string[] {
 const FILES = [...walk(join(SRC, 'components/Board')), join(SRC, 'lib/board.ts')];
 
 /**
- * I commenti non sono un secondo autore della frase: spiegano quella del
- * server, e citarla per dire cosa succede e' il modo normale di scriverli. A
- * cercarla anche li' il cricchetto scatta su della prosa, e un cricchetto che
- * scatta a vuoto e' un cricchetto che qualcuno disattiva. Resta guardato il
- * posto in cui il guasto vive davvero: una stringa nel codice.
+ * Il sorgente senza i suoi commenti.
+ *
+ * IL CANCELLO NON DEVE PUNIRE CHI SPIEGA LA REGOLA. Il 19/08 e' scattato su
+ * `lib/board.ts` perche' un commento diceva «(in coda, la lavora il padre)»
+ * mentre spiegava perche' quel filtro esiste — cioe' su una riga che documenta
+ * l'invariante, non che lo viola. Un cricchetto che si accende quando qualcuno
+ * scrive una spiegazione insegna a non scrivere spiegazioni, e poi a spegnerlo.
+ *
+ * Si toglie il blocco `/* … *\/` e le righe che sono SOLO commento. Non si
+ * tocca il commento in coda a una riga di codice: li' una frase resta presa, ed
+ * e' il compromesso giusto — e' raro, e riformularla costa una parola.
  */
 function senzaCommenti(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const senzaBlocchi = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  return senzaBlocchi
+    .split('\n')
+    .filter((riga) => !/^\s*(\/\/|\*)/.test(riga))
+    .join('\n');
 }
 
 /**
@@ -100,6 +110,16 @@ describe('la ragione della coda non ha una copia nel client', () => {
           'qui si rende `task.queueReason`, non si deduce.'
         : '',
     ).toEqual([]);
+  });
+
+  test('IL PREDICATO MORDE: nel codice si prende, nel commento no', () => {
+    // Senza questo caso, `senzaCommenti` potrebbe cancellare troppo (o tutto) e
+    // il controllo sopra resterebbe verde per sempre senza guardare niente.
+    const frase = deriveQueueReason({ ...base, parentTaskId: 'p' }, { ...ctx, parentStatus: 'in_progress' })!.detail;
+    const nelCodice = `const x = '${frase}';`;
+    const nelCommento = `// vita normale di uno step (${frase})\n * e anche cosi' (${frase})`;
+    expect(senzaCommenti(nelCodice).includes(frase), 'una copia vera deve restare presa').toBe(true);
+    expect(senzaCommenti(nelCommento).includes(frase), 'una spiegazione non e\' una copia').toBe(false);
   });
 
   test('il chip rende i campi del payload, non li compone', () => {

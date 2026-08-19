@@ -112,7 +112,13 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   review_at TEXT,
   -- 20260818164410: esito sonda server-side sull'output_url (live/dead/unknown).
   url_probe_status TEXT CHECK (url_probe_status IN ('live', 'dead', 'unknown')) DEFAULT NULL,
-  url_probe_checked_at TEXT DEFAULT NULL
+  url_probe_checked_at TEXT DEFAULT NULL,
+  -- 20260818234959: il turno tagliato da un riavvio, scritto sulla card invece
+  -- che dedotto al boot dopo. La terza colonna e' il dedupe della nota che
+  -- avvisa quando nessun recupero passera' mai di li'.
+  interrupted_at TEXT DEFAULT NULL,
+  interrupted_by TEXT DEFAULT NULL,
+  interrupted_notified_at TEXT DEFAULT NULL
 )`;
 
 /**

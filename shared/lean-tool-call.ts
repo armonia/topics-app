@@ -155,6 +155,82 @@ export function leanBlocks<T extends LeanableBlock>(blocks: readonly T[]): reado
   return changed ? out : blocks;
 }
 
+// ── Scrittura magra: le due colonne grosse, pronte per il disco ─────────────
+
+/**
+ * `tool_calls` come va scritta sulla riga: senza le copie di `result` che
+ * `detail` porta gia' identiche, o `null` se non c'e' niente da scrivere.
+ *
+ * Perche' una funzione e non `JSON.stringify(leanToolCalls(x))` sparso nei
+ * chiamanti: i punti di scrittura di quella colonna sono SEI in
+ * `server/utils.ts` piu' uno in `server/routes/topics.ts`, e una regola in
+ * sette copie e' sei occasioni perche' una diverga. Qui la copia si toglie in
+ * un posto solo, e il `null` per la colonna assente si decide con lei.
+ *
+ * La regola resta quella dichiarata in cima al file: si scarta `result` SOLO
+ * quando dentro `detail` esiste una stringa uguale byte per byte. Un `result`
+ * che non ha il suo gemello arriva intero sul disco, e questa e' la meta' che
+ * rende l'operazione senza perdita.
+ *
+ * ANCHE sui messaggi PARZIALI, al contrario di `leanMessageForWire`, che li
+ * lascia stare. Sul filo il parziale e' la bolla che lo streaming sta ancora
+ * riempiendo e il client ci applica sopra gli eventi; sul disco no: chi muta la
+ * riga (`updateToolCallResult`, `addToolCallToLastMessage`) riscrive il campo
+ * dal valore che ha in mano, non lo legge da li'. E il turno che si chiude
+ * finisce nella stessa riga: saltare i parziali qui vorrebbe dire non togliere
+ * mai niente, perche' ogni tool call nasce su una riga parziale.
+ */
+export function toolCallsForDisk<T extends LeanableToolCall>(calls: readonly T[] | null | undefined): string | null {
+  if (!calls) return null;
+  return JSON.stringify(leanToolCalls(calls));
+}
+
+/**
+ * `blocks` come va scritta sulla riga: stessa regola, dentro i toolCall
+ * annidati nei blocchi della timeline.
+ *
+ * E' la colonna che pesa di piu' (720 MB su 781 di database contando
+ * entrambe), perche' quando ci sono i blocchi e' li' che il disegno legge.
+ */
+export function blocksForDisk<T extends LeanableBlock>(blocks: readonly T[] | null | undefined): string | null {
+  if (!blocks) return null;
+  return JSON.stringify(leanBlocks(blocks));
+}
+
+/**
+ * I campi di `detail` che portano il testo dell'esito. Sono gli stessi tre che
+ * `stripDetailText` svuota per il filo, piu' `text`: e' l'elenco di dove va a
+ * finire una stringa quando il provider costruisce il `detail` tipato.
+ */
+const TEXT_FIELDS = ['output', 'content', 'result', 'text'] as const;
+
+/**
+ * L'esito di una tool call come TESTO, da qualunque campo lo porti.
+ *
+ * E' il rovescio di `leanToolCall`, e sta qui apposta: chi ha deciso di
+ * scartare la copia deve anche dire dove si va a riprendere il testo. Con
+ * `result` sul disco, chi lo leggeva da li' trovava sempre qualcosa; senza,
+ * dovrebbe sapere da solo che quella stringa vive anche dentro `detail`, e
+ * saperlo in ogni chiamante e' il modo in cui una regola si perde.
+ *
+ * Ordine: `result` se c'e' (e' il testo grezzo, il piu' fedele), altrimenti il
+ * primo campo di testo non vuoto dentro `detail`. `undefined` quando non c'e'
+ * ne' l'uno ne' l'altro, che NON e' la stessa cosa di una stringa vuota: chi
+ * chiama deve poter dire «nessun esito registrato» invece di «esito vuoto».
+ */
+export function toolCallResultText(tc: { result?: unknown; detail?: unknown } | null | undefined): string | undefined {
+  if (!tc || typeof tc !== 'object') return undefined;
+  if (typeof tc.result === 'string' && tc.result.length > 0) return tc.result;
+  const det = tc.detail;
+  if (!det || typeof det !== 'object') return undefined;
+  const rec = det as Record<string, unknown>;
+  for (const field of TEXT_FIELDS) {
+    const v = rec[field];
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return undefined;
+}
+
 // ── Strip tool detail text ──────────────────────────────────────────────────
 
 /**

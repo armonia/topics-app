@@ -101,15 +101,17 @@ describe("nessun indirizzo personale nei file tracciati", () => {
   test("IL PREDICATO MORDE: un indirizzo gmail verrebbe preso, uno di ruolo no", () => {
     // Senza questo caso il precedente resterebbe verde anche se la regex si
     // rompesse, e nessuno lo saprebbe finche' non ricapita.
-    // Il dominio si compone qui invece di stare scritto: un indirizzo personale
-    // letterale in questo file lo farebbe trovare dalla passata qui sopra, e il
-    // cancello si accuserebbe da solo a ogni giro.
-    const dominioProva = ["gmail", "com"].join(".");
-    const prova = `scrivi a mario.rossi@${dominioProva} oppure a security@armonia.io o admin@example.com`;
+    // L'indirizzo di prova si COMPONE, non si scrive: scritto per intero
+    // sarebbe un indirizzo su dominio personale dentro un file tracciato, cioe'
+    // esattamente cio' che il caso qui sopra vieta — e il cancello prendeva se
+    // stesso. La chiocciola la mette il join, quindi nel sorgente non c'e'
+    // nessun indirizzo da prendere.
+    const personale = ["mario.rossi", "gmail.com"].join("@");
+    const prova = `scrivi a ${personale} oppure a security@armonia.io o admin@example.com`;
     const trovati = (prova.match(EMAIL) ?? []).filter((a) =>
       POSTA_PERSONALE.some((d) => a.toLowerCase().endsWith("@" + d)),
     );
     expect(trovati.length, "il dominio personale deve essere l'unico preso").toBe(1);
-    expect(trovati[0]!.endsWith("@" + dominioProva)).toBe(true);
+    expect(trovati[0]!.endsWith("@gmail.com")).toBe(true);
   });
 });
