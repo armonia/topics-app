@@ -22,6 +22,9 @@ function deps(over: Partial<IdleGcDeps> & { raccolte?: { n: number } } = {}): Id
     footprintMB: over.footprintMB ?? (() => 900),
     raccogli: over.raccogli ?? (() => { conteggio.n++; }),
     log: over.log,
+    // I test non aspettano il sistema: l'attesa vera è provata dall'ORDINE
+    // delle letture, non dalla sua durata (vedi il caso qui sotto).
+    attesaMs: over.attesaMs ?? 0,
   };
 }
 
@@ -89,6 +92,27 @@ describe("gc di riposo", () => {
     const esito = await giroIdleGc(deps({ raccolte, footprintMB: () => null }));
     expect(esito.azione).toBe("saltato");
     expect(raccolte.n).toBe(0);
+  });
+
+  it("rilegge il footprint DOPO che il sistema ha ripreso le pagine", async () => {
+    // La svista che questo test recinta: `Bun.gc(true)` torna prima che le
+    // pagine siano rese. Misurato — subito dopo la chiamata il footprint è
+    // ancora 731 MB, a +200 ms pure, a +1000 ms è 11 MB. Leggendo subito, il
+    // modulo riportava «0 recuperati» mentre ne aveva appena resi 720: un log
+    // che smentisce il proprio effetto, cioè il modo esatto in cui un rimedio
+    // che funziona viene tolto da chi ne legge i numeri.
+    //
+    // Qui la memoria non serve: si conta QUANDO viene letta. La lettura «dopo»
+    // deve arrivare a raccolta avvenuta E dopo un'attesa, non nello stesso tick.
+    const eventi: string[] = [];
+    const esito = await giroIdleGc({
+      sorgenti: () => fermo,
+      footprintMB: () => { eventi.push("letto"); return eventi.filter(e => e === "letto").length === 1 ? 900 : 120; },
+      raccogli: () => { eventi.push("raccolto"); },
+      attesaMs: 0,
+    });
+    expect(eventi).toEqual(["letto", "raccolto", "letto"]);
+    expect(esito).toMatchObject({ azione: "raccolto", primaMB: 900, dopoMB: 120 });
   });
 
   it("logga solo un recupero visibile, non una riga ogni cinque minuti", async () => {
