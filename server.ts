@@ -32,6 +32,7 @@ import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowli
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { describeInFlight } from "./server/lib/quiescence";
+import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
@@ -56,7 +57,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
-import { fleetLoadSync } from "./server/lib/fleet-usage";
+import { fleetLoadSync, procFootprintKB } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
@@ -4728,6 +4729,48 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
   if (logged) console.log(`[quiescence] ${label}: tutto finito — si procede col riavvio`);
 }
 
+/**
+ * IL GC DI RIPOSO — restituire al sistema la memoria dei picchi passati.
+ *
+ * Misurato il 2026-08-19 sul server di produzione dell'utente, dopo cinque ore
+ * di uptime: `phys_footprint` 936 MB e picco 2,4 GB, contro una heap JS di
+ * 52 MB e un RSS di 110 MB. Gli 826 MB in mezzo erano pagine toccate durante i
+ * turni degli agenti, poi swappate dal sistema, e mai restituite — swap
+ * occupato che `phys_footprint` continua ad attribuire all'app, cioè
+ * ESATTAMENTE il numero che la barra di stato e Monitoraggio Attività mostrano
+ * (ed è il numero che ha prodotto la segnalazione «1,8 GB»).
+ *
+ * Il perché sta in `server/lib/idle-gc.ts`, con la misura che dimostra che
+ * `Bun.gc(true)` scioglie anche le pagine già in swap — la parte non ovvia,
+ * perché il footprint da solo non scende MAI, nemmeno dopo che il sistema ha
+ * swappato tutto.
+ *
+ * Le fonti di «fermo» sono quelle di `whatIsStillWorking()`, cioè le stesse del
+ * riavvio pianificato: `Bun.gc(true)` è sincrono e ferma l'event loop, e questo
+ * server è Bun con `bun:sqlite` sincrono — una pausa qui è una pausa per ogni
+ * richiesta in coda. Se una fonte basta a trattenere un riavvio, basta anche a
+ * trattenere questa.
+ */
+const idleGcTimer = setInterval(() => {
+  void giroIdleGc({
+    sorgenti: async () => {
+      const cards = taskDispatcher.busyCount();
+      const streamKeys = [...activeStreams.keys()];
+      // Stessa economia di `whatIsStillWorking`: la sonda del broker si paga,
+      // e non si paga quando una fonte gratuita ha già detto «occupato».
+      if (cards > 0 || streamKeys.length > 0) return { cards, streamKeys, brokerOpenKeys: [] };
+      return { cards, streamKeys, brokerOpenKeys: await openBrokerChatTurns() };
+    },
+    footprintMB: () => {
+      const kb = procFootprintKB(process.pid);
+      return kb === null ? null : Math.round(kb / 1024);
+    },
+    raccogli: () => { Bun.gc(true); },
+    log: (m) => console.log(m),
+  });
+}, IDLE_GC_EVERY_MS);
+idleGcTimer.unref?.();
+
 // Graceful shutdown
 let shutdownInProgress = false;
 async function gracefulShutdown(signal: string) {
@@ -4748,6 +4791,7 @@ async function gracefulShutdown(signal: string) {
   clearTimeout(landingAuditBoot);
   clearInterval(landingAuditTimer);
   clearInterval(relayLicenzaTimer);
+  clearInterval(idleGcTimer);
   // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
   // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
   // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva
