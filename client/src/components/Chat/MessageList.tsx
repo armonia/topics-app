@@ -1676,7 +1676,7 @@ export function MessageList({
           disegni diversi — tre bolle allineate IN CIMA con misure inventate —
           e il passaggio dall'uno all'altra era esso stesso un salto. */}
       {currentLoading && currentMessages.length === 0 ? (
-        <SkeletonChatMessages isMobile={isMobile} />
+        <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />
       ) : filteredMessages.length === 0 ? (
         /* Niente. Il vuoto di una chat lo disegna `ChatEmptyState`, dentro il
            blocco del composer: i due si centrano insieme e scivolano insieme in
@@ -1686,7 +1686,7 @@ export function MessageList({
         null
       ) : (
         <>
-        {!listSettled && <SkeletonChatMessages isMobile={isMobile} />}
+        {!listSettled && <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />}
         <Virtuoso
           data-testid="chat-message-list"
           key={topic.id}

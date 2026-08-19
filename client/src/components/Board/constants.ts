@@ -219,3 +219,20 @@ export const CHIP_LABEL = 'truncate @max-[28rem]:hidden';
  * card il salto si vede.
  */
 export const COMMENTO_PIEGA_CHARS = 620;
+
+/**
+ * Da quanti caratteri in su la RICHIESTA UMANA citata sulla card si ripiega.
+ *
+ * La riga stava a `truncate`: una riga sola, con il resto della frase perso nel
+ * tooltip. Segnalato cosi': «una cosa che non si capisce al momento e' che il
+ * mio ultimo messaggio che ho mandato viene tagliato». La parola dell'agente
+ * sopra ha il pieghevole da mesi; la richiesta a cui risponde no, e la meta'
+ * mancante era proprio quella che diceva cosa era stato chiesto.
+ *
+ * 190 sono circa tre righe nella colonna (~63 caratteri per riga a 11px in una
+ * colonna da 300px). Tre e non dieci perche' questa riga e' CONTESTO: sta sopra
+ * la risposta, e se si prende mezza card smette di essere il contorno della
+ * consegna e diventa il protagonista. Sotto le tre righe non si ripiega niente:
+ * il testo c'e' tutto e nessun bottone compare.
+ */
+export const RICHIESTA_PIEGA_CHARS = 190;

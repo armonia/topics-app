@@ -67,6 +67,18 @@ export interface BrowserConsoleEntry {
   text: string;
   /** "file.js:42" when Chromium provides it. */
   source?: string;
+  /**
+   * Quando la voce e' stata RACCOLTA, epoch ms.
+   *
+   * Non e' l'istante esatto della `console.log`: il proxy in pagina
+   * (CONSOLE_PROXY_JS, lato Rust) accumula in un array senza data e il poll lo
+   * svuota ogni 800ms, quindi la marca la mette il client allo svuotamento e
+   * tutte le voci di uno stesso giro portano la stessa ora. Al secondo, che e'
+   * la risoluzione mostrata, la differenza si vede solo su una riga arrivata a
+   * cavallo del tick. Stamparla qui invece che in pagina evita di toccare il
+   * guscio nativo, che sarebbe da ricompilare perche' un'ora compaia.
+   */
+  at: number;
 }
 
 /**

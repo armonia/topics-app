@@ -13,9 +13,10 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
+import { Spinner } from '../Shared/Spinner';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
@@ -1892,7 +1893,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }, [tasks, filters, mode, unlandedTasks.length]);
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-app-text-secondary"><Loader2 className="h-5 w-5 animate-spin" /></div>;
+    // L'anello dell'app, non la rotella lucide: qui sta caricando la BOARD
+    // intera, ed è l'attesa di un blocco (vedi `Spinner.tsx` per la divisione
+    // dei due). `Loader2` resta dove serve, cioè nelle righe e nei bottoni.
+    return <div className="flex h-full items-center justify-center"><Spinner size="md" /></div>;
   }
 
   return (
