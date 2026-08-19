@@ -15,7 +15,11 @@
  * criterio «o la card cambia stato, o compare il motivo per cui non può»:
  *
  *  1. uscendo da Todo il chip `queued` si spegne (la card CAMBIA, e con lei
- *     spariscono i comandi che quel chip accendeva);
+ *     spariscono i comandi che quel chip accendeva). Lo spegne il SERVIZIO,
+ *     non il dispatcher: `onLeaveTodo` lo faceva solo dentro la finestra di
+ *     grazia, quindi una card rimasta in Todo piu' a lungo usciva col chip
+ *     addosso — ed e' il caso che era stato segnalato. Il gancio resta perche'
+ *     ha lavoro suo (i timer), ma non e' piu' l'unico a rispondere;
  *  2. «Ferma» su una card senza agente vivo risponde 409 `invalid_transition`,
  *     cioè un RIFIUTO che il client disegna accanto al bottone premuto — non
  *     un 200 che non muove niente.
@@ -75,20 +79,35 @@ describe("card in backlog con un chip «in coda» stantio", () => {
     expect(after.task.dispatchState).toBeNull();
   });
 
-  test("col chip stantio «Ferma» rispondeva 200 e parcheggiava una card già parcheggiata", async () => {
+  test("IL GIRO MUTO NON PUO' PIU' SUCCEDERE: uscita da Todo, chip spento, «Ferma» rifiutato", async () => {
     const r = router();
-    const { id } = await todoPoiBacklog(r);
-    // Stato di partenza del difetto: il chip è ancora lì (il dispatcher finto
-    // non lo spegne). È esattamente ciò che vedeva chi ha segnalato il giro.
-    const prima = await (await call(r, "GET", `/api/boards/pX/tasks/${id}`))!.json();
-    expect(prima.task.dispatchState).toBe("queued");
+    // Il dispatcher finto NON spegne niente: se il chip si spegne lo stesso, a
+    // spegnerlo e' il servizio, e cioe' un posto che c'e' sempre — anche quando
+    // il dispatcher e' fermo, spento, o non ha mai visto passare questa card.
+    // Era quello il buco: `onLeaveTodo` lo faceva solo dentro la finestra di
+    // grazia, e una card rimasta in Todo piu' a lungo usciva col chip addosso.
+    const { id, moved } = await todoPoiBacklog(r);
+    expect(moved.status).toBe("backlog");
+    expect(moved.dispatchState).toBeNull();
+
+    // E senza chip stantio il gesto non e' piu' muto: non c'e' nessun agente da
+    // fermare, e la rotta lo DICE invece di rispondere 200 e non muovere
+    // niente. Questo era l'esito segnalato («ho premuto e non e' successo
+    // nulla»); adesso e' irraggiungibile, perche' lo stato che lo produceva non
+    // esiste piu'.
     const resp = (await call(r, "POST", `/api/boards/pX/tasks/${id}/stop`, {}))!;
-    expect(resp.status).toBe(200);
-    const dopo = await resp.json();
-    // Il gesto «riesce» e la colonna non cambia: la card era già in Backlog.
-    // Questa riga è la MISURA del giro muto, e resta qui a dire perché il chip
-    // va spento all'uscita da Todo invece che lasciato a marcire.
-    expect(dopo.status).toBe("backlog");
-    expect(prima.task.status).toBe("backlog");
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("invalid_transition");
+  });
+
+  test("un turno VIVO non lo spegne un trascinamento: solo «in coda» si spegne", async () => {
+    const r = router();
+    const created = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "vivo", status: "todo" }))!.json();
+    db.prepare("UPDATE tasks SET dispatch_state = 'working' WHERE id = ?").run(created.id);
+    const moved = await (await call(r, "PATCH", `/api/boards/pX/tasks/${created.id}`, { status: "backlog" }))!.json();
+    // Un agente che sta scrivendo file non lo chiude un drag: lo chiude `/stop`,
+    // che taglia il turno prima di parcheggiare. Spegnere il chip qui vorrebbe
+    // dire perdere di vista un turno ancora in volo.
+    expect(moved.dispatchState).toBe("working");
   });
 });
