@@ -65,12 +65,21 @@ test.describe.serial("Il banner tace su un turno vivo", () => {
   });
 
   test("il server dichiara il turno APERTO: niente scatola ambra", async ({ page, chatPage }) => {
+    // Il conteggio dei giri del poll e' la CONDIZIONE su cui si aspetta piu'
+    // sotto: «il banner non e' comparso» vale poco se lo si guarda una volta
+    // sola: `useSignalsSync` reinterroga questa rotta ogni 15 s, e un banner che
+    // spuntasse al secondo giro sarebbe lo stesso difetto, con un ritardo.
+    // Contarli e' anche l'unico modo di aspettare quel secondo giro senza
+    // dormire: si attende un fatto, non un tempo.
+    let giriDelPoll = 0;
+    await page.exposeFunction("__pollFatto", () => { giriDelPoll += 1; });
     await page.route("**/api/topics/streaming", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ sessions: [{ topicId, sessionKey, state: "streaming" }] }),
       });
+      await page.evaluate(() => (window as unknown as { __pollFatto: () => void }).__pollFatto()).catch(() => {});
     });
 
     await goToApp(page);
@@ -88,9 +97,12 @@ test.describe.serial("Il banner tace su un turno vivo", () => {
     // banner presente ma invisibile per un altro motivo.
     const banner = page.locator('[data-testid="no-reply-banner"]');
     await expect(banner).toHaveCount(0);
-    // Tenuto un istante: il poll dei segnali gira, e un banner che comparisse
-    // al secondo giro sarebbe lo stesso difetto con un ritardo.
-    await page.waitForTimeout(2_000);
+    // …e resta assente DOPO che il poll ha risposto di nuovo. Si aspetta il
+    // fatto (un altro giro servito) invece di un tempo: un `waitForTimeout`
+    // qui non aspetterebbe niente, aspetterebbe e basta — e sulla macchina
+    // carica di oggi due secondi non bastavano nemmeno a coprire un giro.
+    const giriAllInizio = giriDelPoll;
+    await expect.poll(() => giriDelPoll, { timeout: 30_000 }).toBeGreaterThan(giriAllInizio);
     await expect(banner).toHaveCount(0);
   });
 
