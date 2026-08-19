@@ -82,21 +82,33 @@ let lastAppliedServerSeq = 0;
  * secondo dopo rimanda 75 KB identici. Su un server con `bun:sqlite` sincrono
  * e su HTTP/1.1 quelle scritture si mettono davanti alle letture della board.
  *
- * CHI DISPACCIA QUEGLI HYDRATE, PERO', NON L'HO TROVATO — e la mia prima
- * risposta era sbagliata, quindi vale la pena scrivere anche quella. Avevo
- * concluso «sono i PARI»: ventuno sessioni aperte, ognuna che scrive e fa
- * salire il `server_seq` di tutte. La previsione che ne segue e' verificabile —
- * ogni PUT dovrebbe seguire un frame `ui-state:*` in arrivo — ed e' FALSA:
- * misurando i frame WebSocket ricevuti, **zero** frame contenenti `ui-state` in
- * venticinque secondi, contro quindici PUT partiti. Nessun pari stava
- * scrivendo. Gli HYDRATE nascono dentro questa finestra.
+ * SONO I PARI, e ci sono arrivato due volte: la prima per ipotesi, la seconda
+ * per misura, dopo essermi smentito da solo con una sonda difettosa. Vale la
+ * pena raccontarlo, perche' l'errore era nello STRUMENTO e non nel ragionamento.
  *
- * Cosa resta escluso, per chi riprende: non e' `syncCrossTab` (scarta i frame
- * col proprio `senderId` e ha il suo gate LWW), non e' `persistLocal` (gira una
- * volta al boot), e non sono i due rami di questo file (nessun frame arriva).
- * Il quarto chiamante va cercato con uno stack NON minificato — un build di
- * sviluppo, dove i nomi dei moduli sopravvivono: da minificato lo stack dice
- * solo `dispatch@index-*.js`, che e' quanto sono riuscito a leggere.
+ * La previsione dell'ipotesi era verificabile: ogni PUT deve seguire un frame
+ * `ui-state:*` in arrivo. Misurata contando i frame dal lato Playwright
+ * (`page.on('websocket')`): **zero** frame in venticinque secondi contro quindici
+ * PUT. Sembrava una smentita netta, e avevo riscritto la diagnosi come «causa
+ * sconosciuta». Ma quel contatore non vedeva il socket dell'app: rifatta la
+ * misura DENTRO la pagina, avvolgendo `WebSocket` con un Proxy, in venti secondi
+ * arrivano **29 frame, di cui 24 `ui-state:updated` su `pane-store-v2`** — e i
+ * loro `sourceClientId` sono DUE, dodici e dodici: due client che si scrivono
+ * addosso a vicenda.
+ *
+ * Il ciclo, per intero: `server_seq` e' allocato dal SERVER e cresce a ogni
+ * scrittura di CHIUNQUE (ventuno sessioni aperte su questa macchina); il frame
+ * di un pari arriva qui, questo ramo dispaccia `HYDRATE_FROM_SNAPSHOT`, il
+ * reducer porta `lastSeq` a `max(lastSeq, clean.lastSeq)`; il middleware di
+ * sync osserva `lastSeq` e mezzo secondo dopo rimanda 75 KB identici a quelli
+ * appena ricevuti; quel PUT alza `server_seq`, il server ritrasmette, e il pari
+ * fa lo stesso. Il filtro dell'eco protegge dalla PROPRIA scrittura, non da
+ * quella di un pari.
+ *
+ * La lezione da tenere: una sonda che misura zero non prova un'assenza finche'
+ * non le si e' chiesto se sa vedere qualcosa. Quella contava zero frame TOTALI,
+ * il che avrebbe dovuto insospettirmi subito — un'app che parla col server via
+ * WebSocket non ne riceve zero.
  *
  * Il filtro dell'eco (`selfEcho`) non copre questo: protegge dalla PROPRIA
  * scrittura che torna indietro, non dallo stato di un PARI che ci arriva

@@ -159,18 +159,24 @@ reported "zero actions" and sent me down two wrong paths — recorded **16
 middleware watches `lastSeq`, and half a second later it PUTs 75 KB identical to
 what it just received.
 
-**Who dispatches those hydrates is still open, and my first answer was wrong.**
-I concluded "the peers" — 21 open sessions, each write raising everyone's
-`server_seq`. That hypothesis makes a checkable prediction: every PUT should
-follow an inbound `ui-state:*` frame. It is FALSE — measuring received WebSocket
-frames gives **zero** carrying `ui-state` in 25 seconds against fifteen PUTs
-sent. No peer was writing.
+**It is the peers — and the detour to get there is the lesson.** The hypothesis
+("21 open sessions, every write raising everyone's `server_seq`") makes a
+checkable prediction: each PUT should follow an inbound `ui-state:*` frame.
+Measured from Playwright's `page.on('websocket')`: **zero** frames in 25 seconds
+against fifteen PUTs. That looked like a clean refutation, and the diagnosis was
+rewritten as "cause unknown".
 
-Ruled out for whoever resumes: not `syncCrossTab` (drops frames with its own
-`senderId`, has its own LWW gate), not `persistLocal` (runs once at boot), not
-the two branches of `syncWS` (no frames arrive). The fourth caller needs a
-non-minified stack — a dev build, where module names survive; minified it reads
-only `dispatch@index-*.js`.
+The probe was blind. Re-measured INSIDE the page, wrapping `WebSocket` in a
+Proxy: **29 frames in 20 seconds, 24 of them `ui-state:updated` on
+`pane-store-v2`**, carrying TWO distinct `sourceClientId`s, twelve each — two
+clients writing at each other. Reading the minified bundle at the exact
+stack offset confirmed the dispatcher: the `ui-state:updated` branch of
+`syncWS.ts`.
+
+A probe that reads zero proves nothing until it has been asked whether it can
+see anything at all. This one counted zero frames TOTAL, which should have been
+the tell: an app that talks to its server over a WebSocket does not receive
+none.
 
 **A remedy that works was written and withdrawn.** Comparing the outbound
 snapshot against the identity of the last HYDRATED state takes the gate to
