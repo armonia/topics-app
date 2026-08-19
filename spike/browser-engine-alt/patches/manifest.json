@@ -1,0 +1,7 @@
+[
+  {
+    "file": "0001-canvas-stroke-and-gradients.patch",
+    "status": "pending",
+    "why": "stroke() era un metodo vuoto e createLinearGradient scartava gli stop: ogni line chart, area e asse spariva. Chiude anche il fill dei poligoni. Dashboard di prova: da 32.35% a 1.16% di differenza da Chrome."
+  }
+]
