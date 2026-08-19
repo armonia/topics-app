@@ -1369,6 +1369,47 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);
   });
 
+  // ── IL GIRO Todo → Backlog → «Ferma» ───────────────────────────────────────
+  //
+  // Il test qui sopra copre il trascinamento IMMEDIATO, dentro la finestra di
+  // grazia. Il giro segnalato è l'altro: una card rimasta in Todo abbastanza da
+  // vedere il suo tick, NON reclamata (tetto pieno, notte, pesante in attesa) e
+  // trascinata fuori dopo. Lì il timer non c'è più, e il chip `queued` restava
+  // acceso per sempre su una colonna che il `claim` non guarda: una promessa di
+  // partenza che non arriverà mai, e con lei il bottone «Ferma» per un agente
+  // mai nato. Premerlo non muoveva niente e non diceva niente.
+  it("onLeaveTodo spegne il chip «in coda» anche FUORI dalla finestra di grazia", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    // Il chip che il tick le ha scritto senza reclamarla, e nessun timer: è lo
+    // stato di una card che aspetta il suo turno da minuti, non da millisecondi.
+    seedTask(h.db, { id: "t1", status: "backlog", dispatchState: "queued" });
+    h.dispatcher.onLeaveTodo("t1");
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBeNull();
+  });
+
+  it("onLeaveTodo NON tocca un turno vivo: `working` resta, lo chiude onTurnEnd", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", dispatchState: "working", assignedTopicId: "topic-7" });
+    h.dispatcher.onLeaveTodo("t1");
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working");
+  });
+
+  it("reconcile raccoglie i chip «in coda» già rimasti accesi in Backlog", async () => {
+    const h = harness();
+    // Anche a interruttore SPENTO: un chip che mente va spento comunque, e il
+    // cancello globale del passo 2 sta dopo questa passata apposta.
+    seedTask(h.db, { id: "t1", status: "backlog", dispatchState: "queued" });
+    seedTask(h.db, { id: "t2", status: "todo", dispatchState: "queued" }); // in coda per davvero
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBeNull();
+    expect(h.task("t2")!.dispatchState).toBe("queued");
+  });
+
   it("resume re-kicks the SAME topic with the human message", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
