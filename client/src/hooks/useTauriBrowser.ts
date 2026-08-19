@@ -968,7 +968,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // Drain any console entries buffered by the injected proxy (CONSOLE_PROXY_JS).
         if (s.console.length) {
           setConsoleEntries((prev) => {
-            const add = s.console.map((e) => ({ id: ++consoleIdRef.current, level: e.level, text: e.text }));
+            // `at` una volta sola per tick, non per voce: sono arrivate tutte
+            // insieme dallo stesso svuotamento del buffer in pagina, e chiamare
+            // `Date.now()` dentro il map darebbe secondi diversi a righe che
+            // hanno la stessa origine.
+            const at = Date.now();
+            const add = s.console.map((e) => ({ id: ++consoleIdRef.current, level: e.level, text: e.text, at }));
             const next = prev.concat(add);
             return next.length > 500 ? next.slice(next.length - 500) : next;
           });
