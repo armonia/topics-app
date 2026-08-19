@@ -898,6 +898,7 @@ const EN = {
   'perf.cpuGpuTitle': 'CPU of the Topics GPU/compositor process',
   'perf.cpuServerTitle': 'CPU of the server and everything under it, over the {cores} cores of this machine',
   'perf.cpuServerRoot': ' · {kind} {pct}%',
+  'perf.cpuTotal': '{pct}% CPU',
   'perf.cpuServerSideLabel': 'Server-side CPU ×{n}',
   'perf.serverTitleFleet': 'Summed RSS of the {n} server-side processes: Bun server',
   'perf.serverTitleRoot': ' + {kind} ({procs} proc., {mb} MB)',
