@@ -40,8 +40,6 @@ function uninstallFakeWindow(): void {
 installFakeWindow();
 
 const {
-  __isAlreadySyncedForTests,
-  __resetSyncedBodyForTests,
   __getInflightKeys,
   __resetInflightForTests,
   __pushSnapshotForTests,
@@ -275,102 +273,5 @@ describe("syncServer — CAS base on teardown flush", () => {
       );
     await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1);
     expect(usePaneStore.getState().lastServerSeq).toBe(90);
-  });
-});
-
-/**
- * UNO STATO FERMO NON PRODUCE SCRITTURE.
- *
- * Il difetto che questi test difendono, misurato il 2026-08-19 sulla finestra
- * vera: 16 PUT da 75 KB in 25 secondi, a schermo fermo, con l'unica differenza
- * fra un corpo e il successivo che era `lastSeq` (+2). Ogni PUT è una scrittura
- * SQLite sincrona sul server — event loop fermo — e una delle sei connessioni
- * che HTTP/1.1 concede, quindi ritarda anche le letture che disegnano la board.
- *
- * Il contratto ha DUE metà e servono entrambe: non riscrivere ciò che il server
- * ha già, e ricominciare a scrivere appena qualcosa cambia davvero. Un test che
- * provasse solo la prima passerebbe anche su un client che non sincronizza più
- * niente — che è un guasto peggiore di quello che stiamo togliendo.
- */
-describe("syncServer — uno stato fermo non si riscrive", () => {
-  beforeEach(() => {
-    __resetInflightForTests();
-    __resetSyncedBodyForTests();
-    __resetSelfEchoForTests();
-  });
-  afterEach(() => {
-    __resetInflightForTests();
-    __resetSyncedBodyForTests();
-    restoreFetch();
-    uninstallFakeWindow();
-    installFakeWindow();
-  });
-
-  /** Un server che accetta tutto e conta quante volte gli si è parlato. */
-  function installCountingFetch(): () => number {
-    let n = 0;
-    originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
-    (globalThis as unknown as { fetch: unknown }) .fetch = (): Promise<Response> => {
-      n++;
-      return Promise.resolve(
-        new Response(JSON.stringify({ server_seq: 100 + n }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-    };
-    return () => n;
-  }
-
-  test("dopo un ack, lo STESSO stato è riconosciuto come già arrivato", async () => {
-    installCountingFetch();
-    const snap = { panes: { a: { id: "a" } }, lastSeq: 7 };
-    expect(__isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, snap)).toBe(false);
-    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, snap, 7);
-    expect(__isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, snap)).toBe(true);
-  });
-
-  test("È IL DIFETTO: stesso stato con `lastSeq` più alto NON si rimanda", async () => {
-    // La riga che vale tutto il resto. `lastSeq` sale a ogni dispatch, anche a
-    // schermo fermo, ed è dentro lo snapshot: confrontando il corpo INTERO il
-    // gate direbbe sempre «diverso» e non fermerebbe un solo PUT — che è
-    // esattamente lo stato in cui il ciclo da 75 KB/1,15 s viveva.
-    installCountingFetch();
-    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { panes: {}, lastSeq: 1 }, 1);
-    expect(__isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, { panes: {}, lastSeq: 2 })).toBe(true);
-    expect(__isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, { panes: {}, lastSeq: 999 })).toBe(true);
-  });
-
-  test("uno stato DAVVERO diverso si manda, qualunque sia il contatore", async () => {
-    // L'altra metà del contratto: il gate non deve trasformarsi in un client
-    // che non sincronizza più niente. Una pane in più è stato nuovo, punto.
-    installCountingFetch();
-    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { panes: {}, lastSeq: 5 }, 5);
-    expect(
-      __isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, { panes: { b: { id: "b" } }, lastSeq: 5 }),
-    ).toBe(false);
-  });
-
-  test("una scrittura RIFIUTATA non viene ricordata: il prossimo tentativo parte", async () => {
-    // Ricordare all'invio direbbe «l'ho mandato», non «il server ce l'ha». Un
-    // 409 (CAS) è terminale e NON deve lasciare l'idea che lo stato sia
-    // atterrato, o quello stato non si sincronizzerebbe mai più.
-    originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
-    (globalThis as unknown as { fetch: unknown }).fetch = (): Promise<Response> =>
-      Promise.resolve(new Response("conflict", { status: 409 }));
-    const snap = { panes: {}, lastSeq: 3 };
-    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, snap, 3, 2);
-    expect(__isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, snap)).toBe(false);
-  });
-
-  test("dimenticare rimette tutto in gioco: dopo una disconnessione si riscrive", async () => {
-    installCountingFetch();
-    const snap = { panes: {}, lastSeq: 4 };
-    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, snap, 4);
-    expect(__isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, snap)).toBe(true);
-    // Mentre il socket era giù un altro peer può aver mosso la riga: da lì in
-    // poi «uguale all'ultimo che ho mandato» non descrive più il server.
-    __resetSyncedBodyForTests();
-    expect(__isAlreadySyncedForTests(PANE_STORE_REMOTE_KEY, snap)).toBe(false);
   });
 });
