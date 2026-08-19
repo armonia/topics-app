@@ -43,17 +43,27 @@ describe("gc di riposo", () => {
     expect(raccolte.n).toBe(0);
   });
 
-  it("NON raccoglie mentre una chat sta streammando", async () => {
+  it("raccoglie ANCHE mentre una chat streamma — la pausa misurata è 1-15 ms", async () => {
+    // La versione prudente di questo cancello bloccava anche qui, e sulla
+    // macchina dell'utente `activeStreams` non è quasi mai vuoto: il gc non
+    // sarebbe partito una sola volta in dieci minuti. Un rimedio che non parte
+    // mai equivale a non averlo scritto.
+    //
+    // Il prezzo è misurato, non temuto: 1-15 ms per giro, caso peggiore 8 ms su
+    // una heap di 18.845 oggetti vivi. Meno di un frame, contro centinaia di
+    // megabyte che non tornerebbero in nessun altro modo.
     const raccolte = { n: 0 };
     const esito = await giroIdleGc(deps({ raccolte, sorgenti: () => ({ ...fermo, streamKeys: ["topic:abc"] }) }));
-    expect(esito.azione).toBe("saltato");
-    expect(raccolte.n).toBe(0);
+    expect(esito.azione).toBe("raccolto");
+    expect(raccolte.n).toBe(1);
   });
 
   it("NON raccoglie per un turno che vive solo nel broker", async () => {
     // È la fonte che vede un turno ADOTTATO dopo un riavvio: in-processo non ha
     // nessun'altra rappresentazione, ed è esattamente il caso che aveva
-    // ingannato il cancello del riavvio (vedi quiescence.ts).
+    // ingannato il cancello del riavvio (vedi quiescence.ts). Resta bloccante
+    // insieme alle card: là c'è un agente che scrive file e nessuno che guardi
+    // lo schermo al posto suo.
     const raccolte = { n: 0 };
     const esito = await giroIdleGc(deps({ raccolte, sorgenti: () => ({ ...fermo, brokerOpenKeys: ["topic:xyz"] }) }));
     expect(esito.azione).toBe("saltato");

@@ -4771,11 +4771,15 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
  * perché il footprint da solo non scende MAI, nemmeno dopo che il sistema ha
  * swappato tutto.
  *
- * Le fonti di «fermo» sono quelle di `whatIsStillWorking()`, cioè le stesse del
- * riavvio pianificato: `Bun.gc(true)` è sincrono e ferma l'event loop, e questo
- * server è Bun con `bun:sqlite` sincrono — una pausa qui è una pausa per ogni
- * richiesta in coda. Se una fonte basta a trattenere un riavvio, basta anche a
- * trattenere questa.
+ * COSA LO TRATTIENE, e perché non tutto ciò che trattiene un riavvio. La prima
+ * versione riusava il predicato di `restart-when-idle` per intero, e sarebbe
+ * stata inutile: su questa macchina `activeStreams` ha due chat aperte quasi
+ * sempre, quindi il gc non sarebbe partito una sola volta in dieci minuti. La
+ * pausa che giustificava quella prudenza, misurata, è **1-15 ms** (caso
+ * peggiore 8 ms su 18.845 oggetti vivi) — meno di un frame. Restano fuori le
+ * card della board e i turni adottati dal broker: là un agente scrive file e
+ * la sua latenza è l'unica cosa che ha. La decisione, con i numeri, sta in
+ * `server/lib/idle-gc.ts`.
  */
 const idleGcTimer = setInterval(() => {
   void giroIdleGc({

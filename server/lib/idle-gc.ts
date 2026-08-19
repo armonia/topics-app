@@ -49,8 +49,15 @@
 
 import { describeInFlight, type QuiescenceSources } from "./quiescence";
 
-/** Ogni quanto ci si chiede se c'è da restituire. */
-export const IDLE_GC_EVERY_MS = 5 * 60_000;
+/**
+ * Ogni quanto ci si chiede se c'è da restituire.
+ *
+ * Due minuti, non cinque: il giro costa una lettura di `proc_pid_rusage` quando
+ * non c'è niente da fare, e 1-15 ms quando c'è. Più fitto vuol dire che la
+ * memoria di un picco torna al sistema mentre il picco è ancora recente,
+ * invece di restare a marcire in swap per la maggior parte di un quarto d'ora.
+ */
+export const IDLE_GC_EVERY_MS = 2 * 60_000;
 
 /**
  * Sotto questo footprint non si tocca niente.
@@ -85,12 +92,35 @@ export type EsitoIdleGc =
   | { azione: "raccolto"; primaMB: number; dopoMB: number | null };
 
 /**
+ * QUANDO IL FERMO NON ARRIVA MAI, e la prudenza diventa un difetto.
+ *
+ * Il predicato del riavvio è quello giusto per un RIAVVIO, che taglia i turni.
+ * Applicato tale e quale qui si è rivelato troppo stretto: sulla macchina
+ * dell'utente `activeStreams` ha due chat aperte quasi sempre — misurato, il
+ * gc non sarebbe scattato una sola volta in dieci minuti — e un rimedio che non
+ * parte mai è indistinguibile dal non averlo scritto.
+ *
+ * La prudenza si giustificava con «la pausa è di tutti». Misurata, la pausa è
+ * **1-15 ms**, e su una heap di 18.845 oggetti vivi (la taglia di un server
+ * anziano) il caso peggiore di sei giri è **8 ms**. Non secondi: meno di un
+ * frame. Contro centinaia di megabyte che non tornano indietro in nessun altro
+ * modo, quel prezzo si paga.
+ *
+ * Quindi restano fuori le CARD della board — lì un turno d'agente sta scrivendo
+ * file e nessuno lo guarda, quindi la sua latenza è l'unica cosa che ha — e si
+ * accetta di raccogliere mentre una chat streamma. Il conto è esplicito: 8 ms
+ * su un token di uno stream sono invisibili; 800 MB che non tornano no.
+ */
+/**
  * Un giro. Restituisce cosa ha fatto e perché — così il test verifica la
  * DECISIONE senza dover osservare la memoria vera, che in un test non è
  * governabile.
  */
 export async function giroIdleGc(deps: IdleGcDeps): Promise<EsitoIdleGc> {
-  const inVolo = describeInFlight(await deps.sorgenti());
+  const fonti = await deps.sorgenti();
+  // Le sole due fonti che trattengono: una card che lavora, o un turno che vive
+  // nel broker (che è una card adottata dopo un riavvio, non una chat).
+  const inVolo = describeInFlight({ ...fonti, streamKeys: [] });
   if (inVolo) return { azione: "saltato", perche: inVolo };
 
   const prima = deps.footprintMB();
