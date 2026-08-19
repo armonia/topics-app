@@ -37,6 +37,7 @@ intentions.
 | Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
+| **Boot memory peak** | `phys_footprint (peak)` of a FRESH server booted on a copy of the real DB | `bun run check:boot-memory` | not yet — new 2026-08-19 |
 
 ## 2026-08-19: what "1.8 GB and 57 fps" actually was
 
@@ -208,6 +209,55 @@ someone else's write into our own, and until it changes every downstream gate is
 patching a symptom. The hooks (`alreadyOnServer`, `noteLocalWrite`) stay
 published with their reasoning for whoever picks it up.
 
+**The SERVER half of "1.8 GB" is closed, and it was two defects, not one.**
+Measured the same evening on the production server after five hours of uptime:
+`phys_footprint` **936 MB**, historic peak **2.4 GB** — against a declared JS
+heap of **52 MB** and an RSS of **110 MB**. So the number never described live
+memory, which is why "find the leak" would have been the wrong hunt.
+
+| | before | after | how it was measured |
+|---|---|---|---|
+| server at rest | 936 MB | **119-135 MB** | `vmmap -summary`, three minutes |
+| server boot peak | 2.6 GB | **353-362 MB** | fresh server, copy of the real DB |
+
+*The pages of past peaks, never given back.* Swapped out by the system and
+still charged to the app by `phys_footprint` — i.e. by the exact column the
+status bar and Activity Monitor show. `Bun.gc(true)` does dissolve them, which
+is the non-obvious part and is why it was measured rather than assumed:
+
+    allocated 960 MB   → footprint 968.8 MB   RSS 985 MB
+    25s idle           → footprint 969.0 MB   RSS  22 MB   ← swapped
+    after Bun.gc(true) → footprint   8.7 MB   RSS  22 MB   ← returned
+
+The middle row is the one that matters: the footprint does NOT come down on its
+own once the system has swapped. It only comes down when something collects.
+Wired at rest only (`server/lib/idle-gc.ts`), behind the same three-source
+predicate as the planned restart: `Bun.gc(true)` is synchronous and this server
+has synchronous `bun:sqlite`, so the pause is everyone's.
+
+*The peak itself, all of it inside the first eighteen seconds of boot.*
+`finalizeOrphanedRunningTools()` looked for tools left "running" with an
+`.all()` over thirty days of `messages`: **8,354 rows for 706 MB** of content +
+tool_calls + blocks, all materialised before one was inspected, and `decodeCol`
+doubles that by decompressing each zstd blob into a string. The rows it needed
+were **four**. With `iterate()` the peak is proportional to what is FOUND, not
+to the database. Verified against the real DB before touching the code: both
+paths return the same 4 ids.
+
+`bun run check:boot-memory` now guards it, and the guard was proven able to say
+no: **353 MB green** with the fix, **801 MB red (exit 1)** with the `.all()`
+put back. That check is the reason this row will not silently regress — every
+functional test passes either way, because the defect never got an answer
+wrong, it just paid too much for it.
+
+Still open on the server side: the steady state has no budget (only the boot
+peak does), and the DB is **888 MB, 778 of them in `blocks` + `tool_calls`
+against 19 MB of message text**, which is what every page cache and every scan
+scales with.
+
+**The CLIENT half of the number is a different animal** — what follows was
+measured before the server work and still stands.
+
 **The memory is not a leak, and it is not in the heap.** A freshly-opened window
 costs **164-187 MB**; the user's was at **1,633 MB**. But `devHeapProbe`, armed
 on the real window, measured a perfectly FLAT DOM (1,864 nodes, 209 `<svg>`,
@@ -259,7 +309,9 @@ non-zero when it gets worse.
 
 1. **Cold start.** How many milliseconds pass between launch and the first
    usable screen. No probe, no threshold.
-2. **Memory.** Neither the server nor the shell has an RSS ceiling. Still a
+2. **Memory.** The shell still has no ceiling; the SERVER's boot peak got one
+   on 2026-08-19 (`check:boot-memory`, above). Its steady state is still a
+   number without a budget. Still a
    number, not a budget, because nobody compares it against anything — but the
    number moved, so here it is again, measured 2026-08-18 on a 12-core Mac:
 
