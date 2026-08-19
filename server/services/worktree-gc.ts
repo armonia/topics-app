@@ -32,7 +32,7 @@
  * va, il branch resta, il lavoro è al sicuro dove è sempre stato.
  */
 
-export type WorktreeReapAction = "reap" | "land-then-reap" | "free-checkout" | "abandon" | "keep";
+export type WorktreeReapAction = "reap" | "land-then-reap" | "free-checkout" | "commit-residue" | "abandon" | "keep";
 
 export interface WorktreeReapDecision {
   action: WorktreeReapAction;
@@ -60,6 +60,13 @@ export interface WorktreeReapInput {
    * dall'ordine dei controlli di chi la chiama.
    */
   branchGone?: boolean;
+  /**
+   * L'host sa mettere al sicuro le modifiche non committate sul branch
+   * (`worktree-residue.ts`). Assente ⇒ la decisione degrada a `keep`, come per
+   * `abandon` e `free-checkout`: senza il mezzo, la vecchia risposta è ancora
+   * quella giusta.
+   */
+  canCommitResidue?: boolean;
   /** The task's board opted into auto-merge (so land-then-reap is allowed). */
   autoMergeEnabled: boolean;
   /** Only `branch`-mode worktrees own a landable branch. */
@@ -120,7 +127,17 @@ export function decideWorktreeReap(input: WorktreeReapInput): WorktreeReapDecisi
 
   // Real uncommitted work sitting in the tree is the only copy — a closed task
   // can still carry it (a system-forced review). Human decides; we don't nuke.
-  if (input.hasRealDirt) return { action: "keep", reason: "modifiche non committate (junk escluso)" };
+  //
+  // Ma «unica copia» è una CONDIZIONE, non un destino: un branch vivo può
+  // ospitarla. Committata lì, la cartella smette di essere l'unico appiglio —
+  // ed è parola per parola il ragionamento che questo file fa venti righe più
+  // sotto per i commit non landati. Senza il mezzo per farlo, si tiene.
+  if (input.hasRealDirt) {
+    if (input.canCommitResidue && input.mode === "branch" && !input.branchGone) {
+      return { action: "commit-residue", reason: "modifiche non committate: si salvano sul branch, poi il checkout è una copia in più" };
+    }
+    return { action: "keep", reason: "modifiche non committate (junk escluso)" };
+  }
 
   // Fully on main already → the worktree holds nothing main doesn't. Safe.
   if (input.mergedIntoMain) return { action: "reap", reason: "già interamente su main" };
@@ -402,6 +419,15 @@ export interface WorktreeGcDeps {
    * mentre aspetta un umano. Assente ⇒ il GC non snellisce, e basta.
    */
   slim?: (wt: GcWorktree) => Promise<number>;
+  /**
+   * Mette al sicuro sul branch le modifiche non committate di un worktree, e
+   * dice se ci è riuscita (`worktree-residue.ts`). È ciò che trasforma un
+   * `keep` per sporcizia in un `free-checkout`: non indebolisce la regola —
+   * toglie la condizione che la faceva scattare.
+   *
+   * Assente ⇒ `decideWorktreeReap` non propone nemmeno `commit-residue`.
+   */
+  commitResidue?: (wt: GcWorktree) => Promise<boolean>;
   log: (msg: string) => void;
 }
 
@@ -437,6 +463,13 @@ export interface WorktreeGcSummary {
   /** Cartelle liberate su task CHIUSI, con il branch conservato (`free-checkout`). */
   freed: number;
   kept: number;
+  /**
+   * Worktree le cui modifiche non committate sono state salvate sul branch
+   * prima di liberare il checkout. Contati a parte da `freed` apposta: dicono
+   * quante volte la potatura ha SCRITTO qualcosa invece di limitarsi a
+   * cancellare, ed è il numero da guardare se un residuo va cercato.
+   */
+  residueCommitted: number;
   /** Worktree TENUTI a cui sono stati tolti gli artefatti rigenerabili. */
   slimmed: number;
   /** Byte liberati dallo snellimento (i `reap`/`free-checkout` non contano qui). */
@@ -480,7 +513,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
   const worktrees = deps.listWorktrees();
   const summary: WorktreeGcSummary = {
     total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, unbound: 0, freed: 0, kept: 0,
-    slimmed: 0, slimmedBytes: 0, errors: 0, keptReasons: {},
+    residueCommitted: 0, slimmed: 0, slimmedBytes: 0, errors: 0, keptReasons: {},
   };
   /** Un keep senza motivo registrato e' un keep che nessuno puo' spiegare. */
   const keep = (reason: string) => {
@@ -606,9 +639,10 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       const taskStatus = taskId ? (t as { status: TaskStatus }).status : null;
       const taskArchived = taskId ? (t as { archived: boolean }).archived : false;
 
-      const decision = decideWorktreeReap({
+      let decision = decideWorktreeReap({
         taskStatus,
         taskArchived,
+        canCommitResidue: !!deps.commitResidue,
         hasRealDirt: !probe.ok || dirt.length > 0,
         mergedIntoMain: branch === "merged",
         branchGone: branch === "gone",
@@ -623,6 +657,19 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
             : null,
         abandonAfterDays: deps.abandonAfterDays,
       });
+
+      // IL RESIDUO PRIMA DELLA RESA. La cartella è l'unica copia solo finché
+      // nessuno ha copiato: si prova a farlo, e solo se non riesce si torna
+      // alla vecchia risposta — che a quel punto è di nuovo quella giusta.
+      if (decision.action === "commit-residue") {
+        const saved = deps.commitResidue ? await deps.commitResidue(wt).catch(() => false) : false;
+        if (saved) {
+          summary.residueCommitted += 1;
+          deps.log(`[worktree-gc] residuo salvato sul branch ${wt.branchName ?? wt.id} — la cartella non è più l'unica copia`);
+          if (await freeCheckout(wt, taskId, "modifiche non committate salvate sul branch")) continue;
+        }
+        decision = { action: "keep", reason: "modifiche non committate (junk escluso)" };
+      }
 
       if (decision.action === "keep") {
         keep(decision.reason);
@@ -682,6 +729,12 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         // Needs a real task to land. An orphan (taskId null) with unmerged
         // commits can't be landed → keep it for a human rather than lose work.
         if (!taskId) {
+          // Nessun task a cui landare — ma il BRANCH raggiunge ancora quei
+          // commit, quindi la cartella è una copia in più esattamente come nel
+          // ramo `free-checkout` di `decideWorktreeReap`. Tenerla per sempre
+          // non protegge nessun commit: costa solo disco.
+          if (wt.mode === "branch" && branch !== "gone"
+              && await freeCheckout(wt, null, "orfano: nessun task a cui landare, branch conservato")) continue;
           keep("commit non su main e nessun task a cui landarli (orfano)");
           await slimKept(wt, taskStatus, taskArchived, present);
           continue;
@@ -743,10 +796,11 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
     }
   }
 
-  if (summary.reaped || summary.landed || summary.abandoned || summary.freed || summary.slimmed || summary.errors) {
+  if (summary.reaped || summary.landed || summary.abandoned || summary.freed || summary.residueCommitted || summary.slimmed || summary.errors) {
     deps.log(
       `[worktree-gc] sweep done: ${summary.reaped} reaped, ${summary.landed} landed, ` +
-      `${summary.freed} checkout liberati, ${summary.abandoned} abbandonati, ` +
+      `${summary.freed} checkout liberati, ${summary.residueCommitted} residui salvati, ` +
+      `${summary.abandoned} abbandonati, ` +
       `${summary.slimmed} snelliti (${(summary.slimmedBytes / 1_048_576).toFixed(0)} MB), ` +
       `${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
     );

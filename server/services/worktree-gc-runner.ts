@@ -28,6 +28,7 @@ import { worktreeDirtProbe } from "./task-automerge";
 import { branchStatusFromRepo } from "./branch-status";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
+import { commitWorktreeResidue } from "./worktree-residue";
 
 /**
  * Tutto cio' che la potatura chiede al resto del server, dichiarato.
@@ -249,6 +250,51 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
   }
 
   function runWorktreeGc() {
+    /**
+     * QUALCOSA STA GIRANDO LÀ DENTRO?
+     *
+     * Estratta perché adesso la usano in due (`slim` e `commitResidue`) e la
+     * risposta deve essere la stessa: un'anteprima viva è un `bun run dev` in
+     * quella cartella, e uno script Topics vivo è un processo con il cwd lì.
+     * In entrambi i casi l'albero si sta ancora muovendo, e chi lo tocca —
+     * per snellirlo o per committarlo — fotografa uno stato di mezzo.
+     */
+    const qualcosaVivoDentro = (wt: { id: string; absPath: string }): boolean => {
+      if (deps.previewList().some((p) => deps.worktreeOfTask(p.taskId)?.id === wt.id)) return true;
+      // PUNTO 3 (task e3240a22): l'unica guardia era previewList(), che non
+      // consulta runningScripts. È il solo modo di fabbricare un fantasma che
+      // il Punto 2 non vedrà mai: la root esiste, il contenuto è sparito sotto.
+      if (deps.listOwnedScripts) {
+        const base = wt.absPath.endsWith("/") ? wt.absPath : wt.absPath + "/";
+        return deps.listOwnedScripts().some((s) => {
+          if ((s.source !== "script" && s.source != null) || s.status !== "running" || !s.pid) return false;
+          return s.projectPath === wt.absPath || s.projectPath.startsWith(base);
+        });
+      }
+      return false;
+    };
+
+    /**
+     * Le modifiche non committate, messe sul branch prima di liberare la
+     * cartella. Il COSA sta in `worktree-residue.ts`; qui restano le due
+     * guardie che solo il server può rispondere: la cartella c'è ancora, e
+     * dentro non sta girando niente.
+     */
+    const commitResidue = async (wt: { id: string; absPath: string; branchName?: string | null }): Promise<boolean> => {
+      if (!wt.absPath || !existsSync(wt.absPath)) return false;
+      if (qualcosaVivoDentro(wt)) {
+        console.log(`[worktree-residue] ${wt.branchName ?? wt.id}: qualcosa gira dentro — residuo rimandato`);
+        return false;
+      }
+      const res = await commitWorktreeResidue(wt.absPath);
+      console.log(
+        res.ok
+          ? `[worktree-residue] ${wt.branchName ?? wt.id}: ${res.reason} (${res.commit})`
+          : `[worktree-residue] ${wt.branchName ?? wt.id}: non salvato — ${res.reason}`,
+      );
+      return res.ok;
+    };
+
     return sweepWorktrees({
       listWorktrees: () => deps.worktreeStore.list({ status: "ready" }).map((w) => ({
         id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode,
@@ -382,23 +428,11 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       // snellimento alla consegna, e quelle la cui anteprima era ancora viva
       // quando ci abbiamo provato. Stesse tre condizioni di `slimWorktreeOfTask`
       // — che è la funzione stessa, raggiunta via il task del worktree.
+      commitResidue,
       slim: async (wt) => {
-        // Un'anteprima viva è un `bun run dev` che gira LÌ DENTRO: rimandare.
-        if (deps.previewList().some((p) => deps.worktreeOfTask(p.taskId)?.id === wt.id)) return 0;
-        // PUNTO 3 (task e3240a22): rimanda se c'e' uno script Topics vivo dentro.
-        // L'unica guardia oggi e' previewList(), che non consulta runningScripts.
-        // Questo e' il solo modo di fabbricare un fantasma che il Punto 2 non
-        // vedra' mai: la root esiste, il contenuto e' sparito sotto i piedi.
-        if (deps.listOwnedScripts) {
-          const base = wt.absPath.endsWith("/") ? wt.absPath : wt.absPath + "/";
-          const hasLiving = deps.listOwnedScripts().some(s => {
-            if ((s.source !== "script" && s.source != null) || s.status !== "running" || !s.pid) return false;
-            return s.projectPath === wt.absPath || s.projectPath.startsWith(base);
-          });
-          if (hasLiving) {
-            console.log(`[worktree-slim] ${wt.branchName ?? wt.id}: script vivo dentro — slim rimandato`);
-            return 0;
-          }
+        if (qualcosaVivoDentro(wt)) {
+          console.log(`[worktree-slim] ${wt.branchName ?? wt.id}: qualcosa gira dentro — slim rimandato`);
+          return 0;
         }
         const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
         if (res.removed.length > 0) {
