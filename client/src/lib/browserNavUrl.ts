@@ -120,10 +120,85 @@ export function displayUrl(raw: string): string {
   }
 }
 
+
+/**
+ * Un host RAGGIUNGIBILE su internet non merita di viaggiare in chiaro.
+ *
+ * E' l'HTTPS-First di Chrome e di Safari: se scrivi `http://` su un sito
+ * pubblico, il browser prova comunque prima la versione cifrata. Qui pero' non
+ * si puo' copiare quel comportamento e basta, perche' la maggioranza assoluta
+ * delle navigazioni di questa pane NON e' internet: sono server locali effimeri,
+ * l'anteprima di un task su una porta alta, un dev server appena acceso. Nessuno
+ * di quelli parla TLS, e alzarli a https non li rende sicuri: li spegne, e la
+ * pane diventa bianca. Meglio nessuna promozione che una promozione che rompe
+ * il caso frequente.
+ *
+ * Quindi si sale SOLO quando l'indirizzo e' plausibilmente pubblico, e si resta
+ * fermi su tutto il resto:
+ *  - il loopback in ogni sua forma (localhost, 127.0.0.0/8, ::1, 0.0.0.0, e i
+ *    sottodomini *.localhost che risolvono comunque su questa macchina);
+ *  - gli indirizzi privati di una LAN (10/8, 192.168/16, 172.16-31/12) e il
+ *    link-local 169.254/16;
+ *  - i nomi mDNS in `.local`, che sono la stessa rete di casa con un altro nome;
+ *  - un host senza nemmeno un punto, che non e' un dominio ma la macchina della
+ *    scrivania accanto;
+ *  - una porta esplicita diversa da 80, che e' la firma di un dev server.
+ *
+ * Un `:80` scritto a mano invece sparisce insieme allo schema che lo
+ * sottintendeva: portarselo dietro darebbe `https://sito.it:80`, cioe' TLS su
+ * una porta in chiaro, che e' peggio del punto di partenza.
+ */
+export function httpsFirstUrl(url: string): string {
+  if (!/^http:\/\//i.test(url)) return url;
+
+  let host: string;
+  let port: string;
+  try {
+    const u = new URL(url);
+    host = u.hostname.toLowerCase();
+    // `port` e' vuota anche quando `:80` c'era scritto: e' la porta di default
+    // di http, quindi il parser la toglie. Il che e' comodo, perche' l'unico
+    // caso da escludere e' proprio la porta NON standard.
+    port = u.port;
+  } catch {
+    return url;
+  }
+
+  if (!host || port !== '') return url;
+  if (isLocalHostname(host)) return url;
+  // Un nome senza punto non e' un dominio registrabile: e' un hostname di rete
+  // locale, e non esiste una CA che gli firmi un certificato.
+  if (!host.includes('.')) return url;
+
+  const rest = url.slice('http://'.length).replace(/^([^/?#]*?):80(?=$|[/?#])/, '$1');
+  return `https://${rest}`;
+}
+
+/** Vero per tutto cio' che non esce da questa macchina o da questa rete. */
+function isLocalHostname(host: string): boolean {
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '::1' || host === '[::1]') return true;
+  if (host === '0.0.0.0') return true;
+  if (host.endsWith('.local')) return true;
+  // 127.0.0.0/8 per intero, non solo 127.0.0.1: il loopback e' un blocco.
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  // 172.16.0.0/12, cioe' il secondo ottetto da 16 a 31 e non oltre: 172.32 e'
+  // gia' internet pubblico.
+  const m = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
+  if (m) {
+    const second = Number(m[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  return false;
+}
+
 export function normalizeUrl(input: string): string {
   const s = input.trim();
   if (!s) return 'about:blank';
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return s;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return httpsFirstUrl(s);
   // looks like a domain (has a dot, no spaces) → https://
   if (/^[^\s]+\.[^\s]+$/.test(s) && !s.includes(' ')) return `https://${s}`;
   return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
