@@ -43,6 +43,42 @@ la pane numero N. Misurato con 8 context nello stesso processo (`contexts.mjs`):
 Obscura è **5.7× più economico per pane**, e a context vuoti costa *zero* (0.1 MB/pane
 contro 69). Lightpanda non ha context multipli: scala solo a processi, 53 MB l'uno.
 
+### Come sta OGGI il browser di Topics — misurato sull'app viva, non stimato
+
+Le righe sopra usano `chrome-headless-shell`, che è il *migliore* dei Chromium. Topics in
+esecuzione ne usa un altro: il **full build** di Playwright (`chromium-1217`), perché il
+sidecar deve poter caricare le estensioni dell'utente (qui ne trova 42) e headless-shell
+non ha un runtime WebExtensions. Misurato aprendo sei pane vere via
+`POST /api/browsers/:id/agent/open` sul server live (porta 3333, **https**), tutte su
+Wikipedia:
+
+| pane | RAM Chromium totale | processi | apertura |
+|---|---|---|---|
+| 1 | 685 MB | 8 | (cold start) |
+| 2 | 916 MB | 9 | 1515 ms |
+| 3 | 1132 MB | 10 | 1574 ms |
+| 4 | 1348 MB | 11 | 1252 ms |
+| 5 | 1564 MB | 12 | 1349 ms |
+| 6 | 1781 MB | 13 | 1414 ms |
+
+**219 MB per pane**, lineare e senza sorprese, più 685 MB di prezzo d'ingresso per il
+primo. Sei pane aperte sono 1.8 GB. È il numero da battere, e va confrontato con i 29 MB
+per context di Obscura: **7.5×**, non 5.7×, perché il riferimento reale è il full build.
+
+**Due cose funzionano già bene e vanno dette:**
+- **Costo a riposo: zero.** Con nessuna pane aperta non c'è nessun processo Chromium.
+  Il lifecycle è ref-counted con idle-reap (`browser-chromium-sidecar.ts`): chiuse le sei
+  pane di prova, dopo 45 secondi i 13 processi erano **0**. Il costo si paga solo mentre
+  guardi qualcosa.
+- **La pane che l'utente vede di solito non è questa.** Il default è la `WKWebView`
+  nativa dentro Tauri, zero processi extra; il WebContent dell'app misurato ora è 165 MB
+  e regge tutta la UI. Chromium entra in scena solo quando serve un motore pilotabile
+  server-side o le estensioni.
+
+Il punto quindi non è "Topics è pesante": a riposo non costa nulla e la superficie
+normale è nativa. Il punto è che **quando l'agente apre contesti, ognuno costa 219 MB** —
+ed è esattamente lo scenario che `agent-inline-browser` moltiplica.
+
 ## Dove si rompono
 
 Il banco vero non è Wikipedia, è **un'app dev locale** (`app/index.html`: grid, sticky,
@@ -92,8 +128,9 @@ sidecar Chromium di Topics esiste (`server/browser-chromium-sidecar.ts`).
 
 L'architettura attuale ha già i due poli giusti: **WKWebView nativa** per la pane che
 l'umano guarda (zero processi extra, il default) e **Chromium** quando servono le
-estensioni. Il terzo motore, l'headless Playwright server-side, è quello che paga
-166 MB a context — ed è anche l'unico che un engine alternativo potrebbe rimpiazzare.
+estensioni. Il terzo motore, il Chromium server-side pilotato via Playwright, è quello
+che paga **219 MB a context misurati sull'app viva** — ed è anche l'unico che un engine
+alternativo potrebbe rimpiazzare.
 
 **Sostituire la pane visibile: no.** Canvas nero, HN sfasato di 20+ px, screencast a
 20 fps e `innerText` che sanguina script sono quattro regressioni visibili su una
@@ -104,8 +141,8 @@ da guadagnare.
 `openspec/changes/agent-inline-browser` introduce contesti browser che **l'umano non
 guarda mai** — l'agente legge una pagina di docs, controlla un JSON, verifica che un
 endpoint risponda. Lì il render serve solo per l'ultimo fotogramma della card, il layout
-preciso non serve, e il costo per contesto passerebbe da 166 MB a 29. Con dieci contesti
-inline aperti sono 1.6 GB contro 290 MB.
+preciso non serve, e il costo per contesto passerebbe da 219 MB a 29. Con dieci contesti
+inline aperti sono 2.2 GB contro 290 MB.
 
 Ma **non oggi**, e per una ragione sola: 1.3 MB di `innerText` al posto di 5.5 KB è un
 bug che colpisce esattamente il caso d'uso proposto (l'agente che legge). Prima serve un
