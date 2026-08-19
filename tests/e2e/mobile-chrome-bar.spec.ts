@@ -449,7 +449,15 @@ test.describe.serial("La chrome del telefono", () => {
     //    tre risposte diverse: se fosse un numero scelto a mano non si
     //    muoverebbe.
     await fascia(page, FASCIA_IPHONE);
-    for (const R of [28, 40, 54]) {
+    // I TRE R SI RICAVANO DAL GIOCO MISURATO, non si scrivono a mano. Da quando
+    // la fila arriva al bordo del vetro il gioco e' 0, e la vecchia terna
+    // (28/40/54) dava tre volte il TETTO: tre risposte identiche non
+    // distinguono la legge da una costante nel foglio, che e' esattamente cio'
+    // che questo caso deve saper vedere. Ricavandoli, la terna resta
+    // discriminante anche se un domani la fila si stacca dal bordo.
+    const gioco = (await porte(page))[0]!.daBordo;
+    const RAGGI = [gioco + STANDARD, gioco + 17, gioco + TETTO + 18];
+    for (const R of RAGGI) {
       await raggioSchermoDichiarato(page, R);
       // Le porte sono quattro, quindi i «centri» sono due: quello che conta è
       // il PRIMO e l'ULTIMO, cioè chi tocca i bordi. Aggiungere una porta non
@@ -480,14 +488,17 @@ test.describe.serial("La chrome del telefono", () => {
       }
     }
 
-    // E i tre R non danno la stessa risposta: R=28 a 8px dal bordo dà 20, i
-    // due grandi battono contro il tetto e danno 22. È la prova che il numero
-    // arriva dal raggio dello schermo e non da una costante nel foglio.
-    await raggioSchermoDichiarato(page, 28);
-    const stretto = (await porte(page))[0];
-    await raggioSchermoDichiarato(page, 54);
-    const largo = (await porte(page))[0];
-    expect(stretto.raggi.bassoSx).toBeLessThan(largo.raggi.bassoSx);
+    // E I TRE R NON DANNO LA STESSA RISPOSTA. È la prova che il numero arriva
+    // dal raggio dello schermo e non da una costante nel foglio: uno schermo
+    // appena curvo dà l'angolo standard, uno di mezzo dà un valore suo, uno
+    // molto curvo batte contro il tetto. Se un giorno tornassero tutti e tre
+    // uguali, questo caso resterebbe verde misurando niente — ed è successo.
+    await raggioSchermoDichiarato(page, RAGGI[1]!);
+    const medio = (await porte(page))[0]!;
+    await raggioSchermoDichiarato(page, RAGGI[2]!);
+    const largo = (await porte(page))[0]!;
+    expect(medio.raggi.bassoSx).toBeGreaterThan(STANDARD);
+    expect(medio.raggi.bassoSx).toBeLessThan(largo.raggi.bassoSx);
     expect(largo.raggi.bassoSx).toBeCloseTo(TETTO, 1);
 
     // LA PROVA CHE SI GUARDA. Uno screenshot nudo non basta: il browser
@@ -495,7 +506,7 @@ test.describe.serial("La chrome del telefono", () => {
     // nell'immagine e non c'è niente da confrontare. Si disegna: un filo alla
     // curva DICHIARATA, e sotto ci si vede se i due estremi la seguono o la
     // tagliano. È un righello sovrapposto, non un effetto.
-    await raggioSchermoDichiarato(page, 54);
+    await raggioSchermoDichiarato(page, RAGGI[2]!);
     await page.evaluate((R) => {
       const filo = document.createElement("div");
       filo.id = "righello-arco";
@@ -504,7 +515,7 @@ test.describe.serial("La chrome del telefono", () => {
         border: "1px dashed rgba(255,0,0,0.85)", borderRadius: `${R}px`,
       });
       document.body.appendChild(filo);
-    }, 54);
+    }, RAGGI[2]!);
     await page.screenshot({
       path: "test-results/mobile-chrome-curva.png",
       // Il fondo dello schermo, non la sola barra: l'arco si giudica su quanto

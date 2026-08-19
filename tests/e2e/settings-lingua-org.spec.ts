@@ -97,17 +97,27 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     const pannello = page.locator('[data-testid="settings-panel"]');
     await expect(pannello).toBeVisible({ timeout: 10000 });
 
-    // La voce che contiene l'identità: si chiama «Profilo», non «Profile».
-    const profilo = pannello.locator("nav button", { hasText: /^Profilo$/ });
-    await expect(profilo, "deve esistere una voce «Profilo»").toBeVisible({ timeout: 5000 });
-    await profilo.click();
+    // LA PORTA HA IL NOME SCRITTO SOPRA. Il criterio di questo caso e' sempre
+    // stato «le organizzazioni SI TROVANO», non «stanno in quella schermata
+    // li'»: alle organizzazioni non mancava una funzione, mancava una voce con
+    // scritto dove porta. Prima erano in fondo a «Profilo» e questo caso ce le
+    // cercava; adesso hanno una voce loro, che e' la risposta migliore alla
+    // stessa domanda. Il nome e' in italiano — «Organizzazione», non
+    // «Organization» — perche' e' l'altra meta' di cio' che questo file misura.
+    const org = pannello.locator("nav button", { hasText: /^Organizzazione$/ });
+    await expect(org, "deve esistere una voce «Organizzazione»").toBeVisible({ timeout: 5000 });
+    await org.click();
 
-    // E dentro ci sono le organizzazioni, chiamate per nome. Senza un titolo
-    // che le nomini, «non vedo le organizzazioni» resta vero anche quando il
-    // codice che le gestisce c'è: era esattamente il caso.
+    // E dietro ci sono davvero, chiamate per nome: una voce che apre una
+    // pagina vuota sposterebbe il problema invece di chiuderlo.
     await expect(
       pannello.getByTestId("identity-orgs"),
-      "le organizzazioni devono avere un blocco riconoscibile dentro Profilo",
+      "le organizzazioni devono avere un blocco riconoscibile dietro la loro voce",
     ).toBeVisible({ timeout: 10000 });
+
+    // E la voce «Profilo» resta, con la sua materia: le due schermate non si
+    // sono fuse, si sono separate.
+    const profilo = pannello.locator("nav button", { hasText: /^Profilo$/ });
+    await expect(profilo, "deve esistere anche una voce «Profilo»").toBeVisible({ timeout: 5000 });
   });
 });
