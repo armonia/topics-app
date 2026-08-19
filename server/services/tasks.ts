@@ -34,16 +34,17 @@ import { liveAgentCount } from "./agent-census";
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
-export type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
+export type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason, ParkedChildrenDecision } from "../../shared/board";
 import {
   ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
-  PARKED_REQUEUE_NOTE_LIKE, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
+  PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
   WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
+import type { ParkedChildrenDecision } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
@@ -85,7 +86,7 @@ export const AUTO_PROJECT_ID = "_auto";
  *   import this constant).
  * - PUBLISH_ACTION_LABEL: land AND publish (push → deploy CI). "Going online"
  *   stays a human pick; the agent never pushes.
- * - REQUEUE/ARCHIVE_PARKED_LABEL: the two answers to the PARKED SUBTASK STALL.
+ * - REQUEUE/ARCHIVE/PROMOTE_PARKED_LABEL: the answers to the PARKED SUBTASK STALL.
  *   Measured on 12/08 across five cards: a child in backlog is dispatched by
  *   nobody (deliberate, `hasChildrenInFlight`), the parent waiting on it gets
  *   stopped so it does not spin (deliberate too), and it ended up parked in
@@ -93,8 +94,9 @@ export const AUTO_PROJECT_ID = "_auto";
  *   indistinguishable from rest, and only a human could unstick it.
  */
 export {
-  ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
-  isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel,
+  ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
+  isArchiveParkedLabel, isLandActionLabel, isPromoteParkedLabel, isPublishActionLabel, isRequeueParkedLabel,
+  isTakeOverParkedLabel,
 } from "../../shared/board";
 
 /**
@@ -770,9 +772,15 @@ export interface TaskService {
   sweepParkedChildren(args?: { by?: string; eligible?: (projectId: string) => boolean }): Task[];
   /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
-   * in `todo`; `archive` li archivia. In entrambi i casi il padre torna in coda
-   * col chip `queued` e col budget dei tentativi azzerato — la risposta è un
+   * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
+   * in coda come task indipendenti. In tutti i casi il padre torna in coda col
+   * chip `queued` e col budget dei tentativi azzerato — la risposta è un
    * mandato nuovo, come il trascinamento in Todo.
+   *
+   * Perché `promote` esiste, in una riga: un figlio in `todo` resta fermo lo
+   * stesso (il dispatcher lista `rootsOnly`), quindi `requeue` non lo muove;
+   * senza il padre, invece, la coda lo serve come qualunque altra card. È il
+   * gesto che l'envelope ordina già all'agente.
    *
    * Ritorna `null` quando la domanda non è più sulla card — è uscita da review,
    * o non ha più figli fermi — cioè quando qualcun altro ha già risposto: il
@@ -780,7 +788,7 @@ export interface TaskService {
    */
   resolveParkedChildren(args: {
     taskId: string;
-    decision: "requeue" | "archive";
+    decision: ParkedChildrenDecision;
     by?: string;
   }): { task: Task; children: Task[] } | null;
   /**
@@ -2216,11 +2224,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       || row.dispatch_state === "starting";
   }
 
-  function parkedChildren(taskId: string): Array<{ id: string; text: string; status: string }> {
+  /**
+   * LO STEP HA LAVORO SUO, o e' solo una riga del titolo del padre?
+   *
+   * E' la differenza che decide fra le due uscite giuste, e il dato c'e' gia'
+   * addosso alla riga: una sessione assegnata, dei tentativi spesi, del tempo
+   * d'agente, un commit consegnato, oppure un commento che non sia una nota di
+   * sistema. Uno step con una di queste tracce e' lavoro cominciato o descritto
+   * da qualcuno, e buttarlo perde la lista di cio' che restava da fare; uno
+   * step nudo, creato e mai toccato, e' la decomposizione del titolo e
+   * archiviarlo non toglie niente a nessuno.
+   *
+   * Serve a SUGGERIRE, non a decidere: la board ordina i bottoni e lo scrive
+   * nella domanda, la scelta resta di chi rivede.
+   */
+  const CHILD_OWN_WORK_SQL =
+    "(CASE WHEN t.assigned_topic_id IS NOT NULL OR t.dispatch_attempts > 0 OR t.agent_ms > 0" +
+    "        OR COALESCE(t.delivery_commit, '') <> ''" +
+    "        OR EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = t.id AND c.author <> 'system')" +
+    "      THEN 1 ELSE 0 END)";
+
+  function parkedChildren(taskId: string): Array<{ id: string; text: string; status: string; own_work: number }> {
     return db.prepare(
-      "SELECT id, text, status FROM tasks WHERE parent_task_id = ? AND archived = 0" +
-        `   AND status IN ('backlog','todo') AND COALESCE(dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})` +
-        "  ORDER BY created_at",
+      `SELECT t.id, t.text, t.status, ${CHILD_OWN_WORK_SQL} AS own_work FROM tasks t` +
+        "  WHERE t.parent_task_id = ? AND t.archived = 0" +
+        `   AND t.status IN ('backlog','todo') AND COALESCE(t.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})` +
+        "  ORDER BY t.created_at",
     ).all(taskId) as any;
   }
 
@@ -2343,13 +2372,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const parked = parkedChildren(parentId);
       if (parked.length === 0) return;
       const elenco = parked.map((c) => `«${c.text.length > 60 ? `${c.text.slice(0, 59)}…` : c.text}»`).join(", ");
+      // Stesso suggerimento di `askParkedChildren`, e per la stessa ragione: la
+      // domanda si posa in un thread, non su una card che si muove, ma chi la
+      // legge ha lo stesso bisogno di sapere quali step hanno lavoro sotto.
+      const conLavoro = parked.filter((c) => c.own_work === 1).length;
       svc.addComment({
         taskId: parentId, author: "system",
         content:
           `Chiuso l'ultimo sottotask in lavorazione, e restano ${parked.length} passi parcheggiati in backlog (${elenco}): ` +
           `nessun dispatcher li prende da solo, e con un sottotask aperto questa card non si può approvare. ` +
-          `Li rimetto in coda, o archivio ciò che non serve più?`,
-        questionOptions: [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
+          (conLavoro > 0
+            ? `${conLavoro} hanno lavoro proprio: promuoverli a task li rende servibili dalla coda. `
+            : `Nessuno ha lavoro proprio: sono la decomposizione del titolo. `) +
+          `Li promuovo a task, li rimetto in coda, o archivio ciò che non serve più?`,
+        questionOptions: conLavoro > 0
+          ? [PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL]
+          : [ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL],
       });
       if (staleWaitChip) clearWaitChip();
     } catch { /* un avviso non fa mai fallire la chiusura di una card */ }
@@ -4060,12 +4098,35 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const giaRimessi = (db.query(
         "SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND content LIKE ?",
       ).get(taskId, PARKED_REQUEUE_NOTE_LIKE) as { n: number } | undefined)?.n ?? 0;
+      // IL SUGGERIMENTO, che è la differenza fra chiedere e chiedere a freddo.
+      //
+      // Chi rivede non ha in mano ciò che il servizio ha già: quali step hanno
+      // lavoro proprio. Con del lavoro sotto, l'uscita è PROMUOVERLI — la coda
+      // serve i task, non i figli — e archiviarli butterebbe la lista di ciò che
+      // restava da fare; nudi, sono la decomposizione del titolo e archiviarli
+      // non toglie niente. La frase lo dice e l'ordine dei bottoni lo mostra: il
+      // primo è quello suggerito. Chi decide resta chi decide.
+      const conLavoro = parked.filter((c) => c.own_work === 1).length;
+      const lettura = conLavoro > 0
+        ? `${conLavoro} su ${parked.length} hanno lavoro proprio (sessione, tentativi o commenti): promuoverli a task li rende servibili dalla coda, archiviarli butterebbe cio' che restava da fare.`
+        : `Nessuno dei ${parked.length} ha lavoro proprio: sono la decomposizione del titolo, e archiviarli non perde niente.`;
       const question = giaRimessi > 0
         ? `Fermo di nuovo sugli stessi ${parked.length} sottotask (${elenco}), e rimetterli in coda l'ha gia' fatto: ` +
-          `non basta, perche' uno step lo muove solo l'agente di questa card dentro il proprio turno e quel turno non li ha toccati. ` +
-          `Archivio cio' che non serve piu', oppure la prendi in mano tu?`
+          `non basta, perche' uno step lo muove solo l'agente di questa card dentro il proprio turno e quel turno non li ha toccati. ${lettura} ` +
+          `Li promuovo a task, archivio cio' che non serve piu', oppure la prendi in mano tu?`
         : `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
-          `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
+          `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. ${lettura} ` +
+          `Li promuovo a task indipendenti, li rimetto in coda, o archivio ciò che non serve più?`;
+      // I BOTTONI, nell'ordine in cui vanno letti: il suggerito per primo.
+      //
+      // «Rimetti in coda» non compare piu' alla seconda volta: si e' gia'
+      // dimostrata circolare su questa card (vedi sopra), e riproporla e' far
+      // girare a vuoto chi decide.
+      const opzioni = giaRimessi > 0
+        ? [PROMOTE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL]
+        : conLavoro > 0
+          ? [PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL]
+          : [ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL];
       // PREDICATO review_needs_summary, PORTA DI SISTEMA.
       //
       // PRIMA di cio' che parla all'umano, e non dopo: l'ULTIMA parola del
@@ -4092,9 +4153,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       try {
         this.addComment({
           taskId, author: "system", content: question,
-          questionOptions: giaRimessi > 0
-            ? [ARCHIVE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL]
-            : [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
+          questionOptions: opzioni,
         });
       } catch { /* dedupe/best-effort: la domanda resta comunque nello stato */ }
       // Stessa forma di una consegna di sistema — review + `needs_input` + firma
@@ -4209,6 +4268,33 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // cambiato colonna, e scrivere «backlog → todo» avrebbe messo nella
           // sua storia un passaggio che non è mai avvenuto.
           if (c.status !== "todo") logStatus(c.id, c.status, "todo", firma);
+          const t = getTaskRow(c.id);
+          if (t) children.push(rowToTask(t));
+        } else if (decision === "promote") {
+          // TOGLIERE IL PADRE È IL GESTO, non spostare la colonna.
+          //
+          // Un figlio in `todo` conta fermo quanto uno in `backlog`: il tick
+          // lista `rootsOnly`, quindi nessun dispatcher lo prende finché ha un
+          // padre. Senza `parent_task_id` è una card come le altre e la coda la
+          // serve — ed è esattamente ciò che `buildKickoff` ordina all'agente
+          // che non riesce a fare un proprio step.
+          //
+          // Il budget riparte da zero per la stessa ragione di `requeue`: uno
+          // step parcheggiato può aver bruciato tentativi prima di finire lì, e
+          // rimetterlo in una coda che non lo serve non è promuoverlo.
+          db.prepare(
+            "UPDATE tasks SET parent_task_id = NULL, status = 'todo', dispatch_state = NULL, dispatch_error = NULL, " +
+              "dispatch_attempts = 0, dispatch_deferred_until = NULL, updated_at = ? WHERE id = ?",
+          ).run(ts, c.id);
+          if (c.status !== "todo") logStatus(c.id, c.status, "todo", firma);
+          // Chi lo prende non ha piu' il padre sotto gli occhi: da dove viene lo
+          // dice la riga, o il mandato arriva senza il suo contesto.
+          try {
+            this.addComment({
+              taskId: c.id, author: "system", kind: "service",
+              content: `Promosso a task indipendente: era un sottotask di «${row.text}», rimasto senza turno.`,
+            });
+          } catch { /* la nota non fa fallire la promozione */ }
           const t = getTaskRow(c.id);
           if (t) children.push(rowToTask(t));
         } else {

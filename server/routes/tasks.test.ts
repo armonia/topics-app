@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
-import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
+import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 // The skipped-merge note quotes two controls by the words printed on them. It
@@ -2030,6 +2030,34 @@ describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
 
     expect(t.status).toBe("todo");
     expect((db.prepare("SELECT archived FROM tasks WHERE id = ?").get(figlio) as any).archived).toBe(1);
+  });
+
+  /**
+   * LA TERZA USCITA, e la sola che rimette in moto il lavoro rimasto.
+   *
+   * Le altre due rispondono male al caso piu' frequente (una card interrotta a
+   * meta': 4 su 4 il 19/08, 15 su 16 il 18/08): rimetterli in coda non li muove
+   * — un figlio in `todo` sotto un padre non lo prende nessun dispatcher, il
+   * tick lista `rootsOnly` — e archiviarli butta la lista di cio' che restava.
+   * Senza padre, invece, la coda li serve: e' il gesto che l'envelope ordina
+   * gia' all'agente.
+   */
+  test("«promuovi»: il figlio perde il padre, va in coda, e il padre riparte libero", async () => {
+    const { padre, figlio } = await padreCheChiede();
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${padre}/review`, {
+      decision: "reject", comment: PROMOTE_PARKED_LABEL,
+    }))!.json();
+
+    expect(t.status).toBe("todo");
+    expect(t.dispatchAttempts).toBe(0);
+    const f = db.prepare("SELECT status, parent_task_id, archived FROM tasks WHERE id = ?").get(figlio) as any;
+    expect(f.parent_task_id).toBeNull();
+    expect(f.status).toBe("todo");
+    expect(f.archived).toBe(0);
+    // Promosso vuol dire SERVIBILE: senza il turno del padre non lo muoverebbe
+    // nessuno, quindi il dispatcher deve vederlo entrare in coda per suo conto.
+    expect(todos).toEqual([padre, figlio]);
+    expect(broadcasts.filter((b) => b.type === "task:updated" && b.task?.id === figlio)).toHaveLength(1);
   });
 
   test("rispondere a una domanda già risolta è 409, non un esito inventato", async () => {

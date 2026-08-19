@@ -429,13 +429,21 @@ export const NOTE_ARCHIVED_BY_HUMAN =
  */
 const PARKED_REQUEUED_TAIL = 'sottotask rimessi in coda.';
 const PARKED_ARCHIVED_TAIL = 'sottotask archiviati.';
+const PARKED_PROMOTED_TAIL = 'sottotask promossi a task indipendenti.';
 
 /** The note `resolveParkedChildren` writes after the human picked an option. */
-export function noteParkedChildrenResolved(decision: 'requeue' | 'archive', count: number): string {
-  return decision === 'requeue'
-    ? `Sbloccato: ${count} ${PARKED_REQUEUED_TAIL} Torno in coda anch'io e riparto quando hanno finito.`
-    : `Sbloccato: ${count} ${PARKED_ARCHIVED_TAIL} Torno in coda: non c'è più niente ad aspettarmi.`;
+export function noteParkedChildrenResolved(decision: ParkedChildrenDecision, count: number): string {
+  if (decision === 'requeue') {
+    return `Sbloccato: ${count} ${PARKED_REQUEUED_TAIL} Torno in coda anch'io e riparto quando hanno finito.`;
+  }
+  if (decision === 'promote') {
+    return `Sbloccato: ${count} ${PARKED_PROMOTED_TAIL} Li serve la coda, non io: torno in coda anch'io.`;
+  }
+  return `Sbloccato: ${count} ${PARKED_ARCHIVED_TAIL} Torno in coda: non c'è più niente ad aspettarmi.`;
 }
+
+/** The three ways out of the parked-subtask stall, named once for both sides. */
+export type ParkedChildrenDecision = 'requeue' | 'archive' | 'promote';
 
 /**
  * «RIMETTI IN CODA È GIÀ STATO FATTO SU QUESTA CARD», per chi lo conta in SQL.
@@ -455,7 +463,7 @@ export function noteParkedChildrenResolved(decision: 'requeue' | 'archive', coun
 export const PARKED_REQUEUE_NOTE_LIKE = `%${PARKED_REQUEUED_TAIL}%`;
 
 /** The shape of `noteParkedChildrenResolved`, matched without rebuilding it. */
-const PARKED_CHILDREN_NOTE = /^Sbloccato: \d+ sottotask (?:rimessi in coda|archiviati)\./;
+const PARKED_CHILDREN_NOTE = /^Sbloccato: \d+ sottotask (?:rimessi in coda|archiviati|promossi a task indipendenti)\./;
 
 /**
  * Prose the SERVER wrote, even though the comment is signed `user`.
@@ -591,6 +599,21 @@ export const ARCHIVE_PARKED_LABEL = 'Archivia i sottotask';
  * step.
  */
 export const TAKE_OVER_PARKED_LABEL = 'La prendo in mano io';
+/**
+ * LA QUARTA ETICHETTA, ed e' quella che l'envelope raccomanda gia' all'agente.
+ *
+ * Le due storiche rispondono male al caso piu' frequente. La misura: delle card
+ * ferme sui propri step il 19/08 4 su 4 e il 18/08 15 su 16 portavano nel thread
+ * una traccia di INTERRUZIONE (riavvio, sessione morta, ripresa). Quegli step non
+ * sono disobbedienza: sono lavoro vero rimasto senza turno. Rimetterli in coda
+ * non li muove (nessun dispatcher prende un figlio), archiviarli butta la lista
+ * di cio' che restava da fare.
+ *
+ * Togliere il `parent_task_id` e' l'unico gesto che li rende servibili: e' cio'
+ * che `buildKickoff` ordina all'agente («o lo fai, o lo PROMUOVI a task
+ * indipendente»), e finora la board non lo offriva a chi rivede.
+ */
+export const PROMOTE_PARKED_LABEL = 'Promuovi i sottotask a task';
 
 /** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
 export function isLandActionLabel(text: string | undefined | null): boolean {
@@ -608,21 +631,26 @@ export function isArchiveParkedLabel(text: string | undefined | null): boolean {
 export function isTakeOverParkedLabel(text: string | undefined | null): boolean {
   return !!text && normalizeActionLabel(text) === normalizeActionLabel(TAKE_OVER_PARKED_LABEL);
 }
+export function isPromoteParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(PROMOTE_PARKED_LABEL);
+}
 
 /**
  * A quick-reply label the BOARD executes by itself, as opposed to an answer
  * that steers the agent.
  *
- * These four are exactly the labels `POST …/tasks/:id/review` runs server-side
- * (publish, requeue/archive parked children, land): picking one is an ORDER to
- * the system, and nothing about the work is still undecided. Every other option
+ * These five are exactly the labels `POST …/tasks/:id/review` runs server-side
+ * (publish, requeue/archive/promote parked children, land, take over): picking
+ * one is an ORDER to the system, and nothing about the work is still undecided.
+ * Every other option
  * (a plan's "Approva il piano", a free "Aspetta, ho un dubbio") resumes the
  * AGENT with the human's words, which is what "the card is waiting for a
  * person" means.
  */
 export function isBoardActionLabel(text: string | undefined | null): boolean {
   return isLandActionLabel(text) || isPublishActionLabel(text)
-    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text) || isTakeOverParkedLabel(text);
+    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text) || isTakeOverParkedLabel(text)
+    || isPromoteParkedLabel(text);
 }
 
 /**
