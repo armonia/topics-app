@@ -87,6 +87,12 @@
         // [--json] [--gate]`. Sola lettura sul DB della board, si lancia a mano
         // (o da un cron) e non la importa nessuno tranne il suo test.
         "scripts/stalled-parents.ts!",
+        // La sonda dei descrittori persi: `bun run probe:fdleak [--port 3333]
+        // [--n 500] [--json] [--gate]`. Spara N connessioni abortite al server
+        // vivo e riconta i suoi descrittori. Si lancia a mano (sola lettura
+        // sul server: tocca una sola GET), e non la importa nessuno tranne il
+        // suo test.
+        "scripts/fd-leak-probe.ts!",
         "scripts/effort-variance.ts!",
         // `bun run scripts/mem-report.ts [--json]` — dove stanno i megabyte che
         // la status bar riassume in due numeri: si lancia a mano quando uno dei
