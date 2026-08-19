@@ -285,6 +285,43 @@ Non è magia né un trucco di misura. Obscura fa tre rinunce strutturali:
 Il 30x di risparmio e i buchi sono **la stessa scelta vista da due lati**. Il che rende
 la valutazione facile: dove quelle tre cose non servono, Obscura è un affare enorme.
 
+## Quanto si guadagna DAVVERO sull'app locale
+
+Misurato sull'app Topics viva, aprendo tre pane realistiche (`react.dev`,
+`github.com/topics`, Wikipedia) via `/agent/open`, e poi le **stesse tre pagine** su
+Obscura patchato nello stesso momento:
+
+| | Chromium (oggi) | Obscura | guadagno |
+|---|---|---|---|
+| app a riposo, 0 pane | **0 MB** | **0 MB** | — |
+| prezzo d'ingresso del motore | 691 MB | **20 MB** | 671 MB |
+| 3 pane caricate | 1805 MB (15 proc) | **225 MB** (1 proc) | **1580 MB** |
+| marginale per pane | 371 MB | **68 MB** | 303 MB |
+
+Sull'**app intera** (guscio Tauri 93 MB + WebKit della UI 592 MB + motore browser):
+
+| | con 3 pane aperte |
+|---|---|
+| oggi | **2490 MB** |
+| con Obscura | **910 MB** |
+| **guadagno** | **1580 MB, il 63% dell'app** (l'88% della sola parte browser) |
+
+**Le tre avvertenze che rendono il numero onesto:**
+
+1. **A riposo il guadagno è zero.** Senza pane aperte Topics non tiene alcun processo
+   Chromium: il reap scatta dopo 5 minuti di inattività
+   (`browserIdleTimeoutMs`, `browser-service.ts:463`) e porta il motore a 0. Chi apre
+   una pane ogni tanto non guadagna niente — **il risparmio è tutto per chi tiene pane
+   aperte a lungo, o per l'agente che ne apre molte**.
+2. **Il marginale reale è peggiore del banco sintetico**: 371 MB per pane su siti veri
+   contro i 219 misurati su Wikipedia. Il confronto giusto è 371 → 68, cioè **5.5×**.
+3. **Il guadagno non tocca la UI.** I 592 MB di WebKit che tengono l'interfaccia
+   restano: quello è il costo della pane nativa, ed è già il più basso disponibile
+   (37 MB a sessione). Obscura non ci entra.
+
+Tradotto: **1.6 GB in meno con tre pane aperte**, e la differenza cresce con le pane —
+ma solo mentre sono aperte davvero.
+
 ## Potrebbe reggere anche la UI di Topics? — misurato, con un limite dichiarato
 
 Domanda naturale: se Obscura disegna bene e costa 30x meno, perché non usarlo come
