@@ -56,8 +56,13 @@ const DORMANT: Record<string, string> = {
  * migliore, e nel peggiore è una funzione che l'autore CREDE collegata.
  */
 const UNCONSUMED: Record<string, string> = {
-  // Protocollo: il client non deve gestirli, gli basta ricevere un frame.
-  pong: "risposta al ping di keepalive (useWebSocket manda 'ping')",
+  // `pong` e' USCITO da qui il 19/08/2026, ed e' il senso di questa mappa: la
+  // riga diceva «il client non deve gestirlo, gli basta ricevere un frame», e
+  // ricevere e basta era esattamente il guasto. Nessuno guardava l'orologio
+  // sulla risposta, quindi su una connessione mezza aperta la socket restava
+  // `OPEN` per sempre e la board mostrava lo stato di prima del guasto finche'
+  // non si ricaricava. Adesso `useWebSocket` lo consuma davvero (il cane da
+  // guardia sul `lastPongAt`), e il test qui sotto lo pretende.
   // Il suo unico ascoltatore era il chip delle sessioni in terminale in barra
   // alla kanban, tolto il 13/08 su richiesta di Attilio. Il CENSIMENTO resta
   // vivo e ha ancora un lettore vero, ma per via sincrona: il dispatcher chiama

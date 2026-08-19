@@ -21,6 +21,17 @@ interface UseWebSocketReturn {
 
 const OFFLINE_THRESHOLD_MS = 10_000;
 
+/**
+ * Quanto silenzio dall'altra parte basta a dichiarare morto il filo.
+ *
+ * Due ping e mezzo: con la cadenza di 30s qui sotto, servono due `pong`
+ * mancati di fila prima che scatti, quindi un singhiozzo di rete non chiude
+ * niente. Piu' alto di 60s anche per un'altra ragione: un browser che manda la
+ * scheda in secondo piano strozza i timer a uno al minuto, e una soglia di 60s
+ * netti trasformerebbe ogni scheda in background in una riconnessione continua.
+ */
+const PONG_TIMEOUT_MS = 75_000;
+
 export function useWebSocket(): UseWebSocketReturn {
   // Start as 'connected' initially — only show connecting states after a grace period
   // This prevents UI flicker on page load when the WS hasn't connected yet
@@ -56,6 +67,15 @@ export function useWebSocket(): UseWebSocketReturn {
   const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef<Set<(msg: WSMessage) => void>>(new Set());
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Quando il server ha dato l'ultimo segno di vita. E' l'unico dato che
+  // distingue una connessione viva da una MEZZA APERTA: lo legge il cane da
+  // guardia dentro l'intervallo di ping, in `onopen`.
+  //
+  // Nasce a zero e non a `Date.now()`: leggere l'orologio durante il render e'
+  // una chiamata impura (react-hooks/purity), e qui non servirebbe a niente —
+  // l'unico che lo legge e' un timer che nasce in `onopen`, DOPO che `onopen`
+  // ha scritto qui l'istante dell'apertura.
+  const lastPongAtRef = useRef(0);
   // Self-reference for reconnection: `connect` schedules a reconnect that must
   // call `connect` again. Referencing the `connect` const directly inside its
   // own body reads it before initialization (react-hooks/immutability) and
@@ -141,16 +161,49 @@ export function useWebSocket(): UseWebSocketReturn {
 
       // Start ping interval
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = setInterval(() => {
+      // Il polso riparte da zero: la connessione precedente non testimonia per
+      // questa. Senza questa riga una socket nuova nascerebbe gia' scaduta dopo
+      // un'ora di sonno, e si chiuderebbe al primo giro dell'intervallo.
+      lastPongAtRef.current = Date.now();
+      const pingTimer = setInterval(() => {
+        // IL CANE DA GUARDIA, ed e' la ragione per cui il `ping` esiste.
+        //
+        // Senza qualcuno che ASPETTI la risposta, il ping e' una lettera spedita
+        // a un indirizzo vuoto. Su una connessione mezza aperta — server ucciso
+        // di netto, Mac che dorme, Tailscale che cade — la socket resta
+        // `OPEN` e il `send` non solleva niente: `onclose` non scatta mai, il
+        // backoff non parte, e la board continua a mostrare lo stato di prima
+        // del guasto finche' qualcuno non ricarica la pagina. Chiudere e' cio'
+        // che rimette in moto la strada normale di riconnessione.
+        //
+        // `pingTimer` e non `pingIntervalRef.current`: si spegne SOLO il timer
+        // di questa connessione, mai quello che una riconnessione piu' veloce
+        // potrebbe gia' aver messo nel ref.
+        if (Date.now() - lastPongAtRef.current > PONG_TIMEOUT_MS) {
+          clearInterval(pingTimer);
+          try { ws.close(); } catch { /* gia' andata: `onclose` fa il resto */ }
+          return;
+        }
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'ping' }));
         }
       }, 30000);
+      pingIntervalRef.current = pingTimer;
     };
 
     ws.onmessage = (event) => {
       try {
         const raw = JSON.parse(event.data);
+
+        // IL POLSO. Il `pong` e' l'unica prova che dall'altra parte c'e' ancora
+        // qualcuno, e si data QUI, prima di ogni altra cosa: un frame di
+        // keepalive non deve dipendere dal registro degli schemi per contare
+        // come segno di vita, e non ha niente da dire a nessun sottoscrittore.
+        // Chi lo legge davvero e' il cane da guardia in `onopen`.
+        if (raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'pong') {
+          lastPongAtRef.current = Date.now();
+          return;
+        }
 
         // v3 foundations WS-01 client-side validation: registered types
         // are schema-checked, unknown types pass through. On schema
