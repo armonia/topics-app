@@ -43,6 +43,17 @@ function walk(dir: string, out: string[] = []): string[] {
 const FILES = [...walk(join(SRC, 'components/Board')), join(SRC, 'lib/board.ts')];
 
 /**
+ * I commenti non sono un secondo autore della frase: spiegano quella del
+ * server, e citarla per dire cosa succede e' il modo normale di scriverli. A
+ * cercarla anche li' il cricchetto scatta su della prosa, e un cricchetto che
+ * scatta a vuoto e' un cricchetto che qualcuno disattiva. Resta guardato il
+ * posto in cui il guasto vive davvero: una stringa nel codice.
+ */
+function senzaCommenti(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+}
+
+/**
  * Le frasi, prese dalla funzione VERA e non ricopiate: un ramo nuovo entra in
  * questa lista da solo, e il giorno che qualcuno lo ricopia nel client il
  * cricchetto scatta senza che nessuno debba ricordarsi di aggiornarlo.
@@ -75,7 +86,7 @@ describe('la ragione della coda non ha una copia nel client', () => {
     for (const [kind, t, c] of FRASI) {
       const r = deriveQueueReason({ ...base, ...t }, { ...ctx, ...c })!;
       for (const file of FILES) {
-        const src = readFileSync(file, 'utf8');
+        const src = senzaCommenti(readFileSync(file, 'utf8'));
         // `detail` è la parte che si vede sulla card: se una di queste stringhe
         // è scritta qui, la frase ha due autori e uno dei due sbaglierà.
         if (src.includes(r.detail)) colpevoli.push(`${relative(SRC, file)} scrive «${r.detail}» (${kind})`);
