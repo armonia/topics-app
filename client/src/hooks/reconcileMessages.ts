@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../types';
+import { isClientGeneratedMessageId } from './streamCatchupMerge';
 
 /**
  * Riconciliazione per IDENTITÀ della storia di una chat.
@@ -70,19 +71,110 @@ export function sameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
  * turno visto con un nome provvisorio. Si butta il nome provvisorio. Tutto il
  * resto (un messaggio utente appena inviato, un `message:new` arrivato durante
  * il fetch) continua a passare come prima.
+ *
+ * IL SECONDO DIFETTO CHE CHIUDE, ed è quello visto in chat. Il messaggio che
+ * scrivi lo disegna subito questa finestra, con un id coniato in locale; il
+ * server lo scrive nel DB sotto un id suo e lo annuncia in broadcast, ma il
+ * `message:new` della PROPRIA finestra viene scartato (`isOwnStream`), quindi
+ * quel nome provvisorio resta. Finché nessuno ricarica la storia non si vede
+ * niente. Al primo `loadHistory` (e nella notte fra il 18 e il 19/08 la
+ * WebSocket cadeva e si riapriva di continuo, quindi di ricarichi ce n'erano a
+ * decine) la riga del server arriva al suo posto e il segnaposto locale, non
+ * essendo in `fetchedIds`, veniva tenuto e appeso IN FONDO: la domanda compariva
+ * due volte, e con essa sembrava che la chat avesse risposto due volte.
+ *
+ * La regola: un id coniato in locale non è un'autorità, è un'attesa di nome. Se
+ * nella storia c'è una riga con lo STESSO ruolo e lo STESSO testo che nessun id
+ * locale ha già rivendicato, quel segnaposto è la sua eco e si butta.
+ *
+ * E il caso che morde, quello per cui il conto è a MOLTEPLICITÀ e non un
+ * `Set` di testi: mandare due volte la stessa domanda è legittimo. Ogni
+ * segnaposto consuma UNA riga di storia; se la storia ne ha due, restano due, e
+ * se ne ha una sola mentre a schermo ce ne sono due (la seconda appena spedita,
+ * che il server ancora non conosce) la seconda resta a schermo. Nascondere un
+ * messaggio che c'è sarebbe un difetto peggiore di mostrarne uno di troppo.
  */
 export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
   if (existing.length === 0) return fetched;
   const fetchedIds = new Set<string>();
   for (const m of fetched) if (m.id) fetchedIds.add(m.id);
+  const existingIds = new Set<string>();
+  for (const m of existing) if (m.id) existingIds.add(m.id);
   const coda = fetched[fetched.length - 1];
   const codaInVolo = coda?.role === 'assistant' && coda.partial === true;
+
+  // Le righe della storia che nessun messaggio a schermo rivendica già per id:
+  // sono le sole su cui un segnaposto locale può riconoscersi, e si contano
+  // perché due righe uguali valgono due echi, non uno.
+  const echiDisponibili = new Map<string, number>();
+  for (const m of fetched) {
+    if (m.id && existingIds.has(m.id)) continue;
+    const k = echoKey(m);
+    if (!k) continue;
+    echiDisponibili.set(k, (echiDisponibili.get(k) ?? 0) + 1);
+  }
+
   const localOnly = existing.filter((m) => {
     if (!m.id || fetchedIds.has(m.id)) return false;
     if (codaInVolo && m.role === 'assistant' && m.partial === true) return false;
+    if (isClientGeneratedMessageId(m.id)) {
+      const k = echoKey(m);
+      const disponibili = k ? echiDisponibili.get(k) ?? 0 : 0;
+      if (k && disponibili > 0) {
+        echiDisponibili.set(k, disponibili - 1);
+        return false;
+      }
+    }
     return true;
   });
   return localOnly.length > 0 ? [...fetched, ...localOnly] : fetched;
+}
+
+/**
+ * IL NOME VERO DELLA BOLLA CHE HAI APPENA SCRITTO.
+ *
+ * La finestra da cui parte il messaggio lo disegna subito, con un id coniato in
+ * locale, e il `message:new` che porta l'id del DB lo scarta come «roba mia»
+ * (`isOwnStream`). Quel segnaposto resta quindi senza nome vero per tutta la
+ * vita della pagina, e ogni ricarico della storia deve riconoscerlo dal TESTO
+ * per non disegnarlo due volte. Qui il nome arriva: la copia ottimistica adotta
+ * l'id durevole, e da quel momento la dedupe torna a essere per identità.
+ *
+ * Si prende la PRIMA bolla con un nome provvisorio, stesso ruolo e stesso testo,
+ * non l'ultima: gli annunci arrivano nell'ordine in cui il server ha scritto le
+ * righe, quindi la stessa domanda mandata due volte prende i due id nell'ordine
+ * giusto. Se l'id c'è già nella lista non si tocca niente.
+ *
+ * Restituisce l'array PRECEDENTE quando non c'è niente da adottare.
+ */
+export function adoptDurableMessageId(
+  messages: ChatMessage[],
+  incoming: { role: ChatMessage['role']; content: string; id: string },
+): ChatMessage[] {
+  if (!incoming.id || !incoming.content.trim()) return messages;
+  const chiave = `${incoming.role}\n${incoming.content.trim()}`;
+  if (messages.some((m) => m.id === incoming.id)) return messages;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!isClientGeneratedMessageId(m.id)) continue;
+    if (echoKey(m) !== chiave) continue;
+    const out = [...messages];
+    out[i] = { ...m, id: incoming.id };
+    return out;
+  }
+  return messages;
+}
+
+/**
+ * Ruolo + testo, la sola coppia su cui due copie dello stesso messaggio possono
+ * riconoscersi quando i loro id non lo permettono. Vuoto (`null`) per i corpi
+ * senza testo: un segnaposto ancora vuoto non deve poter «riconoscersi» in una
+ * riga qualunque della storia.
+ */
+function echoKey(m: ChatMessage): string | null {
+  const testo = (m.content ?? '').trim();
+  if (!testo) return null;
+  return `${m.role}\n${testo}`;
 }
 
 /**

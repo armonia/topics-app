@@ -12,7 +12,7 @@ import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './live
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
 import { useRefMirror } from './useRefMirror';
-import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
+import { reconcileMessages, mergeFetchedHistory, adoptDurableMessageId } from './reconcileMessages';
 import { buildRequestMessages } from './chatRequestPayload';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
@@ -1611,6 +1611,27 @@ export function useChat() {
     // Handle stream events directly
     if (event.type?.startsWith('stream:') || event.type === 'message:media') {
       handleStreamEvent(event);
+    }
+    // Il nome durevole del messaggio che questa finestra ha appena mandato.
+    //
+    // Il gestore dei pannelli scarta questo frame quando lo stream è nostro (la
+    // bolla è già a schermo, e riaggiungerla sarebbe il doppione che si vuole
+    // evitare), ma insieme al frame buttava via l'unica occasione di sapere
+    // sotto quale id il server ha scritto quella riga. Da qui in poi la copia
+    // ottimistica porta l'id del DB, e il ricarico della storia la riconosce
+    // per identità invece che per testo. Non aggiunge MAI niente: se non trova
+    // un segnaposto da ribattezzare, non tocca la lista.
+    if (event.type === 'message:new' && event.role === 'user' && event.messageId) {
+      const durevole = { role: 'user' as const, content: event.content ?? '', id: event.messageId };
+      const sk = event.sessionKey;
+      if (sk) {
+        setMessages(prev => {
+          const correnti = prev[sk];
+          if (!correnti || correnti.length === 0) return prev;
+          const next = adoptDurableMessageId(correnti, durevole);
+          return next === correnti ? prev : { ...prev, [sk]: next };
+        });
+      }
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
