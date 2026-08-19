@@ -357,7 +357,17 @@ export default defineConfig({
     {
       name: "webkit",
       testMatch: ["**/drag-preview.spec.ts"],
-      use: { browserName: "webkit" },
+      use: {
+        browserName: "webkit",
+        /* I permessi del `use` globale sono quelli della clipboard, e WebKit non
+           li conosce: il contesto muore in partenza con «Unknown permission:
+           clipboard-write», prima ancora che si apra una pagina, quindi ogni
+           test di questo progetto sarebbe rosso per la configurazione e non per
+           il prodotto. Si azzerano QUI e non nel blocco globale, dove servono al
+           resto della suite. Questa spec la clipboard non la tocca, quindi
+           azzerarli non le toglie niente. */
+        permissions: [],
+      },
     },
   ],
 });
