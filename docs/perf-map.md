@@ -88,19 +88,31 @@ hydrate from the server touch the same state on their own schedule. A memory of
 them, and the next PUT gets skipped for resembling a body that was not its own.
 Three patches moved the defect without removing it, at which point the question
 stopped being "how do I fix this" and became "is it needed": measured without
-it, **0-2 writes at rest in 30s** against 26 with the defect. The cause was
-upstream and already fixed — no idle dispatch, no `lastSeq` bump, no debounce,
-nothing to filter. A second net over a closed hole, costing a silent
-regression.
+it, **0-2 writes at rest in 30s** against 26 with the defect. At that moment the
+answer was no — the cause looked upstream and already fixed.
 
-| | before | after | stable under load? |
+That reading was right about the FIRST cause and wrong about the channel being
+clean. Hours later the same gate read 12-17 writes again, from a second cause
+(peer hydrates bumping `lastSeq`) that the first fix had been masking. So the
+withdrawal above still stands on its own merits — that gate broke a tab close,
+and a gate that trades a working write for saved bandwidth is a bad trade
+whatever else is true — but "nothing to filter" was too strong. There was
+something to filter; it just could not be filtered from there without cost.
+
+| | before | after | holds? |
 |---|---|---|---|
-| writes at rest (30s) | 26 | **0** | yes — the gate reads 0 at load 114 too |
-| PUTs of `pane-store-v2` while idle (25s) | 16 | 1 | yes |
-| first board card after reload | 7,176 ms | **402-473 ms** | only when idle — see below |
+| first board card after reload | 7,176 ms | **402-473 ms** | yes, when the machine is idle |
 | API requests at boot | 97 | 82-96 | roughly |
 | bytes downloaded at boot | 9.35 MB | 5.4-8.0 MB | roughly |
-| reads of the 1.2 MB feed | 4 | 2-4 | **no** |
+| reads of the 1.2 MB feed | 4 | 2-4 | load-sensitive |
+| writes at rest (30s) | 26 | 0, then **12-17 again** | **NO — see below** |
+
+**The writes row went back up, and leaving it at "0" would have been the worst
+kind of stale.** Fixing `UPDATE_PANE` really did take a still window from 26
+writes to 0, measured repeatedly over an hour. Hours later the same gate reads
+12-17 again: a SECOND cause, in the same channel, that the first fix had been
+masking. Both are real; only the first is fixed. The row now says so, because
+this table is what the next person reads before deciding where to look.
 
 **The bottom three rows are load-sensitive, and that is worth stating.** The
 464 ms was measured on a quiet machine; re-measured hours later at load 114-221
