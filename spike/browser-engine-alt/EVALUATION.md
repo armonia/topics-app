@@ -298,13 +298,21 @@ Obscura patchato nello stesso momento:
 | 3 pane caricate | 1805 MB (15 proc) | **225 MB** (1 proc) | **1580 MB** |
 | marginale per pane | 371 MB | **68 MB** | 303 MB |
 
-Sull'**app intera** (guscio Tauri 93 MB + WebKit della UI 592 MB + motore browser):
+Sull'**app intera** (guscio Tauri 93 MB + WebKit della UI **353 MB** + motore browser):
 
 | | con 3 pane aperte |
 |---|---|
-| oggi | **2490 MB** |
-| con Obscura | **910 MB** |
-| **guadagno** | **1580 MB, il 63% dell'app** (l'88% della sola parte browser) |
+| oggi | **2251 MB** |
+| con Obscura | **671 MB** |
+| **guadagno** | **1580 MB, il 70% dell'app** (l'88% della sola parte browser) |
+
+> Correzione a una prima lettura sbagliata: avevo sommato **592 MB** di processi
+> `com.apple.WebKit.*` come se fossero tutti di Topics. Sono XPC reparented a `launchd`
+> (`ppid=1`), quindi il ppid non li attribuisce: 287 MB appartenevano a un'altra app,
+> avviata alle 01:02 mentre Topics gira dalle 20:11. Attribuiti per orario di avvio, i
+> processi di Topics sono **353 MB** (WebContent 313 + GPU 73 + Networking 25, letti in
+> un istante di picco). È lo stesso errore di attribuzione che `wkbench.swift` evita
+> facendo il diff dei pid, e qui l'avevo rifatto a mano.
 
 **Le tre avvertenze che rendono il numero onesto:**
 
@@ -315,9 +323,12 @@ Sull'**app intera** (guscio Tauri 93 MB + WebKit della UI 592 MB + motore browse
    aperte a lungo, o per l'agente che ne apre molte**.
 2. **Il marginale reale è peggiore del banco sintetico**: 371 MB per pane su siti veri
    contro i 219 misurati su Wikipedia. Il confronto giusto è 371 → 68, cioè **5.5×**.
-3. **Il guadagno non tocca la UI.** I 592 MB di WebKit che tengono l'interfaccia
-   restano: quello è il costo della pane nativa, ed è già il più basso disponibile
-   (37 MB a sessione). Obscura non ci entra.
+3. **Il guadagno non tocca la UI.** I ~353 MB di WebKit che tengono l'interfaccia
+   restano: quello è il costo della WebView che disegna Topics, ed è già il più basso
+   disponibile (37 MB a sessione misurati con `wkbench.swift`). Obscura non ci entra —
+   e `bench/results/memory-anatomy.json` mostra che quel numero **non è nemmeno fermo**:
+   oscilla fra 210 e 448 MB su 25 letture, perché il kernel comprime e decomprime le
+   stesse pagine mentre l'app lavora.
 
 Tradotto: **1.6 GB in meno con tre pane aperte**, e la differenza cresce con le pane —
 ma solo mentre sono aperte davvero.
