@@ -1,17 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <circle cx="32" cy="32" r="32" fill="#1a1a2e"/>
-  <!-- Sound wave / harmonic arcs representing Armonia -->
-  <path d="M20 32 C20 22 24 16 32 16 C40 16 44 22 44 32 C44 42 40 48 32 48 C24 48 20 42 20 32Z" fill="none" stroke="#6366f1" stroke-width="2.5" opacity="0.3"/>
-  <!-- Inner harmonic waves -->
-  <path d="M14 32 Q14 8 32 8 Q50 8 50 32 Q50 56 32 56 Q14 56 14 32" fill="none" stroke="#818cf8" stroke-width="1.5" opacity="0.2"/>
-  <!-- Music note / A letter stylized -->
-  <path d="M24 44 L32 20 L40 44" stroke="#a5b4fc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <path d="M27 37 L37 37" stroke="#a5b4fc" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- Harmonic dots -->
-  <circle cx="32" cy="20" r="2" fill="#c7d2fe"/>
-  <!-- Wave lines around -->
-  <path d="M10 28 Q12 24 14 28 Q16 32 18 28" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
-  <path d="M46 28 Q48 24 50 28 Q52 32 54 28" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
-  <path d="M10 36 Q12 40 14 36 Q16 32 18 36" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
-  <path d="M46 36 Q48 40 50 36 Q52 32 54 36" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Armonia">
+  <!-- Il marchio VERO di Armonia, non un disegno che gli somiglia. Il tracciato
+       viene dal set del brand (armonia-logo-mark.svg); la composizione - piastra
+       bianca quadrata, glifo con un inset del 18,75% e tinta #1C212E - e' quella
+       misurata sull'icona ufficiale a 640x640, non una scelta fatta qui.
+       La piastra serve: l'icona si disegna a 14px con `rounded-full` su una
+       barra scura, e il glifo da solo, che e' quasi nero, sparirebbe. -->
+  <rect width="64" height="64" fill="#FFFFFF"/>
+  <g transform="translate(12.000 11.512) scale(0.97561)">
+    <path d="M18.5271 30.5037C21.0625 31.9805 24.1412 32.1562 26.9785 31.6182C35.4738 30.0425 41.1867 22.2574 40.5665 13.6926C40.4348 9.41574 38.7445 5.23769 36.2475 1.81728L32.4773 4.56788C34.6067 7.38436 35.9622 10.4644 36.1652 13.9342C36.4232 16.9758 35.7811 20.1107 33.9755 22.6307C32.5158 24.7609 30.3645 26.3915 27.9334 27.2809L27.2035 25.9084C28.2681 25.0464 29.1791 23.9868 29.8486 22.7844C31.3194 20.2479 31.4895 17.1734 30.9572 14.346C29.4645 6.1271 21.8637 0.301979 13.5605 0.768647C9.09884 0.801589 4.77985 2.49807 1.2127 5.10592L3.89629 8.78986C6.71708 6.65965 9.81226 5.30357 13.2861 5.10043C16.3374 4.84788 19.4765 5.49573 22.0009 7.3075C24.1138 8.76241 25.7382 10.8981 26.6327 13.3028L25.2662 14.022L25.2772 14.044C24.4101 12.9679 23.3455 12.0456 22.1326 11.3703C19.5917 9.8879 16.5075 9.71221 13.6703 10.2448C5.42742 11.7271 -0.428183 19.3585 0.0218263 27.6982C0.043778 32.1837 1.74503 36.5319 4.35728 40.1171L8.23175 37.2896C6.10243 34.4841 4.75241 31.4205 4.54387 27.9562C4.28594 24.9201 4.92253 21.8017 6.71159 19.2872C8.10004 17.2503 10.1306 15.6746 12.419 14.7632L12.4026 14.7742L13.2532 16.0864C12.2434 16.9319 11.3763 17.953 10.7342 19.106C9.2525 21.648 9.07689 24.7335 9.60921 27.5719C11.0909 35.8237 18.7191 41.6763 27.0498 41.2261C31.5334 41.1986 35.8799 39.5021 39.469 36.8888L36.6427 33.0127C33.8384 35.1374 30.7761 36.4935 27.3187 36.7021C24.2839 36.9602 21.1668 36.3233 18.6533 34.5335C16.5624 33.1006 14.949 31.0033 14.0489 28.6315L15.4374 27.8903C16.2935 28.939 17.3417 29.8339 18.5216 30.4927L18.5271 30.5037ZM20.3106 14.7467C23.7296 14.7467 26.501 17.5193 26.501 20.9397C26.501 24.3601 23.7296 27.1382 20.3106 27.1382C16.8917 27.1382 14.1148 24.3656 14.1148 20.9397C14.1148 17.5138 16.8862 14.7467 20.3106 14.7467Z" fill="#1C212E"/>
+  </g>
 </svg>
