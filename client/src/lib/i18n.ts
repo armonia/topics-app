@@ -1113,6 +1113,12 @@ const IT: Dict = {
   'files.trashOneLead': 'Sposto ',
   'files.trashOneTail': ' nel cestino di sistema. Da lì puoi rimetterlo a posto.',
   'files.trashMany': 'Sposto {n} elementi nel cestino di sistema. Da lì puoi rimetterli a posto.',
+  // L'anteprima di cio' che si trascina fuori dall'albero. A selezione multipla
+  // il titolo e' il conteggio, perche' venti file col nome di uno solo sarebbero
+  // una bugia; i due badge dicono cosa e' la riga e in che stato l'hai lasciata.
+  'files.dragMany': '{n} elementi',
+  'files.dragFolder': 'cartella',
+  'files.dragCut': 'tagliato',
   // ── Script del progetto. `scripts.noManifest` tiene il valore IT alla
   //    lettera: `project-scripts.spec.ts` lo ancora.
   'scripts.noManifest': 'Nessun manifest di script in questa cartella.',
@@ -1207,6 +1213,12 @@ const IT: Dict = {
   'space.reattach': 'Riporta in questa finestra',
   'space.dissolveTitle': 'Le tab tornano tutte nel gruppo principale; niente si chiude',
   'space.dissolve': 'Sciogli nel principale',
+  // L'anteprima di una RIGA del layout mentre la trascini. Una riga non ha un
+  // nome proprio, quindi il titolo e' la sua posizione e il sottotitolo dice
+  // l'unica cosa che la distingue dalle sorelle: quanti gruppi ci stanno dentro.
+  'space.row.title': 'Riga {n}',
+  'space.row.groups.one': '1 gruppo',
+  'space.row.groups.many': '{n} gruppi',
   // ── Barra di stato in fondo alla colonna. `statusBar.agents.awaitingInput`
   //    tiene il valore IT alla lettera: `turn-awaiting-input.spec.ts` ancora
   //    «in attesa di una tua risposta» nel `title`.

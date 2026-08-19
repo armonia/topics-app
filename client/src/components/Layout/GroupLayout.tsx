@@ -15,6 +15,7 @@ import { usePaneAlive } from '../../state/paneLiveness';
 import { canSplitPane } from './splitRules';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
+import { useT } from '../../hooks/useT';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
@@ -211,6 +212,7 @@ export function GroupLayout({
   }, []);
 
   const { getBadgeCount, clearPane } = useTabNotifications();
+  const tr = useT();
 
   const paneMap = useMemo(() => {
     const m = new Map<string, Pane>();
@@ -616,12 +618,18 @@ export function GroupLayout({
     // distingue dalle sorelle: quante pane ci stanno dentro. Il registro dei
     // fantasmi da drenare non serve più — vedi `lib/dragPreview`, che si spegne
     // da sé su cinque porte agganciate al documento.
-    const quante = rows[rowIdx]?.groupIds.length ?? 0;
+    //
+    // Passa dal catalogo e non da una stringa scritta qui: il prodotto spedisce
+    // in inglese, e un titolo cucito nel componente e' l'unica riga di questa
+    // anteprima che nessun selettore di lingua puo' cambiare.
+    const quanti = rows[rowIdx]?.groupIds.length ?? 0;
     startDragPreview(e, {
-      title: `Riga ${rowIdx + 1}`,
-      subtitle: quante > 0 ? `${quante} ${quante === 1 ? 'riquadro' : 'riquadri'}` : undefined,
+      title: tr('space.row.title', { n: rowIdx + 1 }),
+      subtitle: quanti > 0
+        ? (quanti === 1 ? tr('space.row.groups.one') : tr('space.row.groups.many', { n: quanti }))
+        : undefined,
     });
-  }, [onReorderRows, rows]);
+  }, [onReorderRows, rows, tr]);
 
   const handleRowDragOver = useCallback((rowIdx: number) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.LAYOUT_ROW)) return;
