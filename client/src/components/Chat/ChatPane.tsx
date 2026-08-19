@@ -30,6 +30,17 @@ import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters';
 import { useToast } from '../Shared/Toast';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
+import {
+  effortKey,
+  isDraftTopicId,
+  providerOverrideKey,
+  rememberEffort,
+  rememberProviderSelection,
+  safeStore,
+  sameSelection,
+  seedEffort,
+  seedProviderOverride,
+} from '../../lib/composerMemory';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
 
@@ -412,34 +423,18 @@ function ChatPaneComponent({
   // Cross-window sync stays available via the read path (next page load picks
   // up `topic.model` from the server). A future revisit can add per-window
   // live sync when we have a deliberate UX for it.
-  const [providerOverride, setProviderOverride] = useState<{ provider: string; model: string } | null>(() => {
-    if (topic.provider && topic.model) return { provider: topic.provider, model: topic.model };
-    // Draft topics never hit the server PATCH (the pick is gated in
-    // handleProviderOverrideChange), so a draft's provider/model lives ONLY in
-    // localStorage — mirror the Fast Mode pattern below so picking e.g. Codex on
-    // a NEW chat survives a refresh before the first message is sent. Without
-    // this the pick silently reverts to the global default on reload (the draft
-    // pane itself survives, but the synthetic draft topic carries no
-    // provider/model to reseed from).
-    if (topic.id.startsWith('draft:')) {
-      try {
-        const raw = localStorage.getItem(`providerOverride:${topic.id}`);
-        if (raw) {
-          const p = JSON.parse(raw);
-          if (p && typeof p.provider === 'string' && typeof p.model === 'string') return { provider: p.provider, model: p.model };
-        }
-        // Nessun override per questo draft: eredita dall'ultima selezione fatta
-        // su qualunque chat. Cosi' aprire una nuova chat mantiene il modello
-        // scelto nell'ultima sessione, senza dover riselezionarlo ogni volta.
-        const lastRaw = localStorage.getItem('providerOverride:last');
-        if (lastRaw) {
-          const p = JSON.parse(lastRaw);
-          if (p && typeof p.provider === 'string' && typeof p.model === 'string') return { provider: p.provider, model: p.model };
-        }
-      } catch {}
-    }
-    return null;
-  });
+  // Da dove parte il picker: quello che il topic PERSISTE, poi la scelta fatta
+  // su questa bozza, poi l'ultima scelta fatta su qualunque chat. La regola sta
+  // in `lib/composerMemory.ts`, con i suoi test: le bozze non hanno riga sul
+  // server, e quest'ordine si era gia' sbagliato una volta.
+  const [providerOverride, setProviderOverride] = useState<{ provider: string; model: string } | null>(
+    () => seedProviderOverride({
+      topicId: topic.id,
+      topicProvider: topic.provider,
+      topicModel: topic.model,
+      store: safeStore(),
+    }),
+  );
   // Mirror state into a ref so the session-switch effect can read the latest
   // override without listing it as a dep (which would re-run the reseed every
   // time the user picks a model — the opposite of what we want).
@@ -450,18 +445,9 @@ function ChatPaneComponent({
   // the provider/model override above: real topics read `topic.effort` (kept in
   // sync via the `topic:updated` broadcast); drafts have no server row yet, so
   // the pick lives in localStorage until the draft is promoted.
-  const [effort, setEffort] = useState<string | null>(() => {
-    if (topic.effort) return topic.effort;
-    if (topic.id.startsWith('draft:')) {
-      try {
-        const own = localStorage.getItem(`effort:${topic.id}`);
-        if (own) return own;
-        // Eredita dall'ultima selezione fatta su qualunque chat.
-        return localStorage.getItem('effort:last') || null;
-      } catch {}
-    }
-    return null;
-  });
+  const [effort, setEffort] = useState<string | null>(
+    () => seedEffort({ topicId: topic.id, topicEffort: topic.effort, store: safeStore() }),
+  );
   const effortRef = useRef(effort);
   useEffect(() => { effortRef.current = effort; }, [effort]);
 
@@ -494,7 +480,7 @@ function ChatPaneComponent({
   // Keep local effort in sync when the server row updates (cross-window sync,
   // or our own PATCH echoed back via topic:updated).
   useEffect(() => {
-    if (!topic.id.startsWith('draft:')) setEffort(topic.effort ?? null);
+    if (!isDraftTopicId(topic.id)) setEffort(topic.effort ?? null);
   }, [topic.effort, topic.id]);
   // Track the previous topic id so we can detect a draft → real promotion vs
   // a genuine session switch.
@@ -508,8 +494,8 @@ function ChatPaneComponent({
   useEffect(() => {
     const prevId = prevTopicIdRef.current;
     prevTopicIdRef.current = topic.id;
-    const wasDraft = prevId.startsWith('draft:');
-    const isNowReal = !topic.id.startsWith('draft:');
+    const wasDraft = isDraftTopicId(prevId);
+    const isNowReal = !isDraftTopicId(topic.id);
     if (wasDraft && isNowReal && prevId !== topic.id) {
       // Draft → real promotion: the user's pick from the draft phase must
       // survive (server just created the real topic with NULL provider/model
@@ -523,7 +509,7 @@ function ChatPaneComponent({
       // handleProviderOverrideChange); the real topic now carries it on the
       // server, so drop the stale draft key (mirrors the fastMode migration
       // below).
-      try { localStorage.removeItem(`providerOverride:${prevId}`); } catch {}
+      safeStore().removeItem(providerOverrideKey(prevId));
       // Same story for Fast Mode (openspec change `chat-fast-mode`). The
       // composer toggle wrote to `fastMode:draft:abc` and skipped the PUT
       // (drafts have no server-side row to PUT to). Now that the real topic
@@ -541,10 +527,9 @@ function ChatPaneComponent({
       // Same migration for the per-topic effort override (migration 033).
       if (effortRef.current) {
         void onUpdateTopic(topic.id, { effort: effortRef.current });
-        try {
-          localStorage.setItem(`effort:${topic.id}`, effortRef.current);
-          localStorage.removeItem(`effort:${prevId}`);
-        } catch {}
+        const store = safeStore();
+        store.setItem(effortKey(topic.id), effortRef.current);
+        store.removeItem(effortKey(prevId));
       }
       // Stessa migrazione per l'autonomia. Senza, una scelta fatta sulla bozza
       // («Libero» prima di scrivere) veniva persa alla promozione e la chat
@@ -559,29 +544,43 @@ function ChatPaneComponent({
       }
       return;
     }
+    // Una BOZZA non ha riga sul server: qui non c'è niente da cui riseminare, e
+    // riseminare comunque voleva dire azzerare la scelta appena fatta. Succedeva
+    // davvero: `onUpdateTopic` è fra le dipendenze e per le bozze il gruppo di
+    // chat ne passa una NUOVA a ogni render (`isDraft ? async () => null : ...`,
+    // StandaloneChatGroup), quindi l'effetto ripartiva da solo e rimetteva il
+    // modello di default sotto le dita di chi l'aveva appena cambiato. La
+    // scelta della bozza vive nello stato locale e in localStorage finché la
+    // promozione non la porta sul topic reale.
+    if (isDraftTopicId(topic.id)) return;
     // Genuine session switch — reseed from whatever the new topic persists.
-    setProviderOverride(
-      topic.provider && topic.model ? { provider: topic.provider, model: topic.model } : null,
-    );
+    const seeded = seedProviderOverride({
+      topicId: topic.id,
+      topicProvider: topic.provider,
+      topicModel: topic.model,
+      store: safeStore(),
+    });
+    // Stesso valore, oggetto nuovo: assegnarlo sarebbe un render in più per
+    // niente (e con una dipendenza instabile, un render a ogni render).
+    setProviderOverride((prev) => (sameSelection(prev, seeded) ? prev : seeded));
   }, [topic.sessionKey, topic.id, topic.provider, topic.model, onUpdateTopic]);
 
-  const isDraftTopic = topic.id.startsWith('draft:');
+  const isDraftTopic = isDraftTopicId(topic.id);
   const handleProviderOverrideChange = useCallback((next: { provider: string; model: string } | null) => {
     setProviderOverride(next);
     // Aggiorna la "memoria globale" dell'ultima selezione: le chat nuove la
-    // leggono in inizializzazione e partono gia' con il modello giusto.
-    try {
-      if (next) localStorage.setItem('providerOverride:last', JSON.stringify(next));
-    } catch {}
+    // leggono in inizializzazione e partono gia' con il modello giusto. Tornare
+    // al default dell'app la CANCELLA — è una scelta anche quella, e tenersi il
+    // modello vecchio lo farebbe ricomparire nella chat dopo.
+    rememberProviderSelection(safeStore(), next);
     if (isDraftTopic) {
       // No server row to PATCH yet — persist the pick device-locally (same
       // approach as Fast Mode for drafts) so it survives a reload before the
       // draft is promoted on send. The promotion effect above migrates it to
       // the real topic id + the server and clears this key.
-      try {
-        if (next) localStorage.setItem(`providerOverride:${topic.id}`, JSON.stringify(next));
-        else localStorage.removeItem(`providerOverride:${topic.id}`);
-      } catch {}
+      const store = safeStore();
+      if (next) store.setItem(providerOverrideKey(topic.id), JSON.stringify(next));
+      else store.removeItem(providerOverrideKey(topic.id));
       return;
     }
     // Best-effort persist so a reload (or another pane on the same topic) sees
@@ -595,17 +594,15 @@ function ChatPaneComponent({
 
   const handleEffortChange = useCallback((next: string | null) => {
     setEffort(next);
-    // Aggiorna la "memoria globale" dell'ultima selezione.
-    try {
-      if (next) localStorage.setItem('effort:last', next);
-    } catch {}
+    // Stessa memoria del modello: l'ultima scelta vale per le chat nuove, e
+    // rimettere il default del provider la cancella.
+    rememberEffort(safeStore(), next);
     if (isDraftTopic) {
       // No server row yet — persist device-locally; the promotion effect above
       // migrates it to the real topic id on first send.
-      try {
-        if (next) localStorage.setItem(`effort:${topic.id}`, next);
-        else localStorage.removeItem(`effort:${topic.id}`);
-      } catch {}
+      const store = safeStore();
+      if (next) store.setItem(effortKey(topic.id), next);
+      else store.removeItem(effortKey(topic.id));
       return;
     }
     // Persist through the topic PATCH; the server forces an idle CLI respawn so
