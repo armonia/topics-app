@@ -9,6 +9,7 @@ import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
 import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
+import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell } from '../../state/signals';
@@ -16,10 +17,10 @@ import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { rememberDraggedPane } from '../../lib/dragPayload';
+import { startDragPreview, endDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES, paneTabScopeType, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
-import { InsertCaret } from './DropOverlay';
 import { useMobile } from '../../hooks/useMobile';
 import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -563,16 +564,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     openTabMenu(paneId, e.currentTarget as HTMLElement);
   }, [openTabMenu]);
 
-  const dragGhostRef = useRef<HTMLDivElement | null>(null);
-  // Cleanup ghost element if component unmounts during drag
-  useEffect(() => {
-    return () => {
-      if (dragGhostRef.current) {
-        dragGhostRef.current.remove();
-        dragGhostRef.current = null;
-      }
-    };
+  // L'ETICHETTA DI UNA TAB, UNA VOLTA SOLA. Il `title` non basta da solo: per
+  // le utility è una copia congelata il giorno in cui la pane è nata (comanda
+  // `PANE_CONFIG`), e una chat senza nome è «New Chat», non il suo id. La regola
+  // la applica anche il render, più sotto: qui serve perché l'anteprima del
+  // trascinamento deve dire la STESSA parola che sta scritta sulla tab.
+  const etichettaTab = useCallback((pane: Pane | undefined, paneId: string): string => {
+    if (!pane) return paneId;
+    const config = getPaneConfig(pane.type);
+    return (isUtilityPanelId(pane.id) ? config.label : pane.title)
+      || (pane.type === 'chat' ? 'New Chat' : config.label);
   }, []);
+
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
     // Record the gesture origin for the sub-slop click recovery (see the ref
@@ -605,47 +608,34 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_SCOPE, dndScope);
     }
     e.dataTransfer.effectAllowed = 'move';
-    // Custom drag image: a compact tab-like chip instead of the browser's
-    // default file icon. The element must be in the DOM AND on-screen at
-    // setDragImage time: Chromium snapshots an off-screen element fine, but
-    // WKWebView (Tauri) returns an EMPTY image for anything outside the visual
-    // viewport and falls back to the generic macOS document icon — the "tab
-    // looks like a file while dragging" report. So we render it AT THE CURSOR
-    // for the single capture frame (setDragImage's offset governs the final
-    // image placement, so this on-screen position causes no perceptible flash)
-    // and remove it next frame. Styled to match app chrome (elevated surface +
-    // border + a small accent dot); the title is truncated so a long label
-    // (e.g. a browser pane's URL) can't blow the chip up into a wall of text.
-    const ghost = document.createElement('div');
-    const pane = panes.find(p => p.id === paneId);
-    ghost.style.cssText = `
-      position:fixed;left:${e.clientX}px;top:${e.clientY}px;
-      display:inline-flex;align-items:center;gap:7px;
-      max-width:240px;padding:5px 11px;border-radius:9px;
-      font:500 12px/1.2 Inter,system-ui,sans-serif;
-      background:var(--bg-elevated);color:var(--text);
-      border:1px solid var(--border);
-      box-shadow:0 8px 24px rgba(0,0,0,0.22);
-      white-space:nowrap;pointer-events:none;
-    `;
-    const dot = document.createElement('span');
-    dot.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:9999px;background:var(--primary);';
-    const label = document.createElement('span');
-    label.textContent = pane?.title || paneId;
-    label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-    ghost.append(dot, label);
-    document.body.appendChild(ghost);
-    // Grab point near the chip's left edge so it trails the cursor like a tab.
-    e.dataTransfer.setDragImage(ghost, 14, ghost.offsetHeight / 2);
-    dragGhostRef.current = ghost;
-    // Remove after browser captures the image (next frame)
-    requestAnimationFrame(() => {
-      if (dragGhostRef.current === ghost) {
-        ghost.remove();
-        dragGhostRef.current = null;
-      }
+    // COSA HO IN MANO. Qui c'era la pillola scritta a mano — un nodo costruito
+    // e stilizzato in questo file, la quinta copia della stessa idea — e la
+    // segnalazione nasce proprio qui: «fra tabbar splittate è difficile fare il
+    // drop perché non c'è nessuna anteprima». Adesso la decide `lib/dragPreview`
+    // per tutti, e la scheda RESTA sotto al puntatore invece di sparire al
+    // frame dopo la fotografia.
+    //
+    // Sotto il nome sta il contesto, che è la metà mancante quando i gruppi
+    // sono due: il progetto per una tab di progetto, l'indirizzo per una pane
+    // browser, il tipo per tutto il resto. Due tab chiamate «index.ts» in due
+    // colonne diverse sono indistinguibili senza.
+    const dragged = panes.find(p => p.id === paneId);
+    const sottotitolo = dragged?.projectPath
+      ? getProjectLabel(dragged.projectPath)
+      : dragged?.type === 'browser'
+        ? (getBrowserPaneUrl(dragged.id) || undefined)
+        : dragged
+          ? getPaneConfig(dragged.type).label
+          : undefined;
+    startDragPreview(e, {
+      // Stessa regola dell'etichetta disegnata sulla tab: per le utility
+      // comanda la config, perché il loro `title` è solo una copia congelata
+      // il giorno in cui la pane è nata.
+      title: etichettaTab(dragged, paneId),
+      subtitle: sottotitolo,
+      badges: tabNotifications?.get(paneId) ? [String(tabNotifications.get(paneId))] : [],
     });
-  }, [onReorderPanes, groupId, panes, dndScope]);
+  }, [onReorderPanes, groupId, panes, dndScope, tabNotifications, etichettaTab]);
 
   const handleTabDragOver = useCallback((paneIdx: number) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
@@ -761,10 +751,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     const consumed = dropConsumedRef.current;
     dropConsumedRef.current = false;
     resetDrag();
-    if (dragGhostRef.current) {
-      dragGhostRef.current.remove();
-      dragGhostRef.current = null;
-    }
+    // Ridondante con le porte di spegnimento del contratto, e voluto: nella
+    // WKWebView il `dragend` che quelle ascoltano si perde quando il rilascio
+    // cade sopra una vista nativa, e questo è l'unico posto in cui SAPPIAMO che
+    // il gesto della tab è finito.
+    endDragPreview();
     if (!consumed && start && onActivate && Number.isFinite(e.clientX) && (e.clientX !== 0 || e.clientY !== 0)) {
       const dx = Math.abs(e.clientX - start.x);
       const dy = Math.abs(e.clientY - start.y);
@@ -1044,8 +1035,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // il giorno in cui la pane è nata. Farla vincere significa che
         // ribattezzare la board lascia «Board generale» sulla tab di chi ce
         // l'ha già aperta, per sempre. Per loro comanda la config.
-        const label = (isUtilityPanelId(pane.id) ? config.label : pane.title)
-          || (pane.type === 'chat' ? 'New Chat' : config.label);
+        // La regola sta in `etichettaTab`, in cima: la parola scritta sulla tab
+        // e quella dell'anteprima di trascinamento devono essere la stessa.
+        const label = etichettaTab(pane, pane.id);
         // Lo stato A PAROLE, per chi non vede il colore.
         //
         // Una tab non diceva il proprio stato da nessuna parte: né `title` né
@@ -1195,8 +1187,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             onDragStart={handleTabDragStart(pane.id)}
             onDragOver={handleTabDragOver(paneIdx)}
             onDragEnd={handleTabDragEnd}
+            // DOVE CADRÀ: la tab lo dice da sé, con l'attributo del contratto
+            // (`lib/dragPreview`, DROP_ACTIVE_ATTR) invece di montarsi dentro
+            // una lama disegnata a parte. Il disegno sta in `index.css` in una
+            // regola sola, quindi la barra e ogni altra superficie che accetta
+            // un inserimento posizionale mostrano ORA la stessa cosa. Si spegne
+            // con `resetDrag`, che è già agganciato a ogni via d'uscita del
+            // gesto — drop, dragend, e il `dragend` di finestra per il bersaglio
+            // che un `dragend` proprio non lo riceve mai.
+            data-drop-active={showLeftIndicator ? 'before' : showRightIndicator ? 'after' : undefined}
           >
-            {showLeftIndicator && <InsertCaret side="left" />}
             {/* No selection colour wash: the tab colour is an auto-assigned
                 topic default ("invented"), not a manifest-provided colour, so a
                 selected tab just uses the normal selected styling. When a real
@@ -1433,7 +1433,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 onClose={onClose}
               />
             )}
-            {showRightIndicator && <InsertCaret side="right" />}
           </div>
         );
       })}
@@ -1448,20 +1447,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {edgeSplitZone && (
         <div
           data-tab-edge-split={edgeSplitZone}
+          // `split`, cioè «questo rilascio taglia il bersaglio in due»: il
+          // colore, il filo e il raggio li porta la regola unica di `index.css`.
+          // Qui restano solo GEOMETRIA e posizione, che sono le uniche cose che
+          // questa striscia sa e la regola no — dove comincia il bordo, e che è
+          // larga quanto la banda che il taglio lo fa scattare davvero.
+          data-drop-active="split"
           style={{
             position: 'absolute',
             top: 0,
             bottom: 0,
             width: EDGE_DROP_PX,
             ...(edgeSplitZone === 'left' ? { left: 0 } : { right: 0 }),
-            background: 'color-mix(in srgb, var(--primary) 22%, transparent)',
-            boxShadow: edgeSplitZone === 'left'
-              ? 'inset -2px 0 0 0 var(--primary)'
-              : 'inset 2px 0 0 0 var(--primary)',
-            borderRadius: 4,
             pointerEvents: 'none',
             zIndex: 40,
-            transition: 'all 140ms ease',
           }}
         />
       )}

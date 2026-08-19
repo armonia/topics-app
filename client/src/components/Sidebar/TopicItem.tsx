@@ -8,7 +8,8 @@ import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionP
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { rememberDraggedPane } from '@/lib/dragPayload';
-import { spawnDragGhost } from '@/components/Layout/dragGhost';
+import { startDragPreview } from '@/lib/dragPreview';
+import { getProjectLabel } from '@/lib/buildSidebarItems';
 import { DND_TYPES } from '@/lib/dndTypes';
 import { useTopicLoading, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
@@ -86,10 +87,6 @@ interface TopicItemProps {
      (vedi ARCHIVED_ROW). Una prop che governa una cosa sparita è zavorra in due
      file — quello che la dichiara e quello che continua a passarla. */
 }
-
-/** I nodi del ripiego ancora attaccati, per drenarli se la riga si smonta a
- *  metà gesto. Vedi `spawnDragGhost`. */
-const DRAG_GHOSTS = new Set<HTMLElement>();
 
 export const TopicItem = memo(function TopicItem({
   topic,
@@ -220,12 +217,24 @@ export const TopicItem = memo(function TopicItem({
     e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
     rememberDraggedPane(topic.id);
     e.dataTransfer.effectAllowed = 'move';
-    // L'immagine trascinata la decide `spawnDragGhost`, che fotografa la RIGA
-    // stessa — con la sua icona e i suoi segnali. Qui c'era la quarta copia
-    // scritta a mano della pillola blu: un rettangolo col solo nome in bianco,
-    // cioè una didascalia al posto della cosa.
-    spawnDragGhost(e, { text: topic.name, size: 'md' }, DRAG_GHOSTS);
-  }, [topic.id, topic.name]);
+    // COSA HO IN MANO: la scheda intera, decisa in un posto solo
+    // (`lib/dragPreview`). La riga porta un nome, il progetto in cui vive e i
+    // segnali che la stanno chiamando: chi trascina deve riconoscere la cosa,
+    // e fra due chat omonime di due progetti diversi il nome da solo non basta.
+    // Niente glifo e niente `accent`: la riga non li porta. Il glifo davanti al
+    // nome di una chat non c'è per scelta («solo le sessioni agente hanno un
+    // marchio»), e `topic.color` è un default inventato che la sidebar non
+    // dipinge da nessuna parte. Un'anteprima che mostra ciò che la cosa non ha
+    // non è l'anteprima della cosa.
+    startDragPreview(e, {
+      title: topic.name,
+      subtitle: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
+      badges: [
+        notificationCount > 0 ? String(notificationCount) : '',
+        archived ? 'archiviata' : '',
+      ].filter(Boolean),
+    });
+  }, [topic.id, topic.name, topic.projectPath, notificationCount, archived]);
 
   return (
     <div

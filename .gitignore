@@ -113,6 +113,7 @@ docs/*
 # normale fa entrare Internet come proprietario — e la regola per evitarlo. Una
 # nota del genere che vive solo sulla macchina di chi l'ha scritta non protegge
 # nessun altro.
+!docs/drag-preview.md
 !docs/tunnel.md
 # licenze-rilascio.md dice DOVE vive la chiave privata con cui si firmano le
 # licenze e come si ruota. Non contiene nessun segreto — contiene la procedura,

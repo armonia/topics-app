@@ -879,6 +879,9 @@ const EN = {
   'files.trashOneLead': 'Moving ',
   'files.trashOneTail': ' to the system trash. You can put it back from there.',
   'files.trashMany': 'Moving {n} items to the system trash. You can put them back from there.',
+  'files.dragMany': '{n} items',
+  'files.dragFolder': 'folder',
+  'files.dragCut': 'cut',
   // ── Project scripts.
   'scripts.noManifest': 'No script manifest in this folder.',
   'scripts.noneDeclared': 'No script declared in {files}.',
@@ -963,6 +966,9 @@ const EN = {
   'space.reattach': 'Bring back to this window',
   'space.dissolveTitle': 'The tabs all go back to the main group; nothing closes',
   'space.dissolve': 'Merge into the main group',
+  'space.row.title': 'Row {n}',
+  'space.row.groups.one': '1 group',
+  'space.row.groups.many': '{n} groups',
   // ── Status bar at the foot of the sidebar.
   'statusBar.perfTitle': 'Performance and system status · open for live FPS',
   'statusBar.agents.heading': 'Claude Code agents',

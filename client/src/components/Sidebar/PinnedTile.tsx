@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon } from 'lucide-react';
-import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
+import { getProjectLabel, sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, RESTING_SURFACE, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
@@ -12,6 +12,7 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 import { getPaneConfig, getTerminalSessionFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { useTerminalAttentionFill, useTopicAttentionFill } from '../../state/signals';
 import { rememberDraggedPane } from '../../lib/dragPayload';
+import { startDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
 import { PINNED_TILE_ACTION_SLOT, PINNED_TILE_H } from './pinnedTileMetrics';
@@ -286,6 +287,13 @@ export function PinnedTile({
   // di HTML5 non esiste, quindi `draggable` + `dragstart` — la sola strada che
   // questa griglia aveva per riordinare — è inerte su un telefono. Vedi
   // `useTouchDrag`, che porta anche il perché dei listener nativi.
+  //
+  // COL DITO L'ANTEPRIMA NON LA COSTRUISCE QUESTA TESSERA, e non è una
+  // dimenticanza: la griglia che la ospita ne disegna già una, ed è la tessera
+  // VERA (`PinnedTilePreview` in un portale, marcata `data-drag-preview` come
+  // vuole il contratto). Chiamare qui `startTouchDragPreview` ne farebbe una
+  // seconda sotto lo stesso dito, che è esattamente il «si vede doppio» contro
+  // cui `lib/dragPreview` mette in guardia.
   const { isTouch } = useMobile();
   const press = useTouchDrag({
     enabled: isTouch && (!!onContextMenu || !!onTouchDragMove),
@@ -323,6 +331,20 @@ export function PinnedTile({
         e.dataTransfer.setData(DND_TYPES.PANEL_ID, sidebarItemPaneId(item));
         rememberDraggedPane(sidebarItemPaneId(item));
         e.dataTransfer.effectAllowed = 'move';
+        // Qui non c'era nessuna `setDragImage`, quindi il fantasma lo sceglieva
+        // macOS: l'icona generica di documento. La tessera è QUADRATA e spesso
+        // mostra la sola icona, quindi il nome è proprio la cosa che sparisce
+        // dallo schermo nel momento in cui la si prende in mano.
+        startDragPreview(e, {
+          title: item.name,
+          // Per una tessera di PROGETTO il nome è già il nome della cartella:
+          // sotto va il percorso intero, che è l'unica cosa che distingue due
+          // progetti chiamati uguale.
+          subtitle: item.type === 'project'
+            ? item.projectPath
+            : item.projectPath ? getProjectLabel(item.projectPath) : undefined,
+          badges: item.notificationCount > 0 ? [String(item.notificationCount)] : [],
+        });
         onDragStart?.();
       }}
       onDragEnd={() => onDragEnd?.()}
