@@ -3442,13 +3442,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function onLeaveTodo(taskId: string): void {
-    // Only meaningful while still in grace (not yet claimed). Clear the timer and
-    // the queued chip; if it already claimed, the human's status write + turn-end
-    // reconciliation handle it.
-    if (graceTimers.has(taskId)) {
-      clearGrace(taskId);
-      try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
-    }
+    clearGrace(taskId);
+    // IL CHIP «IN CODA» SI SPEGNE ANCHE FUORI DALLA FINESTRA DI GRAZIA.
+    //
+    // Prima questa riga viveva dentro `if (graceTimers.has(taskId))`, e quella
+    // guardia copriva solo il trascinamento IMMEDIATO. Una card rimasta in Todo
+    // piu' a lungo della grazia ha gia' visto il suo tick: se nessuno l'ha
+    // reclamata (tetto pieno, notte, pesante in attesa) il tick le scrive
+    // comunque `queued`, e il timer non c'e' piu'. Trascinandola in Backlog il
+    // chip restava acceso per sempre — e con lui il bottone «Ferma», che offre
+    // di fermare un agente mai nato.
+    //
+    // Era un chip che MENTE: il `claim` reclama `status = 'todo'` e basta,
+    // quindi da Backlog non parte piu' niente. Da qui il giro muto segnalato
+    // sulla card 05ae83f7: il gesto e' legittimo, la transizione no, e nessuna
+    // delle due cose si vedeva.
+    //
+    // Si spegne SOLO `queued`, e solo senza un turno in volo: `starting` e
+    // `working` sono un processo vero, e li' lo stato lo chiude `onTurnEnd`.
+    if (inFlight.has(taskId)) return;
+    try {
+      if (deps.svc.get(taskId)?.task?.dispatchState !== CHIP_QUEUED) return;
+      emit(deps.svc.setDispatchState({ taskId, state: null }));
+    } catch { /* best-effort: la riga puo' essere gia' sparita */ }
   }
 
   function deferWait(taskId: string, reason: string, minutes?: number): Task {
@@ -3748,6 +3764,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `${inCoda} rimesse in coda, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
       );
     }
+    // 1-ter) IL CHIP «IN CODA» RIMASTO ACCESO IN BACKLOG.
+    //    Il `claim` reclama `status = 'todo'` e basta: in Backlog quel chip non
+    //    e' «un agente che sta per nascere», e' una riga che promette una
+    //    partenza che non arrivera' mai. Da li' nasceva il giro muto della card
+    //    05ae83f7 — la card offriva «Ferma» per un agente mai nato.
+    //
+    //    `onLeaveTodo` adesso lo spegne nel gesto, ma le righe gia' ferme non
+    //    vedranno mai piu' quel gesto: questa passata le raccoglie, una volta,
+    //    senza bisogno di una migration. Sta PRIMA del cancello globale perche'
+    //    un chip che mente va spento anche a dispatch spento.
+    try {
+      for (const t of deps.svc.list({ scope: "all", status: "backlog" })) {
+        if (t.dispatchState !== CHIP_QUEUED) continue;
+        if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: null })); }
+        catch { /* best-effort: la riga puo' essersi mossa */ }
+      }
+    } catch (err) { log("sweep del chip in coda in backlog fallito", err); }
     // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
     //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
     //    che finisce), e una card che si era fermata prima non ne vedrà mai un

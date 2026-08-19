@@ -905,6 +905,7 @@ const EN = {
   'perf.q2': 'What it costs',
   'perf.fpsAvg': 'avg {n}',
   'perf.procCount': '{n} processes',
+  'perf.cpuTotal': '{pct}% CPU',
   'perf.tileApp': 'The app',
   'perf.tileAppTitle': 'The window you are looking at and its processes. Closing panes and tabs makes it lighter.',
   'perf.tileAgents': 'Agents and services ({n})',
