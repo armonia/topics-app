@@ -259,7 +259,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
    * Da quando salva il residuo, SCRIVE: due `git add` nella stessa cartella si
    * contendono `index.lock`, e chi perde non riprova. Misurato il 19/08/2026,
    * al primo giro col codice nuovo: sette worktree persi per
-   * «Unable to create index.lock: File exists», tutti su `guidoai`.
+   * «Unable to create index.lock: File exists», tutti nello stesso progetto.
    *
    * Chi arriva mentre una passata è in volo riceve LA STESSA promessa: nessuna
    * coda che si accumula, nessun secondo giro, e il chiamante ottiene comunque

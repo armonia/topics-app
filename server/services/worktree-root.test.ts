@@ -18,7 +18,7 @@ import { worktreeRootDir } from "./worktree-manager";
 
 describe("radice dei worktree", () => {
   test("con TOPICS_HOME, i worktree stanno DENTRO quella casa", () => {
-    const casa = "/tmp/una-casa-di-prova";
+    const casa = "/tmp/una-casa-di-prova";  // allow-shared-tmp: e' un DATO, non una cartella — worktreeRootDir e' puro calcolo su stringhe e non tocca il disco
     expect(worktreeRootDir({ TOPICS_HOME: casa })).toBe(join(casa, "worktrees"));
   });
 
@@ -27,14 +27,14 @@ describe("radice dei worktree", () => {
   });
 
   test("TOPICS_WORKTREES_DIR resta l'override esplicito e vince su tutto", () => {
-    expect(worktreeRootDir({ TOPICS_HOME: "/tmp/casa", TOPICS_WORKTREES_DIR: "/tmp/altrove" }))
-      .toBe("/tmp/altrove");
+    expect(worktreeRootDir({ TOPICS_HOME: "/tmp/casa", TOPICS_WORKTREES_DIR: "/tmp/altrove" }))  // allow-shared-tmp: e' un DATO, non una cartella — worktreeRootDir e' puro calcolo su stringhe e non tocca il disco
+      .toBe("/tmp/altrove");  // allow-shared-tmp: e' un DATO, non una cartella — worktreeRootDir e' puro calcolo su stringhe e non tocca il disco
   });
 
   test("la casa di un server e quella dei suoi worktree non possono divergere", () => {
     // È l'invariante, non un terzo caso: qualunque casa si scelga, i worktree
     // ci stanno sotto. Un ripiego cablato la romperebbe in silenzio.
-    for (const casa of ["/tmp/a", "/tmp/b/c", "/var/folders/x/.topics-home"]) {
+    for (const casa of ["/tmp/a", "/tmp/b/c", "/var/folders/x/.topics-home"]) {  // allow-shared-tmp: e' un DATO, non una cartella — worktreeRootDir e' puro calcolo su stringhe e non tocca il disco
       expect(worktreeRootDir({ TOPICS_HOME: casa }).startsWith(casa + "/")).toBe(true);
     }
   });
