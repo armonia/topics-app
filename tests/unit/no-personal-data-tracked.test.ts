@@ -64,9 +64,11 @@ const ESENTI = new Map<string, string>([
   // la reggeva, e da quel momento era un BUCO — non copriva più un fatto voluto,
   // copriva soltanto quei due percorsi, qualunque cosa ci finisse dentro.
   //
-  // Il 18/08 un agente della board ci ha rimesso `<ragione sociale>`, il D-U-N-S e il
-  // nome per esteso, in un repo PUBBLICO, e questo cancello non avrebbe detto
-  // niente: l'ho visto rivedendo il diff a mano. Adesso lo direbbe.
+  // Il 18/08 un agente della board ci ha rimesso la ragione sociale per esteso,
+  // il codice D-U-N-S e il nome del proprietario, in un repo PUBBLICO, e questo
+  // cancello non avrebbe detto niente: l'ho visto rivedendo il diff a mano.
+  // Adesso lo direbbe. (E il dato NON si cita qui: un cancello che nomina cio'
+  // che vieta e' la fuga che stava impedendo.)
   //
   // Se un giorno l'identità legale dovrà tornare in quei file, l'esenzione si
   // riscrive — con la data e la ragione nuove. Un'esenzione che sopravvive al
