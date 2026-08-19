@@ -51,8 +51,8 @@ export class LiveLockError extends Error {
   }
 }
 
-export function topicsHome(): string {
-  return process.env.TOPICS_HOME || join(homedir(), ".topics");
+export function topicsHome(env: NodeJS.ProcessEnv = process.env): string {
+  return env.TOPICS_HOME || join(homedir(), ".topics");
 }
 
 /**
