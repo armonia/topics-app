@@ -1199,6 +1199,9 @@ const IT: Dict = {
   'perf.topCpuScope': 'sistema · per core',
   'perf.verdict.noAccel': 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.',
   'perf.verdict.compressed': '{gb} GB compressi o in swap. Chiudi qualche pannello browser.',
+  // Non e' un allarme: e' il contrario. Dice che il numero grande esagera —
+  // il grosso e' gia' tornato al sistema, e la RAM davvero occupata e' quella.
+  'perf.verdict.mostlySwapped': 'Il {pct}% e\' gia\' compresso o in swap: in RAM adesso {mb} MB.',
   'perf.verdict.loaded': 'Processo Topics sotto carico',
   // ── Scheda vuota del browser (NewTabPage).
   'browser.newTab.title': 'Nuova scheda',
