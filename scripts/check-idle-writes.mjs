@@ -32,6 +32,23 @@
  * schermo fermo. Il tetto è basso ma non zero: una scrittura sporadica è
  * legittima (l'ultima lettura di una chat, un heartbeat). Un CICLO no.
  *
+ * QUELLO CHE HA GIÀ TROVATO, e che non è ancora chiuso. Tolto il ciclo di
+ * `pane-store-v2`, sotto è emerso un SECONDO ciclo che il primo copriva:
+ * `topics-project-panes-<hash>` (`state/pane/adapters/projectLayoutSync.ts`)
+ * riscrive corpi IDENTICI — diffati due a due, nessuna differenza — a distanza
+ * di 2,5-16 s. È più lento e sta dentro il tetto, quindi qui resta verde, ed è
+ * la ragione per cui il tetto è 3 e non 0: un tetto a zero sarebbe rosso oggi
+ * per un difetto diverso da quello che questo cancello sorveglia.
+ *
+ * Quel modulo ha già la guardia giusta (`lastSyncedJsonByKey`, confrontata
+ * sul JSON serializzato) più un loop-breaker sull'idratazione, quindi la causa
+ * non è l'assenza di un controllo: è qualcosa che svuota o aggira quella
+ * memoria. Un candidato è `subscribeLifecycle('open')`, che la azzera a ogni
+ * riconnessione del socket — ma nella misura fatta il 19/08 il socket si apriva
+ * UNA volta sola, quindi non è quello, e va indagato a macchina scarica (quel
+ * giorno il load medio era 124-221 per ffmpeg/Dia/Spotify, e in quelle
+ * condizioni ogni misura di tempo mente).
+ *
  * Uso:
  *   node scripts/check-idle-writes.mjs [--base https://localhost:3333]
  *                                      [--settle 12] [--watch 30] [--max 3]
