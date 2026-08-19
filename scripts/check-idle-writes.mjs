@@ -32,28 +32,29 @@
  * schermo fermo. Il tetto è basso ma non zero: una scrittura sporadica è
  * legittima (l'ultima lettura di una chat, un heartbeat). Un CICLO no.
  *
- * QUELLO CHE HA GIÀ TROVATO, e che non è ancora chiuso. Tolto il ciclo di
- * `pane-store-v2`, sotto è emerso un SECONDO ciclo che il primo copriva:
- * `topics-project-panes-<hash>` (`state/pane/adapters/projectLayoutSync.ts`)
- * riscrive corpi IDENTICI — diffati due a due, nessuna differenza — a distanza
- * di 2,5-16 s. È più lento e sta dentro il tetto, quindi qui resta verde, ed è
- * la ragione per cui il tetto è 3 e non 0: un tetto a zero sarebbe rosso oggi
- * per un difetto diverso da quello che questo cancello sorveglia.
+ * QUELLO CHE HA GIÀ TROVATO, e la sua correzione. Tolto il ciclo di
+ * `pane-store-v2`, sotto sono comparse alcune scritture su
+ * `topics-project-panes-<hash>` con corpi IDENTICI, e le avevo chiamate «un
+ * secondo ciclo». Non lo sono: misurate su cinquanta secondi con la chiave e il
+ * corpo per esteso, sono **tre PUT tutti dentro i primi sei secondi**, poi
+ * quarantaquattro secondi di silenzio. È rumore di BOOT — lo stato del progetto
+ * si assesta mentre le chat si idratano — non una cadenza che dura.
  *
- * Quel modulo ha già la guardia giusta (`lastSyncedJsonByKey`, confrontata
- * sul JSON serializzato) più un loop-breaker sull'idratazione, quindi la causa
- * non è l'assenza di un controllo: è qualcosa che svuota o aggira quella
- * memoria. Un candidato è `subscribeLifecycle('open')`, che la azzera a ogni
- * riconnessione del socket — ma nella misura fatta il 19/08 il socket si apriva
- * UNA volta sola, quindi non è quello, e va indagato a macchina scarica (quel
- * giorno il load medio era 124-221 per ffmpeg/Dia/Spotify, e in quelle
- * condizioni ogni misura di tempo mente).
+ * L'errore stava nella finestra di osservazione: `--settle 12` non bastava
+ * sempre a lasciare fuori la coda del boot, e tre eventi vicini letti dentro
+ * una finestra di trenta secondi sembrano una cadenza da «una ogni 4,4 s».
+ * Un intervallo medio calcolato su eventi che non si ripetono è un artefatto,
+ * ed è esattamente il modo in cui una misura produce un difetto inesistente.
  *
- * Uso:
- *   node scripts/check-idle-writes.mjs [--base https://localhost:3333]
- *                                      [--settle 12] [--watch 30] [--max 3]
- * Esce 1 se il tetto è superato, 2 se la finestra non si apre (infrastruttura,
- * non regressione: stessa convenzione degli altri cancelli di questo repo).
+ * Cosa è stato escluso per arrivarci, così nessuno lo rifà: la guardia di quel
+ * modulo funziona (tre test in `projectLayoutSync.dedupe.test.ts`); il socket si
+ * apriva UNA sola volta, quindi non era l'azzeramento su riconnessione; la
+ * chiave era una sola, quindi non erano progetti diversi scambiati per lo
+ * stesso; e i corpi non oscillavano fra due valori.
+ *
+ * Resta però il motivo per cui il tetto è 3 e non 0: dentro la finestra di
+ * misura può ancora cadere la coda del boot, e un tetto a zero sarebbe rosso
+ * per quello invece che per un ciclo vero.
  */
 import { webkit } from 'playwright';
 
@@ -62,7 +63,15 @@ const arg = (nome, def) => {
   return i >= 0 ? process.argv[i + 1] : def;
 };
 const BASE = arg('base', 'https://localhost:3333');
-const SETTLE_S = Number(arg('settle', 12));
+/**
+ * Quanto si lascia posare il boot prima di misurare. VENTI secondi e non dodici:
+ * con dodici, la coda dell'assestamento (il canale di progetto scrive fino a
+ * ~+6 s, e su una macchina carica piu' tardi) cadeva dentro la finestra di
+ * osservazione e tre eventi vicini si leggevano come «una cadenza ogni 4,4 s».
+ * Il difetto vero — 26 scritture in trenta secondi, una ogni 1,15 s — si vede
+ * benissimo lo stesso: un ciclo non si esaurisce aspettando otto secondi in piu'.
+ */
+const SETTLE_S = Number(arg('settle', 20));
 const WATCH_S = Number(arg('watch', 30));
 /**
  * Il tetto. Tre scritture in trenta secondi di schermo fermo: sopra questa
