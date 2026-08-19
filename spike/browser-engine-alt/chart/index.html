@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset=utf-8><style>body{margin:0;background:#fff}canvas{display:block}</style></head><body>
+<canvas id=c width=700 height=300></canvas>
+<script>
+const x=document.getElementById('c').getContext('2d');
+x.fillStyle='#ffffff';x.fillRect(0,0,700,300);
+// 1) LINE CHART — il caso che spariva
+const data=[40,75,55,110,95,150,130,180,160,210,190,240];
+x.strokeStyle='#2563eb';x.lineWidth=3;x.beginPath();
+data.forEach((v,i)=>{const px=30+i*54,py=250-v*0.8;i?x.lineTo(px,py):x.moveTo(px,py)});
+x.stroke();
+// 2) AREA sotto la linea (fill di un poligono)
+x.fillStyle='rgba(37,99,235,0.25)';x.beginPath();x.moveTo(30,250);
+data.forEach((v,i)=>x.lineTo(30+i*54,250-v*0.8));
+x.lineTo(30+11*54,250);x.closePath();x.fill();
+// 3) ASSI (stroke sottile)
+x.strokeStyle='#94a3b8';x.lineWidth=1;x.beginPath();
+x.moveTo(30,250);x.lineTo(670,250);x.moveTo(30,250);x.lineTo(30,20);x.stroke();
+// 4) BARRE con GRADIENTE (il secondo caso che spariva)
+const g=x.createLinearGradient(0,250,0,60);g.addColorStop(0,'#f43f5e');g.addColorStop(1,'#fbbf24');
+x.fillStyle=g;[80,140,110,190].forEach((v,i)=>x.fillRect(430+i*55,250-v,35,v));
+// 5) PUNTI (arc, gia' funzionava)
+x.fillStyle='#1e40af';data.forEach((v,i)=>{x.beginPath();x.arc(30+i*54,250-v*0.8,4,0,Math.PI*2);x.fill()});
+window.__probe=(()=>{const d=x.getImageData(0,0,700,300).data;
+ const at=(px,py)=>{const i=(py*700+px)*4;return '#'+[d[i],d[i+1],d[i+2]].map(v=>v.toString(16).padStart(2,'0')).join('')};
+ return {linea:at(30,218), area:at(120,240), asse:at(300,250), barraBasso:at(447,240), barraAlto:at(447,80), punto:at(30,218)};})();
+</script></body></html>
