@@ -178,6 +178,19 @@ see anything at all. This one counted zero frames TOTAL, which should have been
 the tell: an app that talks to its server over a WebSocket does not receive
 none.
 
+**It takes TWO windows.** The correlation is exact: 12 PUTs sent, 24
+`ui-state:updated` frames received, 2 distinct writer ids — each of our writes
+comes back as a frame, and the peer's does too. The second client here was the
+user's own Topics app, open alongside the probe window. So a single window does
+not spin; the cycle is a property of two clients sharing one `server_seq`
+counter, which is also why it hid for so long: every measurement that found "0
+writes at rest" was taken with one window open.
+
+That reframes the fix, too. The gate that was withdrawn tried to stop the SEND;
+the cheaper question is why a peer's write has to advance *our* local dispatch
+counter at all (`reducers/panes.ts:760`). Answering that is where the next
+attempt should start.
+
 **A remedy that works was written and withdrawn.** Comparing the outbound
 snapshot against the identity of the last HYDRATED state takes the gate to
 **0 writes, three runs in a row**. It also breaks `cross-window-topic-sync`:
