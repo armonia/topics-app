@@ -213,6 +213,61 @@ Chrome, **0** in Obscura). Cioè: rettangoli e cerchi sì, **tracciati e sfumatu
 Tradotto: un grafico a barre passa, una sparkline o un line-chart resta vuoto — ed è
 proprio la forma che ha il 90% dei grafici in una dashboard.
 
+### Le abbiamo aggiustate — patch scritta, compilata e misurata
+
+Le due primitive canvas mancanti **non erano un limite architetturale**: erano codice non
+ancora scritto, in **JavaScript**, non in Rust. Il canvas 2D di Obscura vive in
+`crates/obscura-js/js/bootstrap.js`, e là dentro `stroke()` era letteralmente
+`stroke() {}` — un metodo vuoto — mentre `createLinearGradient` restituiva un oggetto il
+cui `addColorStop(){}` **buttava via i colori**.
+
+Patch in `obscura-canvas-fix.patch` (143 righe aggiunte, un file, zero Rust toccato):
+
+| | prima | dopo |
+|---|---|---|
+| `stroke()` | `{}` vuoto | Bresenham per segmento, `lineWidth` rispettato, archi tracciati come cerchi |
+| `createLinearGradient` / `Radial` | stop scartati | stop conservati, interpolati per pixel |
+| `fill()` su path M/L | solo archi | scanline even-odd: i poligoni si riempiono |
+| `closePath()` | `{}` vuoto | registra il segmento di chiusura |
+| `fillRect` / `strokeRect` | solo tinta unita | accettano anche un gradiente |
+
+Il tutto passa da un `_resolvePaint(style)` che torna `{ at(x,y) -> [r,g,b,a] }`: una
+tinta unita risolve una volta, un gradiente interpola. Così ogni primitiva guadagna il
+supporto ai gradienti senza duplicare codice.
+
+**La prova, non il racconto.** Una dashboard con line chart, area, assi, barre con
+gradiente e punti (`chart/index.html`), stesso viewport, tre motori:
+
+| | ink (frazione dipinta) | colori distinti | diff vs Chrome |
+|---|---|---|---|
+| Chrome | 0.327 | 773 | — |
+| **Obscura prima** | **0.003** | **2** | **32.35%** |
+| **Obscura dopo** | **0.321** | **150** | **1.16%** |
+
+Il grafico era **una pagina bianca con due colori**. Dopo la patch è indistinguibile da
+Chrome all'1.16%. Le sonde `getImageData` dentro la pagina lo confermano punto per punto:
+
+| sonda | Chrome | prima | dopo |
+|---|---|---|---|
+| linea del grafico | `#1e40af` | `#1e40af` | `#1e40af` |
+| area sotto la linea | `#c8d8fa` | **bianco** | `#c8d8fa` ✅ |
+| asse | `#c9d1db` | **bianco** | `#94a3b8` ✅ |
+| barra col gradiente | `#f5465c` | **bianco** | `#f4465b` ✅ |
+
+**Zero regressioni**, verificate su due fronti: le primitive che già andavano
+(`fillRect`, `strokeRect`, `arc`, `fillText`) danno gli stessi valori di prima, e
+Hacker News / Wikipedia / GitHub caricano con lo stesso identico conteggio di nodi DOM
+(818 / 4103 / 1544). `canvas-proof.mjs` prova la logica isolata in 14 asserzioni senza
+compilare nulla (~200 ms); `chart-test.mjs` fa il giro completo su un binario vero.
+
+Build: `cargo build --release -p obscura-cli --bins --features render`, ~17 minuti (V8
+compila da sorgente la prima volta), binario da 89 MB.
+
+**Cosa resta rotto:** le `filter` CSS. Quelle **non** sono in JavaScript, stanno nel
+motore di paint in Rust (`crates/obscura-render/src/paint.rs`, 17k righe) e richiedono
+un passo di post-processing sul buffer del layer — lavoro vero, non un metodo vuoto da
+riempire. `stroke` e i gradienti erano il frutto basso, ed era davvero basso.
+
 ### Perché è così leggero (e perché il prezzo è coerente)
 
 Non è magia né un trucco di misura. Obscura fa tre rinunce strutturali:
@@ -289,11 +344,12 @@ il bottone era l'unico elemento a quelle coordinate finte.
   Su Hacker News (tabelle annidate anni '90) crolla a 2 su 60 entro 2 px, 35 oltre 20 px.
   Il DOM diff pixel contro Chrome: react.dev 0.9%, github 8.7%, HN 9.3%, Wikipedia 15.1%
   (il grosso è il font rasterizzato diverso e la sidebar Vector 2022 fuori posto).
-- **Canvas 2D: metà primitive mancano** (misura affinata in `vs/`, vedi sotto — la prima
-  lettura "canvas nero" era troppo severa). `fillRect`, `strokeRect`, `arc` e `fillText`
-  funzionano; **`stroke` di un path e `createLinearGradient` no**. Un grafico a barre
-  passa, una sparkline resta vuota. Nel test iniziale il canvas disegnava solo con
-  `lineTo`+`stroke`, da cui gli 0 pixel.
+- **Canvas 2D: metà primitive mancavano — ora sono implementate.** `fillRect`,
+  `strokeRect`, `arc` e `fillText` funzionavano; **`stroke` di un path e
+  `createLinearGradient` no**, ed erano proprio le due che disegnano un line chart.
+  **Chiuse da `obscura-canvas-fix.patch`** (vedi sotto): la dashboard di prova passa da
+  32.35% a **1.16%** di differenza da Chrome. La prima lettura "canvas nero" era troppo
+  severa: il canvas dipingeva, mancavano due primitive.
 - **`textContent` invece di `innerText`**: su github.com/topics ha restituito **1.3 MB**
   di testo contro i 5.5 KB di Chrome — dentro c'è il sorgente degli `<script>`. Su una
   pagina di prova `document.body.innerText` include `display:none`, `visibility:hidden`
@@ -338,10 +394,15 @@ endpoint risponda. Lì il render serve solo per l'ultimo fotogramma della card, 
 preciso non serve, e il costo per contesto passerebbe da 219 MB a 29. Con dieci contesti
 inline aperti sono 2.2 GB contro 290 MB.
 
-Ma **non oggi**, e per una ragione sola: 1.3 MB di `innerText` al posto di 5.5 KB è un
-bug che colpisce esattamente il caso d'uso proposto (l'agente che legge). Prima serve un
+Il blocco resta **uno solo**: 1.3 MB di `innerText` al posto di 5.5 KB, un bug che
+colpisce esattamente il caso d'uso proposto (l'agente che legge). Serve un
 `browser_get_text` che non passi da `innerText` — o una patch upstream. È una condizione
 verificabile, non un'opinione: `hidden.mjs` la misura in 4 secondi.
+
+E il fatto che le due primitive canvas siano state chiuse in 143 righe di JavaScript dice
+qualcosa sul progetto: **i buchi di Obscura sono superficie non ancora scritta, non
+scelte architetturali**. Il che cambia il calcolo — non stiamo valutando un motore
+limitato, ma un motore giovane su cui si può intervenire.
 
 **Lightpanda ha un uso legittimo e diverso:** 21 MB, un processo, DOM e JS corretti
 (`document.title`, `querySelectorAll`, il conteggio dei nodi combaciano con Chrome su
@@ -364,6 +425,12 @@ processo per pagina, quindi va usato come fetcher usa-e-getta, non come sessione
 - `cast.mjs` — screencast su pagina animata. `hidden.mjs` — fedeltà di `innerText`.
 - `type2.mjs` — quali varianti CDP di digitazione funzionano dove.
 - `app/index.html` — l'app dev sintetica (grid, canvas, animazioni) usata come banco.
+- `obscura-canvas-fix.patch` — **la patch**: 143 righe su `bootstrap.js` che
+  implementano `stroke`, i gradienti e il fill dei poligoni. `git apply` sul repo
+  Obscura, poi `cargo build --release -p obscura-cli --bins --features render`.
+- `canvas-proof.mjs` — 14 asserzioni sulla logica patchata, **senza compilare** (~200 ms).
+- `chart/index.html` + `chart-test.mjs` + `vs/CHART-prima-dopo.png` — la prova
+  end-to-end: la stessa dashboard prima, dopo, e su Chrome.
 - `vs/OBSCURA-vs-CHROME.png` — **il pannello da guardare**: tre confronti affiancati.
   `cases/`, `canvas/`, `css/` sono le pagine sorgente; `cases-shot.mjs`,
   `canvas-test.mjs`, `css-test.mjs` le rigenerano.
