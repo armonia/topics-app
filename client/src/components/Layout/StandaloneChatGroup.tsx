@@ -785,7 +785,11 @@ export function StandaloneChatGroup({
     <>
       <div
         data-split-card
-        className={`relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
+        // DOVE CADRÀ: `into`, perché il rilascio aggiunge la pane a QUESTO
+        // gruppo. L'anello era scritto qui, ed era la copia locale di un disegno
+        // che sta in `index.css` in una regola sola.
+        data-drop-active={panelDragOver ? 'into' : undefined}
+        className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow"
         style={CHROME_BAR_H_VAR}
         onMouseDownCapture={() => {
           if (activePaneId && focusedPanelId !== activePaneId) {

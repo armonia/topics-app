@@ -1116,10 +1116,18 @@ export function PinnedTiles({
       {/* Il fantasma, sopra tutto e fuori dal flusso. `pointer-events: none` o
           si mangerebbe il tocco che lo sta muovendo; leggermente ingrandito e
           con un'ombra, come fa iOS quando raccogli un'icona — «l'ho in mano» va
-          detto, non lasciato intuire. */}
+          detto, non lasciato intuire.
+
+          È l'anteprima del gesto col dito ANCHE per il contratto condiviso
+          (`lib/dragPreview`): porta `data-drag-preview`, quindi chi legge il DOM
+          la trova dov'è per ogni altra superficie. Non la costruisce
+          `startTouchDragPreview` perché qui c'è di meglio — la tessera VERA, con
+          la sua icona, il suo fondo e il suo badge — e una seconda scheda sotto
+          lo stesso dito sarebbe il «si vede doppio». */}
       {ghost && byId.has(ghost.key) && createPortal(
         <div
           data-testid="pinned-touch-ghost"
+          data-drag-preview=""
           className={`pointer-events-none fixed z-50 opacity-90 drop-shadow-lg ${PINNED_TILE_CONTAINER}`}
           style={{
             width: ghost.w,

@@ -7,6 +7,7 @@ import { useProjectFiles } from '../../hooks/useProjectFiles';
 import { basename } from '../../lib/path-utils';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { gitStatusTextClass, gitStatusLabel } from '../../lib/gitStatusColors';
+import { startDragPreview, endDragPreview } from '../../lib/dragPreview';
 import { useGitStatus } from '../../hooks/useGitStatus';
 import { useDismissable } from '../../hooks/useDismissable';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -236,7 +237,18 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
               : isFocused
                 ? SIDEBAR_ACTIVE
                 : 'text-app-text-body'
-        } ${isDragOver ? 'ring-1 ring-primary/50 bg-primary/10' : ''} ${isCut ? 'opacity-50' : ''}`}
+        } ${isCut ? 'opacity-50' : ''}`}
+        // DOVE CADRÀ: `into`, perché il rilascio entra DENTRO. Dentro la
+        // cartella quando la riga è una cartella. Su una riga di FILE il segno
+        // si accende solo per un trascinamento che viene da fuori, e lì il
+        // rilascio entra nella cartella che quel file abita (vedi `handleDrop`,
+        // che prende il padre): resta `into` in entrambi i rami, ma il
+        // contenitore non è sempre la riga illuminata.
+        // Qui c'era un anello scritto a mano, cioè una copia locale del disegno
+        // che ora sta in `index.css` in una regola sola (vedi DROP_ACTIVE_ATTR
+        // in `lib/dragPreview`). Si spegne dove si spegne `dragOverPath`:
+        // `dragleave`, `drop` e `dragend`.
+        data-drop-active={isDragOver ? 'into' : undefined}
         // L'indentazione parte da `ROW_INSET` come ogni altra riga della colonna,
         // non da 12: la card è già rientrata di 6 col suo margine, quindi il
         // padding interno è quello di riga e la profondità ci si somma sopra.
@@ -838,7 +850,42 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     if (e.currentTarget instanceof HTMLElement) {
       e.currentTarget.style.opacity = '0.5';
     }
-  }, [selectedPaths]);
+    // COSA HO IN MANO. Qui non c'era nessuna `setDragImage`, quindi il fantasma
+    // lo sceglieva macOS: l'icona generica di documento, uguale per un file,
+    // per una cartella e per venti file insieme. Sotto al nome va il percorso,
+    // che è la metà che serve davvero. In un albero profondo ci sono cinque
+    // `index.ts`, e il nome da solo non dice quale stai spostando.
+    //
+    // Niente glifo, e non è una dimenticanza: l'albero disegna le icone con
+    // lucide, cioè componenti SVG, mentre `spec.icon` vuole un carattere. Una
+    // emoji al posto di quelle icone sarebbe un segno che la riga non porta, e
+    // la distinzione fra cartella e file la dice già il badge qui sotto.
+    const quanti = draggedPathsRef.current.length;
+    // Il percorso è RELATIVO al progetto e senza il nome in coda: assoluto
+    // sarebbe lungo il doppio della scheda, ripeterebbe il titolo e stamperebbe
+    // la casa di chi trascina. Quello che manca al nome è la cartella in cui
+    // vive, e per un file nella radice quella cartella è il progetto stesso.
+    const cartella = node.path.startsWith(projectPath + '/')
+      ? node.path.slice(projectPath.length + 1).split('/').slice(0, -1).join('/')
+      : '';
+    const stato = gitFileMap.get(node.path);
+    startDragPreview(e, {
+      // Venti file presi insieme con scritto il nome di uno solo sarebbero una
+      // bugia: a selezione multipla il titolo è il conteggio, e i badge
+      // spariscono perché sarebbero quelli di un file solo.
+      title: quanti > 1 ? tr('files.dragMany', { n: quanti }) : node.name,
+      subtitle: quanti > 1 ? undefined : (cartella || basename(projectPath)),
+      // Solo stati che il componente calcola già e che la riga mostra davvero:
+      // la lettera di git è la stessa stampata accanto al nome, e «tagliato» è
+      // l'opacità della riga, che dentro la scheda non si vedrebbe. Le parole
+      // passano dal catalogo come ogni altra scritta dell'albero.
+      badges: quanti > 1 ? [] : [
+        node.type === 'dir' ? tr('files.dragFolder') : '',
+        stato ? gitStatusLabel(stato) : '',
+        cutPaths.has(node.path) ? tr('files.dragCut') : '',
+      ].filter(Boolean),
+    });
+  }, [selectedPaths, gitFileMap, projectPath, cutPaths, tr]);
 
   const isChildOf = useCallback((childPath: string, parentPath: string) => {
     return childPath.startsWith(parentPath + '/');
@@ -1035,6 +1082,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, [isChildOf, loadFiles, uploadExternalFiles, toast]);
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
+    // Ridondante con le porte di spegnimento del contratto, e voluto: è l'unico
+    // punto in cui SAPPIAMO che questo gesto è finito, e nella WKWebView il
+    // `dragend` che quelle ascoltano si perde se il rilascio cade sopra una
+    // vista nativa.
+    endDragPreview();
     if (e.currentTarget instanceof HTMLElement) {
       e.currentTarget.style.opacity = '';
     }
@@ -1488,7 +1540,22 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         {bandaErrore}
         <div
           ref={treeRef}
-          className={`flex-1 overflow-y-auto${rootDragOver ? ' ring-2 ring-primary/40 bg-primary/5' : ''}`}
+          className="flex-1 overflow-y-auto"
+          // La radice accetta il rilascio come una cartella qualsiasi, quindi
+          // stesso attributo e stesso disegno: quello sta in `index.css`, in una
+          // regola sola. L'anello scritto a mano qui era la seconda copia dello
+          // stesso stile dentro questo stesso file.
+          //
+          // CEDE ALLA RIGA. `rootDragOver` resta acceso anche mentre il
+          // puntatore è sopra una riga, perché l'evento bolla e l'handler della
+          // radice riscrive dopo quello della riga. Con l'anello quasi
+          // invisibile di prima non si notava. Adesso il disegno è lo stesso su
+          // entrambi, e due bersagli dichiarati insieme sotto lo stesso
+          // puntatore dicono che il rilascio va in due posti: il più grande è
+          // quello sbagliato. Si dichiara solo quando nessuna riga lo fa, e lo
+          // stato non si tocca (il rilascio continua ad atterrare dov'è sempre
+          // atterrato).
+          data-drop-active={rootDragOver && !dragOverPath ? 'into' : undefined}
           role="tree"
           data-testid="file-tree"
           tabIndex={0}
@@ -1532,7 +1599,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         {/* File tree */}
         <div
           ref={treeRef}
-          className={`flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}${rootDragOver ? ' ring-2 ring-primary/40 bg-primary/5' : ''}`}
+          className={`flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}`}
+          // La stessa radice della variante compatta qui sopra, stesso `into` e
+          // stessa cessione alla riga sotto al puntatore.
+          data-drop-active={rootDragOver && !dragOverPath ? 'into' : undefined}
           role="tree"
           data-testid="file-tree"
           tabIndex={0}
