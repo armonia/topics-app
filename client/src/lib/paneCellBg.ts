@@ -7,14 +7,35 @@ import type { PaneType } from '../state/pane/types';
  * Three tiers under the mac vibrancy shell:
  * - '' (fully transparent): `project` and `terminal` — they paint their own
  *   chrome and frost themselves;
- * - `pane-frost`: chat topics + kanban — frosted tier (transparent under
- *   `.electron-mac`, opaque `bg-surface` fallback on the web; see index.css);
+ * - `pane-frost`: chat topics + kanban + browser — frosted tier (transparent
+ *   under `.electron-mac`, opaque `bg-surface` fallback on the web; see
+ *   index.css);
  * - `bg-surface`: every other pane keeps the opaque content backdrop that
  *   keeps dense text crisp (dashboard tables, file trees, session viewers).
+ *
+ * IL BROWSER STA NEL LIVELLO SMERIGLIATO, E LO DICE IL TIPO.
+ *
+ * La cella di una pane browser non ha testo denso da tenere nitido: sotto la
+ * toolbar c'e' una webview NATIVA, che dipinge il suo fondo opaco per conto
+ * suo (`NativeBrowserPlaceholder`). L'unica parte di quella cella che si vede
+ * davvero e' la STRISCIA DI CHROME in cima — la barra delle tab e la toolbar
+ * dell'indirizzo, entrambe senza fondo proprio — quindi il fondo che prende la
+ * cella E' il fondo che si legge sotto le tab e la toolbar.
+ *
+ * Era gia' l'intenzione, ma la diceva una regola CSS che guardava la FORMA DEL
+ * DOM invece del tipo: `html.electron-mac :has(> [data-testid="browser-native-panel"])`
+ * pretendeva il pannello come figlio DIRETTO della cella. Dove un chiamante
+ * interpone un div — le tab browser di una task sulla board — la regola non
+ * agganciava, la cella restava `bg-surface` opaca, e la stessa pane usciva di
+ * due tinte diverse a seconda di CHI la montava. E' la deriva gia' pagata due
+ * volte da questa famiglia (la barra del progetto contro quella di primo
+ * livello): la tinta di una superficie non deve dipendere da dove sta
+ * nell'albero. Qui la decide il tipo, come per chat, kanban e terminale, e
+ * nessun wrapper la puo' piu' cambiare.
  */
 export function paneCellBg(type: PaneType): string {
   if (type === 'project' || type === 'terminal') return '';
-  if (type === 'chat' || type === 'kanban' || type === 'board') return 'pane-frost';
+  if (type === 'chat' || type === 'kanban' || type === 'board' || type === 'browser') return 'pane-frost';
   return 'bg-surface';
 }
 

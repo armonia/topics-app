@@ -2963,15 +2963,23 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   background-color: transparent !important;
 }
 
-/* Browser pane chrome rides the window vibrancy: the layout CELL hosting a
- * native browser drops its opaque `bg-surface` so the (transparent) toolbar
- * strip frosts the window backdrop like the rest of the app. The web CONTENT
- * keeps its own opaque bg via NativeBrowserPlaceholder, so the WebContentsView
- * still composites over an opaque surface (vibrancy is exposed only in the
- * toolbar strip, where there is no native view). `:has(>)` = Chromium ≥105. */
-html.electron-mac :has(> [data-testid="browser-native-panel"]) {
-  background-color: transparent !important;
-}
+/* LA CELLA DEL BROWSER NON SI RICONOSCE PIU' DALLA FORMA DEL DOM.
+ *
+ * Qui stava la regola che toglieva l'opaco alla cella che ospita una pane
+ * browser — «the layout CELL hosting a native browser drops its opaque
+ * bg-surface so the (transparent) toolbar strip frosts the window backdrop
+ * like the rest of the app» — e l'intenzione resta valida parola per parola:
+ * la striscia di chrome in cima (barra delle tab + toolbar dell'indirizzo) non
+ * ha fondo proprio, quindi il fondo lo mette la cella, mentre il contenuto web
+ * il suo opaco se lo dipinge da solo (`NativeBrowserPlaceholder`).
+ *
+ * A cadere e' il PREDICATO: `:has(> [data-testid="browser-native-panel"])`
+ * chiedeva che il pannello fosse figlio DIRETTO della cella. Dove un chiamante
+ * interpone un div — le tab browser di una task sulla board — non agganciava
+ * niente, e la stessa pane usciva opaca di la' e smerigliata di qua. Adesso il
+ * livello lo dichiara il TIPO della pane (`paneCellBg`, che aggiunge
+ * `.pane-frost` come per chat e kanban): una decisione sola, presa dove i tipi
+ * si conoscono, e nessun wrapper la puo' piu' spostare. */
 
 /* Chat topic panes + the kanban board join the frosted tier (like terminals
  * above): dense-text panes no longer carry an opaque backdrop — they ride the
