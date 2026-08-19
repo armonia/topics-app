@@ -4694,6 +4694,12 @@ async function gracefulShutdown(signal: string) {
   clearTimeout(landingAuditBoot);
   clearInterval(landingAuditTimer);
   clearInterval(relayLicenzaTimer);
+  // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
+  // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
+  // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva
+  // INDOVINATO dal boot successivo guardando il chip rimasto sulla card.
+  try { taskDispatcher.markInterrupted(signal); }
+  catch { /* uno spegnimento non fallisce per una nota */ }
   taskDispatcher.shutdown();
   void previewManager?.teardownAll(); // kill any live preview servers
   stopUiStateBackup();
