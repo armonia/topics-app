@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset=utf-8><style>body{margin:0;background:#fff}canvas{display:block}</style></head><body>
+<canvas id=c width=700 height=380></canvas>
+<script>
+const x=document.getElementById('c').getContext('2d');
+x.fillStyle='#ffffff';x.fillRect(0,0,700,380);
+// riga 1 y=0..60 : fillRect
+x.fillStyle='#ff0000';x.fillRect(0,0,100,60);
+// riga 2 y=60..120 : strokeRect
+x.strokeStyle='#00ff00';x.lineWidth=20;x.strokeRect(20,70,80,40);
+// riga 3 y=120..180 : path + stroke
+x.strokeStyle='#0000ff';x.lineWidth=20;x.beginPath();x.moveTo(10,150);x.lineTo(150,150);x.stroke();
+// riga 4 y=180..240 : arc + fill
+x.fillStyle='#ff00ff';x.beginPath();x.arc(60,210,28,0,Math.PI*2);x.fill();
+// riga 5 y=240..300 : fillText
+x.fillStyle='#000000';x.font='bold 40px sans-serif';x.fillText('TESTO',10,285);
+// riga 6 y=300..380 : gradient fill
+const g=x.createLinearGradient(0,0,200,0);g.addColorStop(0,'#00ffff');g.addColorStop(1,'#ffff00');
+x.fillStyle=g;x.fillRect(0,310,200,60);
+// sonda: rileggo il mio stesso canvas
+window.__probe=(()=>{const d=x.getImageData(0,0,700,380).data;
+ const at=(px,py)=>{const i=(py*700+px)*4;return [d[i],d[i+1],d[i+2]].join(',')};
+ return {fillRect:at(50,30),strokeRect:at(60,72),pathStroke:at(80,150),arc:at(60,210),text:at(30,270),grad:at(100,340)};})();
+</script></body></html>

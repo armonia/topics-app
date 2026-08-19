@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset=utf-8><style>
+body{margin:0;background:#fff;font:14px system-ui}
+div{width:120px;height:50px;margin:0}
+#shadow{background:#fff;box-shadow:0 0 0 20px #ff0000}          /* ombra piena rossa */
+#filter{background:#00ff00;filter:grayscale(1)}                  /* verde -> grigio */
+#opacity{background:#0000ff;opacity:.5}                          /* blu -> #7f7fff */
+#blend{background:#ff0000;mix-blend-mode:multiply}
+#radius{background:#ff00ff;border-radius:25px}
+#transform{background:#00ffff;transform:scale(.5)}
+#gradient{background:linear-gradient(90deg,#ff0000 0%,#ff0000 100%)}  /* gradiente a tinta unita */
+#gradient2{background:linear-gradient(90deg,#ff0000,#0000ff)}         /* gradiente vero */
+#flexgap{display:flex;gap:30px;width:auto}#flexgap span{background:#111;width:30px;height:50px;display:block}
+#sticky{position:sticky;top:0;background:#ffa500}
+#zindex{position:relative}#zindex b{position:absolute;left:0;top:0;width:60px;height:50px;background:#008000}
+</style></head><body>
+<div id=shadow></div><div style="height:30px"></div>
+<div id=filter></div><div id=opacity></div><div id=blend></div><div id=radius></div>
+<div id=transform></div><div id=gradient></div><div id=gradient2></div>
+<div id=flexgap><span></span><span></span></div>
+<div id=sticky></div><div id=zindex><b></b></div>
+</body></html>

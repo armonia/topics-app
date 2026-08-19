@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset=utf-8><title>Casi</title><style>
+body{margin:0;font:13px/1.4 -apple-system,system-ui,sans-serif;background:#fff;color:#111}
+.case{border-bottom:2px solid #000;padding:8px}
+h2{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#666}
+/* 1 GRID */
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.grid>div{background:#2563eb;color:#fff;padding:10px;text-align:center;border-radius:6px}
+/* 2 FLEX + gap + align */
+.flex{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.flex>div{background:#16a34a;color:#fff;padding:8px 14px;border-radius:20px}
+/* 3 POSITION sticky + shadow */
+.sh{box-shadow:0 4px 14px rgba(0,0,0,.35);background:#fff;padding:10px;border-radius:8px;width:60%}
+/* 4 GRADIENT + transform */
+.gr{height:60px;background:linear-gradient(135deg,#f43f5e,#8b5cf6,#06b6d4);border-radius:8px;transform:rotate(-2deg)}
+/* 5 tipografia: font-weight, letter-spacing, ellipsis */
+.ty{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.ell{width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#eee;padding:4px}
+/* 6 border-radius + border + outline */
+.bd{width:80px;height:40px;border:4px solid #f59e0b;border-radius:20px 4px 20px 4px;display:inline-block}
+/* 7 opacity + blend + filter */
+.fl{width:80px;height:40px;background:#111;filter:blur(2px) saturate(2);display:inline-block}
+.op{width:80px;height:40px;background:#dc2626;opacity:.35;display:inline-block}
+/* 8 tabella */
+table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 10px}
+th{background:#f3f4f6}
+</style></head><body>
+<div class=case><h2>1 · CSS grid, 4 colonne</h2><div class=grid><div>A</div><div>B</div><div>C</div><div>D</div></div></div>
+<div class=case><h2>2 · flex, gap, space-between</h2><div class=flex><div>uno</div><div>due</div><div>tre</div></div></div>
+<div class=case><h2>3 · box-shadow</h2><div class=sh>ombra sotto la card</div></div>
+<div class=case><h2>4 · gradient + rotate</h2><div class=gr></div></div>
+<div class=case><h2>5 · tipografia</h2><div class=ty>Peso 800, tracking stretto</div><div class=ell>testo lungo che deve essere troncato con i puntini</div></div>
+<div class=case><h2>6 · border-radius asimmetrico</h2><span class=bd></span></div>
+<div class=case><h2>7 · filter blur + opacity</h2><span class=fl></span> <span class=op></span></div>
+<div class=case><h2>8 · tabella</h2><table><tr><th>col</th><th>valore</th></tr><tr><td>ram</td><td>29 MB</td></tr><tr><td>fps</td><td>20</td></tr></table></div>
+<div class=case><h2>9 · canvas 2D (grafico)</h2><canvas id=cv width=560 height=90></canvas></div>
+<div class=case><h2>10 · SVG inline</h2><svg width=200 height=60><circle cx=30 cy=30 r=25 fill="#0ea5e9"/><rect x=70 y=10 width=110 height=40 rx=10 fill="#84cc16"/></svg></div>
+<script>
+const x=document.getElementById('cv').getContext('2d');
+x.fillStyle='#0f172a';x.fillRect(0,0,560,90);
+x.strokeStyle='#38bdf8';x.lineWidth=2;x.beginPath();
+for(let i=0;i<560;i++)x.lineTo(i,45+Math.sin(i/28)*32);x.stroke();
+x.fillStyle='#f43f5e';for(let i=0;i<560;i+=70)x.fillRect(i,70,10,15);
+</script></body></html>
