@@ -347,6 +347,36 @@ export function initServerSync(): void {
         // device-local fields never cross the network per CONTEXT.md.
         const state = usePaneStore.getState();
         const snap = selectSyncableSnapshot(state);
+        // QUI HO PROVATO UN GATE, E L'HO RITIRATO. La seconda volta oggi, e la
+        // ragione e' la stessa: questo punto sembra il posto giusto per dire
+        // «non rimandare cio' che il server ha gia'», e non lo e'.
+        //
+        // Il ciclo e' reale e misurato: `lastSeq` sale anche su un'idratazione
+        // REMOTA (il reducer lo porta a `max(lastSeq, clean.lastSeq)`, e
+        // `clean.lastSeq` viene da un `server_seq` che cresce con le scritture
+        // di CHIUNQUE — ventuno sessioni aperte su questa macchina), quindi
+        // questo timer si arma anche quando lo stato non e' cambiato di un
+        // byte: 12-17 PUT da 75 KB in 25 secondi a schermo fermo, uno per ogni
+        // `HYDRATE_FROM_SNAPSHOT` ricevuto, contati strumentando il dispatcher.
+        //
+        // Il rimedio (confrontare cio' che si sta per mandare con l'identita'
+        // dell'ultimo stato IDRATATO) porta il cancello a ZERO scritture, su tre
+        // giri. Ma rompe `cross-window-topic-sync`: aprire una chat e ricaricare
+        // non la ritrova piu' aperta. Verificato che il rosso sia mio —
+        // disattivando la sola riga del gate quel test torna verde.
+        //
+        // Perche' non l'ho forzato: il beneficio e' banda e un po' di event
+        // loop; il costo e' uno stato che non si sincronizza, cioe' lavoro
+        // perso a schermo. Fra i due, il secondo e' peggiore del difetto che
+        // toglie — e oggi ho gia' pagato questa lezione con un gate che faceva
+        // sparire la chiusura di una scheda.
+        //
+        // Dove guarderei ripartendo: non qui, ma in `syncWS.ts`, alla riga che
+        // porta `lastSeq` a `max(currentSeq, server_seq)` su un'idratazione. E'
+        // quella a trasformare la scrittura di un pari nel nostro contatore, e
+        // finche' resta cosi' ogni gate a valle sta rattoppando un sintomo.
+        // Gli agganci restano pubblicati (`alreadyOnServer`, `noteLocalWrite`)
+        // con i loro commenti: servono a chi riprende, non a questo giro.
         void pushSnapshot(REMOTE_KEY, snap, state.lastSeq);
       }, DEBOUNCE_MS);
     },
