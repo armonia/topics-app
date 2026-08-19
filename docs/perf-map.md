@@ -285,9 +285,26 @@ the defect was merely MASKED by a third rebound PUT that the hydrate produced.
 
 Which means the write cycle was propping up a close that does not land by
 itself. Closing the cycle without closing THAT trades bandwidth for work lost on
-screen — the same bad trade that already had two remedies withdrawn here. Where
-to resume: why a PUT accepted with 200 does not keep its `closedStack`. Not in
-the middleware, which has done its part.
+screen — the same bad trade that already had two remedies withdrawn here.
+
+**And the next question is already answered: the SERVER is not losing it.** A
+direct PUT carrying a `closedStack` of one, straight at the production route with
+no browser in the loop, reads back as one:
+
+    before: closed = 47   → PUT 200 → after: closed = 1
+
+So `stripDeviceLocalFields` keeps the record, the CAS does not silently reject
+it, and the row holds what was sent. The loss is on the CLIENT side, between the
+snapshot the reducer builds — verified correct, the record is complete and
+well-formed on the wire — and what survives the round trip. Ruled out along the
+way by reading the code rather than guessing: the hydrate MERGES `closedStack` by
+`id@closedAt` and never replaces it, `CLEAR_CLOSED_STACK` is not dispatched here,
+and `selectSyncableSnapshot` filters only drafts.
+
+Worth handing over: on the LIVE app the same close DOES persist, because closing
+a browser pane calls `flushPaneStoreNow()` — which cancels the debounce and PUTs
+immediately. The E2E closes a CHAT pane, which has no such path. That asymmetry
+is the shape of what is left.
 
 **The bundle ratchet is red, and it is not from this work.** `check:bundle`,
 2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
