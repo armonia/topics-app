@@ -150,16 +150,27 @@ actions by type recorded **zero** in the same window that saw fifteen PUTs. The
 PUTs do leave this window (counted on its own `fetch`), so they are not someone
 else's writes seen in passing.
 
-The cause is now known, measured rather than guessed. Instrumenting the
-dispatcher to count actions by type — **including** the server-authoritative
-ones the first probe skipped, which is why it reported "zero actions" and sent
-me down two wrong paths — recorded **16 `HYDRATE_FROM_SNAPSHOT` for 15 PUTs**.
-The loop: `server_seq` is server-allocated and grows with EVERY client's writes
-(21 open sessions here); a remote hydrate sets `lastSeq` to
-`max(currentSeq, server_seq)` (`reducers/panes.ts:760`); the sync middleware
-watches `lastSeq` and, half a second later, PUTs 75 KB identical to what it just
-RECEIVED; that write bumps `server_seq`, the server rebroadcasts, and every peer
-does the same. The self-echo filter guards against one's own write, not a peer's.
+Half the cause is known; the other half is not, and the wrong answer is worth
+recording too. Instrumenting the dispatcher — with the probe placed BEFORE the
+`return` that skips server-authoritative actions, which is why the first attempt
+reported "zero actions" and sent me down two wrong paths — recorded **16
+`HYDRATE_FROM_SNAPSHOT` for 15 PUTs**. The mechanism follows: a hydrate sets
+`lastSeq` to `max(currentSeq, server_seq)` (`reducers/panes.ts:760`), the sync
+middleware watches `lastSeq`, and half a second later it PUTs 75 KB identical to
+what it just received.
+
+**Who dispatches those hydrates is still open, and my first answer was wrong.**
+I concluded "the peers" — 21 open sessions, each write raising everyone's
+`server_seq`. That hypothesis makes a checkable prediction: every PUT should
+follow an inbound `ui-state:*` frame. It is FALSE — measuring received WebSocket
+frames gives **zero** carrying `ui-state` in 25 seconds against fifteen PUTs
+sent. No peer was writing.
+
+Ruled out for whoever resumes: not `syncCrossTab` (drops frames with its own
+`senderId`, has its own LWW gate), not `persistLocal` (runs once at boot), not
+the two branches of `syncWS` (no frames arrive). The fourth caller needs a
+non-minified stack — a dev build, where module names survive; minified it reads
+only `dispatch@index-*.js`.
 
 **A remedy that works was written and withdrawn.** Comparing the outbound
 snapshot against the identity of the last HYDRATED state takes the gate to
