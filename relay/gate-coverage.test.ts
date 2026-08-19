@@ -31,7 +31,20 @@
  * nothing: an `include` that matches no file, or a script whose eslint config
  * ignores the folder, is exactly the state this file exists to detect. So the
  * two gates are RUN and their reported file lists are compared against the
- * files on disk. It costs about 3 s.
+ * files on disk. It costs about 3 s ON AN IDLE MACHINE.
+ *
+ * E QUEL «3 s» E' IL MOTIVO PER CUI LE SCADENZE QUI SONO GENEROSE. `test:unit`
+ * e' la barra di review di OGNI card: con dieci agenti che rivedono insieme,
+ * queste tre misure diventano trenta processi di compilazione in parallelo, e
+ * un tsc che a vuoto impiega 3 s ne impiega piu' di 60. Misurato il 19/08: due
+ * card diverse, lo stesso rosso, e il rosso era
+ * `relay stays OUT of the server program [60011ms]` — cioe' la scadenza, non
+ * un guasto. Il costo di quel falso non e' una card: e' N card e N agenti che
+ * lo rileggono ciascuno per conto suo.
+ *
+ * Le scadenze stanno percio' molto sopra il caso a vuoto: servono a fermare un
+ * processo APPESO, non a misurare la macchina. Se un giorno scadono davvero,
+ * la domanda giusta e' «cosa tiene fermo tsc», non «alzo ancora».
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -40,6 +53,10 @@ import {
   readKnipWorkspaces,
   stripJsonComments,
 } from "../scripts/check-deadcode-blindspots";
+
+/** La scadenza delle tre misure che lanciano un compilatore. Vedi l'intestazione:
+ *  e' un tetto contro un processo appeso, non una stima del caso normale. */
+const DEADLINE_MS = Math.max(60_000, Number(process.env.TOPICS_GATE_COVERAGE_MS) || 300_000);
 
 const ROOT = join(import.meta.dir, "..");
 const read = (rel: string): string => readFileSync(join(ROOT, rel), "utf8");
@@ -156,7 +173,7 @@ describe("relay/ is inside the gates", () => {
     const listed = await measuredProgramFiles();
     expect(listed.length, "tsc reported no relay file: the program is empty").toBeGreaterThan(5);
     expect(RELAY_TS.filter((f) => !listed.includes(f)), "relay files outside the tsc program").toEqual([]);
-  }, 60_000);
+  }, DEADLINE_MS);
 
   it("relay stays OUT of the server program, measured the same way", async () => {
     // `workers-runtime.d.ts` declares `WebSocketPair` and friends as ambient
@@ -166,7 +183,7 @@ describe("relay/ is inside the gates", () => {
     const include = readJsonc<{ include: string[] }>("tsconfig.server.json").include;
     expect(include.filter((p) => p.startsWith("relay"))).toEqual([]);
     expect(await tscListFiles("tsconfig.server.json")).toEqual([]);
-  }, 60_000);
+  }, DEADLINE_MS);
 
   it("eslint actually lints every relay file, measured from its own report", async () => {
     // Same trap on the other gate: `SCRIPTS.lint` used to be checked as a
@@ -176,7 +193,7 @@ describe("relay/ is inside the gates", () => {
     const linted = await measuredLintedFiles();
     expect(linted.length, "eslint reported no relay file: the folder is being ignored").toBeGreaterThan(5);
     expect(RELAY_TS.filter((f) => !linted.includes(f)), "relay files eslint never opened").toEqual([]);
-  }, 120_000);
+  }, DEADLINE_MS);
 
   it("the lint script the gates run is the one that was measured", () => {
     // The measurement above runs eslint directly. This is what ties it to the

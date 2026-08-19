@@ -148,6 +148,7 @@ export type CheckId =
   | "cost-out-of-class"
   | "documented-parameter-not-declared"
   | "delivery-commit-not-own"
+  | "review-card-is-mute"
   | "protocol-doc-missing";
 
 // ── Il rilievo, e le regole che ne vietano uno inutile ───────────────────────
@@ -338,6 +339,8 @@ export function isProvablyDead(
 export interface DoctorTask {
   id: string;
   text: string;
+  /** La descrizione: la colonna che il drawer mostra accanto ai sottotask. */
+  description: string | null;
   status: string;
   /** queued | starting | working | needs_input | delivered | failed | blocked | null */
   dispatchState: string | null;
@@ -601,6 +604,56 @@ const checkNeedsInputUnanswered: DoctorCheck = {
   },
 };
 
+// ── 4-bis. Card arrivata in review MUTA ──────────────────────────────────────
+
+/**
+ * Il testo che il server scrive DA SOLO quando un turno finisce prima che
+ * l'agente commenti. E' l'impronta esatta della card muta: c'e' un commento,
+ * ma non l'ha scritto nessuno che sapesse cosa era stato fatto.
+ */
+const NOTA_SENZA_RIASSUNTO = "Consegna senza riassunto";
+
+/** Quanto deve essere lunga una descrizione per dire qualcosa. Un titolo
+ *  ricopiato nella descrizione non e' una descrizione: sotto questa soglia si
+ *  legge come vuota, ed e' il caso visto tre volte il 19/08. */
+const DESC_MINIMA = 80;
+
+const checkReviewCardIsMute: DoctorCheck = {
+  id: "review-card-is-mute",
+  bornFrom:
+    "tre card in review il 19/08 (19fbee19, 63c3332a, a68393f4) con descrizione vuota e nessun riassunto: "
+    + "il turno era stato tagliato prima che l'agente parlasse, e chi rivedeva trovava solo un ramo e un avviso di servizio",
+  run({ tasks, dbPath }) {
+    const out: Finding[] = [];
+    for (const t of tasks) {
+      if (t.status !== "review") continue;
+      const desc = (t.description ?? "").trim();
+      const riassunto = t.lastAgentComment?.content ?? "";
+      // MUTA = nessuna delle due voci parla. Una sola basta: una card senza
+      // descrizione ma con un riassunto vero si legge benissimo, e viceversa.
+      const descParla = desc.length >= DESC_MINIMA;
+      const riassuntoParla = riassunto.trim().length > 0 && !riassunto.includes(NOTA_SENZA_RIASSUNTO);
+      if (descParla || riassuntoParla) continue;
+      // E se non c'e' NEMMENO un ramo, non c'e' niente da raccontare: e' una
+      // card portata in review a mano, non una consegna rimasta senza parole.
+      if (!t.deliveryBranch) continue;
+      out.push(finding({
+        check: "review-card-is-mute",
+        taskId: t.id,
+        taskText: t.text,
+        what: `in review con un ramo (\`${t.deliveryBranch}\`) ma senza niente da leggere: `
+          + `descrizione ${desc.length} caratteri, ${riassunto ? "riassunto assente (il turno e' finito prima)" : "nessun commento dell'agente"}`,
+        proof: `sqlite3 ${shq(dbPath)} "SELECT length(COALESCE(description,'')), delivery_branch FROM tasks WHERE id='${sq(t.id)}'" && sqlite3 ${shq(dbPath)} "SELECT kind, substr(content,1,80) FROM task_comments WHERE task_id='${sq(t.id)}' ORDER BY created_at DESC LIMIT 3"`,
+        action: `leggi il diff (\`git log --oneline main..${t.deliveryBranch}\` e \`git diff --stat main...${t.deliveryBranch}\`) e scrivi tu descrizione e riassunto prima di decidere: `
+          + "una card muta costringe chi rivede a rifare l'indagine che l'agente aveva gia' fatto",
+        occurrence: `review-card-is-mute:${t.id}:${t.deliveryBranch}`,
+        brief: `desc ${desc.length}c, nessun riassunto`,
+      }));
+    }
+    return out;
+  },
+};
+
 // ── 5. Rosso ambientale spacciato per regressione ────────────────────────────
 
 const checkEnvironmentalRed: DoctorCheck = {
@@ -795,6 +848,7 @@ export const CHECKS: readonly DoctorCheck[] = Object.freeze([
   checkBehaviourWithoutPreview,
   checkLandDragsForeignCommits,
   checkNeedsInputUnanswered,
+  checkReviewCardIsMute,
   checkEnvironmentalRed,
   checkCostOutOfClass,
   checkDocumentedParameterNotDeclared,
@@ -1020,6 +1074,7 @@ function classify(value: number | null, smallMax: number, mediumMax: number): Si
 interface RawTaskRow {
   id: string;
   text: string;
+  description: string | null;
   status: string;
   dispatch_state: string | null;
   dispatch_attempts: number;
@@ -1070,7 +1125,7 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
 
   try {
     const rows = db.prepare(
-      `SELECT t.id, t.text, t.status, t.dispatch_state, t.dispatch_attempts, t.preview_image,
+      `SELECT t.id, t.text, t.description, t.status, t.dispatch_state, t.dispatch_attempts, t.preview_image,
               t.delivery_branch, t.delivery_commit, t.agent_tokens, t.agent_cache_read_tokens,
               t.agent_ms, t.updated_at, t.assigned_topic_id,
               tp.session_key AS session_key, tp.updated_at AS topic_updated_at,
@@ -1091,9 +1146,16 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
       "SELECT parent_task_id AS p, COUNT(*) AS n FROM tasks WHERE parent_task_id IS NOT NULL AND archived = 0 GROUP BY 1",
     ).all() as unknown as Array<{ p: string; n: number }>) subCounts.set(r.p, r.n);
 
+    // L'ULTIMA COSA CHE L'AGENTE HA DETTO, e le note di servizio non sono
+    // parlato. `service` esce insieme a `status`: l'avviso «Anteprima non
+    // allegata: 503» lo scrive il sistema sotto il nome dell'agente, e finche'
+    // contava come sua ultima parola una card senza nessun riassunto sembrava
+    // averne uno (visto il 19/08 su `0377f150`, dove nascondeva sia la
+    // descrizione vuota sia dei check pre-review rossi).
     const lastAgent = db.prepare(
       `SELECT content, created_at FROM task_comments
-        WHERE task_id = ? AND author NOT IN ('user','system') AND COALESCE(kind,'comment') <> 'status'
+        WHERE task_id = ? AND author NOT IN ('user','system')
+          AND COALESCE(kind,'comment') NOT IN ('status','service')
         ORDER BY created_at DESC LIMIT 1`,
     );
     const lastHuman = db.prepare(
@@ -1131,6 +1193,7 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
       tasks.push({
         id: r.id,
         text: r.text,
+        description: r.description,
         status: r.status,
         dispatchState: r.dispatch_state,
         dispatchAttempts: r.dispatch_attempts ?? 0,
