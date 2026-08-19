@@ -321,6 +321,9 @@ const IT: Dict = {
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
+  // La sessione ha un'etichetta perché ora è una sezione, non una tab: si legge
+  // insieme a quel che le sta sopra invece che al posto suo.
+  'board.task.sessionLabel': 'Sessione',
   // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
   // brief per cui il drawer si apre (e che ora si chiude da sé).
   'board.task.deliveryLabel': 'Consegna',
@@ -620,6 +623,10 @@ const IT: Dict = {
   'board.card.conductorClosesTitle': 'Invisibile e barra verde: questa card la può chiudere il conduttore senza passare da te.',
   'board.card.steerPlaceholder': "…oppure scrivi all'agent",
   'board.card.steerSendTitle': "Invia all'agent. Lo riceve al prossimo turno, come Claude Code.",
+  // L'invio del campo libero in review NON e' un'azione sua: e' la scelta
+  // principale della card con dentro la frase appena scritta, quindi il tooltip
+  // la nomina invece di dire un generico «invia».
+  'board.card.replySendTitle': '{action}, con questa indicazione dentro.',
   'board.card.turnActions': 'Azioni su questo turno',
   'board.card.yourRequest': 'La tua richiesta: {text}',
   'board.card.commentPlaceholder': '…oppure commenta',
@@ -1145,6 +1152,10 @@ const IT: Dict = {
   'perf.q2': 'Quanto costa',
   'perf.fpsAvg': 'media {n}',
   'perf.procCount': '{n} processi',
+  // La percentuale in anteprima: e' il TOTALE (app + agenti e servizi), sulla
+  // scala 0-100 dell'intera macchina. La stessa chiave serve alle due tessere,
+  // dove dice invece quanto ne mette ciascuna meta'.
+  'perf.cpuTotal': '{pct}% CPU',
   // Due tessere e non cinque: sono le uniche due meta' che si chiudono in modo
   // diverso - una chiudendo pannelli, l'altra fermando sessioni.
   'perf.tileApp': "L'app",

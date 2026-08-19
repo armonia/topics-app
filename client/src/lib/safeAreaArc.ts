@@ -25,6 +25,12 @@
  * che vale R sul bordo (x = 0) e zero da x = R in poi. A destra è la stessa
  * cosa specchiata: al posto di x si usa la distanza dal bordo destro.
  *
+ * Questa però è la legge dell'angolo APPUNTITO, ed è il caso peggiore. Una
+ * scatola con l'angolo esterno tondo paga molto meno, e a filo del bordo paga
+ * R meno il proprio raggio invece di R intero: la formula generale — di cui
+ * quella qui sopra è il caso `r = 0` — sta in `alzataCurva`, ed è ciò che
+ * permette alla fila di arrivare fino al bordo del telefono.
+ *
  * Il punto che vincola una scatola è il suo angolo basso ESTERNO — il sinistro
  * per chi sta a sinistra, il destro per chi sta a destra — quindi si misura lì
  * e non al centro dell'icona: misurare al centro fa passare la scatola con
@@ -74,16 +80,43 @@ export function raggioSchermo(fascia: number, override?: number): number {
 }
 
 /**
- * Quanto l'arco mangia a una certa distanza dal bordo laterale più vicino.
+ * Quanto l'arco mangia a una certa distanza dal bordo laterale più vicino, a
+ * una scatola che ha il suo angolo esterno arrotondato di `curvatura`.
  *
  * `distanza` è già la distanza dal bordo (sinistro o destro, chi decide è il
  * chiamante): la funzione non sa da che parte sta e non deve saperlo.
+ *
+ * ── L'ANGOLO TONDO SI RIPRENDE QUELLO CHE L'ARCO AVEVA PRESO ────────────────
+ * Un angolo DRITTO appoggiato al bordo (distanza 0) va alzato di tutto il
+ * raggio: il vetro lì non c'è ancora. Ma la scatola non ha un angolo dritto —
+ * ha il suo, tondo e concentrico a quello dello schermo — e due cerchi
+ * concentrici non si toccano mai: basta che il centro del suo angolo stia sulla
+ * stessa diagonale del centro dell'arco.
+ *
+ * Con l'arco di raggio R centrato in (R, H−R) e la scatola rientrata di `d` con
+ * angolo di raggio `r`, il centro del suo angolo sta in (d+r, H−a−r). Perché la
+ * scatola resti dentro il vetro, i due centri devono distare al massimo R−r:
+ *   (R−d−r)² + (a+r−R)² ≤ (R−r)²
+ * da cui l'alzata minima
+ *   a = (R−r) − √((R−r)² − (R−d−r)²)
+ * che con `r = 0` torna esattamente la vecchia formula dell'angolo appuntito
+ * — è la stessa legge, non un secondo calcolo — e a filo del bordo (d = 0) vale
+ * R−r invece di R: su un iPhone da 54 con un tasto da 44, 32 invece di 54.
+ *
+ * È QUESTA la ragione per cui la fila può stare a filo del telefono. Con
+ * l'angolo appuntito, «a filo» costava tutto il raggio di alzata e la fila
+ * sarebbe uscita dalla barra; col suo angolo tondo costa 32, e il primo e
+ * l'ultimo tasto finiscono con il bordo sul bordo del vetro.
  */
-export function alzataArco(distanza: number, raggio: number): number {
-  if (raggio <= 0) return 0;
-  if (!Number.isFinite(distanza) || distanza >= raggio) return 0;
+export function alzataCurva(distanza: number, raggio: number, curvatura: number): number {
+  if (raggio <= 0 || !Number.isFinite(distanza)) return 0;
   const d = Math.max(0, distanza);
-  return raggio - Math.sqrt(raggio * raggio - (raggio - d) * (raggio - d));
+  const r = Math.max(0, Math.min(curvatura, raggio));
+  const gioco = raggio - r;
+  const scarto = raggio - d - r;
+  // Fuori dall'arco (o già più tondo di lui) non c'è niente da alzare.
+  if (scarto <= 0 || gioco <= 0) return 0;
+  return gioco - Math.sqrt(gioco * gioco - scarto * scarto);
 }
 
 /** Una scatola della fila: dove comincia e quanto è larga, in pixel CSS. */
@@ -162,14 +195,23 @@ export function curvaturaEsterna(distanza: number, raggio: number, altezza: numb
  * CURVATURA — la decide il bordo PIÙ VICINO, che è l'unico che possa toccare la
  * scatola: chi sta a sinistra curva a sinistra, chi sta a destra curva a
  * destra, e chi sta in mezzo non è toccato da nessuno dei due e resta standard.
+ *
+ * E si calcola PRIMA dell'alzata, perché l'alzata dipende da lei: quanto un
+ * angolo è tondo decide quanto quella scatola deve salire (vedi `alzataCurva`).
+ * L'ordine inverso — alzare per un angolo appuntito e poi arrotondarlo — è come
+ * si finiva a stare 8px dentro il bordo invece che a filo.
  */
 export function formaFila({ larghezza, scatole, raggio, pavimento, altezza, standard }: OpzioniFila): FormaScatola[] {
   return scatole.map((s) => {
     const daSinistra = s.x;
     const daDestra = larghezza - (s.x + s.larghezza);
-    const arco = Math.max(alzataArco(daSinistra, raggio), alzataArco(daDestra, raggio));
     const vicino = Math.min(daSinistra, daDestra);
+    const lontano = Math.max(daSinistra, daDestra);
     const curvatura = curvaturaEsterna(vicino, raggio, altezza, standard);
+    // Il lato vicino porta l'angolo tondo, l'altro no: chiedere l'alzata a
+    // entrambi con la stessa curvatura regalerebbe al lato lontano uno sconto
+    // che il suo angolo, standard, non ha.
+    const arco = Math.max(alzataCurva(vicino, raggio, curvatura), alzataCurva(lontano, raggio, standard));
     return {
       alzata: Math.round(Math.max(pavimento, arco) * 100) / 100,
       curvatura: Math.round(curvatura * 100) / 100,

@@ -29,6 +29,12 @@ mod browser_linux;
 #[cfg(target_os = "windows")]
 mod browser_win;
 
+/// I path che l'OS consegna quando qualcuno fa «Apri con Topics»: raccolta da
+/// argv / seconda istanza / Finder, coda per chi arriva prima della webview,
+/// e il comando con cui la UI li ritira. Il trasporto sta lì, la decisione su
+/// cosa aprire sta in `shared/os-open-path.ts`.
+mod os_open;
+
 /// objc2 compatibility shims for the AppKit FFI throughout this file.
 ///
 /// Migrated off the deprecated `objc` + `cocoa` crates (759 of the shell's 761
@@ -2470,6 +2476,25 @@ fn tray_dispatch(app: &tauri::AppHandle, event: &str, detail: Option<(&str, &str
     let js = format!("window.dispatchEvent(new CustomEvent('{event}'{}))",
         if body.is_empty() { String::new() } else { format!(",{body}") });
     if let Some(wv) = app.get_webview("main") { let _ = wv.eval(&js); }
+}
+
+/// «Apri con Topics»: il path va in coda, poi si sveglia la UI.
+///
+/// L'evento NON porta il path. Lo porta la coda, e il client la svuota con
+/// `take_os_open_paths`: così il path arrivato PRIMA che la webview esistesse e
+/// quello arrivato a app viva prendono la stessa identica strada, e il caso
+/// "lancio a freddo" non ha bisogno di un secondo pezzo di codice che poi
+/// nessuno prova. Se la finestra non c'è ancora, la coda regge da sola: il
+/// client la svuota al mount.
+///
+/// La sveglia passa da `tray_dispatch` perché è già la porta che porta la
+/// finestra a galla prima di consegnare: aprire un file in una finestra
+/// nascosta sarebbe aprire una cosa che nessuno vede.
+fn deliver_os_open_paths(app: &tauri::AppHandle, paths: Vec<String>) {
+    if !os_open::queue_os_open_paths(paths) {
+        return;
+    }
+    tray_dispatch(app, "topics:os-open-path", None);
 }
 
 /// Il nome leggibile dentro l'id di un progetto: gli id nascono `<nome>-<hash>`
@@ -9471,13 +9496,20 @@ pub fn run() {
         })
         // Single-instance FIRST (plugin requirement): a duplicate launch focuses
         // the running window instead of spawning a process that can't bind :13333.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             use tauri::Manager;
             if let Some(w) = app.get_window("main") {
                 // A second launch forwards here and exits; if this window can't be
                 // shown ON-SCREEN the user just sees "opens then closes, no window".
                 ensure_window_visible(&w);
             }
+            // QUESTA è l'apertura istantanea. Un doppio click su un file mentre
+            // Topics è già vivo lancia un secondo processo, che muore qui
+            // consegnandoci i suoi argomenti: nessun avvio a freddo, nessun
+            // server da riattaccare, il path arriva a una app che ha già tutto
+            // in memoria.
+            let paths = os_open::open_paths_from_args(&args);
+            deliver_os_open_paths(app, paths);
         }))
         // Navigation guard: a stray external nav in the MAIN webview would escape
         // tauri://localhost and white-screen the whole app (no recovery but
@@ -9765,6 +9797,15 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Il path del PRIMO lancio: `topics /Users/x/progetto`, o il doppio
+            // click su un file quando Topics non era ancora vivo. Qui la webview
+            // non esiste, quindi si ACCODA e basta: la sveglia sarebbe un evento
+            // dispatchato dentro una pagina che non c'è. Lo ritira il client al
+            // mount, che è il primo istante in cui c'è qualcuno che sa aprirlo.
+            {
+                let argv: Vec<String> = std::env::args().collect();
+                os_open::queue_os_open_paths(os_open::open_paths_from_args(&argv));
+            }
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -10512,7 +10553,8 @@ pub fn run() {
             window_focus_label,
             window_close_label,
             app_reload_all,
-            window_close_self
+            window_close_self,
+            os_open::take_os_open_paths
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -10530,6 +10572,16 @@ pub fn run() {
                 if let Some(w) = app_handle.get_window("main") {
                     ensure_window_visible(&w);
                 }
+            }
+            // Finder «Apri con Topics» e trascinamento sull'icona: su macOS NON
+            // passano da argv. Arrivano come Apple Event, e Tauri li rigira qui
+            // come `file://…`. È l'unico canale del Finder: senza questo ramo la
+            // voce nel menu «Apri con» c'è ma non apre niente, che è peggio di
+            // non esserci.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { ref urls } = event {
+                let paths: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+                deliver_os_open_paths(app_handle, paths);
             }
             // Final geometry save on the way out — fires on ⌘Q, tray "Esci", the
             // status-bar relaunch AND the updater restart (AppHandle::restart()

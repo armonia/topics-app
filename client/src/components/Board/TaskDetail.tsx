@@ -4,7 +4,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, Sparkles, Square, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -38,6 +38,7 @@ import { TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './taskActionWords';
+import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
@@ -146,14 +147,21 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
     ? 'bg-amber-600/80 hover:bg-amber-600 text-white'
     : 'bg-emerald-500/80 hover:bg-emerald-500 text-white';
   const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
+  // I GLIFI VENGONO DALLA TABELLA UNICA, non da qui. Erano `ShieldCheck` e
+  // `ShieldX`, cioè gli scudi dei CHECKS: sulla stessa schermata lo scudo verde
+  // è già il chip «checks verdi», quindi il bottone che chiude la card portava
+  // il segno di un'altra affermazione. Adesso la spunta è «chiudi» e la freccia
+  // è «torna indietro», le stesse identiche della riga di scelte sulla card.
+  const AcceptIcon = TASK_ACTION_ICON['accept'];
+  const SendBackIcon = TASK_ACTION_ICON['send-back'];
   const buttons = [
     {
       id: 'accept' as const, word: d.accept, testId: 'task-approve',
-      icon: <ShieldCheck className="h-3.5 w-3.5" />, onClick: onAccept,
+      icon: <AcceptIcon className="h-3.5 w-3.5" />, onClick: onAccept,
     },
     {
       id: 'send-back' as const, word: d.sendBack, testId: 'task-send-back',
-      icon: <ShieldX className="h-3.5 w-3.5" />, onClick: onSendBack,
+      icon: <SendBackIcon className="h-3.5 w-3.5" />, onClick: onSendBack,
     },
   ];
   // Il verde va per primo: è il posto dove il pollice arriva da solo, ed è
@@ -1746,7 +1754,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [renderThread, planComment, taskId]);
 
   // The single GroupLayout that IS the drawer body's tab system.
-  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface, threadInline: twoCol, openPaneInProject });
+  // `threadInline` NON è più il modo due colonne: la sessione esce dal gruppo di
+  // tab SEMPRE. Finché era una pane come le altre, aprire l'output del task
+  // (una tab del browser, il piano, un allegato) NASCONDEVA il thread, e
+  // tornare al thread nascondeva l'output: due cose che si leggono insieme si
+  // scambiavano lo stesso rettangolo. Ora la sessione ha la sua sezione — a
+  // sinistra in due colonne, sopra lo Spazio di lavoro in colonna sola — e il
+  // gruppo tiene solo quello che si GUARDA.
+  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface, threadInline: true, openPaneInProject });
+  // Quante pane ha il gruppo, ORA che la sessione non è più una di loro: zero
+  // vuol dire un task senza niente da guardare, e le due colonne e la colonna
+  // sola lo raccontano in due modi diversi (stato vuoto a destra, riga sola).
+  const workspacePaneCount = browser.groupLayoutProps.panes.length;
+  const hasWorkspacePanes = workspacePaneCount > 0;
   // Apertura mirata. Va riprovata: al primo render i commenti (e quindi i media,
   // e quindi le pane) non sono ancora arrivati, perciò `focusPane` fallisce e
   // basta. Il ref si azzera solo quando la pane c'è davvero ed è stata attivata,
@@ -2528,8 +2548,23 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             colonna esiste. Prende quanto gli serve, con un tetto oltre il quale
             scorre lui. In modo stretto resta il contenitore di scroll di
             sempre: lì dentro c'è tutto il brief. */}
+        {/* ANCHE IN COLONNA SOLA il brief ha un tetto, e per la stessa ragione
+            per cui ce l'ha in due colonne: sotto di lui adesso c'è la SESSIONE,
+            che è montata sempre. Con `flex-1` il brief e la sessione si
+            dividevano l'altezza a metà — e un brief lungo (descrizione +
+            sottotask + tentativi) spingeva la sessione a una finestrella di tre
+            righe. Prende quanto gli serve fino al tetto, oltre scorre lui: è già
+            un contenitore di scroll, quindi il tetto non taglia niente.
+
+            IL TETTO SI STRINGE QUANDO LE ZONE SONO TRE. Con lo Spazio di lavoro
+            aperto la colonna deve reggere brief + output + sessione, e a 720px
+            di finestra un tetto a metà colonna lasciava all'output 45px, cioè
+            la sola barra delle tab: un pannello «aperto» che non mostra niente.
+            Chi cede è il brief, perché è l'unico dei tre che scorre — gli altri
+            due o si vedono o non ci sono. Chiuso l'output, il tetto torna
+            largo: non c'è più niente con cui dividere. */}
         <div
-          className={twoCol ? 'max-h-[40%] shrink-0 overflow-y-auto' : 'min-h-0 flex-1 overflow-y-auto'}
+          className={`shrink-0 overflow-y-auto ${twoCol ? 'max-h-[40%]' : (workspaceOpen && hasWorkspacePanes ? 'max-h-[25%]' : 'max-h-[50%]')}`}
           data-testid="task-brief-scroll"
         >
           {/* L'ANTEPRIMA È LA CONSEGNA, e sta in cima: è la cosa per cui il
@@ -2652,38 +2687,61 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {hasCodeQuestion(task) && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
         </div>
         {/* ── fine del solo scroll verticale ─────────────────────────────── */}
-          {/* LA SESSIONE, in modo largo: sta a SINISTRA col task, stretta, dove
-              si legge e si decide — non è più una tab che compete con quello che
-              devi guardare. Il suo scroll è il suo, fratello del brief: nessuno
-              dei due è dentro l'altro. In modo stretto la sessione resta una pane
-              del gruppo (`thread:`), come prima. */}
-          {twoCol && (
-            <div className="flex min-h-0 flex-1 flex-col border-t border-app-border" data-testid="task-session-column">
-              {renderThread()}
-            </div>
-          )}
-          {/* "Spazio di lavoro" — the task's ONE GroupLayout (Thread + browser
-              tabs + Piano + media, the app's real PaneTabBar). Collapsible like
-              the other sections: the tab bar sits UNDER this label. Default open;
-              when collapsed the panes hide and a flex spacer keeps the composer
-              pinned to the bottom. In modo largo NON è qui: è la colonna di
-              destra, a piena altezza (sotto). */}
+          {/* "Spazio di lavoro" — il gruppo di tab del task (browser, Piano,
+              allegati: la vera PaneTabBar dell'app). In colonna sola sta QUI,
+              fra il brief e la sessione; in due colonne è la colonna di destra,
+              a piena altezza (sotto).
+
+              L'ORDINE È IL PUNTO: l'output sopra, la sessione sotto, attaccata
+              al composer. Si legge il thread dove lo si scrive, e quel che si
+              guarda gli sta sopra invece che al posto suo.
+
+              Senza pane il gruppo non è una sezione vuota da guardare: resta la
+              riga con la porta per aprirne una — quanto basta a dire che lo
+              spazio c'è, senza rubare altezza alla sessione. */}
           {!twoCol && (
-          <div className={`flex min-w-0 flex-col ${workspaceOpen ? 'min-h-0 flex-1' : 'shrink-0'}`}>
-            <button
-              onClick={toggleWorkspaceOpen}
-              className="flex w-full shrink-0 items-center gap-1 border-y border-app-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
-            >
-              {workspaceOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              {tr('board.task.workspaceLabel')}
-            </button>
-            {workspaceOpen && (
+          <div className={`flex min-w-0 flex-col ${workspaceOpen && hasWorkspacePanes ? 'min-h-0 flex-1' : 'shrink-0'}`}>
+            <div className="flex w-full shrink-0 items-center gap-1 border-y border-app-border pl-3 pr-1.5">
+              <button
+                onClick={toggleWorkspaceOpen} disabled={!hasWorkspacePanes}
+                data-testid="task-workspace-toggle"
+                className="flex min-w-0 flex-1 items-center gap-1 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading disabled:hover:text-app-text-muted"
+              >
+                {hasWorkspacePanes && (workspaceOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />)}
+                <span className="truncate">{tr('board.task.workspaceLabel')}</span>
+                {hasWorkspacePanes && (
+                  <span className="shrink-0 text-[10px] font-normal text-app-text-faint">{workspacePaneCount}</span>
+                )}
+              </button>
+              <button
+                onClick={browser.addBrowserTab}
+                title={tr('board.task.openTab')} aria-label={tr('board.task.openTab')}
+                data-testid="task-workspace-add-tab"
+                className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-app-text"
+              ><Plus className="h-3.5 w-3.5" /></button>
+            </div>
+            {workspaceOpen && hasWorkspacePanes && (
               <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
                 <GroupLayout {...browser.groupLayoutProps} />
               </div>
             )}
           </div>
           )}
+          {/* LA SESSIONE — sezione sua, montata SEMPRE, in tutti e due i modi:
+              in due colonne sta a sinistra col task, in colonna sola sotto lo
+              Spazio di lavoro e sopra il composer. Il suo scroll è il suo,
+              fratello del brief: nessuno dei due è dentro l'altro. */}
+          <div className="flex min-h-0 flex-1 flex-col border-t border-app-border" data-testid="task-session-column">
+            {/* L'etichetta esiste perché accanto ce n'è un'altra: senza, «Spazio
+                di lavoro» sembrava il titolo di tutto quel che gli sta intorno.
+                Non è una maniglia — la sessione non si chiude, è la sola cosa
+                del drawer che deve esserci sempre — quindi niente chevron: la
+                forma dice già che non si preme. */}
+            <div className="flex shrink-0 items-center gap-1 border-b border-app-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
+              {tr('board.task.sessionLabel')}
+            </div>
+            {renderThread()}
+          </div>
           {/* La zona di DECISIONE: `shrink-0`, fuori dallo scroll, ultima della
               colonna. È l'invariante che il guscio esiste per garantire —
               Approva/Rimanda indietro/Landa dentro il viewport a qualunque altezza di
@@ -2864,7 +2922,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             dice, con il gesto per riempirla. */}
         {twoCol && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="task-drawer-right">
-            {browser.groupLayoutProps.panes.length > 0 ? (
+            {hasWorkspacePanes ? (
               <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
                 <GroupLayout {...browser.groupLayoutProps} />
               </div>
