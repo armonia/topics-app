@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { EdgeZone } from '../../lib/dropZone';
-import { dropRegionStyle, caretStyle, centerRegionStyle, fullRowZoneStyle, rowGapZoneStyle } from '../../lib/dropFeedback';
+import { dropRegionStyle, centerRegionStyle, fullRowZoneStyle, rowGapZoneStyle } from '../../lib/dropFeedback';
 
 /**
  * The shared drop-feedback primitives. Stateless by design: the parent's
@@ -28,11 +28,6 @@ export function SplitRegion({
   topInset?: number;
 }) {
   return <div data-grid-split-overlay={zone} style={dropRegionStyle(zone, { fullWidth, gutterInset, topInset })} />;
-}
-
-/** A 1-D insert caret at a tab's left/right edge — reorder / add-as-tab. */
-export function InsertCaret({ side }: { side: 'left' | 'right' }) {
-  return <div data-drop-caret={side} style={caretStyle(side)} />;
 }
 
 /**

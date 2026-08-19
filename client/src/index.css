@@ -3430,3 +3430,96 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 [data-pane-drag] iframe {
   pointer-events: none;
 }
+
+/* IL BERSAGLIO SI DICHIARA.
+ *
+ * Metà della segnalazione sul drag and drop era l'anteprima («non si vede cosa
+ * ho in mano»), l'altra metà è questa: senza il segno di DOVE cadrà, il
+ * rilascio resta un tentativo. Il contratto sta in `lib/dragPreview`
+ * (`DROP_ACTIVE_ATTR`): una superficie che accetta il rilascio si marca con
+ * `data-drop-active` mentre il puntatore ci passa sopra, e il disegno è QUI, in
+ * una regola sola. Una superficie nuova si dichiara aggiungendo un attributo,
+ * non ricopiando uno stile.
+ *
+ * I quattro valori non sono lo stesso atterraggio: `into` entra dentro,
+ * `before`/`after` si inseriscono accanto, `split` taglia in due. */
+[data-drop-active] {
+  position: relative;
+}
+
+[data-drop-active='into'] {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  outline-offset: -2px;
+  border-radius: 8px;
+  background-color: color-mix(in srgb, var(--primary) 9%, transparent);
+}
+
+/* Il cursore d'inserimento: una lama sul bordo da cui entra la cosa. Disegnata
+ * con un pseudo-elemento perché il bersaglio è una riga o una tab esistente e
+ * non deve cambiare dimensione mentre ci passi sopra (un bordo vero sposterebbe
+ * di due pixel tutto quello che segue, a ogni movimento del puntatore). */
+[data-drop-active='before']::after,
+[data-drop-active='after']::after,
+[data-drop-active='split']::after {
+  content: '';
+  position: absolute;
+  background: var(--primary);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+[data-drop-active='before']::after {
+  left: -1px;
+  top: 10%;
+  bottom: 10%;
+  width: 3px;
+}
+
+[data-drop-active='after']::after {
+  right: -1px;
+  top: 10%;
+  bottom: 10%;
+  width: 3px;
+}
+
+/* LA LAMA SEGUE L'ASSE DELLA FILA, e l'asse lo dichiara il bersaglio.
+ *
+ * `before` e `after` dicono da che parte entra la cosa, non come è impilata la
+ * fila che la accoglie: in una barra di tab si entra a sinistra o a destra, fra
+ * due righe della griglia si entra sopra o sotto. La lama verticale qui sopra è
+ * quella giusta per una fila orizzontale, e su una fila VERTICALE punta di
+ * traverso rispetto al movimento. Chi disegna la fila è l'unico che sa come la
+ * sua fila è impilata, quindi lo dice con `data-drop-axis="y"`.
+ *
+ * A tutta larghezza, e non rientrata come la sorella: una riga della griglia è
+ * fatta di più celle affiancate, ognuna delle quali si marca, e con il rientro
+ * la linea si vedrebbe spezzata in tanti tratti quante sono le colonne. */
+[data-drop-axis='y'][data-drop-active='before']::after,
+[data-drop-axis='y'][data-drop-active='after']::after {
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: auto;
+  width: auto;
+  height: 3px;
+}
+
+[data-drop-axis='y'][data-drop-active='before']::after {
+  top: 0;
+}
+
+[data-drop-axis='y'][data-drop-active='after']::after {
+  bottom: 0;
+}
+
+[data-drop-active='split']::after {
+  inset: 0;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border: 2px dashed color-mix(in srgb, var(--primary) 60%, transparent);
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-drop-active] { transition: none; }
+}

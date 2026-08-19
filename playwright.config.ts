@@ -330,5 +330,44 @@ export default defineConfig({
         viewport: { width: 1280, height: 900 },
       },
     },
+    /**
+     * IL MOTORE DEL GUSCIO, non un secondo browser per scrupolo.
+     *
+     * L'app viene usata dentro una WKWebView (Tauri su macOS), e li' c'e' un
+     * difetto che su Chromium NON esiste: `setDragImage` su un nodo fuori dal
+     * viewport visivo torna VUOTA, e il sistema ripiega sull'icona generica di
+     * documento. E' la segnalazione «la tab sembra un file mentre la trascino»,
+     * ed e' il motivo per cui `lib/dragPreview` monta un nodo VIVO alla
+     * posizione del cursore invece di fotografarne uno nascosto.
+     *
+     * Conseguenza diretta: la versione Chromium di quelle asserzioni resterebbe
+     * VERDE mentendo, perche' su Chromium anche il trucco vecchio funziona. La
+     * stessa spec va quindi ripetuta qui, che e' l'unico posto dove il difetto
+     * si manifesta. Vedi `docs/drag-preview.md`.
+     *
+     * Gira SOLO `drag-preview.spec.ts`, e di proposito: il resto della suite ha
+     * gia' la sua copertura su Chromium, e una seconda passata intera pagherebbe
+     * il doppio del tempo per riprovare cose che non dipendono dal motore.
+     *
+     * NB - il `testMatch` qui NON esclude niente altrove: la stessa spec gira
+     * ANCHE nel progetto `chromium` (non e' nel suo `testIgnore`), ed e' voluto.
+     * Il punto del lavoro e' la STESSA asserzione nei due motori: se restasse
+     * solo qui, una regressione che rompe Chromium passerebbe inosservata.
+     */
+    {
+      name: "webkit",
+      testMatch: ["**/drag-preview.spec.ts"],
+      use: {
+        browserName: "webkit",
+        /* I permessi del `use` globale sono quelli della clipboard, e WebKit non
+           li conosce: il contesto muore in partenza con «Unknown permission:
+           clipboard-write», prima ancora che si apra una pagina, quindi ogni
+           test di questo progetto sarebbe rosso per la configurazione e non per
+           il prodotto. Si azzerano QUI e non nel blocco globale, dove servono al
+           resto della suite. Questa spec la clipboard non la tocca, quindi
+           azzerarli non le toglie niente. */
+        permissions: [],
+      },
+    },
   ],
 });

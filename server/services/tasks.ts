@@ -3010,6 +3010,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // used to strand "delivered"/"serve te" on a closed card (only
         // reviewDecision cleared it).
         if (patch.status === "done") put("dispatch_state", null);
+        // E CHI ESCE DA TODO ESCE DALLA CODA.
+        //
+        // Il claim del dispatcher pesca `status = 'todo'` e basta (il CAS di
+        // riga 3667). Una card trascinata fuori da Todo non verrà quindi
+        // guardata mai più — ma il chip `queued` restava acceso, e un chip che
+        // dice «in coda» su una card che nessuno metterà in coda promette una
+        // partenza che non arriva. Con lui restava acceso il bottone «Ferma»,
+        // cioè l'offerta di interrompere un agente mai nato.
+        //
+        // Misurato il 19/08 sull'API vera: `todo/queued` → PATCH `backlog` →
+        // `backlog/queued`. È la segnalazione «l'ho spostato in backlog e non è
+        // successo nulla».
+        //
+        // Si spegne SOLO `queued`. `starting`/`working` sono un turno che sta
+        // girando davvero: quello non lo chiude un trascinamento, lo chiude chi
+        // lo possiede (`/stop`, che taglia il turno prima di parcheggiare).
+        // Stesso ragionamento — e stessa riga — del nesting qui sopra.
+        if (patch.status !== "todo" && current === "todo" && row.dispatch_state === "queued") {
+          put("dispatch_state", null);
+        }
         // A task arriving in review is a hand-off, not live work: settle a
         // lingering in-flight chip ('queued'/'starting'/'working') to
         // 'delivered' so a review card never shows the "agent al lavoro" UI
@@ -3017,7 +3037,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // already-settled chip ('needs_input'/'delivered') is kept as-is; the
         // dispatcher's own delivery detection still refines it when it observes
         // a question (→ needs_input).
-        if (patch.status === "review" && isAgentWorking(row.dispatch_state)) {
+        //
+        // `queued` NO: quello lo spegne la riga qui sopra. Una card mai
+        // dispacciata, portata in review a mano, non ha consegnato niente — e
+        // «consegnato» su lavoro che nessuno ha fatto è la stessa bugia del
+        // chip «in coda» su una card fuori dalla coda. Nessun chip è la
+        // risposta vera, e l'invariante di questo blocco (mai la UI «agent al
+        // lavoro» su una card in review) regge lo stesso.
+        if (patch.status === "review" && (row.dispatch_state === "working" || row.dispatch_state === "starting")) {
           put("dispatch_state", "delivered");
         }
         // Chi ha consegnato. Una card in review consegnata dall'agente e una
