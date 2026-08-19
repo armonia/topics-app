@@ -125,4 +125,40 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     const fetched = [utente('u1', 'vai'), msg('srv-uuid-1', 'ok')];
     expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
   });
+
+  it('la copia ottimistica dell’utente non resta accanto alla riga del server', () => {
+    const existing = [utente('msg_1765_abc', 'beeper'), msg('srv-a1', 'eccomi')];
+    const fetched = [utente('srv-u1', 'beeper'), msg('srv-a1', 'eccomi')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out).toBe(fetched);
+    expect(out.filter((m) => m.role === 'user')).toHaveLength(1);
+  });
+
+  it('la stessa domanda mandata DUE volte resta due volte', () => {
+    const existing = [
+      utente('msg_1', 'beeper'), msg('srv-a1', 'primo'),
+      utente('msg_2', 'beeper'), msg('srv-a2', 'secondo'),
+    ];
+    const fetched = [
+      utente('srv-u1', 'beeper'), msg('srv-a1', 'primo'),
+      utente('srv-u2', 'beeper'), msg('srv-a2', 'secondo'),
+    ];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out).toBe(fetched);
+    expect(out.filter((m) => m.role === 'user')).toHaveLength(2);
+  });
+
+  it('la ripetizione che il server ancora non ha resta a schermo', () => {
+    const existing = [utente('srv-u1', 'beeper'), msg('srv-a1', 'primo'), utente('msg_2', 'beeper')];
+    const fetched = [utente('srv-u1', 'beeper'), msg('srv-a1', 'primo')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => m.id)).toEqual(['srv-u1', 'srv-a1', 'msg_2']);
+  });
+
+  it('un id durevole che la storia non ha non si tocca: solo i nomi provvisori si buttano', () => {
+    const existing = [utente('altra-finestra-u1', 'beeper')];
+    const fetched = [utente('srv-u1', 'beeper')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => m.id)).toEqual(['srv-u1', 'altra-finestra-u1']);
+  });
 });

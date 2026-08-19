@@ -322,3 +322,60 @@ describe('la riga persistita riempie la bolla rimasta vuota', () => {
     d.unmount();
   });
 });
+
+/**
+ * LA DOMANDA CHE COMPARIVA DUE VOLTE.
+ *
+ * La finestra da cui parte il messaggio lo disegna subito con un id coniato in
+ * locale; il `message:new` che porta l'id del DB veniva scartato in blocco come
+ * «roba mia», quindi quel nome provvisorio restava per sempre. Al primo
+ * ricarico della storia (una riconnessione basta, e nella notte fra il 18 e il
+ * 19/08 la socket cadeva di continuo) la riga del server arrivava sotto il suo
+ * nome vero, il segnaposto non veniva riconosciuto e finiva in coda: la domanda
+ * a schermo due volte, e con essa l'impressione di due risposte.
+ */
+describe('la copia ottimistica prende il nome vero', () => {
+  const SRV_U1 = 'b1b2c3d4-0000-4000-8000-000000000011';
+  const SRV_U2 = 'b1b2c3d4-0000-4000-8000-000000000012';
+
+  test('il message:new della PROPRIA finestra ribattezza la bolla invece di aggiungerne una', () => {
+    const d = drive();
+    const sk = keyOf();
+    // Quello che fa `performSend`: la bolla utente con un id locale.
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+    expect(d.ids()[0].startsWith('msg_')).toBe(true);
+
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
+
+    expect(d.ids()).toEqual([SRV_U1]);
+    expect(d.texts()).toEqual(['beeper']);
+    d.unmount();
+  });
+
+  test('la stessa riga annunciata due volte resta una riga sola', () => {
+    const d = drive();
+    const sk = keyOf();
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
+    d.chat.addMessageFromWS(sk, { id: SRV_U1, role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+
+    expect(d.ids()).toEqual([SRV_U1]);
+    d.unmount();
+  });
+
+  test('due messaggi con id DIVERSI e lo stesso testo restano due', () => {
+    const d = drive();
+    const sk = keyOf();
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
+    // La stessa domanda, mandata di nuovo: è legittimo, e nasconderne una
+    // sarebbe un difetto peggiore di mostrarla due volte.
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U2, content: 'beeper' });
+
+    expect(d.ids()).toEqual([SRV_U1, SRV_U2]);
+    expect(d.texts()).toEqual(['beeper', 'beeper']);
+    d.unmount();
+  });
+});
