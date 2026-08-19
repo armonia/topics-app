@@ -59,13 +59,16 @@ function FpsSparkline({ data }: { data: FpsSample[] }) {
   );
 }
 
-function PerfStat({ label, value, color, title, className }: { label: string; value: string; color?: string; title?: string; className?: string }) {
+function PerfStat({ label, value, sub, color, title, className }: { label: string; value: string; sub?: string | null; color?: string; title?: string; className?: string }) {
   // Width is controlled by the parent grid (col-span) so the CPU row and the
   // Memory row share the same 4-column rhythm and line up vertically.
+  // `sub` e' la percentuale della meta': il totale sta nella riga sopra, qui c'e'
+  // da dove viene - ed e' il dettaglio per gruppo che l'anteprima non mostra.
   return (
     <div className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded bg-elevated ${className ?? ''}`} title={title}>
       <span className="text-[9px] uppercase tracking-wide text-app-text-muted">{label}</span>
       <span className={`text-[11px] font-medium tabular-nums ${color ?? 'text-app-text'}`}>{value}</span>
+      {sub && <span className="text-[9px] tabular-nums text-app-text-muted">{sub}</span>}
     </div>
   );
 }
@@ -102,21 +105,29 @@ export function PerfSection() {
   const isPartial = perf?.partial ?? false;
 
   // Calcolatore unico: combina shell + server con EMA per smorzare le oscillazioni.
-  // Usa computeTopicsFootprint invece di sommare direttamente qui.
-  const footprint = computeTopicsFootprint(
-    mem?.totalMB ?? null,
-    mem?.processCount ?? 0,
-    isPartial,
-    fleet?.memoryMB ?? (status?.server.memoryMB ?? 0),
-    fleet?.processCount ?? 1,
-    fleet?.memMetric ?? 'rss',
-    fleet?.scriptsMB ?? 0,
-    fleet?.scriptsProcessCount ?? 0,
-  );
+  // È LO STESSO che usa l'anteprima nella barra di stato (SidebarStatusBar), ed
+  // è il motivo per cui le due superfici non possono più dire numeri diversi.
+  const footprint = computeTopicsFootprint({
+    deviceMB: mem?.totalMB ?? null,
+    deviceProcessCount: mem?.processCount ?? 0,
+    devicePartial: isPartial,
+    deviceCpu: perf?.cpu.total ?? null,
+    serverMB: fleet?.memoryMB ?? status?.server.memoryMB ?? null,
+    serverProcessCount: fleet?.processCount ?? (status?.server ? 1 : 0),
+    serverMetric: fleet?.memMetric ?? 'rss',
+    serverCpu: fleet?.cpuPercent ?? null,
+    scriptsMB: fleet?.scriptsMB ?? 0,
+    scriptsProcessCount: fleet?.scriptsProcessCount ?? 0,
+    sampleKey: status?.timestamp,
+  });
 
-  const totalMemMB = footprint.totalMB > 0 ? footprint.totalMB : null;
+  const totalMemMB = footprint.totalMB;
   const serverSideMemMB = footprint.serverMB;
   const serverSideProcs = footprint.serverProcessCount;
+  // «~» = il totale copre una metà sola (telefono, o lettura della sola shell):
+  // si dichiara invece di far passare una metà per il tutto.
+  const segnoMem = footprint.memPartial ? '~' : '';
+  const segnoCpu = footprint.cpuPartial ? '~' : '';
 
   const serverSideTitle = fleet
     ? tr('perf.serverTitleFleet', { n: fleet.processCount })
@@ -145,9 +156,11 @@ export function PerfSection() {
       color: 'text-amber-500',
     };
     // Soglia su scala 0-100 dell'intera macchina (vedi `usePerfMetrics`): metà
-    // macchina presa dalla sola shell è già "sotto carico". Era `> 100`, che
-    // aveva senso finché il numero era per-core e poteva arrivare a 1200.
-  } else if (perf && (perf.cpu.total ?? 0) > 50) {
+    // macchina presa da Topics è già "sotto carico". Era `> 100`, che aveva
+    // senso finché il numero era per-core e poteva arrivare a 1200. Adesso
+    // guarda il TOTALE e non la sola shell: il carico che si sente è quello
+    // dell'insieme, e con gli agenti al lavoro sta quasi tutto dall'altra metà.
+  } else if ((footprint.totalCpu ?? 0) > 50) {
     verdict = { text: tr('perf.verdict.loaded'), color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
@@ -196,18 +209,28 @@ export function PerfSection() {
             serverSideTitle,
             !isPartial && mem ? tr('perf.residentInline', { mb: mem.residentMB }) : null,
             compressedMB > 0 ? tr('perf.compressedInline', { n: compressedMB }) : null,
-            perf?.cpu.total !== null && perf ? tr('perf.cpuInline', { pct: formatCpuPercent(perf.cpu.total) }) : null,
-            fleet ? tr('perf.cpuServerInline', { pct: formatCpuPercent(fleet.cpuPercent) }) : null,
+            footprint.deviceCpu !== null ? tr('perf.cpuInline', { pct: formatCpuPercent(footprint.deviceCpu) }) : null,
+            footprint.serverCpu !== null ? tr('perf.cpuServerInline', { pct: formatCpuPercent(footprint.serverCpu) }) : null,
           ].filter(Boolean).join('\n')}
         >
           <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
             <HardDrive size={12} /> {tr('perf.q2')}
             <span className="text-[9px] opacity-60">
-              {tr('perf.procCount', { n: (mem?.processCount ?? 0) + serverSideProcs })}
+              {tr('perf.procCount', { n: footprint.totalProcessCount })}
             </span>
           </span>
-          <span className="tabular-nums text-[13px] font-semibold text-app-text">
-            {totalMemMB !== null ? `${totalMemMB} MB` : '-'}
+          {/* I CONTEGGI TOTALI COMPLESSIVI: memoria E percentuale dell'insieme,
+              non di una meta'. La CPU sparisce quando non e' misurata: uno «0%»
+              li' sembra una misura ed e' invece l'assenza di misura. */}
+          <span className="flex items-baseline gap-2">
+            <span className="tabular-nums text-[13px] font-semibold text-app-text">
+              {totalMemMB !== null ? `${segnoMem}${totalMemMB} MB` : '-'}
+            </span>
+            {footprint.totalCpu !== null && (
+              <span className="tabular-nums text-[11px] font-medium text-app-text-muted">
+                {tr('perf.cpuTotal', { pct: `${segnoCpu}${formatCpuPercent(footprint.totalCpu)}` })}
+              </span>
+            )}
           </span>
         </div>
 
@@ -219,13 +242,15 @@ export function PerfSection() {
           <PerfStat
             label={tr('perf.tileApp')}
             value={mem ? `${mem.totalMB}MB` : tr('perf.na')}
-            color={perf && (perf.cpu.total ?? 0) > 50 ? 'text-amber-500' : undefined}
+            sub={footprint.deviceCpu !== null ? tr('perf.cpuTotal', { pct: formatCpuPercent(footprint.deviceCpu) }) : null}
+            color={(footprint.deviceCpu ?? 0) > 50 ? 'text-amber-500' : undefined}
             title={isPartial ? tr('perf.shellRssTitle') : tr('perf.tileAppTitle')}
           />
           <PerfStat
             label={tr('perf.tileAgents', { n: serverSideProcs })}
             value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : tr('perf.na')}
-            color={fleet && fleet.cpuPercent > 50 ? 'text-amber-500' : undefined}
+            sub={footprint.serverCpu !== null ? tr('perf.cpuTotal', { pct: formatCpuPercent(footprint.serverCpu) }) : null}
+            color={(footprint.serverCpu ?? 0) > 50 ? 'text-amber-500' : undefined}
             title={serverSideTitle}
           />
         </div>
