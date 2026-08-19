@@ -33,7 +33,7 @@ intentions.
 | Pane residency cap | how many panes stay mounted | `tests/e2e/pane-residency-cap.spec.ts` | yes (E2E shard) |
 | Transcript eviction | how many chats stay hydrated | `tests/e2e/chat-transcript-residency.spec.ts` | yes (E2E shard) |
 | Browser pane streaming | fps, p95 input latency, bandwidth, first frame | `tests/e2e/browser-ws-streaming.spec.ts` plus `perf-baseline.json` | yes (E2E shard) |
-| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet |
+| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **RED, see below** |
 | Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
@@ -124,6 +124,34 @@ window.
 
 **The rows that hold at any load are the first two**, which is why they are the
 ones with a gate.
+
+**The idle-write cycle is NOT fully closed, and the gate says so.** Fixing
+`UPDATE_PANE` took a still window from 26 writes per 30s to 0, measured
+repeatedly. Hours later the same gate reads **12-17 writes in 25s** again, same
+signature: `pane-store-v2`, one every ~1.5s, only `lastSeq` differing between
+one body and the next.
+
+What is already ruled out, measured rather than reasoned: it is not
+`UPDATE_PANE` (guard added, cycle stayed), not `FOCUS_PANE` (guard added, cycle
+stayed), and **not any action at all** — instrumenting the dispatcher to count
+actions by type recorded **zero** in the same window that saw fifteen PUTs. The
+PUTs do leave this window (counted on its own `fetch`), so they are not someone
+else's writes seen in passing.
+
+The remaining suspect is written where it will be found, in
+`state/pane/middleware/syncWS.ts`: a remote hydrate sets `lastSeq` to
+`max(currentSeq, server_seq)`, and `server_seq` is server-allocated, so it grows
+with EVERY client's writes — this machine reported 21 open sessions. Each peer's
+write would then bump our counter, the debounce would fire, and our identical
+snapshot would bump theirs. The self-echo filter guards against one's own write,
+not a peer's.
+
+It is left open on purpose: that line exists so post-hydrate PUTs carry a seq
+the server's LWW accepts, and changing it without knowing which half applies
+when trades this cycle for a worse failure — a client that stops syncing, or one
+that overwrites its peers. A remedy written with less certainty than this was
+already withdrawn today, after it cost a tab close that never reached the
+server.
 
 **The memory is not a leak, and it is not in the heap.** A freshly-opened window
 costs **164-187 MB**; the user's was at **1,633 MB**. But `devHeapProbe`, armed
