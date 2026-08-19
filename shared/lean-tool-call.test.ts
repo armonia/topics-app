@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { leanBlocks, leanToolCall, leanToolCalls } from './lean-tool-call';
+import { blocksForDisk, leanBlocks, leanToolCall, leanToolCalls, toolCallResultText, toolCallsForDisk } from './lean-tool-call';
 
 describe('leanToolCall', () => {
   test('drops result when detail carries the same string (shell)', () => {
@@ -78,5 +78,56 @@ describe('leanToolCalls / leanBlocks', () => {
     const blocks = [{ kind: 'tool', toolCall: tc }];
     leanBlocks(blocks);
     expect(tc.result).toBe('out');
+  });
+});
+
+describe('toolCallsForDisk / blocksForDisk: la copia non arriva sulla riga', () => {
+  const doppia = { id: 'a', name: 'Bash', result: 'out', detail: { type: 'shell', command: 'c', output: 'out' } };
+  const propria = { id: 'b', name: 'Write', result: 'scritto', detail: { type: 'write', filePath: '/x', content: 'ciao' } };
+
+  test('la colonna assente resta null, e null non e\' la stringa "null"', () => {
+    expect(toolCallsForDisk(undefined)).toBeNull();
+    expect(toolCallsForDisk(null)).toBeNull();
+    expect(blocksForDisk(undefined)).toBeNull();
+    // Un array VUOTO invece si scrive: e' un'informazione, non un'assenza.
+    expect(toolCallsForDisk([])).toBe('[]');
+  });
+
+  test('il testo duplicato compare UNA volta sola nel JSON scritto', () => {
+    const json = toolCallsForDisk([doppia])!;
+    expect(json).not.toContain('"result"');
+    expect(JSON.parse(json)[0].detail.output).toBe('out');
+  });
+
+  test('SENZA PERDITA: un result che non e\' copia arriva intero', () => {
+    const json = toolCallsForDisk([propria])!;
+    expect(JSON.parse(json)[0].result).toBe('scritto');
+    expect(JSON.parse(json)[0].detail.content).toBe('ciao');
+  });
+
+  test('dentro i blocchi vale la stessa regola, e il resto del blocco non si muove', () => {
+    const blocks = [{ kind: 'text', text: 'ciao' }, { kind: 'tool', toolCall: doppia }];
+    const parsed = JSON.parse(blocksForDisk(blocks)!);
+    expect(parsed[0]).toEqual({ kind: 'text', text: 'ciao' });
+    expect('result' in parsed[1].toolCall).toBe(false);
+    expect(parsed[1].toolCall.detail.output).toBe('out');
+  });
+});
+
+describe('toolCallResultText: dove si va a riprendere il testo', () => {
+  test('con result presente si legge quello', () => {
+    expect(toolCallResultText({ result: 'grezzo', detail: { output: 'altro' } })).toBe('grezzo');
+  });
+
+  test('senza result si legge il campo di testo del detail', () => {
+    expect(toolCallResultText({ detail: { type: 'shell', output: 'out' } })).toBe('out');
+    expect(toolCallResultText({ detail: { type: 'read', content: 'file' } })).toBe('file');
+    expect(toolCallResultText({ detail: { type: 'mcp', result: 'ret' } })).toBe('ret');
+  });
+
+  test('quando non c\'e\' ne\' l\'uno ne\' l\'altro torna undefined, non stringa vuota', () => {
+    expect(toolCallResultText({ detail: { type: 'read', filePath: '/x' } })).toBeUndefined();
+    expect(toolCallResultText({ result: '' })).toBeUndefined();
+    expect(toolCallResultText(undefined)).toBeUndefined();
   });
 });
