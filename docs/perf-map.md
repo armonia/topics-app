@@ -315,6 +315,33 @@ entry chunk, no `lazy(` went static. Healthy growth, not a bad import. The
 baseline's own rule says the number is raised in the commit that grew it, so it
 is left alone here and noted instead.
 
+**And the client turns out to have the SAME defect as the server, not the one
+this page spent a day on.** Measured at 00:23 on the user's own window, two
+WebContent processes side by side:
+
+| pid | age | footprint | **RSS** | graphics regions |
+|---|---|---|---|---|
+| 15517 | 55 min | 726 MB | **24 MB** | 380 |
+| 96520 | 4h 11m | 755 MB | **152 MB** | 2,961 |
+
+Two things fall out, and both contradict the reading below. First, the young
+process costs the SAME as the old one with **eight times fewer** graphics
+regions — so the layer count is not what the megabytes track. Second, and
+decisive: the resident set is **24 MB against a 726 MB footprint**, with
+`WebKit Malloc` showing **602 MB swapped**. The system has already taken those
+pages back; they are still charged to the app by `phys_footprint`, which is the
+number the status bar reports.
+
+That is the same fault the server had — memory of past peaks, swapped out and
+never handed back — and on the server it took `Bun.gc(true)` to release it,
+because the footprint never comes down on its own. The client has no equivalent
+lever exposed today: no `window.gc` in a WKWebView, and no memory-pressure hook
+in the Tauri shell. THAT is the next piece of work, and it is a different piece
+from "find who promotes layers".
+
+**What follows was measured earlier and is kept for its method, but read it in
+that light.**
+
 **The CLIENT half of the number is a different animal** — what follows was
 measured before the server work and still stands.
 
