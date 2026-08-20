@@ -1369,7 +1369,8 @@ function ChatPaneComponent({
    * fermato abbia finito di smontarsi: finché la sessione risulta occupata la
    * richiesta non fa nulla e la coda resta lunga uguale, che è il segnale per
    * riprovare. Poche volte e poi basta: se non riparte, la coda è ancora tutta
-   * lì, visibile nel badge, e il messaggio successivo la fa partire comunque.
+   * lì, visibile come bolle «da inviare» nel trascritto, e il messaggio
+   * successivo la fa partire comunque.
    *
    * La richiesta NON si aspetta, e non è pigrizia: sul ramo che drena,
    * `sendMessage` restituisce la promessa del turno INTERO, che dura minuti.

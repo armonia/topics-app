@@ -590,8 +590,11 @@ const IT: Dict = {
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
-  // La coda del turno: le stesse parole del badge del composer, perché è la
-  // stessa coda vista da due parti (il pannello e il trascritto).
+  // La coda del turno, vista dove succede: le bolle «da inviare» nel trascritto
+  // (`components/Chat/QueuedTurns`). Una volta era disegnata anche da un badge
+  // sopra il composer, con queste stesse parole: due copie della stessa coda a
+  // due centimetri l'una dall'altra. È rimasta quella nel posto in cui il
+  // messaggio finirà quando partirà, e con lei tutte le azioni.
   'chat.queue.waiting': 'da inviare',
   'chat.queue.waitingTitle': 'Non è ancora partito. Parte quando il turno finisce.',
   'chat.queue.sendNow': 'Invia subito',

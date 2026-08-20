@@ -196,6 +196,93 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["primo", "corretto\n\nultimo"]);
   });
 
+  /**
+   * «INVIA SUBITO»: NON ASPETTARE LA FINE DEL TURNO.
+   *
+   * L'azione esisteva già, ma viveva dentro il badge a scomparsa sopra il
+   * composer — cioè in un posto che bisognava sapere di dover aprire — e NESSUN
+   * test l'aveva mai cliccata, né prima né dopo lo spostamento (verificato su
+   * `git show HEAD~2`: zero occorrenze di `queue-send-now`). Un'azione che fa
+   * tre cose delicate in fila e che nessuno prova è un'azione che si rompe in
+   * silenzio.
+   *
+   * Le tre cose, tutte necessarie (vedi `handleSendQueueNow` in ChatPane):
+   *   1. FERMA il turno in volo — finché è aperto il server risponde 409 a un
+   *      secondo turno sulla stessa sessione;
+   *   2. TOGLIE IL FRENO che lo stop alza apposta perché la fine di uno stream
+   *      non faccia ripartire la coda da sola (era il guasto per cui «ferma»
+   *      faceva PARTIRE il messaggio dopo);
+   *   3. CHIEDE il drenaggio, perché il drain automatico è appeso alla fine di
+   *      uno stream RIUSCITO e un abort non ci passa.
+   *
+   * Salta un passo e la coda resta ferma. Qui si prova il risultato che conta:
+   * si clicca, e quello che avevi scritto parte SENZA aspettare.
+   */
+  test("«invia subito» non aspetta la fine del turno", async ({ page, chatPage }) => {
+    const sent: string[] = [];
+    // Il primo turno resta aperto a lungo: è quello che «invia subito» deve
+    // interrompere. Senza il click resterebbe lì, e la coda con lui.
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = route.request().postDataJSON() as { messages?: { content?: string }[] };
+      const testo = body?.messages?.[body.messages.length - 1]?.content ?? "";
+      sent.push(testo);
+      if (sent.length === 1) await new Promise((r) => setTimeout(r, 60_000));
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await openChat(page, chatPage);
+    await svuotaCoda(page);
+
+    await chatPage.messageInput.fill("il turno lungo");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+
+    await chatPage.messageInput.fill("non voglio aspettare");
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+
+    // Il comando compare SOLO mentre un turno è in volo: a turno fermo non c'è
+    // niente da anticipare, e offrirlo sarebbe un bottone che non fa nulla.
+    const inviaSubito = page.getByTestId("queue-send-now");
+    await expect(inviaSubito).toBeVisible({ timeout: 10_000 });
+
+    await inviaSubito.click();
+
+    // IL PUNTO: parte adesso, senza aspettare i 60 secondi del primo turno.
+    await expect.poll(() => sent, { timeout: 25_000 }).toEqual(["il turno lungo", "non voglio aspettare"]);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("a coda ferma «invia subito» non si offre", async ({ page, chatPage }) => {
+    // Il gemello negativo: senza un turno in volo il comando non c'è. Un
+    // bottone che non può fare niente è peggio di un bottone assente — invita a
+    // premerlo e non succede nulla.
+    const { state } = await interceptSends(page);
+    await openChat(page, chatPage);
+    await svuotaCoda(page);
+
+    await chatPage.messageInput.fill("primo");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+    await chatPage.messageInput.fill("in attesa");
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+    await expect(page.getByTestId("queue-send-now")).toBeVisible({ timeout: 10_000 });
+
+    // Fermato il turno, la coda resta (lo stop TIENE) ma non c'è più niente da
+    // anticipare: il comando sparisce.
+    state.hang = false;
+    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(1);
+    await expect(page.getByTestId("queue-send-now")).toHaveCount(0);
+  });
+
   test("la X sulla bolla butta il messaggio prima che parta", async ({ page, chatPage }) => {
     const { sent, state } = await interceptSends(page);
     await openChat(page, chatPage);
