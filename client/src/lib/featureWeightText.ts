@@ -46,6 +46,11 @@ const NOMI: Record<string, { uno: string; molti: string; sub?: { uno: string; mo
   'shell.browserPanes': { uno: 'pannello', molti: 'pannelli' },
 };
 
+/** Test seam: l'elenco degli id nominati, per il cancello contro la deriva
+ *  (`featureWeightSources.test.ts` verifica che ogni sorgente registrata abbia
+ *  un nome, altrimenti la sua riga direbbe «N voci» e nessuno lo noterebbe). */
+export const NOMI_PER_TEST: Readonly<Record<string, unknown>> = NOMI;
+
 /** Singolare o plurale del nome giusto per questa voce. */
 function nome(id: string, n: number, sub = false): string {
   const def = NOMI[id];
