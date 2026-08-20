@@ -18,6 +18,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
+import { isDeliverySheetPath } from '../../../../shared/media-kind';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskChoices, usableQuestionOptions } from './taskChoices';
@@ -808,7 +809,26 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           reso come thumbnail sopra il titolo — la review parte guardando la
           cosa. Il click passa alla card (apre il drawer). object-top: di un
           full-page si vede la testata, non un centro anonimo. */}
-      {task.previewImage && (
+      {/* LA SCHEDA DI CONSEGNA NON VA SULLA CARD, e non e' un ripensamento:
+          e' la misura di cosa e' diventata. Era il rimedio a «9 card su 16 con
+          il riquadro vuoto», e il ragionamento era buono — un silenzio vale
+          come segnale solo se e' raro. Misurato oggi: **4 card su 10 in review
+          mostrano una scheda**, cioe' il rimedio e' diventato la norma, e
+          quello che si vede aprendo la board non e' piu' l'evidenza del
+          lavoro ma un disegno che ripete la card.
+
+          E ripete davvero: titolo, file toccati, righe aggiunte e tolte, ramo.
+          Sono gli stessi quattro fatti che la card ha gia' scritti sopra, nel
+          titolo e nel chip della consegna. Tre delle quattro non hanno nemmeno
+          i numeri (delivery_files_changed vuoto) e dicono «Nessun codice
+          consegnato»: il 60% della larghezza della card per ripetere il
+          titolo e dichiarare un'assenza.
+
+          Resta nel DRAWER, dove lo spazio non e' conteso e dove il riassunto
+          della consegna e' cio' che si sta cercando. Sulla card torna il
+          riquadro vuoto — che qui e' l'informazione giusta: «questa consegna
+          non ha ancora un'evidenza da guardare». */}
+      {task.previewImage && !isDeliverySheetPath(task.previewImage) && (
         <PreviewMedia
           path={task.previewImage}
           // Le ALTRE evidenze del thread: il carosello si naviga con la
