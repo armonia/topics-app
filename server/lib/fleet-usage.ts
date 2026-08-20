@@ -272,18 +272,51 @@ export function summarizeFleet(
     if (!byPid.has(root.pid)) continue;
     let procs = 0, rssKB = 0, cpu = 0;
 
-    // ATTRIBUZIONE: usa responsible pid quando disponibile (macOS), ppid walk
-    // come ripiego. Le due strade producono lo stesso risultato su processi
-    // normali; divergono sugli orfani reparentati a launchd, dove il responsible
-    // pid sopravvive e il ppid non aiuta.
+    /* ATTRIBUZIONE: responsible pid E ppid, non l'uno O l'altro.
+     *
+     * QUI C'ERA UN BUCO DA 911 MB, misurato sull'app viva il 2026-08-20 e reso
+     * visibile dall'inventario del peso (che mostrava «Terminali e sessioni:
+     * 669 MB» sopra un totale di flotta dichiarato di 560).
+     *
+     * Il commento precedente diceva che le due strade «producono lo stesso
+     * risultato su processi normali» e divergono solo sugli orfani. E' falso, e
+     * il controesempio girava su questa macchina: i `claude` delle sessioni
+     * sono figli dell'ai-bridge (ppid 57835) ma macOS li dichiara
+     * RESPONSABILI DI SE STESSI — `responsibility_get_pid_responsible_for_pid`
+     * torna il pid stesso. Con il solo ramo `responsibleOf` non appartenevano a
+     * nessun root, quindi 911 MB di `claude` restavano fuori dal totale che la
+     * status bar esiste per mostrare.
+     *
+     * Non e' un caso limite: un processo che si dichiara responsabile di se'
+     * stesso e' cio' che macOS fa a un programma lanciato come sessione propria
+     * — cioe' esattamente i CLI degli agenti, che sono la parte che pesa.
+     *
+     * Le due strade ora si UNISCONO: un processo appartiene al root se il suo
+     * responsible e' il root, OPPURE se discende da lui per ppid. `counted`
+     * garantisce che nessun pid venga fatturato due volte, quindi unire non
+     * puo' gonfiare i totali — puo' solo smettere di perdere pezzi. */
     if (responsibleOf) {
-      // Tutti i processi con responsible == root.pid appartengono a questo root.
-      // Il root stesso e' incluso con un controllo esplicito sul pid.
+      const suoi = new Set<number>([root.pid]);
       for (const row of rows) {
-        if (row.pid !== root.pid && responsibleOf(row.pid) !== root.pid) continue;
-        if (scriptPidSet.has(row.pid)) continue; // terzo asse: escludi gli script
-        if (counted.has(row.pid)) continue;
-        counted.add(row.pid);
+        if (responsibleOf(row.pid) === root.pid) suoi.add(row.pid);
+      }
+      // …piu' la discendenza per ppid di tutto cio' che gia' gli appartiene.
+      // Il giro si ripete perche' un figlio appena aggiunto puo' averne altri.
+      const stack = [...suoi];
+      while (stack.length) {
+        const pid = stack.pop()!;
+        for (const c of children.get(pid) ?? []) {
+          if (suoi.has(c)) continue;
+          suoi.add(c);
+          stack.push(c);
+        }
+      }
+      for (const pid of suoi) {
+        const row = byPid.get(pid);
+        if (!row) continue;
+        if (scriptPidSet.has(pid)) continue; // terzo asse: escludi gli script
+        if (counted.has(pid)) continue;
+        counted.add(pid);
         procs++;
         if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
         rssKB += row.footprintKB ?? row.rssKB;
