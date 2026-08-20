@@ -414,6 +414,16 @@ export class NativeProvider implements AIProvider {
           // messaggio dopo, non dalla prossima chat.
           autonomy: levelFor(readTopicAutonomy(sessionKey)),
           signal: abort.signal,
+          // L'USO SI DEPOSITA A OGNI GIRO, non a fine turno.
+          //
+          // Il registro è quello che il dispatcher rilegge ogni quattro secondi
+          // per il chip vivo della card. Depositando solo il totale finale, quel
+          // chip restava fermo per l'intero turno — che su un agente dispacciato
+          // sono decine di minuti — e al primo turno mostrava zero token: i token
+          // «non scorrevano più». Un giro alla volta il numero cresce mentre il
+          // lavoro succede, ed è anche l'unico modo di contare un turno che
+          // finisce annullato o in errore, dove il totale non torna a nessuno.
+          onRoundUsage: (u) => recordTurnUsage(sessionKey, u),
         },
         handler,
       );
@@ -421,11 +431,9 @@ export class NativeProvider implements AIProvider {
       // è lo stesso registro che usano le CLI, e senza questo un turno
       // dispacciato non saprebbe dire com'è finito.
       recordTurnEnd(sessionKey, out.turnEnd);
-      // E COSI' L'USO, che fin qui veniva misurato e buttato via. `runAgentTurn`
-      // lo restituisce da sempre; nessuno lo depositava, e `getSessionUsage`
-      // cercava un transcript JSONL che il nativo non scrive — quindi rispondeva
-      // zero. Misurato il 18/08: 43 card con turni e costo zero.
-      recordTurnUsage(sessionKey, out.usage);
+      // L'uso NON si deposita qui: ci ha già pensato `onRoundUsage`, giro per
+      // giro. Sommare anche `out.usage` — che di quei giri è la somma —
+      // conterebbe ogni token due volte.
       return {};
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);

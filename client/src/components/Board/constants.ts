@@ -165,7 +165,15 @@ export type TaskSurface =
   | { id: 'browser'; kind: 'browser'; label: string };
 
 /** Live per-turn usage pushed by the dispatcher (`task:usage-live`, transient). */
-export interface LiveUsage { turnStartedAt: number; baseMs: number; liveTokens: number; model: string | null }
+export interface LiveUsage {
+  turnStartedAt: number; baseMs: number; liveTokens: number; model: string | null;
+  /**
+   * Primo turno, card ancora com'era: l'agente sta INQUADRANDO il lavoro
+   * (titolo, priorità, primi passi) e non ha ancora lasciato un segno. Si
+   * spegne al primo segno, e da un server più vecchio non arriva affatto.
+   */
+  triage: boolean;
+}
 
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
 // La scala effort vive in `shared/effort.ts` (via lib/effortTiers): il

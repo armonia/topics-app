@@ -924,6 +924,8 @@ const IT: Dict = {
   'board.card.modelTitle': 'Modello: {model}',
   'board.card.liveEffortTitle': 'In esecuzione · modello {model}, {work} di lavoro{tokens} (aggiornamento live)',
   'board.card.liveEffortTokens': ', {n} token',
+  'board.card.triage': 'Triage',
+  'board.card.triageTitle': "Sta inquadrando il task: legge la card, riscrive il titolo, decide la priorità, apre i passi. Sparisce al primo segno che lascia sulla card.",
   'board.card.priorityTitle': 'Priorità: {label}',
   'board.card.seeAll': 'Vedi tutti',
   'board.card.openSubtaskTitle': '{status} · apri il sottotask',
@@ -1083,6 +1085,11 @@ const IT: Dict = {
   'project.sidebar.processesFailed.one': '1 processo uscito con errore',
   'project.sidebar.processesFailed.many': '{n} processi usciti con errore',
   'processes.openFailedLog': 'Apri il log di questa uscita fallita',
+  // La spia dell'attesa: un agente ha chiesto di essere svegliato alla fine di
+  // questo processo, e finche' aspetta la riga lo dice.
+  'processes.awaited.one': 'Un agente sta aspettando la fine di questo processo',
+  'processes.awaited.many': '{n} agenti stanno aspettando la fine di questo processo',
+  'processes.awaited.chip': 'atteso',
   'sidebar.tree': 'Barra laterale',
   'sidebar.pinned': 'Fissato',
   'sidebar.moreOptions': 'Altre opzioni',

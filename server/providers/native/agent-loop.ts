@@ -106,6 +106,20 @@ export interface AgentTurnOptions {
    */
   topics?: TopicsToolContext;
   signal?: AbortSignal;
+  /**
+   * L'uso di OGNI GIRO, appena il giro finisce.
+   *
+   * Il totale torna comunque a fine turno, ma «a fine turno» per un agente
+   * dispacciato vuol dire dopo venti minuti e trecento giri di tool: chi guarda
+   * la card vedeva il contatore fermo per tutto quel tempo, e a zero al primo
+   * turno. Il ticker della board rilegge il registro ogni quattro secondi, e
+   * quindi ha bisogno che il registro cresca DURANTE il turno.
+   *
+   * È un DELTA, non il progressivo: chi lo riceve somma. E vale anche per i
+   * turni che finiscono male — un turno annullato o andato in errore ha bruciato
+   * i giri che ha fatto, e prima quei token non arrivavano da nessuna parte.
+   */
+  onRoundUsage?: (usage: RoundResult["usage"]) => void;
 }
 
 /** Un giro solo: una richiesta, i suoi delta, i suoi blocchi. */
@@ -416,6 +430,14 @@ export async function runAgentTurn(
     total.output += round.usage.output;
     total.cacheRead += round.usage.cacheRead;
     total.cacheWrite += round.usage.cacheWrite;
+    // Mancava, e nessuno lo vedeva perché il totale è giusto su tutto il resto:
+    // la quota a TTL un'ora arrivava sempre zero, cioè la parte di scrittura di
+    // cache che costa 2x veniva tariffata 1.25x.
+    total.cacheWrite1h += round.usage.cacheWrite1h;
+    // Il giro è finito: il suo costo va depositato ADESSO, non a fine turno.
+    // Il `try` c'è perché è telemetria: un registro che esplode non deve
+    // portarsi via il turno.
+    try { opts.onRoundUsage?.(round.usage); } catch { /* la misura non ferma il lavoro */ }
 
     // La risposta entra nella storia PRIMA dei risultati: l'ordine è parte del
     // protocollo, e invertirlo fa rifiutare la richiesta successiva.

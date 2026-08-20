@@ -717,6 +717,75 @@ describe("task-dispatcher", () => {
     expect(h.task("t1")!.agentCacheReadTokens).toBe(6_000);
   });
 
+  // ── Il chip del TRIAGE: i primi minuti, in cui la card sembra ferma ───────
+  //
+  // Il primo turno non comincia dal lavoro: comincia dall'inquadrarlo (leggere
+  // la card, riscrivere il titolo grezzo, giudicare la priorità che nessuno ha
+  // scelto). Per chi guarda la board sono minuti identici a quelli di prima, e
+  // l'unica cosa che si muove è un cronometro. Il chip dice cosa sta succedendo,
+  // e si spegne al primo SEGNO che l'agente lascia — non a scadenza.
+
+  /** L'ultima anteprima viva emessa per un task. */
+  const ultimaLive = (h: ReturnType<typeof harness>, taskId: string) =>
+    [...h.events].reverse().find((e) => e.type === "task:usage-live" && e.taskId === taskId);
+
+  it("un turno che parte annuncia il TRIAGE, e lo spegne appena l'agente riscrive il titolo", async () => {
+    const h = harness({ usageTickMs: 5 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo", text: "non vedo piu i token e dovrei" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Subito: la card è ancora quella buttata giù di fretta.
+    expect(ultimaLive(h, "t1")?.triage).toBe(true);
+
+    // Il titolo riscritto È l'atto che il kickoff chiede «appena hai inquadrato
+    // il lavoro»: da qui in poi il chip mentirebbe.
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { text: "Token vivi fermi sulle card in lavorazione" } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ultimaLive(h, "t1")?.triage).toBe(false);
+
+    h.finishTurn();
+    await flush();
+  });
+
+  it("le note del dispatcher NON spengono il triage: il segno dev'essere dell'agente", async () => {
+    // «todo→in_progress» e «Nuovo worktree» le scrive il server, prima ancora
+    // che l'agente abbia letto la card. Contarle spegnerebbe il chip su ogni
+    // task, sempre, un istante dopo averlo acceso.
+    const h = harness({ usageTickMs: 5 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    h.svc.addComment({ taskId: "t1", author: "system", content: "Nuovo worktree: `topics/x`" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ultimaLive(h, "t1")?.triage).toBe(true);
+
+    // Il primo commento SUO, invece, sì: da lì in avanti sta lavorando.
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Inquadrato: parto dal dispatcher." });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ultimaLive(h, "t1")?.triage).toBe(false);
+
+    h.finishTurn();
+    await flush();
+  });
+
+  it("una RIPRESA non è mai triage: quel lavoro è già inquadrato", async () => {
+    const h = harness({ usageTickMs: 5 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    // Un turno di lavoro già speso su questa card: non è il primo giro.
+    h.svc.recordAgentUsage({ taskId: "t1", addMs: 120_000, addTokens: 4_000, addCacheReadTokens: 0 });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(ultimaLive(h, "t1")?.triage).toBe(false);
+    h.finishTurn();
+    await flush();
+  });
+
   it("leaves a task alone when the turn ends in review", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });

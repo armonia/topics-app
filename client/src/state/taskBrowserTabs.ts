@@ -391,6 +391,26 @@ function applyRemote(taskId: string, value: unknown): boolean {
   return true;
 }
 
+/**
+ * Test seam: dimentica TUTTI i task.
+ *
+ * PERCHE' SERVE. `cache`, `loaded` e i timer di scrittura sono singleton di
+ * modulo, e sotto `bun test` tutti i file girano nello STESSO processo: un file
+ * che aggiunge tab lascia il suo residuo a chi viene dopo. Chi asserisce su una
+ * SOMMA (`taskTabsCount`) diventa quindi verde da solo e rosso in suite — o,
+ * peggio, il contrario, con l'ordine dei file a decidere l'esito.
+ *
+ * `forgetTaskTabs` da solo non basta: pulisce un task per volta, e per pulire
+ * bisognerebbe sapere quali task ha creato qualcun altro.
+ */
+export function __resetTaskTabs(): void {
+  for (const t of writeTimers.values()) clearTimeout(t);
+  writeTimers.clear();
+  cache.clear();
+  loaded.clear();
+  loading.clear();
+}
+
 /** Forget everything this client remembers about a task's tabs — called when the
  *  task is archived (`task:deleted`), because the server has just DELETED its
  *  ui-state row.
