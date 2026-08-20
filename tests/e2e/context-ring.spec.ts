@@ -155,9 +155,16 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
     // curato.
     expect(chiamateEnvelope).toBe(0);
     // Aprendola, invece, i dati si vanno a prendere: la sezione funziona.
-    await dettagli.locator("summary").click();
+    // `> summary`: figlio DIRETTO. Aperto il pannello, dentro compaiono altri
+    // due `<summary>` («Adaptation notes», «Raw envelope JSON») e un locator
+    // discendente ne trova tre — il primo click passava per caso (erano ancora
+    // uno solo), il secondo no. Un selettore che smette di essere univoco a
+    // meta' test e' un test che si rompe da solo.
+    const interruttore = dettagli.locator("> summary");
+    await interruttore.click();
     await expect.poll(() => chiamateEnvelope, { timeout: 10_000 }).toBeGreaterThan(0);
-    await dettagli.locator("summary").click(); // richiusa per lo screenshot
+    await interruttore.click(); // richiusa per lo screenshot
+    expect(await dettagli.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
 
     await page.locator('[data-popover="context-inspector"]').first()
       .screenshot({ path: "test-results/ctx-inspector.png" });
