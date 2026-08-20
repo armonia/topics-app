@@ -89,7 +89,7 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
-import { cancelledNotice, abortLogTitle } from "../lib/cancelled-notice";
+import { avvisoPerTurno, abortLogTitle } from "../lib/cancelled-notice";
 import { providerSurvivesRestart } from "../lib/quiescence";
 
 /**
@@ -896,6 +896,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // See `server/types.ts:ContentBlock` — same shape lives on
           // `StoredMessage.blocks` and (mirror-typed) on the client.
           const blocks: ContentBlock[] = cartelloRisveglio(isWoken, body.wokenLabel);
+          // Il cartello della RIPRESA (`lib/ripresa-boot.ts`): senza, sembrerebbe
+          // che l'agente abbia risposto due volte alla stessa domanda.
+          if (body.ripresa === true) blocks.push({ kind: "ripreso" });
           const appendTextBlock = (delta: string) => {
             if (!delta) return;
             const last = blocks[blocks.length - 1];
@@ -1732,21 +1735,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // quando fu scritto — l'umano preme Ferma — è giusto: sa già cos'ha
             // premuto, e la riga vuota che lascia viene buttata poco sotto.
             //
-            // Ma ad annullare non è solo l'umano. Il 20/08 su topic:9f9e9629
-            // ad annullare è stato lo SPEGNIMENTO del server (salvataggio in
-            // `server/` → fswatch → `restart-when-idle` → SIGTERM →
-            // `stopAllProviders()`), e il silenzio pensato per lo stop a mano è
-            // finito sopra un turno che nessuno aveva fermato: risposta troncata
-            // a metà, nessuna spiegazione, nessun «Riprova». La regola di CHI
-            // merita il cartello sta in `lib/cancelled-notice.ts`, provata a
-            // parte; qui si applica soltanto.
+            // Ma ad annullare non è solo l'umano. Il 20/08 su topic:9f9e9629 è
+            // stato lo SPEGNIMENTO del server (salvataggio in `server/` →
+            // fswatch → SIGTERM), e il silenzio pensato per lo stop a mano è
+            // finito sopra un turno che nessuno aveva fermato: risposta
+            // troncata a metà e nessuna spiegazione. Regola in
+            // `lib/cancelled-notice.ts`, provata a parte.
             //
-            // Il cartello va nei BLOCCHI — che sono ciò che il client disegna —
-            // e nel TESTO solo se il testo è vuoto, esattamente come fa il ramo
-            // `error` qui sopra: chi ha già scritto della prosa se la tiene, il
-            // verdetto lo porta il blocco.
+            // Il cartello va nei BLOCCHI — ciò che il client disegna — e nel
+            // TESTO solo se il testo è vuoto: chi ha già scritto della prosa se
+            // la tiene, il verdetto lo porta il blocco.
             if (reason === "aborted") {
-              const avviso = cancelledNotice(endInfo);
+              // «Ha prodotto» decide la coda del cartello, perché decide se il
+              // bottone «Riprova» esiste (`turnIsOnlyError`): prometterlo a chi
+              // non ce l'ha era la bugia segnalata il 20/08.
+              const haProdotto = fullContent.trim().length > 0 || blocks.some((b) => b.kind === "tool");
+              const avviso = avvisoPerTurno(endInfo, { haProdotto });
               if (avviso) {
                 blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
                 if (!fullContent.trim()) fullContent = avviso;

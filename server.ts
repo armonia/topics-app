@@ -1811,6 +1811,12 @@ sondaLavoroNonCommittato = async (taskId: string) => {
 
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
+  // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
+  // risolve al momento della chiamata e non all'avvio: il default della
+  // macchina si ricalcola a ogni boot, e una funzione lo rilegge sempre fresco.
+  // `null` in caso di guasto: senza modello la card tiene il titolo del
+  // composer, che e' come si e' sempre comportata.
+  namingProvider: () => tryGetProvider() ?? null,
   autoMerge: taskAutoMerge,
   // Structural review gate: real uncommitted changes in the task's branch
   // worktree (junk excluded); null = no worktree, gate skipped.
@@ -4484,8 +4490,9 @@ adottaTurniRisvegliati();
 // idle children (so reconcile's fresh list sees them dead → demotes their
 // phantom phase). Running it after avoids a race where a just-reaped session is
 // still listed alive. The orphaned-transcript sweep runs last: reattach has by
-// then re-homed every survivor, so a missing transcript is proof of a dead cwd,
-// not of an unfinished adopt.
+// then re-homed every survivor, so a missing transcript is proof of a dead cwd.
+// In coda `riprendiTurniInterrotti`: rimanda i turni uccisi dal riavvio che
+// nessuno riadotterà (`lib/ripresa-boot.ts`).
 reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())

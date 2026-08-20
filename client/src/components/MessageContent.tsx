@@ -1092,6 +1092,30 @@ function WokenBanner({ label }: { label?: string }) {
   );
 }
 
+/**
+ * QUESTA RISPOSTA È UNA RIPRESA, e chi legge deve saperlo.
+ *
+ * Il server ha ucciso il turno precedente riavviandosi, e l'ha rimandato da sé
+ * (`lib/ripresa-boot.ts`). Senza questo cartello sembrerebbe che l'agente abbia
+ * risposto due volte alla stessa domanda — e chi legge cercherebbe la
+ * differenza fra le due invece di leggere quella buona.
+ *
+ * Gemello di `WokenBanner`, stesso posto e stessa forma. Blu come lui: non è un
+ * problema, è un recupero già avvenuto.
+ */
+function RipresoBanner() {
+  const tr = useT();
+  return (
+    <div
+      data-testid="ripreso-banner"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-[12px] leading-snug text-blue-900 dark:text-blue-200"
+    >
+      <span aria-hidden className="flex-shrink-0 leading-snug">↻</span>
+      <span className="min-w-0 break-words">{tr('ripreso.banner')}</span>
+    </div>
+  );
+}
+
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, sessionKey, messageId, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
@@ -1110,6 +1134,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   );
   const isLegacyErrorOnlyText = turnError !== null && rawCleanText.trim().startsWith(LEGACY_ERROR_PREFIX);
   // Il cartello del risveglio: c'è solo se questo turno è nato da un Monitor.
+  const ripreso = useMemo(() => blocks?.some((b) => b.kind === 'ripreso') ?? false, [blocks]);
   const woken = useMemo(
     () => blocks?.find((b) => b.kind === 'woken') as { kind: 'woken'; label?: string } | undefined,
     [blocks],
@@ -1183,6 +1208,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // Nemmeno `woken`: dice DA DOVE viene la risposta, non cosa è successo
       // dentro il turno. Si rende come intestazione della bolla, sopra.
       if (b.kind === 'woken') continue;
+      // Nemmeno `ripreso`: dice da dove viene il turno, non cosa è successo
+      // dentro. Si rende in cima, come gli altri due cartelli.
+      if (b.kind === 'ripreso') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
@@ -1264,6 +1292,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // unrelated rows. Visually lighter, easier to scan.
     return (
       <div data-testid="message-content-assistant">
+        {ripreso && <RipresoBanner />}
         {woken && <WokenBanner label={woken.label} />}
         {turnError && <TurnErrorBanner text={turnError} />}
         {blockGroups.map((g) => {
