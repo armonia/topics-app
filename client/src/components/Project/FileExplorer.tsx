@@ -1599,7 +1599,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         {/* File tree */}
         <div
           ref={treeRef}
-          className={`flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}`}
+          // `reveal-in`: l'albero prende il posto del suo scheletro con una
+          // dissolvenza corta invece che di scatto. Lo scheletro ha gia' le
+          // misure giuste (stessa altezza di riga, stesso passo di rientro),
+          // quindi non c'e' niente da far crescere: c'e' solo da non accendere
+          // il contenuto sopra il grigio che pulsava.
+          className={`reveal-in flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}`}
           // La stessa radice della variante compatta qui sopra, stesso `into` e
           // stessa cessione alla riga sotto al puntatore.
           data-drop-active={rootDragOver && !dragOverPath ? 'into' : undefined}
