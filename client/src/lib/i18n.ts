@@ -79,6 +79,8 @@ const IT: Dict = {
   'ctxInspector.close': "Chiudi l'ispettore del contesto",
   'ctxInspector.compact': 'Riassume la storia della conversazione e libera spazio nel contesto',
   'ctxInspector.removeSource': 'Rimuovi la sorgente dal contesto',
+  'monitor.armed': 'in ascolto',
+  'monitor.armed.blurb': "L'agente non sta aspettando fermo: quando l'evento arriva, la risposta compare qui come messaggio nuovo.",
   'ctxInspector.title': 'Contesto',
   'ctxInspector.compactAction': 'Compatta',
   'ctxInspector.live': 'Contesto del modello',
@@ -955,6 +957,10 @@ const IT: Dict = {
   'board.card.reviewAge': 'in attesa da {t}',
   'board.card.reviewAgeTitle': 'E\' in review dal {when}, e nessuno ha ancora deciso.',
   'board.card.deliveryFiles': '{n} file',
+  'board.card.deliveryFilesLoading': 'leggo i file...',
+  'board.card.deliveryFilesError': 'i file non si sono potuti leggere',
+  'board.card.deliveryFilesEmpty': 'nessun file nel commit di consegna',
+  'board.card.deliveryFilesMore': 'e altri {n}',
   'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
   // Il VERDE si dice: senza, una card senza chip poteva voler dire «passati»
   // oppure «mai eseguiti», due situazioni opposte davanti allo stesso gesto.

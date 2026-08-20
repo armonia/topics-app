@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, FileDiff, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -18,6 +18,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
+import { DeliveryFiles } from './DeliveryFiles';
 import { isDeliverySheetPath } from '../../../../shared/media-kind';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
@@ -1204,39 +1205,33 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.conductorCloses')}</span>
           )}
-          {/* I FILE MODIFICATI CHIUDONO LA RIGA, e non e' una questione di
-              gusto. Stavano in mezzo — dopo l'eta' della review, prima dei
-              checks — quindi «3 file +120 -8» si leggeva come un chip di stato
-              qualunque, in fila con «in attesa da 2h» e «checks verdi».
-              Segnalato: «per i file modificati li potremmo mettere in fondo,
-              invece che mischiarli con le altre chip». In fondo e per ultimo:
-              e' l'unico chip che misura la CONSEGNA invece di descrivere la
-              card, e a fine riga (o su una riga sua, quando la riga va a capo)
-              si stacca da sola dagli altri.
-              Solo in review: nelle altre colonne non c'è ancora una consegna da
-              pesare. `null` (non misurato) non disegna niente, perché uno zero
-              direbbe «non ha prodotto niente», che è un'altra affermazione. */}
-          {deliveryStat !== null && (
-            <span
-              data-testid="card-delivery-stat"
-              title={tr('board.card.deliveryStatTitle', {
-                files: deliveryStat,
-                add: task.deliveryInsertions ?? 0,
-                del: task.deliveryDeletions ?? 0,
-                commit: task.deliveryCommit?.slice(0, 8) ?? '?',
-              })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
-            >
-              <FileDiff className="h-3 w-3 shrink-0" />
-              {tr('board.card.deliveryFiles', { n: deliveryStat })}
-              {/* I due numeri con i loro colori: il verde e il rosso qui non
-                  sono uno stato ma un VERSO, ed è l'unica cosa che distingue
-                  una consegna che aggiunge da una che cancella. */}
-              <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
-              <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
-            </span>
-          )}
+          {/* I FILE MODIFICATI NON SONO PIU' UN CHIP QUI.
+              Stavano in fondo a questa riga, e la posizione era gia' il
+              risultato di una correzione — «per i file modificati li potremmo
+              mettere in fondo, invece che mischiarli con le altre chip». Ma
+              restavano un CONTEGGIO: dicevano quanto e mai cosa, e davanti a
+              una consegna da rivedere «quali file ha toccato» e' la prima
+              domanda. Adesso sono un elenco che si apre, in fondo alla card e
+              prima dell'input: vedi `DeliveryFiles.tsx`. */}
         </div>
+      )}
+      {/* I FILE DELLA CONSEGNA, in fondo e PRIMA dell'input.
+          Chiuso e' il conteggio di sempre; aperto, i percorsi con le loro
+          righe. Sta qui e non fra i chip perche' e' l'unica cosa della card
+          che si puo' APRIRE: in mezzo a una riga di etichette un elemento
+          interattivo non si distingue da quelli che non lo sono.
+          Solo in review: nelle altre colonne non c'e' ancora una consegna da
+          pesare. `null` (non misurato) non disegna niente, perche' uno zero
+          direbbe «non ha prodotto niente», che e' un'altra affermazione. */}
+      {deliveryStat !== null && (
+        <DeliveryFiles
+          projectId={task.projectId}
+          taskId={task.id}
+          files={deliveryStat}
+          insertions={task.deliveryInsertions ?? 0}
+          deletions={task.deliveryDeletions ?? 0}
+          commit={task.deliveryCommit ?? null}
+        />
       )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
           message is buffered and handed to the agent at the next turn. */}
