@@ -62,6 +62,15 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
   });
 
   test("con la misura reale il ring mostra quella, e sopra soglia la pastiglia", async ({ page }) => {
+    // Quante volte l'app va a prendere i dati dell'envelope. Serve a provare
+    // che la sezione di diagnostica, da CHIUSA, non costa una richiesta: si
+    // conta invece di ispezionare il DOM perche' e' il costo vero, e perche'
+    // un `<details>` chiuso nasconde i figli senza smontarli — a occhio le due
+    // situazioni sono identiche.
+    let chiamateEnvelope = 0;
+    page.on("request", (r) => {
+      if (/\/context-(preview|snapshots)/.test(r.url())) chiamateEnvelope++;
+    });
     await page.route("**/api/context/live*", (route) =>
       route.fulfill({
         status: 200,
@@ -115,6 +124,41 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
     await expect(inspector).toBeVisible({ timeout: 10_000 });
     await expect(inspector.getByRole("button", { name: /Compatta|Compact/ })).toBeVisible();
     await expect(inspector.getByTestId("context-budget-bar")).toBeVisible();
+
+    // E IN CIMA C'È LA STESSA MISURA DELL'ANELLO DA CUI SI È ARRIVATI.
+    //
+    // È il difetto che il pannello aveva: lo si apre cliccando l'anello, e
+    // dentro trovavi solo il preventivo dell'envelope — un altro numero, per
+    // un'altra domanda. I due valori vengono ora dallo stesso hook, quindi
+    // NON POSSONO divergere; questa asserzione è ciò che lo tiene vero.
+    await expect(inspector.getByTestId("live-context-percent")).toHaveText("93%");
+    await expect(inspector).toContainText("186k / 200k");
+    // Il preventivo resta, ma SOTTO e etichettato per quello che è.
+    await expect(inspector.getByTestId("budget-percent")).toBeVisible();
+
+    // Le sezioni vuote non si disegnano più: erano quattro righe che dicevano
+    // che non c'era niente da vedere, in un pannello aperto per vedere qualcosa.
+    await expect(inspector).not.toContainText("No memory content yet");
+    await expect(inspector).not.toContainText("No system prompt set");
+    await expect(inspector).not.toContainText("No pinned messages");
+    // E la diagnostica dell'envelope è CHIUSA: è roba da chi sviluppa Topics.
+    // Si guarda il PRIMO `details`, non il conteggio: aprendolo ne compaiono
+    // altri due dentro l'envelope («Adaptation notes», «Raw envelope JSON»), e
+    // contarli legherebbe il test alle sotto-sezioni di un altro pannello.
+    const dettagli = inspector.locator("details").first();
+    await expect(dettagli).toContainText(/Diagnostica|Envelope/i);
+    expect(await dettagli.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
+    // E CHIUSA NON COSTA NIENTE. Un `<details>` chiuso NASCONDE i figli, non li
+    // smonta: prima il componente dentro girava comunque e faceva le sue due
+    // fetch a ogni apertura del pannello, per chi non guarderà mai quella
+    // sezione. Difetto invisibile a occhio — questa è la riga che lo tiene
+    // curato.
+    expect(chiamateEnvelope).toBe(0);
+    // Aprendola, invece, i dati si vanno a prendere: la sezione funziona.
+    await dettagli.locator("summary").click();
+    await expect.poll(() => chiamateEnvelope, { timeout: 10_000 }).toBeGreaterThan(0);
+    await dettagli.locator("summary").click(); // richiusa per lo screenshot
+
     await page.locator('[data-popover="context-inspector"]').first()
       .screenshot({ path: "test-results/ctx-inspector.png" });
   });
