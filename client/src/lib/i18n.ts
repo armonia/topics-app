@@ -81,6 +81,7 @@ const IT: Dict = {
   'ctxInspector.removeSource': 'Rimuovi la sorgente dal contesto',
   'woken.arrived': 'Arrivato mentre eri via: risposta di un controllo in ascolto.',
   'woken.arrivedFor': 'Arrivato: {what}',
+  'ripreso.banner': 'Il server si è riavviato e ha ripreso da solo: questa è la risposta rifatta.',
   'monitor.armed': 'in ascolto',
   'monitor.armed.blurb': "L'agente non sta aspettando fermo: quando l'evento arriva, la risposta compare qui come messaggio nuovo.",
   'ctxInspector.title': 'Contesto',

@@ -819,7 +819,24 @@ export type ContentBlock =
    * ricaricamento. Una colonna nuova avrebbe voluto una migration per portare
    * lo stesso dato nello stesso posto.
    */
-  | { kind: 'woken'; label?: string };
+  | { kind: 'woken'; label?: string }
+  /**
+   * QUESTO TURNO L'HA RIPRESO IL SERVER, non tu.
+   *
+   * Un turno del runtime nativo muore col processo: quando il server si
+   * riavvia sotto una risposta non resta nessun figlio da riadottare, e la chat
+   * si ferma a metà frase. Il bottone «Riprova» non copre il caso frequente
+   * (`turnIsOnlyError` lo mostra solo su un turno SENZA lavoro), e chiedere
+   * all'utente un gesto per un guasto nostro era la parte sbagliata: «al più ci
+   * dovrebbe essere Riprendi, ma dovrebbe riprendere da solo» (20/08).
+   *
+   * Il blocco vive DUE vite, ed è voluto. Sul turno NUOVO è il cartello che
+   * dice da dove viene questa risposta — altrimenti sembrerebbe che l'agente
+   * abbia risposto due volte alla stessa domanda. Sul turno VECCHIO è la
+   * traccia che impedisce di riprenderlo una seconda volta: sta nel DB e non in
+   * memoria, perché due riavvii di fila lo riprenderebbero due volte.
+   */
+  | { kind: 'ripreso' };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

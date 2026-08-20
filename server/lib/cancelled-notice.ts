@@ -17,10 +17,17 @@
 // Chi guardava ha visto una risposta che si interrompe e non riprende più.
 //
 // LA REGOLA. Se ad annullare è stato l'umano non si scrive niente: lo sa. In
-// ogni altro caso si scrive PERCHÉ, e si dice che il messaggio si può rimandare
-// — perché il turno non tornerà da solo. Il testo usa il prefisso ⚠️ che il
-// client già riconosce (`turnError.ts`): banner ambra e bottone «Riprova»,
-// senza toccare una riga di client.
+// ogni altro caso si scrive PERCHÉ. Il prefisso ⚠️ è quello che il client già
+// riconosce (`turnError.ts`): banner ambra, senza toccare una riga di client.
+//
+// COSA PUÒ FARCI CHI LEGGE non sta qui, e non è una dimenticanza. Il testo
+// prometteva sempre «"Riprova" rimanda il tuo messaggio», ma quel bottone lo
+// mostra `turnIsOnlyError` solo se il turno NON ha prodotto niente — regola
+// giusta, perché rimandare un messaggio già risposto a metà ne farebbe un
+// SECONDO, a pagamento, sopra uno che è già lì. Siccome il caso frequente è
+// proprio il turno morto a METÀ lavoro, la promessa era quasi sempre falsa:
+// «non vedo dall'app nessun riprova» (20/08). La coda giusta la sceglie
+// `avvisoPerTurno`, in fondo a questo file.
 //
 // È una funzione pura perché è una DECISIONE, e le decisioni si provano senza
 // avviare un server: `finalizeStream` è dentro una route di 3000 righe con un
@@ -54,18 +61,15 @@ export function cancelledNotice(info: TurnEndInfo): string | null {
       return null;
     case "server-shutdown":
       return (
-        "⚠️ Turno interrotto: il server si è riavviato mentre la risposta era in corso. " +
-        "Quello che era già arrivato resta qui sotto; «Riprova» rimanda il tuo messaggio."
+        "⚠️ Turno interrotto: il server si è riavviato mentre la risposta era in corso."
       );
     case "watchdog":
       return (
-        "⚠️ Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta " +
-        "è stata chiusa. «Riprova» rimanda il tuo messaggio."
+        "⚠️ Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta è stata chiusa."
       );
     case "wall-clock":
       return (
-        "⚠️ Turno interrotto: ha superato il limite di tempo concesso. " +
-        "«Riprova» rimanda il tuo messaggio."
+        "⚠️ Turno interrotto: ha superato il limite di tempo concesso."
       );
     // Un annullamento senza causa dichiarata. NON si tace: il silenzio è
     // riservato ai casi che sappiamo innocui, e questo non è tra quelli — è
@@ -73,8 +77,7 @@ export function cancelledNotice(info: TurnEndInfo): string | null {
     // provenienza ignota trattato come se l'avesse chiesto l'utente.
     default:
       return (
-        "⚠️ Turno interrotto prima della fine. " +
-        "Quello che era già arrivato resta qui sotto; «Riprova» rimanda il tuo messaggio."
+        "⚠️ Turno interrotto prima della fine."
       );
   }
 }
@@ -98,4 +101,28 @@ export function abortLogTitle(info: TurnEndInfo): string {
     case "turn-in-flight": return "stream not started (turn already in flight)";
     default: return "stream aborted";
   }
+}
+
+/**
+ * Il cartello COMPLETO: il perché, più l'unica cosa che chi legge può fare.
+ *
+ * Sono due frasi diverse a seconda che il turno abbia prodotto qualcosa, perché
+ * è esattamente quello che decide se il bottone «Riprova» compare. Prometterlo
+ * a chi non ce l'ha è peggio che tacere: lo manda a cercare un bottone che non
+ * esiste.
+ *
+ * `riprendeDaSolo` vince su tutto: se il server si riprenderà il turno da sé
+ * (`lib/ripresa-boot.ts`), chiedere all'utente un gesto è rumore — e rischia di
+ * fargli spendere un turno in più per una cosa che stava già succedendo.
+ */
+export function avvisoPerTurno(
+  info: TurnEndInfo,
+  opts: { haProdotto: boolean; riprendeDaSolo?: boolean },
+): string | null {
+  const perche = cancelledNotice(info);
+  if (!perche) return null;
+  if (opts.riprendeDaSolo) return `${perche} Riprendo da solo: non serve che tu faccia niente.`;
+  return opts.haProdotto
+    ? `${perche} Quello che era già arrivato resta qui sotto: se ti serve il resto, chiedilo con un nuovo messaggio.`
+    : `${perche} «Riprova» rimanda il tuo messaggio.`;
 }

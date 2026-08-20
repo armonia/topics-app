@@ -33,7 +33,7 @@
  * sul provider vero in `native/abort-cause.test.ts`.
  */
 import { test, expect, describe } from "bun:test";
-import { cancelledNotice, abortLogTitle } from "./cancelled-notice";
+import { avvisoPerTurno, cancelledNotice, abortLogTitle } from "./cancelled-notice";
 import type { TurnEndInfo } from "../providers/stop-reason";
 
 describe("cancelledNotice — chi merita una spiegazione in chat", () => {
@@ -41,11 +41,13 @@ describe("cancelledNotice — chi merita una spiegazione in chat", () => {
    * LA PROVA DEL 20/08. Con la regola vecchia (`aborted` ⇒ silenzio) questo
    * caso non produceva niente, ed è esattamente ciò che l'utente ha visto.
    */
-  test("spegnimento del server: il cartello c'è, dice perché, e invita a rimandare", () => {
+  test("spegnimento del server: il cartello c'è e dice perché", () => {
     const out = cancelledNotice({ end: "cancelled", cause: "server-shutdown" });
     expect(out).not.toBeNull();
     expect(out).toContain("riavviato");
-    expect(out).toContain("Riprova");
+    // E NON promette un bottone: chi lo mostra è `turnIsOnlyError`, e su un
+    // turno che ha già prodotto quel bottone non c'è. Vedi `avvisoPerTurno`.
+    expect(out).not.toContain("Riprova");
     // Il prefisso è il contratto con il client: `turnError.ts` lo riconosce e
     // accende il banner ambra + il bottone. Senza, il testo resta prosa muta.
     expect(out!.startsWith("⚠️")).toBe(true);
@@ -91,7 +93,7 @@ describe("cancelledNotice — chi merita una spiegazione in chat", () => {
   test("un annullamento senza causa dichiarata parla lo stesso", () => {
     const out = cancelledNotice({ end: "cancelled" });
     expect(out).not.toBeNull();
-    expect(out).toContain("Riprova");
+    expect(out!.startsWith("⚠️")).toBe(true);
   });
 
   test("un turno che non è annullato non prende cartelli da qui", () => {
@@ -131,5 +133,41 @@ describe("abortLogTitle — il registro non dà la colpa a chi non c'era", () =>
    */
   test("causa ignota: annullato, ma da nessuno in particolare", () => {
     expect(abortLogTitle({ end: "cancelled" })).toBe("stream aborted");
+  });
+});
+
+/**
+ * LA CODA DEL CARTELLO: cosa può farci chi legge.
+ *
+ * Nasce da una riga sola: «non vedo dall'app nessun riprova» (20/08). Il testo
+ * citava sempre «Riprova», il client lo mostrava quasi mai — e la parte
+ * sbagliata era il testo, non il client.
+ */
+describe("avvisoPerTurno — la coda dice il vero", () => {
+  const spegnimento: TurnEndInfo = { end: "cancelled", cause: "server-shutdown" };
+
+  test("turno che NON ha prodotto: il bottone c'è, e glielo si dice", () => {
+    expect(avvisoPerTurno(spegnimento, { haProdotto: false })).toContain("«Riprova»");
+  });
+
+  test("turno che HA prodotto: niente bottone, quindi niente promessa", () => {
+    // È il caso frequente, ed è quello che mentiva: rimandare un messaggio già
+    // risposto a metà ne farebbe un secondo, a pagamento.
+    const out = avvisoPerTurno(spegnimento, { haProdotto: true })!;
+    expect(out).not.toContain("Riprova");
+    expect(out).toContain("nuovo messaggio");
+  });
+
+  test("se riprende da solo non si chiede niente a nessuno", () => {
+    for (const haProdotto of [true, false]) {
+      const out = avvisoPerTurno(spegnimento, { haProdotto, riprendeDaSolo: true })!;
+      expect(out).toContain("Riprendo da solo");
+      expect(out).not.toContain("Riprova");
+    }
+  });
+
+  test("chi non merita un cartello non ne prende uno nemmeno da qui", () => {
+    expect(avvisoPerTurno({ end: "cancelled", cause: "user" }, { haProdotto: false })).toBeNull();
+    expect(avvisoPerTurno({ end: "end_turn" }, { haProdotto: true })).toBeNull();
   });
 });
