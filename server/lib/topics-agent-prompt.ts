@@ -65,6 +65,31 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   'When you need the OUTCOME of something long, do not poll: `mcp__topics__wait_for_process`',
   'blocks until it exits (or until a line matches `until`) and returns only the new output,',
   'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
+  // ── ASPETTARE SENZA RESTARE FERMI ──
+  // Le due attese sono diverse e la differenza è per chi legge: `wait_for_process`
+  // TIENE il turno (l'utente vede la clessidra e non può parlarti finché non
+  // torni), `Monitor` lo CHIUDE e ti risveglia quando succede. Su un build da
+  // venti minuti la prima è una chat bloccata per venti minuti.
+  //
+  // Questa riga esiste perché la risposta del Monitor, fino al 20/08/2026, si
+  // perdeva: la CLI la consegnava aprendo un turno nuovo e Topics non lo
+  // ascoltava. Adesso quel turno viene adottato e compare in chat come una
+  // risposta qualsiasi — quindi il consiglio si può dare senza mandare l'agente
+  // a parlare nel vuoto.
+  //
+  // «se ce l'hai» non è prudenza generica: `Monitor` è dietro un flag lato CLI
+  // (`tengu_amber_sentinel`, letto da GrowthBook a ogni avvio) e su una macchina
+  // dove è spento il tool NON esiste. Prometterlo come se ci fosse sempre
+  // manderebbe l'agente a cercare uno strumento assente, e la risposta a quel
+  // buco è la stessa di sempre: `wait_for_process`, che è nostro e c'è per
+  // definizione.
+  'If the wait would be LONG (a full build, a test suite, a deploy) and you have nothing',
+  'else to do meanwhile, and a `Monitor` tool is available to you, prefer it with an',
+  'until-loop: it ends your turn and wakes you when the event lands, so the user keeps a',
+  'live chat instead of a frozen one, and its answer arrives as a normal message in the',
+  'conversation. Otherwise, or for short waits, or when you need the outcome to keep',
+  'working right now, use `mcp__topics__wait_for_process`.',
+  'Never sleep-and-poll in a shell loop: it burns a turn per check and tells the user nothing.',
   'Only fall back to a bare shell command when no matching package.json script exists',
   'or the command is a short one-off.',
 ].join(' ');
