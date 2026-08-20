@@ -36,6 +36,22 @@ export interface ToolContext {
   workspace: string;
   /** Timeout dei comandi shell, in millisecondi. */
   bashTimeoutMs?: number;
+  /**
+   * LA FINE DEL TURNO DEVE ARRIVARE FIN QUI DENTRO.
+   *
+   * Il ciclo dell'agente guarda `signal.aborted` in cima a ogni giro, ma un
+   * turno passa la maggior parte del tempo FERMO dentro un tool: da lì il
+   * controllo in cima non si raggiunge più. Il 20/08 su topic:9f9e9629 lo
+   * spegnimento del server ha annullato un turno bloccato in un `bash` con un
+   * `sleep 100`; nessuno ascoltava, il processo è uscito prima, e la chat è
+   * rimasta con una risposta troncata a metà frase e nessuna spiegazione — il
+   * cartello che l'avrebbe scritta si accende dopo `onAborted`, che su quel
+   * cammino non è mai arrivato.
+   *
+   * Chi esegue un comando lungo lo passa a `runCommand`, che ci attacca
+   * l'uccisione dell'albero. Assente = comportamento di prima, invariato.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ToolResult {
@@ -48,6 +64,8 @@ const MAX_READ_BYTES = 400_000;
 /** Quanto output di un comando si rimanda al modello. */
 const MAX_OUTPUT_CHARS = 30_000;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
+/** Cosa legge l'agente — e l'utente — quando il turno muore sotto un comando. */
+const MOTIVO_ANNULLATO = "[comando interrotto: il turno è stato annullato mentre girava]";
 
 /**
  * Risolve un percorso DENTRO la workspace, o spiega perché no.
@@ -161,10 +179,16 @@ async function runCommand(
   args: string[],
   cwd: string,
   timeoutMs: number,
-): Promise<{ out: string; code: number | null }> {
+  signal?: AbortSignal,
+): Promise<{ out: string; code: number | null; annullato?: boolean }> {
+  // Già annullato: far partire il comando vorrebbe dire spendere secondi per
+  // un risultato che nessuno leggerà, sul cammino di uno spegnimento che ha
+  // fretta. Si risponde subito, e con la ragione.
+  if (signal?.aborted) return { out: MOTIVO_ANNULLATO, code: null, annullato: true };
   return new Promise((res) => {
     const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
+    let annullato = false;
     const cap = (d: Buffer) => {
       // Si tronca MENTRE arriva, non alla fine: un comando che sputa un giga
       // non deve riempire la memoria del server prima di essere tagliato.
@@ -172,17 +196,34 @@ async function runCommand(
     };
     child.stdout.on("data", cap);
     child.stderr.on("data", cap);
-    const timer = setTimeout(() => {
+    const abbatti = () => {
       // TUTTO L'ALBERO, non il solo figlio. Il comando gira in una shell, e chi
       // lavora davvero (il compilatore, il server, il test runner) e' un suo
       // discendente: un segnale al solo wrapper lasciava vivo il lavoro che il
       // timeout doveva fermare, con la sua porta e la sua CPU.
       killProcessTree(child.pid ?? 0).catch(() => { /* nessuno da uccidere */ });
+    };
+    const timer = setTimeout(() => {
+      abbatti();
       out += `\n[comando ucciso dopo ${timeoutMs}ms]`;
     }, timeoutMs);
     timer.unref?.();
-    child.on("close", (code) => { clearTimeout(timer); res({ out, code }); });
-    child.on("error", (err) => { clearTimeout(timer); res({ out: String(err), code: null }); });
+    // IL TURNO È FINITO MENTRE IL COMANDO GIRAVA. Non è il timeout del comando:
+    // è lo spegnimento del server o uno stop dell'utente, e la differenza va
+    // detta — `[exit null]` nudo manda a cercare un guasto che non c'è stato.
+    const suAbort = () => {
+      annullato = true;
+      abbatti();
+      out += `\n${MOTIVO_ANNULLATO}`;
+    };
+    signal?.addEventListener("abort", suAbort, { once: true });
+    const chiudi = (r: { out: string; code: number | null }) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", suAbort);
+      res({ ...r, ...(annullato ? { annullato: true } : {}) });
+    };
+    child.on("close", (code) => chiudi({ out, code }));
+    child.on("error", (err) => chiudi({ out: String(err), code: null }));
   });
 }
 
@@ -243,11 +284,14 @@ export async function executeTool(
 
       case "bash": {
         const cwd = input.cwd ? safePath(ctx, String(input.cwd)) : resolve(ctx.workspace);
-        const { out, code } = await runCommand(
+        const { out, code, annullato } = await runCommand(
           "/bin/bash", ["-lc", String(input.command)],
-          cwd, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS,
+          cwd, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS, ctx.signal,
         );
         const body = truncate(out.trim() || "(nessun output)");
+        // Annullato non è fallito: `[exit null]` racconterebbe un comando
+        // andato male, e manderebbe a cercare un guasto che non c'è stato.
+        if (annullato) return { content: body, isError: true };
         // Il codice d'uscita si riporta SEMPRE quando non è zero: senza, un
         // test fallito e un test passato hanno lo stesso aspetto.
         return code === 0 ? { content: body } : { content: `[exit ${code}]\n${body}`, isError: code !== 0 };
