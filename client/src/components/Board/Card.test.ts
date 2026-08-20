@@ -89,3 +89,29 @@ describe('il chip dei checks distingue rosso da non-misurato', () => {
   });
 });
 
+
+/**
+ * IL CHIP DEL TRIAGE, cioè i minuti in cui la card sembra ferma.
+ *
+ * Il primo turno di un agente comincia dall'inquadrare il lavoro: legge la
+ * card, riscrive il titolo grezzo, giudica la priorità. Per chi guarda la board
+ * non cambia niente — stesso titolo, nessun commento — e l'unica cosa che si
+ * muove è un cronometro.
+ *
+ * Sorgente e non render, per la stessa ragione degli altri casi di questo file.
+ * Ciò che si sorveglia sono le DUE condizioni insieme: il chip appartiene a un
+ * turno vivo (`dispatchState === 'working'`) e alla fase iniziale (`triage`).
+ * Perderne una lascerebbe il chip acceso su una card che non sta lavorando.
+ */
+describe('il chip del triage', () => {
+  test('si disegna solo su un turno VIVO e ancora in inquadramento', () => {
+    expect(src).toContain("live?.triage && task.dispatchState === 'working'");
+    expect(src).toContain('data-testid="card-triage"');
+  });
+
+  test('ha un testo suo, non un titolo inventato nel markup', () => {
+    const chip = src.slice(src.indexOf('data-testid="card-triage"'));
+    expect(chip.slice(0, 400)).toContain("tr('board.card.triage')");
+    expect(chip.slice(0, 400)).toContain("tr('board.card.triageTitle')");
+  });
+});
