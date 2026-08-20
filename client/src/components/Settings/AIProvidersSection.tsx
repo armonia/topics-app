@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
+import { useT } from '@/hooks/useT';
 import { X, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle } from 'lucide-react';
 import type { ProviderSnapshotEntry } from '../../types';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
@@ -41,6 +42,7 @@ interface TestResult {
  * scegliere, decidi tu» — è diventato un'azione della riga che ha il badge.
  */
 export function AIProvidersSection() {
+  const tr = useT();
   // Single subscription point — replaces the per-component fetches the section
   // used to do. Snapshot updates arrive via WS, so opening Settings in two
   // windows shows identical state without either window polling.
@@ -135,7 +137,7 @@ export function AIProvidersSection() {
     testWatchdog.current = setTimeout(() => {
       testWatchdog.current = null;
       testTriggeredAt.current.delete(name);
-      setResults((prev) => ({ ...prev, [name]: { ok: false, message: 'La prova è scaduta', at: Date.now() } }));
+      setResults((prev) => ({ ...prev, [name]: { ok: false, message: tr('ai.test.timedOut'), at: Date.now() } }));
       setTesting(null);
     }, 15000);
     try {
@@ -177,7 +179,7 @@ export function AIProvidersSection() {
         className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
       >
         <RefreshCw size={11} />
-        Riprova
+        {tr('common.retry')}
       </button>
     </div>
   ) : loading && entries.length === 0 ? (
@@ -226,8 +228,7 @@ export function AIProvidersSection() {
           <div className="mb-2 flex items-center gap-2 text-[11px] text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
             <AlertCircle size={12} className="flex-shrink-0" />
             <span className="flex-1 break-words">
-              Scelta salvata: <span className="font-mono">{settings.aiProvider}</span>. Non è fra i
-              provider registrati, quindi ora il default lo decide il ripiego.
+              {tr('ai.saved.prefix')} <span className="font-mono">{settings.aiProvider}</span>{tr('ai.saved.suffix')}
             </span>
             <button
               onClick={() => { void clearDefault(); }}
@@ -349,6 +350,7 @@ function ProviderCard({
   entry, expanded, testing, result, settings, saving, modelSharedWith,
   onSave, onToggle, onSetDefault, onClearDefault, onTest, onAfterConfigure,
 }: ProviderCardProps) {
+  const tr = useT();
   // Il badge distingue una SCELTA da un ripiego: `isDefault` dice solo chi è il
   // default adesso, non se qualcuno l'ha deciso. Finché le impostazioni non
   // sono arrivate non lo sappiamo, e il badge resta muto sul come — dire
@@ -385,10 +387,10 @@ function ProviderCard({
             <span
               className="text-[11px] bg-primary/20 text-primary px-1.5 py-0.5 rounded"
               title={!defaultKnown
-                ? 'Il provider usato dalle chat che non scelgono.'
+                ? tr('ai.default.unknown')
                 : explicitDefault
-                  ? 'Scelto qui: resta anche dopo un riavvio.'
-                  : 'Nessuna scelta salvata: lo decide il ripiego (o la variabile AI_PROVIDER). Può cambiare da solo se questo provider va giù.'}
+                  ? tr('ai.default.explicit')
+                  : tr('ai.default.fallback')}
             >
               {defaultKnown && !explicitDefault ? 'Default · automatico' : 'Default'}
             </span>
@@ -407,7 +409,7 @@ function ProviderCard({
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
               >
                 <RefreshCw size={11} className={testing ? 'animate-spin' : ''} />
-                Prova la connessione
+                {tr('ai.testConnection')}
               </button>
             )}
             {!entry.isDefault && entry.status === 'ready' && (
@@ -415,7 +417,7 @@ function ProviderCard({
                 onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
                 className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
               >
-                Imposta come predefinito
+                {tr('ai.setDefault')}
               </button>
             )}
             {entry.isDefault && explicitDefault && (
@@ -427,7 +429,7 @@ function ProviderCard({
                 disabled={saving}
                 className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
               >
-                Togli il default (scegli automaticamente)
+                {tr('ai.clearDefault')}
               </button>
             )}
             {result && (
@@ -634,11 +636,12 @@ function UnregisteredClaudeCode({
   saving: boolean;
   onSave: (patch: Partial<AppBehaviorSettings>) => Promise<void>;
 }) {
+  const tr = useT();
   return (
     <div className="rounded-lg border border-dashed border-app-border px-3 py-2">
       <div className="text-[12px] font-semibold text-app-text">Claude Code</div>
       <div className="text-[11px] text-app-text-muted mb-1">
-        Non registrato: la CLI <span className="font-mono">claude</span> non è stata trovata.
+        {tr('ai.claude.missing.prefix')} <span className="font-mono">claude</span> {tr('ai.claude.missing.suffix')}
       </div>
       <SettingSelect
         label="Attivazione"
