@@ -313,3 +313,55 @@ describe("il server si spegne sopra un turno vivo", () => {
     expect(assistente!.content).toContain("riavviato");
   });
 });
+
+/**
+ * «RIPRENDO DA SOLO» SI PROMETTE SOLO DOVE È VERO.
+ *
+ * `avvisoPerTurno` sa dire «non serve che tu faccia niente» al posto di
+ * «Riprova» — ma il campo che lo attiva non veniva passato da NESSUNO: la coda
+ * esisteva nel codice e non è mai comparsa a schermo, nemmeno sui turni che il
+ * boot riprendeva davvero. Chi vedeva un turno ucciso da un riavvio leggeva
+ * «Riprova rimanda il tuo messaggio»: premendolo partivano due turni, entrambi
+ * a pagamento.
+ *
+ * E LA CAUSA RIPRENDIBILE È UNA SOLA DELLE TRE. `riprendiTurniInterrotti` è una
+ * funzione di BOOT (`server.ts`, in coda al giro di riadozione):
+ *
+ *  · `server-shutdown` → un boot segue per definizione, il processo sta morendo
+ *    mentre scriviamo il cartello. La promessa si mantiene da sé.
+ *  · `watchdog` / `wall-clock` → il server RESTA SU: quella funzione non gira,
+ *    e nessuno riprende niente. Prometterlo qui sarebbe il verso peggiore
+ *    dell'errore — oggi si spreca un turno in modo VISIBILE, con la promessa si
+ *    perderebbe il turno in SILENZIO.
+ */
+describe("la promessa di ripresa sul cartello", () => {
+  test("spegnimento del server: la card dice che non serve fare niente", async () => {
+    const h = await harness("topic:ripresa-shutdown");
+    const handler = await h.startTurn();
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "server-shutdown" } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const m = h.ctx.loadLocalMessages("topic:ripresa-shutdown").filter((x) => x.role === "assistant").pop()!;
+    const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
+    const testo = cartello && cartello.kind === "error" ? cartello.text : "";
+    expect(testo).toContain("Riprendo da solo");
+    // E NON il bottone: chiedere un gesto per una cosa che sta già succedendo
+    // fa spendere un turno in più.
+    expect(testo).not.toContain("«Riprova»");
+  });
+
+  test("watchdog e limite di tempo: resta «Riprova», perché nessuno riprende", async () => {
+    for (const cause of ["watchdog", "wall-clock"] as const) {
+      const h = await harness(`topic:ripresa-${cause}`);
+      const handler = await h.startTurn();
+      handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause } });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const m = h.ctx.loadLocalMessages(`topic:ripresa-${cause}`).filter((x) => x.role === "assistant").pop()!;
+      const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
+      const testo = cartello && cartello.kind === "error" ? cartello.text : "";
+      expect(testo, cause).toContain("«Riprova»");
+      expect(testo, cause).not.toContain("Riprendo da solo");
+    }
+  });
+});
