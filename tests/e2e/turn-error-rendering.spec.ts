@@ -108,6 +108,48 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
     await expect(page.locator('[data-testid="message-retry"]')).toHaveCount(0);
   });
 
+  /**
+   * LA FORMA VERA DEL GUASTO DEL 20/08, che nessuno di questi test copriva.
+   *
+   * Gli altri seminano una riga già ben formata. Questa semina quello che il
+   * DB conteneva davvero 1082 volte: prosa a metà, un tool chiuso «Interrotto»,
+   * e il verdetto che la bonifica aggiunge in coda ai blocchi — non in cima.
+   * Se il client rendesse il verdetto solo quando è il primo blocco, o solo su
+   * `content`, questi turni resterebbero muti a schermo pur avendo la
+   * spiegazione in database: il guasto daccapo, con un'altra faccia.
+   */
+  test("turno morto sotto un tool: il verdetto si vede, e il lavoro sotto resta", async ({ page, request }) => {
+    await seedMessage(request, { sessionKey, role: "user", content: "misura la densità" });
+    await seedMessage(request, {
+      sessionKey,
+      role: "assistant",
+      content: "Troppo lento in foreground. Lo mando in background.",
+      blocks: [
+        { kind: "text", text: "Troppo lento in foreground. Lo mando in background." },
+        {
+          kind: "tool",
+          toolCall: {
+            id: "tu_morto", name: "bash", args: { command: "sleep 100" }, status: "error",
+            error: "Interrotto: la sessione è terminata prima del risultato",
+          },
+        },
+        // In CODA, che è dove la bonifica lo mette.
+        { kind: "error", text: "Turno interrotto: il server si è riavviato mentre la risposta era in corso." },
+      ],
+    });
+
+    await goToApp(page);
+    await openTopic(page, topicName);
+
+    const verdetto = page.locator('[data-testid="turn-error"]').last();
+    await expect(verdetto).toBeVisible();
+    await expect(verdetto).toContainText("il server si è riavviato");
+    // Il lavoro dell'agente resta leggibile sotto il cartello.
+    await expect(page.locator('[data-testid="message-content-assistant"]').last())
+      .toContainText("Lo mando in background");
+    expect(await classiContenitore(page)).not.toContain("amber");
+  });
+
   test("una riga di solo errore si legge una volta sola, e porta il suo Riprova", async ({ page, request }) => {
     await seedMessage(request, { sessionKey, role: "user", content: "e adesso?" });
     await seedMessage(request, {
