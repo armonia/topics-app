@@ -4955,15 +4955,22 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     // resta e poi, se non basta, muore DICENDOLO: è meglio di un'attesa che non
     // finisce e di un taglio che nessuno annuncia.
     if (verdetto === "scaduto") {
-      // La frase dice la verita' su CHI si sta tagliando. «li riprende» vale
-      // per un turno riadottabile; per uno nativo e' falso — quel turno non
-      // torna, e chi legge il log deve saperlo. Il cartello in chat lo scrive
-      // `cancelledNotice` (causa `server-shutdown`); qui si scrive per chi
-      // guarda i log chiedendosi perche' una risposta si e' fermata.
-      const sorte = unadoptable > 0
-        ? `${unadoptable} NON riadottabile/i: quel lavoro non torna, in chat resta il cartello`
-        : "la reload-resilience li riprende";
-      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza, si procede lo stesso (${sorte})`);
+      // LA FRASE DICE LA VERITA' SU CHI SI STA TAGLIANDO, e sono tre sorti
+      // diverse — non una.
+      //
+      // «la reload-resilience li riprende» era scritto per un turno che vive in
+      // un processo FIGLIO: quello torna davvero. Ma qui ci passano anche le
+      // CARD, e una card non viene riadottata: il dispatcher la rimette in coda
+      // e il suo turno riparte DA CAPO (il worktree sopravvive, il turno no).
+      // Dirle «ti riprendo» e' la stessa specie di bugia di «stream aborted by
+      // user» su uno spegnimento — chi legge il log cerca dalla parte
+      // sbagliata. Sul task 235afe11 e' successo tre volte in un'ora, e ogni
+      // riga di quel giro raccontava una ripresa che non c'e' stata.
+      const sorti: string[] = [];
+      if (cards > 0) sorti.push(`${cards} card: turno perso, rimessa in coda (riparte da capo, il worktree resta)`);
+      if (unadoptable > 0) sorti.push(`${unadoptable} chat NON riadottabile/i: quel lavoro non torna, in chat resta il cartello`);
+      if (!sorti.length) sorti.push("la reload-resilience li riprende");
+      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza dopo ${Math.round((Date.now() - inizio) / 1000)}s, si procede lo stesso (${sorti.join("; ")})`);
       return;
     }
     if (!logged) {

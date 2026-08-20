@@ -215,3 +215,54 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
     expect(now).toBeGreaterThanOrEqual(CAP);
   });
 });
+
+/**
+ * IL LOOP INTERO, in tempo reale — non la sola aritmetica del verdetto.
+ *
+ * I test qui sopra provano la REGOLA con un `now` iniettato: dimostrano che il
+ * tetto e' calcolato bene, non che il cancello si fermi davvero. La differenza
+ * conta, perche' il difetto del 20/08 non era un'aritmetica sbagliata: era un
+ * loop che non usciva. Con `deadline = max(deadline, now + capMs)` questo test
+ * non terminava affatto — girava finche' non lo ammazzava il timeout.
+ *
+ * Qui il tempo scorre davvero (cap accorciato a 800ms al posto di 25 minuti) e
+ * si riproduce la forma esatta del loop di `waitForDispatcherQuiescent`,
+ * compresa la frase che scrive uscendo: una card che non finisce mai, cioe' il
+ * caso del task 235afe11.
+ */
+describe("il cancello, in tempo reale", () => {
+  test("con una card che non molla: aspetta, poi esce, e dice la verita'", async () => {
+    const CAP = 800, CHAT = 200;
+    const inizio = Date.now();
+    let logged = false;
+    let uscita: string | null = null;
+
+    for (;;) {
+      // `whatIsStillWorking()` che risponde sempre «1 card in volo».
+      const busy = "1 turno/i di card della board", cards = 1, unadoptable = 0;
+      const verdetto = quiescenceVerdict({
+        busy, unrecoverable: cards + unadoptable,
+        now: Date.now(), startedAt: inizio, capMs: CAP, chatCapMs: CHAT,
+      });
+      if (verdetto === "scaduto") {
+        // La stessa frase di server.ts: una card NON viene riadottata.
+        uscita = `${cards} card: turno perso, rimessa in coda (riparte da capo, il worktree resta)`;
+        break;
+      }
+      logged = true;
+      // Rete di sicurezza: col difetto di prima si arrivava qui e basta.
+      if (Date.now() - inizio > 10_000) { uscita = "MAI USCITO"; break; }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    // 1. E' USCITO: e' l'asserzione che il rinnovo rendeva impossibile.
+    expect(uscita).not.toBe("MAI USCITO");
+    // 2. Ma ha ASPETTATO: un cancello che esce subito non protegge nessuno.
+    expect(logged).toBe(true);
+    expect(Date.now() - inizio).toBeGreaterThanOrEqual(CAP);
+    // 3. E dice cosa succede davvero a una card: riparte da capo, non «viene
+    //    ripresa». Era la stessa specie di bugia di «stream aborted by user».
+    expect(uscita).toContain("rimessa in coda");
+    expect(uscita).not.toContain("reload-resilience");
+  }, 15_000);
+});
