@@ -797,7 +797,29 @@ export type ContentBlock =
    * produzione erano turni interi incorniciati di giallo senza una parola che
    * dicesse perché.
    */
-  | { kind: 'error'; text: string };
+  | { kind: 'error'; text: string }
+  /**
+   * QUESTA RISPOSTA NON L'HAI CHIESTA TU.
+   *
+   * Un `Monitor` armato consegna il suo evento risvegliando la sessione: la
+   * risposta arriva in chat minuti dopo, sotto un messaggio che non c'entra,
+   * e senza niente che dica da dove viene. Osservato sulla chat 205d1fbb il
+   * 20/08 — «Risveglio arrivato: …» comparso da solo, indistinguibile da una
+   * risposta qualunque, con l'utente che ha dovuto chiedere cos'era.
+   *
+   * `label` è la `description` che l'agente ha dato al Monitor quando l'ha
+   * armato («esito build», «deploy in produzione»): è la cosa che risponde a
+   * «arrivato COSA», e il modello la sceglie già oggi perché la CLI la mostra
+   * in ogni notifica. Assente quando non la conosciamo — allora il cartello
+   * dice solo che il turno è nato da sé, che è comunque l'informazione
+   * mancante.
+   *
+   * Vive nei blocchi per la stessa ragione di `error` qui sopra: `blocks` è
+   * già ciò che il client rende, che si persiste e che torna dopo un
+   * ricaricamento. Una colonna nuova avrebbe voluto una migration per portare
+   * lo stesso dato nello stesso posto.
+   */
+  | { kind: 'woken'; label?: string };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

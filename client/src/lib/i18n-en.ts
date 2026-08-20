@@ -60,6 +60,8 @@ const EN = {
   'ctxInspector.close': 'Close the context inspector',
   'ctxInspector.compact': 'Summarises the conversation history and frees room in the context',
   'ctxInspector.removeSource': 'Remove the source from the context',
+  'woken.arrived': 'Landed while you were away: an answer from a background watch.',
+  'woken.arrivedFor': 'Landed: {what}',
   'monitor.armed': 'listening',
   'monitor.armed.blurb': 'The agent is not sitting idle: when the event lands, its answer shows up here as a new message.',
   'ctxInspector.title': 'Context',
