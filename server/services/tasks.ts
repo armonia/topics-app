@@ -197,6 +197,9 @@ export interface Task {
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
+  /** LE ALTRE evidenze allegate nel thread, per il carosello della card.
+   *  Vuoto quando non ce ne sono: la copertina resta l'unica slide. */
+  previewImages: string[];
   /**
    * L'anteprima è stata RITIRATA perché non era evidenza (duplicata, un
    * placeholder, un errore). È uno stato della card, non un messaggio nel
@@ -1177,6 +1180,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // nasceva morto: l'agente allegava il diagramma al commento di consegna e la
   // promozione lo saltava, lasciando la card cieca.
   const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|svg|webm|mp4|mov)$/i;
+  /** Quante evidenze al massimo finiscono nel carosello della card. Oltre, non
+   *  e' piu' un carosello ma un archivio, e quello e' il thread nel drawer. */
+  const PREVIEW_SLIDES_MAX = 8;
   const VIDEO_MEDIA = /\.(webm|mp4|mov)$/i;
 
   /**
@@ -1702,6 +1708,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     retryCap: Map<string, number>;
     openChildren: Map<string, number>;
     comments: Map<string, CardComment[]>;
+    /** Le altre evidenze del thread, per il carosello della card. */
+    previewImages: Map<string, string[]>;
     queue: QueueRank | null;
     autoDispatch: boolean;
     heavy: boolean;
@@ -1881,6 +1889,49 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return out;
   }
 
+  /**
+   * LE ALTRE EVIDENZE di ogni card: i media allegati nel thread.
+   *
+   * A COSA SERVE. `preview_image` e' UNA sola — la copertina che il server ha
+   * scelto — e finora il resto restava sepolto nel thread. Ma un agente che
+   * consegna un lavoro visivo allega spesso piu' scatti (prima/dopo, tre
+   * schermate di un flusso), e chi guarda la board li vedeva solo aprendo il
+   * task e scorrendo i commenti. Segnalato: «assicuriamoci che la preview possa
+   * avere anche piu' slide navigabili».
+   *
+   * UNA QUERY PER PAGINA, non una per card: stesso motivo per cui i commenti
+   * passano da `cardCommentsFor`. Il tetto per card esiste perche' un thread
+   * lungo puo' avere decine di allegati, e un carosello da trenta slide non e'
+   * un carosello: e' un archivio, e quello sta nel drawer.
+   */
+  function previewImagesFor(ids: readonly string[]): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    if (ids.length === 0) return out;
+    let rows: any[];
+    try {
+      rows = db.query(
+        `SELECT task_id, media FROM task_comments
+          WHERE task_id IN (SELECT value FROM json_each(?)) AND media IS NOT NULL
+          ORDER BY created_at ASC`,
+      ).all(JSON.stringify(ids)) as any[];
+    } catch { return out; }
+    for (const r of rows) {
+      let files: unknown;
+      try { files = JSON.parse(r.media); } catch { continue; }
+      if (!Array.isArray(files)) continue;
+      for (const f of files) {
+        // Le stesse regole della promozione: path assoluto, estensione che
+        // qualcuno sa disegnare. Un `.pdf` fra le slide sarebbe un buco.
+        if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
+        const list = out.get(r.task_id as string);
+        if (!list) { out.set(r.task_id as string, [f]); continue; }
+        if (list.length >= PREVIEW_SLIDES_MAX) continue;
+        if (!list.includes(f)) list.push(f);
+      }
+    }
+    return out;
+  }
+
   function buildBatch(rows: readonly any[]): TaskBatch {
     const ids = rows.map((r) => r.id as string);
     const b: TaskBatch = {
@@ -1893,6 +1944,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       retryCap: new Map(),
       openChildren: new Map(),
       comments: cardCommentsFor(rows.filter(drawsCardComments).map((r) => r.id as string)),
+      previewImages: previewImagesFor(ids),
       queue: null,
       autoDispatch: false,
       heavy: false,
@@ -2079,6 +2131,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
       urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
+      previewImages: b.previewImages.get(r.id as string) ?? [],
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
       planFirst: !!r.plan_first,

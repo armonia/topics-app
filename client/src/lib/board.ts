@@ -487,6 +487,9 @@ export interface BoardTask {
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
   previewImage: string | null;
+  /** LE ALTRE evidenze allegate nel thread, per il carosello della card.
+   *  Vuoto (o assente, da un server piu' vecchio) = una slide sola. */
+  previewImages?: string[];
   /** L'anteprima è stata RITIRATA perché non era evidenza (duplicata, un
    *  placeholder, un errore). Stato della card, non messaggio nel thread: si
    *  spegne da solo appena ne arriva una nuova. `null` = mai successo. */
