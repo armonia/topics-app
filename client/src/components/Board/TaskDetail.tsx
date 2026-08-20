@@ -2403,6 +2403,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               drawer è già full-screen, quindi il toggle è nascosto (<lg). */}
           <button
             onClick={toggleWide}
+            data-testid="task-detail-wide-toggle"
+            aria-pressed={wide}
             title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
             className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
