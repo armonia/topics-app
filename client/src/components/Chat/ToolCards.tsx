@@ -15,6 +15,7 @@
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useT } from '@/hooks/useT';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import type { ToolCallDetail } from '../../types';
@@ -68,6 +69,7 @@ function HighlightedPre({ code, lang, className, testId, prefix }: {
  * di prima: nessuna riga di segnaposto per uno stato che non abbiamo.
  */
 function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
+  const tr = useT();
   if (!live.known) return null;
   const running = live.status === 'running';
   return (
@@ -81,7 +83,7 @@ function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
         <span>{running ? 'in corso' : (live.exitCode != null ? `uscita ${live.exitCode}` : 'terminata')}</span>
       </div>
       {live.truncatedLines > 0 && (
-        <div className="text-[11px] text-app-text-muted">[… {live.truncatedLines} righe scartate: il buffer del log è pieno]</div>
+        <div className="text-[11px] text-app-text-muted">{tr('tool.logTruncated', { n: live.truncatedLines })}</div>
       )}
       {live.output && (
         <pre

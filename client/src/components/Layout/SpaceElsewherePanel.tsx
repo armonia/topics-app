@@ -13,6 +13,7 @@
  * torna, senza nessuno da avvisare.
  */
 import { AppWindow, CornerDownLeft } from 'lucide-react';
+import { useT } from '@/hooks/useT';
 import { usePaneStore } from '../../state/pane/store';
 import { closeSpaceWindow, focusSpaceWindow } from '../../lib/popOutSpace';
 import { DEFAULT_SPACE_ID } from '../../state/pane/types';
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function SpaceElsewherePanel({ spaceId, windowLabel }: Props) {
+  const tr = useT();
   const dispatch = usePaneStore((s) => s.dispatch);
   const name = usePaneStore((s) =>
     spaceId === DEFAULT_SPACE_ID ? DEFAULT_SPACE_LABEL : (s.spaces[spaceId]?.name || 'Gruppo'),
@@ -41,11 +43,10 @@ export function SpaceElsewherePanel({ spaceId, windowLabel }: Props) {
     >
       <AppWindow size={22} className="text-app-text-tertiary" aria-hidden="true" />
       <div className="text-[13px] text-app-text">
-        <b>{name}</b> è aperto in un'altra finestra.
+        <b>{name}</b> {tr('space.elsewhere')}
       </div>
       <div className="max-w-[380px] text-[12px] text-app-text-secondary">
-        Un gruppo lo disegna una finestra sola: le sue tab vivono là, e qui non
-        si duplicano.
+        {tr('space.elsewhere.blurb')}
       </div>
       <div className="flex items-center gap-2 pt-1">
         <button

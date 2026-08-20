@@ -1,4 +1,5 @@
 import { X, BookOpen, Braces, FileText } from 'lucide-react';
+import { useT } from '@/hooks/useT';
 
 interface ContextFile {
   name: string;
@@ -42,6 +43,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
   onToggle?: () => void;
   onRemove?: () => void;
 }) {
+  const tr = useT();
   const activeStyles = {
     claude: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200/60 dark:border-purple-800/30 text-purple-600 dark:text-purple-400',
     context: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200/60 dark:border-blue-800/30 text-blue-600 dark:text-blue-400',
@@ -73,7 +75,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
         </span>
       )}
       {onRemove && (
-        <button aria-label="Rimuovi dal contesto"
+        <button aria-label={tr('ctx.removeFromContext')}
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity flex-shrink-0"
         >

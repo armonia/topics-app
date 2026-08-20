@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
@@ -27,6 +28,7 @@ import {
  * to the single summary row.
  */
 function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; messageId?: string; onPlanDecision?: (approved: boolean) => void }) {
+  const tr = useT();
   const settledMetricClass = useSettledMetricClass('toolgroup');
   const [open, setOpen] = useState(false);
   const summary = useMemo(() => summarizeToolGroup(tools), [tools]);
@@ -104,7 +106,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
                 gruppo in corso non mostrava NESSUN numero — mentre una riga
                 singola in corso il suo cronometro ce l'ha sempre avuto. */}
             {live && summary.startedAt !== undefined && (
-              <ElapsedTimer since={summary.startedAt} title="Da quanto va avanti questa corsa di azioni" />
+              <ElapsedTimer since={summary.startedAt} title={tr('toolgroup.elapsed')} />
             )}
             {summary.durationMs !== undefined && !live && (
               <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-duration">
@@ -113,7 +115,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
             )}
             {/* Costo sommato delle azioni del gruppo — la sua parte del turno. */}
             {groupCost && (
-              <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-cost" title="Costo sommato delle azioni del gruppo">
+              <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-cost" title={tr('toolgroup.cost')}>
                 {groupCost}
               </span>
             )}

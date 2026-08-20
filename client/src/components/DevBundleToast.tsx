@@ -18,11 +18,13 @@
  * cambio stanno in `SidebarUpdateBanner`.
  */
 import { useEffect, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { RefreshCw } from 'lucide-react';
 import { BUNDLE_STALE_EVENT, reloadForNewBundle } from '@/lib/devBundleReload';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 
 export function DevBundleToast() {
+  const tr = useT();
   const [stale, setStale] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -48,7 +50,7 @@ export function DevBundleToast() {
       // banner scrivevano «Nuova versione disponibile», quindi la frase non
       // distingueva una build di lavoro da una release firmata — che è la
       // differenza fra «ricarica quando ti va» e «riavvia l'app».
-      title="Build più recente pronta"
+      title={tr('dev.newerBuild')}
       onDismiss={() => setDismissed(true)}
     >
       <button

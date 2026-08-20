@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { ChevronDown, ChevronRight, Sparkles, Terminal } from 'lucide-react';
 import { slashCommandsApi } from '../../lib/api';
 
@@ -22,6 +23,7 @@ import { slashCommandsApi } from '../../lib/api';
  * nome della categoria non aggiunge niente che il resto della riga non dica.
  */
 export function InvokedCommandRow({ command, args }: { command: string; args?: string }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'command' | 'skill' | null>(null);
   const [body, setBody] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function InvokedCommandRow({ command, args }: { command: string; args?: s
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={`Questo turno gira ${kind === 'skill' ? 'la skill' : 'il comando'} /${command}`}
+        title={tr('cmd.runs', { what: kind === 'skill' ? tr('cmd.kind.skill') : tr('cmd.kind.command'), name: command })}
         className="w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
       >
         {open
@@ -80,7 +82,7 @@ export function InvokedCommandRow({ command, args }: { command: string; args?: s
           ) : (
             <pre
               data-testid="invoked-command-body"
-              title={`Contenuto attuale del file di /${command}, non una copia di quando è girato`}
+              title={tr('cmd.currentFile', { name: command })}
               className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
             >
               {body}

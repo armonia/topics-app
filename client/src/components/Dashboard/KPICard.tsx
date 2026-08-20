@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
+import { useT } from '@/hooks/useT';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 export type Trend = 'up' | 'down' | 'flat';
@@ -32,6 +33,7 @@ interface KPICardProps {
 }
 
 export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGood = true, partialNote }: KPICardProps) {
+  const tr = useT();
   const missing = value === null;
   const trendColor =
     trend === 'flat' ? 'text-app-text-muted'
@@ -49,7 +51,7 @@ export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGo
       <div className="flex items-baseline gap-1 min-w-0">
         <span
           className={`text-[18px] font-semibold truncate-tight ${missing ? 'text-app-text-muted' : 'text-app-text'}`}
-          title={missing ? 'Dato non disponibile: nessuna fonte per questa metrica' : undefined}
+          title={missing ? tr('kpi.noSource') : undefined}
         >
           {missing ? '-' : value}
         </span>

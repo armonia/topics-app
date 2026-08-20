@@ -13,10 +13,12 @@
  * volte è il modo più rapido di trasformarlo in un no di sistema.
  */
 import { BellRing, X } from 'lucide-react';
+import { useT } from '@/hooks/useT';
 import { usePushAskStore, shouldOfferPush } from '../../state/pushAsk';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
 
 export function PushEnrollPrompt() {
+  const tr = useT();
   const armed = usePushAskStore((s) => s.armed);
   const declined = usePushAskStore((s) => s.declined);
   const decline = usePushAskStore((s) => s.declinePushAsk);
@@ -33,16 +35,15 @@ export function PushEnrollPrompt() {
       <div className="flex items-start gap-2">
         <BellRing size={14} className="mt-0.5 shrink-0 text-app-text-secondary" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-app-text">Ti avviso quando finisce?</div>
+          <div className="text-[13px] font-medium text-app-text">{tr('push.prompt.title')}</div>
           <p className="mt-0.5 text-[11.5px] leading-snug text-app-text-secondary">
-            Una notifica su questo dispositivo quando l'agente ha finito di
-            rispondere o un task va in review. Anche con Topics chiuso.
+            {tr('push.prompt.blurb')}
           </p>
         </div>
         <button
           type="button"
           onClick={decline}
-          title="Non ora"
+          title={tr('common.notNow')}
           className="shrink-0 rounded p-1 text-app-text-muted transition-colors hover:bg-app-hover hover:text-app-text"
         >
           <X size={13} />
@@ -54,7 +55,7 @@ export function PushEnrollPrompt() {
           onClick={decline}
           className="flex-1 rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text hover:bg-app-bg"
         >
-          Non ora
+          {tr('common.notNow')}
         </button>
         <button
           type="button"
