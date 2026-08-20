@@ -426,9 +426,23 @@ recorded on a quiet machine, and this one never is. The gate refusing to answer
 is the correct behaviour, and repeating it here would only produce a different
 random number.
 
-What would fix it is not a threshold tweak: it is recording the baseline where
-the gate actually runs (the CI runner), which `perf-map` already lists as one of
-the two honest ways out. Until then this row measures the machine.
+**The mechanism for the fix is now in place** (2026-08-20): the gate picks its
+baseline by ENVIRONMENT — `route-latency-baseline.ci.json` under
+`GITHUB_ACTIONS`/`CI`, `…local.json` otherwise, falling back to the historic
+single file when neither exists, so nothing breaks for anyone who has not
+recorded one. `--update-baseline` now writes to the environment's file only,
+which is what stops a recording on one machine from overwriting another's
+number — the original defect. And every run prints which baseline it compared
+against, because a red taken on one machine and a green on another otherwise
+read as the same verdict.
+
+What is NOT done is recording the numbers themselves, and the gate refused —
+correctly, and to me: `load average 19.12 on 12 cores = 1.59 per core (ceiling
+0.5)`, *"at load the numbers come out inflated and consistent, so no guard
+catches it"*. That refusal is the same one that has been protecting this row all
+along, and forcing past it would have written exactly the useless baseline the
+whole change exists to avoid. The recording waits for a quiet machine; the CI
+one records itself on the first green run.
 
 **The route ratchet is red too, on ONE route, and it took a quiet machine to
 know it.** Re-run four times at load 20-26 with `--samples=80`:
