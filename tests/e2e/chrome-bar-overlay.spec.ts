@@ -206,16 +206,43 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
 
     // Si risale a strappi finche' il messaggio 1 non e' montato: la chat si
     // apre ancorata in fondo, quindi in cima ci si arriva solo scorrendo.
-    for (let giro = 0; giro < 60; giro++) {
-      if (await primo.count()) break;
-      await page.mouse.wheel(0, -600);
-      await page.waitForTimeout(80);
-    }
-    await expect(primo, "il messaggio 1 non e' mai stato montato: la risalita non ha funzionato").toHaveCount(1);
-    // Un altro strappo a vuoto: se la lista si riancorasse al fondo, qui lo
-    // farebbe, e la misura sotto lo direbbe.
+    // La condizione e' il montaggio, non un tempo: il giro successivo parte
+    // appena Virtuoso non ha ancora prodotto `data-index="0"`, e si ferma
+    // nell'istante in cui lo produce.
+    await expect
+      .poll(
+        async () => {
+          if (await primo.count()) return true;
+          await page.mouse.wheel(0, -600);
+          return false;
+        },
+        {
+          timeout: 20_000,
+          intervals: [50],
+          message: "il messaggio 1 non e' mai stato montato: la risalita non ha funzionato",
+        },
+      )
+      .toBe(true);
+
+    // Un altro strappo a vuoto: se la lista si riancorasse al fondo, lo farebbe
+    // adesso. Non si aspetta un TEMPO ma la quiete: la cima del primo messaggio
+    // deve smettere di muoversi. Un tempo fisso qui e' un tiro a indovinare in
+    // due direzioni - troppo corto misura durante l'inerzia dello scroll,
+    // troppo lungo si paga a ogni passata anche quando la lista era gia' ferma.
     await page.mouse.wheel(0, -600);
-    await page.waitForTimeout(300);
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="virtuoso-item-list"] > [data-index="0"]');
+        if (!el) return false;
+        const w = window as unknown as { __cimaPrec?: number; __fermoDa?: number };
+        const y = Math.round(el.getBoundingClientRect().top);
+        if (w.__cimaPrec === y) w.__fermoDa = (w.__fermoDa ?? 0) + 1;
+        else { w.__cimaPrec = y; w.__fermoDa = 0; }
+        return (w.__fermoDa ?? 0) >= 5;
+      },
+      undefined,
+      { polling: "raf", timeout: 10_000 },
+    );
 
     const rBarra = (await b.boundingBox())!;
     const fondoBarra = rBarra.y + rBarra.height;

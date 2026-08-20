@@ -981,7 +981,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       svc.addComment({ taskId, author: "system", content: "Landing non disponibile: merge automatico non configurato per questo host." });
       const t = svc.get(taskId, { projectId })?.task;
       if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-      return { outcome: "skipped", reason: "merge automatico non configurato" };
+      // Il MOTIVO sul ticket, non la frase per una persona: quella e' il commento
+      // qui sopra, e resta italiana. Questo campo esce solo da GET .../land, dove
+      // lo legge chi diagnostica, ed e' inglese come gli altri esiti di questa
+      // rotta ("task not found", "workspace not configured").
+      return { outcome: "skipped", reason: "auto-merge not configured on this host" };
     }
     const task = svc.get(taskId, { projectId })?.task;
     // La card è sparita fra il click e il suo turno in coda (archiviata, spostata
@@ -1352,7 +1356,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // cancellata e una PATCH che risponde 200.
     const checkExists = ctx.fileExistsSync ?? existsSync;
     if (!checkExists(raw)) {
-      return { ok: false, reason: `file non trovato sul disco: ${raw}` };
+      return { ok: false, reason: `file not found on disk: ${raw}` };
     }
     // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.
     //
