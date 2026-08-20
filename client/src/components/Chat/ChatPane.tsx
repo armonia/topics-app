@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useT } from '@/hooks/useT';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -118,6 +119,7 @@ function ChatPaneComponent({
   editMessage, regenerateMessage, deleteMessage, switchBranch,
   aboveInputSlot,
 }: ChatPaneProps) {
+  const tr = useT();
   const toast = useToast();
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -923,10 +925,10 @@ function ChatPaneComponent({
       const markersBefore = getCompactionMarkers?.(topic.sessionKey)?.length ?? 0;
       setCommandResult({
         type: 'success',
-        message: 'Compattazione del contesto in corso… riassume la conversazione e libera spazio. Su una chat lunga puo\' richiedere qualche decina di secondi; l\'esito compare come separatore nel thread.',
+        message: tr('chat.compact.running'),
       });
       void sendMessage(topic.sessionKey, '/compact').catch(() => {
-        setCommandResult({ type: 'error', message: 'Non sono riuscito a chiedere la compattazione.' });
+        setCommandResult({ type: 'error', message: tr('chat.compact.failed') });
       });
       // Il marcatore arriva in modo asincrono (stream:compaction). Si aspetta il
       // suo incremento invece di dire «fatto» a caso: cosi' il banner riporta
@@ -944,17 +946,17 @@ function ChatPaneComponent({
         if (!rest) {
           setCommandResult(goal
             ? { type: 'success', message: `Obiettivo: ${goal.content}` }
-            : { type: 'error', message: "Nessun obiettivo attivo. Uso: /goal <obiettivo> · /goal fatto · /goal basta" });
+            : { type: 'error', message: tr('chat.goal.usage') });
           return true;
         }
         if (rest === 'fatto' || rest === 'done') {
-          if (!goal) { setCommandResult({ type: 'error', message: 'Nessun obiettivo attivo' }); return true; }
+          if (!goal) { setCommandResult({ type: 'error', message: tr('chat.goal.none') }); return true; }
           await closeGoal('achieved');
           setCommandResult({ type: 'success', message: `Obiettivo raggiunto: ${goal.content}` });
           return true;
         }
         if (rest === 'basta' || rest === 'stop') {
-          if (!goal) { setCommandResult({ type: 'error', message: 'Nessun obiettivo attivo' }); return true; }
+          if (!goal) { setCommandResult({ type: 'error', message: tr('chat.goal.none') }); return true; }
           await closeGoal('abandoned');
           setCommandResult({ type: 'success', message: `Obiettivo abbandonato: ${goal.content}` });
           return true;
@@ -1016,7 +1018,7 @@ function ChatPaneComponent({
     // dispatch the original text to the chat pipeline.
 
     return false;
-  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers]);
+  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -1414,7 +1416,7 @@ function ChatPaneComponent({
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
-          <button aria-label="Chiudi il messaggio del comando" onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
+          <button aria-label={tr('chat.command.dismiss')} onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
             <X size={12} />
           </button>
         </div>

@@ -7,6 +7,7 @@
  * (`it`) copy — the public English rendering lives on the landing site.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Wrench, Zap, Cog, ChevronRight } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/lib/modalStyles';
@@ -37,6 +38,7 @@ export function ChangelogModal({
   currentVersion: string;
   onClose: () => void;
 }) {
+  const tr = useT();
   const [data, setData] = useState<Version[] | null>(null);
   const [error, setError] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -81,7 +83,7 @@ export function ChangelogModal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Novità"
+        aria-label={tr('changelog.title')}
         data-testid="changelog-modal"
         className={`${MODAL_PANEL} w-[min(880px,94vw)] h-[min(640px,86vh)] flex flex-col`}
         onClick={(e) => e.stopPropagation()}
@@ -89,12 +91,12 @@ export function ChangelogModal({
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-app-border">
           <Sparkles size={15} className="text-primary" />
-          <span className="text-[13px] font-semibold text-app-text">Novità</span>
-          <span className="text-[11px] text-app-text-muted">cosa è cambiato, versione per versione</span>
+          <span className="text-[13px] font-semibold text-app-text">{tr('changelog.title')}</span>
+          <span className="text-[11px] text-app-text-muted">{tr('changelog.subtitle')}</span>
           <button
             onClick={onClose}
             className="ml-auto p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
-            aria-label="Chiudi"
+            aria-label={tr('common.close')}
           >
             <X size={15} />
           </button>
@@ -102,7 +104,7 @@ export function ChangelogModal({
 
         {error && (
           <div className="flex-1 grid place-items-center text-[12px] text-app-text-muted">
-            Changelog non disponibile.
+            {tr('changelog.unavailable')}
           </div>
         )}
 
@@ -191,7 +193,7 @@ export function ChangelogModal({
                       >
                         <ChevronRight size={11} className={`transition-transform ${showInternal ? 'rotate-90' : ''}`} />
                         <Cog size={11} />
-                        Sotto il cofano ({active.sections.internal.length})
+                        {tr('changelog.internal', { n: active.sections.internal.length })}
                       </button>
                       {showInternal && (
                         <ul className="space-y-1 mt-1.5">
@@ -223,7 +225,7 @@ export function ChangelogModal({
             rel="noopener"
             className="text-[11px] text-app-text-muted hover:text-primary transition-colors"
           >
-            Changelog completo sul sito →
+            {tr('changelog.full')}
           </a>
         </div>
       </div>
