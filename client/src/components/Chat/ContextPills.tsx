@@ -1,5 +1,5 @@
 import { X, BookOpen, Braces, FileText } from 'lucide-react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 
 interface ContextFile {
   name: string;

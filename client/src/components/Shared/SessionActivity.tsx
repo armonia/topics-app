@@ -15,7 +15,7 @@
 // l'intestazione di `Board/GlobalCapControl.test.tsx`), e questo modulo ha un
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { useSessionActivity, useSubjectLastActivity } from '../../state/signals';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { MessageSquare, LayoutGrid, RefreshCw } from 'lucide-react';
 import { MODAL_LAYER } from '../../lib/modalStyles';
 

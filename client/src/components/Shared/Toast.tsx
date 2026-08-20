@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Check, X, AlertTriangle, Info } from 'lucide-react';
 import { generateUUID } from '../../utils/uuid';
 

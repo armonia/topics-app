@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { X, RefreshCw, ChevronLeft, FileText, FolderOpen, Upload, Trash2, ChevronsDownUp } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, WSMessage } from '../../types';
 import { useContextInspector } from '../../hooks/useContextInspector';

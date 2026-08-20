@@ -7,7 +7,7 @@
  * (`it`) copy — the public English rendering lives on the landing site.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Wrench, Zap, Cog, ChevronRight } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/lib/modalStyles';

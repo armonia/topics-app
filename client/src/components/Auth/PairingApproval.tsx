@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Smartphone } from 'lucide-react';
 
 /**

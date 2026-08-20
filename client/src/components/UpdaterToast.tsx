@@ -28,7 +28,7 @@
  * frase con due lifecycle diversi dietro.
  */
 import { useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../hooks/useT';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
 import { getUpdaterApi, shouldShowUpdaterToast, type UpdaterStatus } from '@/lib/updater';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';

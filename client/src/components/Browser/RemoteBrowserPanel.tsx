@@ -27,7 +27,7 @@ import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
 import { installViewportZoomGuard } from '../../lib/viewportZoomGuard';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import type { Topic } from '../../types';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './BrowserKeyboardCapture';

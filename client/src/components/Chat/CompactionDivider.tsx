@@ -11,7 +11,7 @@
  */
 
 import { useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { ChevronRight, Layers } from 'lucide-react';
 import type { CompactionMarker } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';

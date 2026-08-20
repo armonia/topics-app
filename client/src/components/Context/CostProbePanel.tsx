@@ -1,5 +1,5 @@
 import type { SessionCostProbe } from '../../types';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { formatTokens } from '../../lib/formatTokens';
 
 /**

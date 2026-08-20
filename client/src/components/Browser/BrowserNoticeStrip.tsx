@@ -21,7 +21,7 @@
  * a surface that lies.
  */
 import type { ReactNode } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { AlertTriangle, RotateCw, X } from 'lucide-react';
 
 export interface BrowserNoticeStripProps {
