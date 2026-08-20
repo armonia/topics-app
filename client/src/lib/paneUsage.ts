@@ -247,6 +247,21 @@ export function formatPaneUsageLine(
   return `\nConsumo: ${u.memoryMB} MB · ${cpu} · ${proc}`;
 }
 
+/**
+ * Le webview misurate nell'ultimo campione, per l'inventario del peso.
+ *
+ * NON MISURA NIENTE: legge lo snapshot che il tooltip delle tab ha gia' pagato.
+ * E' la regola di RES-ATTR-04 (il costo della misura non cresce col numero di
+ * superfici che la mostrano) applicata all'inventario: se lo snapshot non c'e'
+ * ancora, torna una lista vuota e la voce «Pannelli browser» semplicemente non
+ * compare, invece di comparire a zero.
+ */
+export function webviewSnapshot(): { label: string; memoryMB: number }[] {
+  if (!snapshot) return [];
+  return [...snapshot.byWebviewLabel.entries()]
+    .map(([label, e]) => ({ label, memoryMB: e.memoryMB }));
+}
+
 /** Test seam. */
 export function _resetPaneUsage(): void {
   snapshot = null;

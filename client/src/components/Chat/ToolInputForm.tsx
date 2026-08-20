@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
@@ -146,6 +147,7 @@ function QuestionsForm({
   error: string | null;
   onSubmit: (response: ToolUserResponse) => Promise<void>;
 }) {
+  const tr = useT();
   // Selected option labels per question (keyed by question text). "Other" is a
   // sentinel entry resolved to `otherText`. A single-select question holds at
   // most one label; a `multiSelect` one holds any number — the wire format
@@ -252,7 +254,7 @@ function QuestionsForm({
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
-        <span>L'agente attende la tua risposta</span>
+        <span>{tr('tool.agentWaits')}</span>
         {stepped && (
           <span className="ml-auto normal-case tracking-normal text-app-text-muted" data-testid="ask-step-progress">
             {step + 1} di {questions.length}
@@ -331,10 +333,10 @@ function QuestionsForm({
                     {showRec && (
                       <span
                         data-testid="ask-recommended"
-                        title="È la strada che l'agente consiglia. La scelta resta tua."
+                        title={tr('ask.recommended.hint')}
                         className="text-[10px] leading-none uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/12 text-primary"
                       >
-                        consigliato
+                        {tr('ask.recommended')}
                       </span>
                     )}
                   </div>
@@ -380,7 +382,7 @@ function QuestionsForm({
                   onChange={(e) => writeOther(q, e.target.value)}
                   disabled={submitting}
                   rows={2}
-                  placeholder="Scrivi la tua risposta…"
+                  placeholder={tr('ask.answerPlaceholder')}
                   data-testid={`ask-other-input-${qIdx}`}
                   className="mt-1 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
                 />
@@ -603,6 +605,7 @@ function RawForm({
   onSubmit: (text: string) => Promise<void>;
   toolCallId: string;
 }) {
+  const tr = useT();
   const [text, setText] = useState(() => readAskDraft(toolCallId)?.text ?? '');
   useEffect(() => { writeAskDraft(toolCallId, { text }); }, [toolCallId, text]);
   return (
@@ -616,7 +619,7 @@ function RawForm({
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
-        <span>L'agente attende la tua risposta</span>
+        <span>{tr('tool.agentWaits')}</span>
       </div>
       <textarea
         value={text}

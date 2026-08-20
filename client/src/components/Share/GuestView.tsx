@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { MessageSquare, LayoutGrid, RefreshCw } from 'lucide-react';
 import { MODAL_LAYER } from '../../lib/modalStyles';
 
@@ -30,6 +31,7 @@ interface ChatCondivisa {
 }
 
 export function GuestView({ deviceName }: { deviceName: string }) {
+  const tr = useT();
   const [tasks, setTasks] = useState<TaskCondiviso[]>([]);
   const [chats, setChats] = useState<ChatCondivisa[]>([]);
   const [stato, setStato] = useState<'carico' | 'pronto' | 'errore'>('carico');
@@ -94,7 +96,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
 
         {stato === 'errore' && (
           <p className="text-[13px] text-app-text-secondary">
-            Non riesco a leggere cosa ti è stato condiviso. Il computer è acceso e sulla stessa rete?
+            {tr('guest.error')}
           </p>
         )}
 
@@ -102,9 +104,9 @@ export function GuestView({ deviceName }: { deviceName: string }) {
           // Un elenco vuoto senza spiegazione si legge come «rotto». Qui si dice
           // che è normale, e di chi è la mossa successiva.
           <div className="rounded-xl border border-app-border bg-app-hover/30 px-4 py-5 text-center">
-            <p className="text-[13px] text-app-text">Non ti è stato condiviso ancora niente.</p>
+            <p className="text-[13px] text-app-text">{tr('guest.empty.title')}</p>
             <p className="mt-1 text-[12px] text-app-text-secondary">
-              Quando qualcuno ti condivide una scheda o una chat, comparirà qui.
+              {tr('guest.empty.blurb')}
             </p>
           </div>
         )}
@@ -112,7 +114,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
         {tasks.length > 0 && (
           <section className="mb-6">
             <h2 className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
-              <LayoutGrid size={11} /> Schede
+              <LayoutGrid size={11} /> {tr('guest.cards')}
             </h2>
             <ul className="space-y-1.5" data-testid="guest-tasks">
               {tasks.map((t) => (
@@ -155,7 +157,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
 
         {stato === 'pronto' && !vuoto && (
           <p className="mt-6 text-center text-[11px] text-app-text-muted">
-            Sola lettura. Puoi vedere, non modificare.
+            {tr('guest.readOnly')}
           </p>
         )}
       </main>
