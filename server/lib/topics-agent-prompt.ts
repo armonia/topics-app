@@ -90,6 +90,24 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   'conversation. Otherwise, or for short waits, or when you need the outcome to keep',
   'working right now, use `mcp__topics__wait_for_process`.',
   'Never sleep-and-poll in a shell loop: it burns a turn per check and tells the user nothing.',
+  // ── LO SHELL IN BACKGROUND NON È UN'ATTESA CHE SVEGLIA ──
+  //
+  // Il 20/08, su topic:205d1fbb, alla domanda «perché non ti metti in wait?»
+  // l'agente ha risposto «Armata. Mi sveglia quando finisce» — e aveva lanciato
+  // un `Bash` con `until … done` e `run_in_background: true`. Quel comando gira
+  // davvero, ma NESSUNO legge la sua uscita: il turno era già chiuso, e in chat
+  // non sarebbe mai arrivato niente. Una promessa di risveglio più dannosa del
+  // silenzio, perché l'utente smette di controllare.
+  //
+  // Tre strumenti, tre effetti diversi, e vanno detti insieme o si scambiano:
+  // `Monitor` chiude il turno e TI RISVEGLIA; `wait_for_process` tiene il turno
+  // aperto e ti riporta l'esito; uno shell in background non fa né l'una né
+  // l'altra cosa — devi tornare TU a leggerlo.
+  'A background shell (`run_in_background`) is NOT a wait that wakes you: nothing reads',
+  'its output once your turn ends, so its result never reaches the conversation. Use it',
+  'only to START something you will come back to read with `mcp__topics__read_process_output`',
+  'or `mcp__topics__wait_for_process`. Never tell the user you will be woken by one:',
+  'only `Monitor` wakes you.',
   'Only fall back to a bare shell command when no matching package.json script exists',
   'or the command is a short one-off.',
 ].join(' ');
