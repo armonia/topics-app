@@ -26,6 +26,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
+import { commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { gitEnvFor } from "../lib/git-identity";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
@@ -732,13 +733,55 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // è dentro il ramo di destinazione non c'è niente da landare, ed è lo
           // stesso esito di un ramo senza commit propri (il caso qui sotto).
           //
-          // La domanda sta in `commitIsIn` e non qui: il cancello del dispatch
-          // decide sulla STESSA affermazione (non ripartire su lavoro già
-          // atterrato), e due copie che divergono vorrebbero dire ridispacciare
-          // proprio ciò che questo ramo ha appena chiuso.
+          /* LA PROVA DELLA CONSEGNA, con le STESSE tre domande del dispatch.
+           *
+           * Era `commitIsIn`, cioe' la sola DISCENDENZA, sotto un commento che
+           * dichiarava: «il cancello del dispatch decide sulla STESSA
+           * affermazione, e due copie che divergono vorrebbero dire
+           * ridispacciare proprio cio' che questo ramo ha appena chiuso».
+           * L'intenzione era giusta e la riga non la manteneva: il dispatch
+           * passa da `commitStatusFromRepo`, che di domande ne fa TRE —
+           * discendenza, la copia ricopiata dal land (stesso autore-data e
+           * stesso oggetto), e il CONTENUTO del cambiamento gia' su main.
+           *
+           * La terza e' quella che mancava, ed e' il caso piu' comune di
+           * atterraggio fuori dal land: lo SQUASH. Il lavoro entra in main come
+           * un commit solo con un messaggio riscritto, quindi lo sha di
+           * consegna non e' antenato di niente e il titolo non compare da
+           * nessuna parte. Il dispatch lo riconosceva e non ridispacciava; il
+           * land no, e rispediva la card in review con «⚠️ Land NON riuscito».
+           *
+           * Adesso la domanda e' UNA SOLA per davvero, e sta dove stava gia'.
+           *
+           * MA NON TUTTE E TRE VALGONO UGUALE, QUI. Le prime due sono prove
+           * DIRETTE: quel commit e' dentro main, o su main ce n'e' la copia
+           * ricopiata dal land. La terza — «ogni file che il commit tocca e'
+           * identico su main» — e' un'inferenza, e ha un caso limite che per
+           * l'audit dei worktree e' innocuo e qui no: quando la lista dei file
+           * toccati e' VUOTA, «tutti identici» e' vero a vuoto. Per l'audit
+           * costa un worktree in piu'; qui costerebbe una card chiusa sul
+           * lavoro di qualcuno, cioe' il difetto opposto a quello che si sta
+           * riparando.
+           *
+           * Quindi: la discendenza vale sempre, l'inferenza sul contenuto solo
+           * se dei file li abbiamo davvero visti.
+           *
+           * Trovato provando, e i test avevano ragione DUE volte: prima il caso
+           * di sicurezza («commit NON su main») e' diventato rosso perche' il
+           * suo git finto non definisce `diff` e «nessuna differenza» passava
+           * per «gia' su main»; poi, messa la guardia su tutto, e' diventato
+           * rosso il caso opposto («commit dentro main»), che di file non ne
+           * elenca e non ne ha bisogno. */
           const sha = delivery?.commit?.trim();
-          if (sha && (await commitIsIn(repoPath, sha, defaultBranch, { runGit })) === true) {
-            return { status: "nothing", branch, deliveryDrift: drift };
+          if (sha) {
+            if ((await commitIsIn(repoPath, sha, defaultBranch, { runGit })) === true) {
+              return { status: "nothing", branch, deliveryDrift: drift };
+            }
+            const toccati = await runGit(repoPath, ["diff", "--name-only", `${sha}^`, sha]);
+            const visti = toccati.code === 0 && toccati.stdout.trim().length > 0;
+            if (visti && (await commitStatusFromRepo(repoPath, sha, defaultBranch, runGit)) === "merged") {
+              return { status: "nothing", branch, deliveryDrift: drift };
+            }
           }
           // LA SECONDA PROVA, per le card che il commit di consegna non ce l'hanno.
           //

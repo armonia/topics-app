@@ -120,3 +120,79 @@ describe("ramo potato, lavoro gia' su main", () => {
     }
   }, 30_000);
 });
+
+/**
+ * LA CARD SQUASHATA: consegna nota, ramo potato, contenuto su main.
+ *
+ * La forma piu' comune di atterraggio fuori dal land e' lo SQUASH: il lavoro
+ * entra in main come un commit solo, con un messaggio riscritto. Il commit di
+ * consegna non e' quindi antenato di main (sha diverso), il suo titolo non
+ * compare (messaggio riscritto), e non c'e' merge di land da cercare.
+ *
+ * Il repo ha gia' la risposta a questa domanda — `commitStatusFromRepo` in
+ * `branch-status.ts` guarda anche il CONTENUTO: se ogni file toccato dal commit
+ * e' identico su main, il lavoro c'e'. La usano l'audit degli atterraggi, il
+ * cancello del dispatch e il GC dei worktree.
+ *
+ * Il land no: usa `commitIsIn`, che e' la sola discendenza. Il commento nel
+ * codice dichiara che «il cancello del dispatch decide sulla STESSA
+ * affermazione» — e non e' vero, il dispatch ne guarda tre. Questo caso misura
+ * quella divergenza invece di dedurla.
+ */
+describe("card squashata: il contenuto e' su main ma lo sha no", () => {
+  test("il land se ne accorge invece di accusare un ramo che non c'e'", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "land-squash-"));
+    try {
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "config", "user.email", "t@t.t");
+      git(repo, "config", "user.name", "t");
+      commit(repo, "base.txt", "base\n", "base");
+
+      // Il lavoro della card, su un ramo suo.
+      git(repo, "switch", "-q", "-c", "topics/squashata");
+      const consegna = commit(repo, "lavoro.txt", "il contenuto\n", "titolo originale della card");
+
+      // Su main entra lo STESSO contenuto, con un messaggio riscritto: e' cio'
+      // che fa uno squash. Sha diverso, titolo diverso.
+      git(repo, "switch", "-q", "main");
+      commit(repo, "lavoro.txt", "il contenuto\n", "chore: squash di roba varia");
+
+      // E il ramo viene potato, come succede dopo.
+      git(repo, "branch", "-D", "topics/squashata");
+
+      const res = await land(repo, "topics/squashata").tryMerge(
+        "t-squash", "titolo originale della card", { branch: "topics/squashata", commit: consegna },
+      );
+      // Il contenuto c'e': non c'e' niente da atterrare, e la card si chiude.
+      expect(res.status).toBe("nothing");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("contenuto DIVERSO su main: resta un rifiuto", async () => {
+    // Il rovescio: stesso file toccato, contenuto diverso. Il lavoro NON c'e',
+    // e chiudere la card perderebbe il cambiamento.
+    const repo = mkdtempSync(join(tmpdir(), "land-squash-no-"));
+    try {
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "config", "user.email", "t@t.t");
+      git(repo, "config", "user.name", "t");
+      commit(repo, "base.txt", "base\n", "base");
+      git(repo, "switch", "-q", "-c", "topics/squashata");
+      const consegna = commit(repo, "lavoro.txt", "il contenuto della card\n", "titolo originale della card");
+      git(repo, "switch", "-q", "main");
+      commit(repo, "lavoro.txt", "TUTT'ALTRO contenuto\n", "chore: altro lavoro sullo stesso file");
+      git(repo, "branch", "-D", "topics/squashata");
+
+      const res = await land(repo, "topics/squashata").tryMerge(
+        "t-squash-no", "titolo originale della card", { branch: "topics/squashata", commit: consegna },
+      );
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("branch-missing");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
