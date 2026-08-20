@@ -15,6 +15,7 @@ import { useFps, useFpsActive } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
 import { computeTopicsFootprint } from '@/lib/topicsFootprint';
+import { mostraResidenteInBarra } from './verdict';
 import { VersionPopover } from './VersionPopover';
 import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
@@ -346,11 +347,33 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
 
   /** IL TOTALE, e sotto da dove viene: il tooltip è il primo posto dove «aperto»
    *  vuol dire il dettaglio per gruppo, prima ancora del pannello Performance. */
+  /**
+   * QUANTA DI QUELLA MEMORIA E' DAVVERO OCCUPATA, detto sul numero che si legge
+   * per primo.
+   *
+   * Il totale in barra e' `phys_footprint`, la colonna «Memoria» di
+   * Monitoraggio Attivita': la scelta e' giusta e resta, ma include cio' che il
+   * sistema ha gia' compresso o mandato in swap. Misurato il 2026-08-20 sulla
+   * finestra dell'utente: **1.989 MB dichiarati contro 594 residenti**, cioe'
+   * l'80% gia' ceduto — e la riga che lo spiegava viveva solo nel pannello
+   * Performance, due clic piu' in la'. Chi legge «1,8 GB» sulla barra e non
+   * apre niente resta con un numero che significa una cosa diversa da quella
+   * che sembra.
+   *
+   * Si mostra solo quando la quota compressa e' sostanziale (meta' del totale,
+   * con un pavimento di 300 MB): sotto, la riga sarebbe rumore su ogni avvio.
+   */
+  const mostraResidente = mostraResidenteInBarra({
+    totalMB: usage.totalMB, residentMB: residentMemMB,
+    serverMB: serverSideMemMB, partial: isPartialMem,
+  });
+
   const totalTitle = [
     'Topics in tutto',
     usage.totalMB !== null
       ? `memoria: ${segnoParziale(usage.memPartial)}${fmtMB(usage.totalMB)} su ${usage.totalProcessCount} processi`
       : 'memoria: non misurata',
+    mostraResidente ? tr('statusBar.residenteInline', { mb: residentMemMB ?? 0 }) : null,
     usage.totalCpu !== null
       ? `CPU: ${segnoParziale(usage.cpuPartial)}${formatCpuPercent(usage.totalCpu)}% della macchina`
       : 'CPU: non ancora misurata',

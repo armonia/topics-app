@@ -116,9 +116,40 @@ async function scrollColumnsToEnd(page: Page, offscreen: Locator) {
   // finché la condizione non regge è l'unica forma che non dipende da QUANDO
   // arriva l'assestamento — e la condizione è quella che il test usa davvero,
   // non una posizione in pixel.
+  //
+  // E la condizione si legge a scorrimento FERMO. `scroll-smooth` +
+  // `snap-mandatory` vuol dire che dopo la scrittura la riga continua a
+  // muoversi da sola, e poi si aggancia al punto di snap più vicino: c'è una
+  // finestra in cui Todo è già uscito e un istante dopo lo snap lo riporta
+  // dentro. Il `toPass` usciva su quel fotogramma, e la ri-verifica che il
+  // chiamante fa subito dopo — la stessa identica condizione, fuori dal
+  // poll — leggeva la riga arrivata a destinazione e trovava Todo in vista.
+  // Il rosso diceva «Expected: false, Received: true» di una precondizione
+  // che il poll aveva appena dichiarato vera: non erano due misure in
+  // disaccordo, era una sola misura presa mentre la cosa si muoveva ancora.
+  // Il tetto sui fotogrammi non è decorazione: senza, una riga che per qualunque
+  // motivo non si ferma mai lascerebbe l'`evaluate` appeso, e il test si
+  // FERMEREBBE invece di fallire — un test appeso non dice niente a nessuno.
+  // Esaurito il tetto si torna comunque l'ultima lettura, e a giudicare è
+  // l'asserzione fuori di qui.
+  const scorrimentoFermo = () => row.evaluate((el) => new Promise<number>((resolve) => {
+    let precedente = el.scrollLeft;
+    let uguali = 0;
+    let restano = 90;
+    const guarda = () => {
+      const ora = el.scrollLeft;
+      // Due letture identiche di fila: lo snap ha finito di tirare.
+      uguali = ora === precedente ? uguali + 1 : 0;
+      precedente = ora;
+      if (uguali >= 2 || --restano <= 0) resolve(ora);
+      else requestAnimationFrame(guarda);
+    };
+    requestAnimationFrame(guarda);
+  }));
+
   await expect(async () => {
     await row.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
-    expect(await row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    expect(await scorrimentoFermo()).toBeGreaterThan(0);
     expect(await fits(offscreen, row, "x")).toBe(false);
   }).toPass({ timeout: 10000 });
 }

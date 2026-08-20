@@ -32,6 +32,7 @@ import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowli
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { describeInFlight } from "./server/lib/quiescence";
+import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { createVoiceRouter } from "./server/routes/voice";
@@ -4538,6 +4539,30 @@ console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/brow
 // `server.port` reflects the *actual* port (Bun resolves 0 → ephemeral).
 const daemonState = writeState(server.port ?? PORT);
 console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonState.port}`);
+
+// CHI RISPONDE DAVVERO SULLA NOSTRA PORTA.
+//
+// Il 2026-08-20 un server di un altro progetto, avviato a mano con PORT=3333,
+// si era legato a `127.0.0.1:3333` mentre noi ascoltiamo su `*:3333` (IPv6).
+// Il kernel consegna al binding piu' SPECIFICO, quindi ogni connessione
+// dell'app finiva a lui: la porta rispondeva 200 con l'HTML di un altro
+// progetto e in HTTPS moriva con `tlsv1 alert protocol version`. Per NOVE ORE,
+// e il sintomo a schermo era «ci mette un sacco a connettersi» piu' una
+// finestra che non si aggiornava piu'.
+//
+// Il lock singleton non poteva prenderlo: protegge da un secondo TOPICS, e
+// quel processo non era Topics. `reusePort: false` nemmeno: non c'era
+// collisione da rifiutare, perche' i due binding sono legittimi e coesistono.
+//
+// La sonda chiede alla propria porta se chi risponde siamo noi, e se non lo
+// siamo lo DICE col pid e col comando. Non uccide niente: quel processo e' di
+// qualcun altro. Vedi `server/lib/port-squatter.ts`.
+setTimeout(() => {
+  const porta = server.port ?? PORT;
+  void sondaPorta(porta, sondaRealeDeps(process.pid))
+    .then((esito) => { const msg = messaggioEsito(porta, esito); if (msg) console.warn(msg); })
+    .catch(() => { /* una sonda che fallisce non deve disturbare il boot */ });
+}, 2000).unref?.();
 
 // Phase 30 BROWSER-CHAT-01 — restore browser contexts in background.
 // Fire-and-forget: never blocks server startup. Errors are logged but

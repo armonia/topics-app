@@ -15,27 +15,29 @@ import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
 import { CONSOLE_FILTERS, buildConsoleView, consoleTime, formatConsoleRows, type ConsoleFilter, type ConsoleLogRow } from './consoleLogModel';
 import { Menu } from '../Shared/Menu';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { useT } from '../../hooks/useT';
 
 const ICON = 14;
 
 /* ---------------------------------------------------------------- Zoom ---- */
 
 export function ZoomControl({ zoom = 100, onZoom }: { zoom?: number; onZoom: (delta: number | 'reset') => Promise<number> }) {
+  const t = useT();
   // `zoom` is the reactive source of truth (a clean integer percent from the
   // ZOOM_STEPS ladder), so button AND keyboard changes show the same value.
   const pct = Math.round(zoom);
   const apply = (d: number | 'reset') => { void onZoom(d); };
   return (
     <div className="flex items-center rounded-md border border-app-border-input overflow-hidden" data-testid="browser-zoom">
-      <button type="button" onClick={() => apply(-1)} title="Riduci zoom"
+      <button type="button" onClick={() => apply(-1)} title={t('browser.dev.zoomOut')}
         className="w-5 h-6 flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary">
         <Minus size={12} />
       </button>
-      <button type="button" onClick={() => apply('reset')} title="Reimposta zoom (100%)"
+      <button type="button" onClick={() => apply('reset')} title={t('browser.dev.zoomReset')}
         className={`px-1 h-6 text-[11px] tabular-nums ${pct !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'} hover:bg-black/5 dark:hover:bg-white/5`}>
         {pct}%
       </button>
-      <button type="button" onClick={() => apply(1)} title="Aumenta zoom"
+      <button type="button" onClick={() => apply(1)} title={t('browser.dev.zoomIn')}
         className="w-5 h-6 flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary">
         <Plus size={12} />
       </button>
@@ -58,6 +60,7 @@ export function DeviceSwitcher({
   mode: DeviceMode;
   onSet: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [cw, setCw] = useState('414');
   const [ch, setCh] = useState('896');
@@ -66,7 +69,7 @@ export function DeviceSwitcher({
   const active = mode !== 'desktop';
   return (
     <>
-      <button ref={btnRef} type="button" title={`Dispositivo: ${DEVICE_LABEL[mode]}`}
+      <button ref={btnRef} type="button" title={t('browser.dev.device', { name: DEVICE_LABEL[mode] })}
         data-testid="browser-device-switcher"
         onClick={() => setOpen(o => !o)}
         className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${active ? 'text-primary' : 'text-app-text-secondary'}`}>
@@ -160,6 +163,7 @@ export function ConsoleBadge({
   summary: { errors: number; warnings: number };
   onClear: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<ConsoleFilter>('all');
   const [query, setQuery] = useState('');
@@ -265,8 +269,8 @@ export function ConsoleBadge({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Filtra i messaggi"
-                  aria-label="Filtra i messaggi della console"
+                  placeholder={t('browser.dev.console.filterPlaceholder')}
+                  aria-label={t('browser.dev.console.filterLabel')}
                   data-testid="browser-console-search"
                   className="flex-1 min-w-0 bg-transparent text-[11px] text-app-text placeholder:text-app-text-faint focus:outline-none"
                 />
@@ -275,18 +279,18 @@ export function ConsoleBadge({
                 type="button"
                 onClick={copyVisible}
                 disabled={rows.length === 0}
-                title="Copia le righe visibili"
+                title={t('browser.dev.console.copyVisible')}
                 data-testid="browser-console-copy"
                 className="h-6 px-1.5 flex items-center gap-1 rounded text-[11px] text-app-text-secondary hover:bg-app-hover disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 {copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
-                {copied ? 'Copiato' : 'Copia'}
+                {copied ? t('browser.dev.console.copied') : t('browser.dev.console.copy')}
               </button>
               <button
                 type="button"
                 onClick={onClear}
-                title="Svuota la console"
-                aria-label="Svuota la console"
+                title={t('browser.dev.console.clear')}
+                aria-label={t('browser.dev.console.clear')}
                 data-testid="browser-console-clear"
                 className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary"
               >
@@ -295,7 +299,7 @@ export function ConsoleBadge({
             </div>
             {/* I numeri sui chip seguono la RICERCA, non il buffer: dicono dove
                 sono finite le righe che stai cercando. */}
-            <div className="flex items-center gap-1 flex-wrap" role="group" aria-label="Filtra per livello">
+            <div className="flex items-center gap-1 flex-wrap" role="group" aria-label={t('browser.dev.console.levelFilter')}>
               {CONSOLE_FILTERS.map((f) => (
                 <button
                   key={f.id}
@@ -321,7 +325,7 @@ export function ConsoleBadge({
             >
               {rows.length === 0 ? (
                 <div className="px-3 py-3 text-app-text-faint text-center">
-                  {entries.length === 0 ? 'Nessun messaggio' : 'Nessun messaggio corrisponde'}
+                  {entries.length === 0 ? t('browser.dev.console.empty') : t('browser.dev.console.noMatch')}
                 </div>
               ) : rows.map((r) => <ConsoleRow key={r.id} row={r} />)}
             </div>
@@ -333,7 +337,7 @@ export function ConsoleBadge({
                 className="absolute right-2 bottom-2 flex items-center gap-1 px-2 h-6 rounded-full glass-surface border border-app-border text-[10px] text-app-text-secondary shadow hover:bg-app-hover"
               >
                 <ArrowDown size={11} aria-hidden />
-                Vai in fondo
+                {t('browser.dev.console.toTail')}
               </button>
             )}
           </div>

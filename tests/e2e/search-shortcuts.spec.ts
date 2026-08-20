@@ -105,13 +105,27 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     await page.keyboard.press("Escape");
 
     // Clicca la tab del progetto: è il gesto esatto del report.
+    //
+    // La tab si ASPETTA, non si tenta. `if (await projectTab.count())` era una
+    // condizione che non può fallire: quando lo store delle pane non aveva
+    // ancora idratato, il conteggio era 0, il click veniva SALTATO in silenzio,
+    // e il test proseguiva su una app che non aveva nessun progetto aperto.
+    // Da lì gli 800 ms non erano il problema — ⌘F è a scatto singolo: se
+    // `searchProjectPaths()` è vuoto `toggleFileSearch` non apre e non
+    // ritenta, quindi nessuna attesa avrebbe più fatto comparire il pannello.
+    // Il rosso arrivava dopo, sull'expect, e diceva «pannello assente» di un
+    // gesto che nessuno aveva fatto.
     const projectTab = page.locator(`[data-pane-id="${PROJECT_PANE}"]`).first();
-    if (await projectTab.count()) await projectTab.click({ force: true }).catch(() => {});
-    await page.waitForTimeout(800);
+    await expect(projectTab).toBeVisible({ timeout: 15_000 });
+    await projectTab.click({ force: true });
+    // La condizione vera al posto del sonno: la tab è SELEZIONATA. È ciò che
+    // rende noto il progetto a `focusedProjectPath`, cioè l'unica cosa che il
+    // sonno stava sperando fosse successa.
+    await expect(projectTab).toHaveAttribute("data-active", "true", { timeout: 10_000 });
 
     await page.keyboard.press("Meta+f");
     const panel = page.getByTestId("file-search");
-    await expect(panel).toBeVisible({ timeout: 5_000 });
+    await expect(panel).toBeVisible({ timeout: 15_000 });
     // E il perimetro nomina il progetto, non «files» generico.
     await expect(panel.locator("input")).toHaveAttribute("placeholder", /e2e-search-shortcuts|progetti/i);
     await page.keyboard.press("Escape");

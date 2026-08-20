@@ -1349,7 +1349,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               return (
                 <span
                   className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
-                  title="Questa tab ha aperto un browser"
+                  title={tr('tab.openedBrowser')}
                   data-testid="tab-spawned-browser"
                   aria-label="Ha aperto un browser"
                 >
@@ -1364,7 +1364,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
                 title="Cloud (OpenClaw)"
                 data-testid="tab-cloud"
-                aria-label="Sessione cloud (OpenClaw)"
+                aria-label={tr('tab.cloudSession')}
               >
                 <Cloud size={11} />
               </span>
@@ -1618,7 +1618,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 setCtxMenu(null);
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-              title="Riavvia la sessione (Claude/codex riprendono via --resume)"
+              title={tr('tab.restartSession')}
             >
               <RotateCw size={14} />
               <span className="flex-1 text-left">Ricarica</span>
@@ -1640,7 +1640,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <button
                 onClick={() => setRenameDraft(ctxPane?.title ?? '')}
                 className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                title="Rinomina questa scheda"
+                title={tr('tab.rename')}
               >
                 <Edit3 size={14} />
                 <span className="flex-1 text-left">{tr('tab.menu.rename')}</span>
@@ -1657,15 +1657,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     if (e.key === 'Enter') submitRename(ctxMenu.paneId, renameDraft);
                     else if (e.key === 'Escape') setRenameDraft(null);
                   }}
-                  placeholder="Nuovo nome"
+                  placeholder={tr('tab.newName')}
                   maxLength={120}
                   className="flex-1 min-w-0 bg-app-input border border-app-border rounded px-2 py-1 text-[13px] md:text-[12px] text-app-text focus:outline-none focus:border-primary"
                 />
                 <button
                   onClick={() => submitRename(ctxMenu.paneId, renameDraft)}
                   className="shrink-0 p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
-                  title="Salva"
-                  aria-label="Salva"
+                  title={tr('common.save')}
+                  aria-label={tr('common.save')}
                 >
                   <Check size={14} />
                 </button>
@@ -1722,7 +1722,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <button
                     onClick={() => { void copyTabLink(target); setCtxMenu(null); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                    title="Copia l'indirizzo di questa scheda (si riapre qui dentro)"
+                    title={tr('tab.copyLink')}
                   >
                     <Link2 size={14} />
                     <span className="flex-1 text-left">{pageUrl ? 'Copia link alla tab' : 'Copia link'}</span>
@@ -1761,7 +1761,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <button
                 onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                title="Chiude dopo un conto alla rovescia di 3 secondi (annullabile)"
+                title={tr('tab.closeCountdown')}
               >
                 <X size={14} />
                 <span className="flex-1 text-left">{tr('tab.menu.closeCountdown')}</span>
@@ -1822,7 +1822,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <button
                   onClick={() => { onResetLayout(); setCtxMenu(null); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                  title="Appiattisce gli split su un solo livello (le schede restano aperte)"
+                  title={tr('tab.flattenSplits')}
                 >
                   <LayoutGrid size={14} />
                   <span className="flex-1 text-left">Reimposta pannelli</span>
@@ -1846,11 +1846,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     <button
                       onClick={() => setSpaceSubmenuOpen(open => !open)}
                       className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                      title="Sposta la scheda in un altro gruppo"
+                      title={tr('tab.moveToGroup.hint')}
                       aria-expanded={spaceSubmenuOpen}
                     >
                       <Layers size={14} />
-                      <span className="flex-1 text-left">Sposta nel gruppo</span>
+                      <span className="flex-1 text-left">{tr('tab.moveToGroup')}</span>
                       <ChevronRight size={12} className={`text-app-text-muted transition-transform ${spaceSubmenuOpen ? 'rotate-90' : ''}`} />
                     </button>
                     {spaceSubmenuOpen && (
@@ -1890,7 +1890,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                             className="w-full flex items-center gap-2 pl-8 pr-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                           >
                             <Plus size={12} />
-                            <span className="flex-1 text-left">Nuovo gruppo</span>
+                            <span className="flex-1 text-left">{tr('tab.newGroup')}</span>
                           </button>
                         )}
                       </>
@@ -1905,10 +1905,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <button
                     onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                    title="Apre la scheda in una finestra separata"
+                    title={tr('tab.popOut.hint')}
                   >
                     <ExternalLink size={14} />
-                    <span className="flex-1 text-left">Sposta in una nuova finestra</span>
+                    <span className="flex-1 text-left">{tr('tab.popOut')}</span>
                   </button>
                 );
               })()}
@@ -1916,10 +1916,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <button
                   onClick={() => { onPopOutGroup!(); setCtxMenu(null); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                  title="Stacca l'intero gruppo (tutte le schede) in una finestra separata"
+                  title={tr('tab.popOutGroup.hint')}
                 >
                   <ExternalLink size={14} />
-                  <span className="flex-1 text-left">Stacca il gruppo in una nuova finestra</span>
+                  <span className="flex-1 text-left">{tr('tab.popOutGroup')}</span>
                 </button>
               )}
             </>
@@ -1930,10 +1930,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <button
                 onClick={() => { onDetach(ctxMenu.paneId); setCtxMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                title="Estrae la scheda in una cella affiancata (resta in questa finestra)"
+                title={tr('tab.splitOut.hint')}
               >
                 <Columns2 size={14} />
-                <span>Sposta in una cella separata</span>
+                <span>{tr('tab.splitOut')}</span>
               </button>
             </>
           )}
@@ -1946,10 +1946,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <button
                 onClick={() => { onReattach(ctxMenu.paneId); setCtxMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-                title="Chiude lo split e riporta la scheda nel pannello principale"
+                title={tr('tab.reattach.hint')}
               >
                 <Combine size={14} />
-                <span>Riporta nel pannello principale</span>
+                <span>{tr('tab.reattach')}</span>
               </button>
             </>
           )}
@@ -1969,7 +1969,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Settings size={14} />
-                  <span>Impostazioni</span>
+                  <span>{tr('common.settings')}</span>
                 </button>
               </>
             );

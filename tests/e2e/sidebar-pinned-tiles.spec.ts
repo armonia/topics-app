@@ -296,6 +296,20 @@ test.describe("Sidebar — tessere fissate", () => {
         const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
         for (let n = w.nextNode(); n; n = w.nextNode()) {
           if (!n.textContent?.trim()) continue;
+          // Il CONTEGGIO non e' inchiostro da centrare: sotto i 72px
+          // `pinned-tile-count` lo mette `position: absolute` nell'angolo in
+          // alto a destra, cioe' CSS lo toglie dal flusso apposta — ed e'
+          // sempre il flusso che questo caso misura (il chevron e' escluso
+          // qui sotto per la stessa ragione, e il commento di `PinnedTile.tsx`
+          // lo dice: «chevron e conteggio ne escono»).
+          //
+          // Contandolo, una notifica arrivata per conto suo su una delle topic
+          // appena create appiccicava un pezzo di inchiostro al bordo destro e
+          // il centraggio risultava fuori di ~13px: il rosso accusava il font,
+          // che non c'entrava niente — bastava il retry, dove il badge non
+          // c'era, per tornare a 0px. `data-notification-count` e' l'appiglio
+          // che il badge espone apposta, e non parla nessuna lingua.
+          if ((n.parentElement as HTMLElement | null)?.closest("[data-notification-count]")) continue;
           const rg = document.createRange(); rg.selectNodeContents(n);
           const b = rg.getBoundingClientRect();
           const clip = (n.parentElement as HTMLElement).getBoundingClientRect();
@@ -1533,15 +1547,25 @@ test.describe("Sidebar — il riordino si vede muovere", () => {
         clientX: box.left + 2, clientY: box.top + 5,
       }));
 
+      // 30 fotogrammi erano la scommessa «mezzo secondo basta»: bastano a
+      // vedere la corsa, ma l'ULTIMO campione veniva poi asserito uguale a
+      // "none" — cioe' si dava per scontato che la FLIP fosse anche finita
+      // entro quel conteggio. Sotto carico non lo e': il rosso misurato diceva
+      // `matrix(1, 0, 0, 1, 0, -2.92651)`, una traslazione ancora viva, e
+      // accusava «traslazione residua» di un'animazione che stava solo
+      // arrivando tardi. Ora i 30 fotogrammi restano il minimo che raccoglie
+      // le prove del movimento, e dopo si continua FINCHE' la traslazione non
+      // si spegne davvero, con un tetto perche' un campionamento senza fine
+      // appenderebbe il test invece di farlo fallire.
+      const MINIMO = 30, TETTO = 240;
       const frames: Array<{ t: string; x: number }> = [];
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < TETTO; i++) {
         await new Promise(r => requestAnimationFrame(() => r(null)));
         const el = document.querySelector(`[data-pinned-cell="${spia}"]`) as HTMLElement | null;
         if (!el) break;
-        frames.push({
-          t: getComputedStyle(el).transform,
-          x: Math.round(el.getBoundingClientRect().x),
-        });
+        const t = getComputedStyle(el).transform;
+        frames.push({ t, x: Math.round(el.getBoundingClientRect().x) });
+        if (i + 1 >= MINIMO && t === "none") break;
       }
       const ordine = Array.from(row.querySelectorAll("[data-pinned-cell]"))
         .map(e => (e as HTMLElement).dataset.pinnedCell ?? "");

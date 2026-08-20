@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useT } from '@/hooks/useT';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -43,6 +44,7 @@ import {
 } from '../../lib/composerMemory';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
+import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 
 const SLASH_COMMANDS_HELP = [
   '/status: mostra lo stato della sessione',
@@ -128,6 +130,7 @@ function ChatPaneComponent({
   editMessage, regenerateMessage, deleteMessage, switchBranch,
   aboveInputSlot,
 }: ChatPaneProps) {
+  const tr = useT();
   const toast = useToast();
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -149,6 +152,7 @@ function ChatPaneComponent({
   useEffect(() => {
     try { if (message) localStorage.setItem(draftKey, message); else localStorage.removeItem(draftKey); } catch {}
   }, [message, draftKey]);
+
   /**
    * Qualcuno ha messo del testo nella bozza di QUESTA chat mentre era già
    * montata — oggi: una missione scelta dalla board accanto (`ProjectWindow`).
@@ -169,6 +173,46 @@ function ChatPaneComponent({
   }, [topic.id]);
   const [pendingImages, setPendingImages] = useState<{ dataUrl: string; mimeType: string }[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+
+  /**
+   * Gli allegati in attesa seguono il testo: se la frase torna dopo un F5, deve
+   * tornare anche la foto di cui parla. Stanno in IndexedDB e non in
+   * localStorage perche' sono blob, e il perche' per esteso e' in
+   * `state/draftAttachments.ts`.
+   *
+   * Il ripristino e' asincrono, quindi porta con se' il topic per cui e'
+   * partito: cambiando chat in fretta, la risposta lenta della prima non deve
+   * atterrare nel composer della seconda. E non sovrascrive allegati gia'
+   * presenti: chi ha appena incollato qualcosa vince sul deposito.
+   */
+  const attachmentsHydrated = useRef<string | null>(null);
+  useEffect(() => {
+    const forTopic = topic.id;
+    attachmentsHydrated.current = null;
+    let annullato = false;
+    void loadDraftAttachments(forTopic).then(({ images, files }) => {
+      if (annullato || forTopic !== topic.id) return;
+      if (images.length > 0) setPendingImages(prev => (prev.length > 0 ? prev : images));
+      if (files.length > 0) setPendingFiles(prev => (prev.length > 0 ? prev : files));
+      attachmentsHydrated.current = forTopic;
+    });
+    return () => { annullato = true; };
+  }, [topic.id]);
+
+  useEffect(() => {
+    // Non si scrive prima di aver letto: senza questa guardia il primo giro,
+    // con gli stati ancora vuoti, cancellerebbe il deposito che sta per essere
+    // ripristinato.
+    if (attachmentsHydrated.current !== topic.id) return;
+    // Se non ci stanno, l'utente lo deve sapere ADESSO, non scoprirlo dopo un
+    // ricaricamento: il difetto che questo meccanismo chiude e' proprio una
+    // perdita silenziosa, e ripeterla al bordo del tetto sarebbe la stessa cosa
+    // con un numero diverso. `saveDraftAttachments` risponde `false` solo in
+    // quel caso, e cancella la riga invece di tenerne una a meta'.
+    void saveDraftAttachments(topic.id, pendingImages, pendingFiles).then((ok) => {
+      if (!ok) toast.error('Attachment too large to keep across a reload: send it now, or it will be lost if you refresh.');
+    });
+  }, [topic.id, pendingImages, pendingFiles, toast]);
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   // Una BOZZA vuota si chiude da sé quando smetti di guardarla, e questa riga
   // è la sola cosa che le impedisce di portarsi via del lavoro: allegati e
@@ -878,10 +922,10 @@ function ChatPaneComponent({
       const markersBefore = getCompactionMarkers?.(topic.sessionKey)?.length ?? 0;
       setCommandResult({
         type: 'success',
-        message: 'Compattazione del contesto in corso… riassume la conversazione e libera spazio. Su una chat lunga puo\' richiedere qualche decina di secondi; l\'esito compare come separatore nel thread.',
+        message: tr('chat.compact.running'),
       });
       void sendMessage(topic.sessionKey, '/compact').catch(() => {
-        setCommandResult({ type: 'error', message: 'Non sono riuscito a chiedere la compattazione.' });
+        setCommandResult({ type: 'error', message: tr('chat.compact.failed') });
       });
       // Il marcatore arriva in modo asincrono (stream:compaction). Si aspetta il
       // suo incremento invece di dire «fatto» a caso: cosi' il banner riporta
@@ -899,17 +943,17 @@ function ChatPaneComponent({
         if (!rest) {
           setCommandResult(goal
             ? { type: 'success', message: `Obiettivo: ${goal.content}` }
-            : { type: 'error', message: "Nessun obiettivo attivo. Uso: /goal <obiettivo> · /goal fatto · /goal basta" });
+            : { type: 'error', message: tr('chat.goal.usage') });
           return true;
         }
         if (rest === 'fatto' || rest === 'done') {
-          if (!goal) { setCommandResult({ type: 'error', message: 'Nessun obiettivo attivo' }); return true; }
+          if (!goal) { setCommandResult({ type: 'error', message: tr('chat.goal.none') }); return true; }
           await closeGoal('achieved');
           setCommandResult({ type: 'success', message: `Obiettivo raggiunto: ${goal.content}` });
           return true;
         }
         if (rest === 'basta' || rest === 'stop') {
-          if (!goal) { setCommandResult({ type: 'error', message: 'Nessun obiettivo attivo' }); return true; }
+          if (!goal) { setCommandResult({ type: 'error', message: tr('chat.goal.none') }); return true; }
           await closeGoal('abandoned');
           setCommandResult({ type: 'success', message: `Obiettivo abbandonato: ${goal.content}` });
           return true;
@@ -971,7 +1015,7 @@ function ChatPaneComponent({
     // dispatch the original text to the chat pipeline.
 
     return false;
-  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers]);
+  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -1369,7 +1413,7 @@ function ChatPaneComponent({
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
-          <button aria-label="Chiudi il messaggio del comando" onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
+          <button aria-label={tr('chat.command.dismiss')} onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
             <X size={12} />
           </button>
         </div>

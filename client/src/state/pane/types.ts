@@ -300,6 +300,36 @@ export interface PaneState {
    * the warm-boot hydrate).
    */
   lastServerSeq: number;
+  /**
+   * Quante volte QUESTO dispositivo ha cambiato lo stato. Terzo contatore, e
+   * l'unico che risponde alla domanda del middleware di sync: «c'e' qualcosa di
+   * NOSTRO da mandare?».
+   *
+   * PERCHE' NON BASTAVANO GLI ALTRI DUE. `lastSeq` sale anche su
+   * `HYDRATE_FROM_SNAPSHOT`, perche' il reducer lo porta a
+   * `max(lastSeq, clean.lastSeq)` per tenere fresche le PUT successive — e
+   * `clean.lastSeq` viene da un `server_seq` che cresce con le scritture di
+   * chiunque. Quindi il frame di un pari alzava il nostro contatore, il
+   * middleware osservava il contatore e mezzo secondo dopo rimandava 75 KB
+   * identici a quelli appena ricevuti; quel PUT alzava `server_seq`, il server
+   * ritrasmetteva, e il pari faceva lo stesso. Misurato: **27 scritture in 30
+   * secondi a schermo fermo**, e serve piu' di una finestra per vederlo (una
+   * sola non gira, che e' il motivo per cui si e' nascosto cosi' a lungo).
+   *
+   * `lastServerSeq` non poteva servire: e' il numero d'ordine del SERVER, sale
+   * quando qualcun altro scrive ed e' esattamente il segnale sbagliato.
+   *
+   * Due tentativi precedenti hanno provato a fermare l'INVIO — confrontare cio'
+   * che si sta per mandare con l'ultimo stato ricevuto — e sono stati ritirati
+   * entrambi: portavano il cancello a zero e rompevano la sincronizzazione
+   * (`cross-window-topic-sync`, `pane-undo`). La differenza qui e' che non si
+   * decide piu' COSA mandare guardando il corpo, si conta CHI ha cambiato: una
+   * modifica locale alza questo numero, l'arrivo di uno stato altrui no.
+   *
+   * Device-local: non entra nello snapshot che va al server (e' un fatto di
+   * questa finestra, non dello stato condiviso).
+   */
+  localSeq: number;
 }
 
 // Action discriminated union — every action the reducer accepts

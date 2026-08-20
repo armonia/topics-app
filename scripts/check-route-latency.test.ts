@@ -16,6 +16,7 @@ import {
   type RouteKey,
 } from "./check-route-latency";
 import { readRouteFault, applyRouteFault } from "../server/lib/route-fault";
+import { baselineEnvKey, baselineCandidates, pickBaselinePath } from "./route-latency-baseline-pick";
 
 /**
  * Il cancello sulle latenze, provato sui numeri invece che sul server.
@@ -381,5 +382,55 @@ describe("un costo costante aggiunto a monte non passa piu' inosservato", () => 
     for (const [base, measured] of [[0.36, 1.76], [0.75, 2.15], [0.18, 1.58]] as const) {
       expect(measured).toBeLessThanOrEqual(budgetMs(base, 40, 1.5));
     }
+  });
+});
+
+/**
+ * QUALE BASELINE SI CONFRONTA, che e' la domanda che questo cancello per giorni
+ * ha risposto male senza dirlo.
+ *
+ * Con un file solo, ogni corsa chiedeva «questa macchina e' veloce quanto l'M2
+ * Max scarico su cui il numero fu registrato?». Sulla postazione dell'utente,
+ * misurato il 2026-08-20 a load 24-27, questo significava `topic_messages`
+ * 27,29 contro 15,18 ms fra due passate consecutive: non una regressione, Dia
+ * all'86% di un core. Il commento di `calibrationOutOfScale` indicava gia' il
+ * rimedio — «una baseline registrata SUL runner e scelta per macchina» — e
+ * queste sono le funzioni che lo tengono.
+ */
+describe("scelta della baseline per ambiente", () => {
+  test("in CI si sceglie la baseline del runner", () => {
+    expect(baselineEnvKey({ GITHUB_ACTIONS: "true" } as NodeJS.ProcessEnv)).toBe("ci");
+    expect(baselineEnvKey({ CI: "true" } as NodeJS.ProcessEnv)).toBe("ci");
+  });
+
+  test("su una postazione si sceglie quella locale", () => {
+    expect(baselineEnvKey({} as NodeJS.ProcessEnv)).toBe("local");
+    // `CI` valorizzato a qualcos'altro non e' CI: solo la stringa "true" conta,
+    // perche' un `CI=0` ereditato da uno script altrui non deve cambiare metro.
+    expect(baselineEnvKey({ CI: "0" } as NodeJS.ProcessEnv)).toBe("local");
+  });
+
+  test("il file dell'ambiente viene PRIMA di quello storico", () => {
+    const [primo, secondo] = baselineCandidates("ci", "/r");
+    expect(primo).toBe("/r/scripts/route-latency-baseline.ci.json");
+    expect(secondo).toBe("/r/scripts/route-latency-baseline.json");
+  });
+
+  test("senza il file dell'ambiente si RIPIEGA sullo storico, invece di fallire", () => {
+    // E' cio' che tiene il cancello uguale a prima per chi non ha ancora
+    // registrato il suo: un errore qui avrebbe rotto una barra che funzionava.
+    const solaStorica = (p: string) => p.endsWith("route-latency-baseline.json");
+    expect(pickBaselinePath("local", solaStorica, "/r")).toBe("/r/scripts/route-latency-baseline.json");
+  });
+
+  test("quando c'e' quello dell'ambiente, vince lui", () => {
+    const entrambe = () => true;
+    expect(pickBaselinePath("local", entrambe, "/r")).toBe("/r/scripts/route-latency-baseline.local.json");
+  });
+
+  test("senza NESSUNA baseline risponde null, e chi chiama decide", () => {
+    // Non un percorso inventato: `null` costringe il chiamante a dire cosa fare,
+    // che qui e' «scrivi dove andresti a scrivere».
+    expect(pickBaselinePath("ci", () => false, "/r")).toBeNull();
   });
 });

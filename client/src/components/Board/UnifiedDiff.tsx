@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { ChevronDown, ChevronRight, FileCode, MessageSquarePlus, Trash2 } from 'lucide-react';
 import type { DiffBundle, DiffFileStat } from '../../lib/board';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
@@ -56,6 +57,7 @@ const GUTTER = 'sticky shrink-0 select-none bg-app-inset px-1 text-right text-[1
 const OVERLAY = 'sticky left-0 w-[min(34rem,100%)] max-w-[calc(100vw-5rem)]';
 
 function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; onCancel: () => void }) {
+  const tr = useT();
   const [text, setText] = useState('');
   return (
     <div className={`${OVERLAY} border-y border-app-border bg-app-inset p-1.5`}>
@@ -68,7 +70,7 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (text.trim()) onSave(text); }
         }}
         rows={2}
-        placeholder="Cosa non va in questa riga…"
+        placeholder={tr('diff.note.placeholder')}
         className="w-full resize-y rounded bg-white/5 px-2 py-1 font-sans text-[11.5px] text-app-text outline-none placeholder:text-app-placeholder"
       />
       <div className="mt-1 flex items-center gap-1.5">
@@ -77,10 +79,10 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
           disabled={!text.trim()}
           className="rounded bg-indigo-500/20 px-2 py-0.5 font-sans text-[11px] text-indigo-200 hover:bg-indigo-500/30 disabled:opacity-40"
         >
-          Aggiungi
+          {tr('common.add')}
         </button>
         <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-[11px] text-app-text-secondary hover:text-app-text">
-          Annulla
+          {tr('common.cancel')}
         </button>
         <span className="ml-auto font-sans text-[10px] text-app-text-faint">⌘↵</span>
       </div>
@@ -97,6 +99,7 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
   defaultOpen: boolean;
   review?: DiffReview;
 }) {
+  const tr = useT();
   const allNotes = review?.notes;
   const fileNotes = useMemo(
     () => (allNotes ? allNotes.filter((n) => n.path === path) : []),
@@ -153,11 +156,10 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
         <div className="overflow-x-auto font-mono text-[11.5px] leading-[1.55]">
           {!chunk ? (
             <div className="px-2 py-1 font-sans text-[11px] text-app-text-muted">
-              Il patch di questo file non è arrivato: il diff supera il tetto del payload e si ferma prima.
-              Il conteggio qui sopra è comunque quello vero.
+              {tr('diff.patchMissing')}
             </div>
           ) : binary ? (
-            <div className="px-2 py-1 text-app-text-muted">File binario: nessun diff testuale.</div>
+            <div className="px-2 py-1 text-app-text-muted">{tr('diff.binary')}</div>
           ) : shown.map((row, i) => {
             // Le intestazioni del file non portano segnale: la card nomina già il path.
             if (row.kind === 'meta') return null;
@@ -175,14 +177,14 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
                       {canComment && (
                         <button
                           onClick={() => setComposingAt((c) => (c === key ? null : key))}
-                          title="Commenta questa riga"
+                          title={tr('diff.note.add')}
                           // Il lato fa parte del nome: una riga MODIFICATA
                           // compare due volte con lo stesso numero (rimossa
                           // dalla numerazione vecchia, aggiunta da quella
                           // nuova), e senza il suffisso i due agganci sono
                           // indistinguibili — per uno screen reader come per un
                           // test.
-                          aria-label={`Commenta ${path}:${anchor!.line}${anchor!.side === 'old' ? ' (riga rimossa)' : ''}`}
+                          aria-label={tr('diff.note.aria', { path, line: anchor!.line, side: anchor!.side === 'old' ? tr('diff.note.removedSide') : '' })}
                           className="flex h-3.5 w-3.5 items-center justify-center rounded text-indigo-400 opacity-0 transition-opacity hover:bg-indigo-500/20 focus:opacity-100 group-hover/row:opacity-100"
                         >
                           <MessageSquarePlus className="h-3 w-3" />
@@ -222,12 +224,12 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
               onClick={() => setShowAll(true)}
               className="w-full px-2 py-1 text-left font-sans text-[10px] text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
             >
-              Mostra tutte le {rows.length} righe (altre {overflow})
+              {tr('diff.showAll', { total: rows.length, more: overflow })}
             </button>
           )}
           {partial && (
             <div className="px-2 py-0.5 font-sans text-[10px] text-amber-400/80">
-              …il patch si interrompe qui: oltre c'è il tetto del payload, non la fine del file.
+              {tr('diff.cutHere')}
             </div>
           )}
         </div>
@@ -243,11 +245,12 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
   /** Presente = diff commentabile riga per riga. */
   review?: DiffReview;
 }) {
+  const tr = useT();
   const files = useMemo(() => buildFileRows(bundle), [bundle]);
   const missing = files.filter((f) => !f.chunk).length;
 
   if (files.length === 0) {
-    return <div className="px-1 py-1 text-[11px] text-app-text-muted">Nessuna modifica.</div>;
+    return <div className="px-1 py-1 text-[11px] text-app-text-muted">{tr('diff.noChanges')}</div>;
   }
 
   return (
@@ -265,7 +268,7 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
       ))}
       {bundle.truncated && (
         <div className="px-1 py-0.5 text-[10px] text-amber-400/80">
-          Diff troncato (molto grande){missing > 0 ? `: di ${missing} file resta solo il conteggio` : ''}: apri il progetto per vederlo intero.
+          {tr('diff.truncated', { rest: missing > 0 ? tr('diff.truncated.countOnly', { n: missing }) : '' })}
         </div>
       )}
     </div>

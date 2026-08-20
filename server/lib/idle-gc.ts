@@ -69,6 +69,21 @@ export const IDLE_GC_EVERY_MS = 2 * 60_000;
  */
 export const IDLE_GC_SOGLIA_MB = 400;
 
+/**
+ * Quanto si aspetta prima di RILEGGERE il footprint.
+ *
+ * `Bun.gc(true)` torna prima che il sistema abbia ripreso le pagine: misurato,
+ * subito dopo la chiamata il footprint è ancora **731 MB**, a +50 ms e a
+ * +200 ms pure, e a **+1000 ms è 11 MB**. Il rilascio è asincrono.
+ *
+ * Senza questa attesa la lettura «dopo» è identica alla lettura «prima», e il
+ * modulo riporta zero recuperati mentre ne ha appena resi settecento — cioè un
+ * log che smentisce il proprio effetto, ed è il modo esatto in cui un rimedio
+ * che funziona viene rimosso da chi legge i suoi numeri. La raccolta avveniva
+ * comunque: era il RESOCONTO a essere falso.
+ */
+const ATTESA_RILASCIO_MS = 1500;
+
 export interface IdleGcDeps {
   /**
    * Le tre fonti che sanno se qualcosa sta lavorando.
@@ -85,6 +100,14 @@ export interface IdleGcDeps {
   raccogli: () => void;
   /** Dove finisce la riga di esito. */
   log?: (msg: string) => void;
+  /**
+   * L'attesa fra la raccolta e la rilettura, iniettabile.
+   *
+   * Esiste per i test: senza, ogni caso che raccoglie paga 1,5 secondi veri e
+   * una suite da nove casi impiega dieci secondi per stare ferma. Il valore di
+   * produzione resta `ATTESA_RILASCIO_MS`, ed è quello misurato.
+   */
+  attesaMs?: number;
 }
 
 export type EsitoIdleGc =
@@ -130,6 +153,8 @@ export async function giroIdleGc(deps: IdleGcDeps): Promise<EsitoIdleGc> {
   }
 
   deps.raccogli();
+  // Vedi ATTESA_RILASCIO_MS: leggere subito misura il footprint di prima.
+  await new Promise((r) => setTimeout(r, deps.attesaMs ?? ATTESA_RILASCIO_MS));
   const dopo = deps.footprintMB();
   if (dopo !== null && deps.log) {
     const reso = prima - dopo;
