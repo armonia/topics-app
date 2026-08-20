@@ -160,6 +160,7 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
    * lo stato, invece di lasciare i due numeri diversi. */
   const idx = Math.min(i, slides.length - 1);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- riallineamento difensivo, non stato derivato: la guardia scatta SOLO quando la lista si accorcia sotto l'indice, converge in un giro (il nuovo `i` non puo' superare il limite) e non puo' ciclare. Il perche' e' scritto per esteso nel commento sopra.
     if (i > slides.length - 1) setI(Math.max(0, slides.length - 1));
   }, [i, slides.length]);
   const corrente = slides[idx] ?? path;

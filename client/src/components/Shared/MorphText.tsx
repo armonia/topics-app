@@ -72,6 +72,7 @@ export function MorphText({ text }: { text: string }) {
         if (/^\s+$/u.test(chunk)) {
           // Uno spazio consuma il suo posto nella scaletta (il ritmo resta
           // quello della frase) ma non e' una lettera da far entrare.
+          // eslint-disable-next-line react-hooks/immutability -- contatore di RITMO: `map` gira in modo sincrono dentro questo stesso render e nessuna closure gli sopravvive, quindi la riassegnazione non puo' essere letta "dopo il render". Serve una scaletta CONTINUA fra chunk diversi, che un indice per-chunk non puo' dare.
           indice += Array.from(chunk).length;
           return <span key={`s${ci}`}>{chunk}</span>;
         }
