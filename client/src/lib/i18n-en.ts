@@ -1069,6 +1069,7 @@ const EN = {
   'space.row.groups.many': '{n} groups',
   // ── Status bar at the foot of the sidebar.
   'statusBar.perfTitle': 'Performance and system status · open for live FPS',
+  'statusBar.residenteInline': 'of which in RAM right now: {mb} MB (the rest is already compressed or swapped)',
   'statusBar.agents.heading': 'Claude Code agents',
   'statusBar.agents.working': '· {n} working',
   'statusBar.agents.awaitingInput': '· {n} waiting for an answer from you',
