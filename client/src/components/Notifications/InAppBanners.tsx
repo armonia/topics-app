@@ -8,6 +8,7 @@
  * vuota per costruzione — non c'è nessun ramo che la riempie.
  */
 import { useEffect } from 'react';
+import { useT } from '../../hooks/useT';
 import { Bell, X } from 'lucide-react';
 import { useInAppBannerStore, IN_APP_BANNER_TTL_MS } from '../../state/inAppBanner';
 import { openTaskInApp, openTopicInApp, selfTaskLinkTarget, selfTopicLinkTarget } from '../../lib/openTaskLink';
@@ -38,6 +39,7 @@ function bannerTaskId(url: string | undefined): string | null {
 }
 
 export function InAppBanners() {
+  const tr = useT();
   const banners = useInAppBannerStore((s) => s.banners);
   const dismiss = useInAppBannerStore((s) => s.dismissInAppBanner);
 
@@ -77,7 +79,7 @@ export function InAppBanners() {
             <button
               type="button"
               onClick={() => dismiss(b.id)}
-              title="Chiudi"
+              title={tr('common.close')}
               className="shrink-0 rounded p-1 text-app-text-muted transition-colors hover:bg-app-hover hover:text-app-text"
             >
               <X size={13} />

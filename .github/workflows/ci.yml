@@ -300,6 +300,32 @@ jobs:
       - name: Route latency budget
         run: bun run check:route-latency || test $? -eq 2
 
+      # LA BASELINE DEL RUNNER, quando non c'e' ancora.
+      #
+      # Il cancello sceglie il file per ambiente (`route-latency-baseline.ci.json`
+      # qui, `.local.json` su una postazione) e ripiega su quello storico se il
+      # suo non esiste. Ma quello storico viene da un M2 Max scarico, mentre
+      # questo runner e' una VM condivisa: il confronto e' fra due macchine
+      # diverse, e il passo qui sopra uscira' quasi sempre 2 («non misurabile»).
+      # Onesto, ma non e' protezione.
+      #
+      # Questo passo MISURA e pubblica il numero come artifact quando il file di
+      # CI manca. Non committa: un workflow che scrive nel repo e' un'altra cosa
+      # e un altro rischio. Chi vuole armare il cancello scarica l'artifact e lo
+      # committa a mano, UNA volta. Fino ad allora costa una corsa del banco e
+      # non fallisce mai (`|| true`): un passo informativo non ferma la pipeline.
+      - name: Record CI route-latency baseline (only if missing)
+        if: hashFiles('scripts/route-latency-baseline.ci.json') == ''
+        run: bun run check:route-latency -- --update-baseline --samples=40 || true
+
+      - name: Upload CI route-latency baseline
+        if: hashFiles('scripts/route-latency-baseline.ci.json') == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-latency-baseline-ci
+          path: scripts/route-latency-baseline.ci.json
+          if-no-files-found: ignore
+
       # I FRAME PERSI scorrendo il trascritto di una chat. Vuole il bundle e il
       # banco e2e, come `check:route-latency`, e come lui tollera l'uscita 2: quella
       # dice «misura non utilizzabile» (la macchina non consegna frame nemmeno

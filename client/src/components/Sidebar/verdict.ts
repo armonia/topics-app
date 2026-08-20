@@ -88,3 +88,32 @@ export function scegliVerdetto(x: IngressiVerdetto): Verdetto | null {
   // Nessuna riga nel caso buono: gli fps e la sparkline sopra lo dicono già.
   return null;
 }
+
+/**
+ * LA STESSA DOMANDA, SUL NUMERO CHE SI LEGGE PER PRIMO.
+ *
+ * `scegliVerdetto` decide la riga del PANNELLO. Ma il numero che l'utente vede
+ * senza aprire niente è quello della BARRA, e lì la spiegazione non c'era:
+ * misurato il 2026-08-20 sulla sua finestra, **1.989 MB dichiarati contro 594
+ * residenti**, cioè l'80% già ceduto al sistema, e per saperlo bisognava aprire
+ * il pannello Performance. Chi legge «1,8 GB» e non apre resta con un numero
+ * che significa una cosa diversa da quella che sembra.
+ *
+ * Le soglie sono le stesse dell'altra riga, di proposito: due superfici che
+ * rispondono alla stessa domanda con due metri diversi si contraddicono, e
+ * l'utente non ha modo di sapere quale credere.
+ */
+export function mostraResidenteInBarra(x: {
+  /** Il totale in barra: footprint del dispositivo più il lato server. */
+  totalMB: number | null;
+  /** Il residente del DISPOSITIVO (la shell non misura il lato server). */
+  residentMB: number | null;
+  /** Il lato server, che va scorporato: il suo residente non lo conosciamo. */
+  serverMB: number | null;
+  /** Misura parziale: nessuna percentuale, meglio tacere. */
+  partial: boolean;
+}): boolean {
+  if (x.partial || x.totalMB === null || x.residentMB === null) return false;
+  const compressi = Math.max(0, x.totalMB - x.residentMB - (x.serverMB ?? 0));
+  return compressi >= MIN_COMPRESSI_MB && compressi > x.totalMB * QUOTA_SWAPPATA;
+}

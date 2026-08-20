@@ -11,6 +11,7 @@
  */
 
 import { useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { ChevronRight, Layers } from 'lucide-react';
 import type { CompactionMarker } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -23,6 +24,7 @@ function tokens(n: number): string {
 const NO_COMPONENTS = {};
 
 export function CompactionDivider({ marker, summary }: { marker: CompactionMarker; summary?: string }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const triggerLabel =
     marker.trigger === 'auto' ? 'automatica' : marker.trigger === 'manual' ? 'manuale' : null;
@@ -54,7 +56,7 @@ export function CompactionDivider({ marker, summary }: { marker: CompactionMarke
             type="button"
             onClick={() => setOpen((o) => !o)}
             data-testid="compaction-divider-toggle"
-            title={open ? 'Nascondi il riassunto' : 'Mostra il riassunto del contesto compattato'}
+            title={open ? tr('compaction.hide') : tr('compaction.show')}
             className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-[11px] hover:bg-app-hover transition-colors"
           >
             {chip}

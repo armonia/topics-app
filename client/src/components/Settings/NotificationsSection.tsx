@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useT } from '../../hooks/useT';
 import { Bell, BellOff, Check, AlertCircle, Moon, Smartphone } from 'lucide-react';
 import type { AppSettings } from '../../types';
 import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';
@@ -92,6 +93,7 @@ function NativeBannerStatus() {
  * pulito questa riga chiedeva l'accesso completo al disco per niente.
  */
 function FocusGateStatus() {
+  const tr = useT();
   const [state, setState] = useState<FocusGateState>(() => focusGateState());
   useEffect(() => {
     // La prima lettura è asincrona: si ricontrolla finché non è tornata,
@@ -110,13 +112,12 @@ function FocusGateStatus() {
     <div className="flex items-start gap-2 mb-3 text-[11.5px] text-app-text-muted">
       <Moon size={13} className="shrink-0 mt-px" />
       <div className="min-w-0">
-        Non riusciamo a leggere lo stato del Focus / Non disturbare, quindi i
-        banner arrivano anche mentre è attivo: su macOS quel dato è protetto.{' '}
+        {tr('notif.focus.blurb')}{' '}
         <button
           onClick={() => openExternalOnce(FULL_DISK_ACCESS_URL)}
           className="underline underline-offset-2 hover:text-app-text transition-colors"
-        >Concedi l'accesso completo al disco</button>
-        , poi riavvia Topics: il permesso si legge all'avvio del processo.
+        >{tr('notif.focus.grant')}</button>
+        {tr('notif.focus.thenRestart')}
       </div>
     </div>
   );
@@ -145,17 +146,16 @@ function projectName(path: string): string {
  * sulla riga della chat, che è dove la si va a cercare.
  */
 function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
+  const tr = useT();
   const muted = settings.mutedProjects ?? [];
   if (muted.length === 0) return null;
 
   return (
     <div className="space-y-2" data-testid="settings-muted-projects">
       <div>
-        <h3 className="text-[13px] font-medium text-app-text mb-1">Silenziati</h3>
+        <h3 className="text-[13px] font-medium text-app-text mb-1">{tr('notif.muted.title')}</h3>
         <p className="text-[12px] leading-snug text-app-text-muted">
-          Questi progetti non fanno arrivare banner né suono quando un agente
-          finisce. Contano lo stesso nel badge dell'app: a sparire è
-          l'interruzione, non il conteggio.
+          {tr('notif.muted.blurb')}
         </p>
       </div>
       <ul className="space-y-1">
@@ -173,7 +173,7 @@ function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
             <button
               type="button"
               onClick={() => onChange('mutedProjects', muted.filter((p) => p !== path))}
-              title="Riattiva le notifiche per questo progetto"
+              title={tr('notif.muted.unmute')}
               className="shrink-0 rounded p-1.5 text-app-text-muted hover:bg-app-hover hover:text-app-text transition-colors"
             >
               <Bell size={13} />
@@ -205,6 +205,7 @@ function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
  *    entrambi — la voce è una.
  */
 function PushDevices() {
+  const tr = useT();
   const { status, subscribed, devices, loading, subscribe, unsubscribe, setDevicePrefs } = usePushNotifications();
   const thisDevice = devices.find((d) => d.isThisDevice);
   const others = devices.filter((d) => !d.isThisDevice);
@@ -221,11 +222,10 @@ function PushDevices() {
       <div>
         <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
           <Smartphone size={14} />
-          Notifiche ad app chiusa
+          {tr('notif.push.title')}
         </label>
         <p className="text-[12px] leading-snug text-app-text-muted">
-          Ogni dispositivo si iscrive per conto suo e si spegne per conto suo:
-          quello che decidi qui vale solo per lui.
+          {tr('notif.push.blurb')}
         </p>
       </div>
 
@@ -252,7 +252,7 @@ function PushDevices() {
           data-testid="push-subscribe"
           className="rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
-          Attiva su questo dispositivo
+          {tr('notif.push.enableHere')}
         </button>
       )}
 
@@ -265,7 +265,7 @@ function PushDevices() {
             onChange={(v) => void setDevicePrefs(thisDevice.deviceId!, { enabled: v })}
           />
           <div>
-            <div className="text-[12px] text-app-text mb-1">Quando Topics è già aperto</div>
+            <div className="text-[12px] text-app-text mb-1">{tr('notif.push.whenOpen')}</div>
             <div className="flex gap-1.5" data-testid="push-when-open">
               {([
                 ['native', 'Notifica di sistema'],
@@ -288,7 +288,7 @@ function PushDevices() {
               ))}
             </div>
             <p className="mt-1 text-[11px] leading-snug text-app-text-muted">
-              Una voce sola in entrambi i casi: quando parla una, l'altra tace.
+              {tr('notif.push.oneVoice')}
             </p>
           </div>
           <button
@@ -298,14 +298,14 @@ function PushDevices() {
             data-testid="push-unsubscribe"
             className="text-[11.5px] text-app-text-muted underline underline-offset-2 hover:text-app-text disabled:opacity-50"
           >
-            Togli l'iscrizione di questo dispositivo
+            {tr('notif.push.unsubscribe')}
           </button>
         </div>
       )}
 
       {others.length > 0 && (
         <div className="space-y-1">
-          <div className="text-[12px] text-app-text">Altri dispositivi</div>
+          <div className="text-[12px] text-app-text">{tr('notif.push.others')}</div>
           <ul className="space-y-1">
             {others.map((d) => (
               <li
@@ -324,7 +324,7 @@ function PushDevices() {
                   <button
                     type="button"
                     onClick={() => void setDevicePrefs(d.deviceId!, { enabled: !d.enabled })}
-                    title={d.enabled ? 'Spegni su questo dispositivo' : 'Riaccendi su questo dispositivo'}
+                    title={d.enabled ? tr('notif.push.offHere') : tr('notif.push.onHere')}
                     className="shrink-0 rounded p-1.5 text-app-text-muted transition-colors hover:bg-app-hover hover:text-app-text"
                   >
                     {d.enabled ? <BellOff size={13} /> : <Bell size={13} />}
@@ -345,6 +345,7 @@ function PushDevices() {
  * — vedi `PushDevices` qui sopra.
  */
 export function NotificationsSection({ settings, onChange }: NotificationsSectionProps) {
+  const tr = useT();
   const masterOn = settings.notificationsEnabled;
   return (
     <div className="space-y-5">
@@ -354,9 +355,7 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
           Topic completion notifications
         </label>
         <p className="text-[12px] text-app-text-muted mb-2">
-          Toast in finestra quando un agente finisce (o va in errore) su un
-          topic. Il banner di sistema si aggiunge solo se il sistema operativo
-          lo consente. Qui sotto c'è lo stato reale.
+          {tr('notif.topic.blurb')}
         </p>
 
         <NativeBannerStatus />

@@ -15,6 +15,7 @@
  * documented hide pattern (verified via context7 + Electron docs).
  */
 import { useEffect, useRef, useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from './browserDevTypes';
 
@@ -39,6 +40,7 @@ interface NativeBrowserPlaceholderProps {
 }
 
 export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBrowserPlaceholderProps) {
+  const tr = useT();
   const placeholderRef = useRef<HTMLDivElement>(null);
   // Phase 30.1 polish — global DnD state. WebContentsView is OS-level
   // and covers React DOM, so during a drag-and-drop the drop preview
@@ -542,7 +544,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
             className="absolute top-0 bottom-0 w-2.5 z-10 cursor-ew-resize group"
             style={{ left: resp.width }}
             data-testid="browser-responsive-handle-x"
-            title="Trascina per la larghezza"
+            title={tr('resize.width')}
           >
             <div className="absolute inset-y-0 left-0 w-0.5 bg-primary/40 group-hover:bg-primary transition-colors" />
           </div>
@@ -552,7 +554,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
             className="absolute left-0 right-0 h-2.5 z-10 cursor-ns-resize group"
             style={{ top: resp.height }}
             data-testid="browser-responsive-handle-y"
-            title="Trascina per l'altezza"
+            title={tr('resize.height')}
           >
             <div className="absolute inset-x-0 top-0 h-0.5 bg-primary/40 group-hover:bg-primary transition-colors" />
           </div>
@@ -562,7 +564,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
             className="absolute w-3.5 h-3.5 z-20 cursor-nwse-resize bg-primary rounded-sm shadow ring-2 ring-surface"
             style={{ left: resp.width - 6, top: resp.height - 6 }}
             data-testid="browser-responsive-handle-xy"
-            title="Trascina per ridimensionare"
+            title={tr('resize.both')}
           />
           {/* size readout */}
           <div className="absolute left-2 bottom-2 z-10 px-2 py-0.5 rounded-md glass-surface border border-app-border text-[11px] tabular-nums text-app-text-secondary pointer-events-none select-none">

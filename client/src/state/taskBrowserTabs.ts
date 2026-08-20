@@ -344,6 +344,27 @@ export function getTaskTabs(taskId: string): TaskBrowserTabsState {
   return cache.get(taskId) ?? EMPTY_TASK_TABS;
 }
 
+/**
+ * Quante tab di task sono in memoria adesso, per l'inventario del peso
+ * (`lib/featureWeight.ts`).
+ *
+ * Le PARCHEGGIATE si contano a parte e non spariscono nel totale: una tab
+ * parcheggiata è proprio il caso in cui qualcosa resta trattenuto senza essere
+ * visibile da nessuna parte, cioè il motivo per cui questo inventario esiste.
+ */
+export function taskTabsCount(): { entries: number; items: number; parked: number } {
+  let items = 0;
+  let parked = 0;
+  let entries = 0;
+  for (const st of cache.values()) {
+    if (st.tabs.length === 0) continue; // un task idratato e vuoto non è una voce
+    entries++;
+    items += st.tabs.length;
+    parked += st.tabs.filter((t) => t.parked).length;
+  }
+  return { entries, items, parked };
+}
+
 function commit(taskId: string, next: TaskBrowserTabsState): void {
   const cur = cache.get(taskId) ?? EMPTY_TASK_TABS;
   if (next === cur) return;
@@ -368,6 +389,26 @@ function applyRemote(taskId: string, value: unknown): boolean {
   if (cur && JSON.stringify(cur) === JSON.stringify(sanitized)) return false;
   cache.set(taskId, sanitized);
   return true;
+}
+
+/**
+ * Test seam: dimentica TUTTI i task.
+ *
+ * PERCHE' SERVE. `cache`, `loaded` e i timer di scrittura sono singleton di
+ * modulo, e sotto `bun test` tutti i file girano nello STESSO processo: un file
+ * che aggiunge tab lascia il suo residuo a chi viene dopo. Chi asserisce su una
+ * SOMMA (`taskTabsCount`) diventa quindi verde da solo e rosso in suite — o,
+ * peggio, il contrario, con l'ordine dei file a decidere l'esito.
+ *
+ * `forgetTaskTabs` da solo non basta: pulisce un task per volta, e per pulire
+ * bisognerebbe sapere quali task ha creato qualcun altro.
+ */
+export function __resetTaskTabs(): void {
+  for (const t of writeTimers.values()) clearTimeout(t);
+  writeTimers.clear();
+  cache.clear();
+  loaded.clear();
+  loading.clear();
 }
 
 /** Forget everything this client remembers about a task's tabs — called when the

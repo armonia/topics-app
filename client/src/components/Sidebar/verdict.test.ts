@@ -6,7 +6,7 @@
  * Il caso che ha prodotto il modulo sta per primo, con i suoi numeri veri.
  */
 import { describe, it, expect } from 'bun:test';
-import { scegliVerdetto, MIN_COMPRESSI_MB, SOGLIA_PRESSIONE_MB } from './verdict';
+import { scegliVerdetto, mostraResidenteInBarra, MIN_COMPRESSI_MB, SOGLIA_PRESSIONE_MB } from './verdict';
 
 /** Nessuna causa attiva: il caso buono. */
 const quieto = { accelerated: true, compressedMB: 0, totalMB: 400, residentMB: 400, totalCpu: 5 };
@@ -82,5 +82,51 @@ describe('quale riga compare sotto i numeri', () => {
     // `null` = non ancora saputo. Trattarlo come `false` metterebbe un allarme
     // rosso su ogni avvio, per il tempo che serve alla prima misura.
     expect(scegliVerdetto({ ...quieto, accelerated: null })).toBeNull();
+  });
+});
+
+describe('la stessa domanda sulla barra di stato', () => {
+  it('IL CASO VERO: 1.989 dichiarati, 594 residenti, e la barra lo dice', () => {
+    // Misurato sulla finestra dell'utente il 2026-08-20. Prima di questa riga
+    // il numero era leggibile solo aprendo il pannello Performance: chi guarda
+    // la barra e non apre resta con «1,8 GB» senza sapere che l'80% è già
+    // stato ceduto al sistema.
+    expect(mostraResidenteInBarra({
+      totalMB: 1989, residentMB: 594, serverMB: 322, partial: false,
+    })).toBe(true);
+  });
+
+  it('scorpora il lato server, di cui NON conosciamo il residente', () => {
+    // La shell misura solo i propri processi. Contare i MB del server fra i
+    // "compressi" gonfierebbe la quota e accenderebbe la riga quando non serve.
+    // Qui, senza scorporo, 900-300 = 600 supererebbe metà di 900; con lo
+    // scorporo restano 100, sotto il pavimento.
+    expect(mostraResidenteInBarra({
+      totalMB: 900, residentMB: 300, serverMB: 500, partial: false,
+    })).toBe(false);
+  });
+
+  it('una misura PARZIALE non produce nessuna percentuale', () => {
+    expect(mostraResidenteInBarra({
+      totalMB: 1989, residentMB: 594, serverMB: 322, partial: true,
+    })).toBe(false);
+  });
+
+  it('senza il residente tace, invece di inventarlo', () => {
+    expect(mostraResidenteInBarra({
+      totalMB: 1989, residentMB: null, serverMB: 322, partial: false,
+    })).toBe(false);
+  });
+
+  it('usa le STESSE soglie del pannello: due metri diversi si contraddicono', () => {
+    // 400 di footprint, 50 residenti, niente server: 350 compressi, cioè sopra
+    // il pavimento di 300 e oltre metà. Le stesse costanti dell'altra riga.
+    expect(mostraResidenteInBarra({
+      totalMB: 400, residentMB: 50, serverMB: 0, partial: false,
+    })).toBe(true);
+    // E appena sotto il pavimento, tace.
+    expect(mostraResidenteInBarra({
+      totalMB: 400, residentMB: 101, serverMB: 0, partial: false,
+    })).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
@@ -42,6 +43,7 @@ const COLOR_OPTIONS = [
 type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete';
 
 export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, unpinAlsoArchives, onPopOut }: ContextMenuProps) {
+  const tr = useT();
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -164,7 +166,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
 
       {subMenu === 'rename' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Rinomina topic</div>
+          <div className="text-[11px] font-semibold text-app-text-muted mb-2">{tr('ctx.renameTopic')}</div>
           <input
             ref={inputRef}
             type="text"
@@ -174,15 +176,15 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
             className="w-full px-2 py-1.5 border border-app-border-light rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-primary bg-surface dark:bg-elevated text-app-text transition-colors"
           />
           <div className="flex justify-end gap-2 mt-2">
-            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Annulla</button>
-            <button onClick={handleRename} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Salva</button>
+            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">{tr('common.cancel')}</button>
+            <button onClick={handleRename} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">{tr('common.save')}</button>
           </div>
         </div>
       )}
 
       {subMenu === 'color' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Scegli colore</div>
+          <div className="text-[11px] font-semibold text-app-text-muted mb-2">{tr('ctx.pickColour')}</div>
           <div className="grid grid-cols-5 gap-2">
             {COLOR_OPTIONS.map((color) => (
               <button
@@ -208,10 +210,10 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
               frase. Il colore d'allarme resta per ciò che non si può disfare. */}
           <div className="text-[11px] font-semibold text-app-text mb-2">Archiviare il topic?</div>
           <p className="text-[12px] text-app-text-secondary mb-3">
-            Vuoi archiviare <strong>{topic.name}</strong>? Verrà spostato tra gli archiviati (puoi riaprirlo quando vuoi).
+            {tr('ctx.archive.q1')} <strong>{topic.name}</strong>{tr('ctx.archive.q2')}
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Annulla</button>
+            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">{tr('common.cancel')}</button>
             <button onClick={handleDelete} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Archivia</button>
           </div>
         </div>
