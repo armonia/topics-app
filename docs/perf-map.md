@@ -358,10 +358,24 @@ Ruled out already, measured rather than reasoned:
 · **not always present** — a dedicated probe watching 120 seconds saw ZERO, and
   the server log (which sees every client) counted zero in 45 seconds.
 
-So it is conditional on state the ceiling-3 gate happens to catch sometimes:
-the likely trigger is having a project window open, since that key has no writer
-otherwise. That is where the next attempt starts — and it starts from a
-reproduction, not from this table.
+So it is conditional on state the ceiling-3 gate happens to catch sometimes.
+Opening a project window on purpose did NOT reproduce it (0 writes in 30s), so
+that guess was wrong too.
+
+**What the evidence points at is the FIRST of the two hypotheses the dedupe test
+left open: an oscillating value.** The row on the server reads
+`{"nonChatPanes":[],"openChatTopicIds":["b23b5ede-…"]}` — but every PUT in the
+burst carried `openChatTopicIds: []`. Two sources chasing each other: one
+publishes the empty set, something union-adds the chat back (the receive side is
+deliberately ADDITIVE — see the comment above `flushSync`), and the next save
+sees a change again. The dedupe guard compares against the LAST WRITTEN value,
+not the history, which is correct and is exactly why it cannot stop this.
+
+That is a concrete, checkable lead and it is written here rather than acted on,
+because the reproduction is not in hand: the burst has not been triggered
+deliberately once. Whoever picks it up starts by making it happen on demand —
+watching both the PUT body and the inbound `ui-state:updated` for that key — not
+by patching the guard.
 
 **The bundle ratchet is red, and it is not from this work.** `check:bundle`,
 2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
