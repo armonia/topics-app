@@ -1183,47 +1183,26 @@ export class ClaudeCodeProvider implements AIProvider {
   private cliCompat: ClaudeCliCompat | null = null;
 
   /**
-   * CHI VUOLE SAPERE CHE UN TURNO È NATO DA SOLO.
+   * CHI VUOLE SAPERE CHE UN TURNO È NATO DA SOLO — e come si arma.
    *
-   * Un `Monitor` armato non consegna il suo evento nel turno che l'ha armato:
-   * quel turno è finito. Lo consegna aprendo un TURNO NUOVO — la CLI risveglia
-   * il figlio da sola e produce una risposta vera senza che nessuno abbia
-   * scritto niente. La traccia misurata (CLI 2.1.237, 20/08/2026, stessa argv di
-   * Topics) sta in testa a `claude-code-woken-turn.test.ts`, che è anche il file
-   * che pinna questo contratto.
+   * Un `Monitor` non consegna il suo evento nel turno che l'ha armato: quel
+   * turno è finito. Lo consegna aprendo un TURNO NUOVO, e siccome dopo un
+   * `result` `pp.streamHandler` è null, `handleStreamEvent` lo lasciava cadere
+   * blocco per blocco: la risposta esisteva, era corretta, ed era invisibile —
+   * né in chat né nel DB. Non si era perso il tool, si perdeva la sua RISPOSTA.
+   * La traccia misurata sta in testa a `claude-code-woken-turn.test.ts`.
    *
-   * Il buco che chiude: quel turno nasce dopo un `result`, e dopo un `result`
-   * `pp.streamHandler` è null — quindi `handleStreamEvent` lo lasciava cadere
-   * blocco per blocco, in silenzio. La risposta esisteva, era corretta, ed era
-   * invisibile: né in chat né nel DB. Per questo il Monitor si presentava come
-   * «forse l'avevamo e si è perso»: non si era perso il tool, si perdeva la sua
-   * RISPOSTA, che è la cosa per cui lo si arma.
+   * Questo callback è il filo che mancava: il provider dice «qui ha ricominciato
+   * a parlare qualcuno e non gliel'ho chiesto io», e chi ascolta (server.ts)
+   * apre una riga e adotta il turno.
    *
-   * Questo callback è il filo che mancava: il provider dice «su questa sessione
-   * ha ricominciato a parlare qualcuno, e non gliel'ho chiesto io»; chi ascolta
-   * (server.ts) apre una riga e adotta il turno. NON è uno `StreamHandler`: si
-   * arma una volta sola e il suo mestiere è svegliare chi sa costruirne uno
-   * vero. Perché è statico, vedi `observeWokenTurns` qui sotto.
-   */
-
-  /**
-   * Arma l'osservatore dei turni spontanei.
-   *
-   * STATICO, e non per pigrizia: `claude-code` non è registrato quando il boot
-   * arriva a cablarlo. `initProvider` avvia il provider di default e poi lancia
-   * `initProviders()` FIRE-AND-FORGET, che è chi registra claude-code dopo aver
-   * sondato il PATH per la CLI. Una sveglia armata sull'istanza — con
-   * `tryGetProvider("claude-code")` a boot time — trovava quindi `undefined` e
-   * usciva in silenzio: cablaggio perfetto, mai collegato. E lo stesso vale a
-   * caldo, perché `registerProvider` SOSTITUISCE l'istanza (un cambio di
-   * modello dalle impostazioni ne crea una nuova): l'osservatore sarebbe morto
-   * con la vecchia, senza che nessuno se ne accorgesse fino al prossimo Monitor.
-   *
-   * Sullo statico invece l'ordine non conta e la sostituzione non morde: chi
-   * nasce dopo eredita l'ascoltatore già armato.
-   *
-   * Uno solo: due ascoltatori vorrebbero dire due righe in chat per la stessa
-   * risposta.
+   * STATICO, e non per pigrizia: al boot `claude-code` NON è ancora registrato
+   * — `initProvider` avvia il default e poi lancia `initProviders()`
+   * fire-and-forget, ed è quella a sondare il PATH e a registrarlo. Una sveglia
+   * armata sull'istanza trovava `undefined` e usciva zitta: cablaggio perfetto,
+   * mai collegato. Vale anche a caldo, perché `registerProvider` SOSTITUISCE
+   * l'istanza a ogni cambio di modello. Uno solo: due ascoltatori sarebbero due
+   * righe in chat per la stessa risposta.
    */
   static observeWokenTurns(fn: (sessionKey: string) => void): void {
     ClaudeCodeProvider.onWokenTurn = fn;
