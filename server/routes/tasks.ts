@@ -516,6 +516,44 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const svc = createTaskService(db, { writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR) });
   const attempts = createTaskAttemptStore(db);
 
+  /**
+   * UN TITOLO LEGGIBILE, in sottofondo, per una card appena nata.
+   *
+   * VIVE QUI e non dentro una delle due rotte perche' i creatori sono DUE e
+   * il difetto e' lo stesso per entrambi: la board (una persona che scrive o
+   * detta) e `create_task` via MCP (un agente). La prima versione lo cablava
+   * solo sulla rotta della board, e sul database vivo quella scelta lasciava
+   * scoperti 267 titoli oltre gli 80 caratteri creati da agenti — il difetto
+   * c'era, era solo meno visibile perche' lo schema MCP chiede «Task title /
+   * one-line description» e di solito viene rispettato.
+   *
+   * In background per costruzione: la `create` risponde subito con la card e
+   * il titolo migliore arriva un istante dopo via `task:updated`. Se il modello
+   * non c'e' o risponde storto, non succede niente e resta il titolo di
+   * partenza — un titolo e' una comodita', non puo' far fallire una card.
+   */
+  function titoloInSottofondo(task: { id: string; text: string; description: string | null }, projectId: string): void {
+    void (async () => {
+      try {
+        const prov = opts?.namingProvider?.();
+        if (!prov) return;
+        const migliore = await titoloMigliore(prov, { text: task.text, description: task.description });
+        if (!migliore) return;
+        // Riletta PRIMA di scrivere: fra la chiamata al modello e qui (secondi)
+        // qualcuno puo' aver rinominato la card a mano, e quella e' una scelta
+        // esplicita che non si sovrascrive.
+        const fresca = svc.get(task.id)?.task;
+        if (!fresca || fresca.text !== task.text) return;
+        const aggiornata = svc.update({
+          taskId: task.id, actor: "agent", by: "system",
+          projectId, patch: { text: migliore },
+        });
+        if (aggiornata) broadcastToAll({ type: "task:updated", projectId, task: aggiornata });
+      } catch { /* un titolo e' una comodita': non fallisce mai la card */ }
+    })();
+  }
+
+
   // Il lato «risposta» dell'instradamento delle domande (board-ask-routing.ts).
   // Qui serve solo `deliver`: il commento con la domanda lo scrive l'altra
   // sponda, la gamba dell'attesa in routes/permission.ts.
@@ -2279,40 +2317,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               reuseBlockerContext: body?.reuseBlockerContext === true,
             });
             broadcastToAll({ type: "task:created", projectId: effectiveProjectId, task });
-            // UN TITOLO LEGGIBILE, senza che nessuno lo chieda.
-            //
-            // La card nasce col titolo che il composer ha ricavato dalla prima
-            // riga, e su un DETTATO quella e' il preambolo: «Potremmo fare una
-            // roba molto figa per poter assicurarci che il nostro browser…»
-            // (card 235afe11, 20/08). La sostanza stava nei punti elenco piu'
-            // sotto. Segnalato: «dovrebbe mettere sempre qualcosa di utile per
-            // comprendere», e il seguito: «deve fare tutto da solo la kanban».
-            //
-            // Quindi qui, alla nascita, e in BACKGROUND: la `create` risponde
-            // subito con la card, il titolo migliore arriva un istante dopo via
-            // `task:updated` — la stessa forma dell'autoname delle chat. Se il
-            // modello non c'e', tace, e resta il titolo del composer.
-            void (async () => {
-              try {
-                const prov = opts?.namingProvider?.();
-                if (!prov) return;
-                const migliore = await titoloMigliore(prov, { text: task.text, description: task.description });
-                if (!migliore) return;
-                // Riletta PRIMA di scrivere: fra la chiamata al modello e qui
-                // (secondi) qualcuno puo' aver rinominato la card a mano, e
-                // quella e' una scelta esplicita che non si sovrascrive.
-                const fresca = svc.get(task.id)?.task;
-                if (!fresca || fresca.text !== task.text) return;
-                const aggiornata = svc.update({
-                  // `actor: "agent"`: non l'ha deciso una persona. Il campo ha
-                  // due valori soli (human | agent) e la macchina cade nel
-                  // secondo — `by: "system"` dice chi di preciso.
-                  taskId: task.id, actor: "agent", by: "system",
-                  projectId: effectiveProjectId, patch: { text: migliore },
-                });
-                if (aggiornata) broadcastToAll({ type: "task:updated", projectId: effectiveProjectId, task: aggiornata });
-              } catch { /* un titolo e' una comodita': non fallisce mai la card */ }
-            })();
+            // Il titolo leggibile: vedi `titoloInSottofondo`. Vale per
+            // ENTRAMBI i creatori — questa rotta e quella di `create_task`.
+            titoloInSottofondo(task, effectiveProjectId);
             // Intake: il collegamento accettato si SCRIVE, nei due thread. Un
             // link muto è il modo in cui un feedback si perde — chi apre la card
             // bloccata deve leggere perché è ferma, e chi apre il bloccante deve
@@ -3021,6 +3028,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdByTopicId: sess.topicId,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
+          // ANCHE QUI, ed e' la meta' che la prima versione aveva scordato.
+          // `create_task` (MCP) e' l'altro creatore di card: lo schema chiede
+          // «Task title / one-line description» e di solito viene rispettato,
+          // ma sul database vivo 267 titoli creati da agenti superavano gli 80
+          // caratteri. Lo stesso difetto, meno visibile.
+          titoloInSottofondo(task, sess.projectId);
           return json(task, 201);
         } catch (e) { return fail(e); }
       }
