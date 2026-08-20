@@ -28,6 +28,7 @@ export function useFeatureWeights(attivo: boolean, misurati: IngressiMisurati, s
    * l'ULTIMO valore, quindi il ricalcolo, quando avviene, non usa mai un dato
    * vecchio. */
   const ref = useRef(misurati);
+  // eslint-disable-next-line react-hooks/refs -- deliberate latest-value ref: `misurati` is a literal rebuilt every render, so it cannot be a dependency without defeating the hook; the write is idempotent and never drives rendering
   ref.current = misurati;
 
   return useMemo(() => {
@@ -35,6 +36,7 @@ export function useFeatureWeights(attivo: boolean, misurati: IngressiMisurati, s
     // Le due nature entrano nello stesso elenco e vengono ordinate una volta
     // sola: `ordinaVoci` tiene il misurato davanti e non mescola mai i criteri
     // di peso fra nature diverse.
+    // eslint-disable-next-line react-hooks/refs -- same latest-value ref: read only when the memo actually recomputes, which is what keeps the inventory off the render path
     return ordinaVoci([...vociMisurate(ref.current), ...collectFeatureWeights()])
       .filter(v => !voceVuota(v));
     /* LE DUE DIPENDENZE, e perche' servono ENTRAMBE.
