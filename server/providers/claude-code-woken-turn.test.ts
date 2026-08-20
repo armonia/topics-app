@@ -205,6 +205,29 @@ describe("claude-code · il turno che nasce da solo", () => {
     expect(h.texts.join("")).toBe("una risposta chiesta da qualcuno");
   });
 
+  /**
+   * «OCCUPATA DA SÉ STESSA» NON È OCCUPATA.
+   *
+   * La route registra l'handler PRIMA di guidare il turno — lo fa apposta, per
+   * non perdere gli eventi che arrivano durante l'attesa — quindi quando arriva
+   * ad adottare lo trova già installato. Con un confronto `!== null`, ogni
+   * risveglio veniva rifiutato «l'ha preso qualcun altro» e la risposta del
+   * Monitor si perdeva di nuovo: dieci sveglie e zero risposte, misurato dal
+   * vivo il 20/08. Si guarda CHI c'è, non SE.
+   */
+  test("adottare col PROPRIO handler già registrato riesce", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:woken-mio");
+    ClaudeCodeProvider.observeWokenTurns(() => {});
+    emit(provider, pp, testo("evento del monitor"));
+
+    const h = makeHandler();
+    // È esattamente ciò che fa la route un attimo prima di adottare.
+    provider.registerStreamHandler("topic:woken-mio", undefined, h.handler);
+    expect(provider.adoptWokenTurn("topic:woken-mio", h.handler)).toBe(true);
+    // E gli eventi tenuti da parte gli arrivano comunque una volta sola.
+    expect(h.texts.join("")).toBe("evento del monitor");
+  });
+
   test("adottare quando qualcun altro guida già è un NO, non un doppione", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken7");
     ClaudeCodeProvider.observeWokenTurns(() => {});
