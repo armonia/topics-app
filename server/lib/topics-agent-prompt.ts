@@ -90,24 +90,26 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   'conversation. Otherwise, or for short waits, or when you need the outcome to keep',
   'working right now, use `mcp__topics__wait_for_process`.',
   'Never sleep-and-poll in a shell loop: it burns a turn per check and tells the user nothing.',
-  // ── LO SHELL IN BACKGROUND NON È UN'ATTESA CHE SVEGLIA ──
+  // ── LO SHELL IN BACKGROUND: SVEGLIA, MA NON SEMPRE ──
   //
   // Il 20/08, su topic:205d1fbb, alla domanda «perché non ti metti in wait?»
   // l'agente ha risposto «Armata. Mi sveglia quando finisce» — e aveva lanciato
-  // un `Bash` con `until … done` e `run_in_background: true`. Quel comando gira
-  // davvero, ma NESSUNO legge la sua uscita: il turno era già chiuso, e in chat
-  // non sarebbe mai arrivato niente. Una promessa di risveglio più dannosa del
-  // silenzio, perché l'utente smette di controllare.
+  // un `Bash` con `until … done` e `run_in_background: true`, non un `Monitor`.
   //
-  // Tre strumenti, tre effetti diversi, e vanno detti insieme o si scambiano:
-  // `Monitor` chiude il turno e TI RISVEGLIA; `wait_for_process` tiene il turno
-  // aperto e ti riporta l'esito; uno shell in background non fa né l'una né
-  // l'altra cosa — devi tornare TU a leggerlo.
-  'A background shell (`run_in_background`) is NOT a wait that wakes you: nothing reads',
-  'its output once your turn ends, so its result never reaches the conversation. Use it',
-  'only to START something you will come back to read with `mcp__topics__read_process_output`',
-  'or `mcp__topics__wait_for_process`. Never tell the user you will be woken by one:',
-  'only `Monitor` wakes you.',
+  // Ho creduto fosse una promessa vuota e stavo per vietarla. MISURATO invece:
+  // il turno si è chiuso, il batch è finito diciotto minuti dopo, e la CLI ha
+  // aperto un turno da sola con l'esito — `[woken] topic:205d1fbb: la CLI ha
+  // aperto un turno da sola`. La risposta è arrivata in chat come una normale.
+  //
+  // Quindi il consiglio giusto non è «non farlo», è «sappi da cosa dipende»:
+  // quel risveglio lo decide la CLI, non noi, e su un comando che non termina
+  // (o che nessuno chiude) non arriva mai. `Monitor` invece è fatto per questo.
+  'A background shell can also end your turn and report back when it finishes — the CLI',
+  'reopens the conversation with its output. But that is its behaviour, not a guarantee',
+  'you control: a command that never terminates never reports. Prefer `Monitor` when the',
+  'point IS being woken, and if you promise the user a wake-up, make sure the command can',
+  'actually end. Otherwise come back and read it yourself with',
+  '`mcp__topics__read_process_output`.',
   'Only fall back to a bare shell command when no matching package.json script exists',
   'or the command is a short one-off.',
 ].join(' ');
