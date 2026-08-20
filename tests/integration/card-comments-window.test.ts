@@ -145,32 +145,46 @@ describe('la finestra dei commenti della card', () => {
 /**
  * LE DUE SPONDE DEVONO DIRE LA STESSA COSA sul testo che viaggia.
  *
- * Il client offre «mostra di più» quando il contesto supera
- * `COMMENTO_PIEGA_CHARS` (620) e la sua doc promette: «il testo c'è tutto,
- * basta un click». Il server ne mandava 200. Su 1.215 messaggi umani di questa
- * macchina la mediana è 520 e il 76% sfora i 200: il bottone apriva su un testo
- * che il server aveva già buttato — tre righe e poi il vuoto, senza che niente
- * lo dicesse.
+ * Il server taglia il contesto a `CARD_CONTEXT_CHARS`; il client lo ripiega e
+ * offre «mostra di piu'» oltre `RICHIESTA_PIEGA_CHARS`, promettendo nella sua
+ * doc che «il testo c'e' tutto, basta un click». Se il server ne manda MENO di
+ * quanti il client ne rende prima di offrire il bottone, quel bottone apre sul
+ * vuoto.
  *
- * Il numero non è libero: c'è un cancello sul peso del payload della board, e
- * 620 è il più alto che ci sta dentro (800 lo sfonda). Questo test tiene le due
- * costanti allineate, così chi alza una delle due trova l'altra qui.
+ * QUALE COSTANTE, e perche' e' facile sbagliarla: il client ne ha DUE.
+ * `COMMENTO_PIEGA_CHARS` (620) governa la parola principale, quella che la card
+ * stampa in cima; `RICHIESTA_PIEGA_CHARS` (190) governa la riga di CONTESTO,
+ * che e' dove finisce il mio messaggio quando l'agente ha risposto dopo di me.
+ * La prima stesura di questo test confrontava la prima delle due — passava, ma
+ * sorvegliava il contratto sbagliato.
+ *
+ * Il difetto vero e' misurato: 1.215 messaggi umani su questa macchina, mediana
+ * 520, il 76% sopra i 200 che il server mandava. 620 e' il massimo che sta nel
+ * cancello sul peso del payload (800 lo sfonda), e copre entrambe le soglie del
+ * client con margine.
  */
-describe('il testo del contesto: server e client d\'accordo', () => {
-  test('il server ne manda almeno quanti il client ne mostra prima di piegare', () => {
-    const serverChars = Number(
-      TASKS_TS.match(/const CARD_CONTEXT_CHARS = (\d+);/)?.[1] ?? '0',
-    );
-    const constantsTs = fs.readFileSync(
-      path.join(PROJECT_ROOT, 'client/src/components/Board/constants.ts'), 'utf-8',
-    );
-    const clientPiega = Number(
-      constantsTs.match(/COMMENTO_PIEGA_CHARS = (\d+);/)?.[1] ?? '0',
-    );
-    expect(serverChars).toBeGreaterThan(0);
-    expect(clientPiega).toBeGreaterThan(0);
-    // Se il server ne manda MENO di quanti il client ne rende prima di offrire
-    // il pieghevole, quel bottone apre sul vuoto.
-    expect(serverChars).toBeGreaterThanOrEqual(clientPiega);
+describe("il testo del contesto: server e client d'accordo", () => {
+  const leggi = (file: string, re: RegExp): number => {
+    const src = fs.readFileSync(path.join(PROJECT_ROOT, file), 'utf-8');
+    const n = Number(src.match(re)?.[1] ?? '0');
+    expect(n).toBeGreaterThan(0);
+    return n;
+  };
+
+  test('il server ne manda almeno quanti il client ne rende prima di piegare', () => {
+    const server = leggi('server/services/tasks.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
+    // LA SOGLIA DELLA RIGA DI CONTESTO, che e' quella che governa il mio
+    // messaggio quando compare sotto la risposta dell'agente.
+    const contesto = leggi('client/src/components/Board/constants.ts', /RICHIESTA_PIEGA_CHARS = (\d+);/);
+    expect(server).toBeGreaterThanOrEqual(contesto);
+  });
+
+  test('e copre anche la soglia della parola principale', () => {
+    const server = leggi('server/services/tasks.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
+    // Un commento che oggi e' contesto domani puo' essere la parola in cima
+    // (basta che l'agente non risponda piu'): se il taglio del server stesse
+    // sotto anche a questa, il pieghevole aprirebbe sul vuoto in quel caso.
+    const principale = leggi('client/src/components/Board/constants.ts', /COMMENTO_PIEGA_CHARS = (\d+);/);
+    expect(server).toBeGreaterThanOrEqual(principale);
   });
 });
