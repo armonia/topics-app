@@ -36,6 +36,11 @@ import type { Dict } from './i18n-types';
  * che vede.
  */
 const IT: Dict = {
+  'palette.hint.navigate': 'naviga',
+  'palette.hint.open': 'apri',
+  'palette.hint.close': 'chiudi',
+  'settings.board.showRow': 'Mostra la Board nella sidebar',
+  'settings.board.showRowBlurb': 'Una riga fissa in cima alla colonna, con i progetti e i conteggi per stato.',
   'board.night.title': 'Modalità notturna',
   'board.night.blurb':
     "Mentre sei via, la coda parte solo a macchina libera. Si spegne da sola all'orario di fine, invece di restare armata addosso a chi lavora.",
