@@ -111,9 +111,12 @@ describe("abort() marks the process as aborting", () => {
       io: { signal: (s: string) => signals.push(s) },
     });
     (provider as any).processes.set("sess-x", pp);
-    await provider.abort("sess-x");
+    // La ragione si DICHIARA: `abort` non ha piu' un default. Un default qui
+    // era `"user"`, ed e' cosi' che uno spegnimento del server si e' spacciato
+    // per uno stop premuto a mano (20/08, topic:9f9e9629).
+    await provider.abort("sess-x", undefined, "user");
     expect(pp.aborting).toBe(true);
-    expect((pp as any).abortReason).toBe("user"); // default: a human stop
+    expect((pp as any).abortReason).toBe("user");
     expect(signals).toEqual(["SIGINT"]);
   });
 

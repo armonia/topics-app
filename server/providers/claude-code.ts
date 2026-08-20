@@ -22,6 +22,7 @@ import type {
   ProviderDiagnostic,
   ProviderRequirement,
   StreamHandler,
+  AbortReason,
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
@@ -950,7 +951,7 @@ interface PersistentProcess {
   /** Who asked for the abort — "user" (default) or "watchdog" (stream
    *  timeout). Only affects the exit log label so a watchdog kill is never
    *  misread as the human pressing stop. */
-  abortReason?: "user" | "watchdog";
+  abortReason?: AbortReason;
   /** Set when a `--resume` failed because the session is gone (we've already
    *  forgotten it, next spawn is fresh). The turn can't finish, but it's a
    *  recoverable reset — onSessionClosed surfaces a clear "resend" note instead
@@ -1201,19 +1202,33 @@ export class ClaudeCodeProvider implements AIProvider {
    * Questo callback è il filo che mancava: il provider dice «su questa sessione
    * ha ricominciato a parlare qualcuno, e non gliel'ho chiesto io»; chi ascolta
    * (server.ts) apre una riga e adotta il turno. NON è uno `StreamHandler`: si
-   * arma una volta per processo, e il suo mestiere è svegliare chi sa costruirne
-   * uno vero.
+   * arma una volta sola e il suo mestiere è svegliare chi sa costruirne uno
+   * vero. Perché è statico, vedi `observeWokenTurns` qui sotto.
    */
-  private onWokenTurn: ((sessionKey: string) => void) | null = null;
 
   /**
-   * Arma l'osservatore dei turni spontanei. Uno solo: chi lo chiama è il boot
-   * del server, e due ascoltatori vorrebbero dire due righe in chat per la
-   * stessa risposta.
+   * Arma l'osservatore dei turni spontanei.
+   *
+   * STATICO, e non per pigrizia: `claude-code` non è registrato quando il boot
+   * arriva a cablarlo. `initProvider` avvia il provider di default e poi lancia
+   * `initProviders()` FIRE-AND-FORGET, che è chi registra claude-code dopo aver
+   * sondato il PATH per la CLI. Una sveglia armata sull'istanza — con
+   * `tryGetProvider("claude-code")` a boot time — trovava quindi `undefined` e
+   * usciva in silenzio: cablaggio perfetto, mai collegato. E lo stesso vale a
+   * caldo, perché `registerProvider` SOSTITUISCE l'istanza (un cambio di
+   * modello dalle impostazioni ne crea una nuova): l'osservatore sarebbe morto
+   * con la vecchia, senza che nessuno se ne accorgesse fino al prossimo Monitor.
+   *
+   * Sullo statico invece l'ordine non conta e la sostituzione non morde: chi
+   * nasce dopo eredita l'ascoltatore già armato.
+   *
+   * Uno solo: due ascoltatori vorrebbero dire due righe in chat per la stessa
+   * risposta.
    */
-  observeWokenTurns(fn: (sessionKey: string) => void): void {
-    this.onWokenTurn = fn;
+  static observeWokenTurns(fn: (sessionKey: string) => void): void {
+    ClaudeCodeProvider.onWokenTurn = fn;
   }
+  private static onWokenTurn: ((sessionKey: string) => void) | null = null;
 
   /**
    * Adotta il turno che la CLI ha aperto da sola: registra l'handler e gli
@@ -1769,7 +1784,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Abort ---
 
-  async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {
+  async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
@@ -2906,7 +2921,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // già trovare dove appoggiarsi.
         pp.wokenBuffer = [];
         try {
-          this.onWokenTurn?.(pp.sessionKey);
+          ClaudeCodeProvider.onWokenTurn?.(pp.sessionKey);
         } catch (err) {
           console.warn(`[claude-code] la sveglia del turno spontaneo su ${pp.sessionKey} ha rigettato:`, err);
         }

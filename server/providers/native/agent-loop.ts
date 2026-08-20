@@ -29,7 +29,8 @@ import { needsCompaction, compact, windowFor } from "./compaction";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
-import type { TurnEndInfo, StopCause } from "../stop-reason";
+import type { TurnEndInfo } from "../stop-reason";
+import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
@@ -105,17 +106,15 @@ export interface AgentTurnOptions {
    * programmare: è il caso di `complete` e dei test, non quello di una chat.
    */
   topics?: TopicsToolContext;
-  signal?: AbortSignal;
   /**
-   * PERCHÉ il segnale è scattato, chiesto nel momento in cui serve.
+   * Il segnale che annulla il turno.
    *
-   * `AbortSignal` non porta una ragione: dice CHE qualcuno ha annullato e non
-   * chi. Il loop la deve sapere per etichettare onestamente la fine del turno,
-   * e non può riceverla come valore perché nel momento in cui il turno parte
-   * non esiste ancora. Assente, o che risponde `undefined`, vale "user": è il
-   * default storico e l'unico che un chiamante senza informazioni può dare.
+   * Porta con sé anche la RAGIONE: chi annulla passa una {@link StopCause} a
+   * `abort(reason)`, e il ciclo la rilegge da `signal.reason` quando serve.
+   * Niente callback e niente campo parallelo — il segnale e il perché sono la
+   * stessa cosa, e tenerli in due posti è tenere due verità.
    */
-  abortCause?: () => StopCause | undefined;
+  signal?: AbortSignal;
   /**
    * L'uso di OGNI GIRO, appena il giro finisce.
    *
@@ -421,7 +420,13 @@ export async function runAgentTurn(
       // aperto su un turno già morto, e a chiuderlo arrivava minuti dopo un
       // watchdog, con la sua spiegazione sbagliata («il provider non risponde»).
       // Un'uscita muta da un ciclo è una promessa non mantenuta a chi aspetta.
-      const end: TurnEndInfo = { end: "cancelled", cause: opts.abortCause?.() ?? "user" };
+      //
+      // La causa si legge dal segnale. Se chi ha annullato non l'ha dichiarata
+      // NON si inventa: il turno resta `cancelled` senza causa, e a valle
+      // `cancelledNotice` su quel ramo scrive comunque un cartello. Indovinare
+      // «user» è precisamente ciò che ha fatto sparire la spiegazione.
+      const causa = stopCauseFromSignal(opts.signal);
+      const end: TurnEndInfo = causa ? { end: "cancelled", cause: causa } : { end: "cancelled" };
       handler.onAborted?.({ result: finalText, turnEnd: end });
       return { turnEnd: end, text: finalText, usage: total };
     }

@@ -111,7 +111,7 @@ describe("il ciclo dell'agente nativo quando il server si spegne sotto di lui", 
       giri++;
       if (giri === 1) {
         // Lo spegnimento parte subito dopo che questo giro è stato consegnato.
-        queueMicrotask(() => ac.abort());
+        queueMicrotask(() => ac.abort("server-shutdown"));
         return new Response(giroConTool, { status: 200 });
       }
       throw new Error("il ciclo non doveva chiedere un secondo giro dopo l'abort");
@@ -126,7 +126,6 @@ describe("il ciclo dell'agente nativo quando il server si spegne sotto di lui", 
         toolContext: { workspace: ws },
         autonomy: "auto-apply",
         signal: ac.signal,
-        abortCause: () => "server-shutdown",
       },
       h,
     );
@@ -150,17 +149,19 @@ describe("il ciclo dell'agente nativo quando il server si spegne sotto di lui", 
   });
 
   /**
-   * IL DEFAULT RESTA QUELLO STORICO. Un chiamante che non dichiara la causa —
-   * il vero stop a mano, che passa da `/api/chat/abort` — deve continuare a
-   * ottenere `user`, altrimenti chi preme Ferma si vedrebbe spiegare cos'ha
-   * appena fatto.
+   * LO STOP A MANO, che è l'altro verso e conta quanto il primo.
+   *
+   * Chi preme Ferma passa da `/api/chat/abort`, che dichiara `"user"`. Il
+   * turno deve restare `cancelled/user`, perché è su quella causa che
+   * `cancelledNotice` tace: a chi ha appena premuto stop non si spiega cos'ha
+   * premuto.
    */
-  test("senza causa dichiarata resta «user»: lo stop a mano non cambia", async () => {
+  test("stop a mano: la causa è «user» e arriva dal segnale", async () => {
     const ac = new AbortController();
     let giri = 0;
     globalThis.fetch = (async () => {
       giri++;
-      if (giri === 1) { queueMicrotask(() => ac.abort()); return new Response(giroConTool, { status: 200 }); }
+      if (giri === 1) { queueMicrotask(() => ac.abort("user")); return new Response(giroConTool, { status: 200 }); }
       throw new Error("nessun secondo giro atteso");
     }) as unknown as typeof fetch;
 
@@ -179,5 +180,91 @@ describe("il ciclo dell'agente nativo quando il server si spegne sotto di lui", 
     // Anche qui l'handler viene chiamato: la finalizzazione dello stream non
     // dipende da CHI ha annullato, solo il cartello sì.
     expect(h.eventi).toContain("aborted");
+  });
+
+  /**
+   * NIENTE DEFAULT INVENTATI, ed è la lezione del 20/08 messa in una prova.
+   *
+   * Se qualcuno annulla senza dichiararsi — un `abort()` nudo, da una strada
+   * che non esiste ancora — il ciclo NON deve indovinare «user». Un `user`
+   * inventato fa tacere il cartello, e un turno morto senza spiegazione è
+   * esattamente il guasto da cui nasce tutto questo file. Meglio `cancelled`
+   * senza causa: `cancelledNotice` su quel ramo scrive comunque.
+   */
+  test("annullamento non dichiarato: nessuna causa inventata", async () => {
+    const ac = new AbortController();
+    let giri = 0;
+    globalThis.fetch = (async () => {
+      giri++;
+      if (giri === 1) { queueMicrotask(() => ac.abort()); return new Response(giroConTool, { status: 200 }); }
+      throw new Error("nessun secondo giro atteso");
+    }) as unknown as typeof fetch;
+
+    const out = await runAgentTurn(
+      {
+        model: "claude-haiku-4-5-20251001",
+        history: [{ role: "user", content: "vai" }],
+        toolContext: { workspace: ws },
+        autonomy: "auto-apply",
+        signal: ac.signal,
+      },
+      spia(),
+    );
+    // `abort()` senza argomenti mette in `reason` una DOMException della
+    // piattaforma, che non è una nostra causa: si resta senza.
+    expect(out.turnEnd.end).toBe("cancelled");
+    expect(out.turnEnd.cause).toBeUndefined();
+  });
+});
+
+/**
+ * IL PONTE FRA `stop()` E IL CICLO, che i test qui sopra non attraversavano.
+ *
+ * I test del ciclo guidano `runAgentTurn` con un `AbortController` costruito a
+ * mano, quindi provano che la causa LETTA dal segnale arriva fino in fondo — ma
+ * non che sia `NativeProvider.stop()` a metterla dentro. Rimettendo il difetto
+ * originale (`abort()` senza argomenti in `stop()`) restavano tutti verdi: il
+ * pezzo di catena che il 20/08 si e' spezzato non era coperto da nessuno.
+ *
+ * Qui si guarda proprio quel pezzo: si mette una sessione con un turno in volo
+ * nel provider VERO, si chiama `stop()` come fa `stopAllProviders()` dentro
+ * `gracefulShutdown`, e si legge cosa e' finito in `signal.reason`.
+ */
+describe("stop() del provider nativo: la causa entra nel segnale", () => {
+  test("spegnimento: ogni turno vivo viene annullato con «server-shutdown»", async () => {
+    const { NativeProvider } = await import("./provider");
+    const prov = new NativeProvider({ type: "native" });
+    const ac = new AbortController();
+    // Una sessione con un turno in volo, nella forma che il provider usa.
+    (prov as unknown as { sessions: Map<string, unknown> }).sessions.set("topic:vivo", {
+      history: [], workspace: null, abort: ac, lastUsedAt: Date.now(),
+    });
+
+    prov.stop();
+
+    expect(ac.signal.aborted).toBe(true);
+    // IL PUNTO: non basta che sia annullato — deve essere annullato DICENDO
+    // perche'. Con `abort()` nudo qui ci sarebbe una DOMException, il ciclo
+    // non riconoscerebbe nessuna causa, e a valle sparirebbe il cartello.
+    expect(ac.signal.reason).toBe("server-shutdown");
+  });
+
+  /**
+   * L'altro capo della stessa catena: `abort()` con la ragione dichiarata dai
+   * suoi tre chiamanti veri (`/api/chat/abort` → user, i due watchdog di
+   * `routes/chat.ts` → watchdog).
+   */
+  test("abort(reason): la ragione dichiarata finisce nel segnale", async () => {
+    const { NativeProvider } = await import("./provider");
+    const prov = new NativeProvider({ type: "native" });
+    const ac = new AbortController();
+    (prov as unknown as { sessions: Map<string, unknown> }).sessions.set("topic:x", {
+      history: [], workspace: null, abort: ac, lastUsedAt: Date.now(),
+    });
+
+    await prov.abort("topic:x", undefined, "watchdog");
+
+    expect(ac.signal.aborted).toBe(true);
+    expect(ac.signal.reason).toBe("watchdog");
   });
 });

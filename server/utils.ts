@@ -1598,8 +1598,8 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Streams (in-memory, unchanged) ---
-  function startStream(sessionKey: string, messageId: string, abortController?: AbortController) {
-    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController });
+  function startStream(sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart = false) {
+    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController, survivesRestart });
   }
 
   function updateStreamActivity(sessionKey: string, isThinking?: boolean) {

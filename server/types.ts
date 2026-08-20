@@ -273,6 +273,23 @@ export interface ActiveStream {
   thinking: string;
   messageId: string;
   abortController?: AbortController;
+  /**
+   * Questo turno sopravvive a un riavvio del server?
+   *
+   * `true` = gira in un processo FIGLIO (claude-code): il SIGTERM non lo tocca,
+   * il broker lo tiene, la riadozione lo riprende. `false` = gira DENTRO questo
+   * processo (runtime nativo `topics`): quando il processo muore, muore il
+   * turno. Il cancello di `restart-when-idle` legge questo campo per decidere
+   * quanto aspettare — un turno che nessuno riprenderà merita l'attesa lunga di
+   * una card, non il minuto concesso a chi verrà riadottato.
+   *
+   * SI DECIDE QUI, all'apertura dello stream, e non a ogni giro del cancello:
+   * il provider di una sessione non cambia per la durata di un turno, quindi
+   * ricavarlo due volte al secondo sarebbe una query per tick per una risposta
+   * che è già nota — e sarebbe anche una seconda occasione di rispondere in
+   * modo diverso dalla prima.
+   */
+  survivesRestart: boolean;
 }
 
 export interface ErrorResponseOptions {
@@ -436,7 +453,14 @@ export interface AppContext {
    * form instead of an open spinner.
    */
   updateToolCallFields: (sessionKey: string, toolCallId: string, patch: Partial<ToolCall>) => StoredMessage | null;
-  startStream: (sessionKey: string, messageId: string, abortController?: AbortController) => void;
+  /**
+   * `survivesRestart`: questo turno regge un riavvio del server? Lo sa il
+   * chiamante, che ha in mano il provider risolto — vedi `ActiveStream`.
+   * Il default `false` è prudente di proposito: chi non si dichiara vale «non
+   * sopravvive», e sbagliare così costa un riavvio più lento invece del lavoro
+   * di qualcuno.
+   */
+  startStream: (sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart?: boolean) => void;
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
   getStreamContent: (sessionKey: string) => { content: string; thinking: string; messageId: string } | null;

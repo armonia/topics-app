@@ -169,6 +169,46 @@ export function cancelled(cause: StopCause, detail?: string): TurnEndInfo {
 }
 
 /**
+ * La causa che viaggia dentro un `AbortSignal`, o `null` se non ce n'è una.
+ *
+ * PERCHÉ SI LEGGE DAL SEGNALE. La ragione di un annullamento e il segnale di
+ * annullamento sono la stessa cosa e devono viaggiare insieme: `AbortController
+ * .abort(reason)` è il posto che la piattaforma prevede per questo, e
+ * `signal.reason` è dove finisce. Un campo scritto accanto al controller
+ * sarebbe una seconda verità da tenere allineata a mano — cioè un posto in cui
+ * le due possono divergere, che è esattamente il difetto da cui nasce questo
+ * modulo.
+ *
+ * `null` NON è un ripiego travestito: è «non lo so», e chi lo riceve deve dirlo
+ * invece di indovinare. Ci si arriva solo da un `abort()` chiamato senza
+ * argomenti (allora `reason` è una `DOMException` della piattaforma, non una
+ * nostra causa), e da lì in poi il turno resta `cancelled` SENZA causa — che è
+ * il ramo per cui `cancelledNotice` scrive comunque un cartello. La regola sta
+ * qui e non presso i chiamanti perché la domanda è una: quel valore è una
+ * nostra causa, o è la scatola vuota della piattaforma?
+ */
+export function stopCauseFromSignal(signal: { reason?: unknown } | undefined): StopCause | null {
+  const r = signal?.reason;
+  return isStopCause(r) ? r : null;
+}
+
+/** Tutte le cause, per riconoscerne una che arriva da fuori. */
+const STOP_CAUSES: readonly StopCause[] = [
+  "user",
+  "watchdog",
+  "wall-clock",
+  "server-shutdown",
+  "session-reset",
+  "process-died",
+  "turn-in-flight",
+  "provider-error",
+];
+
+export function isStopCause(value: unknown): value is StopCause {
+  return typeof value === "string" && (STOP_CAUSES as readonly string[]).includes(value);
+}
+
+/**
  * Dall'errore con cui è morta la promise del turno. È la strada che percorrono
  * i marcatori interni del provider (`ABORTED`, `SESSION_RESET`, `PROCESS_DIED_n`,
  * `RATE_LIMIT`) e il tetto a orologio del dispatcher.
