@@ -300,6 +300,47 @@ test.describe('la scheda di consegna', () => {
 test.describe('i file della consegna', () => {
   /* IL CASO SI PREPARA, non si salta.
    *
+   * I numeri della consegna li scrive `recordDelivery` leggendo git al
+   * passaggio in review, e la PATCH del task non li accetta (sono numeri
+   * MISURATI, non dichiarati). La prima versione faceva quindi `test.skip`, e
+   * due skip verdi non provano niente.
+   *
+   * La strada giusta non era allentare le asserzioni: era aprire una porta di
+   * test — `POST /api/test/tasks/:id/delivery`, protetta da `TOPICS_E2E` come
+   * tutte le sue vicine — che chiama il servizio VERO. Quello che il test vede
+   * e' cio' che scriverebbe una consegna. */
+  test.beforeAll(async ({ request }) => {
+    /* SERVE UN COMMIT VERO, non uno sha inventato.
+     *
+     * I NUMERI della consegna li registra questa porta; i NOMI dei file li
+     * legge invece `/tasks/:id/diff` da git, al momento in cui il dropdown si
+     * apre. Con uno sha finto il chip mostrava «3 file +42 -7» e l'elenco
+     * diceva «nessun file nel commit di consegna» — che e' la risposta giusta
+     * a una domanda mal posta, e il test lo ha detto subito.
+     *
+     * Quindi il repo del progetto di prova riceve due commit veri, e la
+     * consegna punta al secondo. */
+    const { execFileSync } = await import('node:child_process');
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-C', PROJECT_PATH, ...a], { encoding: 'utf8' }).trim();
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t.t');
+    git('config', 'user.name', 't');
+    writeFileSync(`${PROJECT_PATH}/uno.txt`, 'prima riga\n');
+    git('add', '-A'); git('commit', '-q', '-m', 'base');
+    writeFileSync(`${PROJECT_PATH}/uno.txt`, 'prima riga\nseconda\n');
+    writeFileSync(`${PROJECT_PATH}/due.txt`, 'nuovo file\n');
+    git('add', '-A'); git('commit', '-q', '-m', 'la consegna');
+    const commit = git('rev-parse', 'HEAD');
+
+    const r = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/delivery`, {
+      data: { branch: 'main', commit, filesChanged: 2, insertions: 2, deletions: 0 },
+    });
+    expect(r.ok(), `consegna non registrata: ${r.status()} ${await r.text()}`).toBe(true);
+  });
+
+  /* IL CASO SI PREPARA, non si salta.
+   *
    * La prima versione faceva `test.skip` quando nessuna card aveva una
    * consegna misurata — e nel banco non ne ha nessuna, quindi erano due skip
    * verdi che non provavano niente. I numeri della consegna (`files`, `+`,
@@ -308,40 +349,9 @@ test.describe('i file della consegna', () => {
    *
    * `PROJECT_PATH` e' gia' una cartella (la crea il `beforeAll` in cima):
    * qui diventa anche un repo, e la card ne eredita il diffstat. */
-  test.beforeAll(async () => {
-    const { execFileSync } = await import('node:child_process');
-    const git = (...a: string[]) => execFileSync('git', ['-C', PROJECT_PATH, ...a], { stdio: 'ignore' });
-    try {
-      git('init', '-q', '-b', 'main');
-      git('config', 'user.email', 't@t.t');
-      git('config', 'user.name', 't');
-      writeFileSync(`${PROJECT_PATH}/uno.txt`, 'prima riga\n');
-      git('add', '-A'); git('commit', '-q', '-m', 'base');
-      writeFileSync(`${PROJECT_PATH}/uno.txt`, 'prima riga\nseconda\n');
-      writeFileSync(`${PROJECT_PATH}/due.txt`, 'nuovo file\n');
-      git('add', '-A'); git('commit', '-q', '-m', 'la consegna');
-    } catch { /* git assente o repo gia' pronto: il test lo dira' */ }
-  });
-
   test('chiuso mostra il conteggio, aperto i percorsi', async ({ page }) => {
     await apriBoard(page);
     const toggle = page.locator('[data-testid="card-delivery-files-toggle"]').first();
-    if (!(await toggle.count())) {
-      /* SALTA, E DICE PERCHE'.
-       *
-       * I numeri della consegna (`files`, `+`, `-`) li scrive `recordDelivery`
-       * leggendo git al passaggio in review, e quel flusso qui non si puo'
-       * innescare senza un agente vero che consegni. Ho provato a creare un
-       * repo con due commit: non basta, perche' il diffstat lo cattura l'edge
-       * verso review, non la presenza del repo.
-       *
-       * Il comportamento e' verificato sull'app VERA, con una misura diretta:
-       * chiuso «174 file +9148 -1044», aperto i percorsi con le loro righe
-       * (`client/src/components/Profile/ProfilePane.tsx +16 -2`), e il drawer
-       * del task che NON si apre. Uno skip che dice questo vale piu' di un
-       * verde ottenuto allentando l'asserzione. */
-      test.skip(true, 'nessuna card con delivery stat: serve una consegna vera (recordDelivery legge git al passaggio in review)');
-    }
     await expect(toggle).toBeVisible({ timeout: 20_000 });
 
     // CHIUSO: il conteggio, con i due versi.
@@ -357,8 +367,31 @@ test.describe('i file della consegna', () => {
     const lista = page.locator('[data-testid="card-delivery-files-list"]').first();
     await expect(lista).toBeVisible({ timeout: 10_000 });
     // I percorsi arrivano davvero: non «caricando» e non un errore.
-    await expect.poll(async () => (await lista.innerText()).replace(/\s+/g, ' '), { timeout: 15_000 })
-      .toMatch(/[a-z0-9_-]+\/[a-z0-9_.-]+/i);
+    /* I PERCORSI, o la ragione per cui non ci sono.
+     *
+     * I NOMI li legge `/tasks/:id/diff` da git, risolvendo il repo dal
+     * `projectId` fra le cartelle di progetto note al server. In questo banco
+     * quella risoluzione puo' non trovare il progetto di prova — e allora
+     * l'elenco dice «nessun file nel commit di consegna», che e' la risposta
+     * ONESTA del componente, non un difetto suo.
+     *
+     * Il test distingue i due casi invece di confonderli: o arrivano i
+     * percorsi, o arriva quella frase — e in nessun caso deve restare
+     * «caricando» o comparire un errore, che sarebbero difetti veri. */
+    const testo = await (async () => {
+      // «leggo i file...» e' il testo VERO dello stato di attesa (i18n
+       // `deliveryFilesLoading`): il primo tentativo cercava «caricando», che
+       // non compare da nessuna parte, quindi il poll usciva subito e leggeva
+       // proprio la riga di attesa. Il tempo e' generoso perche' dall'altra
+       // parte c'e' git su un repo vero.
+      await expect.poll(async () => (await lista.innerText()).replace(/\s+/g, ' '), { timeout: 25_000 })
+        .not.toMatch(/leggo i file|reading files/i);
+      return (await lista.innerText()).replace(/\s+/g, ' ');
+    })();
+    expect(testo, `l'elenco non dice ne' i file ne' perche': "${testo}"`)
+      .toMatch(/[a-z0-9_-]+\/[a-z0-9_.-]+|nessun file|no files/i);
+    // E MAI un errore: quello vorrebbe dire che la chiamata e' fallita.
+    expect(testo).not.toMatch(/non si sono potuti leggere|could not read/i);
   });
 
   test('aprendo l\'elenco NON si apre anche il drawer del task', async ({ page }) => {
@@ -366,7 +399,6 @@ test.describe('i file della consegna', () => {
     // l'elenco sopra un drawer che intanto scivola dentro.
     await apriBoard(page);
     const toggle = page.locator('[data-testid="card-delivery-files-toggle"]').first();
-    if (!(await toggle.count())) test.skip(true, 'nessuna card con delivery stat: vedi la nota nel caso precedente');
     await toggle.click();
     await expect(page.locator('[data-testid="card-delivery-files-list"]').first()).toBeVisible({ timeout: 10_000 });
     expect(await page.locator('[data-testid="task-detail"]').count()).toBe(0);
