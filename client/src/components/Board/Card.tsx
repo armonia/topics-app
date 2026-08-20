@@ -16,6 +16,7 @@ import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
+import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
@@ -879,7 +880,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           )}
           <TaskIdChip id={task.id} />
         </span>
-        {task.text}
+        {/* Il titolo RISCRITTO non viene sostituito: le lettere cambiate
+            entrano una dietro l'altra (vedi `Shared/MorphText`). Riscrivere il
+            nome di un task e' una cosa che succede spesso e sempre altrove —
+            lo fa una persona dal drawer, o l'agente che lo ha preso in carico e
+            gli da' un titolo vero — quindi chi guarda la board vedeva una card
+            diversa senza sapere che fosse la stessa. A riposo il componente non
+            aggiunge un solo nodo al DOM. */}
+        <MorphText text={task.text} />
       </span>
       {/* Description preview — plain text, clamped (the full markdown lives in
           the drawer). The update time closes the body — but on a REVIEW card the
