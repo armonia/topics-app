@@ -102,6 +102,27 @@ export function ripulisci(raw: string): string | null {
   s = s.split("\n").map((r) => r.trim()).filter(Boolean)[0] ?? "";
   s = s.replace(/^(?:titolo|title)\s*[:—-]\s*/i, "");
   s = s.replace(/^["'«»`]+|["'«»`.]+$/g, "").trim();
+  // UN JSON NON E' UN TITOLO. Chiedere «rispondi solo col titolo» a volte
+  // ottiene `{"title": "…"}` — e' la forma che il modello ha visto mille volte
+  // per compiti simili. Se dentro c'e' un titolo lo si prende, altrimenti si
+  // scarta: stampare le graffe sulla card sarebbe peggio del titolo di prima.
+  if (s.startsWith("{")) {
+    try {
+      const o = JSON.parse(s) as Record<string, unknown>;
+      const v = o.title ?? o.titolo;
+      s = typeof v === "string" ? v.trim() : "";
+    } catch { return null; }
+    if (!s) return null;
+  }
+  // Il MARKDOWN idem: `**Titolo**` finiva sulla card con gli asterischi,
+  // perche' il titolo di una card e' testo semplice e nessuno lo interpreta.
+  s = s.replace(/^\s*#{1,6}\s+/, "");           // heading
+  s = s.replace(/\*\*(.+?)\*\*/g, "$1");        // grassetto
+  s = s.replace(/(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?![*\w])/g, "$1"); // corsivo
+  s = s.replace(/`([^`]+)`/g, "$1");             // codice inline
+  // Un backtick SPAIATO resta: `Titolo` a meta' frase e' markdown rotto, e
+  // stamparlo sulla card mostrerebbe l'accento grave come fosse testo.
+  s = s.replace(/`/g, "").trim();
   if (!s) return null;
   // Troppo lungo = non ha capito la consegna; troppo corto = non dice niente.
   if (s.length < 8 || s.length > 90) return null;

@@ -78,3 +78,46 @@ describe("la guardia sulla risposta del modello", () => {
     expect(ripulisci("   \n  ")).toBeNull();
   });
 });
+
+/**
+ * COME SBAGLIA UN MODELLO, e cosa non deve mai finire sulla card.
+ *
+ * Questi casi non erano coperti dal primo giro, e due passavano: `**Titolo**`
+ * arrivava sulla card con gli asterischi (il titolo è testo semplice, nessuno
+ * lo interpreta) e `{"title": "…"}` ci arrivava con le graffe — è la forma che
+ * un modello ha visto mille volte per compiti simili, e «rispondi solo col
+ * titolo» non basta a impedirla.
+ *
+ * La regola: un titolo peggiore di quello che c'era è peggio di nessun titolo.
+ * Dove il contenuto si può recuperare lo si recupera, dove no si scarta.
+ */
+describe("le forme sbagliate della risposta", () => {
+  test("il markdown si toglie invece di finire sulla card", () => {
+    expect(ripulisci("**Cronologia tab unificata**")).toBe("Cronologia tab unificata");
+    expect(ripulisci("## Cronologia tab unificata")).toBe("Cronologia tab unificata");
+    expect(ripulisci("*Cronologia tab unificata*")).toBe("Cronologia tab unificata");
+    expect(ripulisci("`Cronologia tab` unificata")).toBe("Cronologia tab unificata");
+  });
+
+  test("un JSON: si prende il titolo dentro, o si scarta", () => {
+    expect(ripulisci('{"title": "Cronologia tab unificata"}')).toBe("Cronologia tab unificata");
+    expect(ripulisci('{"titolo": "Cronologia tab unificata"}')).toBe("Cronologia tab unificata");
+    // Senza un titolo dentro non c'è niente da salvare: meglio quello di prima.
+    expect(ripulisci('{"foo": 1}')).toBeNull();
+    expect(ripulisci('{rotto')).toBeNull();
+  });
+
+  test("una lista numerata non è un titolo", () => {
+    expect(ripulisci("1. Cronologia tab unificata")).toBeNull();
+  });
+
+  test("le virgolette tipografiche e i newline in eccesso si tolgono", () => {
+    expect(ripulisci("«Cronologia tab unificata»")).toBe("Cronologia tab unificata");
+    expect(ripulisci("\n\n\nCronologia tab unificata\n\n")).toBe("Cronologia tab unificata");
+  });
+
+  /** Un'emoji in testa è innocua e resta: non è un errore, è uno stile. */
+  test("un'emoji non squalifica il titolo", () => {
+    expect(ripulisci("🚀 Cronologia tab unificata")).toBe("🚀 Cronologia tab unificata");
+  });
+});

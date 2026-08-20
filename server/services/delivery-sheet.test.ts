@@ -156,3 +156,27 @@ describe("la scheda senza numeri di consegna", () => {
     expect(svg).not.toContain("questo non deve comparire");
   });
 });
+
+/**
+ * IL RIASSUNTO ARRIVA DAL THREAD, cioè da testo che nessuno ha ripulito: lo
+ * scrive un agente, e può contenere qualunque cosa. Un SVG rotto sulla card è
+ * peggio di una card senza anteprima — non si vede l'errore, si vede il vuoto.
+ */
+describe("un riassunto ostile nella scheda", () => {
+  test("tag e ampersand non rompono l'SVG", () => {
+    const svg = renderDeliverySheet({
+      taskId: "t1", title: "x",
+      summary: 'Fatto <script>alert(1)</script> & "virgolette" con <tag>',
+    });
+    expect(svg).not.toContain("<script>");
+    expect(svg).toContain("&lt;script&gt;");
+    expect(svg).toContain("&amp;");
+  });
+
+  test("newline e spazi multipli si normalizzano invece di spezzare il layout", () => {
+    const svg = renderDeliverySheet({ taskId: "t1", title: "x", summary: "riga1\n\n\nriga2\t\tcon   spazi" });
+    const righe = [...svg.matchAll(/class="b">([^<]+)</g)].map((m) => m[1]!);
+    expect(righe.length).toBeLessThanOrEqual(3);
+    expect(righe[0]).toBe("riga1 riga2 con spazi");
+  });
+});
