@@ -405,6 +405,31 @@ So the reproduction needs the user's window open, and that is the first line of
 the next attempt: watch the PUT body and the inbound `ui-state:updated` for that
 key WITH a second real client connected. Not by patching the guard.
 
+**Follow-up 2026-08-20: on THIS machine the route ratchet can no longer reach a
+verdict at all, and that is the finding.** Six runs across the morning, load
+24-27, `--samples=80`:
+
+    dispatch_capacity   1.17 / 1.06 ms     the two passes now AGREE
+    topic_messages     27.29 / 15.18 ms    they do not
+    all_boards_tasks   19.22 / 11.18 ms    they do not
+
+Two things changed since last night. First, the `dispatch_capacity` first-call
+cost that `declared_limits` documents ("pass 1 between 2.0 and 2.5 ms, pass 2
+between 0.4 and 0.6, ALWAYS in that order") no longer reproduces: 1.17 against
+1.06 is not that shape. Second, the two disk-bound routes now swing 2x between
+consecutive passes on a machine where Dia alone takes 86% of a core.
+
+So the honest reading is not "all_boards_tasks regressed" — last night, at load
+26, it read a steady 2.53-2.90 ms and the gate called it true. It is that a
+**developer workstation cannot host this measurement**: the baseline was
+recorded on a quiet machine, and this one never is. The gate refusing to answer
+is the correct behaviour, and repeating it here would only produce a different
+random number.
+
+What would fix it is not a threshold tweak: it is recording the baseline where
+the gate actually runs (the CI runner), which `perf-map` already lists as one of
+the two honest ways out. Until then this row measures the machine.
+
 **The route ratchet is red too, on ONE route, and it took a quiet machine to
 know it.** Re-run four times at load 20-26 with `--samples=80`:
 
