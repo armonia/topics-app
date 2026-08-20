@@ -1,5 +1,20 @@
 #!/bin/bash
 # Start prod server with auto-reload for both server and client
+#
+# ─── DOPO AVER MODIFICATO QUESTO FILE, RIAVVIA IL SUPERVISORE ──────────────
+#
+#     launchctl kickstart -k gui/$(id -u)/com.armonia.topics-server
+#
+# Non e' una raccomandazione di stile: bash legge uno script IN ESECUZIONE a
+# OFFSET DI BYTE, non tutto in memoria. Inserire righe in mezzo a un file che
+# sta girando sposta tutto cio' che viene dopo, e al prossimo comando che il
+# processo va a rileggere puo' ritrovarsi a meta' di un'altra istruzione. Lo
+# script vivo qui e' il supervisore di TUTTO — se si confonde, non riparte piu'
+# niente.
+#
+# C'e' anche la ragione banale, che vale lo stesso: finche' non lo riavvii, la
+# modifica non ha effetto. Il 20/08 questo processo era vivo da un giorno
+# intero, quindi girava ancora la versione precedente di ogni riga qui sotto.
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_DIR"
 
