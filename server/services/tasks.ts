@@ -1208,6 +1208,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const fileExists = opts.fileExists ?? existsSync;
   const writeDeliverySheet = opts.writeDeliverySheet;
 
+  /**
+   * L'ultima parola VERA del thread di una card, o `null`.
+   *
+   * «Vera» come sulla card: si saltano `status` (cronologia delle transizioni)
+   * e `service` (contabilita' del dispatcher), perche' non sono parole di
+   * nessuno — e' lo stesso taglio di `isThreadSpeech`, che il client applica
+   * prima di decidere cosa mostrare. Se le due divergessero, la scheda
+   * scriverebbe una riga che la card non mostra.
+   */
+  function ultimaParolaDelThread(taskId: string): string | null {
+    try {
+      const r = db.prepare(
+        `SELECT content FROM task_comments
+          WHERE task_id = ? AND COALESCE(kind, 'comment') NOT IN ('status', 'service')
+          ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      ).get(taskId) as { content?: string } | undefined;
+      const t = (r?.content ?? "").trim();
+      return t || null;
+    } catch { return null; }
+  }
+
+
   // ── Review-evidence promotion ──
   // The delivery protocol asks agents for update_task(previewImage=…), but in
   // practice they attach the evidence to the delivery COMMENT and the board
@@ -1301,6 +1323,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         subtasksTotal: figli.length,
         subtasksDone: figli.filter((f) => f.status === "done").length,
         labels,
+        // COSA E' STATO FATTO, quando non ci sono numeri da mostrare.
+        //
+        // La stessa riga che la card disegna sopra il titolo: l'ultima parola
+        // vera del thread, saltando cronologia e contabilita' (`status` e
+        // `service` non sono parole di nessuno). Senza, il ramo senza codice
+        // scriveva «Nessun codice consegnato» — un'assenza al posto di
+        // un'informazione, sul 60% della larghezza della scheda.
+        summary: ultimaParolaDelThread(taskId),
       });
       const path = writeDeliverySheet(taskId, svg);
       if (!path) return;
