@@ -490,11 +490,17 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     // premeva decideva una pubblicazione che nessuna schermata nominava.
     await stubProbes(page);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/");
-    await openProjectBoard(page);
 
     // Il gradino «da pubblicare» legge questa rotta: senza un progetto avanti
     // la riga non deve comparire, quindi per vederla serve dichiararne uno.
+    //
+    // E la rotta si arma PRIMA della navigazione. Stava dopo `openProjectBoard`,
+    // cioe' dopo che la board aveva gia' fatto la sua prima chiamata: quella
+    // partiva NUDA, tornava «nessun progetto avanti», e la riga non nasceva.
+    // Il test passava solo quando un giro di polling successivo ricadeva dentro
+    // lo stub — cioe' per fortuna. Il rosso che ne usciva («publish-consequence
+    // non trovato») accusava la riga, che non aveva nessuna colpa: nessuno le
+    // aveva mai dato i dati per esistere.
     await page.route((url) => url.pathname.endsWith("/all-boards/publish-status"), (route) =>
       route.fulfill({
         status: 200,
@@ -507,6 +513,9 @@ test.describe("Top bar della kanban — si legge da sola", () => {
         }),
       }));
 
+    await page.goto("/");
+    await openProjectBoard(page);
+
     await page.getByTestId("delivery-badge").click();
     const riga = page.getByTestId("publish-consequence");
     await expect(riga).toBeVisible();
@@ -515,9 +524,26 @@ test.describe("Top bar della kanban — si legge da sola", () => {
 
     // E sta SOPRA il bottone: una conseguenza scritta sotto il gesto si legge
     // dopo averlo fatto.
-    const yRiga = (await riga.boundingBox())!.y;
-    const yBottone = (await page.getByRole("button", { name: "Pubblica" }).first().boundingBox())!.y;
-    expect(yRiga).toBeLessThan(yBottone);
+    //
+    // Le due misure stanno dentro un `toPass`, e il `!` è sparito. Il pannello
+    // di consegna si ridisegna quando arriva la risposta di
+    // `publish-status` — che qui è STUBBATA con una `route` registrata dopo il
+    // caricamento della board, quindi il primo giro può essere già partito e la
+    // riga compare, sparisce e ricompare. In quella finestra `boundingBox()`
+    // torna `null`, e `(...)!.y` non falliva su un'asserzione: esplodeva con
+    // «Cannot read properties of null (reading 'y')», cioè un TypeError che non
+    // nomina né la riga né il bottone. Misurare una geometria è lecito solo a
+    // layout fermo: qui la si riprende finché entrambi i rettangoli esistono.
+    const bottonePubblica = page.getByRole("button", { name: "Pubblica" }).first();
+    await expect(async () => {
+      const [boxRiga, boxBottone] = await Promise.all([
+        riga.boundingBox(),
+        bottonePubblica.boundingBox(),
+      ]);
+      expect(boxRiga, "la riga della conseguenza deve avere un rettangolo").not.toBeNull();
+      expect(boxBottone, "il bottone «Pubblica» deve avere un rettangolo").not.toBeNull();
+      expect(boxRiga!.y, "la conseguenza sta sopra il bottone").toBeLessThan(boxBottone!.y);
+    }).toPass({ timeout: 10000 });
 
     // E deve essere LEGGIBILE: un avviso ambra su fondo chiaro e' esattamente
     // il posto dove il contrasto se ne va, e un avviso che non si legge non e'
