@@ -7,7 +7,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, sessionKeyForPaneId, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
 import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
@@ -1275,6 +1275,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 // una pane browser per label di webview (la shell sa quale
                 // WebContent la rende). Vedi `paneUsage.ts`.
                 pane.type === 'browser' ? pane.id : null,
+                // La chat non ha un processo, ma tiene i suoi MESSAGGI: la sua
+                // `sessionKey` e' l'unico modo di contarli. Un `paneId` non e'
+                // una sessionKey (per una chat il pane e' il TOPIC), quindi si
+                // passa da `sessionKeyForPaneId` invece di indovinare.
+                pane.type === 'chat' ? sessionKeyForPaneId(pane.id, topics) : null,
               )}`}
             >{label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed

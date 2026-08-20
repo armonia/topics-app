@@ -32,6 +32,10 @@ import net from "node:net";
 import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveNodeBin, nodeMancanteMessage } from "./lib/test-node-bin";
+
+/** L'eseguibile Node con cui lanciare il ponte. */
+const NODE = resolveNodeBin();
 
 const BRIDGE = join(import.meta.dir, "pty-bridge.mjs");
 // Tick ridotto via env per non sedersi attraverso i 5s di produzione a ogni run.
@@ -55,10 +59,18 @@ function socketPath(name: string): string {
 }
 
 function spawnBridge(sock: string, parentPid: number, env: Record<string, string> = {}) {
-  const proc = Bun.spawn(
-    ["node", BRIDGE, "--socket", sock, "--parent-pid", String(parentPid)],
-    { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...env } },
-  );
+  // `NODE` e non `"node"`: il PATH di chi esegue i test non e' garantito, e un
+  // `ENOENT` qui produceva rossi che accusavano il monitor anti-orfano invece
+  // dell'ambiente. Vedi `shared/test-node-bin.ts`.
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(
+      [NODE, BRIDGE, "--socket", sock, "--parent-pid", String(parentPid)],
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...env } },
+    );
+  } catch (e) {
+    throw new Error(nodeMancanteMessage(NODE, e));
+  }
   cleanups.push(() => { try { proc.kill(9); } catch { /* già morto: è il caso di successo */ } });
   return proc;
 }

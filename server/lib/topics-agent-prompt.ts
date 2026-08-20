@@ -62,6 +62,9 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   'status, port links, and a stop button, and are managed across restarts.',
   'Use `mcp__topics__list_processes` to see what is running, `mcp__topics__read_process_output`',
   'to read a process’s logs, and `mcp__topics__stop_process` to stop one.',
+  'When you need the OUTCOME of something long, do not poll: `mcp__topics__wait_for_process`',
+  'blocks until it exits (or until a line matches `until`) and returns only the new output,',
+  'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
   'Only fall back to a bare shell command when no matching package.json script exists',
   'or the command is a short one-off.',
 ].join(' ');

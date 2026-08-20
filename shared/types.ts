@@ -667,6 +667,9 @@ export type ToolCallDetail =
   // Long-lived / background / harness tools that previously fell through to
   // `unknown`. Typed so the chat shows a real row instead of a raw JSON blob.
   | { type: 'monitor'; description: string; command?: string; wsUrl?: string; persistent?: boolean; result?: string }
+  /** `wait_for_process`: l'attesa di un processo, con l'id per ritrovarlo vivo
+   *  nel registro dei processi mentre la riga e' ancora aperta. */
+  | { type: 'wait'; processId: string; until?: string; timeoutMs?: number; result?: string }
   | { type: 'bash_output'; shellId: string; filter?: string; output?: string }
   | { type: 'kill_shell'; shellId: string; result?: string }
   | { type: 'notebook_edit'; notebookPath: string; cellId?: string; editMode?: string; cellType?: string }
