@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { Check, Hash, MoreHorizontal, Pencil, Sigma } from 'lucide-react';
 import type { TaskStatus, TaskLabel, QueueReason, QueueTone } from '../../lib/board';
 import type { ProjectCounts } from '../../lib/projectTaskCounts';
@@ -30,6 +31,7 @@ import { memorableId } from '../../lib/memorableId';
  * `stopPropagation` perché copiare non deve mai aprire la card.
  */
 export function TaskIdChip({ id, className = '' }: { id: string; className?: string }) {
+  const tr = useT();
   const [copied, setCopied] = useState(false);
   const Glyph = copied ? Check : Hash;
   return (
@@ -37,12 +39,12 @@ export function TaskIdChip({ id, className = '' }: { id: string; className?: str
       type="button"
       data-testid="task-id-chip"
       data-copied={copied || undefined}
-      aria-label={`ID del task ${memorableId(id)}: copia`}
+      aria-label={tr('task.id.copy.aria', { id: memorableId(id) })}
       onClick={(e) => {
         e.stopPropagation();
         try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
       }}
-      title={copied ? 'ID copiato' : `${memorableId(id)} · clicca per copiare l'ID pieno (${id})`}
+      title={copied ? tr('task.id.copied') : tr('task.id.copyHint', { short: memorableId(id), full: id })}
       className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'} ${className}`}
     ><Glyph className="h-3.5 w-3.5" aria-hidden /></button>
   );
@@ -167,6 +169,7 @@ export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: Task
  *  render sites so both stay in lockstep. 'delivered' carries a PackageCheck
  *  glyph so "consegnato" reads at a glance, not just as colored text. */
 export function DispatchChip({ state, error }: { state: string; error?: string | null }) {
+  const tr = useT();
   const chip = DISPATCH_CHIP[state];
   if (!chip) return null;
   const Icon = chip.Icon;
@@ -181,7 +184,7 @@ export function DispatchChip({ state, error }: { state: string; error?: string |
       // Il buco si dichiara: uno stato di park senza `dispatch_error` è una card
       // ferma di cui NESSUNO ha scritto il motivo, e un tooltip assente si legge
       // come «non c'è niente da sapere». C'è, e non lo sappiamo.
-      title={chip.title ?? error ?? 'Motivo non registrato: la card è ferma qui e nessuno ha scritto perché. Guarda il thread.'}
+      title={chip.title ?? error ?? tr('task.dispatch.noReason')}
     >
       {Icon && <Icon className="h-3 w-3" aria-hidden />}
       {chip.text}

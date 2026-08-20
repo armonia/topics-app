@@ -30,7 +30,7 @@ import {
   requeueFront,
   unshiftTurn,
 } from '../state/chatQueue';
-import { registerHeapOwner, roughBytes } from '../lib/devHeapProbe';
+import { registerFeatureWeight, roughBytes } from '../lib/featureWeight';
 import {
   evictSessions,
   getAllMessages,
@@ -498,7 +498,7 @@ export function useChat() {
   // Costo a riposo: una voce in una Map. La funzione gira solo a sonda armata.
   const heapMarkersRef = useRef(compactionMarkers);
   heapMarkersRef.current = compactionMarkers;
-  useEffect(() => registerHeapOwner('chat.messages', () => {
+  useEffect(() => registerFeatureWeight('chat.messages', 'Chat caricate in memoria', 'trattenuto', () => {
     const m = getAllMessages();
     const keys = Object.keys(m);
     let items = 0;

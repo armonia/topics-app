@@ -15,6 +15,7 @@
 // l'intestazione di `Board/GlobalCapControl.test.tsx`), e questo modulo ha un
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { useSessionActivity, useSubjectLastActivity } from '../../state/signals';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
@@ -227,6 +228,7 @@ export function SessionElapsed({ subjectId, onFill, className = '' }: SessionAct
 }
 
 function SessionElapsedTicking({ subjectId, onFill, className = '' }: SessionActivityProps) {
+  const tr = useT();
   const activity = useSessionActivity(subjectId);
   const lastActivityAt = useSubjectLastActivity(subjectId);
   // Granularità al minuto: qui basta il tick condiviso da 10s. I secondi vivono
@@ -246,7 +248,7 @@ function SessionElapsedTicking({ subjectId, onFill, className = '' }: SessionAct
       data-testid="tab-elapsed"
       title={
         time.kind === 'working'
-          ? `In esecuzione da ${label}${time.approx ? ' (almeno: il turno era già in corso all\'ultimo riavvio del server)' : ''}`
+          ? tr('activity.runningFor', { label, approx: time.approx ? tr('activity.atLeast') : '' })
           : `Ha finito ${label} fa`
       }
     >

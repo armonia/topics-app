@@ -1,4 +1,5 @@
 import { createElement, memo, useEffect, useRef, useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
@@ -107,6 +108,7 @@ interface Props {
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
 export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision }: Props) {
+  const tr = useT();
   const settledMetricClass = useSettledMetricClass('tool');
   const [open, setOpen] = useState(false);
 
@@ -302,7 +304,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               nome. Una spunta verde su ogni riga conclusa confermava la norma —
               cioè non diceva niente — e teneva occupata una colonna a destra
               per tutte le righe pur di servirne una su cento. */}
-          {isError && <X size={11} className="flex-shrink-0 text-red-500 self-center" aria-label="fallita" />}
+          {isError && <X size={11} className="flex-shrink-0 text-red-500 self-center" aria-label={tr('tool.failed')} />}
           <span
             data-testid="tool-call-name"
             className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
@@ -355,7 +357,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               // resterebbe ferma su un valore vecchio — un numero sbagliato è
               // peggio di nessun numero. Da quanto aspetta lo dice il titolo del
               // cronometro del turno, che un tick ce l'ha.
-              aria-label="In attesa della tua risposta"
+              aria-label={tr('tool.awaitingYou')}
             />
           )}
           {/* Qui resta solo ciò che è VIVO: la rotella mentre l'agente è dentro
@@ -378,9 +380,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         >
           <ShieldOff size={11} className="mt-[3px] flex-shrink-0" />
           <span>
-            Questa chat è passata in <strong>modalità libera</strong>
-            {toolCall.permissionOutcome.actor ? ` · da ${toolCall.permissionOutcome.actor}` : ''}: da qui in poi
-            esegue senza chiedere. Si torna indietro dal selettore di autonomia, accanto al campo di testo.
+            {tr('tool.freeMode.pre')} <strong>{tr('tool.freeMode.name')}</strong>
+            {toolCall.permissionOutcome.actor ? tr('tool.freeMode.by', { who: toolCall.permissionOutcome.actor }) : ''}{tr('tool.freeMode.post')}
           </span>
         </div>
       )}
