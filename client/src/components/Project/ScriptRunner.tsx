@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TREE_ROW_CARD } from '@/lib/selectionStyles';
-import { Play, Square } from 'lucide-react';
+import { Play, Square, Hourglass } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
 import { useDetectedScripts } from '../../hooks/useDetectedScripts';
 import type { DetectedScript } from '../../types';
@@ -22,6 +22,34 @@ function getScriptColor(name: string): string {
   if (name.match(/^(test|spec|e2e|cypress)/)) return 'text-yellow-500';
   if (name.match(/^(lint|format|prettier|eslint)/)) return 'text-purple-500';
   return 'text-app-text-muted';
+}
+
+/**
+ * La spia dell'ATTESA.
+ *
+ * Un agente puo' chiedere al server di svegliarlo quando questo processo
+ * finisce (`wait_for_process`). Da fuori, un agente che aspetta e un agente
+ * piantato si assomigliano molto: questa clessidra e' l'unica differenza
+ * visibile fra i due, e per questo sta sulla riga del processo e non in un
+ * pannello a parte — la si legge dove si legge lo stato.
+ */
+function AwaitedChip({ watchers }: { watchers?: { label: string; since: string; until?: string }[] }) {
+  const tr = useT();
+  if (!watchers || watchers.length === 0) return null;
+  const chi = watchers.map(w => (w.until ? `${w.label} · /${w.until}/` : w.label)).join('\n');
+  const testa = watchers.length === 1
+    ? tr('processes.awaited.one')
+    : tr('processes.awaited.many', { n: watchers.length });
+  return (
+    <span
+      data-testid="process-awaited"
+      className="flex items-center gap-1 text-[9px] uppercase tracking-wide px-1 py-px rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 flex-shrink-0"
+      title={`${testa}\n${chi}`}
+    >
+      <Hourglass size={9} className="animate-pulse" />
+      {tr('processes.awaited.chip')}
+    </span>
+  );
 }
 
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
@@ -220,6 +248,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   exit {failed.exitCode}
                 </button>
               )}
+              <AwaitedChip watchers={running?.watchers} />
               {/* Inline ports for running scripts */}
               {!isStopping && ports.map(port => (
                 <a
@@ -278,6 +307,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 >
                   auto
                 </span>
+                <AwaitedChip watchers={sp.watchers} />
                 <span className="flex-1" />
                 {!isStopping && ports.map(port => (
                   <a
@@ -335,6 +365,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               >
                 shell
               </span>
+              <AwaitedChip watchers={sp.watchers} />
               <span className="flex-1" />
               {!isStopping && ports.map(port => (
                 <a

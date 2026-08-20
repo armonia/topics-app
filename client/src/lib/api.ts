@@ -804,6 +804,9 @@ export interface ScriptProcessInfo {
   shellId?: string;
   /** Solo per `source: 'shell'`: la topic da cui è partita, se nota. */
   topicId?: string | null;
+  /** Chi sta ASPETTANDO la fine di questo processo (`wait_for_process`).
+   *  Assente quando nessuno aspetta: e' il caso normale. */
+  watchers?: { label: string; since: string; until?: string }[];
 }
 
 export const scriptsApi = {
