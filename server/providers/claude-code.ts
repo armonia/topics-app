@@ -47,6 +47,7 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
+import { isWokenTurnLine, WOKEN_BUFFER_MAX } from "./claude/woken-turn";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -128,18 +129,6 @@ export function turnWatchdogDecision(opts: {
   return { action: "rearm", delayMs: remaining };
 }
 const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIGKILL
-/**
- * Quanti eventi si tengono da parte per un turno che la CLI ha aperto DA SOLA,
- * mentre il server apre la riga che li accoglierà (vedi `wokenBuffer`).
- *
- * 200 è largo per il caso vero e stretto per quello rotto. Un risveglio da
- * Monitor è un turno corto — l'evento, una frase, la fine — e l'adozione dura un
- * giro di event loop più una INSERT: nella pratica ne passano una manciata.
- * Duecento coprono con abbondanza anche un risveglio che si mette a chiamare
- * tool; oltre, l'adozione non è lenta, è FALLITA, e continuare ad accumulare
- * significherebbe tenere in RAM il turno intero per consegnarlo a nessuno.
- */
-const WOKEN_BUFFER_MAX = 200;
 // Heartbeat (Fix B in stream-timeout-resilience):
 //   Re-emit `onSubAgentUpdate` snapshots when the provider has gone quiet
 //   for ≥ HEARTBEAT_QUIET_MS while Task() sub-agents are still pending.
@@ -974,18 +963,13 @@ interface PersistentProcess {
    * non arriva un handler che li possa ricevere.
    *
    * Serve perché fra «la CLI ricomincia a parlare» e «il server ha aperto una
-   * riga e registrato un handler» passa un giro di event loop e una scrittura
-   * su DB — e in quel buco, misurato, ci passano il `system/init`, il primo
-   * `assistant` e a volte l'intero testo (nella sonda del 20/08 fra l'`init` e
-   * il testo sono passati 3,2 s, ma è un modello che ragionava: un «Event
-   * ricevuto» secco può arrivare in decine di millisecondi). Buttare quel
-   * pezzo per un problema di tempistica sarebbe lo stesso difetto di prima,
-   * più piccolo e più difficile da vedere.
+   * riga e registrato un handler» passano un giro di event loop e una INSERT, e
+   * in quel buco ci passano i primi eventi del turno. Buttarli per una questione
+   * di tempistica sarebbe lo stesso difetto di prima, più piccolo e più
+   * difficile da vedere.
    *
-   * `null` = non stiamo aspettando nessuno; un array = c'è una riadozione in
-   * volo e questi eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
-   * Il tetto è basso di proposito: se il buffer si riempie senza che nessuno
-   * arrivi, l'adozione è fallita e tenere byte non serve a niente.
+   * `null` = non aspettiamo nessuno; un array = c'è un'adozione in volo e questi
+   * eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
    */
   wokenBuffer?: unknown[] | null;
   /** Pending promise resolvers for sendChat */
@@ -1200,35 +1184,25 @@ export class ClaudeCodeProvider implements AIProvider {
   /**
    * CHI VUOLE SAPERE CHE UN TURNO È NATO DA SOLO.
    *
-   * IL BUCO, misurato il 20/08/2026 con la CLI 2.1.237 lanciata esattamente
-   * come la lancia Topics (`--print --input-format stream-json`, la stessa argv
-   * di `buildClaudeArgs`). Un `Monitor` armato su `sleep 12; echo
-   * BUILD-FALLITO-XYZ`:
+   * Un `Monitor` armato non consegna il suo evento nel turno che l'ha armato:
+   * quel turno è finito. Lo consegna aprendo un TURNO NUOVO — la CLI risveglia
+   * il figlio da sola e produce una risposta vera senza che nessuno abbia
+   * scritto niente. La traccia misurata (CLI 2.1.237, 20/08/2026, stessa argv di
+   * Topics) sta in testa a `claude-code-woken-turn.test.ts`, che è anche il file
+   * che pinna questo contratto.
    *
-   *     [16.1s] assistant tool_use:Monitor
-   *     [16.7s] user tool_result:"Monitor started (task by78xc2y9…)"
-   *     [21.5s] result/success  "Armato."          ← il turno FINISCE qui
-   *     [28.8s] system/task_notification            ← l'evento arriva
-   *     [29.3s] system/init                         ← la CLI APRE UN TURNO NUOVO
-   *     [32.5s] assistant text:"Event ricevuto: `BUILD-FALLITO-XYZ`"
-   *     [35.6s] result/success "Event ricevuto: `BUILD-FALLITO-XYZ`"
+   * Il buco che chiude: quel turno nasce dopo un `result`, e dopo un `result`
+   * `pp.streamHandler` è null — quindi `handleStreamEvent` lo lasciava cadere
+   * blocco per blocco, in silenzio. La risposta esisteva, era corretta, ed era
+   * invisibile: né in chat né nel DB. Per questo il Monitor si presentava come
+   * «forse l'avevamo e si è perso»: non si era perso il tool, si perdeva la sua
+   * RISPOSTA, che è la cosa per cui lo si arma.
    *
-   * Cioè: il Monitor funziona, la CLI risveglia il figlio da sola e produce una
-   * risposta VERA senza che nessuno abbia scritto niente. Ma quel turno nasce
-   * dopo un `result`, e dopo un `result` `pp.streamHandler` è null — quindi
-   * `handleStreamEvent` lo lasciava cadere blocco per blocco, in silenzio. La
-   * risposta esisteva, era corretta, ed era invisibile: né in chat, né nel DB.
-   *
-   * Per questo il tema arriva come «forse l'avevamo e si è perso». Non si è mai
-   * perso il tool: si perdeva la sua RISPOSTA, che è la cosa per cui lo si arma.
-   *
-   * Questo callback è il filo che mancava. Il provider dice «su questa sessione
-   * è ricominciato a parlare qualcuno, e non gliel'ho chiesto io»; chi ascolta
-   * (server.ts) apre una riga e riadotta il turno con la macchina che già
-   * esiste — la stessa di un riattacco dopo un riavvio.
-   *
-   * NON è un `StreamHandler`: si arma una volta per processo, non per turno, e
-   * il suo mestiere è solo svegliare chi sa costruire un handler vero.
+   * Questo callback è il filo che mancava: il provider dice «su questa sessione
+   * ha ricominciato a parlare qualcuno, e non gliel'ho chiesto io»; chi ascolta
+   * (server.ts) apre una riga e adotta il turno. NON è uno `StreamHandler`: si
+   * arma una volta per processo, e il suo mestiere è svegliare chi sa costruirne
+   * uno vero.
    */
   private onWokenTurn: ((sessionKey: string) => void) | null = null;
 
@@ -1246,18 +1220,14 @@ export class ClaudeCodeProvider implements AIProvider {
    * consegna, NELL'ORDINE, gli eventi arrivati mentre il server apriva la riga.
    *
    * È il gemello di `reattach` per il caso opposto. `reattach` adotta un turno
-   * partito PRIMA che noi esistessimo (riavvio del server) e per farlo deve
-   * rileggere lo store del broker; qui il turno è partito ADESSO, sotto i nostri
-   * occhi, e i suoi byte li abbiamo già: non c'è niente da rileggere, c'è da non
-   * buttare. Per questo non passa da `reattachDrive` — usarlo qui vorrebbe dire
-   * farsi rispedire lo store intero per riscoprire tre eventi che sono in una
-   * lista in memoria.
+   * partito PRIMA che noi esistessimo (riavvio del server) e per farlo rilegge
+   * lo store del broker; qui il turno è partito ADESSO e i suoi byte li abbiamo
+   * già: non c'è niente da rileggere, c'è da non buttare.
    *
-   * Torna `false` quando non c'è più niente da adottare: la sessione è sparita
-   * (figlio morto nel frattempo) o qualcun altro sta già guidando — che è il
-   * caso di una persona che scrive un messaggio proprio mentre il Monitor
-   * consegna. In quel caso il turno vero vince e il risveglio si fonde con lui:
-   * gli eventi in buffer erano dello stesso figlio, e il suo handler li vedrà
+   * `false` = non c'è più niente da adottare: figlio morto, o qualcun altro sta
+   * già guidando — il caso di una persona che scrive proprio mentre il Monitor
+   * consegna. Allora vince il turno vero e il risveglio si fonde con lui: gli
+   * eventi in buffer erano dello stesso figlio, e il suo handler li vede
    * comunque da qui in avanti.
    */
   adoptWokenTurn(sessionKey: string, handler: StreamHandler): boolean {
@@ -2922,27 +2892,13 @@ export class ClaudeCodeProvider implements AIProvider {
     const line = classifyStreamLine(event);
 
     // ── IL TURNO CHE NASCE DA SOLO ──
-    //
-    // Un `Monitor` armato consegna il suo evento COME UN TURNO NUOVO: la CLI
-    // riapre da sé (`system/init`) e produce una risposta vera. Nessuno l'ha
-    // chiesta, quindi non c'è nessun handler — e senza questo blocco l'intero
-    // turno cadeva riga per riga. Vedi `onWokenTurn` per la misura che lo
-    // dimostra.
-    //
-    // Il riconoscimento è per SOTTRAZIONE, e deve restarlo: «contenuto vero,
-    // nessuno in ascolto, e non stiamo rileggendo lo store». Legarlo al
-    // `system/init` sarebbe legarlo alla forma di un evento che la CLI può
-    // cambiare senza dircelo; questa condizione invece è una proprietà nostra.
-    //
-    // I due `replay*` sono la guardia che conta: durante una riadozione si
-    // ripercorre di proposito uno store con dentro turni già finiti, e senza
-    // questa esclusione ogni riadozione ne «sveglierebbe» uno vecchio.
-    if (
-      !handler
-      && !pp.replayMute
-      && !pp.replaySilent
-      && (line.kind === "content" || line.kind === "partial")
-    ) {
+    // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.
+    if (isWokenTurnLine({
+      hasHandler: !!handler,
+      replayMute: !!pp.replayMute,
+      replaySilent: !!pp.replaySilent,
+      kind: line.kind,
+    })) {
       if (pp.wokenBuffer == null) {
         // Primo evento del risveglio: si apre il buffer e si chiama la sveglia.
         // Il buffer PRIMA della chiamata, non dopo: chi ascolta può registrare
