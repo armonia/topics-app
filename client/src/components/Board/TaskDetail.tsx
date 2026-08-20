@@ -90,14 +90,14 @@ function hostLabel(url: string): string {
  * Render solo in review e solo se c'è un output_url.
  */
 function OutputUrlProbeNotice({ task }: { task: BoardTask }) {
+  const tr = useT();
   if (!task.outputUrl || task.urlProbeStatus !== 'dead') return null;
   return (
     <div className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300">
       <WifiOff className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
-        <span className="font-medium">Anteprima non raggiungibile.</span>{' '}
-        Il server su {task.outputUrl} non risponde: il link non viene aperto automaticamente.
-        Se il server di sviluppo e' spento, usa lo screenshot come evidenza.
+        <span className="font-medium">{tr('board.task.previewUnreachable')}</span>{' '}
+        {tr('board.task.previewUnreachableDetail', { url: task.outputUrl })}
       </span>
     </div>
   );
@@ -2403,6 +2403,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               drawer è già full-screen, quindi il toggle è nascosto (<lg). */}
           <button
             onClick={toggleWide}
+            data-testid="task-detail-wide-toggle"
+            aria-pressed={wide}
             title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
             className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>

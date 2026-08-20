@@ -359,7 +359,10 @@ function CopyPathBtn({ filePath, projectPath }: { filePath: string; projectPath:
 
 function WrapBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} title="Word Wrap" className={`p-0.5 rounded hover:bg-app-hover transition-colors ${active ? 'text-primary' : 'text-app-text-muted'}`}>
+    // `aria-pressed` e non solo la tinta: acceso e spento si distinguevano solo
+    // per il colore dell'icona, cioe' per niente che un lettore di schermo (o
+    // una spec) possa leggere.
+    <button onClick={onClick} title="Word Wrap" aria-pressed={active} data-testid="editor-wrap-toggle" className={`p-0.5 rounded hover:bg-app-hover transition-colors ${active ? 'text-primary' : 'text-app-text-muted'}`}>
       <WrapText size={13} />
     </button>
   );

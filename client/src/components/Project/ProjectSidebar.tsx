@@ -263,6 +263,34 @@ export function ProjectSidebar({
     return () => window.removeEventListener('resize', h);
   }, []);
 
+  /**
+   * Apertura delle sezioni, larghezza della colonna e altezze del fondo: dove
+   * vivono, e perche' hanno cambiato casa.
+   *
+   * Stavano in `sessionStorage`, senza nessuna ragione scritta. Il guaio e' che
+   * `sessionStorage` muore con la SCHEDA: una seconda finestra, un pop-out di
+   * un topic, una scheda nuova ripartivano tutti dal default, e la colonna che
+   * avevi stretto per quell'albero di file tornava larga. Misurato il
+   * 20/08/2026 (`refresh-durability-board.spec.ts`, riga 7): stessa scheda
+   * ricaricata -> resta; scheda nuova -> default.
+   *
+   * L'equivalente nella sidebar principale (`sidebar-collapsed-groups` in
+   * `TopicTree`) sta in `localStorage` da sempre. Era una disparita' per caso,
+   * non una scelta: due stati della stessa natura, con due durate diverse.
+   *
+   * La lettura ricade su `sessionStorage` una volta sola, cosi' una finestra
+   * aperta adesso non perde cio' che ci aveva messo dentro; la scrittura va
+   * solo in `localStorage`, quindi la vecchia casa si svuota da se'.
+   */
+  const leggiLayout = (k: string): string | null => {
+    try {
+      return localStorage.getItem(k) ?? sessionStorage.getItem(k);
+    } catch { return null; }
+  };
+  const scriviLayout = (k: string, v: string): void => {
+    try { localStorage.setItem(k, v); } catch { /* quota o storage negato: si resta col default */ }
+  };
+
   // On mobile, start collapsed but allow toggling (renders as overlay)
   const effectiveCollapsed = collapsed;
   // Le chiavi portano il PROGETTO. Erano globali — `sidebar-sections` e
@@ -276,7 +304,7 @@ export function ProjectSidebar({
   const HEIGHTS_KEY = `project-sidebar-bottom-heights:auto:${projectPath}`;
   const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
     try {
-      const saved = sessionStorage.getItem(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
+      const saved = leggiLayout(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
       if (saved) return JSON.parse(saved);
     } catch {}
     return { files: true, git: false, processes: false };
@@ -284,7 +312,7 @@ export function ProjectSidebar({
 
   // Persist expanded sections across page refreshes
   useEffect(() => {
-    try { sessionStorage.setItem(SECTIONS_KEY, JSON.stringify(expandedSections)); } catch {}
+    scriviLayout(SECTIONS_KEY, JSON.stringify(expandedSections));
   }, [SECTIONS_KEY, expandedSections]);
 
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
@@ -338,14 +366,14 @@ export function ProjectSidebar({
   const WIDTH_KEY = `project-sidebar-width:${projectPath}`;
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
-      const saved = sessionStorage.getItem(WIDTH_KEY);
+      const saved = leggiLayout(WIDTH_KEY);
       const n = saved ? parseInt(saved, 10) : NaN;
       if (Number.isFinite(n)) return Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, n));
     } catch {}
     return DEFAULT_SIDEBAR_W;
   });
   useEffect(() => {
-    try { sessionStorage.setItem(WIDTH_KEY, String(sidebarWidth)); } catch {}
+    scriviLayout(WIDTH_KEY, String(sidebarWidth));
   }, [WIDTH_KEY, sidebarWidth]);
 
   // ── Bottom sections (Git, Processes) — ancorate in fondo, altezza AUTOMATICA ──
@@ -362,14 +390,14 @@ export function ProjectSidebar({
   // divisore della larghezza, che col doppio clic torna al default.
   const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number | null>>(() => {
     try {
-      const saved = sessionStorage.getItem(HEIGHTS_KEY);
+      const saved = leggiLayout(HEIGHTS_KEY);
       if (saved) return JSON.parse(saved);
     } catch {}
     return { git: null, processes: null };
   });
 
   useEffect(() => {
-    try { sessionStorage.setItem(HEIGHTS_KEY, JSON.stringify(bottomHeights)); } catch {}
+    scriviLayout(HEIGHTS_KEY, JSON.stringify(bottomHeights));
   }, [HEIGHTS_KEY, bottomHeights]);
 
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null);

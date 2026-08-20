@@ -17,6 +17,11 @@
 import type { Dict } from './i18n-types';
 
 const EN = {
+  'palette.hint.navigate': 'navigate',
+  'palette.hint.open': 'open',
+  'palette.hint.close': 'close',
+  'settings.board.showRow': 'Show the Board in the sidebar',
+  'settings.board.showRowBlurb': 'A fixed row at the top of the column, with the projects and the per-status counts.',
   'board.night.title': 'Night mode',
   'board.night.blurb':
     'While you are away, the queue only starts on an idle machine. It switches itself off at the end time instead of staying armed over whoever is working.',
@@ -51,6 +56,10 @@ const EN = {
   'tab.menu.pin': 'Pin',
   'tab.menu.unpin': 'Unpin',
   'board.task.movedToReviewBySystem': 'Moved to review by the system.',
+  // The output_url probe came back dead: the link is not opened on its own, and
+  // the red line says why, with the address in it.
+  'board.task.previewUnreachable': 'Preview unreachable.',
+  'board.task.previewUnreachableDetail': 'The server at {url} is not answering, so the link is not opened automatically. If the dev server is off, use the screenshot as the evidence.',
   // CARD vs SESSION — see the Italian block for the rule. The card is where you
   // decide and always exists; the session is the agent's live chat, where the
   // work happens, and it can be gone.
@@ -285,6 +294,21 @@ const EN = {
   'settings.page.organization.blurb': 'The group you share with: name, people, roles and the projects that belong to it.',
   'settings.page.friends.title': 'Friends',
   'settings.page.friends.blurb': 'The faces and the numbers of whoever works with you: GitHub profile, prompts written, tokens spent.',
+  // ── Organization projects (Settings › Organization). The six blurbs are keys
+  //    too: the line that says what a workspace is for is the only part of a
+  //    suggestion anyone actually reads.
+  'settings.org.projects.title': 'Organization projects',
+  'settings.org.projects.empty': 'No project linked yet.',
+  'settings.org.projects.suggestedTitle': 'Recommended workspaces for Armonia',
+  'settings.org.projects.suggestedBadge': 'suggested',
+  'settings.org.projects.alreadyThere': 'already there',
+  'settings.org.projects.hint': 'Create the project from the sidebar (right-click) and assign it to the org.',
+  'settings.org.projects.blurb.danceroom': 'A place for dance: choreography, music, live sessions',
+  'settings.org.projects.blurb.topicsApp': 'The main product: a workspace for agents',
+  'settings.org.projects.blurb.finance': 'Accounts, budgets and financial reporting',
+  'settings.org.projects.blurb.marketing': 'Campaigns, content and online presence',
+  'settings.org.projects.blurb.dev': 'Technical projects that cut across teams',
+  'settings.org.projects.blurb.ops': 'Operations, infrastructure and internal processes',
   'board.filter.projectUnknown': 'Not among the open projects: still filterable, but where it lives is unknown.',
   'board.card.systemNote': 'System note',
   'board.card.commentMore': 'Show all',
@@ -952,6 +976,23 @@ const EN = {
   'browser.newTab.topSites': 'Your sites',
   'browser.newTab.empty': 'The sites you open most often show up here.',
   'browser.newTab.forget': 'Remove {host} from your sites',
+  // ── Dev bar of the browser pane: zoom, device, console drop-down. The
+  //    per-level chip labels stay in `Browser/consoleLogModel.ts`, next to the
+  //    rule they filter by.
+  'browser.dev.zoomOut': 'Zoom out',
+  'browser.dev.zoomReset': 'Reset zoom (100%)',
+  'browser.dev.zoomIn': 'Zoom in',
+  'browser.dev.device': 'Device: {name}',
+  'browser.dev.console.filterPlaceholder': 'Filter messages',
+  'browser.dev.console.filterLabel': 'Filter the console messages',
+  'browser.dev.console.copyVisible': 'Copy the visible rows',
+  'browser.dev.console.copied': 'Copied',
+  'browser.dev.console.copy': 'Copy',
+  'browser.dev.console.clear': 'Clear the console',
+  'browser.dev.console.levelFilter': 'Filter by level',
+  'browser.dev.console.empty': 'No messages',
+  'browser.dev.console.noMatch': 'No message matches',
+  'browser.dev.console.toTail': 'Jump to the bottom',
   // ── Sidebar groups (spaces).
   'space.collapse': 'Collapse {name}',
   'space.expand': 'Expand {name}',

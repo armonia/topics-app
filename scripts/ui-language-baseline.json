@@ -19,7 +19,7 @@
     "by value across the client/server boundary) mark that line with",
     "`// allow-italian: <why>` instead of buying the exemption here."
   ],
-  "updated": "2026-08-15",
+  "updated": "2026-08-20",
   "files": {
     "client/src/App.tsx": 3,
     "client/src/components/Auth/PairingApproval.tsx": 6,
@@ -31,7 +31,6 @@
     "client/src/components/Board/TaskDetail.tsx": 17,
     "client/src/components/Board/UnifiedDiff.tsx": 11,
     "client/src/components/Board/atoms.tsx": 5,
-    "client/src/components/Browser/BrowserDevControls.tsx": 2,
     "client/src/components/Browser/BrowserNoticeStrip.tsx": 2,
     "client/src/components/Browser/BrowserToolbar.tsx": 12,
     "client/src/components/Browser/DomCoBrowse.tsx": 2,
