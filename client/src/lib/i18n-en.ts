@@ -17,6 +17,11 @@
 import type { Dict } from './i18n-types';
 
 const EN = {
+  'palette.hint.navigate': 'navigate',
+  'palette.hint.open': 'open',
+  'palette.hint.close': 'close',
+  'settings.board.showRow': 'Show the Board in the sidebar',
+  'settings.board.showRowBlurb': 'A fixed row at the top of the column, with the projects and the per-status counts.',
   'board.night.title': 'Night mode',
   'board.night.blurb':
     'While you are away, the queue only starts on an idle machine. It switches itself off at the end time instead of staying armed over whoever is working.',
