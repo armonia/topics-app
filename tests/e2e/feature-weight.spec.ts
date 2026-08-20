@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
+import { createTopic } from './helpers/api-fixtures';
 
 /**
  * L'INVENTARIO DEL PESO, SUL PERCORSO CHE L'UTENTE PERCORRE DAVVERO.
@@ -229,6 +230,91 @@ test.describe('inventario del peso per funzionalita', () => {
       const testo = await inventario.innerText();
       expect(testo).not.toMatch(/\b0 MB\b/);
       expect(testo).not.toContain('Terminali e sessioni');
+    }
+  });
+});
+
+test.describe('il consumo sulla TAB', () => {
+  /* IL DIFETTO SEGNALATO, sul percorso vero. Passando il mouse su una tab di
+   * chat usciva soltanto «questa scheda non ha un processo proprio»: una frase
+   * che risponde a com'e' implementata la scheda invece che a cosa costa.
+   * Riportato come «non vedo dove esce il consumo».
+   *
+   * SERVE UN E2E, e non basta l'unitario: la funzione riceve la `sessionKey`
+   * dalla tab bar, e se quel filo non e' attaccato la funzione resta giusta e
+   * il tooltip resta muto — cioe' esattamente com'era prima.
+   *
+   * E NON PUO' SALTARE quando non trova tab. Il primo tentativo faceva
+   * `test.skip` sull'ambiente vuoto: due skip verdi che non provavano niente,
+   * e un `test.skip` in un file che gira in CI e' un test che non esiste. Qui
+   * la chat viene CREATA (che apre anche la sua tab) e la sua cronologia
+   * intercettata con messaggi veri.
+   */
+
+  /** Una chat con `n` messaggi in cronologia, e la sua tab aperta. */
+  async function chatConMessaggi(page: import('@playwright/test').Page, n: number) {
+    const nome = `peso-tab-${Date.now()}`;
+    // `createTopic` e non un POST nudo: oltre a creare il topic SEMINA la sua
+    // pane nello snapshot di `pane-store-v2`, che e' cio' che ne fa comparire
+    // la tab. Un POST diretto crea il topic e basta — provato, e la tab non
+    // arrivava mai.
+    const topic = await createTopic(page.request, nome) as { id: string; sessionKey?: string };
+    const sessionKey = topic.sessionKey ?? `topic:${topic.id.slice(0, 8)}`;
+
+    // La cronologia: e' da qui che il client riempie `messageStore`, cioe' la
+    // sorgente che il tooltip conta.
+    await page.route(`**/api/history/${encodeURIComponent(sessionKey)}`, async (route) => {
+      await route.fulfill({
+        json: {
+          messages: Array.from({ length: n }, (_, i) => ({
+            id: `m${i}`,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `messaggio ${i}`,
+            timestamp: new Date().toISOString(),
+          })),
+        },
+      });
+    });
+    return { id: topic.id, sessionKey, nome };
+  }
+
+  test('una chat con messaggi dice quanti ne tiene, non solo cosa non e\'', async ({ page }) => {
+    await conFlotta(page);
+    const chat = await chatConMessaggi(page, 7);
+    await page.goto('/');
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+
+    // La tab della chat appena creata: `createTopic` ne apre una, e il titolo
+    // porta il nome del topic.
+    const tab = page.locator('[role="main"] [data-testid="pane-tab-label"]')
+      .filter({ hasText: chat.nome }).first();
+    await expect(tab).toBeVisible({ timeout: 20_000 });
+    await tab.click(); // aprirla e' cio' che ne carica la cronologia
+    await tab.hover();
+
+    await expect.poll(async () => (await tab.getAttribute('title')) ?? '', { timeout: 20_000 })
+      .toContain('In memoria');
+    const titolo = (await tab.getAttribute('title'))!;
+    expect(titolo).toContain('7 messaggi');
+    // E NON MISURA in MB: quelli non si attribuiscono a un componente dentro
+    // un renderer condiviso. La frase che lo SPIEGA contiene «MB» di proposito.
+    expect(titolo).not.toMatch(/\d+\s*MB/);
+    expect(titolo).toContain('Nessun processo proprio');
+  });
+
+  test('ogni tab aperta ha un tooltip che parla di consumo, nessuna resta muta', async ({ page }) => {
+    await conFlotta(page);
+    await chatConMessaggi(page, 3);
+    await page.goto('/');
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+
+    const tabs = page.locator('[role="main"] [data-testid="pane-tab-label"]');
+    await expect(tabs.first()).toBeVisible({ timeout: 20_000 });
+    const n = await tabs.count();
+    expect(n).toBeGreaterThan(0);
+    for (let i = 0; i < Math.min(n, 5); i++) {
+      const t = (await tabs.nth(i).getAttribute('title')) ?? '';
+      expect(t).toMatch(/In memoria:|Consumo:/);
     }
   });
 });
