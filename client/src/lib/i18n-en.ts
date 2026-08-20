@@ -738,6 +738,8 @@ const EN = {
   'board.card.modelTitle': 'Model: {model}',
   'board.card.liveEffortTitle': 'Running · model {model}, {work} of work{tokens} (live)',
   'board.card.liveEffortTokens': ', {n} tokens',
+  'board.card.triage': 'Triage',
+  'board.card.triageTitle': 'Framing the task: reading the card, rewriting the title, judging the priority, opening the steps. It goes away at the first mark left on the card.',
   'board.card.priorityTitle': 'Priority: {label}',
   'board.card.seeAll': 'See all',
   'board.card.openSubtaskTitle': '{status} · open the subtask',

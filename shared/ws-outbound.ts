@@ -877,6 +877,11 @@ const taskUsageLiveSchema = z.looseObject({
   baseMs: z.number(),
   liveTokens: z.number(),
   model: z.nullable(z.string()),
+  // «Sta ancora inquadrando il task»: primo turno, card ancora intatta. Facoltativo
+  // perché un client più vecchio del server non lo conosce e un server più vecchio
+  // del client non lo manda: assente vale come falso, e nessuna delle due metà si
+  // rompe per un chip.
+  triage: z.optional(z.boolean()),
 });
 
 // «Questo task sta aspettando una PERSONA», mentre il turno è ancora vivo: un
