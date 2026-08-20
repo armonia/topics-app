@@ -62,6 +62,7 @@ import { fleetLoadSync, procFootprintKB } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
+import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { killProcessTree } from "./server/lib/process-tree";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
@@ -703,7 +704,7 @@ ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // board gesture. All its host-specific wiring — the in-process turn runtime,
 // worktree creation, project-path resolution — is assembled here and injected,
 // keeping server/services/task-dispatcher.ts host-agnostic and unit-tested.
-const dispatcherSvc = createTaskService(ctx.db);
+const dispatcherSvc = createTaskService(ctx.db, { writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR) });
 const DISPATCH_WORKSPACE_DIR = join(ctx.OPENCLAW_DIR, "workspace");
 
 async function abortHeadlessTurn(sessionKey: string): Promise<void> {
@@ -1547,6 +1548,18 @@ previewManager = createPreviewManager({
 // claude, e un'anteprima non e' figlia di nessuna PTY. Con 51 porte bastano
 // poche morti per lasciare una card in review senza evidenza. Differita e
 // best-effort: un `lsof` per porta non deve stare sulla strada del boot.
+// SPAZZATA D'AVVIO delle card in review rimaste senza anteprima: la scheda di
+// consegna nasce sulla transizione verso review, e le card gia' ferme li' non
+// ne attraversano piu' nessuna. Senza questa passata resterebbero cieche per
+// sempre (erano 9 su 16 il 20/08). Differita e best-effort come la spazzata
+// delle anteprime vive qui sotto.
+setTimeout(() => {
+  try {
+    const n = dispatcherSvc.sweepReviewPreviews();
+    if (n) console.log(`[preview] spazzata d'avvio: ${n} card in review hanno di nuovo un'anteprima`);
+  } catch (err) { console.error("[preview] spazzata delle anteprime in review fallita", err); }
+}, 8_000).unref?.();
+
 setTimeout(() => {
   previewManager?.sweepOrphans()
     .then((ports) => { if (ports.length) console.log(`[preview] spazzata d'avvio: liberate le porte ${ports.join(", ")}`); })

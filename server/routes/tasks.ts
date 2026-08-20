@@ -49,6 +49,7 @@ import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
+import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
@@ -500,7 +501,9 @@ export { gitDiffBundle };
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
-  const svc = createTaskService(db);
+  // La SCHEDA DI CONSEGNA (l'anteprima disegnata quando non ce n'e' nessuna)
+  // si scrive sotto `<dati>/media/`, cioe' dentro l'allowlist che la serve.
+  const svc = createTaskService(db, { writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR) });
   const attempts = createTaskAttemptStore(db);
 
   // Il lato «risposta» dell'instradamento delle domande (board-ask-routing.ts).
