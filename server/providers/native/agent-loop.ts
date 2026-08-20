@@ -29,7 +29,7 @@ import { needsCompaction, compact, windowFor } from "./compaction";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
-import type { TurnEndInfo } from "../stop-reason";
+import type { TurnEndInfo, StopCause } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
@@ -106,6 +106,16 @@ export interface AgentTurnOptions {
    */
   topics?: TopicsToolContext;
   signal?: AbortSignal;
+  /**
+   * PERCHÉ il segnale è scattato, chiesto nel momento in cui serve.
+   *
+   * `AbortSignal` non porta una ragione: dice CHE qualcuno ha annullato e non
+   * chi. Il loop la deve sapere per etichettare onestamente la fine del turno,
+   * e non può riceverla come valore perché nel momento in cui il turno parte
+   * non esiste ancora. Assente, o che risponde `undefined`, vale "user": è il
+   * default storico e l'unico che un chiamante senza informazioni può dare.
+   */
+  abortCause?: () => StopCause | undefined;
   /**
    * L'uso di OGNI GIRO, appena il giro finisce.
    *
@@ -403,7 +413,17 @@ export async function runAgentTurn(
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
-      return { turnEnd: { end: "cancelled", cause: "user" }, text: finalText, usage: total };
+      // ANCHE QUESTA USCITA PARLA.
+      //
+      // Prima faceva `return` e basta: nessun `onDone`, nessun `onError`,
+      // nessun `onAborted`. Chi ascolta — `routes/chat.ts` — finalizza il turno
+      // SOLO da uno di quei tre, quindi su questo ramo lo stream SSE restava
+      // aperto su un turno già morto, e a chiuderlo arrivava minuti dopo un
+      // watchdog, con la sua spiegazione sbagliata («il provider non risponde»).
+      // Un'uscita muta da un ciclo è una promessa non mantenuta a chi aspetta.
+      const end: TurnEndInfo = { end: "cancelled", cause: opts.abortCause?.() ?? "user" };
+      handler.onAborted?.({ result: finalText, turnEnd: end });
+      return { turnEnd: end, text: finalText, usage: total };
     }
 
     // Si compatta PRIMA di chiedere, non dopo aver ricevuto un 400: a quel
@@ -442,6 +462,20 @@ export async function runAgentTurn(
     // La risposta entra nella storia PRIMA dei risultati: l'ordine è parte del
     // protocollo, e invertirlo fa rifiutare la richiesta successiva.
     opts.history.push({ role: "assistant", content: forApi(round.blocks) });
+
+    // LA PROSA DI QUESTO GIRO SI TIENE, non solo quella dell'ultimo.
+    //
+    // `finalText` si popolava SOLO sul ramo che chiude il turno, quindi un
+    // turno interrotto a metà tornava al chiamante con testo VUOTO — anche
+    // quando il modello aveva già scritto delle frasi nei giri precedenti. In
+    // un turno agentico è la norma: si spiega cosa si sta per fare, si chiama
+    // un tool, si continua. Su un'uscita anticipata (abort, tetto dei giri)
+    // quel testo era l'unica cosa da mostrare sotto il cartello, e si perdeva.
+    //
+    // Si TIENE solo se questo giro ha prodotto prosa: un giro di soli tool non
+    // deve cancellare quello che era stato detto prima.
+    const prosaDelGiro = currentText(round.blocks);
+    if (prosaDelGiro.trim()) finalText = prosaDelGiro;
 
     const toolUses = round.blocks.filter((b) => b.type === "tool_use");
     if (round.stopReason !== "tool_use" || toolUses.length === 0) {

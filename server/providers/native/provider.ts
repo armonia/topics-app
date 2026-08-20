@@ -33,6 +33,7 @@ import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
 import { getTopicWorkspaceForSession, topicsAppBaseUrl } from "../claude-code";
 import type {
+  AbortReason,
   AIProvider,
   ChatMessage,
   CompletionResult,
@@ -42,6 +43,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
+import { cancelled, type StopCause } from "../stop-reason";
 
 /**
  * Il modello di partenza quando nessuno ne chiede uno.
@@ -159,6 +161,18 @@ interface NativeSession {
   /** `null` = questa topic non ha un progetto: niente tool di file. */
   workspace: string | null;
   abort?: AbortController;
+  /**
+   * PERCHÉ è stato annullato questo turno — scritto da chi ha chiamato
+   * `abort()`, letto da chi raccoglie i cocci in `sendChat`.
+   *
+   * `AbortController` porta il SEGNALE e non la ragione: quando `sendChat`
+   * scopre `abort.signal.aborted` sa solo CHE qualcuno ha annullato, e prima
+   * di questo campo tirava a indovinare — scriveva sempre `cause: "user"`. Su
+   * uno spegnimento del server quell'indovinello era falso, e la falsità
+   * costava il cartello: `finalizeStream` su `cancelled/user` tace, perché chi
+   * ha premuto stop non ha bisogno che gli si spieghi cos'ha premuto.
+   */
+  abortCause?: StopCause;
   model?: string;
   /** Quando questa sessione è stata toccata l'ultima volta. Serve allo sfratto. */
   lastUsedAt: number;
@@ -224,6 +238,16 @@ export class NativeProvider implements AIProvider {
     this.stopped = true;
     if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
     for (const s of this.sessions.values()) {
+      // LA RAGIONE VIAGGIA CON L'ANNULLAMENTO, anche qui.
+      //
+      // Un turno nativo vive DENTRO questo processo: quando il server si
+      // spegne non resta nessun figlio nel broker da riadottare, quindi
+      // questo `abort()` è la fine definitiva di quel turno, non una pausa.
+      // Senza la causa, `sendChat` scriveva `cancelled/user` e a valle tutto
+      // — registro della fine, `activity_log`, il cartello in chat — dava la
+      // colpa a un utente che non aveva toccato niente. Misurato il 20/08 su
+      // topic:9f9e9629: risposta troncata a metà frase, zero spiegazioni.
+      s.abortCause = "server-shutdown";
       try { s.abort?.abort(); } catch { /* già finito */ }
     }
     this.sessions.clear();
@@ -414,6 +438,9 @@ export class NativeProvider implements AIProvider {
           // messaggio dopo, non dalla prossima chat.
           autonomy: levelFor(readTopicAutonomy(sessionKey)),
           signal: abort.signal,
+          // La ragione si chiede QUANDO serve, non quando si parte: al momento
+          // dell'invio nessuno ha ancora annullato niente.
+          abortCause: () => session.abortCause,
           // L'USO SI DEPOSITA A OGNI GIRO, non a fine turno.
           //
           // Il registro è quello che il dispatcher rilegge ogni quattro secondi
@@ -438,9 +465,13 @@ export class NativeProvider implements AIProvider {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       // Un abort chiesto da noi non è un guasto: è la risposta a uno stop.
+      // CHI l'ha chiesto lo dice `abortCause`, scritto da `abort()`/`stop()`.
+      // Prima qui c'era `cause: "user"` fisso, e su uno spegnimento del server
+      // era una bugia che si portava via il cartello in chat.
       if (abort.signal.aborted) {
-        recordTurnEnd(sessionKey, { end: "cancelled", cause: "user" });
-        handler.onAborted?.({ result: "" });
+        const end = cancelled(session.abortCause ?? "user");
+        recordTurnEnd(sessionKey, end);
+        handler.onAborted?.({ result: "", turnEnd: end });
         return {};
       }
       handler.onError(detail);
@@ -448,13 +479,21 @@ export class NativeProvider implements AIProvider {
       return {};
     } finally {
       session.abort = undefined;
+      session.abortCause = undefined;
     }
   }
 
-  async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {
+  async abort(sessionKey: string, _runId?: string, reason: AbortReason = "user"): Promise<void> {
     const s = this.sessions.get(sessionKey);
     if (!s?.abort) return;
-    void reason;
+    // La ragione si DEPOSITA prima di annullare: chi raccoglie i cocci
+    // (`sendChat`, nel suo catch) legge da qui. Farlo dopo sarebbe una corsa
+    // con il proprio `catch`, che è sincrono rispetto all'`abort()`.
+    // Nessuna traduzione: `AbortReason` è per costruzione un sottoinsieme di
+    // `StopCause`, ed è per questo che è definito come tale — due vocabolari
+    // per la stessa cosa avrebbero avuto bisogno di una tabella, e una tabella
+    // è un posto in cui divergere.
+    s.abortCause = reason;
     s.abort.abort();
   }
 

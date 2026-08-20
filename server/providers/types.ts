@@ -29,6 +29,20 @@ import type { ProviderChatMessage as ChatMessage } from "../../shared/types";
 export type ToolArgs = Record<string, unknown>;
 
 /**
+ * CHI ha chiesto di annullare un turno.
+ *
+ * È un sottoinsieme di {@link StopCause} — le sole cause che un CHIAMANTE può
+ * dichiarare — e non un tipo a sé stante per caso: la causa dichiarata qui
+ * diventa la `StopCause` del `TurnEndInfo` che il provider deposita, e
+ * scriverla due volte in due vocabolari diversi è il modo in cui i due
+ * divergono. `"user"` resta il default per retro-compatibilità con chi non la
+ * passa, ma vale la regola opposta a quella dei valori di default: se la sai,
+ * la dici. Un annullamento etichettato `user` mette a tacere il cartello che
+ * spiega all'utente cos'è successo — vedi `stop-reason.ts`, `server-shutdown`.
+ */
+export type AbortReason = "user" | "watchdog" | "server-shutdown";
+
+/**
  * Token usage attached to a completed turn. Field names mirror what the
  * providers actually emit (Claude Code uses `inputTokens`/`outputTokens`/
  * cache fields; Codex uses `input_tokens`/`output_tokens` which the provider
@@ -453,8 +467,14 @@ export interface AIProvider {
    * stop ("user", default) from the stream watchdog giving up ("watchdog") so
    * the provider can label the resulting process exit honestly — a watchdog
    * abort must NOT read as "user stop" in logs/UI.
+   *
+   * `"server-shutdown"` è la terza, e nasce da un turno perso in silenzio il
+   * 20/08 (topic:9f9e9629): `stopAllProviders()` annullava ogni turno vivo
+   * riusando il default `"user"`, e da lì in poi tutto il resto del sistema
+   * credeva che avesse premuto l'utente — compreso `finalizeStream`, che su uno
+   * stop umano tace di proposito. Chi annulla lo sa: lo deve dire.
    */
-  abort?(sessionKey: string, runId?: string, reason?: "user" | "watchdog"): Promise<void>;
+  abort?(sessionKey: string, runId?: string, reason?: AbortReason): Promise<void>;
 
   /**
    * True when the provider's child process for this session is currently

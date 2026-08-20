@@ -88,6 +88,7 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
+import { cancelledNotice, abortLogTitle } from "../lib/cancelled-notice";
 
 /**
  * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
@@ -1731,6 +1732,36 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: emptyErrorMsg });
               }
             }
+            // UN TURNO ANNULLATO NON DALL'UTENTE DEVE DIRLO.
+            //
+            // `aborted` è sempre stato muto, e per l'unico caso che esisteva
+            // quando fu scritto — l'umano preme Ferma — è giusto: sa già cos'ha
+            // premuto, e la riga vuota che lascia viene buttata poco sotto.
+            //
+            // Ma ad annullare non è solo l'umano. Il 20/08 su topic:9f9e9629
+            // ad annullare è stato lo SPEGNIMENTO del server (salvataggio in
+            // `server/` → fswatch → `restart-when-idle` → SIGTERM →
+            // `stopAllProviders()`), e il silenzio pensato per lo stop a mano è
+            // finito sopra un turno che nessuno aveva fermato: risposta troncata
+            // a metà, nessuna spiegazione, nessun «Riprova». La regola di CHI
+            // merita il cartello sta in `lib/cancelled-notice.ts`, provata a
+            // parte; qui si applica soltanto.
+            //
+            // Il cartello va nei BLOCCHI — che sono ciò che il client disegna —
+            // e nel TESTO solo se il testo è vuoto, esattamente come fa il ramo
+            // `error` qui sopra: chi ha già scritto della prosa se la tiene, il
+            // verdetto lo porta il blocco.
+            if (reason === "aborted") {
+              const avviso = cancelledNotice(endInfo);
+              if (avviso) {
+                blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
+                if (!fullContent.trim()) fullContent = avviso;
+                if (matchedTopic) {
+                  broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: avviso });
+                }
+              }
+            }
+
             const latencyMs = Math.max(0, Date.now() - turnStartMs - humanWait.totalMs());
             const finalizedMsg = updateLastMessage(sessionKey, {
               content: fullContent,
@@ -1826,7 +1857,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               costCents,
             };
             if (reason === "done") logStreamComplete(logCtx);
-            else if (reason === "aborted") logStreamAborted(logCtx);
+            // Il titolo dice CHI ha annullato, non «l'utente» sempre. Un
+            // registro che attribuisce a una persona ciò che ha fatto una
+            // macchina manda a cercare dalla parte sbagliata: il 20/08 la riga
+            // «stream aborted by user» era l'unica traccia di uno spegnimento
+            // del server, e diceva il contrario di quello che era successo.
+            else if (reason === "aborted") logStreamAborted({ ...logCtx, title: abortLogTitle(endInfo) });
             else if (reason === "error") logStreamError({ ...logCtx, errorMessage: errorMsg });
 
             // (Topic switching is now a tool — `switch_topic`/`new_topic` —
