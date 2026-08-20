@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Folder, FolderPlus, Music, Globe, Briefcase, Code2, Cpu, Leaf } from 'lucide-react';
+import { useT } from '../../hooks/useT';
 
 /**
  * PROGETTI DELL'ORGANIZZAZIONE: cosa c'e' gia' e cosa potrebbe esserci.
@@ -16,9 +17,15 @@ interface Project {
   incognito?: boolean;
 }
 
+/**
+ * Una proposta porta la CHIAVE della sua descrizione, non la descrizione.
+ * Il testo lo sceglie `useT()` al momento del disegno: scritto qui sarebbe
+ * italiano fisso, e la riga che spiega a cosa serve uno spazio e' l'unica cosa
+ * che di una proposta si legge davvero.
+ */
 interface Proposta {
   nome: string;
-  descrizione: string;
+  blurbKey: string;
   icon: typeof Folder;
   suggerito?: boolean;
 }
@@ -26,39 +33,40 @@ interface Proposta {
 const PROPOSTE: Proposta[] = [
   {
     nome: 'danceroom',
-    descrizione: 'Spazio per la danza: coreografie, musica, sessioni live',
+    blurbKey: 'settings.org.projects.blurb.danceroom',
     icon: Music,
     suggerito: true,
   },
   {
     nome: 'topics-app',
-    descrizione: 'Il prodotto principale: workspace per agenti',
+    blurbKey: 'settings.org.projects.blurb.topicsApp',
     icon: Cpu,
     suggerito: true,
   },
   {
     nome: 'finance',
-    descrizione: 'Conti, budget e reportistica finanziaria',
+    blurbKey: 'settings.org.projects.blurb.finance',
     icon: Briefcase,
   },
   {
     nome: 'marketing',
-    descrizione: 'Campagne, contenuti e presenza online',
+    blurbKey: 'settings.org.projects.blurb.marketing',
     icon: Globe,
   },
   {
     nome: 'dev',
-    descrizione: 'Progetti tecnici trasversali',
+    blurbKey: 'settings.org.projects.blurb.dev',
     icon: Code2,
   },
   {
     nome: 'ops',
-    descrizione: 'Operazioni, infrastruttura e processi interni',
+    blurbKey: 'settings.org.projects.blurb.ops',
     icon: Leaf,
   },
 ];
 
 export function OrgProjectsSection() {
+  const t = useT();
   const [progetti, setProgetti] = useState<Project[]>([]);
   const [caricamento, setCaricamento] = useState(true);
 
@@ -79,7 +87,7 @@ export function OrgProjectsSection() {
   return (
     <div>
       <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
-        Progetti dell'organizzazione
+        {t('settings.org.projects.title')}
       </h3>
 
       {/* Progetti gia' presenti */}
@@ -101,13 +109,13 @@ export function OrgProjectsSection() {
       )}
       {!caricamento && progetti.length === 0 && (
         <p className="mb-4 text-[12px] text-app-text-muted">
-          Nessun progetto ancora associato.
+          {t('settings.org.projects.empty')}
         </p>
       )}
 
       {/* Proposte */}
       <h4 className="mb-2 text-[11px] font-medium text-app-text-muted">
-        Spazi consigliati per Armonia
+        {t('settings.org.projects.suggestedTitle')}
       </h4>
       <div className="overflow-hidden rounded-lg border border-app-border">
         {PROPOSTE.map((proposta, i) => {
@@ -124,14 +132,14 @@ export function OrgProjectsSection() {
                   <span className="text-[12px] font-medium text-app-text">{proposta.nome}</span>
                   {proposta.suggerito && !presente && (
                     <span className="rounded bg-indigo-500/15 px-1 py-0.5 text-[9px] font-medium text-indigo-400">
-                      suggerito
+                      {t('settings.org.projects.suggestedBadge')}
                     </span>
                   )}
                   {presente && (
-                    <span className="text-[10px] text-app-text-muted">gia' presente</span>
+                    <span className="text-[10px] text-app-text-muted">{t('settings.org.projects.alreadyThere')}</span>
                   )}
                 </div>
-                <p className="text-[11px] text-app-text-muted">{proposta.descrizione}</p>
+                <p className="text-[11px] text-app-text-muted">{t(proposta.blurbKey)}</p>
               </div>
               {!presente && (
                 <FolderPlus size={12} className="flex-shrink-0 text-app-text-tertiary opacity-50" />
@@ -142,7 +150,7 @@ export function OrgProjectsSection() {
       </div>
 
       <p className="mt-2 text-[11px] text-app-text-muted">
-        Crea il progetto dalla sidebar (tasto destro) e assegnalo all'org.
+        {t('settings.org.projects.hint')}
       </p>
     </div>
   );

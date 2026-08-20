@@ -1435,13 +1435,13 @@ export function ChatInput({
             {hasAttachments && (
               <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
                 {pendingImages.map((img, index) => (
-                  <div key={`img-${index}`} className="relative inline-block">
+                  <div key={`img-${index}`} data-testid="composer-attachment" className="relative inline-block">
                     <img src={img.dataUrl} alt="Pasted image" className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
                     <button onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
                   </div>
                 ))}
                 {pendingFiles.map((file, index) => (
-                  <div key={`file-${index}`}>
+                  <div key={`file-${index}`} data-testid="composer-attachment">
                     {isImageFile(file) ? (
                       <ImageThumbnail file={file} onRemove={() => removePendingFile(index)} />
                     ) : (

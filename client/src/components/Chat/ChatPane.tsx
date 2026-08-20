@@ -32,6 +32,7 @@ import { useToast } from '../Shared/Toast';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
+import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 
 const SLASH_COMMANDS_HELP = [
   '/status: mostra lo stato della sessione',
@@ -138,6 +139,7 @@ function ChatPaneComponent({
   useEffect(() => {
     try { if (message) localStorage.setItem(draftKey, message); else localStorage.removeItem(draftKey); } catch {}
   }, [message, draftKey]);
+
   /**
    * Qualcuno ha messo del testo nella bozza di QUESTA chat mentre era già
    * montata — oggi: una missione scelta dalla board accanto (`ProjectWindow`).
@@ -158,6 +160,39 @@ function ChatPaneComponent({
   }, [topic.id]);
   const [pendingImages, setPendingImages] = useState<{ dataUrl: string; mimeType: string }[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+
+  /**
+   * Gli allegati in attesa seguono il testo: se la frase torna dopo un F5, deve
+   * tornare anche la foto di cui parla. Stanno in IndexedDB e non in
+   * localStorage perche' sono blob, e il perche' per esteso e' in
+   * `state/draftAttachments.ts`.
+   *
+   * Il ripristino e' asincrono, quindi porta con se' il topic per cui e'
+   * partito: cambiando chat in fretta, la risposta lenta della prima non deve
+   * atterrare nel composer della seconda. E non sovrascrive allegati gia'
+   * presenti: chi ha appena incollato qualcosa vince sul deposito.
+   */
+  const attachmentsHydrated = useRef<string | null>(null);
+  useEffect(() => {
+    const forTopic = topic.id;
+    attachmentsHydrated.current = null;
+    let annullato = false;
+    void loadDraftAttachments(forTopic).then(({ images, files }) => {
+      if (annullato || forTopic !== topic.id) return;
+      if (images.length > 0) setPendingImages(prev => (prev.length > 0 ? prev : images));
+      if (files.length > 0) setPendingFiles(prev => (prev.length > 0 ? prev : files));
+      attachmentsHydrated.current = forTopic;
+    });
+    return () => { annullato = true; };
+  }, [topic.id]);
+
+  useEffect(() => {
+    // Non si scrive prima di aver letto: senza questa guardia il primo giro,
+    // con gli stati ancora vuoti, cancellerebbe il deposito che sta per essere
+    // ripristinato.
+    if (attachmentsHydrated.current !== topic.id) return;
+    void saveDraftAttachments(topic.id, pendingImages, pendingFiles);
+  }, [topic.id, pendingImages, pendingFiles]);
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   // Una BOZZA vuota si chiude da sé quando smetti di guardarla, e questa riga
   // è la sola cosa che le impedisce di portarsi via del lavoro: allegati e

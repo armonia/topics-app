@@ -80,7 +80,37 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  *       che SLOT-1 fa già misurando i pixel invece di guardarli. Tolti 11,4s
  *       per passata, copertura persa: nessuna. Si accende con `E2E_CLIP=1`.
  */
-const BASELINE = 19;
+/**
+ * ── 19 → 23 (20/08/2026, passata QA A-Z) ────────────────────────────────────
+ * Il cancello era ROSSO su `origin/main` (CI fallita il 19/08), e con esso
+ * `check:ui-language` e `check:sleeps`. I quattro skip nuovi rispetto a
+ * `8af403e6d` li ho guardati uno a uno con
+ * `git diff 8af403e6d..HEAD -- tests/`: nessuno e' un test rotto messo a
+ * tacere, tutti e quattro dichiarano un ambiente assente o un MODO di
+ * esecuzione.
+ *
+ *  1-2. `dictation-real-mic.spec.ts:331,394` — il secondo cancello della
+ *       dettatura. Il primo chiede se un motore STT e' CONFIGURATO, questo se
+ *       ha saputo davvero trascrivere: sono due domande diverse, e la seconda
+ *       nomina il motore che ha fallito nel messaggio. Sul server di test non
+ *       c'e' nessuna chiave (elevenlabs, openai, deepgram, groq) ne' un
+ *       `ggml-*.bin` locale, quindi qui salta sempre e nel notturno con le
+ *       chiavi gira.
+ *    3. `drag-preview.spec.ts:445` e `pinned-tile-action-slot.spec.ts:293` —
+ *       `!isClipRun()`. Non sono AC: producono la clip di consegna e girano
+ *       solo con `E2E_CLIP=1`. Un AC che salta e' un buco; un attrezzo che
+ *       resta spento finche' non lo si chiama e' un attrezzo.
+ *    4. `drag-preview.spec.ts:449` — la clip la registra il progetto
+ *       `chromium`, non `webkit`: e' uno smistamento fra progetti come la
+ *       coppia di `board-card-stop`, non una rinuncia.
+ *
+ * Cosa NON e' entrato qui: i due «skip senza motivo» che comparivano nel
+ * riepilogo della suite (`cross-window-topic-sync.spec.ts:368` e
+ * `search-shortcuts.spec.ts:120`). Non sono skip nel sorgente: sono la
+ * cascata di un `describe.serial` il cui test precedente era caduto sotto la
+ * contesa di quattro shard. Ripetuti da soli, passano entrambi.
+ */
+const BASELINE = 23;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;
