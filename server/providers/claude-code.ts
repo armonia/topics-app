@@ -2866,8 +2866,35 @@ export class ClaudeCodeProvider implements AIProvider {
       // other error result.
       const errText = readResultErrorText(event);
       if (errText !== null && looksLikeMissingSessionError(errText)) this.markMissingSessionRecovery(pp);
-      const resultText = event.result ?? "";
-      if (!resultText || resultText === "waiting for message") return;
+
+      // UN `result` VUOTO CHIUDE IL TURNO LO STESSO — e non chiuderlo è quello
+      // che ha rotto `/compact`.
+      //
+      // La guardia qui sotto scartava OGNI result senza testo, non solo la
+      // sentinella d'attesa. Sembra innocuo finché non si guarda cosa emette la
+      // CLI quando compatta davvero (registrato il 20/08/2026, CLI 2.1.237):
+      //
+      //   {"type":"result","subtype":"success","is_error":false,
+      //    "num_turns":0,"stop_reason":null,"result":"","duration_ms":46756}
+      //
+      // Nessun testo, perché una compattazione non produce una risposta: il suo
+      // esito è il `compact_boundary` che è già passato. Ma è comunque LA fine
+      // del turno, l'unico frame che risolve `pendingResolve` e ferma il
+      // watchdog. Scartandolo, il turno restava aperto per sempre: la promessa
+      // non si risolveva, il turno seguente si accodava dietro di lei, e a
+      // trenta minuti il watchdog uccideva il figlio scrivendo in chat
+      // «Nessuna attività dal modello per 30 minuti. Turno terminato.» — sopra
+      // una compattazione perfettamente RIUSCITA. Verificato su topic:44d914ec:
+      // `/compact` alle 10:42, `compact_boundary` alle 10:45 (marker salvato,
+      // divider disegnato), turno ucciso alle 11:15 con 1.975.077 ms di latenza.
+      // Ed è anche il motivo per cui la coda non partiva: il drain è appeso alla
+      // fine di uno stream, e questo stream non finiva mai.
+      //
+      // Resta fuori SOLO la sentinella letterale `waiting for message`, che è
+      // l'unica riga che la CLI emette a vuoto senza che nessun turno sia in
+      // corso (vedi `RESULT_WAITING` nelle fixture).
+      const resultText = typeof event.result === "string" ? event.result : "";
+      if (resultText === "waiting for message") return;
 
       if (handler) {
         // PERCHÉ è finito: la CLI lo dice qui e finora lo buttavamo via. A valle

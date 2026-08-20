@@ -1335,17 +1335,15 @@ function ChatPaneComponent({
   const handleCopyMessage = useCallback((msg: ChatMessage) => { navigator.clipboard.writeText(msg.content).then(() => { setCopiedMsgId(msg.id); setTimeout(() => setCopiedMsgId(null), 2000); }); }, []);
   const handleTogglePin = useCallback(async (msg: ChatMessage) => { const pinned = topic.pinnedMessages || []; const newPinned = pinned.includes(msg.id) ? pinned.filter(id => id !== msg.id) : [...pinned, msg.id]; await onUpdateTopic(topic.id, { pinnedMessages: newPinned }); }, [topic.pinnedMessages, topic.id, onUpdateTopic]);
   const isImageFile = (f: File) => f.type.startsWith('image/');
-  // Il badge del composer ragiona per posizione; la coda per id (correggere il
-  // secondo mentre il primo parte non deve toccare il messaggio sbagliato).
-  const queueContents = useMemo(() => messageQueue.map(q => q.content), [messageQueue]);
-  const handleUpdateQueueItem = useCallback((idx: number, content: string) => {
-    const item = messageQueue[idx];
-    if (item) updateTurn(topic.sessionKey, item.id, content);
-  }, [messageQueue, topic.sessionKey]);
-  const handleRemoveQueueItem = useCallback((idx: number) => {
-    const item = messageQueue[idx];
-    if (item) removeTurn(topic.sessionKey, item.id);
-  }, [messageQueue, topic.sessionKey]);
+  // Per ID e non per posizione: correggere il secondo mentre il primo parte non
+  // deve toccare il messaggio sbagliato. (Il badge del composer ragionava per
+  // indice — è stato tolto, vedi `QueuedTurns`.)
+  const handleUpdateQueueItem = useCallback((id: string, content: string) => {
+    updateTurn(topic.sessionKey, id, content);
+  }, [topic.sessionKey]);
+  const handleRemoveQueueItem = useCallback((id: string) => {
+    removeTurn(topic.sessionKey, id);
+  }, [topic.sessionKey]);
   const handleClearQueue = useCallback(() => clearQueue(topic.sessionKey), [topic.sessionKey]);
   /**
    * «Invia subito»: non aspettare la fine del turno, falla partire ORA.
@@ -1423,7 +1421,7 @@ function ChatPaneComponent({
           altra chat. */}
       <TaskCardStrip topicId={topic.id} />
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
@@ -1479,7 +1477,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
       </div>
     </div>
   );

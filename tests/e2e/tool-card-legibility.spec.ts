@@ -147,8 +147,9 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     await expect(fresh).toHaveAttribute("data-status", "success");
     await expect(fresh.locator(".text-green-500")).toHaveCount(0);
 
-    // Qui il MODELLO ha chiamato il tool: la riga sintetica non ci va, o la
-    // stessa cosa sarebbe detta due volte.
+    // Qui il MODELLO ha chiamato il tool: non c'è nessuna riga sintetica in più
+    // — quella riga non esiste più affatto, il comando digitato si legge una
+    // volta sola, sul messaggio dell'utente (vedi `SlashCommandChip`).
     await expect(page.locator('[data-testid="invoked-command-row"]')).toHaveCount(0);
 
     await fresh.screenshot({ path: "test-results/skill-card-instructions.png" });
@@ -353,32 +354,40 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       await expect(cmd).toHaveAttribute("data-command", "recap");
       await expect(cmd).toContainText("/recap");
 
-      // …e il TURNO dice che sta girando quel comando: la riga che prima
-      // compariva solo quando il modello sceglieva di chiamare il tool `Skill`.
-      // Non finge una chiamata: non nasce da `tool_calls` e non si apre.
-      const riga = page.locator('[data-testid="invoked-command-row"]').last();
-      await expect(riga).toBeVisible();
-      await expect(riga).toHaveAttribute("data-command", "recap");
-      // L'intestazione è il COMANDO, non «Skill (/recap)»: la categoria non
-      // aggiunge niente che la riga non dica già.
-      await expect(riga).toContainText("/recap");
-      await expect(riga).not.toContainText("Skill (");
-      await expect(riga).not.toContainText("Comando (");
+      // UNA VOLTA SOLA — e «una volta» si conta DENTRO IL TURNO, non a schermo:
+      // le pane dei test precedenti restano montate, e i loro `/recap` sono
+      // chip legittimi (stessa ragione del `.last()` qui sopra).
+      //
+      // Il turno apriva anche con una riga «questo turno gira /recap»: stesso
+      // nome, stessa icona, a un centimetro dal chip, e nessuna delle due
+      // diceva qualcosa che l'altra non dicesse — chi guardava vedeva il
+      // proprio comando due volte e non capiva se fosse partito due volte. Ne
+      // resta quello nel posto giusto: il messaggio che l'utente ha scritto.
+      // Il turno si risale DAL CHIP (`ancestor`), non con `filter({ has })`: il
+      // filtro chiede «i messaggi che contengono un chip» e li trova TUTTI —
+      // anche quello della pane rimasta montata dal test precedente — quindi
+      // contava due chip su due messaggi diversi e accusava un duplicato che
+      // non c'era.
+      const turno = cmd.locator('xpath=ancestor::*[@data-testid="chat-message"][1]');
+      await expect(page.locator('[data-testid="invoked-command-row"]')).toHaveCount(0);
+      await expect(turno.locator('[data-testid="user-slash-command"]')).toHaveCount(1);
 
-      // …e si APRE: il corpo non passa dal filo, lo legge dal file il server.
-      // Il server di test ha un HOME isolato, quindi il comando va seminato lì
-      // — è esattamente il file che il server andrà a leggere.
-      await riga.locator("button").first().click();
-      const corpo = riga.locator('[data-testid="invoked-command-body"]');
+      // …e il corpo del comando — la sola cosa in più che la riga sparita
+      // portava — si apre da QUI: non passa dal filo, lo legge dal file il
+      // server. Il server di test ha un HOME isolato, quindi il comando va
+      // seminato lì: è esattamente il file che il server andrà a leggere.
+      await cmd.getByTestId("user-slash-command-toggle").click();
+      const corpo = cmd.locator('[data-testid="invoked-command-body"]');
       await expect(corpo).toBeVisible({ timeout: 10_000 });
       await expect(corpo).toContainText("riassunto");
       // Nessuna etichetta sopra il corpo: l'intestazione dice già `/recap`.
-      await expect(riga).not.toContainText("CONTENUTO DEL COMANDO");
-      await expect(riga).not.toContainText("Contenuto del comando");
-      await expect(riga).not.toContainText("Istruzioni della skill");
+      await expect(cmd).not.toContainText("CONTENUTO DEL COMANDO");
+      await expect(cmd).not.toContainText("Contenuto del comando");
+      await expect(cmd).not.toContainText("Istruzioni della skill");
+      await expect(cmd).not.toContainText("Skill (");
+      await expect(cmd).not.toContainText("Comando (");
 
       await cmd.screenshot({ path: "test-results/user-slash-command.png" });
-      await riga.screenshot({ path: "test-results/invoked-command-row.png" });
     } finally {
       await deleteTopic(request, fresh.id);
     }
