@@ -323,7 +323,7 @@ function MessageQueueBadge({
         onClick={() => setOpen(o => !o)}
         data-testid="message-queue-badge"
         className={CHAT_STRIP_ROW}
-        title={open ? 'Nascondi i messaggi da inviare' : 'Mostra i messaggi da inviare'}
+        title={open ? t('chat.queue.hide') : t('chat.queue.show')}
         aria-expanded={open}
       >
         <ChevronRight
@@ -335,8 +335,8 @@ function MessageQueueBadge({
         {/* Due frasi accostate, senza trattino a fare da colla: la prima dice
             cosa sono, la seconda quando partono. */}
         <span className="min-w-0 flex-1 truncate text-[12px] text-app-text-secondary">
-          da inviare
-          <span className="text-app-text-muted"> a fine turno</span>
+          {t('chat.queue.pending')}
+          <span className="text-app-text-muted"> {t('chat.queue.whenTurnEnds')}</span>
         </span>
       </button>
 
@@ -344,7 +344,7 @@ function MessageQueueBadge({
         <div className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} max-h-[60vh] overflow-y-auto`} style={{ zIndex: Z_POPOVER }}>
           <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
             <span className="text-[11px] font-medium text-app-text">
-              Da inviare ({count})
+              {t('chat.queue.title', { count })}
             </span>
             <div className="flex items-center gap-3">
               {/* «Non aspettare la fine»: interrompe il turno e fa partire la
@@ -390,7 +390,7 @@ function MessageQueueBadge({
               TIENE la coda invece di farla partire (vedi `state/chatQueue.ts`).
               Dirlo qui evita che «ferma» sembri «cancella». */}
           <div className="px-3 pb-2 pt-1 text-[11px] text-app-text-muted">
-            Partono quando il turno finisce. Fermare non li cancella: restano qui.
+            {t('chat.queue.blurb')}
           </div>
         </div>
       )}
@@ -1195,7 +1195,7 @@ export function ChatInput({
           </span>
           {!isDictationTranscribing && (
             <span className="text-[11px] text-app-text-secondary truncate">
-              ⌘⇧D per chiudere · Esc annulla{dictationModel ? ` · ${dictationModel}` : ''}
+              {tr('chat.dictation.hint')}{dictationModel ? ` · ${dictationModel}` : ''}
             </span>
           )}
           {!isDictationTranscribing && (
@@ -1311,20 +1311,20 @@ export function ChatInput({
             onClick={() => { dismissNotice(contextNotice); void sendMessageDirect('/compact'); }}
             className={`px-2.5 py-1 text-[11px] text-white rounded-md transition-colors flex-shrink-0 ${contextNotice.severe ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
           >
-            Compatta adesso
+            {tr('chat.compactNow')}
           </button>
           <button
             type="button"
             onClick={() => { dismissNotice(contextNotice); window.dispatchEvent(new CustomEvent('topics:new-chat')); }}
             className="px-2.5 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0"
           >
-            Nuova chat
+            {tr('chat.newChat')}
           </button>
           <button
             type="button"
             onClick={() => dismissNotice(contextNotice)}
             className="text-app-text-tertiary hover:text-app-text p-0.5 flex-shrink-0"
-            title="Chiudi l'avviso"
+            title={tr('chat.dismissNotice')}
           >
             <X size={14} />
           </button>
@@ -1483,7 +1483,7 @@ export function ChatInput({
                     {replyingTo.content.slice(0, 80)}{replyingTo.content.length > 80 ? '…' : ''}
                   </div>
                 </div>
-                <button aria-label="Annulla la risposta" onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
+                <button aria-label={tr('chat.cancelReply')} onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
                   <X size={14} />
                 </button>
               </div>
@@ -1565,7 +1565,7 @@ export function ChatInput({
                 onPaste={onPaste}
                 aria-label={`Message input for ${topic.name}`}
                 aria-describedby="chat-input-hint"
-                placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
+                placeholder={awaitingAnswer ? tr('chat.answerPlaceholder') : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
                 className={`flex-1 min-w-[4rem] px-1.5 py-1.5 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
                 style={{ minHeight: '32px', maxHeight: '140px' }}
                 rows={1}
@@ -1658,8 +1658,8 @@ export function ChatInput({
                                 ? 'bg-primary text-white hover:bg-primary-hover'
                                 : 'bg-transparent text-app-placeholder'
                       }`}
-                      title={isAnswer ? 'Rispondi alla domanda (Enter)' : isQueue ? 'Queue message (Enter)' : 'Send (Enter)'}
-                      aria-label={isAnswer ? 'Rispondi alla domanda' : isQueue ? 'Queue message' : 'Send message'}
+                      title={isAnswer ? tr('chat.answerSend') : isQueue ? 'Queue message (Enter)' : 'Send (Enter)'}
+                      aria-label={isAnswer ? tr('chat.answer') : isQueue ? 'Queue message' : 'Send message'}
                     >
                       {uploading ? (
                         /* `current`: il bottone porta già il suo colore
