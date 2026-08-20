@@ -89,7 +89,7 @@ const EN = {
   'goal.placeholder': 'What is the goal of this conversation?',
   'goal.abandon': 'Drop this goal',
   'goal.notCompacted': 'turn plan, does not survive compaction',
-  'cmd.ran': 'You ran {what} /{name} — open to see what is inside',
+  'cmd.ran': 'You ran {what} /{name}. Open to see what is inside',
   'cmd.kind.skill': 'the skill',
   'cmd.kind.command': 'the command',
   'cmd.currentFile': 'Current content of the /{name} file, not a copy of when it ran',
