@@ -139,7 +139,7 @@ export function messaggioEsito(porta: number, esito: EsitoPorta): string | null 
     case "silenzio":
       return null;
     case "ignoto":
-      return `[porta] non ho potuto verificare chi risponde su :${porta} — ${esito.perche}`;
+      return `[porta] non ho potuto verificare chi risponde su :${porta}. Motivo: ${esito.perche}`;
     case "estraneo": {
       const chi = esito.pid !== null
         ? `pid ${esito.pid}${esito.comando ? ` (${esito.comando})` : ""}`
