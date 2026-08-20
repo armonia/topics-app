@@ -566,6 +566,31 @@ non-zero when it gets worse.
 
 1. **Cold start.** How many milliseconds pass between launch and the first
    usable screen. No probe, no threshold.
+1b. **The weight of the shipped app**, which nothing on this page had ever
+   looked at. Measured 2026-08-20 on the installed `Topics.app`: **179 MB**, of
+   which **134 are the server sidecar**. The sidecar in the repo is 59 MB
+   (arm64), so the extra 75 are not code — every binary is UNIVERSAL, and half
+   of those bytes will never execute on the machine they land on:
+
+   | binary | universal | arm64 only |
+   |---|---|---|
+   | topics-server | 134 MB | **64** |
+   | app (Tauri shell) | 28 MB | **13** |
+   | webrtc-bridge | 16 MB | **8** |
+   | pty-bridge | 1 MB | 1 |
+   | **total** | **179 MB** | **86 MB** |
+
+   **93 MB, 52%, for shipping two `.dmg` instead of one.** For scale: our own
+   compiled code inside that sidecar is ~2 MB (59 MB arm64 minus the 57 MB of
+   the bare `bun` binary), so rewriting the server in Rust would save ~57 MB —
+   *less* than splitting the architectures.
+
+   What holds the universal build is real and documented in
+   `tauri-release.yml`: one universal `.dmg` means one `latest.json`, because
+   two per-arch jobs would race to clobber the updater manifest. Surmountable
+   (Tauri's manifest keys `darwin-aarch64` and `darwin-x86_64` separately) but
+   it is the update channel, so it deserves care rather than a quick patch.
+   No gate watches this number today.
 2. **Memory.** The shell still has no ceiling; the SERVER's boot peak got one
    on 2026-08-19 (`probe:boot-memory`, above). Its steady state is still a
    number without a budget. Still a
