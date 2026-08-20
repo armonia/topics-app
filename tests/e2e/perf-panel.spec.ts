@@ -137,6 +137,38 @@ test.describe('pannello prestazioni', () => {
     expect(testo).not.toMatch(/\bperf\.[a-zA-Z.]+/);
   });
 
+  test('la BARRA dice quanta memoria e\' davvero occupata, senza aprire il pannello', async ({ page }) => {
+    // Il numero che l'utente vede per primo è quello della barra, non quello
+    // del pannello: fino al 2026-08-20 la spiegazione stava due clic più in là,
+    // e chi leggeva «1,8 GB» restava con un numero che significa altro.
+    await page.addInitScript(() => {
+      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+        metadata: { currentWindow: { label: 'main' } },
+        invoke: async (cmd: string) => {
+          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
+          return {
+            version: 'e2e', total_mb: 1989, resident_mb: 594,
+            renderer_mb: 1400, gpu_mb: 130, other_mb: 459,
+            cpu_percent: 8, cpu_renderer: 4, cpu_gpu: 1,
+            cpu_sampled: 3, cpu_pids: 3, process_count: 8, partial: false,
+          };
+        },
+      };
+    });
+
+    await page.goto('/');
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    // Il tooltip del TOTALE, che è il numero grande in barra: si legge
+    // passandoci sopra, senza aprire il pannello.
+    const totale = page.locator('[data-testid="metrics-total"]');
+    await expect(totale).toBeVisible({ timeout: 15_000 });
+    await expect.poll(async () => (await totale.getAttribute('title')) ?? '', { timeout: 10_000 })
+      .toContain('594');
+    const titolo = (await totale.getAttribute('title'))!;
+    expect(titolo).toMatch(/in RAM adesso|in RAM right now/);
+    expect(titolo).not.toMatch(/\bstatusBar\.[a-zA-Z.]+/);
+  });
+
   test('una misura PARZIALE non produce nessuna riga, invece di inventarne una', async ({ page }) => {
     // `partial: true` = la shell non ha potuto misurare tutti i processi (e' il
     // caso non-macOS, che il payload dichiara invece di fingere). Una

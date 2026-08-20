@@ -1336,6 +1336,11 @@ const IT: Dict = {
   //    tiene il valore IT alla lettera: `turn-awaiting-input.spec.ts` ancora
   //    «in attesa di una tua risposta» nel `title`.
   'statusBar.perfTitle': 'Performance e stato sistema · apri per FPS live',
+  // Il numero in barra e' il footprint (colonna «Memoria» di Monitoraggio
+  // Attivita'): include cio' che il sistema ha gia' compresso o mandato in
+  // swap. Questa riga dice quanto ne e' occupato DAVVERO, sul numero che si
+  // legge per primo invece che due clic piu' in la'.
+  'statusBar.residenteInline': 'di cui in RAM adesso: {mb} MB (il resto e\' gia\' compresso o in swap)',
   'statusBar.agents.heading': 'Agenti Claude Code',
   'statusBar.agents.working': '· {n} al lavoro',
   'statusBar.agents.awaitingInput': '· {n} in attesa di una tua risposta',
