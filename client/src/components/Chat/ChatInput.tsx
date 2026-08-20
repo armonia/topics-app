@@ -457,7 +457,13 @@ export function ChatInput({
   // nell'ispettore, a un click da qui.
   const ringCostHint = realContext
     ? realContext.level !== 'ok' && (realContext.reason ?? 'window') === 'cost'
-      ? '\nOgni chiamata a un tool rilegge questi token: è il costo per chiamata, non un problema di capienza. Apri l’ispettore per contesto × chiamate, e per «Compatta adesso».'
+      // Nessuna etichetta CITATA fra virgolette, e non è pignoleria: il bottone
+      // dell'ispettore si chiamava «Compatta adesso», adesso si chiama
+      // «Compatta», e in inglese «Compact». Una frase che promette un nome
+      // esatto invecchia col nome — e queste stringhe non passano dall'i18n del
+      // pannello, quindi nessun test le lega. Si dice DOVE si va, non come è
+      // scritto sopra il bottone.
+      ? '\nOgni chiamata a un tool rilegge questi token: è il costo per chiamata, non un problema di capienza. Apri l’ispettore per il conto e per compattare.'
       : realContext.level !== 'ok'
         ? '\nLa finestra si sta riempiendo: quando finisce, la conversazione viene compattata e si perde dettaglio. Apri l’ispettore per compattare adesso, quando costa meno.'
         : '\nOgni chiamata a un tool rilegge questi token: il costo è contesto × chiamate. Apri l’ispettore per il conto.'
@@ -1500,7 +1506,7 @@ export function ChatInput({
                       che punto è — nel posto in cui la si sta già guardando.
                       Il perché (capienza o costo per chiamata) e il cosa fare
                       stanno nel tooltip e, un click più in là, nell'ispettore
-                      con il suo «Compatta adesso».
+                      col suo bottone per compattare.
                       `pointer-events-none`: il bersaglio da toccare resta uno
                       solo, il bottone che apre l'ispettore. */}
                   {contextNotice && (
