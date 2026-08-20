@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { ShieldCheck, Trash2, Loader2 } from 'lucide-react';
 import { toolGrantsApi, type ToolGrant } from '../../lib/api';
 
@@ -17,6 +18,7 @@ import { toolGrantsApi, type ToolGrant } from '../../lib/api';
  * barrata in mezzo alle altre si rilegge come una regola.
  */
 export function PermissionsSection() {
+  const tr = useT();
   const [grants, setGrants] = useState<ToolGrant[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,11 +50,9 @@ export function PermissionsSection() {
   return (
     <div className="space-y-4" data-testid="settings-permissions">
       <div>
-        <h3 className="text-[13px] font-medium text-app-text mb-1">Strumenti sempre consentiti</h3>
+        <h3 className="text-[13px] font-medium text-app-text mb-1">{tr('perms.title')}</h3>
         <p className="text-[12px] leading-snug text-app-text-muted">
-          Quando una chat chiede il permesso di usare uno strumento puoi rispondere
-          «Consenti sempre»: la regola finisce qui e vale per tutte le chat. Tutto
-          il resto continua a chiedere, una volta per volta.
+          {tr('perms.blurb')}
         </p>
       </div>
 
@@ -62,12 +62,11 @@ export function PermissionsSection() {
 
       {grants === null ? (
         <div className="flex items-center gap-2 text-[12px] text-app-text-muted">
-          <Loader2 size={13} className="animate-spin" /> caricamento…
+          <Loader2 size={13} className="animate-spin" /> {tr('common.loading')}
         </div>
       ) : grants.length === 0 ? (
         <div className="text-[12px] text-app-text-muted border border-dashed border-app-border rounded-md px-3 py-4 text-center">
-          Nessuna regola. Ogni strumento che una modalità di permessi non copre
-          viene chiesto in chat.
+          {tr('perms.empty')}
         </div>
       ) : (
         <ul className="space-y-1" data-testid="tool-grant-list">
@@ -88,7 +87,7 @@ export function PermissionsSection() {
                 type="button"
                 onClick={() => void revoke(g.pattern)}
                 disabled={busy === g.pattern}
-                title="Revoca: da qui in poi tornerà a chiedere"
+                title={tr('perms.revoke')}
                 data-testid={`tool-grant-revoke-${g.pattern}`}
                 className="shrink-0 rounded p-1.5 text-app-text-muted hover:bg-app-hover hover:text-red-500 disabled:opacity-40 transition-colors"
               >

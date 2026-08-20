@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { Smartphone } from 'lucide-react';
 
 /**
@@ -22,6 +23,7 @@ interface Richiesta {
 }
 
 export function PairingApproval() {
+  const tr = useT();
   const [richieste, setRichieste] = useState<Richiesta[]>([]);
   const [inCorso, setInCorso] = useState<string | null>(null);
   /** Chi sta scrivendo il nome di un'altra persona, e cosa ha scritto. */
@@ -105,13 +107,13 @@ export function PairingApproval() {
             <Smartphone size={14} className="text-app-text-secondary" />
             <span className="text-[13px] font-medium text-app-text">{r.name} chiede accesso</span>
           </div>
-          {r.ip && <div className="mt-0.5 text-[11px] text-app-text-muted">da {r.ip.replace(/^::ffff:/, '')}</div>}
+          {r.ip && <div className="mt-0.5 text-[11px] text-app-text-muted">{tr('pair.from', { ip: r.ip.replace(/^::ffff:/, '') })}</div>}
 
           <div className="mt-3 rounded-lg bg-app-bg py-2 text-center font-mono text-[22px] font-semibold tracking-[0.1em] text-app-text">
             {r.code}
           </div>
           <p className="mt-2 text-[11px] leading-snug text-app-text-secondary">
-            Autorizza solo se questo codice è lo stesso mostrato su quel dispositivo.
+            {tr('pair.verifyCode')}
           </p>
 
           {/* La domanda è «di chi è», e ha DUE risposte distinte invece di un
@@ -135,7 +137,7 @@ export function PairingApproval() {
               className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
               data-testid="pair-approve-owner"
             >
-              È mio
+              {tr('pair.mine')}
             </button>
           </div>
 
@@ -152,8 +154,8 @@ export function PairingApproval() {
                   }
                   if (e.key === 'Escape') setAltrui(null);
                 }}
-                placeholder="Di chi è?"
-                aria-label="Nome della persona"
+                placeholder={tr('pair.whose')}
+                aria-label={tr('pair.personName')}
                 className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-[12px] text-app-text outline-none focus:border-primary"
               />
               <button
@@ -171,11 +173,11 @@ export function PairingApproval() {
               onClick={() => setAltrui({ id: r.id, nome: '' })}
               className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
             >
-              È di un'altra persona
+              {tr('pair.someoneElse')}
             </button>
           )}
           <p className="mt-1.5 text-[10px] leading-snug text-app-text-muted">
-            Un'altra persona vede solo ciò che le condividi, in sola lettura.
+            {tr('pair.guestBlurb')}
           </p>
         </div>
       ))}

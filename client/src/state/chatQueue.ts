@@ -183,6 +183,25 @@ function readFresh(sessionKey: string): QueuedTurn[] {
   return parseQueue(storage.getItem(queueKey(sessionKey)));
 }
 
+/**
+ * Quanti turni sono in coda adesso, su quante sessioni. Per l'inventario del
+ * peso (`lib/featureWeight.ts`).
+ *
+ * Legge la CACHE e non lo storage: l'inventario dice cosa questa finestra
+ * trattiene in memoria, non cosa c'è su disco. Sono due domande diverse e
+ * confonderle farebbe comparire, in una finestra appena aperta, code che qui
+ * non sono mai state idratate.
+ */
+export function queueCount(): { entries: number; items: number } {
+  let items = 0;
+  for (const q of cache.values()) items += q.length;
+  // Le sessioni con coda VUOTA sono in cache lo stesso (idratate e trovate
+  // vuote): contarle direbbe «cinque code» quando non ce n'è nessuna.
+  let entries = 0;
+  for (const q of cache.values()) if (q.length > 0) entries++;
+  return { entries, items };
+}
+
 function setQueue(sessionKey: string, items: QueuedTurn[]): void {
   const next = items.length ? items : EMPTY;
   cache.set(sessionKey, next);
