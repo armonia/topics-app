@@ -16,6 +16,39 @@ import { testTmpDir, PROJECT_ROOT } from "./helpers";
 
 const ROOT = testTmpDir("pty-bridge-mjs");
 const BRIDGE = path.join(PROJECT_ROOT, "server", "pty-bridge.mjs");
+
+/**
+ * DOVE STA `node`, e perche' non basta scrivere "node".
+ *
+ * Il ponte e' un `.mjs` che gira su Node (usa `node-pty`), quindi questo file
+ * lo lancia con l'eseguibile `node` — che pero' NON e' garantito nel PATH di
+ * chi esegue i test. Su questa macchina Node sta in `/opt/homebrew/bin`, che un
+ * ambiente non interattivo (un agente, un hook, una shell senza il profilo
+ * caricato) tipicamente non ha.
+ *
+ * Il danno non e' il fallimento, e' COME falliva: `Bun.spawn` moriva con
+ * `ENOENT` dentro l'helper `start()`, e i cinque test uscivano rossi accusando
+ * lo shutdown del ponte. Costato una diagnosi vera: erano stati archiviati come
+ * «preesistenti, non miei» sulla base di un confronto con `git stash` — che
+ * infatti li mostrava rossi anche a monte, perche' la causa non era in nessun
+ * commit. Con `node` nel PATH sono cinque verdi.
+ *
+ * Ora si cerca dove Node sta davvero, e se non c'e' lo si DICE.
+ */
+function trovaNode(): string {
+  const candidati = [
+    process.env.TOPICS_TEST_NODE,
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/node",
+    "/usr/bin/node",
+  ].filter((p): p is string => !!p);
+  for (const c of candidati) {
+    try { if (fs.existsSync(c)) return c; } catch { /* percorso illeggibile */ }
+  }
+  // Ultimo tentativo: il PATH, che e' la via normale quando c'e'.
+  return "node";
+}
+const NODE = trovaNode();
 /** Corta per forza: un socket unix oltre i 104 byte non si lega (EINVAL). */
 const GRACE_MS = 400;
 
@@ -30,14 +63,27 @@ class Bridge {
 
   static async start(label: string, env: Record<string, string> = {}): Promise<Bridge> {
     const socketPath = path.join(ROOT, `${label}.sock`);
-    const proc = Bun.spawn(
-      ["node", BRIDGE, "--socket", socketPath, "--parent-pid", String(process.pid)],
-      {
-        stdout: "ignore",
-        stderr: "ignore",
-        env: { ...process.env, TOPICS_PTY_BRIDGE_KILL_GRACE_MS: String(GRACE_MS), ...env },
-      },
-    );
+    let proc: ReturnType<typeof Bun.spawn>;
+    try {
+      proc = Bun.spawn(
+        [NODE, BRIDGE, "--socket", socketPath, "--parent-pid", String(process.pid)],
+        {
+          stdout: "ignore",
+          stderr: "ignore",
+          env: { ...process.env, TOPICS_PTY_BRIDGE_KILL_GRACE_MS: String(GRACE_MS), ...env },
+        },
+      );
+    } catch (e) {
+      // ACCUSA L'AMBIENTE, non il ponte. Un `ENOENT` grezzo qui produceva
+      // cinque rossi che sembravano difetti dello shutdown, e sono costati una
+      // diagnosi: il rosso deve dire cosa manca e come si ripara.
+      const causa = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `Non si riesce a lanciare il ponte con \`${NODE}\`: ${causa}\n` +
+        `Questo test ha bisogno di Node (il ponte e' un .mjs che usa node-pty), e non e' un difetto del codice.\n` +
+        `Aggiungi Node al PATH (es. /opt/homebrew/bin) oppure indica l'eseguibile con TOPICS_TEST_NODE=/percorso/di/node.`,
+      );
+    }
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
       if (fs.existsSync(socketPath)) break;
