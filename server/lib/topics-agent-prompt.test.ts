@@ -291,3 +291,35 @@ describe('topicsAgentSystemPrompt', () => {
     expect(dopo).toContain('mcp__topics__wait_for_process');
   });
 });
+
+/**
+ * LA PROMESSA DI RISVEGLIO CHE NESSUNO MANTIENE.
+ *
+ * Il 20/08, topic:205d1fbb. L'utente chiede «perché non ti metti in wait?».
+ * L'agente risponde «Armata. Mi sveglia quando finisce» — e aveva lanciato un
+ * `Bash` con `until … done` e `run_in_background: true`.
+ *
+ * Quel comando gira davvero, ma la sua uscita non la legge nessuno: il turno è
+ * già chiuso, e in chat non sarebbe mai arrivato niente. È peggio del silenzio,
+ * perché l'utente smette di controllare fidandosi della promessa.
+ *
+ * Il prompt deve dire i tre effetti insieme, o si scambiano fra loro.
+ */
+describe('lo shell in background non è un risveglio', () => {
+  test('il prompt dice esplicitamente che non sveglia, e chi invece lo fa', () => {
+    const p = topicsAgentSystemPrompt();
+    expect(p).toContain('is NOT a wait that wakes you');
+    // E indica la strada giusta per riprenderne l'esito.
+    expect(p).toContain('read_process_output');
+    // E chiude la porta alla frase che ha ingannato l'utente.
+    expect(p).toContain('only `Monitor` wakes you');
+  });
+
+  test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, non-sveglia', () => {
+    const p = topicsAgentSystemPrompt();
+    // Monitor: chiude il turno e risveglia.
+    expect(p).toMatch(/`Monitor`[\s\S]*ends your turn and wakes you/);
+    // wait_for_process: tiene il turno e riporta l'esito.
+    expect(p).toMatch(/`mcp__topics__wait_for_process`[\s\S]*blocks until it exits/);
+  });
+});
