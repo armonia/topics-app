@@ -36,6 +36,64 @@ import type { Dict } from './i18n-types';
  * che vede.
  */
 const IT: Dict = {
+  'chat.effort.set': 'Effort: {effort} · impostato per questa chat{fallback}',
+  'chat.effort.providerDefaultIs': ' (default del provider: {tier})',
+  'chat.effort.fromProvider': 'Effort: {tier} · default del provider',
+  'chat.config.effort': 'Configurazione della chat: effort',
+  'chat.config.aria': 'Configurazione della chat, effort {tier}{how}',
+  'chat.effort.setSuffix': ' impostato per questa chat',
+  'chat.effort.defaultSuffix': ' di default',
+  'chat.config': 'Configurazione della chat',
+  'chat.effort.reset': 'Torna al default del provider',
+  'changelog.title': 'Novità',
+  'changelog.subtitle': 'cosa è cambiato, versione per versione',
+  'changelog.unavailable': 'Changelog non disponibile.',
+  'changelog.internal': 'Sotto il cofano ({n})',
+  'changelog.full': 'Changelog completo sul sito →',
+
+  'forget.titleHost': 'Dimentica {host}?',
+  'forget.title': 'Dimentica questo sito?',
+  'forget.loading': "Leggo cosa c'è salvato per questo sito…",
+  'forget.unsupported': 'Questa scheda gira su un Chromium esterno: i dati del sito stanno nel profilo di quel browser, e da qui non si cancellano.',
+  'forget.nothing': "Per questo sito non c'è niente di salvato in questa tab.",
+  'forget.listIntro': 'Da questa tab del browser vengono cancellati:',
+  'forget.scopePrefix': 'Vale per i dati salvati sotto',
+  'forget.scopeSuffix': ', sottodomini compresi. Le altre tab e gli altri siti non si toccano.',
+  'forget.noUndo': 'Non si può annullare.',
+
+  'board.unlanded.title': 'Non su main',
+  'board.unlanded.blurb': "Task chiusi la cui consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.",
+  'board.unlanded.hide': 'Nascondi commit e diff',
+  'board.unlanded.show': 'Mostra commit e diff da pubblicare',
+  'board.mission.toProject': 'Alla sessione di progetto, accanto alla board',
+  'board.mission.doneWhen': 'finita quando: {what}',
+  'board.dispatchSettings': 'Impostazioni dispatch, globali (tutte le board)',
+  'board.allProjectsCount': '{n} task · tutti i progetti',
+
+  'downloads.title': 'Download',
+  'downloads.active': '{n} download in corso',
+  'downloads.save': 'Scarica {name}',
+  'downloads.open': 'Apri {path}',
+  'downloads.reveal': 'Mostra nel Finder',
+  'downloads.remove': "Togli dall'elenco",
+  'downloads.clear': "Svuota l'elenco",
+  'picker.searchOrCreate': 'Cerca o crea…',
+  'picker.search': 'Cerca…',
+  'picker.searchOrCreate.aria': 'Cerca o crea un progetto',
+  'picker.search.aria': 'Cerca un progetto',
+  'picker.auto.hint': "Il progetto lo capisce il sistema dal testo del task (nome di progetto citato); se non è chiaro va nel progetto 'generale'",
+  'picker.exists': '"{name}" esiste già: è nella lista qui sopra',
+  'picker.create': 'Crea il progetto "{name}"{where}',
+  'picker.create.in': ' in {dir}',
+  'picker.typeName': 'Scrivi il nome nella casella qui sopra: quella è anche la casella di creazione{where}',
+  'picker.typeName.in': ', e il progetto nasce in {dir}',
+
+  'chat.compact.running': "Compattazione del contesto in corso… riassume la conversazione e libera spazio. Su una chat lunga può richiedere qualche decina di secondi; l'esito compare come separatore nel thread.",
+  'chat.compact.failed': 'Non sono riuscito a chiedere la compattazione.',
+  'chat.goal.usage': 'Nessun obiettivo attivo. Uso: /goal <obiettivo> · /goal fatto · /goal basta',
+  'chat.goal.none': 'Nessun obiettivo attivo',
+  'chat.command.dismiss': 'Chiudi il messaggio del comando',
+
   'diff.note.placeholder': 'Cosa non va in questa riga…',
   'common.add': 'Aggiungi',
   'common.cancel': 'Annulla',
@@ -1319,6 +1377,11 @@ const IT: Dict = {
   'perf.q2': 'Quanto costa',
   'perf.fpsAvg': 'media {n}',
   'perf.procCount': '{n} processi',
+  // L'inventario del peso per funzionalita'. «Trattenuto» e non «in memoria»:
+  // quei numeri sono CONTEGGI, non megabyte, e la sezione esiste proprio per
+  // dire che non si sommano a quelli sopra.
+  'perf.inventory.heldHeading': 'Trattenuto (conteggi, non MB)',
+  'perf.inventory.unmeasured': 'non misurato',
   // La percentuale in anteprima: e' il TOTALE (app + agenti e servizi), sulla
   // scala 0-100 dell'intera macchina. La stessa chiave serve alle due tessere,
   // dove dice invece quanto ne mette ciascuna meta'.
