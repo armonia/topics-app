@@ -2735,6 +2735,34 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         } catch (e) { return fail(e); }
       }
 
+      // RIGENERA IL TITOLO di una card che ce l'ha ancora mozzato.
+      //
+      // Il titolo leggibile lo ricava la board alla NASCITA della card
+      // (`services/task-title.ts`), ma le card che c'erano gia' tengono quello
+      // vecchio: sul database vivo erano 24, di cui 2 in review — le stesse due
+      // che hanno fatto nascere questo lavoro. Una migration non serviva (il
+      // titolo lo deve scrivere un modello, non uno UPDATE), e riscriverlo a
+      // mano nel database sarebbe stato un gesto che nessuno puo' ripetere.
+      //
+      // Le guardie sono quelle della creazione, perche' e' la stessa decisione:
+      // un titolo corto non si tocca, una risposta storta si scarta, e senza
+      // modello non succede niente.
+      const bTitolo = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/retitle");
+      if (bTitolo && method === "POST") {
+        const t = svc.get(bTitolo.taskId, { projectId: bTitolo.projectId })?.task;
+        if (!t) return json({ error: "not_found" }, 404);
+        const prov = opts?.namingProvider?.();
+        if (!prov) return json({ ok: false, reason: "no_provider" });
+        const migliore = await titoloMigliore(prov, { text: t.text, description: t.description });
+        if (!migliore) return json({ ok: false, reason: "nothing_better", text: t.text });
+        const aggiornata = svc.update({
+          taskId: t.id, actor: "agent", by: "system",
+          projectId: bTitolo.projectId, patch: { text: migliore },
+        });
+        if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bTitolo.projectId, task: aggiornata });
+        return json({ ok: true, text: migliore, before: t.text });
+      }
+
       const bComments = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/comments");
       if (bComments && method === "POST") {
         const body = (await readJSON(req)) as any;
