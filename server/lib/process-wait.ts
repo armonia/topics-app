@@ -48,8 +48,9 @@ export function compileUntil(pattern: unknown): RegExp | undefined {
   if (typeof pattern !== "string" || !pattern) return undefined;
   try {
     return new RegExp(pattern, "i");
-  } catch (err: any) {
-    throw new Error(`until: not a valid regular expression (${err?.message ?? "error"})`);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "error";
+    throw new Error(`until: not a valid regular expression (${reason})`);
   }
 }
 
