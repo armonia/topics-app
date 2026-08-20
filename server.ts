@@ -1,5 +1,6 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
+import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
@@ -3915,6 +3916,12 @@ function finalizeOrphanedRunningTools() {
     }
     for (const id of daSpiegare) { explainUpd.run(INTERRUPTED_MARKER, id); explainCount++; }
     if (explainCount > 0) console.log(`[boot] added interruption explanation to ${explainCount} message(s)`);
+
+    // TERZA PASSATA: I MUTI CON LA PROSA, che sono la maggioranza. Le due
+    // sopra spiegano solo chi non aveva scritto NIENTE, e un turno d'agente
+    // quasi sempre qualcosa lo scrive. Il giro e la sua ragione stanno in
+    // `lib/verdetto-turno-interrotto.ts`, provati a parte.
+    bonificaTurniMuti(db, INTERRUPTED_MARKER.replace(/^⚠️\s*/, ""));
   } catch (e) {
     console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
   }
