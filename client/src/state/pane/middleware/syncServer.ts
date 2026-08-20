@@ -407,12 +407,17 @@ export function initServerSync(): void {
         // toglie — e oggi ho gia' pagato questa lezione con un gate che faceva
         // sparire la chiusura di una scheda.
         //
-        // Dove guarderei ripartendo: non qui, ma in `syncWS.ts`, alla riga che
-        // porta `lastSeq` a `max(currentSeq, server_seq)` su un'idratazione. E'
-        // quella a trasformare la scrittura di un pari nel nostro contatore, e
-        // finche' resta cosi' ogni gate a valle sta rattoppando un sintomo.
-        // Gli agganci restano pubblicati (`alreadyOnServer`, `noteLocalWrite`)
-        // con i loro commenti: servono a chi riprende, non a questo giro.
+        // Dove guarderei ripartendo: non qui, ma alla riga che trasforma la
+        // scrittura di un pari nel nostro contatore.
+        //
+        // ⇒ CHIUSO IL 20/08 ALLE 01:22, per quella strada: non fermare l'invio,
+        // non SVEGLIARLO. `localSeq` non sale piu' sulle azioni
+        // server-autoritative e questo modulo lo osserva al posto di `lastSeq`
+        // (l'abbonamento in fondo), quindi l'idratazione di un pari non arma
+        // piu' la spinta. Il ritiro qui sopra resta scritto perche' e' la
+        // ragione per cui il rimedio giusto era altrove; gli agganci in
+        // `syncWS.ts` sono stati rimossi quando hanno smesso di avere un
+        // problema da risolvere.
         void pushSnapshot(REMOTE_KEY, snap, state.lastSeq);
     }, DEBOUNCE_MS);
   };
