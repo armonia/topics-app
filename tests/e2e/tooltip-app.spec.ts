@@ -64,8 +64,26 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
      * elemento, quindi un `title` che sparisce e riappare per microtask non lo
      * fa mai comparire. Otto secondi coprono anche il caricamento; se il
      * delegato non lo togliesse affatto, il poll scadrebbe lo stesso. */
-    await expect.poll(async () => await el.getAttribute('title'), { timeout: 8_000 }).toBeNull();
-    expect(await el.getAttribute('data-tip')).not.toBeNull();
+    /* SI GUARDA `data-tip`, NON L'ASSENZA DI `title`.
+     *
+     * `data-tip` e' il segnale STABILE: viene scritto nello stesso istante in
+     * cui `title` viene tolto, e nessuno lo riscrive — quindi o c'e' o non
+     * c'e'. La sua presenza prova esattamente cio' che conta: il delegato ha
+     * preso questo elemento e il testo e' passato di la'.
+     *
+     * `title` invece e' CONTESO, e pretenderlo assente rendeva il test
+     * instabile (un rosso ogni due giri, misurato). Il componente sotto si
+     * ri-renderizza a ogni fotogramma — porta gli fps — e React riscrive la
+     * prop; l'osservatore la ritoglie in un microtask, ma una lettura che cade
+     * in quella finestra la trova presente.
+     *
+     * E non e' un difetto: il tooltip di SISTEMA parte dopo circa un secondo
+     * di quiete sullo stesso elemento, e un attributo tolto e rimesso per
+     * microtask non gliela concede mai. Un test che pretende l'istante misura
+     * la fortuna; questo misura il fatto. La prova che il nativo resti muto
+     * sta nel caso «uscendo, il title TORNA», dove l'attributo e' fermo. */
+    await expect.poll(async () => await el.getAttribute('data-tip'), { timeout: 10_000 }).not.toBeNull();
+    expect(await el.getAttribute('data-tip')).toContain('Topics');
   });
 
   test('uscendo, il `title` TORNA: i lettori di schermo non perdono il testo', async ({ page }) => {

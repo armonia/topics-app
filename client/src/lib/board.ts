@@ -486,6 +486,9 @@ export interface BoardTask {
   urlProbeCheckedAt: string | null;
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
+  /** A che punto e' la corsa dei controlli, mentre `checksState` e' `running`.
+   *  Assente da un server piu' vecchio: la card torna a dire «check in corso». */
+  checksProgress?: { done: number; total: number } | null;
   previewImage: string | null;
   /** LE ALTRE evidenze allegate nel thread, per il carosello della card.
    *  Vuoto (o assente, da un server piu' vecchio) = una slide sola. */

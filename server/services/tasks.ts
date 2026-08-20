@@ -198,8 +198,13 @@ export interface Task {
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
   /** LE ALTRE evidenze allegate nel thread, per il carosello della card.
-   *  Vuoto quando non ce ne sono: la copertina resta l'unica slide. */
-  previewImages: string[];
+   *
+   *  ASSENTE, non vuoto, quando non ce ne sono. Il cancello sul peso della
+   *  lista (`proiezione magra`, 1750 byte per task) mi ha preso: due campi
+   *  sempre presenti costano 7 byte a task su OGNI risposta, per un caso che
+   *  riguarda una card su dieci. `[]` e `undefined` si leggono uguale a valle
+   *  — il client fa `?? []` — ma solo uno dei due viaggia. */
+  previewImages?: string[];
   /**
    * L'anteprima è stata RITIRATA perché non era evidenza (duplicata, un
    * placeholder, un errore). È uno stato della card, non un messaggio nel
@@ -299,6 +304,11 @@ export interface Task {
    * tale. 'running' mentre il server li esegue.
    */
   checksState: "running" | "pass" | "fail" | "unknown" | null;
+  /** A che punto e' la corsa dei controlli, mentre `checksState` e' `running`.
+   *  ASSENTE quando non e' in corso o quando il progresso non e' noto: uno
+   *  zero qui direbbe «nessun comando fatto», che e' un'altra affermazione, e
+   *  un `null` esplicito costerebbe byte su ogni task per un caso raro. */
+  checksProgress?: { done: number; total: number } | null;
   checksAt: string | null;
   /** Il commit su cui sono girati: se il branch è avanzato, un 'pass' è scaduto. */
   checksCommit: string | null;
@@ -517,11 +527,43 @@ export type UpdateBoardSettingsPatch = BoardSettingsPatch;
  * un JSON storto (riga scritta a mano, formato di una versione precedente) vale
  * "nessuna evidenza", non un'eccezione che fa esplodere OGNI lettura del task.
  */
-function parseChecksJson(raw: unknown): CheckRun[] | null {
+export function parseChecksJson(raw: unknown): CheckRun[] | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length ? (parsed as CheckRun[]) : null;
+    if (Array.isArray(parsed)) return parsed.length ? (parsed as CheckRun[]) : null;
+    // FORMA NUOVA: `{ progress, runs }`, scritta mentre la corsa e' in volo.
+    // I `runs` parziali sono comunque risultati veri (i comandi gia' finiti),
+    // e chi legge questa funzione li vuole uguale.
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as { runs?: unknown }).runs)) {
+      const runs = (parsed as { runs: CheckRun[] }).runs;
+      return runs.length ? runs : null;
+    }
+    return null;
+  } catch { return null; }
+}
+
+/**
+ * A che punto e' la corsa dei controlli: `{ done, total }`, o `null`.
+ *
+ * Vive in `checks_json` accanto ai run parziali (vedi `recordChecks`). Esiste
+ * perche' la card diceva «check in corso» e basta — segnalato: «se c'e'
+ * qualcosa in corso, dovrebbe esserci un progress».
+ */
+export function parseChecksProgress(raw: unknown): { done: number; total: number } | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) || !parsed || typeof parsed !== "object") return null;
+    const p = (parsed as { progress?: unknown }).progress;
+    if (!p || typeof p !== "object") return null;
+    const { done, total } = p as { done?: unknown; total?: unknown };
+    // Numeri veri e coerenti, o niente: un «3 su 0» a schermo e' peggio del
+    // silenzio, e un NaN attraversa tutto fino alla card.
+    if (typeof done !== "number" || typeof total !== "number") return null;
+    if (!Number.isFinite(done) || !Number.isFinite(total)) return null;
+    if (total <= 0 || done < 0 || done > total) return null;
+    return { done, total };
   } catch { return null; }
 }
 
@@ -1090,6 +1132,10 @@ export interface TaskService {
     state: "running" | "pass" | "fail" | "unknown" | null;
     commit?: string | null;
     runs?: CheckRun[] | null;
+    /** A che punto e' la corsa: quanti comandi FINITI su quanti dichiarati.
+     *  Serve alla card, che diceva «check in corso» senza dire quanto manca —
+     *  segnalato: «se c'e' qualcosa in corso, dovrebbe esserci un progress». */
+    progress?: { done: number; total: number } | null;
   }): Task;
   /**
    * Spegne le spie «running» rimaste accese, e si chiama UNA VOLTA all'avvio.
@@ -2136,7 +2182,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
       urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
-      previewImages: b.previewImages.get(r.id as string) ?? [],
+      // I due campi RARI si aggiungono solo quando hanno un contenuto: vedi le
+      // note sui tipi. Su una lista di 600 task sono ~4 KB risparmiati.
+      ...(() => {
+        const slides = b.previewImages.get(r.id as string);
+        return slides && slides.length ? { previewImages: slides } : {};
+      })(),
+      ...(r.checks_state === "running"
+        ? (() => {
+            const p = parseChecksProgress(r.checks_json);
+            return p ? { checksProgress: p } : {};
+          })()
+        : {}),
+
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
       planFirst: !!r.plan_first,
@@ -2171,6 +2229,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       landingState: r.landing_state ?? null,
       landingCheckedAt: r.landing_checked_at ?? null,
       checksState: r.checks_state ?? null,
+
       checksAt: r.checks_at ?? null,
       checksCommit: r.checks_commit ?? null,
       // `checks_json` non è nella proiezione della LISTA (217 KB sui 1,4 MB del
@@ -4759,9 +4818,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    recordChecks({ taskId, state, commit, runs }): Task {
+    recordChecks({ taskId, state, commit, runs, progress }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      /* IL PROGRESSO VIAGGIA DENTRO `checks_json`, non in una colonna nuova.
+       *
+       * Serve solo mentre lo stato e' `running` — un attimo, non un dato
+       * storico — e una migration per un valore che vive trenta secondi
+       * sarebbe sproporzionata. La forma resta leggibile da chi c'era prima:
+       * `runs` e' un array, questo e' un oggetto, e il client distingue i due
+       * casi guardando `Array.isArray`. */
+      const json = progress
+        ? JSON.stringify({ progress, runs: runs ?? [] })
+        : (runs && runs.length ? JSON.stringify(runs) : null);
       db.prepare(
         "UPDATE tasks SET checks_state = ?, checks_at = ?, checks_commit = ?, checks_json = ?, updated_at = ? WHERE id = ?",
       ).run(
@@ -4770,7 +4839,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // falsa alla riga "verdi alle 14:32".
         state === "running" ? null : now(),
         commit ?? null,
-        runs && runs.length ? JSON.stringify(runs) : null,
+        json,
         now(),
         taskId,
       );

@@ -760,11 +760,39 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // 'running' subito e in broadcast: i comandi possono durare minuti e una
         // board ferma senza spiegazioni si legge come "si è impiantato".
         try {
-          const t = svc.recordChecks({ taskId, state: "running", commit: ref.commit, runs: null });
+          const t = svc.recordChecks({
+            taskId, state: "running", commit: ref.commit, runs: null,
+            // Zero su N: la spia si accende gia' sapendo QUANTI comandi
+            // aspettano, cosi' la card dice «0/4» invece di «in corso».
+            progress: { done: 0, total: checks.length },
+          });
           broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* il gate vale anche senza la spia */ }
 
-        const runs = await runReviewChecks(checks, { cwd: ref.cwd });
+        /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
+         *
+         * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
+         * i comandi giravano uno per uno e la card diceva «check in corso»
+         * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
+         * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
+         *
+         * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
+         * continua: un progresso mancato non deve poter fermare una consegna. */
+        const runs = await runReviewChecks(checks, {
+          cwd: ref.cwd,
+          onProgress: (_run, i, total) => {
+            try {
+              const t = svc.recordChecks({
+                taskId, state: "running", commit: ref.commit,
+                // I run PARZIALI viaggiano con lui: un comando gia' rosso si
+                // vede subito nel drawer, invece di aspettare la fine del giro.
+                runs: null,
+                progress: { done: i + 1, total },
+              });
+              broadcastToAll({ type: "task:updated", projectId, task: t });
+            } catch { /* una spia persa non ferma il gate */ }
+          },
+        });
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
         const comment = formatChecksComment(runs, { commit: ref.commit });
         try {

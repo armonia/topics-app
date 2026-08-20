@@ -1130,9 +1130,40 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {checksRunning && (
             <span
               data-testid="card-checks-running"
-              title={tr('board.card.checksRunningTitle')}
+              title={task.checksProgress
+                ? tr('board.card.checksRunningProgressTitle', {
+                    done: task.checksProgress.done, total: task.checksProgress.total,
+                  })
+                : tr('board.card.checksRunningTitle')}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksRunning')}</span>
+            >
+              <Hourglass className="h-3 w-3 shrink-0" />
+              {/* A CHE PUNTO E', non solo «in corso». Segnalato: «vedo che c'e'
+                  qualcosa in corso, ma se c'e' qualcosa in corso dovrebbe
+                  esserci un progress». Il dato c'era gia' — `runReviewChecks`
+                  espone `onProgress` e i comandi girano uno per uno — e non lo
+                  leggeva nessuno.
+                  Quando il progresso non e' noto (una corsa partita prima di
+                  questo codice) si torna alla parola di prima, invece di
+                  mostrare uno «0/0» che sembra una misura. */}
+              {task.checksProgress
+                ? tr('board.card.checksRunningProgress', {
+                    done: task.checksProgress.done, total: task.checksProgress.total,
+                  })
+                : tr('board.card.checksRunning')}
+              {task.checksProgress && (
+                // La barra: due numeri si leggono, una barra si coglie senza
+                // leggere. Larghezza fissa perche' in una riga di chip un
+                // elemento che cresce col contenuto fa ballare i vicini.
+                <span className="ml-0.5 h-1 w-6 overflow-hidden rounded-full bg-white/15" aria-hidden>
+                  <span
+                    data-testid="card-checks-progress-bar"
+                    className="block h-full rounded-full bg-app-text-muted transition-all"
+                    style={{ width: `${Math.round((task.checksProgress.done / task.checksProgress.total) * 100)}%` }}
+                  />
+                </span>
+              )}
+            </span>
           )}
           {/* NON MISURATI, e si deve leggere diverso da rosso. Ambra e non rosa:
               rosso dice «il codice e' rotto, non approvare», questo dice «non lo
