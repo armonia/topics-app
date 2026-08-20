@@ -1225,12 +1225,10 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   /**
-   * Il turno è finito e nessuno guida più questa sessione.
-   *
-   * PRENDE L'HANDLER e lo confronta invece di azzerare alla cieca: la route
-   * chiude i turni in ordine sparso, e un `= null` incondizionato spegnerebbe
-   * l'handler del turno NUOVO lasciandolo muto. NON tocca `wokenBuffer`: se la
-   * CLI sta aprendo un turno da sola, quei byte sono l'unica copia.
+   * Il turno è finito e nessuno guida più questa sessione. PRENDE L'HANDLER e
+   * lo confronta invece di azzerare alla cieca: la route chiude i turni in
+   * ordine sparso, e un `= null` incondizionato spegnerebbe quello NUOVO. NON
+   * tocca `wokenBuffer`: se la CLI apre un turno da sola, è l'unica copia.
    */
   unregisterStreamHandler(sessionKey: string, handler?: StreamHandler): void {
     const pp = this.processes.get(sessionKey);
@@ -1257,9 +1255,12 @@ export class ClaudeCodeProvider implements AIProvider {
   adoptWokenTurn(sessionKey: string, handler: StreamHandler): boolean {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return false;
-    if (pp.streamHandler) {
-      // Qualcuno guida già: il buffer non serve più a nessuno (quegli eventi
-      // appartengono allo stesso stream che l'altro handler sta ricevendo).
+    // «Occupata da sé stessa» non è occupata: la route registra l'handler PRIMA
+    // di guidare il turno, quindi qui lo trova già installato. Confrontarlo con
+    // `!== null` faceva rifiutare OGNI risveglio — dieci sveglie, zero
+    // risposte, misurato. Si guarda CHI c'è, non SE.
+    if (pp.streamHandler && pp.streamHandler !== handler) {
+      // Guida davvero qualcun altro: quegli eventi appartengono al suo stream.
       pp.wokenBuffer = null;
       return false;
     }

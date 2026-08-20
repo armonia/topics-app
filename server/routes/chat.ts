@@ -341,10 +341,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const isReattach = body.mode === "reattach";
       /**
        * `woken`: il turno che la CLI ha aperto DA SOLA — un `Monitor` che
-       * consegna il suo evento (vedi `claude/woken-turn.ts`).
-       *
-       * Adotta un turno già in corso senza portare un messaggio, come un
-       * riattacco: riga, SSE, finalizzazione, usage e broadcast sono identici.
+       * consegna il suo evento (vedi `claude/woken-turn.ts`). Adotta un turno
+       * già in corso senza portare un messaggio, come un riattacco: riga, SSE,
+       * finalizzazione, usage e broadcast sono identici.
        *
        * Ma NON per la RIGA: `reattach` RIUSA quella del turno interrotto e la
        * svuota, quindi ha bisogno di un'istantanea da cui ripescare ciò che il
@@ -1037,8 +1036,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // La riga com'è ADESSO, prima che il riattacco la svuoti per riusarla.
           // Serve a garantire l'unica regola che conta qui: una riadozione può
           // aggiungere, mai togliere. Vedi reattachMerge.ts.
-          // L'istantanea serve SOLO al riattacco, che riusa una riga esistente
-          // e la svuota. Vedi `adottaTurnoVivo`.
+          // L'istantanea serve solo a chi RIUSA una riga: vedi `isWoken`.
           const reattachSnapshot: RowSnapshot | null = isReattach
             ? (() => {
                 try {
@@ -1054,7 +1052,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 } catch { return null; }
               })()
             : null;
-          // Il riattacco RIUSA la riga interrotta; il risveglio ne apre una nuova.
           const partialMsg = isReattach
             ? reuseOrCreatePartialForReattach(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
@@ -1791,9 +1788,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // (`shared/empty-turn.ts`): se non c'è NIENTE dentro, non resta.
             //
             // E il RISVEGLIO A MANI VUOTE: un Monitor che si chiude sveglia un
-            // turno per dirlo, e quello spesso tace (la CLI emette la sua
-            // sentinella, vedi shared/empty-turn.ts). Solo per `woken`: un turno
-            // CHIESTO che finisce vuoto è un guasto, e il suo ⚠️ resta.
+            // turno per dirlo, e quello spesso tace (sentinella della CLI, vedi
+            // shared/empty-turn.ts). Solo per `woken`: un turno CHIESTO che
+            // finisce vuoto è un guasto, e il suo ⚠️ resta.
             const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || isWoken)))
               ? discardIfEmptyTurn(sessionKey, finalizedMsg)
               : null;
@@ -2827,9 +2824,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // `reattach_unsupported` alla risoluzione del provider. `!` qui è
             // sostenuto da quella guardia, non da un'assunzione.
             const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
-            // Il risveglio si adotta in modo SINCRONO: i suoi eventi sono già nel
-            // provider, non c'è nessuno store da rileggere. `false` = l'ha preso
-            // qualcun altro (o il figlio è morto), e la gamba finisce qui.
+            // Il risveglio si adotta in modo SINCRONO (gli eventi sono già nel
+            // provider). `false` = l'ha preso qualcun altro, o il figlio è morto.
             const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler) => boolean }).adoptWokenTurn;
             const drive = isWoken
               ? (adoptWoken!.call(topicProvider, sessionKey, handler)
@@ -2844,7 +2840,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
                 );
             drive.then((result) => {
-              topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
+              // SOLO SE IL TURNO È ANCORA VIVO. `sendChat` risolve quando il
+              // turno è FINITO, non quando parte: qui si arrivava dopo `onDone`
+              // e si reinstallava un handler morto, dopo di che ogni risveglio
+              // trovava la sessione «occupata» — cinque sveglie, zero risposte.
+              if (streamState !== "finalized") {
+                topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
+              }
               // Il primo turno di una sessione CLI ha composto lo scope quando la
               // riga di `claude_code_sessions` non esisteva ancora — la crea lo
               // spawn, dentro questa stessa sendChat. Ora l'id c'è: sposta lo stato
@@ -2862,7 +2864,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
             }).catch(async (err: any) => {
               // «IL RISVEGLIO NON È PIÙ MIO» NON È UN GUASTO.
-              //
               // `adoptWokenTurn` torna `false` quando qualcun altro ha preso la
               // sessione (tipicamente l'utente che scrive mentre il Monitor
               // consegna) o il figlio è morto. Nel primo caso la risposta arriva
