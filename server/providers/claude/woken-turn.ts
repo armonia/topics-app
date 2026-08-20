@@ -61,3 +61,71 @@ export function isWokenTurnLine(args: {
  * RAM un turno intero da consegnare a nessuno.
  */
 export const WOKEN_BUFFER_MAX = 200;
+
+/**
+ * Prende in consegna gli eventi tenuti da parte e li ripiega, NELL'ORDINE.
+ *
+ * L'ordine non è un dettaglio: gli `assistant` sono cumulativi, `tool_use` e
+ * `tool_result` si deducono a vicenda, e consegnarli mescolati darebbe una riga
+ * di chat plausibile e sbagliata.
+ *
+ * Il buffer si azzera PRIMA di ripiegare: chi consuma rientra nello stesso
+ * gestore per ognuno di quegli eventi, e trovarlo ancora aperto lo farebbe
+ * rimettere in coda ciò che sta consumando.
+ *
+ * Sta qui e non nel provider per la stessa ragione della regola qui sopra: è
+ * una decisione pura sopra una lista, si prova senza montare un processo finto,
+ * e `claude-code.ts` è già al suo tetto di righe.
+ */
+export function drainWoken(
+  slot: { wokenBuffer?: unknown[] | null; sessionKey: string },
+  consegna: (ev: unknown) => void,
+): void {
+  const pending = slot.wokenBuffer;
+  slot.wokenBuffer = null;
+  if (!pending || pending.length === 0) return;
+  for (const ev of pending) {
+    try { consegna(ev); }
+    catch (err) { console.warn(`[claude-code] evento del risveglio non consegnato su ${slot.sessionKey}:`, err); }
+  }
+}
+
+/** Lo slot del processo che questo modulo tocca. */
+export interface WokenSlot {
+  sessionKey: string;
+  wokenBuffer?: unknown[] | null;
+  streamHandler: unknown;
+}
+
+/**
+ * Il primo evento di un turno spontaneo: apre il buffer, chiama la sveglia, e
+ * dice al chiamante se deve FERMARSI (nessuno ha ancora adottato) o proseguire.
+ *
+ * Il buffer si apre PRIMA della sveglia, non dopo: chi ascolta può registrare
+ * un handler in modo sincrono, e in quel caso questo stesso evento deve già
+ * trovare dove appoggiarsi.
+ *
+ * `true` = tenuto da parte, il chiamante non lo processi. `false` = qualcuno ha
+ * adottato in modo sincrono, si prosegue col nuovo handler.
+ */
+export function bufferWoken(
+  slot: WokenSlot,
+  event: unknown,
+  sveglia: ((sessionKey: string) => void) | null,
+): boolean {
+  if (slot.wokenBuffer == null) {
+    slot.wokenBuffer = [];
+    try { sveglia?.(slot.sessionKey); }
+    catch (err) { console.warn(`[claude-code] la sveglia del turno spontaneo su ${slot.sessionKey} ha rigettato:`, err); }
+  }
+  // La sveglia può aver adottato sul posto: allora il buffer è già stato
+  // svuotato da `drainWoken` e non c'è niente da tenere.
+  if (slot.streamHandler) return false;
+  const buf = slot.wokenBuffer ?? (slot.wokenBuffer = []);
+  if (buf.length < WOKEN_BUFFER_MAX) buf.push(event);
+  else if (buf.length === WOKEN_BUFFER_MAX) {
+    console.warn(`[claude-code] turno spontaneo su ${slot.sessionKey}: nessuno l'ha adottato entro ${WOKEN_BUFFER_MAX} eventi, smetto di tenerli`);
+    buf.push(event); // supera il tetto: il ramo sopra non ripete il log
+  }
+  return true;
+}

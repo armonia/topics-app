@@ -48,7 +48,7 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
-import { isWokenTurnLine, WOKEN_BUFFER_MAX } from "./claude/woken-turn";
+import { isWokenTurnLine, bufferWoken, drainWoken } from "./claude/woken-turn";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -1185,29 +1185,59 @@ export class ClaudeCodeProvider implements AIProvider {
   /**
    * CHI VUOLE SAPERE CHE UN TURNO È NATO DA SOLO — e come si arma.
    *
-   * Un `Monitor` non consegna il suo evento nel turno che l'ha armato: quel
-   * turno è finito. Lo consegna aprendo un TURNO NUOVO, e siccome dopo un
-   * `result` `pp.streamHandler` è null, `handleStreamEvent` lo lasciava cadere
-   * blocco per blocco: la risposta esisteva, era corretta, ed era invisibile —
-   * né in chat né nel DB. Non si era perso il tool, si perdeva la sua RISPOSTA.
-   * La traccia misurata sta in testa a `claude-code-woken-turn.test.ts`.
+   * Un `Monitor` consegna il suo evento aprendo un TURNO NUOVO, e dopo un
+   * `result` `pp.streamHandler` è null: quel turno cadeva blocco per blocco.
+   * Non si era perso il tool, si perdeva la sua RISPOSTA. La traccia misurata
+   * sta in testa a `claude-code-woken-turn.test.ts`.
    *
-   * Questo callback è il filo che mancava: il provider dice «qui ha ricominciato
-   * a parlare qualcuno e non gliel'ho chiesto io», e chi ascolta (server.ts)
-   * apre una riga e adotta il turno.
-   *
-   * STATICO, e non per pigrizia: al boot `claude-code` NON è ancora registrato
-   * — `initProvider` avvia il default e poi lancia `initProviders()`
-   * fire-and-forget, ed è quella a sondare il PATH e a registrarlo. Una sveglia
-   * armata sull'istanza trovava `undefined` e usciva zitta: cablaggio perfetto,
-   * mai collegato. Vale anche a caldo, perché `registerProvider` SOSTITUISCE
-   * l'istanza a ogni cambio di modello. Uno solo: due ascoltatori sarebbero due
-   * righe in chat per la stessa risposta.
+   * STATICO: al boot `claude-code` NON è ancora registrato — `initProvider`
+   * avvia il default e lancia `initProviders()` fire-and-forget, ed è quella a
+   * sondare il PATH. Una sveglia armata sull'istanza trovava `undefined` e
+   * usciva zitta: cablaggio perfetto, mai collegato. Vale anche a caldo, perché
+   * `registerProvider` SOSTITUISCE l'istanza a ogni cambio di modello.
    */
   static observeWokenTurns(fn: (sessionKey: string) => void): void {
     ClaudeCodeProvider.onWokenTurn = fn;
   }
   private static onWokenTurn: ((sessionKey: string) => void) | null = null;
+
+  /**
+   * IL TURNO È STATO CHIESTO — anche se non è ancora partito.
+   *
+   * La route chiama questo PRIMA di `sendChat`; `claude-code` non lo
+   * implementava, e la chiamata (metodo opzionale) cadeva nel vuoto. L'handler
+   * arrivava solo dentro `sendChatInternal`, cioè DOPO la coda per sessione:
+   * una finestra lunga quanto il turno precedente, in cui la sessione era
+   * indistinguibile da una che parla senza che nessuno abbia chiesto niente —
+   * e il rilevamento del risveglio la adottava. Misurato sulla chat 205d1fbb
+   * il 20/08: TRE `[woken]` per UN Monitor, il primo dei quali era il turno
+   * appena chiesto dall'utente, la cui riga restava vuota.
+   */
+  registerStreamHandler(sessionKey: string, _runId: string | undefined, handler: StreamHandler): void {
+    const pp = this.processes.get(sessionKey);
+    // Nessun processo: lo spawn è dentro `sendChatInternal`, che installerà
+    // l'handler da sé. Crearlo qui spawnerebbe un figlio per una route che
+    // potrebbe rigettare un attimo dopo.
+    if (!pp) return;
+    pp.streamHandler = handler;
+    // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
+    this.drainWokenBuffer(pp);
+  }
+
+  /**
+   * Il turno è finito e nessuno guida più questa sessione.
+   *
+   * PRENDE L'HANDLER e lo confronta invece di azzerare alla cieca: la route
+   * chiude i turni in ordine sparso, e un `= null` incondizionato spegnerebbe
+   * l'handler del turno NUOVO lasciandolo muto. NON tocca `wokenBuffer`: se la
+   * CLI sta aprendo un turno da sola, quei byte sono l'unica copia.
+   */
+  unregisterStreamHandler(sessionKey: string, handler?: StreamHandler): void {
+    const pp = this.processes.get(sessionKey);
+    if (!pp) return;
+    if (handler && pp.streamHandler !== handler) return; // ha già preso qualcun altro
+    pp.streamHandler = null;
+  }
 
   /**
    * Adotta il turno che la CLI ha aperto da sola: registra l'handler e gli
@@ -1250,13 +1280,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * farebbe rimettere in coda ciò che sta consumando.
    */
   private drainWokenBuffer(pp: PersistentProcess): void {
-    const pending = pp.wokenBuffer;
-    pp.wokenBuffer = null;
-    if (!pending || pending.length === 0) return;
-    for (const ev of pending) {
-      try { this.handleStreamEvent(pp, ev); }
-      catch (err) { console.warn(`[claude-code] evento del risveglio non consegnato su ${pp.sessionKey}:`, err); }
-    }
+    drainWoken(pp, (ev) => this.handleStreamEvent(pp, ev));
   }
 
   constructor(config: ClaudeCodeProviderConfig) {
@@ -2912,32 +2936,9 @@ export class ClaudeCodeProvider implements AIProvider {
       replaySilent: !!pp.replaySilent,
       kind: line.kind,
     })) {
-      if (pp.wokenBuffer == null) {
-        // Primo evento del risveglio: si apre il buffer e si chiama la sveglia.
-        // Il buffer PRIMA della chiamata, non dopo: chi ascolta può registrare
-        // un handler in modo sincrono, e in quel caso questo stesso evento deve
-        // già trovare dove appoggiarsi.
-        pp.wokenBuffer = [];
-        try {
-          ClaudeCodeProvider.onWokenTurn?.(pp.sessionKey);
-        } catch (err) {
-          console.warn(`[claude-code] la sveglia del turno spontaneo su ${pp.sessionKey} ha rigettato:`, err);
-        }
-      }
-      // La sveglia può aver registrato un handler SINCRONO: in quel caso il
-      // buffer è già stato svuotato da `drainWokenBuffer` e si prosegue normale.
-      if (!pp.streamHandler) {
-        // Ancora nessuno: si tiene da parte. Il tetto evita che una adozione
-        // fallita accumuli per sempre i byte di una sessione che parla.
-        if (pp.wokenBuffer.length < WOKEN_BUFFER_MAX) pp.wokenBuffer.push(event);
-        else if (pp.wokenBuffer.length === WOKEN_BUFFER_MAX) {
-          console.warn(`[claude-code] turno spontaneo su ${pp.sessionKey}: nessuno l'ha adottato entro ${WOKEN_BUFFER_MAX} eventi, smetto di tenerli`);
-          pp.wokenBuffer.push(event); // supera il tetto: il ramo sopra non ripete il log
-        }
-        // Il `result` NON entra in questo ramo (kind diverso) e cade poco più
-        // sotto come è sempre caduto: senza handler non c'è niente da chiudere.
-        return;
-      }
+      // Tenuto da parte finché qualcuno non adotta: `bufferWoken` apre il
+      // buffer, chiama la sveglia e dice se fermarsi qui.
+      if (bufferWoken(pp, event, ClaudeCodeProvider.onWokenTurn)) return;
       // Adozione sincrona riuscita: da qui in giù vale il nuovo handler.
       handler = pp.streamHandler;
     }

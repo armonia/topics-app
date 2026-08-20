@@ -48,6 +48,62 @@ function hasItems(v: unknown[] | string | null | undefined): boolean {
 }
 
 /**
+ * LE FRASI CON CUI LA CLI DICE «NIENTE».
+ *
+ * Non sono risposte: sono segnaposto che Claude Code emette quando un turno si
+ * chiude senza avere nulla da dire. Stanno una accanto all'altra nel suo
+ * binario (`XI = "(no content)"`, `lX = "No response requested."`), e la CLI
+ * stessa le tratta come marcatori — il suo classificatore di stato le legge
+ * come «finito», non come contenuto.
+ *
+ * Per noi contano perché arrivano nel canale del testo, quindi il predicato
+ * qui sotto le vedeva come una risposta vera e teneva la riga. Su un turno
+ * CHIESTO da una persona non si notano (una in mezzo a una conversazione).
+ * Su un turno RISVEGLIATO sì: un Monitor che si chiude sveglia un turno per
+ * annunciarlo, quel turno non ha niente da dire, e in chat resta una riga che
+ * l'utente non ha chiesto sotto la risposta che invece aveva senso — osservato
+ * sulla chat 205d1fbb il 20/08.
+ *
+ * Confronto sul testo INTERO, non `includes`: un modello che scrive «la CLI
+ * risponde "No response requested." quando…» sta dicendo qualcosa, e cancellare
+ * quella riga sarebbe perdita di dati.
+ */
+const SENTINELLE_VUOTE = new Set(["(no content)", "No response requested."]);
+
+/** Il testo è una delle sentinelle con cui la CLI dice di non avere risposta? */
+export function isNoContentSentinel(text: string | null | undefined): boolean {
+  return SENTINELLE_VUOTE.has((text ?? "").trim());
+}
+
+/**
+ * I blocchi contano come LAVORO solo se non sono l'eco di un testo nullo.
+ *
+ * Il testo di un turno finisce anche nei blocchi, quindi una riga il cui unico
+ * contenuto è una sentinella arriva qui con un blocco `text` e verrebbe salvata
+ * da `hasItems` — mentre il campo `content`, appena sopra, l'ha dichiarata
+ * vuota. Due letture della stessa riga che si contraddicono.
+ *
+ * Un blocco `tool` (o qualunque altro tipo) è lavoro e vince sempre: qui si
+ * guarda solo il caso «tutti testo, e tutto testo nullo».
+ */
+function blocksAreOnlyEmptyText(v: unknown[] | string | null | undefined): boolean {
+  if (!hasItems(v)) return false;
+  let arr: unknown[];
+  try {
+    arr = Array.isArray(v) ? v : JSON.parse(String(v));
+  } catch {
+    return false; // illeggibile: non è «solo testo vuoto», nel dubbio si tiene
+  }
+  if (!Array.isArray(arr) || arr.length === 0) return false;
+  return arr.every((b) => {
+    const blocco = b as { kind?: string; text?: string } | null;
+    if (!blocco || blocco.kind !== "text") return false;
+    const t = (blocco.text ?? "").trim();
+    return !t || isNoContentSentinel(t);
+  });
+}
+
+/**
  * `true` quando il turno dell'assistente non ha prodotto NIENTE di mostrabile.
  * Il ruolo va passato quando lo si conosce: solo l'assistente ha segnaposto da
  * scartare — un messaggio dell'utente vuoto non arriva mai fin qui, e se
@@ -55,10 +111,14 @@ function hasItems(v: unknown[] | string | null | undefined): boolean {
  */
 export function isEmptyAssistantTurn(msg: AssistantTurnShape): boolean {
   if (msg.role && msg.role !== "assistant") return false;
-  if ((msg.content ?? "").trim()) return false;
+  const testo = (msg.content ?? "").trim();
+  // Una sentinella non conta come contenuto: vedi `SENTINELLE_VUOTE`. Il resto
+  // del predicato prosegue — se quel turno ha comunque prodotto tool o media,
+  // ha fatto lavoro e resta.
+  if (testo && !isNoContentSentinel(testo)) return false;
   if ((msg.thinking ?? "").trim()) return false;
   if (hasItems(msg.toolCalls)) return false;
-  if (hasItems(msg.blocks)) return false;
+  if (hasItems(msg.blocks) && !blocksAreOnlyEmptyText(msg.blocks)) return false;
   if (hasItems(msg.media)) return false;
   return true;
 }
