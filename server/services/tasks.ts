@@ -4308,19 +4308,37 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
       // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
-      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
-      // contabilita', non conversazione.
-      if (!hasFreshAgentComment(taskId)) {
-        try {
-          this.addComment({
-            taskId, author: "system", kind: "service",
-            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
-          });
-        } catch { /* best-effort */ }
-      }
+      // subito che l'agente non ha dichiarato nulla. Come, e in che ordine,
+      // sta scritto sul blocco stesso piu' sotto.
       if (reason && reason.trim()) {
         const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
         try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
+      }
+      // QUESTA NOTA VA SCRITTA PER ULTIMA, ed è il motivo per cui sta sotto
+      // `reason` e non sopra.
+      //
+      // La card mostra l'ULTIMA parola del thread. Nata prima della chiusura
+      // del fan-out, questa riga le finiva sotto — e siccome le due hanno lo
+      // stesso timestamp al secondo, a decidere l'ordine era il rowid. A
+      // schermo restava «Fan-out chiuso: 3 tentativi, 1 con modifiche», che è
+      // contabilità, mentre l'unica riga che spiega PERCHÉ la card è in review
+      // senza una parola dell'agente stava nascosta sotto (visto il 20/08 su
+      // 235afe11).
+      //
+      // Ed è `kind: 'comment'`, non più `'service'`: come service la card la
+      // scartava (`isThreadSpeech`), quindi era scritta in un thread che
+      // nessuno apre. Il primo rimedio che avevo tentato era un cartello
+      // generico sulla card — una fascia ambra che diceva «sotto c'è solo
+      // cronaca» sopra la cronaca stessa, senza il perché: più rumore di quanto
+      // ne togliesse. Meglio far arrivare la frase VERA, che il perché ce l'ha
+      // dentro.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "comment",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
       }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).
@@ -4449,6 +4467,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
       // subito che l'agente non ha dichiarato nulla. `kind='service'`:
       // contabilita', non conversazione.
+      //
+      // QUI resta 'service' anche dopo che l'altro punto e' passato a
+      // 'comment', e la differenza e' cio' che viene dopo: li' la nota e'
+      // l'ultima cosa che il thread ha da dire, qui subito sotto arriva una
+      // DOMANDA con i suoi bottoni. Promuoverla le ruberebbe la cima della
+      // card — cioe' l'unica cosa che tiene ferma la review.
       if (!hasFreshAgentComment(taskId)) {
         try {
           this.addComment({
