@@ -104,3 +104,46 @@ describe("la nota «senza riassunto» storica", () => {
     d.close();
   });
 });
+
+/**
+ * `20260821000500-nota-senza-riassunto-ordine.sql` — il completamento.
+ *
+ * La migration precedente e' stata applicata su questo database mentre
+ * conteneva ancora la sola prima UPDATE (un test l'ha eseguita prima che
+ * finissi di scriverla). `schema_migrations` la da' per applicata, quindi non
+ * rigirera' mai: la seconda parte serve a se' stante.
+ *
+ * Deve valere per ENTRAMBI i casi — chi ha preso la versione parziale e chi ha
+ * preso quella intera — e il secondo e' provato qui perche' e' quello che si
+ * rompe in silenzio: se non fosse idempotente, sposterebbe di un altro secondo
+ * righe gia' a posto.
+ */
+describe("il completamento dell'ordine", () => {
+  const ORDINE = fs.readFileSync(
+    path.join(PROJECT_ROOT, "server/db/migrations/20260821000500-nota-senza-riassunto-ordine.sql"),
+    "utf-8",
+  );
+
+  test("chi ha preso la versione PARZIALE viene completato", () => {
+    const d = db();
+    // Stato dopo la sola prima UPDATE: kind promosso, ordine ancora sbagliato.
+    ins(d, '1', 't1', 'system', 'comment', NOTA, '2026-08-20T19:18:15.403Z');
+    ins(d, '2', 't1', 'system', 'comment', 'Fan-out chiuso: 3 tentativi.', '2026-08-20T19:18:15.422Z');
+    d.run(ORDINE);
+    const o = d.query("SELECT content FROM task_comments WHERE task_id='t1' ORDER BY created_at ASC, rowid ASC")
+      .all() as Array<{ content: string }>;
+    d.close();
+    expect(o[o.length - 1]!.content).toContain("senza riassunto");
+  });
+
+  test("chi ha preso la versione INTERA non cambia di un millisecondo", () => {
+    const d = db();
+    // Stato dopo entrambe le UPDATE: la nota e' gia' dopo il fan-out.
+    ins(d, '1', 't1', 'system', 'comment', NOTA, '2026-08-20T19:18:16.403Z');
+    ins(d, '2', 't1', 'system', 'comment', 'Fan-out chiuso: 3 tentativi.', '2026-08-20T19:18:15.422Z');
+    d.run(ORDINE);
+    const ts = (d.query("SELECT created_at FROM task_comments WHERE id='1'").get() as { created_at: string }).created_at;
+    d.close();
+    expect(ts).toBe('2026-08-20T19:18:16.403Z');
+  });
+});
