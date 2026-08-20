@@ -21,6 +21,39 @@ import type { VocePeso } from './featureWeight';
  *  parete di testo. */
 export const RIGHE_NEL_TOOLTIP = 5;
 
+/**
+ * COME SI CHIAMANO LE COSE CHE UNA FUNZIONALITA' TIENE.
+ *
+ * «12 voci, 40 elementi» e' vero e non dice niente: dodici COSA? La domanda a
+ * cui questo inventario risponde e' «cosa tiene la memoria», e una risposta che
+ * non nomina cio' che tiene non e' una risposta. Qui ogni funzionalita' dichiara
+ * i due sostantivi con cui si contano le sue cose.
+ *
+ * Assente = si ripiega su «voci/elementi», che e' generico ma mai sbagliato: una
+ * funzionalita' nuova che si dimentica di registrarsi qui resta leggibile invece
+ * di sparire o di mentire.
+ */
+const NOMI: Record<string, { uno: string; molti: string; sub?: { uno: string; molti: string } }> = {
+  'pane.store': { uno: 'scheda', molti: 'schede', sub: { uno: 'chiusura ricordata', molti: 'chiusure ricordate' } },
+  'chat.messages': { uno: 'chat', molti: 'chat', sub: { uno: 'messaggio', molti: 'messaggi' } },
+  'board.tasks': { uno: 'task', molti: 'task' },
+  'topic.previews': { uno: 'anteprima', molti: 'anteprime' },
+  'chat.queue': { uno: 'chat', molti: 'chat', sub: { uno: 'turno', molti: 'turni' } },
+  'task.browserTabs': { uno: 'task', molti: 'task', sub: { uno: 'tab', molti: 'tab' } },
+  'browser.siteHistory': { uno: 'sito', molti: 'siti' },
+  'pane.residency': { uno: 'scheda montata', molti: 'schede montate' },
+  'fleet.sessions': { uno: 'sessione', molti: 'sessioni' },
+  'shell.browserPanes': { uno: 'pannello', molti: 'pannelli' },
+};
+
+/** Singolare o plurale del nome giusto per questa voce. */
+function nome(id: string, n: number, sub = false): string {
+  const def = NOMI[id];
+  const coppia = sub ? def?.sub : def && { uno: def.uno, molti: def.molti };
+  if (!coppia) return sub ? (n === 1 ? 'elemento' : 'elementi') : (n === 1 ? 'voce' : 'voci');
+  return n === 1 ? coppia.uno : coppia.molti;
+}
+
 /** La riga di una voce, senza il pallino di elenco: lo mette chi la mostra. */
 export function rigaVoce(v: VocePeso): string {
   if (v.errore) return `${v.label}: non misurato`;
@@ -35,7 +68,11 @@ export function rigaVoce(v: VocePeso): string {
      * due fatti diversi. Resta invece dove i due differiscono davvero —
      * «Terminali e sessioni: 749 MB · 2 voci · 5 processi», cioe' due sessioni
      * con cinque processi sotto — perche' li' la distinzione e' il dato. */
-    const q = v.peso.entries === proc ? '' : quantita(v);
+    /* Le radici del lato server hanno UNA voce per definizione (il ponte e' uno
+     * solo): «1 voce · 18 processi» conta due volte la stessa cosa e chiama
+     * «voce» un ponte. Il conteggio delle voci serve dove ce n'e' piu' d'una e
+     * dove non coincide coi processi — le sessioni, i pannelli. */
+    const q = v.peso.entries <= 1 || v.peso.entries === proc ? '' : quantita(v);
     // Il numero di processi c'e' perche' distingue «un terminale grosso» da
     // «dodici piccoli», che si chiudono in modi diversi.
     return `${v.label}: ${mb} MB${q ? ` · ${q}` : ''}${proc > 0 ? ` · ${proc} ${proc === 1 ? 'processo' : 'processi'}` : ''}`;
@@ -44,16 +81,16 @@ export function rigaVoce(v: VocePeso): string {
   // fra loro, e mostrarlo come «0,1 MB» accanto a un «440 MB» misurato darebbe
   // l'idea che le due cose si confrontino.
   const q = quantita(v);
-  return `${v.label}: ${q || `${v.peso.entries}`}`;
+  return `${v.label}: ${q || `${fmt(v.peso.entries)}`}`;
 }
 
-/** «3 chat, 4.312 messaggi» — la parte che conta le cose. */
+/** «3 chat, 4312 messaggi» — la parte che conta le cose, coi loro nomi. */
 function quantita(v: VocePeso): string {
   const e = v.peso.entries;
   const i = v.peso.items ?? 0;
   const parti: string[] = [];
-  if (e > 0) parti.push(`${fmt(e)} ${e === 1 ? 'voce' : 'voci'}`);
-  if (i > 0) parti.push(`${fmt(i)} ${i === 1 ? 'elemento' : 'elementi'}`);
+  if (e > 0) parti.push(`${fmt(e)} ${nome(v.id, e)}`);
+  if (i > 0) parti.push(`${fmt(i)} ${nome(v.id, i, true)}`);
   return parti.join(', ');
 }
 
@@ -115,6 +152,10 @@ export function vociPerNatura(voci: readonly VocePeso[], natura: VocePeso['natur
  */
 export function quantitaBreve(v: VocePeso): string {
   const i = v.peso.items ?? 0;
-  if (i > 0) return fmt(i);
-  return fmt(v.peso.entries);
+  // COL NOME, non il numero nudo: «198» in una colonna non dice se sono
+  // megabyte, secondi o anteprime — e sta accanto a righe che i megabyte li
+  // hanno davvero. Il nome e' corto per costruzione (una parola), quindi ci
+  // sta; il resto del conteggio sta nel tooltip della riga.
+  if (i > 0) return `${fmt(i)} ${nome(v.id, i, true)}`;
+  return `${fmt(v.peso.entries)} ${nome(v.id, v.peso.entries)}`;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { rigaVoce, bloccoTooltip, vociPerNatura, fmt, RIGHE_NEL_TOOLTIP } from './featureWeightText';
+import { rigaVoce, bloccoTooltip, vociPerNatura, quantitaBreve, fmt, RIGHE_NEL_TOOLTIP } from './featureWeightText';
 import type { VocePeso } from './featureWeight';
 
 const v = (p: Partial<VocePeso>): VocePeso => ({
@@ -195,5 +195,116 @@ describe('la ridondanza voci/processi, vista sui dati veri', () => {
     }));
     expect(r).toContain('2 voci');
     expect(r).toContain('5 processi');
+  });
+});
+
+describe('i nomi delle cose contate', () => {
+  /* «12 voci, 40 elementi» e' vero e non dice niente: dodici COSA? La domanda
+   * a cui l'inventario risponde e' «cosa tiene la memoria», e una risposta che
+   * non nomina cio' che tiene non e' una risposta. */
+  it('le schede si chiamano schede, e cio\' che ci sta dentro ha il suo nome', () => {
+    const r = rigaVoce(v({ id: 'pane.store', label: 'Le tue schede', peso: { entries: 12, items: 40 } }));
+    expect(r).toBe('Le tue schede: 12 schede, 40 chiusure ricordate');
+  });
+
+  it('le chat contano MESSAGGI, non «elementi»', () => {
+    const r = rigaVoce(v({ id: 'chat.messages', label: 'Chat caricate in memoria', peso: { entries: 3, items: 4312 } }));
+    expect(r).toBe('Chat caricate in memoria: 3 chat, 4312 messaggi');
+  });
+
+  it('i task, le anteprime e i siti hanno ciascuno il proprio nome', () => {
+    expect(rigaVoce(v({ id: 'board.tasks', label: 'Task della board', peso: { entries: 47 } })))
+      .toBe('Task della board: 47 task');
+    expect(rigaVoce(v({ id: 'topic.previews', label: 'Anteprime dei topic', peso: { entries: 198 } })))
+      .toBe('Anteprime dei topic: 198 anteprime');
+    expect(rigaVoce(v({ id: 'browser.siteHistory', label: 'Cronologia dei siti', peso: { entries: 340 } })))
+      .toBe('Cronologia dei siti: 340 siti');
+  });
+
+  it('il singolare e\' quello giusto, e «chat» non si pluralizza', () => {
+    expect(rigaVoce(v({ id: 'pane.store', label: 'Schede', peso: { entries: 1 } })))
+      .toBe('Schede: 1 scheda');
+    expect(rigaVoce(v({ id: 'chat.messages', label: 'Chat', peso: { entries: 1, items: 1 } })))
+      .toBe('Chat: 1 chat, 1 messaggio');
+  });
+
+  it('una funzionalita\' NUOVA che non si registra resta leggibile, invece di sparire', () => {
+    // Il ripiego e' generico ma mai sbagliato: dimenticarsi di dare un nome
+    // non deve rendere illeggibile una riga.
+    const r = rigaVoce(v({ id: 'roba.nuova', label: 'Roba nuova', peso: { entries: 5, items: 9 } }));
+    expect(r).toBe('Roba nuova: 5 voci, 9 elementi');
+  });
+
+  it('OGNI sorgente registrata ha un nome: l\'elenco non va in deriva', () => {
+    // Le voci che il registro produce davvero (featureWeightSources + le
+    // misurate). Se qualcuno ne aggiunge una senza nominarla, questo lo dice —
+    // altrimenti la riga nuova comparirebbe come «N voci» e nessuno se ne
+    // accorgerebbe.
+    const ids = [
+      'pane.store', 'chat.messages', 'board.tasks', 'topic.previews',
+      'chat.queue', 'task.browserTabs', 'browser.siteHistory', 'pane.residency',
+      'fleet.sessions', 'shell.browserPanes',
+    ];
+    for (const id of ids) {
+      const r = rigaVoce(v({ id, label: 'X', peso: { entries: 2 } }));
+      expect(r).not.toContain('voci');
+    }
+  });
+});
+
+describe('quantitaBreve — la colonna del pannello', () => {
+  it('porta il NOME, non un numero nudo: «198» accanto a «372 MB» non dice cosa sia', () => {
+    expect(quantitaBreve(v({ id: 'topic.previews', peso: { entries: 198 } }))).toBe('198 anteprime');
+    expect(quantitaBreve(v({ id: 'board.tasks', peso: { entries: 47 } }))).toBe('47 task');
+  });
+
+  it('quando ci sono elementi mostra quelli: dicono di piu\' delle voci', () => {
+    // 4312 messaggi e' piu' informativo di 3 chat.
+    expect(quantitaBreve(v({ id: 'chat.messages', peso: { entries: 3, items: 4312 } })))
+      .toBe('4312 messaggi');
+  });
+
+  it('resta CORTO: la colonna del pannello e\' stretta', () => {
+    const casi = [
+      v({ id: 'pane.store', peso: { entries: 12, items: 40 } }),
+      v({ id: 'chat.messages', peso: { entries: 3, items: 4312 } }),
+      v({ id: 'browser.siteHistory', peso: { entries: 340 } }),
+      v({ id: 'task.browserTabs', peso: { entries: 3, items: 9 } }),
+    ];
+    // Una sola parola dopo il numero, e niente virgole: due conteggi in
+    // colonna andrebbero a capo.
+    for (const c of casi) {
+      expect(quantitaBreve(c)).not.toContain(',');
+      expect(quantitaBreve(c).length).toBeLessThanOrEqual(24);
+    }
+  });
+});
+
+describe('«1 voce» non si scrive mai', () => {
+  it('una radice del lato server non e\' «1 voce»: e\' un ponte, e i processi li ha gia\' detti', () => {
+    const r = rigaVoce(v({
+      id: 'fleet.root.server', label: 'Server di Topics', natura: 'misurato',
+      peso: { entries: 1, memoryMB: 1439, processCount: 18 },
+    }));
+    expect(r).toBe('Server di Topics: 1439 MB · 18 processi');
+    expect(r).not.toContain('voce');
+  });
+
+  it('una SESSIONE sola si nomina come sessione, non come voce', () => {
+    const r = rigaVoce(v({
+      id: 'fleet.sessions', label: 'Terminali e sessioni', natura: 'misurato',
+      peso: { entries: 1, memoryMB: 609, processCount: 2 },
+    }));
+    // entries 1 e' comunque taciuto: «609 MB · 2 processi» dice tutto, e
+    // «1 sessione · 2 processi» aggiunge una parola per nessun fatto nuovo.
+    expect(r).toBe('Terminali e sessioni: 609 MB · 2 processi');
+  });
+
+  it('ma da DUE in su il conteggio torna, perche\' li\' distingue', () => {
+    const r = rigaVoce(v({
+      id: 'fleet.sessions', label: 'Terminali e sessioni', natura: 'misurato',
+      peso: { entries: 2, memoryMB: 749, processCount: 7 },
+    }));
+    expect(r).toBe('Terminali e sessioni: 749 MB · 2 sessioni · 7 processi');
   });
 });
