@@ -21,6 +21,7 @@
  * a surface that lies.
  */
 import type { ReactNode } from 'react';
+import { useT } from '@/hooks/useT';
 import { AlertTriangle, RotateCw, X } from 'lucide-react';
 
 export interface BrowserNoticeStripProps {
@@ -36,6 +37,7 @@ export interface BrowserNoticeStripProps {
 }
 
 export function BrowserNoticeStrip({ message, hint, action, onDismiss, testId }: BrowserNoticeStripProps) {
+  const tr = useT();
   return (
     <div
       className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-[12px] flex-shrink-0"
@@ -68,8 +70,8 @@ export function BrowserNoticeStrip({ message, hint, action, onDismiss, testId }:
           type="button"
           onClick={onDismiss}
           className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/15 transition-colors flex-shrink-0"
-          title="Chiudi"
-          aria-label="Chiudi l'avviso"
+          title={tr('common.close')}
+          aria-label={tr('notice.dismiss')}
         >
           <X size={12} aria-hidden />
         </button>

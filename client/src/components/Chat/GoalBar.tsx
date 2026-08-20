@@ -15,6 +15,7 @@
  */
 
 import { useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { Check, ChevronRight, Pencil, Target, X } from 'lucide-react';
 import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';
@@ -31,6 +32,7 @@ interface Props {
 type Row = { content: string; status: 'pending' | 'in_progress' | 'completed' };
 
 export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
+  const tr = useT();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(goal.content);
@@ -75,7 +77,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
             }
           }}
           className="min-w-0 flex-1 bg-transparent text-[12px] text-app-text outline-none"
-          placeholder="Qual è l'obiettivo di questa conversazione?"
+          placeholder={tr('goal.placeholder')}
         />
       </div>
     );
@@ -132,7 +134,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
         <button
           type="button"
           onClick={() => onClose('abandoned')}
-          title="Lascia perdere questo obiettivo"
+          title={tr('goal.abandon')}
           className="flex-shrink-0 p-0.5 text-app-text-muted hover:text-app-text"
         >
           <X size={12} />
@@ -149,7 +151,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
         <ul className="space-y-0.5 border-t border-app-border/50 px-2.5 py-1.5">
           {!own && (
             <li className="pb-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">
-              piano del turno, non sopravvive alla compattazione
+              {tr('goal.notCompacted')}
             </li>
           )}
           {rows.map((r, i) => (

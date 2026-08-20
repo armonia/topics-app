@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { Github, User } from 'lucide-react';
 import { ApiError, peopleApi, type PersonaConProfilo } from '../../lib/api';
 
@@ -50,6 +51,7 @@ function Avatar({ p }: { p: PersonaConProfilo }) {
 }
 
 export function FriendsSection() {
+  const tr = useT();
   const [persone, setPersone] = useState<PersonaConProfilo[] | null>(null);
   const [aperta, setAperta] = useState<string | null>(null);
   const [bozza, setBozza] = useState<string>('');
@@ -171,7 +173,7 @@ export function FriendsSection() {
                       onClick={() => void salvaLogin(p)}
                       className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[12px] text-app-text hover:bg-app-hover"
                     >
-                      Salva
+                      {tr('common.save')}
                     </button>
                   </div>
                   {errore && <p className="text-[11px] text-red-500">{errore}</p>}

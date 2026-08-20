@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
+import { useT } from '@/hooks/useT';
 import { Check, X, AlertTriangle, Info } from 'lucide-react';
 import { generateUUID } from '../../utils/uuid';
 
@@ -89,6 +90,7 @@ const styles: Record<ToastType, { bg: string; icon: React.ReactNode }> = {
 };
 
 function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string) => void }) {
+  const tr = useT();
   const [state, setState] = useState<'enter' | 'visible' | 'exit'>('enter');
 
   useEffect(() => {
@@ -120,7 +122,7 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
           {t.action.label}
         </button>
       )}
-      <button aria-label="Chiudi la notifica" onClick={() => onRemove(t.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+      <button aria-label={tr('toast.close')} onClick={() => onRemove(t.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
         <X size={12} />
       </button>
     </div>

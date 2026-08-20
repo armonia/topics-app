@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { useT } from '@/hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
@@ -130,6 +131,7 @@ export const MessageBubble = memo(function MessageBubble({
   onRetry,
   isLast,
 }: MessageBubbleProps) {
+  const tr = useT();
   // Il turno è stato aperto da un comando digitato? Lo sa solo il messaggio
   // precedente: la CLI espande lo slash prima del turno e sul filo non lascia
   // niente.
@@ -405,10 +407,10 @@ export const MessageBubble = memo(function MessageBubble({
             <button
               onClick={onRetry}
               data-testid="message-retry"
-              title="Rimanda il messaggio rimasto senza risposta"
+              title={tr('msg.resend')}
               className="mt-1.5 px-3 py-1 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-colors"
             >
-              ↻ Riprova
+              ↻ {tr('common.retry')}
             </button>
           )}
           {/* Queued indicator for offline messages */}

@@ -46,6 +46,7 @@
  * this viewer's input, mirroring the pixel path's take-control model.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { Loader2 } from 'lucide-react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';
@@ -90,6 +91,7 @@ interface Props {
 }
 
 export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive }: Props) {
+  const tr = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
@@ -517,7 +519,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
           seguiva il tema: in chiaro restava una pastiglia nera. */}
       {selecting && !agentActive && (
         <BrowserPaneChip corner="top-center" tone="active" z={3} testId="browser-dom-select-mode">
-          Selezione testo · ⌥ per tornare
+          {tr('cobrowse.textSelect')}
         </BrowserPaneChip>
       )}
 
@@ -535,7 +537,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         >
           <div className="text-center">
             <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
-            <p className="text-[12px] text-app-text-muted">Avvio sessione condivisa…</p>
+            <p className="text-[12px] text-app-text-muted">{tr('browser.shared.starting')}</p>
           </div>
         </div>
       )}

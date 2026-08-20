@@ -28,12 +28,14 @@
  * frase con due lifecycle diversi dietro.
  */
 import { useEffect, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
 import { getUpdaterApi, shouldShowUpdaterToast, type UpdaterStatus } from '@/lib/updater';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 
 export function UpdaterToast() {
+  const tr = useT();
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [dismissed, setDismissed] = useState<boolean>(false);
   // While the VersionPopover is open it OWNS the update surface: it anchors to
@@ -147,7 +149,7 @@ export function UpdaterToast() {
           }}
           className="mt-1 text-app-text underline underline-offset-2 hover:no-underline"
         >
-          Scarica
+          {tr('update.download')}
         </button>
       )}
       {isReady && (
@@ -158,7 +160,7 @@ export function UpdaterToast() {
           }}
           className="mt-1 text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:no-underline"
         >
-          Riavvia e installa
+          {tr('update.restartInstall')}
         </button>
       )}
     </SidebarUpdateBanner>
