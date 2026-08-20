@@ -16,6 +16,9 @@ import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
 import { computeTopicsFootprint } from '@/lib/topicsFootprint';
 import { mostraResidenteInBarra } from './verdict';
+import { ensurePaneUsageFresh, webviewSnapshot } from '@/lib/paneUsage';
+import { useFeatureWeights } from '@/hooks/useFeatureWeights';
+import { bloccoTooltip } from '@/lib/featureWeightText';
 import { VersionPopover } from './VersionPopover';
 import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
@@ -180,7 +183,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   // riconoscere a colpo d'occhio che quei numeri sono di QUESTO coso qui.
   const { isMobile } = useMobile();
   // Slow polling for the status bar (60s)
-  const { status } = useSystemStatus(true, 60000);
+  const { status, refresh: refreshStatus } = useSystemStatus(true, 60000);
   const openclawAvailable = useOpenClawAvailable();
   const gatewayOnline = status?.gateway.online ?? false;
   const lastChangeTime = useLastChangeTime();
@@ -368,6 +371,43 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     serverMB: serverSideMemMB, partial: isPartialMem,
   });
 
+  /**
+   * COSA TIENE QUEL NUMERO, sul numero stesso.
+   *
+   * La riga sopra dice quanta di quella memoria e' davvero occupata; questa dice
+   * COSA la occupa. Sono le due meta' della stessa domanda, e finora nessuna
+   * delle due viveva qui: la barra mostrava «1,8 GB» e basta.
+   *
+   * SI CALCOLA SOLO COL MOUSE SOPRA. `hoverTotale` si accende su
+   * `mouseenter`/`focus` del gruppo: raccogliere l'inventario vuol dire
+   * serializzare lo stato di mezza app, e farlo ogni cinque secondi con la
+   * finestra ferma sarebbe lavoro a riposo per un testo che nessuno legge —
+   * esattamente cio' che questa app ha appena finito di togliersi di dosso.
+   * (RES-ATTR-08: la misura si chiede quando serve a qualcuno.)
+   */
+  const [hoverTotale, setHoverTotale] = useState(false);
+  /* Accendere l'inventario CHIEDE anche un campione fresco.
+   *
+   * La barra ricampiona ogni 60 secondi: senza questa richiesta, chi passa il
+   * mouse subito dopo un campione senza flotta (il server che riparte, il
+   * primo giro dopo l'avvio) leggerebbe un elenco con le sole voci trattenute
+   * per un minuto intero, cioe' l'inventario senza la meta' che pesa. Le due
+   * chiamate sono deduplicate a valle — `ensurePaneUsageFresh` ha la sua
+   * finestra di validita' e `refresh` e' una fetch sola. */
+  const mostraInventario = useCallback(() => {
+    setHoverTotale(true);
+    ensurePaneUsageFresh();
+    void refreshStatus();
+  }, [refreshStatus]);
+  const vociPeso = useFeatureWeights(hoverTotale, {
+    sessioni: fleet?.sessions ?? [],
+    browser: webviewSnapshot(),
+    radici: fleet?.roots ?? [],
+    scriptsMB: fleet?.scriptsMB ?? 0,
+    scriptsProcessCount: fleet?.scriptsProcessCount ?? 0,
+  }, status?.timestamp);
+  const recapPeso = bloccoTooltip(vociPeso);
+
   const totalTitle = [
     'Topics in tutto',
     usage.totalMB !== null
@@ -383,7 +423,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           : 'la lettura del dispositivo copre la sola shell'}`
       : null,
   ].filter(Boolean).join('\n· ')
-    + `\n\n${deviceTitle}\n\n${serverTitle}`;
+    + `\n\n${deviceTitle}\n\n${serverTitle}`
+    // L'inventario in CODA, non in testa: chi passa il mouse cerca prima il
+    // totale e le due meta'. Il dettaglio di cosa lo compone e' la domanda
+    // DOPO, e metterlo davanti spingerebbe giu' il numero che si cercava.
+    + (recapPeso ? `\n\n${recapPeso}` : '');
 
   // Chip = the CLIENT bundle version actually running. It moves on EVERY deploy,
   // including client-only hot-deploys (the "chip che cresce = deploy atterrato"
@@ -658,6 +702,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               data-testid="metrics-total"
               className="flex flex-shrink-0 items-center gap-1 tabular-nums"
               title={totalTitle}
+              // L'inventario si raccoglie SOLO da qui in poi. `focus` accanto a
+              // `mouseenter` perche' questo gruppo vive dentro un <button>: chi
+              // ci arriva da tastiera deve leggere lo stesso tooltip, non uno
+              // piu' povero.
+              onMouseEnter={mostraInventario}
+              onFocus={mostraInventario}
             >
               {isMobile
                 ? <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />

@@ -19,7 +19,7 @@
  * so ignoring the manifest stays safe — genuine work keeps the branch "unmerged".
  */
 
-import { commitIsIn, listOwnCommits } from "./own-commits";
+import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -30,14 +30,34 @@ export function filterUniqueSourceFiles(paths: string[]): string[] {
   return paths.map((p) => p.trim()).filter((p) => p.length > 0 && !NOISE_RE.test(p));
 }
 
-async function gitExit(cwd: string, args: string[]): Promise<number> {
+/**
+ * IL SEAM DEL GIT, e perche' non basta che ci sia in `own-commits`.
+ *
+ * Queste due funzioni spawnavano `git` direttamente. Finche' l'unico chiamante
+ * era l'audit — che gira su repo veri — andava bene. Poi `task-automerge` ha
+ * cominciato a usare `commitStatusFromRepo`, e i suoi test iniettano un git
+ * FINTO (`fakeGit`) per descrivere scenari che su un repo vero costerebbero
+ * dieci commit di impalcatura: quel finto veniva scavalcato, e un test che
+ * descriveva «ramo potato, commit dentro main» chiamava git per davvero
+ * ottenendo un esito che non c'entrava con lo scenario.
+ *
+ * `runGit` opzionale con default al git vero: chi non lo passa (l'audit, il GC)
+ * si comporta esattamente come prima.
+ */
+async function gitExit(cwd: string, args: string[], run?: GitRunner): Promise<number> {
+  if (run) {
+    try { return (await run(cwd, args)).code; } catch { return 1; }
+  }
   try {
     const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "ignore", stderr: "ignore" });
     return await proc.exited;
   } catch { return 1; }
 }
 
-async function gitOut(cwd: string, args: string[]): Promise<string> {
+async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
+  if (run) {
+    try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }
+  }
   try {
     const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore" });
     const out = await new Response(proc.stdout).text();
@@ -122,38 +142,40 @@ export async function commitStatusFromRepo(
   repoPath: string,
   commit: string | null,
   mainRef = "main",
+  /** Iniettato dai test di chi chiama; assente = `git` vero, come prima. */
+  runGit?: GitRunner,
 ): Promise<BranchStatus> {
   if (!commit) return "gone";
-  if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])) !== 0) return "gone";
+  if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`], runGit)) !== 0) return "gone";
 
   // (1) Discendenza. La domanda sta in `commitIsIn` perché non è solo di qui: il
   // cancello del land la fa per decidere se c'è qualcosa da pubblicare, questo
   // per decidere se c'è qualcosa da rifare. Due copie che divergono vogliono dire
   // ridispacciare ciò che il land ha appena chiuso.
-  if ((await commitIsIn(repoPath, commit, mainRef)) === true) return "merged";
+  if ((await commitIsIn(repoPath, commit, mainRef, { runGit })) === true) return "merged";
 
   // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
   // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra
   // domanda, e a volte un errore.
-  const head = (await gitOut(repoPath, ["log", "-1", "--format=%at%x09%s", commit])).trim();
+  const head = (await gitOut(repoPath, ["log", "-1", "--format=%at%x09%s", commit], runGit)).trim();
   const tab = head.indexOf("\t");
   const at = tab > 0 ? head.slice(0, tab) : "";
   const subject = tab > 0 ? head.slice(tab + 1) : "";
   if (at && subject) {
-    const twins = (await gitOut(repoPath, ["log", mainRef, "-F", `--grep=${subject}`, "--format=%at%x09%s"]))
+    const twins = (await gitOut(repoPath, ["log", mainRef, "-F", `--grep=${subject}`, "--format=%at%x09%s"], runGit))
       .split("\n").map((l) => l.trim());
     if (twins.includes(`${at}\t${subject}`)) return "merged";
   }
 
   // (3) Il contenuto del SUO cambiamento, non di tutto il ramo. Su un commit
   // radice `^` non esiste: `show` lo elenca comunque.
-  const ownDiff = await gitOut(repoPath, ["diff", "--name-only", `${commit}^`, commit]);
+  const ownDiff = await gitOut(repoPath, ["diff", "--name-only", `${commit}^`, commit], runGit);
   const changed = filterUniqueSourceFiles(
-    (ownDiff.trim() ? ownDiff : await gitOut(repoPath, ["show", "--format=", "--name-only", commit])).split("\n"),
+    (ownDiff.trim() ? ownDiff : await gitOut(repoPath, ["show", "--format=", "--name-only", commit], runGit)).split("\n"),
   );
   if (changed.length === 0) return "merged"; // solo rumore generato: niente da perdere
   // `git diff --quiet` esce 0 quando NON c'è differenza sui path dati.
-  return (await gitExit(repoPath, ["diff", "--quiet", commit, mainRef, "--", ...changed])) === 0 ? "merged" : "unmerged";
+  return (await gitExit(repoPath, ["diff", "--quiet", commit, mainRef, "--", ...changed], runGit)) === 0 ? "merged" : "unmerged";
 }
 
 /**

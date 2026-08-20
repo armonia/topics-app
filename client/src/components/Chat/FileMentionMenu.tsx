@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useT } from '../../hooks/useT';
 import { File, X, Search } from 'lucide-react';
 import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
@@ -196,12 +197,14 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
 }
 
 // Pill component for mentioned files
+
 export function FilePill({ file, onRemove }: { file: MentionedFile; onRemove: () => void }) {
+  const tr = useT();
   return (
     <span className="inline-flex items-center gap-1 bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md px-2 py-0.5 text-[11px] font-medium">
       <File size={12} className="flex-shrink-0" />
       <span className="truncate max-w-[120px]">{file.name}</span>
-      <button aria-label="Rimuovi il file"
+      <button aria-label={tr('ctx.removeFile')}
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
         className="ml-0.5 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200"
       >

@@ -16,7 +16,7 @@
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
@@ -659,5 +659,113 @@ describe("setDeliveryStat: i numeri senza toccare il resto", () => {
       { landing_state: string | null; landing_witnessed: number };
     expect(row.landing_state).toBeNull();
     expect(row.landing_witnessed).toBe(0);
+  });
+});
+
+/**
+ * LA SCHEDA DI CONSEGNA: l'anteprima che c'e' SEMPRE.
+ *
+ * Il 20/08 la colonna review aveva 9 card su 16 col riquadro vuoto: nessun
+ * allegato nel thread da promuovere, e l'anteprima viva rifiutata dal cancello
+ * sul contenuto (il worktree serve un 503 senza bundle). Il vuoto era una
+ * scelta — «un silenzio onesto» — ma a 9 su 16 non segnalava piu' niente.
+ * Qui si prova l'ultimo ramo: se non c'e' evidenza, il server DISEGNA i fatti
+ * che ha in colonna, e si fa da parte appena ne arriva una vera.
+ */
+describe("scheda di consegna (anteprima disegnata dal server)", () => {
+  let db: Database;
+  let dir: string;
+  let n = 0;
+  const scritte: string[] = [];
+  const mk = () => createTaskService(db, {
+    now: () => new Date().toISOString(),
+    uuid: () => `sh-${++n}`,
+    writeDeliverySheet: (taskId, svgText) => {
+      const p = join(dir, "task-sheets", `${taskId}.svg`);
+      mkdirSync(join(dir, "task-sheets"), { recursive: true });
+      writeFileSync(p, svgText);
+      scritte.push(p);
+      return p;
+    },
+  });
+  beforeEach(() => { db = freshDb(); dir = mkdtempSync(join(tmpdir(), "task-sheet-")); scritte.length = 0; });
+
+  const preview = (id: string) =>
+    (db.prepare("SELECT preview_image FROM tasks WHERE id = ?").get(id) as any)?.preview_image ?? null;
+
+  const consegna = (s: TaskService, testo: string) => {
+    const t = s.create({ projectId: PID, text: testo });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto, cinque cancelli verdi" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    return t;
+  };
+
+  test("una consegna a parole non lascia piu' la card cieca: c'e' la scheda", () => {
+    const s = mk();
+    const t = consegna(s, "consegna a parole");
+    expect(preview(t.id)).toBe(join(dir, "task-sheets", `${t.id}.svg`));
+    const disegno = readFileSync(preview(t.id)!, "utf-8");
+    expect(disegno).toContain("SCHEDA DI CONSEGNA");
+    expect(disegno).toContain("consegna a parole");
+  });
+
+  test("la scheda porta i numeri della consegna quando la card li ha", () => {
+    const s = mk();
+    const t = consegna(s, "lavoro con ramo");
+    db.prepare(
+      "UPDATE tasks SET delivery_branch = 'topics/fading-falcon', delivery_files_changed = 12, delivery_insertions = 340, delivery_deletions = 7, preview_image = NULL WHERE id = ?",
+    ).run(t.id);
+    expect(s.sweepReviewPreviews()).toBe(1);
+    const disegno = readFileSync(preview(t.id)!, "utf-8");
+    expect(disegno).toContain("topics/fading-falcon");
+    expect(disegno).toContain("+340");
+  });
+
+  test("un'evidenza VERA nel thread vince sulla scheda e la sostituisce", () => {
+    const s = mk();
+    const t = consegna(s, "consegna con schermata");
+    expect(preview(t.id)).toContain("task-sheets");
+    const shot = join(dir, "schermata.png");
+    const b = Buffer.alloc(33);
+    b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4);
+    b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
+    b.writeUInt32BE(1440, 16); b.writeUInt32BE(760, 20); b[24] = 8; b[25] = 6;
+    writeFileSync(shot, b);
+    s.addComment({ taskId: t.id, author: "claude", content: "ecco la schermata", media: [shot] });
+    expect(preview(t.id)).toBe(shot);
+  });
+
+  test("l'anteprima di una persona non viene mai coperta dalla scheda", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "consegna con evidenza propria" });
+    const mia = join(dir, "mia.svg");
+    writeFileSync(mia, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420"></svg>`);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: mia } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(mia);
+  });
+
+  test("il ritiro non toglie la scheda: toglierla riporterebbe la card cieca", () => {
+    const s = mk();
+    const t = consegna(s, "consegna senza superficie");
+    const scheda = preview(t.id);
+    const dopo = s.retirePreview({ taskId: t.id, reason: "l'anteprima viva ha risposto 503" });
+    expect(dopo.previewImage).toBe(scheda);
+  });
+
+  test("senza il servizio di scrittura iniettato la card resta com'era (nessun effetto)", () => {
+    const s = svc(db);
+    const t = consegna(s, "host senza media dir");
+    expect(preview(t.id)).toBeNull();
+  });
+
+  test("la spazzata copre le card gia' ferme in review, e non ripassa due volte", () => {
+    const s = mk();
+    const t = consegna(s, "card ferma in review");
+    db.prepare("UPDATE tasks SET preview_image = NULL WHERE id = ?").run(t.id);
+    expect(s.sweepReviewPreviews()).toBe(1);
+    expect(preview(t.id)).toContain("task-sheets");
+    expect(s.sweepReviewPreviews()).toBe(0); // gia' coperta: non e' piu' in lista
   });
 });

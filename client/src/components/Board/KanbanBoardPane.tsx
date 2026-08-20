@@ -200,7 +200,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
           {unlanded.length > 0 && (
             <div className="border-b border-app-border pb-1">
               <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-rose-300/90">
-                Non su main
+                {tr('board.unlanded.title')}
               </div>
               {unlanded.map((t) => (
                 <button
@@ -214,7 +214,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                 </button>
               ))}
               <p className="px-3 pb-1 pt-1 text-[11px] leading-snug text-app-text-muted">
-                Task chiusi la cui consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.
+                {tr('board.unlanded.blurb')}
               </p>
             </div>
           )}
@@ -252,7 +252,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                     <button
                       onClick={() => toggleExpand(p.projectId, isOpen)}
                       className="flex min-w-0 flex-1 items-center gap-1 text-left"
-                      title={isOpen ? 'Nascondi commit e diff' : 'Mostra commit e diff da pubblicare'}
+                      title={isOpen ? tr('board.unlanded.hide') : tr('board.unlanded.show')}
                     >
                       {isOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
                       <span className="min-w-0 flex-1 truncate text-[12px] text-app-text">{p.name}<span className="ml-1 text-[11px] text-app-text-muted">{p.ahead} commit · {p.branch}</span></span>
@@ -473,7 +473,7 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
       ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
         <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-          Alla sessione di progetto, accanto alla board
+          {tr('board.mission.toProject')}
         </div>
         {MISSIONS.map((m) => (
           <button
@@ -484,7 +484,7 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
           >
             <span className="font-medium text-app-text">{m.name}</span>
             <span className="text-[11px] leading-snug text-app-text-secondary">{m.summary}</span>
-            <span className="text-[11px] leading-snug text-app-text-muted">finita quando: {m.doneWhen}</span>
+            <span className="text-[11px] leading-snug text-app-text-muted">{tr('board.mission.doneWhen', { what: m.doneWhen })}</span>
           </button>
         ))}
       </Menu>
@@ -515,7 +515,7 @@ function GlobalSettingsMenu() {
       <button
         ref={btnRef}
         onClick={() => { setOpen((o) => !o); if (!open) load(); }}
-        title="Impostazioni dispatch, globali (tutte le board)"
+        title={tr('board.dispatchSettings')}
         className={`-ml-1 flex items-center bg-transparent p-0 ${open ? 'text-app-text' : 'text-app-text-muted hover:text-app-text-heading'}`}
       ><ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
@@ -1171,7 +1171,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return onMessage((msg) => {
       const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean; task?: BoardTask;
         taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null;
-        waiting?: boolean };
+        triage?: boolean; waiting?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
         // Il lampo è il segnale «è nato un task», e non ha un autore
@@ -1194,7 +1194,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
         setLiveUsage((prev) => {
           const n = new Map(prev);
-          n.set(m.taskId!, { turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0, model: m.model ?? null });
+          n.set(m.taskId!, { turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0, model: m.model ?? null, triage: m.triage === true });
           return n;
         });
       }
@@ -2010,7 +2010,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {mode === 'all' && <span className="hidden text-[11px] text-app-text-muted sm:inline">{tasks.length} task · tutti i progetti</span>}
+          {mode === 'all' && <span className="hidden text-[11px] text-app-text-muted sm:inline">{tr('board.allProjectsCount', { n: tasks.length })}</span>}
           {/* (Qui stava il chip delle sessioni Claude avviate a mano in un
               terminale, col suo «Continua qui» che le adottava in una topic.
               Tolto su richiesta di Attilio il 13/08: in barra era un numero che

@@ -253,19 +253,22 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
     await expect(changesPanel).toBeVisible({ timeout: 10000 });
 
     // La barra delle note in sospeso vive solo con una nota scritta. L'aggancio
-    // sta in `UnifiedDiff`, che è un'altra superficie e parla ancora italiano:
-    // la conversione va a superfici, e questa spec guarda le TRE dichiarate.
+    // sta in `UnifiedDiff`, che il 20/08 ha smesso di essere italiano insieme
+    // al resto di `client/src`: le tre àncore qui sotto erano in italiano e
+    // sono passate all'inglese col resto del pannello. Se un giorno tornassero
+    // rosse, la domanda giusta è «chi ha tolto la chiave», non «chi ha
+    // cambiato il testo».
     // Con PIÙ di un file nessuna card si apre da sola (`defaultOpenFirst` vale
     // solo per un patch a file unico): il file va aperto, ed è il prezzo di
     // avere due file per provare il plurale.
     await changesPanel.getByRole("button", { name: /^conta\.txt/ }).click();
     // Qualunque riga agganciabile del file appena aperto: quale sia dipende da
     // come git spezza il patch, e questa spec non parla di quello.
-    const commenta = changesPanel.getByRole("button", { name: /^Commenta .+:\d+$/ }).first();
+    const commenta = changesPanel.getByRole("button", { name: /^Comment on .+:\d+$/ }).first();
     await expect(commenta).toBeVisible({ timeout: 10000 });
     await commenta.click();
-    await changesPanel.getByPlaceholder("Cosa non va in questa riga…").fill("Perché maiuscolo?");
-    await changesPanel.getByRole("button", { name: "Aggiungi" }).click();
+    await changesPanel.getByPlaceholder("What is wrong with this line…").fill("Perché maiuscolo?");
+    await changesPanel.getByRole("button", { name: "Add" }).click();
 
     await expect(changesPanel.getByText("1 comment on the diff, not sent yet")).toBeVisible({ timeout: 10000 });
     // «1 pending» sta sul CHIP, che è rimasto nel drawer: è la traccia che il

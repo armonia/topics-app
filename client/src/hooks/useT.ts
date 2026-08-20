@@ -20,6 +20,17 @@ function currentLocale(): Locale {
 export function useLocale(): Locale {
   const [locale, setLocale] = useState<Locale>(currentLocale);
   useEffect(() => {
+    // Senza un posto a cui iscriversi non ci si iscrive, e non è un caso
+    // teorico: i banchi unitari dei componenti montano React senza DOM, e
+    // `currentLocale()` sopra è già scritto per reggerlo (ripiega su italiano).
+    // Prima questa riga esplodeva, e la lingua trasformava OGNI componente che
+    // la usa in un componente non testabile senza una finta finestra.
+    //
+    // Si guarda il METODO e non l'oggetto perché i due casi sono distinti e li
+    // ho pagati entrambi: `window` assente (banco senza DOM) e `window` finto
+    // ma spoglio, installato da un ALTRO file di test dello stesso processo.
+    // Il secondo passa un controllo su `typeof window` e poi esplode lo stesso.
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
     // `storage` scatta solo per le ALTRE finestre; per la propria c'è l'evento
     // interno che `settings.ts` già emette quando si salva.
     const sync = () => setLocale(currentLocale());

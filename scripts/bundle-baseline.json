@@ -67,20 +67,39 @@
     "tolleranza. Alzo qui perché la diligenza che la regola «stesso commit» esiste",
     "per imporre è stata fatta per intero e non ha trovato niente, non perché il",
     "rosso desse fastidio. Se la prossima volta uno di quei tre controlli sporca,",
-    "il numero non si alza: si aggiusta l'import."
+    "il numero non si alza: si aggiusta l'import.",
+    "",
+    "2026-08-20 (secondo giro dello stesso giorno): entry eager +26.930 raw /",
+    "+8.683 gz (+2,2% / +2,3%). E' il rastrello della lingua: `client/src` passa da",
+    "248 stringhe scritte a mano a UNA, e il dizionario italiano, che e' EAGER",
+    "perche' e' la lingua di ripiego, cresce da 104.536 a 124.960 byte di sorgente.",
+    "I soliti tre controlli, tutti puliti:",
+    "  · il dizionario INGLESE e' rimasto pigro: chunk `i18n-en-*.js` da 83.094",
+    "    byte, e nell'entry non c'e' una sola frase solo-inglese.",
+    "  · siti `lazy(` 34 prima e 34 dopo, e l'elenco dei file promossi a import",
+    "    statico e' vuoto.",
+    "  · critical_path ancora a 6 file.",
+    "Quello che ha comprato, ed e' il punto: NON e' codice nuovo, e' la stessa",
+    "interfaccia resa traducibile. Una stringa che era scritta nel componente",
+    "esisteva UNA volta; tradotta esiste DUE volte, come chiave al punto d'uso e",
+    "come voce nel dizionario. ~29 byte gz per stringa resa traducibile e' quel",
+    "prezzo, non un import sbagliato: e infatti l'inglese, che e' l'altra meta' del",
+    "lavoro, non pesa un byte qui perche' vive nel suo chunk.",
+    "Il modo di renderlo piu' economico esiste e non e' applicabile: rendere pigro",
+    "anche l'italiano. Non si puo', e' il ripiego sincrono di `t()`."
   ],
   "updated": "2026-08-20",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1211890,
-    "gz": 376876
+    "raw": 1238820,
+    "gz": 385559
   },
   "critical_path": {
-    "raw": 1845483,
-    "gz": 548087,
+    "raw": 1872413,
+    "gz": 556770,
     "files": 6
   },
   "total_assets": {
-    "raw": 8544065
+    "raw": 8580997
   }
 }
