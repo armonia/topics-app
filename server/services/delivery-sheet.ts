@@ -51,6 +51,18 @@ export interface DeliverySheetData {
   subtasksTotal?: number;
   /** Etichette della card (kind + chi chiude), massimo tre in figura. */
   labels?: string[];
+  /**
+   * L'ultima parola del thread: cosa e' stato fatto, detto da chi l'ha fatto.
+   *
+   * SERVE AL RAMO SENZA CODICE, ed e' il difetto che ripara. Quando la card non
+   * ha numeri di consegna la scheda scriveva «Nessun codice consegnato. La
+   * consegna sta nel thread della card»: il 60% della larghezza per dichiarare
+   * un'ASSENZA e mandare a leggere altrove. Segnalato: «dovrebbe mettere sempre
+   * qualcosa di utile per comprendere».
+   *
+   * Se il thread una parola ce l'ha, quella parola sta qui invece del rimando.
+   */
+  summary?: string | null;
 }
 
 const W = 1200;
@@ -134,11 +146,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
     <text x="800" y="${NUM_Y}" class="n del">-${del ?? 0}</text>
     <text x="800" y="${KEY_Y}" class="k">righe tolte</text>
     <text x="72" y="${BRANCH_Y}" class="b">${escapeXml(data.branch ?? "")}</text>`
-    : `
-    <text x="72" y="${NUM_Y}" class="n">0</text>
-    <text x="72" y="${KEY_Y}" class="k">file toccati</text>
-    <text x="420" y="${NUM_Y - 22}" class="b">Nessun codice consegnato.</text>
-    <text x="420" y="${KEY_Y}" class="k">La consegna sta nel thread della card.</text>`;
+    : riassuntoSvg(data.summary, NUM_Y, KEY_Y);
 
   const total = data.subtasksTotal ?? 0;
   const passi = total > 0
@@ -205,4 +213,35 @@ export function makeSheetWriter(openclawDir: string): (taskId: string, svg: stri
       return null;
     }
   };
+}
+
+/**
+ * Il ramo SENZA codice: cosa e' stato fatto, a parole.
+ *
+ * Prima diceva «Nessun codice consegnato. La consegna sta nel thread della
+ * card»: un'assenza e un rimando, per il 60% della larghezza. Ora prova a
+ * scrivere l'ultima parola del thread — la stessa che la card mostra sopra il
+ * titolo — perche' e' l'unica cosa utile che qui si possa mettere.
+ *
+ * Il ripiego resta per il caso in cui una parola non c'e' proprio (turno morto
+ * prima di commentare): li' l'assenza E' l'informazione, e dirla e' onesto.
+ *
+ * Le due Y arrivano come PARAMETRI e non come costanti di modulo: vivono nella
+ * funzione che disegna il resto della scheda, e ricopiarne i valori qui
+ * significherebbe due numeri da tenere allineati a mano — cioe' una scheda che
+ * si scompagina al primo ritocco del layout.
+ */
+function riassuntoSvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: number): string {
+  const testo = (summary ?? "").replace(/\s+/g, " ").trim();
+  if (!testo) {
+    return `
+    <text x="72" y="${NUM_Y - 22}" class="b">Nessun riassunto della consegna.</text>
+    <text x="72" y="${KEY_Y}" class="k">Il turno e' finito prima che l'agente commentasse.</text>`;
+  }
+  // Tre righe da 62 caratteri: sotto la soglia di leggibilita' a 268px, che e'
+  // il cancello di tutta la scheda.
+  const righe = wrapText(testo, 62, 3);
+  return righe
+    .map((l, i) => `<text x="72" y="${NUM_Y - 22 + i * 44}" class="b">${escapeXml(l)}</text>`)
+    .join("\n    ");
 }
