@@ -108,7 +108,7 @@ const IT: Dict = {
   'goal.placeholder': "Qual è l'obiettivo di questa conversazione?",
   'goal.abandon': 'Lascia perdere questo obiettivo',
   'goal.notCompacted': 'piano del turno, non sopravvive alla compattazione',
-  'cmd.ran': 'Hai lanciato {what} /{name} — apri per vederne il contenuto',
+  'cmd.ran': 'Hai lanciato {what} /{name}. Apri per vederne il contenuto',
   'cmd.kind.skill': 'la skill',
   'cmd.kind.command': 'il comando',
   'cmd.currentFile': 'Contenuto attuale del file di /{name}, non una copia di quando è girato',
