@@ -15,7 +15,7 @@
  * documented hide pattern (verified via context7 + Electron docs).
  */
 import { useEffect, useRef, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from './browserDevTypes';
 

@@ -1,5 +1,5 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';

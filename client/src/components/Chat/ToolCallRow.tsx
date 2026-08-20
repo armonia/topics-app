@@ -1,5 +1,5 @@
 import { createElement, memo, useEffect, useRef, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';

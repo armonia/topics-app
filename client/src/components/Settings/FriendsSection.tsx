@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Github, User } from 'lucide-react';
 import { ApiError, peopleApi, type PersonaConProfilo } from '../../lib/api';
 

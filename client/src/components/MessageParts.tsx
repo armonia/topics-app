@@ -1,5 +1,5 @@
 import { costTokens, partsFromMessage } from '../../../shared/token-cost';
-import { useT } from '@/hooks/useT';
+import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
 import { WaveLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';

@@ -9,7 +9,7 @@
  * sarebbe possibile (composita sopra tutto).
  */
 import { Unplug, RotateCw } from 'lucide-react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { loopbackDownText } from './navErrorMessage';
 
 interface ParkedPaneProps {

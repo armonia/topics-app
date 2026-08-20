@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';

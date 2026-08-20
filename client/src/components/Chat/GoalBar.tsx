@@ -15,7 +15,7 @@
  */
 
 import { useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Check, ChevronRight, Pencil, Target, X } from 'lucide-react';
 import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';

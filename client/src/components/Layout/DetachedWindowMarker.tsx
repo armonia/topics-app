@@ -9,7 +9,7 @@
 // the window is gone / on another machine (window_focus_label false), fall back
 // to reopening its topics locally.
 import { AppWindow } from 'lucide-react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { cn } from '@/lib/utils';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
 import { detachedWindowLabel, focusOrReopenDetachedWindow } from '@/lib/detachedWindow';

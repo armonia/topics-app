@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';

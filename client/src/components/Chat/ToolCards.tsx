@@ -14,8 +14,8 @@
  * text fallback when unknown/oversize/not-yet-loaded.
  */
 
-import { useMemo, useState, useSyncExternalStore } from 'react';
-import { useT } from '@/hooks/useT';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useT } from '../../hooks/useT';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import type { ToolCallDetail } from '../../types';
@@ -25,6 +25,7 @@ import { clampBody, formatBytes } from './clampBody';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
 import { skillInstructions } from './toolCardBody';
 import { useBackgroundShell, parseShellIdFromStartResult } from '../../hooks/useBackgroundShell';
+import { useWaitedProcess } from '../../hooks/useWaitedProcess';
 import type { LiveBackgroundShell } from '../../hooks/useBackgroundShell';
 
 /**
@@ -503,6 +504,61 @@ export function MonitorCard({ description, command, wsUrl, persistent, result }:
   );
 }
 
+// ── Wait (attesa di un processo) ────────────────────────────────────────────
+//
+// Questa card e' la risposta alla riga scritta sopra su `MonitorCard`: qui l'id
+// c'e', quindi la card puo' essere VIVA. Mentre il processo gira il cronometro
+// va e il pallino pulsa; quando esce, il pallino si spegne e compare il codice
+// di uscita — anche se la risposta del tool, letta mezz'ora fa, diceva soltanto
+// «ancora in esecuzione». E' esattamente la domanda che uno si fa riaprendo la
+// chat: «poi com'e' finita?».
+
+function elapsedLabel(fromIso: string | undefined, nowMs: number): string | undefined {
+  if (!fromIso) return undefined;
+  const started = Date.parse(fromIso);
+  if (!Number.isFinite(started)) return undefined;
+  const secs = Math.max(0, Math.round((nowMs - started) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ${secs % 60}s`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+export function WaitCard({ processId, until, timeoutMs, result, sessionKey }: {
+  processId: string; until?: string; timeoutMs?: number; result?: string; sessionKey?: string;
+}) {
+  const live = useWaitedProcess(processId, sessionKey);
+  const running = live.status === 'running';
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+  // Il cronometro si ferma su `completedAt`, non su «adesso»: riaprendo la
+  // chat domani, «adesso» direbbe che quel build e' durato quindici ore.
+  const fine = live.completedAt ? Date.parse(live.completedAt) : now;
+  const elapsed = elapsedLabel(live.startedAt, fine);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${running ? 'bg-green-500 animate-pulse' : live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted/50'}`} />
+        <span className="font-mono text-app-text-secondary">{live.scriptName || processId}</span>
+        {live.known
+          ? <span>{running ? 'running' : live.status === 'error' ? 'failed' : 'finished'}{live.exitCode != null ? ` · exit ${live.exitCode}` : ''}</span>
+          : <span>waiting</span>}
+        {elapsed && <span className="font-mono">{elapsed}</span>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+        {until && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">until /{until}/</span>}
+        {timeoutMs != null && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">max {Math.round(timeoutMs / 1000)}s</span>}
+      </div>
+      {result && <ResultPre text={result} />}
+    </div>
+  );
+}
+
 // ── BashOutput / KillShell (background-shell lifecycle) ──────────────────────
 
 export function BashOutputCard({ shellId, filter, output, sessionKey }: {
@@ -646,6 +702,8 @@ export function ToolCardBody({ detail, isError, isRunning, sessionKey }: {
       return <McpCard server={detail.server} tool={detail.tool} args={detail.args} result={detail.result} />;
     case 'monitor':
       return <MonitorCard description={detail.description} command={detail.command} wsUrl={detail.wsUrl} persistent={detail.persistent} result={detail.result} />;
+    case 'wait':
+      return <WaitCard processId={detail.processId} until={detail.until} timeoutMs={detail.timeoutMs} result={detail.result} sessionKey={sessionKey} />;
     case 'bash_output':
       return <BashOutputCard shellId={detail.shellId} filter={detail.filter} output={detail.output} sessionKey={sessionKey} />;
     case 'kill_shell':

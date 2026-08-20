@@ -18,7 +18,7 @@
  * cambio stanno in `SidebarUpdateBanner`.
  */
 import { useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../hooks/useT';
 import { RefreshCw } from 'lucide-react';
 import { BUNDLE_STALE_EVENT, reloadForNewBundle } from '@/lib/devBundleReload';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Check, Hash, MoreHorizontal, Pencil, Sigma } from 'lucide-react';
 import type { TaskStatus, TaskLabel, QueueReason, QueueTone } from '../../lib/board';
 import type { ProjectCounts } from '../../lib/projectTaskCounts';

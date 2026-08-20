@@ -21,6 +21,7 @@ import {
   callRunScript,
   callListProcesses,
   callReadProcessOutput,
+  callWaitForProcess,
   callStopProcess,
   callListTasks,
   callCreateTask,
@@ -501,6 +502,7 @@ describe("handleMessage", () => {
       "run_script",
       "list_processes",
       "read_process_output",
+      "wait_for_process",
       "stop_process",
       "list_tasks",
       "create_task",
@@ -574,6 +576,8 @@ describe("handleMessage", () => {
       "browser_read_screen", "browser_console", "browser_network", "browser_status",
       // Leggono lo stato di Topics.
       "browser_list_tabs", "list_processes", "read_process_output",
+      // Aspettare la fine di un processo non lo tocca: è una lettura che dura.
+      "wait_for_process",
       "list_tasks", "get_task", "read_agent", "list_agents",
       "read_chat_messages", "resolve_tab",
       // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
@@ -984,6 +988,58 @@ describe("callReadProcessOutput", () => {
     const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
     await expect(
       callReadProcessOutput({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/process_id.*required/i);
+  });
+});
+
+describe("callWaitForProcess", () => {
+  test("porta until/timeout/offset nella query e legge l'esito", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({
+        output: "ready in 300ms", offset: 12, status: "running",
+        reason: "match", waitedMs: 4200,
+      }), { status: 200 });
+    });
+    const text = await callWaitForProcess(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { process_id: "p1", until: "ready", timeout_ms: 30000, offset: 7 },
+      fetchImpl,
+    );
+    expect(seen.url).toContain("/api/sessions/s/scripts/p1/wait?");
+    expect(seen.url).toContain("offset=7");
+    expect(seen.url).toContain("timeout_ms=30000");
+    expect(seen.url).toContain("until=ready");
+    expect(text).toContain("ready in 300ms");
+    expect(text).toContain("reason=match");
+    expect(text).toContain("matched after 4s");
+  });
+
+  test("una scadenza si legge come «ancora vivo», non come un guasto", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ output: "", offset: 40, status: "running", reason: "timeout", waitedMs: 120000 }), { status: 200 }),
+    );
+    const text = await callWaitForProcess({ baseUrl: "http://x", sessionKey: "s" }, { process_id: "p1" }, fetchImpl);
+    expect(text).toContain("STILL RUNNING");
+    expect(text).toContain("not an error");
+    expect(text).toContain("offset=40");
+  });
+
+  test("l'uscita porta stato e codice", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ output: "1 failing", offset: 3, status: "error", exitCode: 1, reason: "exit", waitedMs: 9000 }), { status: 200 }),
+    );
+    const text = await callWaitForProcess({ baseUrl: "http://x", sessionKey: "s" }, { process_id: "p1" }, fetchImpl);
+    expect(text).toContain("finished after 9s");
+    expect(text).toContain("status=error");
+    expect(text).toContain("exit=1");
+  });
+
+  test("throws when process_id missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callWaitForProcess({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
     ).rejects.toThrow(/process_id.*required/i);
   });
 });

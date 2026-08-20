@@ -1,6 +1,6 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
 import React, { createContext, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../hooks/useT';
 import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
