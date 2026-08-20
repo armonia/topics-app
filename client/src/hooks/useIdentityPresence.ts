@@ -22,8 +22,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type PersonaConProfilo } from '@/lib/api';
 import {
-  facceOnline, unisciFacce, presentiOra,
-  type FacciaPresenza, type MembroPresenza,
+  facceOnline, unisciFacce, presentiOra, gentePresenza, unisciGente,
+  type FacciaPresenza, type MembroPresenza, type RigaPresenza,
 } from '@/components/Sidebar/orgPresence';
 
 /** Un'organizzazione, con dentro chi c'e' adesso. */
@@ -39,6 +39,8 @@ export interface OrgConPresenza {
   membri: number;
   /** Le facce di chi e' online, gia' ordinate. */
   facce: FacciaPresenza[];
+  /** TUTTI i membri, presenti per primi: e' l'elenco che apre il dropdown. */
+  gente: RigaPresenza[];
 }
 
 export interface PresenzaIdentita {
@@ -48,13 +50,17 @@ export interface PresenzaIdentita {
   amiciOnline: FacciaPresenza[];
   /** Quante persone conosci in tutto, te esclusa. Il denominatore degli amici. */
   amiciTotali: number;
+  /** Tutti quelli che conosci, presenti per primi: l'elenco del dropdown amici. */
+  amiciTutti: RigaPresenza[];
   /** Io, dalla rubrica: la faccia e il nome della prima riga. */
   io: PersonaConProfilo | null;
   /** `false` finche' il primo giro non e' tornato: le righe non lampeggiano. */
   pronto: boolean;
 }
 
-const VUOTO: PresenzaIdentita = { orgs: [], amiciOnline: [], amiciTotali: 0, io: null, pronto: false };
+const VUOTO: PresenzaIdentita = {
+  orgs: [], amiciOnline: [], amiciTotali: 0, amiciTutti: [], io: null, pronto: false,
+};
 
 /** Ogni minuto: la soglia dell'online e' cinque, ricontare piu' spesso non
  *  cambia niente e costa una fetch per organizzazione. */
@@ -112,6 +118,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
         online: presentiOra(membri, mioId, adesso),
         membri: membri.length,
         facce: facceOnline(membri, rubrica, mioId, adesso),
+        gente: gentePresenza(membri, rubrica, mioId, adesso),
       };
     }));
 
@@ -122,6 +129,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
       // organizzazioni): e' la stessa lista che apre la pagina «Amici», quindi
       // il numero qui e le righe la' non possono divergere.
       amiciTotali: rubrica.filter((p) => !p.isMe).length,
+      amiciTutti: unisciGente(conMembri.map((o) => o.gente)),
       io,
       pronto: true,
     });

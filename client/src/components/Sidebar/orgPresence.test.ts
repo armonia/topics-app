@@ -13,7 +13,7 @@
  * riconosce piu' nessuno.
  */
 import { describe, it, expect } from 'bun:test';
-import { presentiOra, facceOnline, unisciFacce, PRESENZA_MS } from './orgPresence';
+import { presentiOra, facceOnline, unisciFacce, gentePresenza, unisciGente, PRESENZA_MS } from './orgPresence';
 
 const ADESSO = 1_700_000_000_000;
 const poco = ADESSO - 60_000;
@@ -74,5 +74,45 @@ describe('unisciFacce', () => {
     const a = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR' };
     const b = { id: 'b', nome: 'Bruno Verdi', avatarUrl: null, iniziali: 'BV' };
     expect(unisciFacce([[a, b], [a]]).map((f) => f.id)).toEqual(['a', 'b']);
+  });
+});
+
+/**
+ * L'ELENCO APERTO ha un contratto DIVERSO dalla riga chiusa, ed e' il punto in
+ * cui e' facile sbagliare: la riga mostra chi c'e', il pannello mostra TUTTI.
+ * Chi e' offline non e' un caso da filtrare via, e' meta' della ragione per cui
+ * il pannello si apre — cercare qualcuno che in questo momento non c'e'.
+ */
+describe('gentePresenza', () => {
+  it('tiene anche gli assenti, ma i presenti stanno in cima', () => {
+    const righe = gentePresenza(membri, rubrica, 'io', ADESSO);
+    // Presenti per ultimo-visto (b piu' recente di a), poi gli assenti: `c` si
+    // e' visto un tempo fa, `d` non si sa (null), che va in fondo.
+    expect(righe.map((r) => r.id)).toEqual(['b', 'a', 'c', 'd']);
+    expect(righe.map((r) => r.presente)).toEqual([true, true, false, false]);
+  });
+
+  it('te stesso non entri nel tuo elenco', () => {
+    expect(gentePresenza(membri, rubrica, 'io', ADESSO).some((r) => r.id === 'io')).toBe(false);
+  });
+
+  it('senza sapere chi sei non risponde: la prima riga saresti tu', () => {
+    expect(gentePresenza(membri, rubrica, null, ADESSO)).toEqual([]);
+  });
+});
+
+describe('unisciGente', () => {
+  it('la stessa persona online in un gruppo e spenta nell' + '\u2019' + 'altro conta come presente', () => {
+    // Dire «offline» di chi sta scrivendo e' l'errore peggiore dei due: e'
+    // quello che fa smettere di scrivergli.
+    const spenta = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: false, vistoA: tanto };
+    const accesa = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: true, vistoA: poco };
+    expect(unisciGente([[spenta], [accesa]]).map((r) => r.presente)).toEqual([true]);
+  });
+
+  it('non ripete chi sta in due organizzazioni', () => {
+    const a = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: true, vistoA: poco };
+    const b = { id: 'b', nome: 'Bruno Verdi', avatarUrl: null, iniziali: 'BV', presente: false, vistoA: tanto };
+    expect(unisciGente([[a, b], [a]]).map((r) => r.id)).toEqual(['a', 'b']);
   });
 });

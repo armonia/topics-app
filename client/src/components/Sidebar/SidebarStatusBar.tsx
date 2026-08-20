@@ -500,13 +500,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
 
   return (
     <>
-      {/* IL BLOCCO DELL'IDENTITA', sopra la barra di stato: tre righe, tre
-          soggetti - io, i gruppi in cui sto, le persone che ho intorno. Erano
-          due righe che impilavano cinque cose diverse allineate a destra; la
-          gerarchia e il perche' di ciascuna riga stanno in `IdentityBlock.tsx`.
-          Ogni riga porta alla pagina del profilo che governa cio' che mostra:
-          un dato senza la sua porta e' un dato che si va poi a cercare nelle
-          impostazioni. */}
+      {/* IL BLOCCO DELL'IDENTITA', sopra la barra di stato: tre soggetti - io,
+          i gruppi in cui sto, le persone che ho intorno. Il perche' di ciascuno
+          sta in `IdentityBlock.tsx`; qui conta che sia SENZA BORDI e che questa
+          barra abbia perso il suo `border-t`. Erano due fili grigi in trenta
+          pixel di altezza, e tagliavano il fondo della colonna in tre fette che
+          si leggevano come tre barre di applicazioni diverse: il fondo della
+          sidebar e' UNA fascia sola, e cio' che distingue le sue parti e' il
+          glifo con cui ciascuna comincia, non una linea. */}
       <IdentityBlock onOpenDevices={onOpenDevices} />
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
@@ -551,7 +552,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           fonti per la stessa misura sono due fonti che divergono. */}
       <div
         data-testid="sidebar-status-bar"
-        className="flex items-center gap-2 flex-shrink-0 border-t border-app-border"
+        className="flex items-center gap-2 flex-shrink-0"
         style={{
           /**
            * PIÙ RIENTRO DOVE C'È L'ANGOLO TONDO.

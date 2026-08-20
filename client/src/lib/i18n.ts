@@ -1646,6 +1646,25 @@ const IT: Dict = {
   // dirla evita che «nessuno online» venga letto come «nessuno esiste».
   'statusBar.friends.nobody': 'Nessuno online negli ultimi cinque minuti',
   'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
+  // I PANNELLI che i tre chip aprono. Il chip dice la risposta corta, il
+  // pannello la mostra per esteso e porta le azioni: sono gli unici testi che
+  // possono permettersi una frase intera, perche' li' lo spazio c'e'.
+  'statusBar.me.panel': 'Il tuo profilo',
+  'statusBar.me.machine': 'Da questo dispositivo',
+  'statusBar.me.devicesRow': 'Dispositivi autorizzati',
+  'statusBar.me.devicesCount': '{n} connessi di {tot}',
+  'statusBar.me.workRow': 'Adesso',
+  'statusBar.orgs.panelTitle': 'Organizzazioni',
+  'statusBar.orgs.manage': 'Gestisci le organizzazioni',
+  'statusBar.orgs.alone': 'Sei l’unico membro',
+  'statusBar.friends.title': 'Amici',
+  'statusBar.friends.none': 'Non conosci ancora nessuno',
+  'statusBar.friends.noneHint': 'Le persone delle tue organizzazioni compaiono qui.',
+  'statusBar.friends.openAll': 'Apri gli amici',
+  'statusBar.friends.count': '{n} di {tot} online',
+  // Il gruppo degli assenti nell'elenco aperto: non e' un errore che ci siano,
+  // e' il motivo per cui l'elenco si apre.
+  'statusBar.presence.offlineGroup': 'Non online',
   // ── Popover della versione e aggiornamenti.
   // «Quanto tempo fa» accanto alla data: una data assoluta dice QUANDO, il
   // tempo trascorso dice se e' vecchia - ed e' la domanda vera.

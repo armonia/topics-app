@@ -88,6 +88,10 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
         body: JSON.stringify({ devices: [{ connected: true, revokedAt: null }] }) }));
     await page.goto("/");
 
+    // I dispositivi sono scesi DENTRO il pannello dell'identità: sulla riga
+    // erano un «1/1» accanto a un'icona, cioè il pezzo che ogni volta andava
+    // spiegato. La porta però è la stessa, e resta separata dal profilo.
+    await page.getByTestId("identity-me-profile").click();
     const ferri = page.getByTestId("identity-me-devices");
     await expect(ferri).toBeVisible({ timeout: 20000 });
     await ferri.click();
