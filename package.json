@@ -54,6 +54,7 @@
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:sleeps": "bun run scripts/check-e2e-sleeps.ts",
     "check:bloat": "bun run scripts/check-bloat.ts",
+    "qa:gate": "./scripts/qa-gate.sh",
     "check:security": "bun run scripts/check-security.ts",
     "obscura:check": "bun run scripts/obscura-track.ts check",
     "obscura:status": "bun run scripts/obscura-track.ts status",
