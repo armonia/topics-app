@@ -81,8 +81,33 @@ test.describe.serial("Coda dei messaggi", () => {
     return { sent, state };
   }
 
-  const queueBadge = (page: import("@playwright/test").Page) =>
-    page.getByTestId("message-queue-badge");
+  /**
+   * La coda si guarda DOVE SUCCEDE: le bolle «da inviare» in fondo al
+   * trascritto. Era un badge a scomparsa sopra il composer, e le due cose
+   * convivevano — la stessa coda disegnata due volte a due centimetri di
+   * distanza, con le azioni solo in quella nascosta. Ne è rimasta una
+   * (`client/src/components/Chat/QueuedTurns.tsx`), quindi i locator sono
+   * questi.
+   */
+  const queuedBubbles = (page: import("@playwright/test").Page) =>
+    page.getByTestId("queued-bubble");
+
+  /** Svuota la coda comunque sia messa: con più righe c'è «Svuota», con una
+   *  sola la X di quella riga È lo svuota (due bottoni per la stessa azione
+   *  sarebbero un bivio finto). */
+  async function svuotaCoda(page: import("@playwright/test").Page) {
+    const bolle = queuedBubbles(page);
+    for (let giro = 0; giro < 10; giro++) {
+      const n = await bolle.count();
+      if (n === 0) return;
+      if (n > 1) {
+        await page.getByTestId("queue-clear").click();
+      } else {
+        await page.getByTestId("queued-bubble-remove").first().click();
+      }
+      await expect(bolle).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
+    }
+  }
 
   /** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
   const beat = (page: import("@playwright/test").Page, ms = 1200) =>
@@ -124,6 +149,78 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
   }
 
+  /**
+   * UNA SOLA CODA A SCHERMO, E CI SI PUÒ AGIRE SOPRA.
+   *
+   * Il guasto: la stessa coda era disegnata DUE volte — le bolle «da inviare»
+   * in fondo al trascritto (mute) e un badge a scomparsa sopra il composer, che
+   * era l'unico posto da cui correggere, buttare, svuotare o non aspettare la
+   * fine del turno. Chi guardava la chat vedeva il proprio messaggio due volte
+   * e non sapeva quale fosse quello vero; chi voleva correggerlo doveva
+   * scoprire un pannello nascosto. Ne è rimasta una, ed è quella nel posto in
+   * cui il messaggio finirà: le azioni vivono sulla bolla che riguardano.
+   */
+  test("la coda si vede UNA volta sola, e ci si corregge sopra", async ({ page, chatPage }) => {
+    const { sent, state } = await interceptSends(page);
+    await openChat(page, chatPage);
+    await svuotaCoda(page);
+
+    await chatPage.messageInput.fill("primo");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+
+    await chatPage.messageInput.fill("da correggere");
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+
+    // UNA rappresentazione: il badge del composer non esiste più.
+    await expect(page.getByTestId("message-queue-badge")).toHaveCount(0);
+    // …e il testo non è scritto due volte a schermo.
+    await expect(page.getByText("da correggere", { exact: false })).toHaveCount(1);
+
+    // Correggere: click sul testo, si edita in loco, Invio salva.
+    await page.getByTestId("queued-bubble-edit").first().click();
+    const campo = page.getByTestId("queued-bubble-input");
+    await expect(campo).toBeVisible();
+    await campo.fill("corretto");
+    await campo.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1);
+    await expect(queuedBubbles(page).first()).toContainText("corretto");
+
+    // …e quello che parte è il testo CORRETTO, non quello scritto all'inizio.
+    state.hang = false;
+    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
+    await chatPage.messageInput.fill("ultimo");
+    await chatPage.messageInput.press("Enter");
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["primo", "corretto\n\nultimo"]);
+  });
+
+  test("la X sulla bolla butta il messaggio prima che parta", async ({ page, chatPage }) => {
+    const { sent, state } = await interceptSends(page);
+    await openChat(page, chatPage);
+    await svuotaCoda(page);
+
+    await chatPage.messageInput.fill("primo");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+
+    await chatPage.messageInput.fill("ci ho ripensato");
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+
+    await page.getByTestId("queued-bubble-remove").first().click();
+    await expect(queuedBubbles(page)).toHaveCount(0);
+
+    // Buttato vuol dire buttato: a turno finito non riappare da nessuna parte.
+    state.hang = false;
+    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
+    await chatPage.messageInput.fill("altro");
+    await chatPage.messageInput.press("Enter");
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["primo", "altro"]);
+  });
+
   test("stop TIENE il messaggio in coda invece di farlo partire", async ({ page, chatPage }) => {
     // Il frame che faceva il danno arriva dal WS: dopo un abort il server
     // annuncia comunque `stream:end`, e «lo stream è finito» era l'unica
@@ -150,7 +247,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // Scritto MENTRE l'agente risponde: va in coda, e la coda si vede.
     await chatPage.messageInput.fill("secondo");
     await chatPage.messageInput.press("Enter");
-    await expect(queueBadge(page)).toHaveText(/1\s*da inviare/, { timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
     await expect(chatPage.messageInput).toHaveValue("");
 
     const stop = page.getByRole("button", { name: /Stop generating/ }).first();
@@ -170,7 +267,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await page.waitForTimeout(4_000);
     expect(sent, "lo stop non deve far partire il messaggio in coda").toEqual(["primo"]);
     // …e il messaggio non è perso: è ancora lì, correggibile.
-    await expect(queueBadge(page)).toHaveText(/1\s*da inviare/);
+    await expect(queuedBubbles(page)).toHaveCount(1);
     await expect(page.locator('[data-testid="chat-message"][data-role="user"]').last())
       .toContainText("primo");
   });
@@ -180,11 +277,8 @@ test.describe.serial("Coda dei messaggi", () => {
     await openChat(page, chatPage);
     // La coda del test precedente è durevole per costruzione: si svuota qui,
     // altrimenti questo scenario partirebbe da uno stato che non è il suo.
-    if (await queueBadge(page).isVisible().catch(() => false)) {
-      await queueBadge(page).click();
-      await page.getByRole("button", { name: "Svuota" }).click();
-    }
-    await expect(queueBadge(page)).toBeHidden();
+    await svuotaCoda(page);
+    await expect(queuedBubbles(page)).toHaveCount(0);
 
     await chatPage.messageInput.fill("uno");
     await chatPage.messageInput.press("Enter");
@@ -198,7 +292,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // anche lei «in coda», e due strisce affiancate col nome della stessa cosa
     // non si distinguono. (Era «(2 messages queued)», una scritta nuda in
     // arancione attaccata al bordo inferiore del composer.)
-    await expect(queueBadge(page)).toHaveText(/2\s*da inviare/, { timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(2, { timeout: 10_000 });
 
     await page.getByRole("button", { name: /Stop generating/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
@@ -211,7 +305,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // "quattro" è l'ULTIMO: quello che era in coda da prima parte per primo —
     // e parte INSIEME a lui, in un turno solo, non tre turni in fila.
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["uno", "due\n\ntre\n\nquattro"]);
-    await expect(queueBadge(page)).toBeHidden({ timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
 
   /**
@@ -263,11 +357,8 @@ test.describe.serial("Coda dei messaggi", () => {
     });
 
     await openChat(page, chatPage);
-    if (await queueBadge(page).isVisible().catch(() => false)) {
-      await queueBadge(page).click();
-      await page.getByRole("button", { name: "Svuota" }).click();
-    }
-    await expect(queueBadge(page)).toBeHidden();
+    await svuotaCoda(page);
+    await expect(queuedBubbles(page)).toHaveCount(0);
 
     await didascalia(page, "L'agente sta rispondendo…");
     await chatPage.messageInput.fill("uno");
@@ -281,7 +372,7 @@ test.describe.serial("Coda dei messaggi", () => {
       await chatPage.messageInput.press("Enter");
       await beat(page, 500);
     }
-    await expect(queueBadge(page)).toHaveText(/3\s*da inviare/, { timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(3, { timeout: 10_000 });
     await beat(page);
 
     // Il turno in volo finisce da sé: nessuno stop, nessun freno.
@@ -290,7 +381,7 @@ test.describe.serial("Coda dei messaggi", () => {
 
     // IL PUNTO: UN solo invio in più, col testo dei tre pezzi unito.
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["uno", "due\n\ntre\n\nquattro"]);
-    await expect(queueBadge(page)).toBeHidden({ timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
     // E in chat c'è UNA bolla utente, non tre: è quello che il modello ha visto.
     const bolla = page.locator('[data-testid="chat-message"][data-role="user"]').filter({ hasText: "due" });
     await expect(bolla).toHaveCount(1);
@@ -320,7 +411,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect(page.getByText("/status: mostra lo stato della sessione").first())
       .toBeVisible({ timeout: 10_000 });
     // …e non è finito in coda, dove sarebbe poi partito come testo verso il modello.
-    await expect(queueBadge(page)).toBeHidden();
+    await expect(queuedBubbles(page)).toHaveCount(0);
 
     // Che non sia partito NEMMENO PIÙ TARDI non si prova aspettando mezzo
     // secondo e sperando: si lascia finire il turno e si manda un messaggio
@@ -394,18 +485,15 @@ test.describe.serial("Coda dei messaggi", () => {
 
     await openChat(page, chatPage);
     expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
-    if (await queueBadge(page).isVisible().catch(() => false)) {
-      await queueBadge(page).click();
-      await page.getByRole("button", { name: "Svuota" }).click();
-    }
-    await expect(queueBadge(page)).toBeHidden();
+    await svuotaCoda(page);
+    await expect(queuedBubbles(page)).toHaveCount(0);
 
     const TESTO = "scrivo mentre l'agente sta lavorando qui";
     await chatPage.messageInput.fill(TESTO);
     await chatPage.messageInput.press("Enter");
 
     // Respinto ⇒ in coda, e la coda si vede.
-    await expect(queueBadge(page)).toHaveText(/1\s*da inviare/, { timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
     expect(sent).toEqual([TESTO]);
     // E NON resta in chat come se fosse partito: l'unico posto in cui vive è
     // la coda. Prima la domanda restava in pagina mentre il testo viveva in un
@@ -419,6 +507,6 @@ test.describe.serial("Coda dei messaggi", () => {
 
     // IL PUNTO: riparte da solo, con lo stesso testo, una volta sola.
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual([TESTO, TESTO]);
-    await expect(queueBadge(page)).toBeHidden({ timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
 });

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, Terminal } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import { getFileIconDef } from '../lib/fileIcons';
@@ -16,7 +16,7 @@ import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { Spinner } from './Shared/Spinner';
-import { InvokedCommandRow } from './Chat/InvokedCommandRow';
+import { SlashCommandChip } from './Chat/SlashCommandChip';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
@@ -1015,9 +1015,6 @@ interface MessageContentProps {
   costCents?: number | null;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
   onPlanDecision?: (approved: boolean) => void;
-  /** Il comando che ha aperto QUESTO turno, quando l'utente l'ha digitato:
-   *  la CLI lo espande prima del turno e sul filo non resta traccia. */
-  invokedCommand?: { command: string; args?: string } | null;
   // Session viewer
   /**
    * The session key this message belongs to. Threaded down to
@@ -1067,7 +1064,7 @@ function TurnErrorBanner({ text }: { text: string }) {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, invokedCommand, sessionKey, messageId, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, sessionKey, messageId, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1119,15 +1116,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     () => (role === 'user' ? parseSlashInvocation(cleanText) : null),
     [role, cleanText],
   );
-
-  // La riga del comando NON si mostra se il turno ha già una sua riga di
-  // `Skill`/`SlashCommand`: quello è il caso in cui è stato il MODELLO a
-  // chiamarla, e dirlo due volte sarebbe rumore.
-  const showInvoked = useMemo(() => {
-    if (!invokedCommand || role !== 'assistant') return false;
-    const tools = (blocks ?? []).flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : [])).concat(toolCalls ?? []);
-    return !tools.some((t) => /^(skill|slashcommand|slash_command)$/i.test(t.name));
-  }, [invokedCommand, role, blocks, toolCalls]);
 
   // Il turno è fermo su una domanda a schermo? Guarda entrambe le sorgenti: la
   // timeline `blocks` (percorso attuale) e il vecchio secchio `toolCalls`, così
@@ -1221,15 +1209,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             segnale c'era per sbaglio. Qui è al suo posto, e non inventa una
             chiamata a un tool che non c'è stata. */}
         {cleanText && slashInvocation ? (
-          <span
-            data-testid="user-slash-command"
-            data-command={slashInvocation.command}
-            className="inline-flex items-center gap-1.5 font-mono text-[0.92em]"
-          >
-            <Terminal size={12} className="flex-shrink-0 opacity-70" />
-            <span className="font-medium">/{slashInvocation.command}</span>
-            {slashInvocation.args && <span className="opacity-80">{slashInvocation.args}</span>}
-          </span>
+          <SlashCommandChip command={slashInvocation.command} args={slashInvocation.args} />
         ) : (
           cleanText && renderUserText(cleanText)
         )}
@@ -1249,9 +1229,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return (
       <div data-testid="message-content-assistant">
         {turnError && <TurnErrorBanner text={turnError} />}
-        {showInvoked && invokedCommand && (
-          <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
-        )}
         {blockGroups.map((g) => {
           if (g.kind === 'thinking') {
             return (
@@ -1325,9 +1302,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   return (
     <div data-testid="message-content-assistant">
       {turnError && <TurnErrorBanner text={turnError} />}
-      {showInvoked && invokedCommand && (
-        <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
-      )}
       {(() => {
         // When there's no prose, the inline-tools-with-contentOffset path
         // would render NOTHING (it only fires inside `cleanText && ...`),

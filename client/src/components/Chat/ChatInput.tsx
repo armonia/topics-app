@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useTopicLoading } from '../../state/signals';
@@ -28,7 +28,7 @@ import { SheetGrabber } from '@/components/Shared/SheetGrabber';
 import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
-import { CHAT_STRIP, CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
+import { CHAT_STRIP } from '../../lib/chatStripStyles';
 import { AutonomyPicker } from './AutonomyPicker';
 import { fastModeUi } from '../../lib/fastMode';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
@@ -260,189 +260,6 @@ function AddMenu({
   );
 }
 
-// ---- Message Queue Badge (clickable popover) ----
-//
-// The queue is a `string[]` owned by the parent ChatPane (mirrored to
-// localStorage). This component just renders the badge + popover; mutations
-// flow back through the callbacks so the parent keeps a single source of
-// truth and the auto-dispatch effect on `messageQueue` keeps firing on
-// stream:end. Each row is a small auto-resizing textarea so users can edit
-// the queued prompt before it ships, plus an X to drop it. Outside-click
-// closes the popover (mirrors OverflowMenu).
-
-function MessageQueueBadge({
-  queue,
-  onUpdateItem,
-  onRemoveItem,
-  onClear,
-  onSendNow,
-  busy,
-}: {
-  queue: string[];
-  onUpdateItem: (index: number, content: string) => void;
-  onRemoveItem: (index: number) => void;
-  onClear: () => void;
-  /** Ferma il turno in corso e fa partire la coda adesso. Vedi ChatPane. */
-  onSendNow?: () => void;
-  /** Il turno è ancora in volo: senza niente da fermare, «invia subito» non ha senso. */
-  busy?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const count = queue.length;
-  const t = useT();
-
-  // Close the popover when the queue empties (last message dispatched while
-  // open). Without this the panel lingers as an empty box until clicked away.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded converging close: only runs when the queue is empty AND the popover is open, sets open=false once and then the guard prevents re-firing
-    if (count === 0 && open) setOpen(false);
-  }, [count, open]);
-
-  // Unified dismissal: capture-phase outside-pointer + Escape close. The
-  // wrapper holds BOTH the toggle badge and the popover panel, so clicks on
-  // either stay "inside" and don't self-dismiss.
-  useDismissable({
-    open,
-    onClose: () => setOpen(false),
-    refs: [popoverRef],
-  });
-
-  return (
-    // Stessa scocca di TodoStrip e dell'avviso di contesto: una card rientrata,
-    // bordo tenue, superficie neutra. NON arancione — l'arancione qui diceva
-    // «attenzione» a una cosa che l'utente ha chiesto lui, e la faceva sembrare
-    // un problema invece di una promessa.
-    // «Da inviare», non «in coda»: la lista di cose da fare dell'agente diceva
-    // anche lei «in coda», e due strisce affiancate col nome della stessa cosa
-    // non si distinguono. Qui l'unica cosa che conta è il VERSO: questi
-    // messaggi partono da te.
-    <div className={`relative ${CHAT_STRIP_NEUTRAL}`} ref={popoverRef}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        data-testid="message-queue-badge"
-        className={CHAT_STRIP_ROW}
-        title={open ? t('chat.queue.hide') : t('chat.queue.show')}
-        aria-expanded={open}
-      >
-        <ChevronRight
-          size={13}
-          className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
-        />
-        <Clock size={13} className="flex-shrink-0 text-app-text-secondary" />
-        <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-app-text-secondary">{count}</span>
-        {/* Due frasi accostate, senza trattino a fare da colla: la prima dice
-            cosa sono, la seconda quando partono. */}
-        <span className="min-w-0 flex-1 truncate text-[12px] text-app-text-secondary">
-          {t('chat.queue.pending')}
-          <span className="text-app-text-muted"> {t('chat.queue.whenTurnEnds')}</span>
-        </span>
-      </button>
-
-      {open && (
-        <div className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} max-h-[60vh] overflow-y-auto`} style={{ zIndex: Z_POPOVER }}>
-          <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-app-text">
-              {t('chat.queue.title', { count })}
-            </span>
-            <div className="flex items-center gap-3">
-              {/* «Non aspettare la fine»: interrompe il turno e fa partire la
-                  coda adesso. Compare solo mentre un turno è in volo, perché
-                  è l'unica condizione in cui c'è qualcosa da anticipare: a
-                  turno fermo la coda parte da sé, o la fa partire il messaggio
-                  successivo. Prima dello «Svuota» e non dopo: l'azione che
-                  costruisce viene prima di quella che butta. */}
-              {onSendNow && busy && (
-                <button
-                  type="button"
-                  onClick={() => { onSendNow(); setOpen(false); }}
-                  data-testid="queue-send-now"
-                  className="text-[11px] font-medium text-primary hover:text-primary-hover transition-colors"
-                  title={t('chat.queue.sendNowTitle')}
-                >
-                  {t('chat.queue.sendNow')}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => { onClear(); setOpen(false); }}
-                className="text-[11px] text-app-text-muted hover:text-red-500 transition-colors"
-                title="Svuota la coda"
-              >
-                Svuota
-              </button>
-            </div>
-          </div>
-          <ul className="py-1.5">
-            {queue.map((content, idx) => (
-              <QueuedRow
-                key={idx}
-                index={idx}
-                content={content}
-                onChange={(next) => onUpdateItem(idx, next)}
-                onRemove={() => onRemoveItem(idx)}
-              />
-            ))}
-          </ul>
-          {/* La riga di prima diceva «Sent automatically when the current
-              response finishes», e dal 30/07 non è più tutta la verità: lo stop
-              TIENE la coda invece di farla partire (vedi `state/chatQueue.ts`).
-              Dirlo qui evita che «ferma» sembri «cancella». */}
-          <div className="px-3 pb-2 pt-1 text-[11px] text-app-text-muted">
-            {t('chat.queue.blurb')}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function QueuedRow({
-  index,
-  content,
-  onChange,
-  onRemove,
-}: {
-  index: number;
-  content: string;
-  onChange: (next: string) => void;
-  onRemove: () => void;
-}) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  // Auto-grow textarea so multi-line queued prompts are visible without scroll.
-  const resize = useCallback(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
-  }, []);
-  useEffect(() => { resize(); }, [content, resize]);
-
-  return (
-    <li data-testid="queued-message" className="px-3 py-1.5 grid grid-cols-[20px_1fr_auto] gap-2 items-start group">
-      <span className="text-[11px] font-mono text-app-text-muted pt-1.5 select-none">{index + 1}.</span>
-      <textarea
-        ref={taRef}
-        value={content}
-        onChange={(e) => onChange(e.target.value)}
-        rows={1}
-        className="resize-none w-full text-[12px] leading-snug px-2 py-1 rounded-md bg-app-hover/40 border border-transparent focus:border-app-border-input focus:bg-surface focus:outline-none text-app-text"
-        spellCheck={false}
-      />
-      <button
-        type="button"
-        onClick={onRemove}
-        className="w-6 h-6 mt-0.5 flex items-center justify-center rounded-md text-app-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors opacity-60 group-hover:opacity-100"
-        title="Remove from queue"
-        aria-label={`Remove queued message ${index + 1}`}
-      >
-        <X size={12} />
-      </button>
-    </li>
-  );
-}
-
 // ---- ChatInput ----
 
 interface ChatInputProps {
@@ -488,15 +305,6 @@ interface ChatInputProps {
   isImageFile: (f: File) => boolean;
   chatError: string | null;
   sendMessageDirect: (content: string) => Promise<boolean>;
-  messageQueue: string[];
-  onUpdateQueueItem: (index: number, content: string) => void;
-  onRemoveQueueItem: (index: number) => void;
-  onClearQueue: () => void;
-  /**
-   * «Invia subito»: ferma il turno in corso e fa partire la coda senza
-   * aspettare che finisca. Assente ⇒ il comando non compare.
-   */
-  onSendQueueNow?: () => void;
   othersTyping: boolean;
   othersTypingText: string;
   mentionedFiles: MentionedFile[];
@@ -564,11 +372,6 @@ export function ChatInput({
   isImageFile,
   chatError,
   sendMessageDirect,
-  messageQueue,
-  onUpdateQueueItem,
-  onRemoveQueueItem,
-  onClearQueue,
-  onSendQueueNow,
   othersTyping,
   othersTypingText,
   mentionedFiles,
@@ -1368,22 +1171,12 @@ export function ChatInput({
       )}
       </div>
 
-      {/* La coda sta CON le altre strisce, sopra il composer — non dentro.
-          Stava in fondo al form, sotto la riga dei bottoni: una scritta nuda in
-          arancione, attaccata al bordo inferiore, che sembrava un errore del
-          composer invece di uno stato della conversazione. È esattamente la
-          stessa cosa che dicono TodoStrip e l'avviso di contesto — «ecco cosa
-          sta per succedere» — e ora parla la loro lingua e sta al loro posto. */}
-      {messageQueue.length > 0 && (
-        <MessageQueueBadge
-          queue={messageQueue}
-          onUpdateItem={onUpdateQueueItem}
-          onRemoveItem={onRemoveQueueItem}
-          onClear={onClearQueue}
-          onSendNow={onSendQueueNow}
-          busy={currentStreaming}
-        />
-      )}
+      {/* La coda NON si disegna più qui.
+          C'era un badge a scomparsa con dentro le stesse righe che il trascritto
+          mostra già come bolle «da inviare»: la stessa coda scritta due volte a
+          due centimetri di distanza, e le AZIONI (correggi, butta, svuota,
+          invia subito) solo in quella nascosta delle due. Adesso vivono sulla
+          bolla che riguardano — vedi `QueuedTurns`. */}
 
       {/* Il composer: LA CARD è solo il campo di testo, e i controlli stanno
           FUORI, sotto. La card portava dentro anche loro, e finiva per

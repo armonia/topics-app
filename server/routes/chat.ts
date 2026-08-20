@@ -1668,7 +1668,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // prodotto niente: è successo su un turno con 54 tool e 14 blocchi
             // di testo, riadottato dopo un hot-reload del server. Il fix
             // precedente guardava le colonne giuste ma nel momento sbagliato.
-            if (reason === "done" && !fullContent.trim() && !rowHasWorkDopoMerge() && !askingPlanApproval) {
+            // UNA COMPATTAZIONE NON È UNA RISPOSTA MANCATA.
+            //
+            // `/compact` chiude con `result: ""` per costruzione: la CLI non
+            // produce testo, perché l'esito della compattazione è il divider
+            // «Contesto compattato» che è già stato disegnato dal suo
+            // `compact_boundary`. Senza questa esclusione, il turno che ora si
+            // chiude correttamente (vedi il commento sul `result` vuoto in
+            // `providers/claude-code.ts`) si prenderebbe subito il cartello
+            // «Nessuna risposta: il turno si è chiuso senza produrre niente» —
+            // cioè scambieremmo un successo per un guasto, che è esattamente il
+            // modo in cui il vecchio bug si sarebbe ripresentato con un'altra
+            // faccia.
+            const soloCompattazione = compactedThisTurn;
+            if (reason === "done" && !fullContent.trim() && !rowHasWorkDopoMerge() && !askingPlanApproval && !soloCompattazione) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
@@ -1699,7 +1712,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // e rientrava nella history rimandata al modello a ogni turno dopo.
             // Solo su `aborted`: `done` ed `error` scrivono comunque il loro ⚠️,
             // quindi vuoti non sono mai. Vedi shared/empty-turn.ts.
-            const discardedMessageId = reason === "aborted" ? discardIfEmptyTurn(sessionKey, finalizedMsg) : null;
+            // …e la riga vuota che quel turno lascia non deve restare in chat.
+            // `/compact` non ha prodotto nulla di mostrabile — il divider vive
+            // in una tabella sua — quindi il segnaposto dell'assistente è una
+            // bolla vuota, che oltre a sporcare il trascritto rientrerebbe nella
+            // history rimandata al modello a ogni turno successivo. Stessa
+            // regola dello stop-prima-di-qualsiasi-cosa, stesso predicato
+            // (`shared/empty-turn.ts`): se non c'è NIENTE dentro, non resta.
+            const discardedMessageId = (reason === "aborted" || (reason === "done" && compactedThisTurn))
+              ? discardIfEmptyTurn(sessionKey, finalizedMsg)
+              : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
