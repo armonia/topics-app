@@ -312,8 +312,17 @@ describe('shell in background: risveglio reale ma condizionato', () => {
   test('il prompt non lo vieta, ma dice da cosa dipende', () => {
     const p = topicsAgentSystemPrompt();
     expect(p).toContain('can also end your turn and report back');
-    // La condizione, che è il vero contenuto informativo.
+    // Le DUE condizioni, che sono il vero contenuto informativo. La seconda è
+    // quella che è costata la serata del 20/08: l'attesa muore col CLI, e un
+    // riavvio del server la porta via senza svegliare nessuno.
     expect(p).toContain('a command that never terminates never reports');
+    // La seconda condizione è quella che è costata la serata del 20/08:
+    // l'attesa muore col CLI, e un riavvio del server la porta via senza
+    // svegliare nessuno — nel file di output resta solo `[killed]`.
+    expect(p).toContain('it dies with the CLI');
+    expect(p).toContain('[killed]');
+    expect(p).toContain('it dies with the CLI');
+    expect(p).toContain('[killed]');
     // E la via d'uscita quando il risveglio serve davvero.
     expect(p).toContain('Prefer `Monitor` when the point IS being woken');
   });
