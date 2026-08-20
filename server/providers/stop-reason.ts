@@ -65,6 +65,26 @@ export type StopCause =
   | "watchdog"
   /** Il tetto a orologio del dispatcher ha tagliato il turno. */
   | "wall-clock"
+  /**
+   * IL SERVER SI STA SPEGNENDO, e il turno viveva dentro di lui.
+   *
+   * Non è `user` e non è `watchdog`: nessuno ha premuto niente e niente si era
+   * inchiodato. È il riavvio — pianificato (`restart-when-idle` dopo un
+   * salvataggio su `server/`) o no — che passa da `stopAllProviders()` e
+   * annulla ogni turno vivo.
+   *
+   * Perché ha una causa SUA, misurata il 20/08 su topic:9f9e9629. Il runtime
+   * nativo `topics` esegue il turno DENTRO il processo del server: quando il
+   * processo muore non resta nessun figlio nel broker da riadottare, quindi la
+   * riadozione — che è la ragione per cui una chat può essere tagliata senza
+   * troppi complimenti — non succede e non succederà. Quel turno finiva come
+   * `cancelled` + causa `user`: una bugia in tre punti diversi (il registro
+   * della fine, la riga `stream aborted by user` in `activity_log`, e
+   * soprattutto `finalizeStream`, che su uno stop dell'UMANO tace di proposito
+   * perché l'umano sa già di aver premuto). Risultato a schermo: una risposta a
+   * metà frase, senza una parola che dicesse cosa fosse successo.
+   */
+  | "server-shutdown"
   /** La sessione `--resume` non esisteva più: reset trasparente, si rispawna. */
   | "session-reset"
   /** Il processo figlio è uscito con codice diverso da zero. */
@@ -229,6 +249,7 @@ export function describeTurnEnd(info: TurnEndInfo): string {
         case "user": return "Turno fermato a mano";
         case "watchdog": return "Turno fermato dal watchdog (nessun segno di vita dallo stream)";
         case "wall-clock": return "Turno tagliato dal limite di tempo";
+        case "server-shutdown": return "Il server si è riavviato mentre il turno era in corso";
         case "session-reset": return "Sessione persa e riavviata: stesso turno, processo nuovo";
         case "turn-in-flight": return "La sessione stava già rispondendo: turno non avviato";
         default: return "Turno annullato";

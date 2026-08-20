@@ -46,6 +46,38 @@ export interface QuiescenceSources {
 }
 
 /**
+ * Fra le chat che stanno streammando, quali NON sopravvivono al riavvio.
+ *
+ * L'attesa breve riservata alle chat (`QUIESCENCE_CHAT_CAP_MS`, un minuto)
+ * poggia su una promessa precisa, scritta nel commento di
+ * `waitForDispatcherQuiescent`: «la reload-resilience la riadotta, chi guarda
+ * vede una pausa». Per una chat su `claude-code` è vera — il turno gira in un
+ * processo figlio che il SIGTERM non tocca, il broker lo tiene, e al riavvio
+ * viene riadottato.
+ *
+ * Per il runtime nativo `topics` è FALSA, e lo è per costruzione: quel turno
+ * gira dentro il processo del server, non ha un figlio nel broker, e non esiste
+ * nessun `reattach` che possa riprenderlo. Il 20/08 su topic:9f9e9629 il
+ * cancello ha aspettato il suo minuto, ha detto «procedo, tanto lo riprendono»
+ * e ha ucciso un turno che nessuno avrebbe ripreso: la chat si è fermata a metà
+ * frase e lì è rimasta.
+ *
+ * Quindi la domanda giusta non è «è una chat o una card»: è «questo turno
+ * sopravvive al riavvio». Chi non sopravvive merita l'attesa lunga, come una
+ * card — perché come per una card, quello che si taglia è perso.
+ *
+ * `isAdoptable` risponde per sessione. `undefined` = non lo sappiamo, e il
+ * dubbio conta come NON riadottabile: sbagliare per prudenza costa un riavvio
+ * più lento, sbagliare al contrario costa il lavoro di qualcuno.
+ */
+export function unadoptableStreams(
+  streamKeys: readonly string[],
+  isAdoptable: (sessionKey: string) => boolean | undefined,
+): string[] {
+  return streamKeys.filter((k) => isAdoptable(k) !== true);
+}
+
+/**
  * Una frase che dice che cosa trattiene il riavvio, o `null` se niente.
  *
  * `null` è l'unica risposta che autorizza il riavvio: chi chiama non deve

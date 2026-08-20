@@ -31,7 +31,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
-import { describeInFlight } from "./server/lib/quiescence";
+import { describeInFlight, unadoptableStreams } from "./server/lib/quiescence";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
@@ -4424,6 +4424,17 @@ function adottaTurniRisvegliati(): void {
       return;
     }
     console.log(`[woken] ${sessionKey}: la CLI ha aperto un turno da sola (Monitor o simile) — lo adotto`);
+    // L'ATTESA È FINITA, e va detto PRIMA di guidare il turno.
+    //
+    // `monitorArmed` è ciò che tiene la sessione in `watching` attraverso lo
+    // `Stop` di fine turno (vedi `applyHook`): serviva a non far sembrare
+    // inattiva una chat che stava sorvegliando un build. Adesso il Monitor ha
+    // consegnato, quindi la sorveglianza è chiusa — e se il flag restasse
+    // acceso, lo `Stop` di QUESTO turno rimetterebbe la chat in `watching` con
+    // nessuno che guarda più niente: una spia accesa per sempre, che è peggio
+    // di una spia che non si accende mai.
+    try { claudeSessionTracker.noteWatchDelivered(sessionKey); }
+    catch (err) { console.warn(`[woken] ${sessionKey}: attesa non disarmata:`, err); }
     void runHeadlessWoken(sessionKey)
       .then((end) => {
         if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
@@ -4821,7 +4832,7 @@ let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number }> {
   const cards = taskDispatcher.busyCount();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
@@ -4834,14 +4845,30 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     }
     brokerOpen = brokerProbeCache.open;
   }
-  return { busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen }), cards };
+  // QUALI DI QUESTE CHAT NON TORNANO PIÙ, se le tagliamo adesso.
+  //
+  // L'attesa corta riservata alle chat vale una promessa: «la reload-resilience
+  // la riadotta». Quella promessa la mantiene solo un provider il cui turno vive
+  // in un processo FIGLIO, che il SIGTERM non tocca e il broker ritrova — cioè
+  // chi implementa `reattach`. Il runtime nativo `topics` esegue il turno dentro
+  // questo processo: quando muore, muore il turno, e non c'è nessuno che lo
+  // riprenda. Vedi `unadoptableStreams`.
+  const unadoptable = unadoptableStreams(streamKeys, (sk) => {
+    try {
+      const prov = tryGetProvider(ctx.getTopicBySessionKey(sk)?.provider ?? undefined);
+      // Provider sconosciuto → `undefined`, che `unadoptableStreams` legge come
+      // «non riadottabile»: il dubbio costa un riavvio più lento, non un turno.
+      return prov ? typeof (prov as { reattach?: unknown }).reattach === "function" : undefined;
+    } catch { return undefined; }
+  }).length;
+  return { busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen }), cards, unadoptable };
 }
 
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
   let deadline = Date.now() + QUIESCENCE_CHAT_CAP_MS;
   let logged = false;
   for (;;) {
-    const { busy, cards } = await whatIsStillWorking();
+    const { busy, cards, unadoptable } = await whatIsStillWorking();
     if (!busy) break;
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
     //
@@ -4855,16 +4882,26 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     // minuti: `restart-when-idle` rispondeva 202 e il server non usciva piu',
     // perche' a non drenare era la chat di chi stava lavorando.
     //
+    // …SALVO QUANDO LA RIADOZIONE NON ESISTE. Quel «la riadotta» vale per un
+    // turno che gira in un processo FIGLIO (claude-code): il SIGTERM non lo
+    // tocca, il broker lo tiene, al riavvio torna. Un turno del runtime nativo
+    // `topics` gira DENTRO questo processo, e quando il processo muore non c'e'
+    // nessun figlio da riadottare: tagliarlo e' esattamente lo stesso danno di
+    // una card tagliata, lavoro perso senza ritorno. Il 20/08, su
+    // topic:9f9e9629, il cancello ha aspettato il suo minuto, ha concluso «la
+    // riprendono» e ha ucciso una risposta a meta' frase che nessuno ha
+    // ripreso. Quindi una chat NON riadottabile alza la scadenza come una card.
+    //
     // La scadenza si ALZA quando compaiono delle card, e non si riabbassa: una
     // card che parte mentre si aspetta ha diritto all'attesa lunga, e togliergliela
     // perche' e' finita mezzo secondo dopo sarebbe la stessa svista al contrario.
-    if (cards > 0) deadline = Math.max(deadline, Date.now() + capMs);
+    if (cards > 0 || unadoptable > 0) deadline = Math.max(deadline, Date.now() + capMs);
     if (Date.now() >= deadline) {
       console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza, si procede lo stesso (la reload-resilience li riprende)`);
       return;
     }
     if (!logged) {
-      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}`);
+      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}${unadoptable > 0 ? ` (${unadoptable} non riadottabile/i: attesa lunga)` : ""}`);
       logged = true;
     }
     await new Promise((r) => setTimeout(r, 500));
