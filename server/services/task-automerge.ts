@@ -764,6 +764,41 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           if ((await landedMergeRange(repoPath, taskId, { runGit, mainRef: defaultBranch })) !== null) {
             return { status: "nothing", branch, deliveryDrift: drift };
           }
+          /* LA TERZA PROVA: il TITOLO della card fra i soggetti di main.
+           *
+           * Le due prove qui sopra coprono il lavoro atterrato DAL LAND. Non
+           * vedono quello atterrato in un altro modo — un merge fatto a mano,
+           * un commit diretto, un cherry-pick — dopo il quale il ramo viene
+           * potato. Misurato il 2026-08-20 sulla card `14a188b6`: il lavoro era
+           * su main dal giorno prima (`654f99501`), senza sha di consegna
+           * registrato e senza merge di land da cercare. Il land rifiutava con
+           * «branch non trovato», la card tornava in review con un avviso, e
+           * l'unico modo di sapere la verita' era andare a cercare a mano un
+           * ramo che non esiste.
+           *
+           * Si chiede SOLO qui, dove il ramo non c'e' piu': se il ramo e'
+           * sparito e il lavoro porta il nome della card, non e' rimasto niente
+           * fuori da main per definizione — nessun lavoro successivo sarebbe
+           * raggiungibile.
+           *
+           * DUE PRECAUZIONI, perche' il rischio di questa regola e' l'opposto
+           * di quello che ripara (chiudere una card il cui lavoro non c'e'):
+           *  · `-F`, cioe' alla LETTERA. I titoli di questa board contengono
+           *    `(`, `[`, `.` e `->`: come espressione regolare un titolo con
+           *    parentesi sbilanciate fa uscire git in errore, e il land direbbe
+           *    «non riuscito» per un motivo che non c'entra;
+           *  · un titolo VUOTO non chiede niente. `--grep=` con stringa vuota
+           *    combacia con QUALSIASI commit, cioe' la regola diventerebbe
+           *    «chiudi sempre» — il difetto peggiore dell'insieme. */
+          const titolo = (title ?? "").trim();
+          if (titolo) {
+            const perTitolo = await runGit(repoPath, [
+              "log", defaultBranch, "-n", "1", "-F", `--grep=${titolo}`, "--format=%H",
+            ]);
+            if (perTitolo.code === 0 && perTitolo.stdout.trim()) {
+              return { status: "nothing", branch, deliveryDrift: drift };
+            }
+          }
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
