@@ -398,6 +398,13 @@ export interface AppContext {
   getTopicBySessionKey: (sessionKey: string) => Topic | null;
   /** Scrive SOLO `topics.browser_state` (migration 075). `null` cancella. Vedi utils.ts. */
   setTopicBrowserState: (topicId: string, state: Topic['browserState'] | null) => void;
+  /**
+   * Scrive SOLO `topics.updated_at` e rilegge la riga. Da usare per il bump di
+   * attività a fine turno: un `saveSingleTopic` con l'oggetto letto all'inizio
+   * del turno riporterebbe indietro ogni colonna cambiata nel frattempo. Vedi
+   * utils.ts.
+   */
+  touchTopicActivity: (topicId: string, updatedAt: string) => Topic | null;
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
