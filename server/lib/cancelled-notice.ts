@@ -126,3 +126,44 @@ export function avvisoPerTurno(
     ? `${perche} Quello che era già arrivato resta qui sotto: se ti serve il resto, chiedilo con un nuovo messaggio.`
     : `${perche} «Riprova» rimanda il tuo messaggio.`;
 }
+
+/**
+ * Questo testo è un CARTELLO DI INTERRUZIONE scritto da noi?
+ *
+ * Serve a chi deve decidere se un turno merita una ripresa automatica leggendo
+ * la riga già salvata, cioè quando la `StopCause` non c'è più: nel database
+ * resta il blocco `error` col testo, non la causa che l'ha prodotto.
+ *
+ * PERCHÉ NON BASTA `kind === "error"`, ed è un difetto misurato. In quel blocco
+ * ci finisce OGNI verdetto di guasto, e sul database vivo gli ultimi messaggi
+ * con un blocco `error` erano: 25 «ai-bridge: ack timeout», 4 «Process exited
+ * with code», 1 «API 400». Nessuno di questi è un'interruzione nostra: sono
+ * guasti deterministici, e rimandare il messaggio ricompra lo stesso
+ * fallimento — su un turno lungo, riaprendo tutti i giri di tool che aveva già
+ * fatto.
+ *
+ * I testi sono quelli di `cancelledNotice` qui sopra e stanno nello stesso
+ * file APPOSTA: chi cambia una frase vede subito chi la legge. La regola
+ * autorevole resta `meritaRipresaAutomatica` (`ripresa-automatica.ts`), che
+ * gira sulla `StopCause`; questa è la lettura di ripiego per le righe già
+ * scritte, ed è volutamente STRETTA — un falso negativo lascia un cartello con
+ * il bottone «Riprova», che è reversibile; un falso positivo brucia un turno.
+ */
+export function eCartelloDiInterruzione(testo: string | null | undefined): boolean {
+  const t = (testo ?? "").trim().replace(/^⚠️\s*/, "");
+  if (!t) return false;
+  return CARTELLI_RIPRENDIBILI.some((c) => t.startsWith(c));
+}
+
+/**
+ * Gli incipit dei cartelli che nascono da un'interruzione NOSTRA — le stesse
+ * tre cause che `CAUSE_DA_RIPRENDERE` ammette. Il caso `default` di
+ * `cancelledNotice` (annullamento senza causa dichiarata) resta FUORI, per la
+ * stessa ragione per cui `meritaRipresaAutomatica` lo esclude: non si indovina
+ * chi ha annullato.
+ */
+const CARTELLI_RIPRENDIBILI = [
+  "Turno interrotto: il server si è riavviato",
+  "Turno interrotto: il processo dell'agente non dava più segni di vita",
+  "Turno interrotto: ha superato il limite di tempo",
+] as const;

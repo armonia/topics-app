@@ -54,3 +54,55 @@ describe("quale chat riprende da sola", () => {
     expect(chatDaRiprendere({ ...base, blocks: null }, ORA)).toBe(false);
   });
 });
+
+/**
+ * NON OGNI BLOCCO `error` È UN'INTERRUZIONE NOSTRA.
+ *
+ * Il cancello era `blocks.some(b => b.kind === "error")`: qualunque verdetto di
+ * guasto. Ma in quel blocco ci finisce TUTTO ciò che va storto, e sul database
+ * vivo gli ultimi messaggi con un blocco `error` erano 25 «ai-bridge: ack
+ * timeout», 4 «Process exited with code», 1 «API 400».
+ *
+ * Nessuno di quelli è un turno da riprendere: sono guasti deterministici, e
+ * rimandare il messaggio ricompra lo stesso fallimento — su un turno lungo
+ * riaprendo tutti i giri di tool già fatti. I test di questo file non li
+ * coprivano: passavano perché la loro fixture usa già il testo del cartello
+ * giusto, cioè per fortuna e non per costruzione.
+ */
+describe("i guasti che NON sono un'interruzione", () => {
+  const conErrore = (text: string): RigaDaValutare => ({
+    ...base,
+    blocks: [prosa, { kind: "error", text } as ContentBlock],
+  });
+
+  test("i testi VERI presi dal database non fanno scattare la ripresa", () => {
+    for (const guasto of [
+      "ai-bridge: ack timeout (list, 5s)",
+      "ai-bridge: ack timeout (spawn topic:f4841e2f, 20s)",
+      "Process exited with code 1",
+      "API 400",
+      "Nessuna risposta: il turno si è chiuso senza produrre niente.",
+    ]) {
+      expect(chatDaRiprendere(conErrore(guasto), ORA), guasto).toBe(false);
+    }
+  });
+
+  test("e il cartello di interruzione continua a farla scattare", () => {
+    expect(chatDaRiprendere(base, ORA)).toBe(true);
+    for (const c of [
+      "Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta è stata chiusa.",
+      "Turno interrotto: ha superato il limite di tempo concesso.",
+    ]) {
+      expect(chatDaRiprendere(conErrore(c), ORA), c).toBe(true);
+    }
+  });
+
+  /**
+   * L'annullamento SENZA causa dichiarata prende un cartello ma non si
+   * riprende: non si indovina chi ha annullato. Stessa regola di
+   * `meritaRipresaAutomatica`.
+   */
+  test("il cartello generico non basta", () => {
+    expect(chatDaRiprendere(conErrore("Turno interrotto prima della fine."), ORA)).toBe(false);
+  });
+});
