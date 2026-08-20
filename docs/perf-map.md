@@ -441,8 +441,15 @@ correctly, and to me: `load average 19.12 on 12 cores = 1.59 per core (ceiling
 0.5)`, *"at load the numbers come out inflated and consistent, so no guard
 catches it"*. That refusal is the same one that has been protecting this row all
 along, and forcing past it would have written exactly the useless baseline the
-whole change exists to avoid. The recording waits for a quiet machine; the CI
-one records itself on the first green run.
+whole change exists to avoid.
+
+Waited for it, too, rather than assuming: ten samples over seven minutes read
+`18, 17, 12, 10, 19, 14, 16, 18, 14, 18` — never below 10 against a ceiling of
+6, with another agent's `bun test`, a Python process and Spotify on the CPU.
+**A workstation in use does not reach that number**, which is the same finding
+as the row above from the other side: the local baseline will be recorded the
+next time this Mac is genuinely idle, and the CI one records itself on the first
+green run. Until then the fallback keeps the gate exactly as it was.
 
 **The route ratchet is red too, on ONE route, and it took a quiet machine to
 know it.** Re-run four times at load 20-26 with `--samples=80`:
