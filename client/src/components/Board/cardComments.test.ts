@@ -476,3 +476,113 @@ describe('isMachineVoice: chi parla non e\' una persona ne\' un agente', () => {
     expect(isMachineVoice({ author: null, kind: undefined, content: 'x' } as never)).toBe(false);
   });
 });
+
+/**
+ * DA REVIEW SI DEVE CAPIRE COM'E' FINITO IL DISCORSO, senza aprire la card.
+ *
+ * Segnalato: «da review dovrei sempre vedere l'ultimo suo e mio messaggio,
+ * devo capire facilmente». Due difetti distinti lo impedivano, e si vedono
+ * entrambi sulle card vere della board del 20/08.
+ */
+describe("l'ultimo scambio, visto dalla review", () => {
+  const c = (author: string, kind: string, content: string, i: number) =>
+    ({ id: String(i), taskId: 't', author, kind, content, createdAt: `2026-08-20T19:${10 + i}:00Z` }) as CardComment;
+
+  /**
+   * DIFETTO 1: la mia domanda spariva se nessuno aveva risposto.
+   *
+   * Si citava la richiesta umana solo quando una risposta era arrivata
+   * davvero. Ma se dopo la mia domanda parla la MACCHINA (nota di servizio,
+   * cambio di stato), la domanda non e' piu' l'ultima parola — quindi non
+   * veniva stampata da nessuna parte, e spariva proprio mentre aspettava.
+   */
+  test('la mia domanda resta a schermo anche SENZA risposta', () => {
+    const out = selectCardComments([
+      c('agent:x', 'comment', 'Fatto: ho rifatto la fascia.', 1),
+      c('user', 'comment', 'e i separatori? non li vedo', 2),
+      c('system', 'service', 'Non è su main: `abc1234`. Landa il ramo.', 3),
+    ], { status: 'review' } as never);
+    // Qui la mia domanda e' l'ultima PAROLA (la nota di servizio e' contorno),
+    // quindi e' lei la protagonista: si vede, ed e' quello che conta. Citarla
+    // anche come contesto la stamperebbe due volte, ed e' il ramo che il
+    // modulo ha sempre avuto.
+    expect(out?.latest.author).toBe('user');
+    expect(out?.latest.content).toContain('separatori');
+    expect(out?.humanContext).toBeNull();
+  });
+
+  /**
+   * IL CASO CHE PRIMA SPARIVA, ed e' quello segnalato: dopo la mia domanda
+   * l'agente ha ripreso a parlare, quindi la protagonista e' la sua risposta —
+   * ma senza la mia domanda sopra quella risposta arriva senza sapere a che
+   * cosa. Prima si citava solo se `isReply` trovava una risposta DOPO la
+   * richiesta; qui la risposta c'e', ed e' proprio `latest`.
+   */
+  test('la coppia domanda→risposta si vede intera', () => {
+    const out = selectCardComments([
+      c('user', 'comment', 'e i separatori? non li vedo', 1),
+      c('agent:x', 'comment', 'Tolti anche quelli, ecco il ramo.', 2),
+      c('system', 'service', 'Non è su main: `abc1234`. Landa il ramo.', 3),
+    ], { status: 'review' } as never);
+    expect(out?.latest.author).toBe('agent:x');
+    expect(out?.humanContext?.content).toContain('separatori');
+  });
+
+  test('una domanda a cui hanno risposto continua a vedersi (non regredisce)', () => {
+    const out = selectCardComments([
+      c('user', 'comment', 'puoi togliere la linea?', 1),
+      c('agent:x', 'comment', 'Tolta, ecco il ramo.', 2),
+    ], { status: 'review' } as never);
+    expect(out?.latest.author).toBe('agent:x');
+    expect(out?.humanContext?.content).toContain('togliere la linea');
+  });
+
+  /**
+   * IL CASO CHE `isReply` TAGLIAVA FUORI, ed e' quello che rendeva il difetto
+   * difficile da vedere: pretendeva `kind === 'comment'` per considerare
+   * qualcosa una risposta. Un agente che parla con un'altra kind — una nota di
+   * lavorazione, un'evidenza — non contava, quindi la mia domanda spariva pur
+   * essendoci sopra la risposta di qualcuno. Ora la coppia si vede sempre.
+   */
+  test("una risposta con kind diversa da 'comment' non nasconde piu' la domanda", () => {
+    const out = selectCardComments([
+      c('user', 'comment', 'e i separatori? non li vedo', 1),
+      c('agent:x', 'note', 'Sto guardando, un attimo.', 2),
+    ], { status: 'review' } as never);
+    expect(out?.latest.author).toBe('agent:x');
+    // Prima: null, perche' `isReply` voleva kind='comment'.
+    expect(out?.humanContext?.content).toContain('separatori');
+  });
+
+  /**
+   * DIFETTO 2: la contabilita' si spacciava per la consegna.
+   *
+   * Questi sono i commenti VERI della card 235afe11. L'agente non ha mai
+   * scritto un riassunto — il turno e' stato tagliato da un riavvio, e il
+   * thread lo dice — quindi resta solo cronaca della macchina. Mostrarla e'
+   * meglio del silenzio, ma senza un segnale si legge come il riassunto.
+   */
+  test('235afe11: nessun riassunto, e la card lo sa', () => {
+    const out = selectCardComments([
+      c('system', 'comment', 'Nuovo worktree: `topics/spirited-bayou`', 1),
+      c('system', 'service', 'Il server è ripartito mentre 1 tentativo lavorava', 2),
+      c('system', 'service', "Consegna senza riassunto: il turno e' finito prima.", 3),
+      c('system', 'comment', 'Fan-out chiuso: 3 tentativi, 1 con modifiche.', 4),
+      c('dispatcher', 'status', 'in_progress→review', 5),
+      c('system', 'service', 'Non è su main: `84d22c50`. Landa il ramo.', 6),
+    ], { status: 'review', deliveredBy: 'system' } as never);
+    // Qualcosa si mostra (una card cieca sarebbe peggio)…
+    expect(out?.latest.content).toContain('Fan-out chiuso');
+    // …ma e' dichiarato per quello che e': cronaca, non consegna.
+    expect(out?.latestIsPlumbing).toBe(true);
+  });
+
+  test('quando il riassunto C\'E\', non si accende nessun cartello', () => {
+    const out = selectCardComments([
+      c('agent:x', 'comment', 'Fatto: tre file, typecheck verde.', 1),
+      c('system', 'service', 'Non è su main: `abc1234`.', 2),
+    ], { status: 'review' } as never);
+    expect(out?.latest.author).toBe('agent:x');
+    expect(out?.latestIsPlumbing).toBe(false);
+  });
+});

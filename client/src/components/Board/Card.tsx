@@ -374,6 +374,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const lastComment = rowThread?.latest ?? thread?.latest ?? null;
   /** Chi parla non e' una persona ne' un agente: vedi `isMachineVoice`. */
   const noteDiMacchina = lastComment ? isMachineVoice(lastComment) : false;
+  /**
+   * La riga in cima e' CONTABILITA', non la parola della consegna.
+   *
+   * Quando il thread non ha nessuna parola vera, `selectCardComments` ripiega
+   * su una nota di macchina — meglio del silenzio, ma senza un cartello si
+   * legge come il riassunto dell'agente. Su `235afe11` la card apriva con
+   * «Fan-out chiuso: 3 tentativi, 1 con modifiche», e la ragione per cui un
+   * riassunto non c'era stava sepolta nel thread: il turno era stato tagliato
+   * da un riavvio prima che l'agente potesse commentare.
+   */
+  const soloCronacaMacchina = (rowThread ?? thread)?.latestIsPlumbing ?? false;
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -1382,6 +1393,16 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   `selectCardComments`), quindi il segno serve proprio nel caso in
                   cui non c'e' nient'altro con cui confrontarla. Anche il colore
                   scende a `muted`: e' contorno, non la parola della consegna. */}
+              {/* PERCHE' non c'e' un riassunto, detto prima di mostrare il
+                  ripiego. Il tag «Nota di sistema» dice CHI parla; questo dice
+                  che di consegna non ce n'e' una da leggere, ed e' l'unica
+                  informazione che salva chi guarda dal cercarla. */}
+              {soloCronacaMacchina && (
+                <span
+                  data-testid="card-comment-no-summary"
+                  className="mr-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1 py-px align-middle text-[10px] uppercase tracking-wide text-amber-200/80"
+                >{tr('board.card.noSummary')}</span>
+              )}
               {noteDiMacchina && (
                 <span
                   data-testid="card-comment-system-tag"
