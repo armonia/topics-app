@@ -279,3 +279,61 @@ describe("sendChat resends transparently once on a lost session (capped)", () =>
     expect(h.calls.some((c) => c.includes("died"))).toBe(false);
   });
 });
+
+/**
+ * SPEGNIMENTO SENZA BROKER: anche qui il turno deve dire che sta morendo.
+ *
+ * Il guasto del 20/08 (topic:9f9e9629) e' stato diagnosticato sul runtime
+ * NATIVO, ma la sua forma non e' propria di quel provider: e' «il processo
+ * muore e nessuno avvisa lo stream handler». Con `TOPICS_AI_BRIDGE=1` il
+ * figlio di claude-code SOPRAVVIVE allo spegnimento (si stacca dal broker e
+ * viene riadottato), quindi non c'e' niente da annunciare — ed e' il ramo che
+ * gira sulla macchina dove il difetto e' stato trovato.
+ *
+ * Su un'installazione SENZA broker, pero', `stop()` chiama `killProcess`, che
+ * non notifica nessuno: niente onDone/onError/onAborted, e la route finalizza
+ * solo da quei tre. Stessa morte silenziosa, altro provider, su un ramo che
+ * qui nessuno percorreva. Questa prova lo copre prima che qualcuno lo scopra
+ * con una chat persa.
+ *
+ * `USE_AI_BRIDGE` si fissa all'import del modulo, quindi la env va messa PRIMA
+ * e il modulo va importato fresco: e' l'unico modo di esercitare davvero il
+ * ramo che su questa macchina non gira mai.
+ */
+test("stop() senza broker: il turno vivo riceve onAborted con server-shutdown", async () => {
+  const prima = process.env.TOPICS_AI_BRIDGE;
+  process.env.TOPICS_AI_BRIDGE = "0";
+  try {
+    // Import fresco: la costante di modulo legge la env in questo istante.
+    const mod = await import(`./claude-code.ts?no-broker=${Date.now()}`);
+    const provider: any = new mod.ClaudeCodeProvider({ type: "claude-code" } as any);
+    const fini: any[] = [];
+    const pp: any = {
+      alive: true,
+      io: { kill: () => {}, signal: () => {} },
+      readline: { close: () => {} },
+      pendingInputs: new Map(),
+      subAgentEmit: new Map(),
+      streamHandler: {
+        onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
+        onDone: () => fini.push({ ev: "done" }),
+        onError: () => fini.push({ ev: "error" }),
+        onAborted: (m: any) => fini.push({ ev: "aborted", turnEnd: m?.turnEnd }),
+      },
+    };
+    provider.processes.set("topic:senza-broker", pp);
+
+    provider.stop();
+
+    // 1. QUALCUNO E' STATO AVVISATO. Senza questo la route non finalizza mai e
+    //    la chat resta a meta' frase, per sempre.
+    expect(fini.length).toBe(1);
+    expect(fini[0].ev).toBe("aborted");
+    // 2. E CON LA CAUSA GIUSTA: e' quella che fa scrivere il cartello a
+    //    `cancelledNotice`. Un `user` qui farebbe tacere la spiegazione.
+    expect(fini[0].turnEnd).toEqual({ end: "cancelled", cause: "server-shutdown" });
+  } finally {
+    if (prima === undefined) delete process.env.TOPICS_AI_BRIDGE;
+    else process.env.TOPICS_AI_BRIDGE = prima;
+  }
+});

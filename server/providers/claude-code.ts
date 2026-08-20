@@ -1357,6 +1357,25 @@ export class ClaudeCodeProvider implements AIProvider {
         try { getAiBridgeClient().detach(key); } catch { /* daemon gone — nothing to detach */ }
       } else {
         console.log(`[claude-code] Shutdown: killing process for ${key}`);
+        // IL TURNO CHE STIAMO PER UCCIDERE DEVE SAPERLO — e con lui la chat.
+        //
+        // Senza broker il figlio muore QUI, e `killProcess` non avvisa nessuno:
+        // niente `onDone`, niente `onError`, niente `onAborted`. Ma la route
+        // finalizza il turno solo da uno di quei tre, quindi la risposta a
+        // schermo restava a metà frase, senza spiegazione e senza «Riprova» —
+        // lo stesso identico guasto del 20/08 sul runtime nativo
+        // (topic:9f9e9629), su un altro provider e su un ramo che questa
+        // macchina non percorre perché ha il broker acceso.
+        //
+        // Chi ha il broker passa dal ramo sopra e il suo turno sopravvive
+        // davvero: lì non c'è niente da annunciare. Qui invece la morte è
+        // certa, quindi si dice con la sua causa e il cartello arriva in chat.
+        if (pp.alive && pp.streamHandler) {
+          const h = pp.streamHandler;
+          pp.streamHandler = null;
+          try { h.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
+          catch (err) { console.warn(`[claude-code] avviso di spegnimento non consegnato per ${key}:`, err); }
+        }
         this.killProcess(pp);
       }
     }
