@@ -123,6 +123,59 @@ export function useWebSocket(): UseWebSocketReturn {
     const ws = new WebSocket(`${serverWsBase()}/ws`);
     wsRef.current = ws;
 
+    /**
+     * IL FILO E' CADUTO: tutto cio' che deve succedere, una volta sola.
+     *
+     * Stava dentro `ws.onclose`, ed e' li' che il difetto viveva. Misurato il
+     * 20/08/2026 con la rete staccata per 110 secondi: il cane da guardia
+     * scatta a 90s e chiama `ws.close()`, ma senza rete l'handshake di
+     * chiusura non si completa, la socket resta in `CLOSING` e **`onclose` non
+     * scatta mai**. Conseguenza a catena, tutta osservata:
+     *
+     *   · `status` non lascia mai `'connected'`, quindi l'indicatore «Offline»
+     *     della barra di stato non compare MAI, nemmeno dopo due minuti;
+     *   · al ritorno della rete `reconnectNow` apre davvero una socket nuova
+     *     (contate: 3 CLOSED + 1 OPEN), ma per React lo stato era gia'
+     *     `'connected'`, quindi non c'e' nessuna TRANSIZIONE;
+     *   · l'effetto che svuota la coda in uscita
+     *     (`usePanelLifecycle.ts:1388`) scatta solo su quella transizione:
+     *     il messaggio scritto durante il blackout restava in coda per
+     *     sempre, sotto la scritta «Message queued. It will send when
+     *     reconnected.» — una promessa che l'app non manteneva.
+     *
+     * Chiamarla anche dal cane da guardia chiude la catena in un punto solo.
+     * La guardia `persa` la rende idempotente: se un `onclose` in ritardo
+     * arriva comunque, non raddoppia il backoff ne' i timer.
+     *
+     * NOTA su `navigator.onLine`, valutato e SCARTATO: sembra il segnale piu'
+     * rapido, ma questo server sta quasi sempre su `localhost` o in LAN, e con
+     * il wifi spento `onLine` e' false mentre la app funziona benissimo.
+     * Dichiarare «Offline» li' sarebbe una bugia. Il `pong` resta l'unica
+     * prova che dall'altra parte c'e' qualcuno.
+     */
+    let persa = false;
+    const perdiIlFilo = () => {
+      if (persa) return;
+      persa = true;
+      setStatus('reconnecting');
+      dispatchLifecycle('close');
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+
+      // Start timer to transition to 'offline' if we can't reconnect quickly
+      startOfflineTimer();
+
+      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
+      reconnectAttemptRef.current++;
+
+      reconnectTimerRef.current = setTimeout(() => {
+        connectRef.current();
+      }, delay);
+    };
+
     ws.onopen = () => {
       setStatus('connected');
       setLastConnectedAt(Date.now());
@@ -181,7 +234,10 @@ export function useWebSocket(): UseWebSocketReturn {
         // potrebbe gia' aver messo nel ref.
         if (Date.now() - lastPongAtRef.current > PONG_TIMEOUT_MS) {
           clearInterval(pingTimer);
-          try { ws.close(); } catch { /* gia' andata: `onclose` fa il resto */ }
+          try { ws.close(); } catch { /* gia' andata */ }
+          // E NON si aspetta `onclose`: senza rete la socket resta in `CLOSING`
+          // e quell'evento non arriva. Vedi `perdiIlFilo`.
+          perdiIlFilo();
           return;
         }
         if (ws.readyState === WebSocket.OPEN) {
@@ -302,25 +358,7 @@ export function useWebSocket(): UseWebSocketReturn {
       } catch {}
     };
 
-    ws.onclose = () => {
-      setStatus('reconnecting');
-      dispatchLifecycle('close');
-      if (pingIntervalRef.current) {
-        clearInterval(pingIntervalRef.current);
-        pingIntervalRef.current = null;
-      }
-
-      // Start timer to transition to 'offline' if we can't reconnect quickly
-      startOfflineTimer();
-
-      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
-      reconnectAttemptRef.current++;
-
-      reconnectTimerRef.current = setTimeout(() => {
-        connectRef.current();
-      }, delay);
-    };
+    ws.onclose = perdiIlFilo;
 
     ws.onerror = () => {
       // onclose will handle reconnection
