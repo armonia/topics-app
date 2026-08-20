@@ -11,9 +11,11 @@ import type { ContentBlock } from '../../types';
  * il bottone per rimediarci da un altro.
  */
 
-/** Il prefisso con cui il server marcava i cartelli prima che esistesse il
- *  blocco `error`. Le righe già in DB si leggono ancora così. */
-export const LEGACY_ERROR_PREFIX = '⚠️';
+/** Il prefisso con cui il server marca i cartelli anche in `content`.
+ *  Ri-esportato: la costante vive in `shared/board.ts` perché la legge anche il
+ *  server (`getLastAgentText`), e due copie divergono al primo cambio. */
+export { TURN_ERROR_PREFIX as LEGACY_ERROR_PREFIX } from '../../../../shared/board';
+import { TURN_ERROR_PREFIX as LEGACY_ERROR_PREFIX } from '../../../../shared/board';
 
 /**
  * Il verdetto sul turno, o `null` se il turno è andato bene.

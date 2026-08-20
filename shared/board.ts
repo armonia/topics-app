@@ -466,6 +466,26 @@ export const PARKED_REQUEUE_NOTE_LIKE = `%${PARKED_REQUEUED_TAIL}%`;
 const PARKED_CHILDREN_NOTE = /^Sbloccato: \d+ sottotask (?:rimessi in coda|archiviati|promossi a task indipendenti)\./;
 
 /**
+ * Il prefisso con cui un turno finito male si annuncia dentro `content`.
+ *
+ * VIVE QUI perché lo leggono DUE alberi. Il client lo usa per accendere il
+ * banner e il bottone «Riprova» (`turnError.ts`); il server per NON scambiare
+ * un cartello per le parole dell'agente quando rispecchia la sua ultima prosa
+ * sulla card (`getLastAgentText`). Ricopiarne il carattere a mano nel secondo
+ * era la duplicazione che diverge al primo cambio — la stessa critica che
+ * `isMachineVoice` muove agli elenchi di stringhe tenuti allineati a mano.
+ *
+ * È marcato LEGACY perché il verdetto autorevole, per il client che sa
+ * leggerli, è il blocco `error`. Ma non è morto: il server scrive SEMPRE anche
+ * il testo quando la riga sarebbe altrimenti vuota (`routes/chat.ts`, i due
+ * rami che assegnano `fullContent`), e per una ragione dichiarata lì — è
+ * l'unica colonna che la ricerca ⌘K interroga, e i client vecchi leggono da
+ * lì. Misurato sul DB il 20/08: 573 righe col prefisso, ZERO con blocco
+ * `error` e `content` vuoto.
+ */
+export const TURN_ERROR_PREFIX = '\u26a0\ufe0f';
+
+/**
  * Prose the SERVER wrote, even though the comment is signed `user`.
  *
  * The board reads `author: 'user'` as "a person typed this" in the one place
