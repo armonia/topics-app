@@ -1895,15 +1895,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span
               className="flex items-center gap-1 text-[11px] text-app-text-muted"
-              title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
+              title={tr('task.lastUpdate', { when: new Date(task.updatedAt).toLocaleString('it-IT') })}
             ><Clock className="h-3 w-3 shrink-0" /> {fmtUpdatedAt(task.updatedAt)}</span>
             <button
               ref={prioBtnRef}
               onClick={() => task && setPrioMenuOpen(true)}
               data-testid="task-priority-chip"
               title={priorityAwaitingAgent(task)
-                ? "Priorità automatica: la valuta l'agent appena inquadra il task"
-                : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
+                ? tr('task.priority.auto')
+                : tr('task.priority.change')}
               className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
                 !priorityAwaitingAgent(task) && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
               }`}
@@ -1936,12 +1936,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={() => setLabelMenuOpen(true)}
               data-testid="task-labels-chip"
               title={task.labels.some((l) => l.label === 'invisibile')
-                ? 'Invisibile: non tocca client/src. Con la barra verde la puo\' chiudere il conduttore.'
+                ? tr('task.close.invisible')
                 : task.labels.some((l) => l.label === 'visibile')
-                  ? 'Visibile: tocca una superficie che si vede. Resta in review finche\' non la guarda un umano.'
+                  ? tr('task.close.visible')
                   : task.labels.some((l) => l.label === 'decisione')
-                    ? 'Decisione: un piano, una ricerca, un documento. La decide un umano, sempre.'
-                    : 'Nessuna etichetta di chiusura: la chiude un umano'}
+                    ? tr('task.close.decision')
+                    : tr('task.close.none')}
               className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
             >
               <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -1977,8 +1977,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={() => setModelMenuOpen(true)}
               data-testid="task-model-chip"
               title={(task.agentMs > 0 || task.agentTokens > 0)
-                ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · clicca per cambiare modello`
-                : "Modello dell'agent. Auto = il classificatore opus-first sceglie per task."}
+                ? tr('task.model.stats', {
+                    model: task.model ? fmtModel(task.model) : 'Auto',
+                    effort: task.effort ? tr('task.model.effortPart', { effort: task.effort }) : '',
+                    time: fmtMs(task.agentMs),
+                    tokens: task.agentTokens ? tr('task.model.tokensPart', { n: task.agentTokens.toLocaleString('it-IT') }) : '',
+                    cache: task.agentCacheReadTokens > 0 ? tr('task.model.cachePart', { n: fmtTok(task.agentCacheReadTokens) }) : '',
+                  })
+                : tr('task.model.hint')}
               className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -2016,7 +2022,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 ref={blockerChipRef}
                 onClick={() => openBlockerMenu(blockerChipRef.current)}
                 data-testid="task-blocked-by-chip"
-                title={`${blockedChip.title} · clicca per cambiare il bloccante`}
+                title={tr('task.blocked.hint', { what: blockedChip.title })}
                 className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
               >
                 <Lock className="h-3 w-3 shrink-0" />
@@ -2034,7 +2040,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onClick={() => onOpenTask(workAncestorId)}
                 data-testid="task-subtask-work-chip"
                 data-kind="parent-turn"
-                title={`${workChip.title}: clicca per aprire la sua scheda`}
+                title={tr('task.work.hint', { what: workChip.title })}
                 className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
               >
                 <UserRound className="h-3 w-3 shrink-0" />
@@ -2302,7 +2308,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.options')}</p>
               <button
                 role="menuitem" disabled={busy} onClick={togglePlanFirst}
-                title="L'agent consegna un piano da approvare PRIMA di implementare"
+                title={tr('task.planFirst')}
                 className={`${POPOVER_ITEM} disabled:opacity-40`}
               >
                 <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
@@ -2405,7 +2411,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             onClick={toggleWide}
             data-testid="task-detail-wide-toggle"
             aria-pressed={wide}
-            title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
+            title={wide ? tr('task.drawer.narrow') : tr('task.drawer.widen')}
             className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
           <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
@@ -2450,10 +2456,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       {task && showsLandingDebt(task) && (
         <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
           <span className="min-w-0">
-            ⚠️ Chiuso ma <strong>{tr('board.task.notOnMain')}</strong>: il commit consegnato
+            ⚠️ {tr('task.landing.closedBut')} <strong>{tr('board.task.notOnMain')}</strong>{tr('task.landing.commitIs')}
             {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
-            {task.deliveryBranch ? <> (branch <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
-            {' '}non risulta nel contenuto di main.
+            {task.deliveryBranch ? <> ({tr('task.landing.branch')} <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
+            {' '}{tr('task.landing.notInMain')}
           </span>
           <button
             data-testid="task-not-landed-land"
@@ -2905,7 +2911,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               ) : (
                 <button
                   onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                  title={agentBusy ? "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
+                  title={agentBusy ? tr('task.comment.toAgent') : tr('task.comment')}
                   className={`rounded p-1.5 text-white disabled:opacity-50 ${agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
                 >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
               )}
@@ -2985,7 +2991,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
     <div>
       <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-white/5" style={{ paddingLeft: depth * 10 }}>
         {hasKids ? (
-          <button onClick={toggle} className="shrink-0 text-app-text-muted hover:text-app-text-heading" title={open ? 'Chiudi' : 'Espandi'}>
+          <button onClick={toggle} className="shrink-0 text-app-text-muted hover:text-app-text-heading" title={open ? tr('common.collapse') : tr('common.expand')}>
             <ChevronRight className={`h-2.5 w-2.5 transition-transform ${open ? 'rotate-90' : ''}`} />
           </button>
         ) : null}
@@ -3120,6 +3126,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
  * like chat message media.
  */
 export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?: (path: string) => void }) {
+  const tr = useT();
   if (!media || media.length === 0) return null;
   const isImg = (p: string) => /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(p);
   // In-app preview when the host provides it (drawer → output panel): a
@@ -3138,7 +3145,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
       ) : (
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
-          title={onPreview ? 'Anteprima nel pannello di review' : p.split('/').pop()}
+          title={onPreview ? tr('task.media.preview') : p.split('/').pop()}
           className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-xs text-app-text hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}

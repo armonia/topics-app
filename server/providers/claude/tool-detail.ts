@@ -308,6 +308,21 @@ export function deriveToolDetail(
     };
   }
 
+  // L'ATTESA di un processo (`wait_for_process`). Non e' un MCP qualunque: ha un
+  // processId, cioe' l'unica cosa che permette alla card di restare VIVA mentre
+  // la riga e' aperta — il difetto che la card `monitor` qui sopra dichiara di
+  // non poter risolvere. Si intercetta prima del ramo `mcp__`.
+  if (c === "wait_for_process" || c.endsWith("__wait_for_process")) {
+    const timeout = typeof a.timeout_ms === "number" ? a.timeout_ms : undefined;
+    return {
+      type: "wait",
+      processId: s(a.process_id) ?? s(a.processId) ?? "",
+      ...(s(a.until) ? { until: s(a.until)! } : {}),
+      ...(timeout !== undefined ? { timeoutMs: timeout } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
   // MCP namespaced tool. Names look like `mcp__<server>__<tool>`. Strip the
   // namespace so the renderer can show "<server> · <tool>" with a chip-style
   // label instead of the full ugly name.

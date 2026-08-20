@@ -70,9 +70,9 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
       <div>
         <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
           <Type size={14} />
-          Larghezza chat
+          {tr('appearance.chatWidth')}
           <span className="ml-auto text-[12px] text-app-text-muted font-normal">
-            {settings.chatMaxWidth > 0 ? `${settings.chatMaxWidth}px` : 'Piena larghezza'}
+            {settings.chatMaxWidth > 0 ? `${settings.chatMaxWidth}px` : tr('appearance.fullWidth')}
           </span>
         </label>
         <input
@@ -87,10 +87,10 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
             onChange('chatMaxWidth', v <= 580 ? 0 : v);
           }}
           className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
-          aria-label="Larghezza massima della colonna di chat"
+          aria-label={tr('appearance.chatWidth.aria')}
         />
         <div className="flex justify-between text-[11px] text-app-text-muted mt-1">
-          <span>Piena</span>
+          <span>{tr('appearance.full')}</span>
           <span>820px</span>
           <span>1300px</span>
         </div>
@@ -303,6 +303,7 @@ function LanguageSetting({
   value: LocalePreference;
   onChange: (v: LocalePreference) => void;
 }) {
+  const tr = useT();
   const { snapshot } = useProvidersSnapshot();
   // Il valore al montaggio, congelato: il riallineamento deve guardare cosa
   // c'era quando la scheda si è aperta, non inseguire i cambi successivi (che
@@ -334,13 +335,9 @@ function LanguageSetting({
 
   return (
     <div className="mt-6">
-      <h3 className="text-[13px] font-medium text-app-text mb-1">Lingua · Language</h3>
+      <h3 className="text-[13px] font-medium text-app-text mb-1">{tr('appearance.language')}</h3>
       <p className="text-[12px] text-app-text-muted mb-3">
-        Vale per l'interfaccia <b>e</b> per la lingua in cui rispondono gli agenti
-        (chat, terminale, board). Le superfici della UI non ancora tradotte restano
-        come sono. · Applies to the interface <b>and</b> to the language the agents
-        answer in (chat, terminal, board). UI surfaces not yet translated stay as
-        they are.
+        {tr('appearance.language.blurb')}
       </p>
       {/* Il `<select>` di sistema che stava qui era l'unico pezzo di questo
           pannello disegnato dal sistema operativo: su iOS apriva la ruota

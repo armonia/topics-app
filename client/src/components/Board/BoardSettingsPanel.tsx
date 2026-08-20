@@ -279,7 +279,7 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         className="flex items-center justify-between gap-2"
         title={tr('board.settings.checksTitle')}
       >
-        <span>{tr('board.settings.checks')} <span className="text-app-text-muted">(un comando per riga)</span></span>
+        <span>{tr('board.settings.checks')} <span className="text-app-text-muted">{tr('board.settings.oneCmdPerLine')}</span></span>
         {checks.length > 0 && <span className="text-[10px] text-app-text-muted">{checks.length}/5</span>}
       </label>
       <textarea
@@ -292,7 +292,7 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         placeholder={'bun run typecheck\nbun test'}
         className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-[11px] text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
-      {dirty && <p className="text-[10px] text-app-text-muted">Salva uscendo dal campo (o ⌘↵).</p>}
+      {dirty && <p className="text-[10px] text-app-text-muted">{tr('board.settings.saveOnBlur')}</p>}
     </div>
   );
 }

@@ -48,6 +48,28 @@ describe('deriveToolDetail — background / harness tools', () => {
     expect(deriveToolDetail('LSP', { operation: 'hover' }).type).toBe('lsp');
   });
 
+  test('wait_for_process: e\' un\'ATTESA, non un MCP generico', () => {
+    const d = deriveToolDetail(
+      'mcp__topics__wait_for_process',
+      { process_id: 'p-42', until: 'ready', timeout_ms: 30000 },
+      'still running',
+    );
+    expect(d.type).toBe('wait');
+    if (d.type === 'wait') {
+      expect(d.processId).toBe('p-42');
+      expect(d.until).toBe('ready');
+      expect(d.timeoutMs).toBe(30000);
+      expect(d.result).toBe('still running');
+    }
+    const label = buildToolDisplayLabel(d);
+    expect(label.name).toBe('Wait');
+    expect(label.summary).toContain('p-42');
+  });
+
+  test('un MCP che non e\' l\'attesa resta un MCP', () => {
+    expect(deriveToolDetail('mcp__topics__list_processes', {}).type).toBe('mcp');
+  });
+
   test('unknown tools still fall through', () => {
     expect(deriveToolDetail('WhoKnows', { x: 1 }).type).toBe('unknown');
   });

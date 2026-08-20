@@ -129,7 +129,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
           {/* 44px dove c'è un dito: era 28×28, cioè sotto la soglia proprio nel
               punto in cui il gesto «esci» non ha alternative — a schermo intero
               non c'è più un velo attorno da toccare. */}
-          <button aria-label="Chiudi le impostazioni"
+          <button aria-label={t('settings.close')}
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded text-app-text-tertiary transition-colors hover:bg-black/5 hover:text-app-text-secondary coarse:h-11 coarse:w-11 dark:hover:bg-white/5"
           >

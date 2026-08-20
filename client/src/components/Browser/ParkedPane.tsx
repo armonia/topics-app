@@ -9,6 +9,7 @@
  * sarebbe possibile (composita sopra tutto).
  */
 import { Unplug, RotateCw } from 'lucide-react';
+import { useT } from '../../hooks/useT';
 import { loopbackDownText } from './navErrorMessage';
 
 interface ParkedPaneProps {
@@ -25,6 +26,7 @@ function hhmm(ms: number): string {
 }
 
 export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProps) {
+  const tr = useT();
   const { message, hint } = loopbackDownText(url);
   return (
     <div
@@ -40,7 +42,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
         <div className="text-[13px] font-medium text-app-text">{message}</div>
         {hint && <div className="mt-1.5 text-[12px] text-app-text-muted leading-snug">{hint}</div>}
         <div className="mt-1.5 text-[11px] text-app-text-tertiary">
-          Controllato alle {hhmm(checkedAt)}. La pagina non è stata caricata.
+          {tr('parked.checkedAt', { when: hhmm(checkedAt) })}
         </div>
         <div className="mt-4 flex items-center justify-center gap-2">
           <button
@@ -56,7 +58,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
         {/* La scheda si chiude con la scorciatoia che chiude qualunque pane: non
             serve un bottone in più, serve saperlo. */}
         <div className="mt-3 text-[11px] text-app-text-tertiary">
-          <kbd className="kbd">⌘W</kbd> chiude la scheda
+          <kbd className="kbd">⌘W</kbd> {tr('parked.closesTab')}
         </div>
       </div>
     </div>

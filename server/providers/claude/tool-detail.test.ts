@@ -266,6 +266,25 @@ describe("deriveToolDetail", () => {
     }
   });
 
+  test("wait_for_process → type=wait, con l'id per ritrovare il processo vivo", () => {
+    const d = deriveToolDetail(
+      "mcp__topics__wait_for_process",
+      { process_id: "p-7", until: "listening on", timeout_ms: 60000 },
+      "STILL RUNNING",
+    );
+    expect(d.type).toBe("wait");
+    if (d.type === "wait") {
+      expect(d.processId).toBe("p-7");
+      expect(d.until).toBe("listening on");
+      expect(d.timeoutMs).toBe(60000);
+      expect(d.result).toBe("STILL RUNNING");
+    }
+  });
+
+  test("gli altri tool MCP restano type=mcp", () => {
+    expect(deriveToolDetail("mcp__topics__list_processes", {}).type).toBe("mcp");
+  });
+
   test("BashOutput → type=bash_output with shellId from bash_id", () => {
     const d = deriveToolDetail("BashOutput", { bash_id: "sh_42", filter: "ERROR" }, "line1");
     expect(d.type).toBe("bash_output");

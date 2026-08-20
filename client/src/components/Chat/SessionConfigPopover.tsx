@@ -16,6 +16,7 @@
 // Non è collegabile finché il server non gestisce il canale di permesso della
 // CLI — vedi openspec/changes/autonomy-level-needs-permission-channel/.
 import { useMemo, useRef, useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
@@ -53,6 +54,7 @@ export function SessionConfigPopover({
   providerOverride,
   defaultProviderLabel,
 }: SessionConfigPopoverProps) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -118,12 +120,12 @@ export function SessionConfigPopover({
         }`}
         title={shownTier
           ? effort
-            ? `Effort: ${effort} · impostato per questa chat${defaultTier ? ` (default del provider: ${defaultTier})` : ''}`
-            : `Effort: ${shownTier} · default del provider`
-          : 'Configurazione della chat: effort'}
+            ? tr('chat.effort.set', { effort, fallback: defaultTier ? tr('chat.effort.providerDefaultIs', { tier: defaultTier }) : '' })
+            : tr('chat.effort.fromProvider', { tier: shownTier })
+          : tr('chat.config.effort')}
         aria-label={shownTier
-          ? `Configurazione della chat, effort ${shownTier}${effort ? ' impostato per questa chat' : ' di default'}`
-          : 'Configurazione della chat'}
+          ? tr('chat.config.aria', { tier: shownTier, how: effort ? tr('chat.effort.setSuffix') : tr('chat.effort.defaultSuffix') })
+          : tr('chat.config')}
         aria-expanded={open}
         data-testid="chat-session-config"
       >
@@ -185,7 +187,7 @@ export function SessionConfigPopover({
                     type="button"
                     onClick={() => onEffortChange(null)}
                     className="flex items-center gap-1 text-[10px] text-app-text-muted hover:text-app-text transition-colors"
-                    title="Torna al default del provider"
+                    title={tr('chat.effort.reset')}
                   >
                     <RotateCcw size={10} />
                     Default
