@@ -13,7 +13,7 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { testTmpDir, PROJECT_ROOT } from "./helpers";
-import { resolveNodeBin, nodeMancanteMessage } from "../../shared/test-node-bin";
+import { resolveNodeBin, nodeMancanteMessage } from "../../server/lib/test-node-bin";
 
 const ROOT = testTmpDir("pty-bridge-mjs");
 const BRIDGE = path.join(PROJECT_ROOT, "server", "pty-bridge.mjs");

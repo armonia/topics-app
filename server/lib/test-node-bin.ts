@@ -16,10 +16,15 @@
  * sbagliata: erano rossi in entrambi i casi perche' la causa non stava in
  * nessun commit.
  *
- * Vive qui, in `shared/`, e non accanto a uno dei due file, perche' i suoi due
- * chiamanti stanno in alberi diversi (`server/` e `tests/integration/`) e
+ * Vive qui, in `server/lib/`, e non accanto a uno dei due file, perche' i suoi
+ * due chiamanti stanno in alberi diversi (`server/` e `tests/integration/`) e
  * `server/` non importa dai test. Copiarlo avrebbe voluto dire due ricerche che
  * divergono, e la seconda si scopre rotta solo quando fallisce come la prima.
+ *
+ * E NON in `shared/`, dove l'avevo messo per primo: quella cartella e' del
+ * codice condiviso COL CLIENT, e il typecheck del client la compila senza i
+ * tipi di Node. Due errori TS su `node:fs` e `process` — un helper di test che
+ * gira solo su Bun/Node non appartiene a un albero che finisce nel browser.
  */
 
 import fs from "node:fs";

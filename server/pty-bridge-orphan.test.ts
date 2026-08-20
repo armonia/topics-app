@@ -32,7 +32,7 @@ import net from "node:net";
 import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveNodeBin, nodeMancanteMessage } from "../shared/test-node-bin";
+import { resolveNodeBin, nodeMancanteMessage } from "./lib/test-node-bin";
 
 /** L'eseguibile Node con cui lanciare il ponte. */
 const NODE = resolveNodeBin();
