@@ -1572,6 +1572,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     "     ELSE 1 END";
 
   /**
+   * «Questa riga l'ho scritta IO», in SQL.
+   *
+   * Serve alla finestra, e per una ragione misurata: `CARD_COMMENTS_DEPTH` ne
+   * porta tre, e su una card viva le note della macchina si accumulano DOPO
+   * l'ultima cosa che ho detto. Su `a41af39a` (20/08) fra il mio messaggio e la
+   * cima c'erano 26 righe, su `235afe11` 17, su `b673a253` 16: il mio messaggio
+   * stava in posizione SETTE e alla card non arrivava mai — non perche' il
+   * client lo scartasse, ma perche' il server non glielo mandava.
+   *
+   * Chiesto cosi': «da review dovrei SEMPRE vedere l'ultimo suo e mio
+   * messaggio». Senza questa riga il «sempre» valeva solo per i thread corti.
+   *
+   * Il gemello di `isHumanComment` (client) tenuto stretto come quello: solo
+   * `kind = 'comment'`, perche' il server firma `user` anche la propria
+   * narrazione quando una leva l'ha tirata una persona (Stop, archiviazione),
+   * e quelle non sono parole mie.
+   */
+  const SQL_MIA =
+    "CASE WHEN c.author = 'user' AND COALESCE(c.kind, 'comment') = 'comment' THEN 1 ELSE 0 END";
+
+  /**
    * Quanto testo di un commento viaggia sulla card, e sono DUE misure perché la
    * card ne disegna due in modo diverso.
    *
@@ -1863,11 +1884,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
                   row_number() OVER (
                     PARTITION BY c.task_id, ${SQL_PAROLA}
                     ORDER BY c.created_at DESC, c.rowid DESC) AS rn_parola,
+                  -- L'ULTIMA COSA CHE HO DETTO IO viaggia sempre, per quanto
+                  -- indietro sia finita sotto le note della macchina.
+                  row_number() OVER (
+                    PARTITION BY c.task_id, ${SQL_MIA}
+                    ORDER BY c.created_at DESC, c.rowid DESC) AS rn_mia,
+                  ${SQL_MIA} AS mia,
                   ${SQL_PAROLA} AS parola
              FROM task_comments c
             WHERE c.task_id IN (SELECT value FROM json_each(?))
               AND COALESCE(c.kind, 'comment') NOT IN ('status', 'service')
-         ) WHERE rn <= ${CARD_COMMENTS_DEPTH} OR (parola = 1 AND rn_parola = 1)
+         ) WHERE rn <= ${CARD_COMMENTS_DEPTH}
+              OR (parola = 1 AND rn_parola = 1)
+              OR (mia = 1 AND rn_mia = 1)
          ORDER BY task_id ASC, rn DESC`,
       ).all(idParam(ids)) as any[];
     } catch { return out; }
