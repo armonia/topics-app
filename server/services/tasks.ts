@@ -1907,15 +1907,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   function previewImagesFor(ids: readonly string[]): Map<string, string[]> {
     const out = new Map<string, string[]>();
     if (ids.length === 0) return out;
-    let rows: any[];
+    /* Il tipo della riga e' DICHIARATO, non `any`: sono due colonne, si
+     * scrivono. Il cricchetto sugli `any` (`check:any-budget`) mi ha preso
+     * proprio qui, e aveva ragione — `r.media` su un `any` non avrebbe detto
+     * niente se un domani la colonna cambiasse nome. */
+    let rows: Array<{ task_id: string; media: string | null }>;
     try {
       rows = db.query(
         `SELECT task_id, media FROM task_comments
           WHERE task_id IN (SELECT value FROM json_each(?)) AND media IS NOT NULL
           ORDER BY created_at ASC`,
-      ).all(JSON.stringify(ids)) as any[];
+      ).all(JSON.stringify(ids)) as Array<{ task_id: string; media: string | null }>;
     } catch { return out; }
     for (const r of rows) {
+      if (!r.media) continue;
       let files: unknown;
       try { files = JSON.parse(r.media); } catch { continue; }
       if (!Array.isArray(files)) continue;
@@ -1923,8 +1928,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Le stesse regole della promozione: path assoluto, estensione che
         // qualcuno sa disegnare. Un `.pdf` fra le slide sarebbe un buco.
         if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
-        const list = out.get(r.task_id as string);
-        if (!list) { out.set(r.task_id as string, [f]); continue; }
+        const list = out.get(r.task_id);
+        if (!list) { out.set(r.task_id, [f]); continue; }
         if (list.length >= PREVIEW_SLIDES_MAX) continue;
         if (!list.includes(f)) list.push(f);
       }

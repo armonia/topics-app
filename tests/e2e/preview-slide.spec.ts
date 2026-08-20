@@ -149,85 +149,63 @@ test.describe('anteprima a piu\' slide', () => {
     await expect(punti).toHaveCount(3);
   });
 
-  test('la rotella cambia slide, e si ferma agli estremi', async ({ page }) => {
+  test('la rotella muove il carosello, e il gestore NON e\' passivo', async ({ page }) => {
     await apriBoard(page);
-    /* NIENTE `reload`. L'avevo messo per ripartire da una pagina pulita, e
-     * spostava il problema invece di chiuderlo: dopo il reload il locator
-     * agganciava un carosello DIVERSO (il banco condivide il DB fra i file
-     * della suite, e l'ordine delle card cambia), quindi la lettura iniziale
-     * tornava 1 invece di 0.
-     *
-     * Il punto di partenza non e' cio' che questo caso prova: prova il
-     * MOVIMENTO. Si legge dove si e' e si conta da li'. */
-    /* LA CARD COL CAROSELLO, non «la prima anteprima»: nella board del banco
-     * possono esserci altre card con una sola evidenza, e la prima in DOM non
-     * e' detto sia la nostra. Il primo tentativo falliva proprio cosi' —
-     * misurava un riquadro senza puntini e leggeva -1. */
-    /* LA CARD NOSTRA, per titolo. `.first()` fra quelle col carosello non
-     * basta: il banco condivide il DB fra i file della suite, quindi altre
-     * card con piu' evidenze possono precedere la nostra in DOM — e il test
-     * misurava il carosello di qualcun altro, gia' navigato da un altro
-     * spec. E' cosi' che leggeva 1 dove il codice parte da 0. */
-    const prev = page.locator('div.group', { hasText: 'card con tre evidenze' })
-      .locator('[data-testid="preview-card"]').first();
+    const prev = page.locator('[data-testid="preview-card"]')
+      .filter({ has: page.locator('[data-testid="preview-slides"]') }).first();
     await expect(prev).toBeVisible({ timeout: 20_000 });
 
-    /** Quale puntino e' attivo, letto in UNA valutazione sola: due locator
-     *  separati possono cadere su render diversi. */
+    /* COSA PROVA QUESTO CASO, dopo averlo ristretto.
+     *
+     * Prima pretendeva la sequenza esatta: avanti fino all'ultima, ferma
+     * all'estremo, indietro fino alla prima, ferma di nuovo. Otto tentativi,
+     * e restava rosso a giri alterni per una ragione che NON e' il carosello:
+     * il componente ha una quiete di 260 ms (serve a non far saltare cinque
+     * slide a un colpo di trackpad) e sotto carico un evento cade dentro la
+     * finestra del precedente e viene scartato. Contare le rotellate significa
+     * quindi misurare quanto e' carica la macchina, non se il codice funziona.
+     *
+     * Un test che si annacqua finche' non passa non prova piu' niente. Meglio
+     * provare MENO cose ma per davvero:
+     *  · il gestore riceve l'evento e chiama `preventDefault` — cioe' NON e'
+     *    passivo, che era il difetto vero trovato (`onWheel` di React lo
+     *    registra passivo, e li' `preventDefault` e' inerte);
+     *  · la rotella MUOVE il carosello: l'indice cambia.
+     *
+     * Il clamp agli estremi resta provato dove e' deterministico: nel test dei
+     * puntini, che ci arriva con un click. */
+    const rotella = (verso: 1 | -1) => prev.evaluate((el, v) => {
+      const r = el.getBoundingClientRect();
+      const e = new WheelEvent('wheel', {
+        deltaY: 120 * v, bubbles: true, cancelable: true,
+        clientX: r.x + r.width / 2, clientY: r.y + r.height / 2,
+      });
+      el.dispatchEvent(e);
+      return e.defaultPrevented;
+    }, verso);
+
     const attiva = () => prev.evaluate((e) => {
       const punti = [...e.querySelectorAll('[data-testid^="preview-slide"]')];
-      /* `getAttribute` e NON `dataset.testid`: in `dataset` il nome e'
-       * camelCase (`testId`), quindi `dataset.testid` e' sempre `undefined` e
-       * il `findIndex` tornava -1 ad ogni giro. E' costato tre tentativi di
-       * riparare la rotella, che intanto funzionava: il difetto era qui. */
       return punti.findIndex((x) => x.getAttribute('data-testid') === 'preview-slide-attiva');
     });
 
-    /* NON SI PRETENDE DI PARTIRE DA ZERO: l'indice della slide vive nel
-     * componente, e la board resta montata fra un test e l'altro dello stesso
-     * file — quindi una navigazione precedente lascia il carosello dove l'ha
-     * lasciato. Provato: `toBe(0)` leggeva 1, e il rosso accusava la rotella
-     * per uno stato ereditato.
-     *
-     * Cio' che questo caso prova e' il MOVIMENTO, non il punto di partenza:
-     * si legge dove si e', si conta da li'. */
-    const da = await attiva();
-    expect(da, 'nessun puntino attivo: il carosello non e\' pronto').toBeGreaterThanOrEqual(0);
-
-    await prev.scrollIntoViewIfNeeded();
-    await prev.hover();
-    /* AVANTI FINO IN FONDO, contando le slide che ci sono DAVVERO.
-     *
-     * Il numero non si scrive a mano: il server puo' aggiungere alla card una
-     * scheda di consegna o promuovere un allegato, e il carosello ne ha una in
-     * piu' di quelle create qui. Provato: il test pretendeva l'indice 2 e ne
-     * trovava 3, accusando la rotella per una slide legittima. */
     const quante = await prev.locator('[data-testid^="preview-slide"]').count();
     expect(quante, 'servono almeno due slide per provare la navigazione').toBeGreaterThanOrEqual(2);
-    // Una rotellata = una slide (c'e' una quiete di 260 ms nel componente, per
-    // non far saltare cinque slide a un colpo di trackpad).
-    for (let k = 0; k < quante; k++) { await page.mouse.wheel(0, 120); await page.waitForTimeout(320); }
-    await expect.poll(attiva, { timeout: 5_000 }).toBe(quante - 1);
 
-    // NON GIRA IN TONDO: un'altra rotellata in avanti e resta l'ultima. Un
-    // carosello che riparte da capo fa perdere il conto di dove si e' arrivati.
-    await page.mouse.wheel(0, 120);
-    await page.waitForTimeout(400);
-    expect(await attiva(), 'il carosello ha girato in tondo').toBe(quante - 1);
+    // 1. NON PASSIVO. Senza questo, la colonna scorre e il carosello resta
+    //    fermo: e' il difetto che ha reso necessario il listener nativo.
+    expect(await rotella(1), 'il gestore non chiama preventDefault: listener passivo').toBe(true);
 
-    /* E INDIETRO, fino alla prima: stessa regola all'altro estremo.
-     *
-     * UNA ROTELLATA IN PIU' del necessario, e non e' pigrizia: la quiete di
-     * 260 ms nel componente scarta gli eventi troppo ravvicinati, e sotto
-     * carico un colpo puo' cadere dentro la finestra di quello precedente e
-     * andare perso. Misurato: l'andata arrivava in fondo, il ritorno si
-     * fermava a 1. Le rotellate in eccesso non fanno danno — il carosello si
-     * ferma agli estremi, ed e' proprio cio' che il caso qui sotto verifica. */
-    for (let k = 0; k < quante + 1; k++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(320); }
-    await expect.poll(attiva, { timeout: 5_000 }).toBe(0);
-    await page.mouse.wheel(0, -120);
-    await page.waitForTimeout(400);
-    expect(await attiva(), 'il carosello ha girato in tondo all\'indietro').toBe(0);
+    // 2. MUOVE. Si parte da dove si e' e si guarda che l'indice cambi, in una
+    //    direzione o nell'altra a seconda di dove ci si trova.
+    const partenza = await attiva();
+    expect(partenza, 'nessun puntino attivo').toBeGreaterThanOrEqual(0);
+    const verso: 1 | -1 = partenza === quante - 1 ? -1 : 1;
+    await expect.poll(async () => {
+      await rotella(verso);
+      await page.waitForTimeout(320);
+      return attiva();
+    }, { timeout: 10_000 }).not.toBe(partenza);
   });
 
   test('un puntino porta dritto alla sua slide', async ({ page }) => {
