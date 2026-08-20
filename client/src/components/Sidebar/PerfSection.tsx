@@ -3,6 +3,7 @@ import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { computeTopicsFootprint } from '@/lib/topicsFootprint';
+import { scegliVerdetto } from './verdict';
 import { useT } from '@/hooks/useT';
 
 const SPARK_W = 288;
@@ -147,22 +148,25 @@ export function PerfSection() {
   // Bottleneck verdict — only the unambiguous calls. We no longer guess "PC
   // saturated by other processes": the top-process list below shows the actual
   // culprits, so the user reads it directly instead of being told.
-  let verdict: { text: string; color: string } | null = null;
-  if (perf && accelerated === false) {
-    verdict = { text: tr('perf.verdict.noAccel'), color: 'text-red-500' };
-  } else if (compressedMB > 2048) {
-    verdict = {
-      text: tr('perf.verdict.compressed', { gb: (compressedMB / 1024).toFixed(1) }),
-      color: 'text-amber-500',
-    };
-    // Soglia su scala 0-100 dell'intera macchina (vedi `usePerfMetrics`): metà
-    // macchina presa da Topics è già "sotto carico". Era `> 100`, che aveva
-    // senso finché il numero era per-core e poteva arrivare a 1200. Adesso
-    // guarda il TOTALE e non la sola shell: il carico che si sente è quello
-    // dell'insieme, e con gli agenti al lavoro sta quasi tutto dall'altra metà.
-  } else if ((footprint.totalCpu ?? 0) > 50) {
-    verdict = { text: tr('perf.verdict.loaded'), color: 'text-amber-500' };
-  }
+  //
+  // La DECISIONE sta in `scegliVerdetto` (verdict.ts), pura e provata; qui
+  // resta solo la traduzione e il colore. Prima viveva in linea, e una regola
+  // che si puo' leggere solo montando un componente non ha modo di essere
+  // sbagliata rumorosamente.
+  const scelta = scegliVerdetto({
+    accelerated: perf ? (accelerated ?? null) : null,
+    compressedMB: isPartial ? null : compressedMB,
+    totalMB: mem && !isPartial ? mem.totalMB : null,
+    residentMB: mem && !isPartial ? mem.residentMB : null,
+    totalCpu: footprint.totalCpu,
+  });
+  const verdict: { text: string; color: string } | null =
+    scelta === null ? null
+    : scelta.tipo === 'noAccel' ? { text: tr('perf.verdict.noAccel'), color: 'text-red-500' }
+    : scelta.tipo === 'compressed' ? { text: tr('perf.verdict.compressed', { gb: scelta.gb }), color: 'text-amber-500' }
+    : scelta.tipo === 'mostlySwapped' ? { text: tr('perf.verdict.mostlySwapped', { pct: scelta.pct, mb: scelta.mb }), color: 'text-app-text-muted' }
+    : { text: tr('perf.verdict.loaded'), color: 'text-amber-500' };
+
   // No "Fluido" line in the good case: the FPS headline + sparkline above
   // already say it. The verdict only speaks up when there's a real problem.
 

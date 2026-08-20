@@ -327,9 +327,17 @@ test.describe.serial("Cross-window topic + message sync", () => {
       );
       expect(postRes.ok()).toBeTruthy();
 
-      // The message arrives via WS push.
+      // The message arrives via WS push — e va cercato DENTRO la conversazione,
+      // come il conteggio dopo il reload. Nudo su `page` questo locator vedeva
+      // due nodi: il messaggio E l'anteprima che la sidebar stampa sotto il nome
+      // del topic (`[data-testid="topic-preview"]` dentro `sidebar-timeline`),
+      // che arriva quando il suo fetch ha finito. Playwright cadeva in strict
+      // mode — «resolved to 2 elements» — cioe' il test moriva proprio perche'
+      // la app aveva funzionato due volte invece di una. Non era lentezza: era
+      // il locator a misurare una superficie diversa da quella dichiarata.
+      const conversazione = page.locator('[role="main"]');
       await expect(
-        page.getByText(new RegExp(marker)),
+        conversazione.getByText(new RegExp(marker)),
       ).toBeVisible({ timeout: 8000 });
 
       // Now reload — the page re-fetches history. If dedupe is broken,
@@ -351,8 +359,8 @@ test.describe.serial("Cross-window topic + message sync", () => {
       // Nessun dedupe era rotto — era il locator a contare una cosa diversa da
       // quella che il test dichiara di misurare, ed e' lo stesso difetto gia'
       // scritto in `PaneTabBar.tsx`: agganciarsi a cio' che si vede invece che
-      // a un appiglio stabile.
-      const conversazione = page.locator('[role="main"]');
+      // a un appiglio stabile. Il `[role="main"]` sopravvive al reload — e' un
+      // locator, non un nodo catturato — quindi si riusa quello di prima.
       await expect(
         conversazione.getByText(new RegExp(marker)),
       ).toBeVisible({ timeout: 8000 });

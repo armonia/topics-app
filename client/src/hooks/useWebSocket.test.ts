@@ -52,6 +52,8 @@ class SocketFinta {
 let socket: SocketFinta[] = [];
 /** Le richiamate di `setInterval` ancora armate: le fa scattare il test. */
 let intervalli = new Map<number, () => void>();
+/** Idem per i `setTimeout`: catturati, e fatti scattare solo su richiesta. */
+let timeout = new Map<number, () => void>();
 let orologio = 0;
 
 const salvati: Record<string, unknown> = {};
@@ -60,6 +62,7 @@ const dateNowVero = Date.now;
 beforeEach(() => {
   socket = [];
   intervalli = new Map();
+  timeout = new Map();
   orologio = 1_700_000_000_000;
 
   for (const k of ['WebSocket', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'window', 'document']) {
@@ -86,10 +89,14 @@ beforeEach(() => {
   g.setInterval = (fn: () => void) => { intervalli.set(++seq, fn); return seq; };
   g.clearInterval = (id: number) => { intervalli.delete(id); };
   // I `setTimeout` dell'hook (la grazia sullo stato, il timer di offline, il
-  // backoff di riconnessione) si catturano e non si eseguono: nessuno di loro
-  // riguarda il polso, e lasciarli veri lascerebbe timer vivi dopo il test.
-  g.setTimeout = () => 0;
-  g.clearTimeout = () => {};
+  // backoff di riconnessione) si catturano e non si eseguono da soli:
+  // lasciarli veri lascerebbe timer vivi dopo il test. Restano pero'
+  // RAGGIUNGIBILI: `scattaITimeout()` li fa partire quando un test ha bisogno
+  // di guardare cosa succede DOPO la grazia. Chi non lo chiama vede il
+  // comportamento di prima, cioe' nessun timer che scatta.
+  let seqT = 0;
+  g.setTimeout = (fn: () => void) => { timeout.set(++seqT, fn); return seqT; };
+  g.clearTimeout = (id: number) => { timeout.delete(id); };
   Date.now = () => orologio;
 });
 
@@ -103,6 +110,18 @@ afterEach(() => {
 /** Fa scattare ogni intervallo armato, una volta. */
 function battiIlTimer(): void {
   for (const fn of [...intervalli.values()]) fn();
+}
+
+/**
+ * Fa scattare i `setTimeout` in attesa, una volta ciascuno. Serve ai test che
+ * guardano oltre la GRAZIA di tre secondi con cui `displayStatus` nasconde i
+ * cali brevi: senza, lo stato che l'hook espone resta `connected` per
+ * costruzione e non si puo' misurare niente su di esso.
+ */
+function scattaITimeout(): void {
+  const armati = [...timeout.entries()];
+  timeout.clear();
+  for (const [, fn] of armati) fn();
 }
 
 function guida(): { api: () => ReturnType<typeof useWebSocket>; smonta: () => void } {
@@ -192,6 +211,39 @@ describe('il polso della connessione WS', () => {
     orologio += 80_000;
     battiIlTimer();
     expect(ws.chiusure).toBe(1);
+    smonta();
+  });
+
+  test("chiudere non basta: lo stato LASCIA `connected` anche se `onclose` non arriva mai", () => {
+    // IL DIFETTO, misurato il 20/08/2026 staccando la rete per 110 secondi.
+    // A 90s il cane da guardia scatta e chiama `close()`, ma senza rete
+    // l'handshake non si completa: la socket resta in `CLOSING` e `onclose`
+    // NON SCATTA. Tutto cio' che ripartiva da quell'evento restava fermo.
+    //
+    // Due conseguenze, entrambe viste a schermo:
+    //   · l'indicatore «Offline» della barra di stato non compariva mai,
+    //     perche' si disegna solo quando lo stato non e' `connected`;
+    //   · al ritorno della rete la coda dei messaggi in uscita non si
+    //     svuotava. Quell'effetto (`usePanelLifecycle`) guarda la
+    //     TRANSIZIONE verso `connected`, e lo stato non se n'era mai andato:
+    //     il messaggio restava sotto la scritta «It will send when
+    //     reconnected», che quindi era una promessa non mantenuta.
+    //
+    // `SocketFinta.close()` non chiama `onclose`, quindi questo test E' la
+    // socket senza rete. Prima della correzione lo stato restava `connected`.
+    const { api, smonta } = guida();
+    const ws = socket[0]!;
+    ws.apri();
+    expect(api().status).toBe('connected');
+
+    orologio += 80_000;
+    battiIlTimer();
+
+    expect(ws.chiusure).toBe(1);
+    // La grazia di `displayStatus` tiene ancora `connected` per tre secondi:
+    // e' voluta, serve a non far lampeggiare la barra su un singhiozzo.
+    scattaITimeout();
+    expect(api().status).not.toBe('connected');
     smonta();
   });
 

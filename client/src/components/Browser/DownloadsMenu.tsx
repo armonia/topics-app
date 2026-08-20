@@ -21,6 +21,7 @@
  * fa comparire SOPRA la webview nativa.
  */
 import { useRef, useState } from 'react';
+import { useT } from '@/hooks/useT';
 import { Download, Check, X as XIcon, FolderOpen, Loader2, AlertTriangle } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { POPOVER_DIVIDER, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
@@ -61,6 +62,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
   // vuoto il bottone non esiste e il menu non ha più un'ancora, quindi
   // `open` si DERIVA. Prima quella riconciliazione era un effetto che spegneva
   // lo stato dopo il fatto — un render in più, e il warning di React.
+  const tr = useT();
   const [wanted, setWanted] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const open = wanted && items.length > 0;
@@ -88,7 +90,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         type="button"
         onClick={() => setWanted(!open)}
         className="relative w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors shrink-0"
-        title={activeCount > 0 ? `${activeCount} download in corso` : 'Download'}
+        title={activeCount > 0 ? tr('downloads.active', { n: activeCount }) : tr('downloads.title')}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Download"
@@ -123,8 +125,8 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
             type="button"
             onClick={() => setWanted(false)}
             className="w-5 h-5 flex items-center justify-center rounded text-app-text-muted hover:bg-app-hover"
-            title="Chiudi"
-            aria-label="Chiudi"
+            title={tr('common.close')}
+            aria-label={tr('common.close')}
             data-testid="browser-downloads-close"
           >
             <XIcon size={12} aria-hidden />
@@ -162,7 +164,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                       target="_blank"
                       rel="noreferrer"
                       className="block text-[12px] text-app-text truncate hover:underline"
-                      title={`Scarica ${d.filename}`}
+                      title={tr('downloads.save', { name: d.filename })}
                       data-testid="browser-download-item"
                     >
                       {d.filename}
@@ -172,7 +174,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                       type="button"
                       onClick={() => onOpen!(d.savedPath!)}
                       className="block w-full text-left text-[12px] text-app-text truncate hover:underline"
-                      title={`Apri ${d.savedPath}`}
+                      title={tr('downloads.open', { path: d.savedPath! })}
                       data-testid="browser-download-item"
                     >
                       {d.filename}
@@ -218,8 +220,8 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                     type="button"
                     onClick={() => onReveal(d.savedPath!)}
                     className="w-5 h-5 flex items-center justify-center rounded text-app-text-muted hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
-                    title="Mostra nel Finder"
-                    aria-label="Mostra nel Finder"
+                    title={tr('downloads.reveal')}
+                    aria-label={tr('downloads.reveal')}
                     data-testid="browser-download-reveal"
                   >
                     <FolderOpen size={12} aria-hidden />
@@ -229,8 +231,8 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                   type="button"
                   onClick={() => onDismiss(d.id)}
                   className="w-5 h-5 flex items-center justify-center rounded text-app-text-muted hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
-                  title="Togli dall'elenco"
-                  aria-label="Togli dall'elenco"
+                  title={tr('downloads.remove')}
+                  aria-label={tr('downloads.remove')}
                   data-testid="browser-download-dismiss"
                 >
                   <XIcon size={12} aria-hidden />
@@ -246,7 +248,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
           className={POPOVER_ITEM_DANGER}
           data-testid="browser-downloads-clear"
         >
-          <XIcon size={13} className="shrink-0" aria-hidden /> Svuota l'elenco
+          <XIcon size={13} className="shrink-0" aria-hidden /> {tr('downloads.clear')}
         </button>
       </Menu>
     </>

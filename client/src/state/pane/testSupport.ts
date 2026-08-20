@@ -31,6 +31,7 @@ export const blankPaneState = (): PaneState => ({
   spaces: {},
   activeSpaceId: DEFAULT_SPACE_ID,
   lastSeq: 0,
+  localSeq: 0,
   lastServerSeq: 0,
 });
 

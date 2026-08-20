@@ -213,6 +213,61 @@ Chrome, **0** in Obscura). Cioè: rettangoli e cerchi sì, **tracciati e sfumatu
 Tradotto: un grafico a barre passa, una sparkline o un line-chart resta vuoto — ed è
 proprio la forma che ha il 90% dei grafici in una dashboard.
 
+### Le abbiamo aggiustate — patch scritta, compilata e misurata
+
+Le due primitive canvas mancanti **non erano un limite architetturale**: erano codice non
+ancora scritto, in **JavaScript**, non in Rust. Il canvas 2D di Obscura vive in
+`crates/obscura-js/js/bootstrap.js`, e là dentro `stroke()` era letteralmente
+`stroke() {}` — un metodo vuoto — mentre `createLinearGradient` restituiva un oggetto il
+cui `addColorStop(){}` **buttava via i colori**.
+
+Patch in `obscura-canvas-fix.patch` (143 righe aggiunte, un file, zero Rust toccato):
+
+| | prima | dopo |
+|---|---|---|
+| `stroke()` | `{}` vuoto | Bresenham per segmento, `lineWidth` rispettato, archi tracciati come cerchi |
+| `createLinearGradient` / `Radial` | stop scartati | stop conservati, interpolati per pixel |
+| `fill()` su path M/L | solo archi | scanline even-odd: i poligoni si riempiono |
+| `closePath()` | `{}` vuoto | registra il segmento di chiusura |
+| `fillRect` / `strokeRect` | solo tinta unita | accettano anche un gradiente |
+
+Il tutto passa da un `_resolvePaint(style)` che torna `{ at(x,y) -> [r,g,b,a] }`: una
+tinta unita risolve una volta, un gradiente interpola. Così ogni primitiva guadagna il
+supporto ai gradienti senza duplicare codice.
+
+**La prova, non il racconto.** Una dashboard con line chart, area, assi, barre con
+gradiente e punti (`chart/index.html`), stesso viewport, tre motori:
+
+| | ink (frazione dipinta) | colori distinti | diff vs Chrome |
+|---|---|---|---|
+| Chrome | 0.327 | 773 | — |
+| **Obscura prima** | **0.003** | **2** | **32.35%** |
+| **Obscura dopo** | **0.321** | **150** | **1.16%** |
+
+Il grafico era **una pagina bianca con due colori**. Dopo la patch è indistinguibile da
+Chrome all'1.16%. Le sonde `getImageData` dentro la pagina lo confermano punto per punto:
+
+| sonda | Chrome | prima | dopo |
+|---|---|---|---|
+| linea del grafico | `#1e40af` | `#1e40af` | `#1e40af` |
+| area sotto la linea | `#c8d8fa` | **bianco** | `#c8d8fa` ✅ |
+| asse | `#c9d1db` | **bianco** | `#94a3b8` ✅ |
+| barra col gradiente | `#f5465c` | **bianco** | `#f4465b` ✅ |
+
+**Zero regressioni**, verificate su due fronti: le primitive che già andavano
+(`fillRect`, `strokeRect`, `arc`, `fillText`) danno gli stessi valori di prima, e
+Hacker News / Wikipedia / GitHub caricano con lo stesso identico conteggio di nodi DOM
+(818 / 4103 / 1544). `canvas-proof.mjs` prova la logica isolata in 14 asserzioni senza
+compilare nulla (~200 ms); `chart-test.mjs` fa il giro completo su un binario vero.
+
+Build: `cargo build --release -p obscura-cli --bins --features render`, ~17 minuti (V8
+compila da sorgente la prima volta), binario da 89 MB.
+
+**Cosa resta rotto:** le `filter` CSS. Quelle **non** sono in JavaScript, stanno nel
+motore di paint in Rust (`crates/obscura-render/src/paint.rs`, 17k righe) e richiedono
+un passo di post-processing sul buffer del layer — lavoro vero, non un metodo vuoto da
+riempire. `stroke` e i gradienti erano il frutto basso, ed era davvero basso.
+
 ### Perché è così leggero (e perché il prezzo è coerente)
 
 Non è magia né un trucco di misura. Obscura fa tre rinunce strutturali:
@@ -229,6 +284,368 @@ Non è magia né un trucco di misura. Obscura fa tre rinunce strutturali:
 
 Il 30x di risparmio e i buchi sono **la stessa scelta vista da due lati**. Il che rende
 la valutazione facile: dove quelle tre cose non servono, Obscura è un affare enorme.
+
+## Quanto si guadagna DAVVERO sull'app locale
+
+Misurato sull'app Topics viva, aprendo tre pane realistiche (`react.dev`,
+`github.com/topics`, Wikipedia) via `/agent/open`, e poi le **stesse tre pagine** su
+Obscura patchato nello stesso momento:
+
+| | Chromium (oggi) | Obscura | guadagno |
+|---|---|---|---|
+| app a riposo, 0 pane | **0 MB** | **0 MB** | — |
+| prezzo d'ingresso del motore | 691 MB | **20 MB** | 671 MB |
+| 3 pane caricate | 1805 MB (15 proc) | **225 MB** (1 proc) | **1580 MB** |
+| marginale per pane | 371 MB | **68 MB** | 303 MB |
+
+Sull'**app intera** (guscio Tauri 93 MB + WebKit della UI **353 MB** + motore browser):
+
+| | con 3 pane aperte |
+|---|---|
+| oggi | **2251 MB** |
+| con Obscura | **671 MB** |
+| **guadagno** | **1580 MB, il 70% dell'app** (l'88% della sola parte browser) |
+
+> Correzione a una prima lettura sbagliata: avevo sommato **592 MB** di processi
+> `com.apple.WebKit.*` come se fossero tutti di Topics. Sono XPC reparented a `launchd`
+> (`ppid=1`), quindi il ppid non li attribuisce: 287 MB appartenevano a un'altra app,
+> avviata alle 01:02 mentre Topics gira dalle 20:11. Attribuiti per orario di avvio, i
+> processi di Topics sono **353 MB** (WebContent 313 + GPU 73 + Networking 25, letti in
+> un istante di picco). È lo stesso errore di attribuzione che `wkbench.swift` evita
+> facendo il diff dei pid, e qui l'avevo rifatto a mano.
+
+**Le tre avvertenze che rendono il numero onesto:**
+
+1. **A riposo il guadagno è zero.** Senza pane aperte Topics non tiene alcun processo
+   Chromium: il reap scatta dopo 5 minuti di inattività
+   (`browserIdleTimeoutMs`, `browser-service.ts:463`) e porta il motore a 0. Chi apre
+   una pane ogni tanto non guadagna niente — **il risparmio è tutto per chi tiene pane
+   aperte a lungo, o per l'agente che ne apre molte**.
+2. **Il marginale reale è peggiore del banco sintetico**: 371 MB per pane su siti veri
+   contro i 219 misurati su Wikipedia. Il confronto giusto è 371 → 68, cioè **5.5×**.
+3. **Il guadagno non tocca la UI.** I ~353 MB di WebKit che tengono l'interfaccia
+   restano: quello è il costo della WebView che disegna Topics, ed è già il più basso
+   disponibile (37 MB a sessione misurati con `wkbench.swift`). Obscura non ci entra —
+   e `bench/results/memory-anatomy.json` mostra che quel numero **non è nemmeno fermo**:
+   oscilla fra 210 e 448 MB su 25 letture, perché il kernel comprime e decomprime le
+   stesse pagine mentre l'app lavora.
+
+Tradotto: **1.6 GB in meno con tre pane aperte**, e la differenza cresce con le pane —
+ma solo mentre sono aperte davvero.
+
+## Potrebbe reggere anche la UI di Topics? — misurato, con un limite dichiarato
+
+Domanda naturale: se Obscura disegna bene e costa 30x meno, perché non usarlo come
+**renderer dell'app**, al posto della WKWebView? Test fatto, e la risposta è
+sorprendentemente incoraggiante — ma con un confine onesto.
+
+**Le API che il nostro stack richiede** (`apis.mjs`, sulla build patchata): su 23
+verificate ne manca **una sola**.
+
+| famiglia | esito |
+|---|---|
+| React 19: `IntersectionObserver`, `ResizeObserver`, `MutationObserver`, `requestIdleCallback`, `queueMicrotask` | ✅ tutte |
+| Tailwind 4: `CSS.supports`, `color-mix`, `oklch`, variabili CSS | ✅ tutte |
+| CodeMirror: `Range`, `getSelection`, `ClipboardEvent` | ✅ tutte |
+| xterm: `canvas2d`, `measureText` | ✅ |
+| piattaforma: `WebSocket`, `fetch`, `localStorage`, `customElements`, `ShadowRoot`, `matchMedia` | ✅ tutte |
+| **`WebGL`** | ❌ **assente** |
+
+**La UI vera di Topics ci gira** (`topicsui.mjs`, servendo `public/` già buildata):
+React monta, **zero errori JS**, e il rendering è a **0.58% da Chrome** (ink 0.985 in
+entrambi, 558 colori contro 574).
+
+**Il limite, dichiarato:** la schermata raggiunta senza sessione è il **gate di
+autorizzazione — 31 nodi DOM**, non l'app completa con board, terminali ed editor. Il
+test dimostra che *il guscio parte e il CSS moderno funziona*, **non** che l'intera UI
+regga. Per dirlo servirebbe una sessione autenticata, ed è una misura che non abbiamo
+ancora fatto.
+
+**Cosa già sappiamo che si romperebbe:**
+- **`WebGL` assente** → xterm cade sul renderer canvas (più lento, ma funziona); qualsiasi
+  vista 3D/accelerata no.
+- **`filter` CSS ignorate** (§ sopra) → ogni `blur`, `drop-shadow`, `backdrop-filter`
+  dell'interfaccia sparisce. Su una UI moderna si vede.
+- **Screencast a 20 fps** contro 92: per un'app che si guarda tutto il giorno, non per una
+  pane che si consulta.
+- **Nessuna integrazione nativa**: menu di sistema, notifiche, portachiavi, PiP — tutto
+  ciò che Tauri+WKWebView dà gratis andrebbe reimplementato.
+
+### E con 1000 sessioni? — il renderer non scala, ed è il punto
+
+L'intuizione è giusta (un costo fisso pesa meno quando il resto cresce), ma qui porta
+alla conclusione opposta: **il renderer è l'unico pezzo che NON cresce**, quindi più
+sessioni ci sono, meno conta cambiarlo.
+
+Dai bench già nel repo (`bench/results/`, app reale):
+
+| | costo | scala con le sessioni? |
+|---|---|---|
+| sessione agente (runtime nativo) | **2.26 MB** | **sì, lineare** |
+| UI con 0 / 5 / 10 / 25 topic aperti | 209 / 269 / 244 / 263 MB | **no** — da 5 a 25 topic il valore *scende*: la crescita è sotto il rumore |
+| pane browser (Chromium) | 371 MB | sì, lineare |
+
+**A 1000 sessioni agente** (2.26 MB l'una = ~2.3 GB):
+
+| | renderer | + 1000 sessioni | quota del renderer |
+|---|---|---|---|
+| Tauri oggi | 316 MB | **2571 MB** | 12% |
+| Servo | 301 MB | 2556 MB | 12% |
+| Obscura + finestra | ~255 MB | 2510 MB | 10% |
+
+Cambiare renderer a 1000 sessioni fa risparmiare **15 MB con Servo (0.6%)** o ~60 MB con
+un Obscura che non esiste (2.4%). **La scala peggiora l'affare, non lo migliora**: gli
+agenti girano nel server Bun, non nella WebView, quindi il denominatore cresce e il
+numeratore no.
+
+**Dove la scala conta davvero è l'altro motore.** A 1000 pane browser aperte:
+
+| | totale |
+|---|---|
+| Chromium (371 MB/pane) | **363 GB** |
+| Obscura (68 MB/pane) | **66 GB** |
+
+Numeri irreali su una macchina sola — nessuno tiene 1000 pane aperte — ma la pendenza è
+quella, ed è dove **5.5× moltiplica**. Il renderer è un costo fisso da 316 MB: a 10
+sessioni pesa il 60%, a 1000 pesa il 12%, e in nessuno dei due casi cambiarlo è la leva.
+
+### Quanto costa la finestra? ~100 MB — misurato, non dedotto
+
+Domanda giusta: i 155 MB di Obscura sono senza finestra, quindi **quanto se ne va nel
+sistema di finestre?** Servo permette di misurarlo, perché esiste headless *e* headful,
+stessa app, stesso binario:
+
+| Servo, app Topics | RAM |
+|---|---|
+| `--headless` (nessuna finestra) | **108 MB** |
+| headful (finestra vera + compositor) | **208 MB** |
+| **costo della finestra** | **~100 MB** |
+
+**Quindi i 155 MB di Obscura non sono confrontabili con i 316 della WKWebView.** Con una
+finestra vera diventerebbero **~255 MB**, e il guadagno reale scenderebbe da 161 MB
+(51%) a circa **60 MB (19%)** — prima di aver scritto una riga.
+
+### "Vediamo come l'hanno fatto gli altri e rifacciamolo" — l'ho guardato
+
+`tauri-runtime-verso` è **2507 righe**, quindi sembra fattibile. Ma leggendolo si vede
+che quelle righe sono **solo colla**: `src/window.rs` (902 righe) non crea finestre, le
+chiede a `VersoviewController` — un processo separato che la finestra ce l'ha già.
+`Cargo.toml` dipende da `verso` e `tao`; il lavoro vero è tutto là sotto.
+
+La catena reale è: `tauri-runtime-verso` (2.5k righe di colla) → **`versoview`** (il
+guscio che possiede finestra, event loop, compositor) → **Servo** (1.9 GB di sorgente).
+
+Per Obscura mancherebbe **tutto il pezzo di mezzo**, e non è un dettaglio:
+- **nessuna finestra**: zero dipendenze di windowing in `Cargo.lock` (né `winit`, né
+  `cocoa`/`objc2`, né `core-graphics`, né `wgpu`/`metal`);
+- **nessun input di sistema**: `crates/obscura-cdp/src/domains/input.rs` riceve eventi
+  **solo via CDP**, cioè da un debugger, non da tastiera e mouse veri;
+- **nessun compositor**: `paint_prepared()` dipinge una `Pixmap` a richiesta; non esiste
+  un ciclo che ridisegna a 60 Hz e presenta alla GPU.
+
+Quindi "rifarlo al volo sull'esempio degli altri" significherebbe scrivere il
+`versoview` di Obscura — finestra, event loop, input, compositor, per macOS, Windows e
+Linux — **prima** di poter scrivere le 2500 righe di colla. E il premio, dopo tutto ciò,
+sarebbe ~60 MB su 316.
+
+### Il guadagno VERO sostituendo il renderer dell'app — misurato bene
+
+Rifatto il confronto come andava fatto: **stessa app, stessa origine, stesso momento**.
+Il client servito dall'origine che l'app usa davvero (proxy HTTP verso il server TLS,
+`proxy.ts`), così la board carica sul serio invece di fermarsi al gate di autorizzazione.
+
+| engine | RAM | nodi DOM | vs Tauri |
+|---|---|---|---|
+| **WKWebView (Tauri oggi)** | **316 MB** | 1025 | — |
+| **Servo 0.4** | **301 MB** | — | **+15 MB (5%)** |
+| **Obscura** | **155 MB** | 968 | +161 MB (51%) |
+
+**Servo guadagna 15 MB. Il 5%.** È questo il numero che chiude la domanda "se con Tauri
+è già tutto pronto, facciamolo": `tauri-runtime-verso` esiste davvero, quindi la strada è
+percorribile — ma si spenderebbe l'integrazione di un runtime alternativo, i suoi bug e
+la sua manutenzione **per 15 MB su 316**. Su una macchina da 32 GB sono lo 0.05% della
+RAM. E in cambio si prenderebbero i problemi già misurati di Servo: le SPA con
+`IntersectionObserver` che crashano, nessun context multiplo, e un runtime Tauri di terza
+parte fra noi e il sistema.
+
+Obscura sembra dimezzare (155 contro 316), **ma quel confronto è ancora sbilanciato**:
+i suoi 155 MB sono senza finestra. Misurato su Servo, la finestra costa **~100 MB**
+(108 headless → 208 headful), quindi il numero onesto per Obscura è **~255 MB** e il
+guadagno vero **~60 MB, il 19%** — dopo aver scritto il livello finestra che non ha.
+
+**Conclusione onesta: il renderer non si tocca, e ora sappiamo perché con un numero.**
+Non è "rischioso": è che il migliore dei candidati integrabili vale il 5%.
+
+### Nota su una misura precedente sbagliata: "36 MB contro 353"
+
+
+
+Quel numero mentiva, ed è il motivo per cui la tabella sopra esiste. **Non stavo
+misurando la stessa cosa nei due casi:**
+
+- la **WKWebView reale** regge la sessione vera: N topic aperti, board, terminali,
+  editor, thread di chat. I ~353 MB sono *quello*.
+- **Obscura** ha caricato `public/` servita da una porta diversa (`:4800`), quindi
+  l'app non ha riconosciuto l'origine e si è fermata al **gate di autorizzazione: 31 nodi
+  DOM**. I 36 MB sono il costo di una schermata di login, non dell'app.
+
+Confrontare 353 MB di app viva con 36 MB di una pagina di login è confrontare due cose
+diverse. Il numero onesto per l'app completa **non lo abbiamo**, e per averlo servirebbe
+servire il client dall'origine giusta con una sessione valida. Tutto ciò che quel test
+dimostra davvero è che **il guscio parte e il CSS moderno funziona** — che non è poco,
+ma non è un confronto di consumo.
+
+### Si può sostituire il webview DENTRO Tauri? — sì come idea, no in pratica
+
+Questa è la domanda giusta, e l'architettura ti dà ragione: Tauri **non** è legato a
+WKWebView. La catena è `tauri` → `wry` → `WKWebView` (`wry-0.55.1/src/wkwebview/mod.rs`),
+e sopra c'è un **trait `Runtime` sostituibile** (`tauri-runtime-2.11.3/src/lib.rs:402`).
+Non è teoria: **`tauri-runtime-verso` esiste già** e sostituisce il backend con Servo.
+
+Quindi la strada è reale. Il problema è cosa ci si dovrebbe mettere dentro:
+
+| | |
+|---|---|
+| metodi da implementare per un runtime Tauri | **151** (`Runtime` 19 + `WindowDispatch` 80 + `WebviewDispatch` 31 + `RuntimeHandle` 20 + proxy) |
+| dipendenze di windowing in Obscura | **zero** — `grep -c winit\|cocoa\|objc2\|core-graphics\|raw-window-handle\|wgpu\|metal` su `Cargo.lock` → **0** |
+| come disegna | `tiny-skia`, su un buffer in RAM |
+
+**Ed è qui che casca.** Un runtime Tauri deve creare finestre, riceverne gli eventi,
+gestire focus, resize, drag, IME, menu, cursori — 151 metodi di roba di sistema
+operativo. Obscura non ha **niente** di tutto ciò e non per caso: è headless *per
+costruzione*, disegna in un buffer e non ha mai visto una finestra. `tauri-runtime-verso`
+può esistere perché **Servo una finestra la sa fare** (ha winit, un compositor, un
+event loop). Obscura no.
+
+Quindi non è "sostituire un webview con un altro": è **scrivere da zero il livello
+finestra + input + compositor** che Obscura non ha, e poi implementarci sopra 151 metodi.
+Non si patcha ciò che manca: manca lo strato, non delle funzioni.
+
+### E se lo migrassimo davvero, reimplementando i pezzi di Tauri?
+
+Domanda posta bene, quindi misurata invece che opinata. Il costo della UI di Topics
+disegnata da Obscura (`uicost.mjs`, la `public/` buildata a 1440x900 @2x):
+
+| | WKWebView (oggi) | Obscura |
+|---|---|---|
+| RAM della UI | ~353 MB | **36 MB** |
+| **fps del disegno in finestra** | nativo (60+) | **12.2** |
+| **CPU per disegnare** | 6.7% (idle reale) | **68%** |
+
+**Il primo numero seduce, il terzo chiude la questione.** Far *girare* la UI su Obscura
+costa **2.9% di CPU**: il motore non è il problema, e 36 MB contro 353 sarebbe un affare.
+Ma per **mostrarla in una finestra** serve portare i pixel fuori dal processo, e oggi
+l'unica strada è `Page.startScreencast`: JPEG, un frame alla volta, via WebSocket. Quel
+trasporto costa **68% di CPU per 12 fps** — cioè un core intero bruciato per
+un'interfaccia che scatta. Chrome sullo stesso giro fa 45.6 fps.
+
+Non è un limite di Obscura come motore: è che **screencast è una pipe di debug, non un
+compositor**. La WKWebView invece disegna direttamente nella finestra, senza mai
+serializzare un pixel.
+
+**Esisterebbe la strada giusta?** Sì, ed è nel codice: `paint_prepared()` restituisce una
+`tiny_skia::Pixmap` (`crates/obscura-render/src/paint.rs:2637`). Un embedding vero
+scriverebbe quella Pixmap in una `IOSurface` condivisa e la darebbe a `CALayer` — zero
+serializzazione, zero JPEG. **Ma quell'API non esiste**: andrebbe scritta noi, in Rust,
+dentro il motore, più il ponte macOS. E poi andrebbe rifatta per Windows e Linux.
+
+**Cosa andrebbe reimplementato oltre a quello**, cioè tutto ciò che Tauri dà gratis:
+menu di sistema, notifiche, portachiavi/`safeStorage` (Topics ci tiene i login delle
+pane), file picker, drag&drop, PiP, aggiornamenti firmati, gestione finestre multiple.
+Più i buchi noti del motore: WebGL assente, `filter` CSS ignorate.
+
+**Il conto:** si scambierebbero ~320 MB di RAM contro un compositor da scrivere in Rust
+su tre piattaforme, un livello nativo da reimplementare, e un rendering oggi a 12 fps.
+Su una macchina da 32 GB, 320 MB sono l'1%. **Non è un buon affare, ed è il motivo per
+cui la risposta resta no** — non perché "è rischioso", ma perché il numero che si
+guadagna è piccolo e quello che si paga è grande.
+
+Quando cambierebbe: se Obscura esponesse un'API di embedding zero-copy (Pixmap →
+IOSurface) e chiudesse `filter` + WebGL. Allora il confronto diventerebbe 36 MB contro
+353 **a parità di fluidità**, e varrebbe la pena rifare i conti.
+
+**Verdetto: interessante, non adesso.** Il renderer dell'app è la superficie che l'utente
+guarda per otto ore: là la WKWebView costa **37 MB a sessione**, ha rendering perfetto,
+integrazione nativa e zero rischio. Obscura come renderer risolverebbe un problema che
+**non abbiamo**. Vale la pena ricontrollarlo quando `filter` e WebGL saranno chiusi —
+e a quel punto la domanda cambierà da "regge?" a "conviene?".
+
+## Possiamo usarlo, o serve un progetto nostro?
+
+La domanda naturale dopo una patch che funziona. Risposta breve: **usarlo, contribuendo
+upstream. Un motore nostro non ha senso, e nemmeno un fork.**
+
+### Cosa dice la licenza (il vincolo che decide tutto)
+
+**Apache-2.0**, dichiarata sia in `LICENSE` che in `Cargo.toml`. Topics è MIT: sono
+compatibili, si può incorporare, ridistribuire, modificare e vendere. Apache-2.0 dà
+anche una **concessione esplicita di brevetto**, che MIT non ha — per un motore di
+rendering è una tutela in più, non in meno.
+**Nessun CLA**: `CONTRIBUTING.md` dice solo "contribuendo accetti Apache-2.0". Non c'è
+cessione di copyright a un'azienda, quindi nessuno può ritirare da sotto i piedi il
+lavoro già pubblicato. E **zero dipendenze GPL** in `Cargo.lock` (468 crate).
+
+### Come sta il progetto — i numeri, non le stelle
+
+| | |
+|---|---|
+| stelle / fork | 21 688 / 1 568 |
+| contributori | 49 |
+| **commit del contributore principale** | **75%** (676 su 902) |
+| PR esterne mergiate (ultimi 40 chiusi) | **85%** |
+| **mediana tempo di merge** | **4.9 ore** |
+| ritmo | 17 commit il giorno stesso di questa analisi |
+| **età del progetto** | **4 mesi** (creato 2026-04-13) |
+
+I due numeri buoni sono quelli che contano per noi: **accettano contributi esterni e li
+mergiano in ore**, non mesi. Nella lista dei PR chiusi ci sono nomi esterni (`aech`,
+`xrip`, `lisa0314`, `marcoripa96`) con fix di sostanza — cioè la strada per cui abbiamo
+appena scritto una patch è una strada battuta, non una speranza.
+
+### I tre rischi veri (nominati, non generici)
+
+1. **Bus factor 1.** Una persona firma il 75% dei commit. Se sparisce, il ritmo crolla.
+   Mitigazione reale: Apache-2.0 + niente CLA significa che **il fork resta sempre
+   possibile**, e il codice che ci serve è già sul nostro disco.
+2. **Quattro mesi di vita.** Non ha ancora attraversato un ciclo di manutenzione lungo.
+   L'`innerText` da 1.3 MB e le `filter` mancanti sono sintomi di questo, non anomalie.
+3. **Obscura Cloud in arrivo.** Il README annuncia una versione hosted a pagamento. È il
+   classico bivio open-core: oggi promettono "no feature gating, ever", ma la promessa
+   non è nella licenza. **Mitigazione: la Apache-2.0 già concessa è irrevocabile** — al
+   massimo cambierebbe il futuro, mai la versione che abbiamo.
+
+### Perché NON scriverne uno nostro
+
+Obscura è **138 000 righe di Rust** (di cui 67 000 solo di motore di rendering) più V8.
+Scrivere un motore che disegna CSS moderno è il lavoro di Ladybird, che dopo anni è
+ancora pre-alpha e ha appena **chiuso i contributi pubblici** per arrivare a una prima
+release. Non è un progetto che si affianca a Topics: è un progetto che *sostituisce*
+Topics.
+
+E il fork non conviene per un motivo aritmetico: la patch che ha chiuso due buchi è
+**143 righe su un file di JavaScript**. Mantenere un fork di 138k righe per portarsi
+dietro 143 righe è il rapporto peggiore possibile. Upstream le stesse 143 righe le fa
+mantenere a loro.
+
+### La strategia che regge
+
+**Usare Obscura come dipendenza binaria, non come sorgente** — e la meccanica è già
+scritta ed eseguibile: `scripts/obscura-track.ts` + `UPSTREAM.md`. Concretamente:
+- il binario è **un singolo eseguibile** che parla CDP su una porta — la stessa
+  interfaccia che Topics già usa per Chromium. Sostituirlo non tocca i `browser_*`;
+- le nostre fix vanno **upstream** (85% di PR accettate, 4.9 ore di mediana): zero costo
+  di manutenzione per noi, e il resto del mondo le testa al posto nostro;
+- **la patch resta in questo repo** (`patches/`, con manifest e stato): se upstream
+  sparisse o rifiutasse, `bun run obscura:build` la riapplica e ricompila. È
+  l'assicurazione. E `bun run obscura:check` esce non-zero il giorno in cui upstream
+  tocca le nostre righe — così lo scopre la CI, non l'utente;
+- si mantiene Chromium come fallback finché i buchi noti non sono chiusi. Non è un
+  ripiego: è la stessa struttura a due motori che Topics ha già (`nativo` + `chromium`),
+  con un terzo che si aggiunge senza togliere niente.
+
+Tradotto: **il rischio di adottarlo è basso perché non ci leghiamo al codice, ma a un
+protocollo che parlano tutti.** Se Obscura muore, si torna a Chromium cambiando un
+endpoint — è esattamente ciò che rende questa scelta reversibile, e quindi facile.
 
 ## Il quadro completo — chi vince cosa
 
@@ -289,11 +706,12 @@ il bottone era l'unico elemento a quelle coordinate finte.
   Su Hacker News (tabelle annidate anni '90) crolla a 2 su 60 entro 2 px, 35 oltre 20 px.
   Il DOM diff pixel contro Chrome: react.dev 0.9%, github 8.7%, HN 9.3%, Wikipedia 15.1%
   (il grosso è il font rasterizzato diverso e la sidebar Vector 2022 fuori posto).
-- **Canvas 2D: metà primitive mancano** (misura affinata in `vs/`, vedi sotto — la prima
-  lettura "canvas nero" era troppo severa). `fillRect`, `strokeRect`, `arc` e `fillText`
-  funzionano; **`stroke` di un path e `createLinearGradient` no**. Un grafico a barre
-  passa, una sparkline resta vuota. Nel test iniziale il canvas disegnava solo con
-  `lineTo`+`stroke`, da cui gli 0 pixel.
+- **Canvas 2D: metà primitive mancavano — ora sono implementate.** `fillRect`,
+  `strokeRect`, `arc` e `fillText` funzionavano; **`stroke` di un path e
+  `createLinearGradient` no**, ed erano proprio le due che disegnano un line chart.
+  **Chiuse da `obscura-canvas-fix.patch`** (vedi sotto): la dashboard di prova passa da
+  32.35% a **1.16%** di differenza da Chrome. La prima lettura "canvas nero" era troppo
+  severa: il canvas dipingeva, mancavano due primitive.
 - **`textContent` invece di `innerText`**: su github.com/topics ha restituito **1.3 MB**
   di testo contro i 5.5 KB di Chrome — dentro c'è il sorgente degli `<script>`. Su una
   pagina di prova `document.body.innerText` include `display:none`, `visibility:hidden`
@@ -338,10 +756,18 @@ endpoint risponda. Lì il render serve solo per l'ultimo fotogramma della card, 
 preciso non serve, e il costo per contesto passerebbe da 219 MB a 29. Con dieci contesti
 inline aperti sono 2.2 GB contro 290 MB.
 
-Ma **non oggi**, e per una ragione sola: 1.3 MB di `innerText` al posto di 5.5 KB è un
-bug che colpisce esattamente il caso d'uso proposto (l'agente che legge). Prima serve un
-`browser_get_text` che non passi da `innerText` — o una patch upstream. È una condizione
-verificabile, non un'opinione: `hidden.mjs` la misura in 4 secondi.
+Il blocco era 1.3 MB di `innerText` al posto di 5.5 KB — **chiuso da
+`patches/0002-innertext-rendered-text.patch`**. `innerText` era un alias di
+`textContent`, quindi restituiva il sorgente di ogni `<script>` e `<style>` più i
+sottoalberi `display:none`: quasi tutta quella differenza era JavaScript, pagato in token
+da chiunque lo passi a un LLM. Ora cammina l'albero rispettando
+`display`/`visibility`/`hidden` e i confini di blocco. 12 asserzioni in
+`innertext-proof.mjs`, ~100 ms, senza compilare.
+
+E il fatto che le due primitive canvas siano state chiuse in 143 righe di JavaScript dice
+qualcosa sul progetto: **i buchi di Obscura sono superficie non ancora scritta, non
+scelte architetturali**. Il che cambia il calcolo — non stiamo valutando un motore
+limitato, ma un motore giovane su cui si può intervenire.
 
 **Lightpanda ha un uso legittimo e diverso:** 21 MB, un processo, DOM e JS corretti
 (`document.title`, `querySelectorAll`, il conteggio dei nodi combaciano con Chrome su
@@ -364,6 +790,14 @@ processo per pagina, quindi va usato come fetcher usa-e-getta, non come sessione
 - `cast.mjs` — screencast su pagina animata. `hidden.mjs` — fedeltà di `innerText`.
 - `type2.mjs` — quali varianti CDP di digitazione funzionano dove.
 - `app/index.html` — l'app dev sintetica (grid, canvas, animazioni) usata come banco.
+- `obscura-canvas-fix.patch` — **la patch**: 143 righe su `bootstrap.js` che
+  implementano `stroke`, i gradienti e il fill dei poligoni. `git apply` sul repo
+  Obscura, poi `cargo build --release -p obscura-cli --bins --features render`.
+- `canvas-proof.mjs` / `innertext-proof.mjs` — 14 + 12 asserzioni sulla logica patchata,
+  **senza compilare** (~200 ms in tutto): il ciclo veloce mentre si scrive una patch.
+- `apis.mjs`, `topicsui.mjs` — regge la UI di Topics? (23 API + la app buildata).
+- `chart/index.html` + `chart-test.mjs` + `vs/CHART-prima-dopo.png` — la prova
+  end-to-end: la stessa dashboard prima, dopo, e su Chrome.
 - `vs/OBSCURA-vs-CHROME.png` — **il pannello da guardare**: tre confronti affiancati.
   `cases/`, `canvas/`, `css/` sono le pagine sorgente; `cases-shot.mjs`,
   `canvas-test.mjs`, `css-test.mjs` le rigenerano.

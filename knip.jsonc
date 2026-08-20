@@ -73,6 +73,16 @@
         // non puo' essere un test — il test legge il JSON che questo ha scritto.
         "scripts/build-review-queue-fixture.ts!",
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        // Le tre sonde di performance CITATE in `docs/perf-map.md`: si lanciano
+        // per path (`bun run scripts/layer-growth.ts`), non da package.json,
+        // quindi per knip erano file morti e tenevano `check:deadcode` rosso su
+        // main. Non sono morte: sono l'attrezzo con cui quella pagina misura i
+        // layer del compositore, la memoria di una finestra nel tempo e lo
+        // stallo dell'event loop del server. Elencate a una a una, non con un
+        // glob, per la stessa ragione delle famiglie qui sopra.
+        "scripts/layer-growth.ts!",
+        "scripts/mem-growth.ts!",
+        "scripts/event-loop-lag.ts!",
         // `bun scripts/prompt-ab.ts` — il banco A/B sul prompt del giudice: si
         // lancia a mano quando si vuole rimisurare quale formulazione declassa
         // meno. Nessuno lo importa, e i suoi bracci stanno nel file accanto

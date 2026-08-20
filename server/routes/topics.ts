@@ -129,12 +129,46 @@ export function removeTopicFromUiStateValue(parsed: any, topicId: string): boole
       }
     }
   }
+  // IL RECORD DI UNDO RESTA, E IL SUO ID VIENE TIMBRATO COME CHIUSO.
+  //
+  // Fino al 2026-08-19 questa riga CANCELLAVA il record, ed e' la catena che
+  // svuotava `closedStack` dopo una chiusura vera:
+  //
+  //   l'utente chiude la tab di una chat
+  //     → il reducer mette il record di undo in `closedStack` e fa il PUT
+  //     → la cascata del ritiro archivia quel topic (`retirement.ts`, «tab-close»)
+  //     → `archiveTopicFully` chiama questa purge
+  //     → il record appena creato sparisce, e il tombstone qui sotto non lo
+  //       sostituisce, perche' guarda `removedPaneIds` — cioe' le pane tolte da
+  //       `panes`, e una pane gia' chiusa li' non c'e' piu'.
+  //
+  // Risultato misurato: dopo una chiusura la chiusura NON lascia traccia — ne'
+  // il record ne' il marcatore. `pane-undo.spec.ts` lo vedeva («closedStack
+  // must have at least one entry after CLOSE_PANE») e restava verde lo stesso,
+  // perche' il ciclo di scritture a riposo rimandava lo stato un attimo dopo e
+  // rimetteva il record. Cioe' un difetto era tenuto in piedi da un altro: il
+  // rimedio al ciclo (ramo `wip/ciclo-scritture-localseq`) faceva comparire
+  // questo, ed e' il motivo per cui e' rimasto fuori da main.
+  //
+  // PERCHE' CANCELLARLO NON SERVIVA. Il difetto che questa purge protegge e' la
+  // TAB FANTASMA — una chat archiviata che ricompare aperta su un altro
+  // dispositivo — e quella vive in `panes`, che continua a essere ripulito
+  // sopra. `closedStack` non riapre niente: sul client alimenta `bumpClosed`
+  // (`reducers/panes.ts`), esattamente lo stesso segnale di CHIUSURA dei
+  // tombstone. Toglierlo di li' non impediva una resurrezione, cancellava un
+  // undo.
+  //
+  // E il marcatore si stampa lo stesso: `id` entra in `removedPaneIds`, quindi
+  // il blocco qui sotto lo timbra come se la pane fosse stata rimossa ora. Cosi'
+  // un pari che aveva ancora quella tab aperta la lascia cadere — la protezione
+  // resta intera — e l'undo dell'utente sopravvive.
   if (Array.isArray(parsed.closedStack)) {
-    const before = parsed.closedStack.length;
-    parsed.closedStack = parsed.closedStack.filter(
-      (rec: any) => !(rec && rec.pane && (rec.pane.id === topicId || rec.pane.topicId === topicId)),
-    );
-    if (parsed.closedStack.length !== before) changed = true;
+    for (const rec of parsed.closedStack as any[]) {
+      if (!rec || !rec.pane) continue;
+      if (rec.pane.id === topicId || rec.pane.topicId === topicId) {
+        removedPaneIds.add(rec.pane.id);
+      }
+    }
   }
 
   // Durable close MARKER for every pane we just deleted. Deleting the entry is

@@ -77,7 +77,8 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
+import { resolveBaselinePaths } from "./route-latency-baseline-pick";
 import { connect } from "node:net";
 import { cpus, loadavg } from "node:os";
 
@@ -317,7 +318,10 @@ export function benchPortFor(checkoutRoot: string): number {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
-const BASELINE_PATH = resolve(REPO_ROOT, "scripts/route-latency-baseline.json");
+
+// Quale baseline si legge e quale si scrive: `route-latency-baseline-pick.ts`.
+const { envKey: ENV_KEY, read: BASELINE_PATH, write: BASELINE_WRITE_PATH } =
+  resolveBaselinePaths(REPO_ROOT, existsSync);
 
 /**
  * Quanto materiale c'e' nel database mentre si misura. Cambiarlo INVALIDA la
@@ -640,7 +644,7 @@ async function main(): Promise<void> {
     for (const key of ROUTE_KEYS) measured[key] = Math.max(passA[key]!, passB[key]!);
 
     if (update) {
-      const prev = existsSync(BASELINE_PATH) ? JSON.parse(readFileSync(BASELINE_PATH, "utf8")) : {};
+      const prev = existsSync(BASELINE_WRITE_PATH) ? JSON.parse(readFileSync(BASELINE_WRITE_PATH, "utf8")) : {};
       // Anche la REGISTRAZIONE passa dal controllo di stabilita'. Una baseline
       // presa su una macchina che tremava e' un numero gonfiato che poi nessuna
       // regressione riuscira' piu' a superare: il cancello resterebbe verde per
@@ -692,13 +696,15 @@ async function main(): Promise<void> {
           noise_ms: round2(Math.abs((passA[k] ?? 0) - (passB[k] ?? 0))),
         }])),
       };
-      writeFileSync(BASELINE_PATH, `${JSON.stringify(next, null, 2)}\n`);
+      writeFileSync(BASELINE_WRITE_PATH, `${JSON.stringify(next, null, 2)}\n`);
       for (const key of ROUTE_KEYS) log(`${key.padEnd(18)} ${round2(measured[key]!)} ms`);
-      log(`\n✓ Baseline registrata in ${BASELINE_PATH}.`);
+      log(`\n✓ Baseline registrata in ${BASELINE_WRITE_PATH} (ambiente: ${ENV_KEY}).`);
       return;
     }
 
     const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline;
+    // Quale baseline si sta confrontando: vedi `resolveBaselinePaths`.
+    log(`baseline: ${basename(BASELINE_PATH)} (ambiente: ${ENV_KEY})`);
 
     const gap = corpusMismatch(CORPUS, baseline.corpus);
     if (gap) {

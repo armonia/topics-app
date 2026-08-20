@@ -54,6 +54,7 @@ const initialState: PaneState = {
   spaces: {},
   activeSpaceId: DEFAULT_SPACE_ID,
   lastSeq: 0,
+  localSeq: 0,
   lastServerSeq: 0,
 };
 
@@ -97,6 +98,12 @@ export const usePaneStore = create<PaneStore>()(
           // seq the server considers fresh; we just don't increment when
           // the reducer already installed a server-authoritative value.
           if (isServerAuthoritativeAction(action)) return;
+          // Qui siamo su una modifica di QUESTO dispositivo: e' l'unico punto
+          // in cui `localSeq` sale, ed e' quello che il middleware di sync
+          // osserva. Un `HYDRATE_FROM_SNAPSHOT` esce alla riga sopra e non lo
+          // tocca, che e' precisamente cio' che spezza il ciclo fra pari
+          // (vedi il commento di `localSeq` in types.ts).
+          draft.localSeq += 1;
           draft.lastSeq = ++_seq;
         });
         // DEV-only mutation log. Vite tree-shakes this block when import.meta.env.DEV is false.

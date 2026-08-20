@@ -28,11 +28,21 @@
  * il processo ha davvero toccato, che è precisamente la domanda. L'RSS
  * istantaneo campionato ogni tanto se lo perderebbe — il picco dura secondi.
  *
- *   bun run scripts/check-boot-memory.ts [--db PERCORSO] [--tetto MB]
+ *   bun run scripts/probe-boot-memory.ts [--db PERCORSO] [--tetto MB]
  *
  * Esce 0 dentro il tetto, 1 fuori, 2 se non ha potuto misurare (niente DB,
- * niente vmmap, server che non parte) — un cancello che non sa non deve
- * poter dire «verde».
+ * niente vmmap, server che non parte) — chi non sa non deve poter dire «verde».
+ *
+ * PERCHE' `probe:` E NON `check:`, che e' come era nato. Un `check:*` in questo
+ * repo promette di essere un cancello del CODICE, eseguibile in CI; il test
+ * `tests/unit/check-scripts-are-wired.test.ts` lo pretende e mi ha preso in
+ * fallo appena l'ho aggiunto. Questa sonda non puo' esserlo per costruzione:
+ * vuole `vmmap` (solo macOS) e soprattutto un DATABASE VERO — `data/topics.db`
+ * e' in `.gitignore` e su un checkout di CI non esiste, e su un DB vuoto il
+ * difetto che misura non si vede affatto. Sarebbe verde per il motivo
+ * sbagliato, che e' il modo piu' comune in cui un cancello smette di guardare
+ * senza che nessuno se ne accorga. Il prefisso e' il posto dove si dichiara
+ * quale delle due cose si e'.
  */
 import { spawn, spawnSync } from "child_process";
 import { existsSync, mkdirSync, copyFileSync, rmSync } from "fs";

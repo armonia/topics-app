@@ -6,6 +6,7 @@ import { ToggleRow } from './ToggleRow';
 import { fetchOutputLanguage, pushOutputLanguage, type LocalePreference } from '../../lib/i18n';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Select, type SelectOption } from '../Shared/Select';
+import { useT } from '@/hooks/useT';
 
 // Le etichette restano BILINGUI, per la ragione scritta accanto al controllo:
 // è l'unico posto che si deve poter leggere anche quando la lingua in vigore è
@@ -27,6 +28,7 @@ interface AppearanceSectionProps {
 }
 
 export function AppearanceSection({ settings, themeMode, onThemeChange, onChange, onOpenShortcuts }: AppearanceSectionProps) {
+  const tr = useT();
   return (
     <div className="space-y-5">
       {/* Font Size */}
@@ -229,8 +231,8 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           Board
         </label>
         <ToggleRow
-          label="Mostra la Board nella sidebar"
-          description="Una riga fissa in cima alla colonna, con i progetti e i conteggi per stato."
+          label={tr('settings.board.showRow')}
+          description={tr('settings.board.showRowBlurb')}
           value={settings.showBoardRow}
           onChange={(v) => onChange('showBoardRow', v)}
         />

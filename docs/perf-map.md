@@ -33,11 +33,12 @@ intentions.
 | Pane residency cap | how many panes stay mounted | `tests/e2e/pane-residency-cap.spec.ts` | yes (E2E shard) |
 | Transcript eviction | how many chats stay hydrated | `tests/e2e/chat-transcript-residency.spec.ts` | yes (E2E shard) |
 | Browser pane streaming | fps, p95 input latency, bandwidth, first frame | `tests/e2e/browser-ws-streaming.spec.ts` plus `perf-baseline.json` | yes (E2E shard) |
-| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **RED, see below** |
+| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **`pane-store-v2` cycle CLOSED (27→0); a SECOND channel still spikes, see below** |
 | Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
-| **Boot memory peak** | `phys_footprint (peak)` of a FRESH server booted on a copy of the real DB | `bun run check:boot-memory` | not yet — new 2026-08-19 |
+| **Boot memory peak** | `phys_footprint (peak)` of a FRESH server booted on a copy of the real DB | `bun run probe:boot-memory` | not yet — new 2026-08-19 |
+| **What the memory panel SAYS** | that the headline number is explained when most of it is swapped, and that the advice matches the case | `tests/e2e/perf-panel.spec.ts` | yes — its 4 cases land in shard 3 of the real planner (verified, not assumed) |
 
 ## 2026-08-19: what "1.8 GB and 57 fps" actually was
 
@@ -244,16 +245,365 @@ were **four**. With `iterate()` the peak is proportional to what is FOUND, not
 to the database. Verified against the real DB before touching the code: both
 paths return the same 4 ids.
 
-`bun run check:boot-memory` now guards it, and the guard was proven able to say
+`bun run probe:boot-memory` now guards it, and the guard was proven able to say
 no: **353 MB green** with the fix, **801 MB red (exit 1)** with the `.all()`
 put back. That check is the reason this row will not silently regress — every
 functional test passes either way, because the defect never got an answer
 wrong, it just paid too much for it.
 
+*The database, 888 MB of which 778 in `blocks` + `tool_calls` against 19 MB of
+message text.* Not old rot to prune — 648 of those MB are from THIS month. The
+waste is elsewhere and simpler: `shared/message-blob.ts` compresses those two
+columns with zstd, every reader already goes through `decodeCol` (checked: all
+five files that SELECT them), but the codec acts on WRITE, so it only ever
+touched rows written after it existed:
+
+    blocks      273 rows compressed (4 MB)  ·  4,131 plaintext (481 MB)
+    tool_calls  291 rows compressed (4 MB)  ·  8,762 plaintext (288 MB)
+
+`bun run db:compress` backfills them, and on 2026-08-20 it was **run on the
+production database**, not just measured: **849 MB → 213 MB on disk**, WAL
+reabsorbed. 776.9 MB of plaintext became 151.9 (5.11x); the `VACUUM` took 4
+seconds.
+
+Every row is read back before it is replaced, and the result was verified
+against an atomic `.backup` taken first: **18,902 rows × 8 columns = 151,216
+comparisons, zero differences**, `PRAGMA integrity_check` = ok, and the row
+counts of `topics` / `tasks` / `ui_state` / `messages` unchanged. Then the part
+that actually matters — the app still works: `/api/topics`, `/api/all-boards/tasks`
+and `/api/system/presence` all 200, and a chat whose `tool_calls` are now zstd
+blobs still delivers **250 decoded tool blocks** through the API. The codec is
+transparent to every reader, which is what made the backfill safe in the first
+place.
+
+That verification is also where a lesson sits. The first run compared a `cp` of
+a live database and found TWO differences — real ones: a row the server was
+rewriting mid-copy. A `cp` of a SQLite file in use is not a snapshot, and
+treating it as one would have filed that noise as data loss, or (worse) real
+loss as noise. The rerun used `.backup`.
+
+The script does NOT touch production on its own and says so: it is a `db:*`
+command, not a migration, because a `server/db/migrations/*.sql` file gets
+applied to the LIVE database by the watcher within seconds — which is not where
+a 13,000-row rewrite belongs.
+
 Still open on the server side: the steady state has no budget (only the boot
-peak does), and the DB is **888 MB, 778 of them in `blocks` + `tool_calls`
-against 19 MB of message text**, which is what every page cache and every scan
-scales with.
+peak does).
+
+**The idle-write cycle is CLOSED — and it took closing a second defect first.**
+`check:idle-writes` on main: **27 writes in 30s → 0**. Two commits, and the
+order is the whole story.
+
+*The cycle itself.* `lastSeq` rises on `HYDRATE_FROM_SNAPSHOT` too (the reducer
+takes it to `max(lastSeq, clean.lastSeq)` so later PUTs stay fresh), and the
+sync middleware used it as its wake-up. So a PEER's frame woke us, and half a
+second later we re-sent 75 KB identical to what we had just received; that PUT
+bumped `server_seq`, the server rebroadcast, and the peer did the same. A third
+counter — `localSeq`, raised ONLY by a local change — moves the question from
+"did the counter move" to "did WE move". It filters nothing outbound, which is
+what separates it from the two gates withdrawn before it.
+
+*Why it could not land alone.* With the cycle removed, `pane-undo.spec.ts` went
+red — and the red was real, not collateral. Probed on both sides: the PUT
+carrying the close returns **200** and is the LAST write to reach the server, yet
+the row reads back `closed=0`. A direct PUT (no browser in the loop) proved the
+server keeps `closedStack` fine, so the loss was downstream of it:
+
+    the user closes a chat tab
+      → the reducer creates the undo record and PUTs it
+      → the retirement cascade archives that topic ("tab-close")
+      → `archiveTopicFully` calls `purgeTopicFromUiState`
+      → the freshly-created record is FILTERED OUT
+
+And the tombstone did not replace it: that block reads `removedPaneIds`, i.e.
+panes removed from `panes`, and an already-closed pane is no longer there. So a
+close left **no trace at all** — neither record nor marker.
+
+`pane-undo` had been seeing this all along and stayed green, because the write
+cycle re-sent the state a moment later and put the record back. One defect was
+propping up another: removing the cycle exposed it. That is why the remedy sat
+on a branch overnight instead of being forced through.
+
+*The fix, and why deleting was never needed.* The defect that purge protects is
+the GHOST TAB — an archived chat reappearing OPEN on another device — and that
+lives in `panes`, still cleaned. On the client `closedStack` feeds `bumpClosed`
+(`reducers/panes.ts`), the same CLOSURE signal the tombstones feed: it reopens
+nothing. So the record now stays and its id is stamped instead — the peer that
+still holds the tab drops it, and the user's undo survives.
+
+Measured on main, not on a branch:
+
+| check | result |
+|---|---|
+| `check:idle-writes` | 27 → **0** in 30s (ceiling 3) |
+| `pane-undo` + `cross-window-topic-sync` | 8 green |
+| `perf-panel` + `idle-frame-budget` | 5 green |
+| pane-store unit tests | 450 green |
+
+The second row is the one that matters: those two E2E are what failed the two
+previous attempts, and a gate that reaches zero writes by no longer
+synchronising has not fixed anything — it has moved the damage somewhere more
+visible.
+
+**But re-measuring eleven times found a SECOND channel, and one run is not a
+measurement.** The same command, same evening, same machine:
+
+    0, 3, 0 · 0, 1, 0 · 5, 9, 15, 0 · 0, 0, 0, 0, 0
+
+Declaring "0" off the first run would have been exactly the kind of stale this
+page exists to prevent. The spike is real and it is NOT the cycle coming back:
+every write in it is on `topics-project-panes-<hash>`, a different key from
+`pane-store-v2`, written by `useProjectPersistenceSave` — which only runs inside
+a ProjectWindow. Eleven of the fifteen arrived ~2.3s apart with an IDENTICAL
+body (`{"nonChatPanes":[],"openChatTopicIds":[]}`), i.e. the same signature as
+the first cycle on a different channel.
+
+Ruled out already, measured rather than reasoned:
+
+· **not the dedupe guard being wrong** — `projectLayoutSync.dedupe.test.ts`
+  covers it and passes; the writes go *around* it, not through a hole in it.
+· **not `subscribeLifecycle('open')` clearing the guard** — instrumented the
+  page: **zero** socket opens in 30 idle seconds.
+· **not always present** — a dedicated probe watching 120 seconds saw ZERO, and
+  the server log (which sees every client) counted zero in 45 seconds.
+
+So it is conditional on state the ceiling-3 gate happens to catch sometimes.
+Opening a project window on purpose did NOT reproduce it (0 writes in 30s), so
+that guess was wrong too.
+
+**What the evidence points at is the FIRST of the two hypotheses the dedupe test
+left open: an oscillating value.** The row on the server reads
+`{"nonChatPanes":[],"openChatTopicIds":["b23b5ede-…"]}` — but every PUT in the
+burst carried `openChatTopicIds: []`. Two sources chasing each other: one
+publishes the empty set, something union-adds the chat back (the receive side is
+deliberately ADDITIVE — see the comment above `flushSync`), and the next save
+sees a change again. The dedupe guard compares against the LAST WRITTEN value,
+not the history, which is correct and is exactly why it cannot stop this.
+
+That is a concrete, checkable lead and it is written here rather than acted on,
+because the reproduction is not in hand. Five hypotheses were tried and each one
+was refuted by a measurement, which is worth listing so nobody spends the same
+hour twice:
+
+| tried | result |
+|---|---|
+| a hole in the dedupe guard | its unit test passes; the writes go *around* it |
+| `subscribeLifecycle('open')` clearing the guard | **zero** socket opens in 30 idle seconds |
+| a project window being open | opened one deliberately: **0 writes** in 30s |
+| the specific chat the server lists for that key | opened it: **0 writes** in 30s |
+| two windows (what the FIRST cycle needed) | ran two: **0 writes** in 35s |
+| the dev-reload storm after a client build | ran the gate right after `bun run build`: **0** |
+
+And then the sixth measurement explained the other five: `wsClients: 0`. **The
+user's own window was closed for all of them**, and the server saw zero writes
+from ANY client in 60 seconds. The bursts happened earlier in the evening, while
+that window was open — the same shape as the first cycle, which also needed a
+second live client and hid for weeks because every measurement was taken with
+one.
+
+So the reproduction needs the user's window open, and that is the first line of
+the next attempt: watch the PUT body and the inbound `ui-state:updated` for that
+key WITH a second real client connected. Not by patching the guard.
+
+**Follow-up 2026-08-20: on THIS machine the route ratchet can no longer reach a
+verdict at all, and that is the finding.** Six runs across the morning, load
+24-27, `--samples=80`:
+
+    dispatch_capacity   1.17 / 1.06 ms     the two passes now AGREE
+    topic_messages     27.29 / 15.18 ms    they do not
+    all_boards_tasks   19.22 / 11.18 ms    they do not
+
+Two things changed since last night. First, the `dispatch_capacity` first-call
+cost that `declared_limits` documents ("pass 1 between 2.0 and 2.5 ms, pass 2
+between 0.4 and 0.6, ALWAYS in that order") no longer reproduces: 1.17 against
+1.06 is not that shape. Second, the two disk-bound routes now swing 2x between
+consecutive passes on a machine where Dia alone takes 86% of a core.
+
+So the honest reading is not "all_boards_tasks regressed" — last night, at load
+26, it read a steady 2.53-2.90 ms and the gate called it true. It is that a
+**developer workstation cannot host this measurement**: the baseline was
+recorded on a quiet machine, and this one never is. The gate refusing to answer
+is the correct behaviour, and repeating it here would only produce a different
+random number.
+
+**The mechanism for the fix is now in place** (2026-08-20): the gate picks its
+baseline by ENVIRONMENT — `route-latency-baseline.ci.json` under
+`GITHUB_ACTIONS`/`CI`, `…local.json` otherwise, falling back to the historic
+single file when neither exists, so nothing breaks for anyone who has not
+recorded one. `--update-baseline` now writes to the environment's file only,
+which is what stops a recording on one machine from overwriting another's
+number — the original defect. And every run prints which baseline it compared
+against, because a red taken on one machine and a green on another otherwise
+read as the same verdict.
+
+What is NOT done is recording the numbers themselves, and the gate refused —
+correctly, and to me: `load average 19.12 on 12 cores = 1.59 per core (ceiling
+0.5)`, *"at load the numbers come out inflated and consistent, so no guard
+catches it"*. That refusal is the same one that has been protecting this row all
+along, and forcing past it would have written exactly the useless baseline the
+whole change exists to avoid.
+
+Waited for it, too, rather than assuming: ten samples over seven minutes read
+`18, 17, 12, 10, 19, 14, 16, 18, 14, 18` — never below 10 against a ceiling of
+6, with another agent's `bun test`, a Python process and Spotify on the CPU.
+**A workstation in use does not reach that number**, which is the same finding
+as the row above from the other side: the local baseline will be recorded the
+next time this Mac is genuinely idle, and the CI one records itself on the first
+green run. Until then the fallback keeps the gate exactly as it was.
+
+**The route ratchet is red too, on ONE route, and it took a quiet machine to
+know it.** Re-run four times at load 20-26 with `--samples=80`:
+
+    all_boards_tasks   2.53 · 2.72 · 2.90 · 2.64 ms   ceiling 2.25, baseline 0.75
+
+The two passes agree every time, so the gate itself calls the number true rather
+than noise — which is exactly what it refused to do earlier the same evening: at
+load 238 (an unrelated `ffmpeg` at 490% CPU) it printed **NON MISURABILE** and
+named the witness route instead of inventing a verdict. That refusal is the
+feature; the number only became readable once the machine came back down.
+
+Not from this work, verified by stashing everything and re-running: **2.64 ms**
+with the changes gone. It is drift accumulated in the **58 commits** that touched
+`server/routes/tasks.ts`, `server/services/tasks.ts` and `shared/board.ts` since
+the baseline was recorded on 2026-08-15. The other three routes are inside:
+`topic_messages` 4.13 (ceiling 5.41), `dispatch_capacity` 0.23-0.32 (1.68),
+`topics` inside.
+
+**The bundle ratchet is red, and it is not from this work.** `check:bundle`,
+2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
+exhausted), critical_path likewise. Measured against the 2026-08-13 baseline:
++22,629 net lines in `client/src` for +11,918 gz, i.e. **0.53 gz bytes per net
+line** — BELOW both previous rounds (1.3 and 3.7), no dependency entered the
+entry chunk, no `lazy(` went static. Healthy growth, not a bad import. The
+baseline's own rule says the number is raised in the commit that grew it, so it
+is left alone here and noted instead.
+
+**A night of real use later** (2026-08-20 morning), which is the one check no
+measurement taken the same evening could give:
+
+| | that night | after a night |
+|---|---|---|
+| server footprint | 260 MB | **273 MB** (RSS 51-64) |
+| DB | 213 MB | **229 MB**, `integrity_check` ok |
+| Topics resident, total | ~612 MB | **396 MB** |
+| writes at rest | 0 | **0** |
+
+The server has been up 6 hours and sits at 273 MB — the number that used to be
+936 at comparable age. The DB grew 16 MB from a night of writing and its
+compressed/plaintext split is unchanged (3,896 blob / 521 text, the latter all
+under the 512-byte threshold). Nothing regressed while nobody was watching,
+which is the only way that claim can be earned.
+
+**Where the user's own window ended up, measured at the close of the work.**
+This is the acceptance number — the same `mem-report` that produced the "1.8 GB"
+complaint, run again on the same live app:
+
+| | footprint | **resident** |
+|---|---|---|
+| device (app + 4 WebViews) | 1,768 MB | **352 MB** |
+| ├ WebContent, 7h39 old | 1,137 MB | 104-217 MB |
+| └ three younger WebContents | 412 MB | 13 MB |
+| server (bun + sidecars) | 260 MB | ~110 MB |
+| **Topics, resident total** | | **~612 MB** |
+
+**80% of the headline is already ceded to the system.** And the machine was
+genuinely under pressure at that moment (22.5 GB of swap, 208 MB unused) — but
+not because of us: `ollama` alone held **5,054 MB resident**, eight times
+Topics.
+
+So the honest close is split. What was ours and could be fixed, was: the server
+went 936 → 260 MB, the DB 849 → 213, the idle write cycle 27 → 0. What remains
+is a 7-hour-old renderer holding 1.1 GB of footprint against ~150 MB resident,
+flat across samples — pages the system already took back and still charges to
+the app. **No public API returns them**: `malloc_zone_pressure_relief` acts only
+within its own process, and `memorystatus_control` on another pid returns -1
+(privileged). The only lever the shell has is `-[WKWebView _close]`, i.e.
+recreating the renderer — which costs the user their scroll position and pane
+state to reclaim memory nobody is short of.
+
+That is why the panel line exists, and on these exact numbers it fires: *"the
+80% is already compressed or swapped: 352 MB in RAM right now"*. It does not
+shrink the number; it stops the number from meaning something it does not mean.
+
+**And the client turns out to have the SAME defect as the server, not the one
+this page spent a day on.** Measured at 00:23 on the user's own window, two
+WebContent processes side by side:
+
+| pid | age | footprint | **RSS** | graphics regions |
+|---|---|---|---|---|
+| 15517 | 55 min | 726 MB | **24 MB** | 380 |
+| 96520 | 4h 11m | 755 MB | **152 MB** | 2,961 |
+
+Two things fall out, and both contradict the reading below. First, the young
+process costs the SAME as the old one with **eight times fewer** graphics
+regions — so the layer count is not what the megabytes track. Second, and
+decisive: the resident set is **24 MB against a 726 MB footprint**, with
+`WebKit Malloc` showing **602 MB swapped**. The system has already taken those
+pages back; they are still charged to the app by `phys_footprint`, which is the
+number the status bar reports.
+
+That is the same fault the server had — memory of past peaks, swapped out and
+never handed back — and on the server it took `Bun.gc(true)` to release it,
+because the footprint never comes down on its own.
+
+**The client lever does not exist, and that was checked rather than assumed.**
+A probe compiled against WebKit on this machine (macOS 26.2) asks the CLASS which
+selectors it answers, the same way the shell already does for `_close`. Of the
+memory-releasing SPI worth having, WKWebView answers **none**: no `_purgeMemory`,
+no `releaseMemory`, no `_didReceiveMemoryWarning`. What exists is
+`_killWebContentProcess` / `_killWebContentProcessAndResetState` (blow the render
+process away and reload — visible to the user, loses in-page state) and, on
+`_WKProcessPoolConfiguration`, `memoryFootprintNotificationThresholds`, which
+notifies rather than frees. So the server's remedy has no client twin to port.
+
+**And before building one, the size of the prize was measured — it is smaller
+than the status bar suggests.** Resident set of every Topics process at 00:29,
+against the machine's own pressure at that moment (17.3 GB swap used, 859 MB
+unused):
+
+| process | RSS |
+|---|---|
+| shell (`app`) | 78 MB |
+| server (`bun`) | 173 MB |
+| WebContent, 55 min old | **25 MB** (footprint 726 MB) |
+| WebContent, 4 h old | 414 MB (footprint 755 MB) |
+| **Topics total, resident** | **690 MB** |
+
+On the same machine at the same instant: Dia 2,414 MB, Spotify 972 MB, ffmpeg
+835 MB — none of which are Topics. So the RAM Topics is actually holding is
+690 MB, and the 55-minute renderer is holding **25 MB** while being charged 726.
+The gap is pages the system has already reclaimed and still attributes to the
+app, which is exactly what `phys_footprint` means and exactly what the status bar
+(correctly, deliberately) reports.
+
+That reframes the remaining work honestly: the number on screen is real as a
+metric and misleading as a claim about pressure. The useful step was NOT to hunt
+a purge SPI that WebKit does not expose — it was to make the panel SAY what the
+number contains.
+
+**And that is done.** When the compressed share passes half the footprint (with
+a 300 MB floor, so small windows stay quiet), the panel now reads *"the 78% is
+already compressed or swapped: 234 MB in RAM right now"* — a ratio, not an
+absolute threshold, because 300 MB of 400 says the same thing as 1.2 GB of 1.8
+while 1 GB of 6 explains nothing. It deliberately does NOT say "close
+something": that advice belongs to the real-pressure line above it, and here it
+would send someone to do something useless. Verified against the live window's
+own numbers: 1,041 MB footprint / 234 resident = 78% ceded, and the line fires.
+
+The proof runs through the real path, and it took two attempts to become one.
+The first E2E only opened the panel and hoped — and could not work, because
+outside Tauri `usePerfMetrics` has no source at all, so the verdict never
+appeared and the file stayed green even with an i18n key broken on purpose. The
+second simulates the shell at the boundary Tauri itself injects
+(`__TAURI_INTERNALS__`), so the hook, the footprint math, the decision, the
+strings and the JSX all run for real. It was then proven able to fail: raising
+`MIN_COMPRESSI_MB` from 300 to 5000 turns it red, putting it back turns it
+green. Four cases cover every branch that reaches the screen — the user's own
+numbers, real pressure (which must say the opposite), a partial measurement
+(which must stay quiet), and the chain from the status-bar button.
+
+**What follows was measured earlier and is kept for its method, but read it in
+that light.**
 
 **The CLIENT half of the number is a different animal** — what follows was
 measured before the server work and still stands.
@@ -309,8 +659,60 @@ non-zero when it gets worse.
 
 1. **Cold start.** How many milliseconds pass between launch and the first
    usable screen. No probe, no threshold.
+1b. **The weight of the shipped app**, which nothing on this page had ever
+   looked at. Measured 2026-08-20 on the installed `Topics.app`: **179 MB**, of
+   which **134 are the server sidecar**. The sidecar in the repo is 59 MB
+   (arm64), so the extra 75 are not code — every binary is UNIVERSAL, and half
+   of those bytes will never execute on the machine they land on:
+
+   | binary | universal | arm64 only |
+   |---|---|---|
+   | topics-server | 134 MB | **64** |
+   | app (Tauri shell) | 28 MB | **13** |
+   | webrtc-bridge | 16 MB | **8** |
+   | pty-bridge | 1 MB | 1 |
+   | **total** | **179 MB** | **86 MB** |
+
+   **93 MB, 52%, for shipping two `.dmg` instead of one** — on disk. The
+   DOWNLOAD is a different number and the distinction matters, because it is
+   what a user actually waits for: a `.dmg` compresses, and compressed the two
+   sides shrink unevenly. Measured with gzip on the real binaries:
+
+       universal   134 + 28 + 16 →  50 + 15 + 7 MB compressed  (~73 MB)
+       arm64 only   64 + 13 +  8 →  24 +  8 + 3 MB compressed  (~36 MB)
+
+   So the ratio holds (~51%) but the absolute saving is **~37 MB on the wire**,
+   not 93. Both numbers are real; they just answer different questions, and
+   quoting the disk figure for a download decision would overstate it by 2.5x.
+
+   For scale on the other axis: our own compiled code inside that sidecar is
+   ~2 MB (59 MB arm64 minus the 57 MB of the bare `bun` binary), so rewriting
+   the server in Rust would save ~57 MB on disk — *less* than splitting the
+   architectures.
+
+   What holds the universal build is real and documented in
+   `tauri-release.yml`: one universal `.dmg` means one `latest.json`, because
+   two per-arch jobs would race to clobber the updater manifest. Surmountable
+   (Tauri's manifest keys `darwin-aarch64` and `darwin-x86_64` separately) but
+   it is the update channel, so it deserves care rather than a quick patch.
+   No gate watches this number today.
+
+   **And a single-arch sidecar does serve requests** — checked rather than
+   assumed, because that is what turns the arithmetic into a result.
+   `./scripts/build-server-sidecar.sh smoke` compiles for the HOST target only
+   (`bun-darwin-arm64`, no `universal`) and exercises it in isolation:
+   **`/api/topics` → 200**, the 123 embedded migrations load, the PTY bridge
+   stays untouched. So the shipping path is not the obstacle; the updater
+   manifest is.
+
+   Worth recording because it cost a detour: launching the `lipo`-thinned
+   binary BY HAND exits immediately with an empty log — but so does the
+   UNIVERSAL original in the same environment, so `lipo` broke nothing. Both
+   exit for their own reason (the singleton lock, or arguments the shell
+   passes). A by-hand launch was simply the wrong probe; the repo already had
+   the right one.
 2. **Memory.** The shell still has no ceiling; the SERVER's boot peak got one
-   on 2026-08-19 (`check:boot-memory`, above). Its steady state is still a
+   on 2026-08-19 (`probe:boot-memory`, above). Its steady state is still a
    number without a budget. Still a
    number, not a budget, because nobody compares it against anything — but the
    number moved, so here it is again, measured 2026-08-18 on a 12-core Mac:
