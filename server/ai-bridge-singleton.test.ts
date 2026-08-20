@@ -150,7 +150,24 @@ describe("ai-bridge · socket ownership", () => {
 
     // Wait for the race to settle: the losers EXIT, which is the whole point.
     // Before the fix they all ended up listening and stayed alive forever.
-    const deadline = Date.now() + PROBE_MS * 4 + 6_000;
+    /* LA SCADENZA, e perche' non era abbastanza.
+     *
+     * Misurato: sotto la suite intera questo caso e' fallito a **12.198 ms**
+     * contro una scadenza di 12.000 — mancava un quinto di secondo. Da solo
+     * passa sempre (tre giri su tre, ~2 s). Non e' quindi un difetto della
+     * gara: e' che cinque processi che nascono, sondano e muoiono impiegano
+     * piu' tempo quando la macchina sta gia' girando 876 file di test.
+     *
+     * Il tempo non e' cio' che questo caso prova. L'affermazione e' «i perdenti
+     * ESCONO, e ne resta uno solo in ascolto»; quanto ci mettono e' un
+     * dettaglio dell'ambiente. Una scadenza tarata sulla macchina scarica
+     * trasforma quella affermazione in una misura di velocita' della macchina,
+     * e produce un rosso che accusa la gara mentre parla del carico.
+     *
+     * Il tetto del test (30 s) resta la vera rete di sicurezza: se i perdenti
+     * NON escono davvero — il difetto che questo caso esiste per cogliere —
+     * qui si aspetta invano e il rosso arriva lo stesso, solo piu' tardi. */
+    const deadline = Date.now() + PROBE_MS * 4 + 18_000;
     let alive = racers.length;
     while (Date.now() < deadline) {
       alive = racers.filter((p) => p.exitCode === null && p.signalCode === null).length;
@@ -160,5 +177,9 @@ describe("ai-bridge · socket ownership", () => {
 
     expect(alive).toBe(1);
     expect(await someoneListening(sock)).toBe(true);
-  }, 30_000);
+    // 45 s e non 30: la scadenza interna arriva a 24, e un tetto che scatta
+    // PRIMA di quella attesa la renderebbe inutile — il test morirebbe per
+    // timeout di bun invece di dire quanti daemon sono rimasti vivi, che e'
+    // l'unica informazione utile quando questo caso fallisce davvero.
+  }, 45_000);
 });

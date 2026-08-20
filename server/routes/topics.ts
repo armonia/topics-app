@@ -27,7 +27,7 @@ import { shouldHonorClearMessages } from "../../shared/clear-messages-policy";
 import { projectIdForPath } from "../../shared/board";
 import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
-import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
+import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicToProject } from "../lib/relocate-pane";
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { archiveTopicFully } from "../services/archive-topic";
@@ -693,6 +693,19 @@ export function createTopicsRouter(
       broadcastToAll({ type: "topic:updated", topic: t });
     }
     if (opts?.focus) {
+      // Lo spostamento vero, prima del suggerimento: la chat entra
+      // nell'appartenenza del progetto e si porta dietro il suo pannello
+      // browser, che restava fuori come tab orfano. Solo sul ramo `focus`,
+      // cioe' quando lo spostamento e' stato CHIESTO (open_project /
+      // create_project / bind esplicito): l'aggancio euristico di
+      // `autoBindProject` non deve aprire tab in una finestra di progetto per
+      // conto suo.
+      moveTopicToProject(
+        db,
+        broadcastToAll,
+        { id: t.id, browserContextIds: [t.browserState?.contextId ?? t.id] },
+        targetDir,
+      );
       broadcastToAll({ type: "pane:focus-suggest", topicId: t.id, projectPath: targetDir });
     }
     return true;

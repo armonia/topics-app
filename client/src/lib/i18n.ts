@@ -36,6 +36,124 @@ import type { Dict } from './i18n-types';
  * che vede.
  */
 const IT: Dict = {
+  'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
+
+  'app.showArchived': 'Mostra archiviati',
+  'app.mergePanels': 'Riunisce tutti i pannelli in uno solo (le schede restano aperte)',
+  'app.tileAll': 'Dispone tutte le schede aperte affiancate in una griglia bilanciata',
+  'project.chatWaits': 'Una chat di questo progetto aspetta una tua risposta',
+  'project.chatAnswers': 'Una chat di questo progetto sta rispondendo',
+  'ctx.removeFromContext': 'Rimuovi dal contesto',
+  'ctx.removeFile': 'Rimuovi il file',
+  'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
+  'kpi.noSource': 'Dato non disponibile: nessuna fonte per questa metrica',
+  'dev.newerBuild': 'Build più recente pronta',
+  'topic.notFound': 'Topic non trovato',
+  'compaction.summaryTitle': 'Riassunto del contesto compattato',
+  'settings.close': 'Chiudi le impostazioni',
+  'toast.close': 'Chiudi la notifica',
+  'activity.runningFor': 'In esecuzione da {label}{approx}',
+  'activity.atLeast': " (almeno: il turno era già in corso all'ultimo riavvio del server)",
+
+  'board.settings.oneCmdPerLine': '(un comando per riga)',
+  'board.settings.saveOnBlur': 'Salva uscendo dal campo (o ⌘↵).',
+  'notice.dismiss': "Chiudi l'avviso",
+  'cobrowse.textSelect': 'Selezione testo · ⌥ per tornare',
+  'parked.checkedAt': 'Controllato alle {when}. La pagina non è stata caricata.',
+  'parked.closesTab': 'chiude la scheda',
+  'compaction.hide': 'Nascondi il riassunto',
+  'compaction.show': 'Mostra il riassunto del contesto compattato',
+  'msg.resend': 'Rimanda il messaggio rimasto senza risposta',
+  'plan.awaiting': 'Un piano aspetta la tua approvazione',
+  'plan.approveAndRun': 'Approva ed esegui',
+  'subagent.busy': '{name} · al lavoro (apri)',
+  'subagent.open': '{name} · apri',
+  'toolgroup.elapsed': 'Da quanto va avanti questa corsa di azioni',
+  'space.elsewhere': "è aperto in un'altra finestra.",
+  'space.elsewhere.blurb': 'Un gruppo lo disegna una finestra sola: le sue tab vivono là, e qui non si duplicano.',
+  'update.download': 'Scarica',
+  'update.restartInstall': 'Riavvia e installa',
+
+  'model.ctxWindow': 'Finestra di contesto: {n} token',
+  'model.ctxWindow.guess': 'Modello non in tabella: finestra stimata in {n} token',
+  'ctxInspector.close': "Chiudi l'ispettore del contesto",
+  'ctxInspector.compact': 'Riassume la storia della conversazione e libera spazio nel contesto',
+  'ctxInspector.removeSource': 'Rimuovi la sorgente dal contesto',
+  'cost.hint': 'Il costo di una chat non è quanto si è parlato: è il contesto moltiplicato per quante volte glielo si rispedisce. Ogni chiamata a un tool è una spedizione intera.',
+  'cost.eachCallRereads': 'Ogni chiamata a un tool rilegge',
+  'cost.reallySent': 'Spediti davvero',
+  'cost.overMessages': 'su {n} messaggi: il contesto cresceva, quindi i primi turni sono costati meno di questi.',
+  'cost.lastTurn': 'Ultimo turno:',
+  'push.prompt.title': 'Ti avviso quando finisce?',
+  'push.prompt.blurb': "Una notifica su questo dispositivo quando l'agente ha finito di rispondere o un task va in review. Anche con Topics chiuso.",
+  'common.notNow': 'Non ora',
+  'resize.width': 'Trascina per la larghezza',
+  'resize.height': "Trascina per l'altezza",
+  'resize.both': 'Trascina per ridimensionare',
+  'goal.placeholder': "Qual è l'obiettivo di questa conversazione?",
+  'goal.abandon': 'Lascia perdere questo obiettivo',
+  'goal.notCompacted': 'piano del turno, non sopravvive alla compattazione',
+  'cmd.runs': 'Questo turno gira {what} /{name}',
+  'cmd.kind.skill': 'la skill',
+  'cmd.kind.command': 'il comando',
+  'cmd.currentFile': 'Contenuto attuale del file di /{name}, non una copia di quando è girato',
+  'window.openOther': "Apri l'altra finestra",
+  'window.openWith': 'Apri la finestra con {what}',
+  'window.elsewhere': "In un'altra finestra",
+  'turn.waitingYou': "L'assistente aspetta la tua risposta",
+  'turn.slow': 'Lo stream è lento, il provider è ancora connesso',
+  'turn.working': "L'assistente sta elaborando",
+  'turn.call': 'chiamata',
+  'turn.calls': 'chiamate',
+  'turn.multiplier': '{calls} {unit} a tool × {ctx} di contesto = {total} token spediti.\nOgni chiamata rispedisce tutto il contesto: la prossima costa altri {ctx}.',
+
+  'tool.agentWaits': "L'agente attende la tua risposta",
+  'ask.recommended.hint': "È la strada che l'agente consiglia. La scelta resta tua.",
+  'ask.recommended': 'consigliato',
+  'ask.answerPlaceholder': 'Scrivi la tua risposta…',
+  'appearance.chatWidth': 'Larghezza chat',
+  'appearance.fullWidth': 'Piena larghezza',
+  'appearance.chatWidth.aria': 'Larghezza massima della colonna di chat',
+  'appearance.full': 'Piena',
+  'appearance.language': 'Lingua · Language',
+  'appearance.language.blurb': "Vale per l'interfaccia e per la lingua in cui rispondono gli agenti (chat, terminale, board). Le superfici della UI non ancora tradotte restano come sono.",
+  'perms.title': 'Strumenti sempre consentiti',
+  'perms.blurb': 'Quando una chat chiede il permesso di usare uno strumento puoi rispondere «Consenti sempre»: la regola finisce qui e vale per tutte le chat. Tutto il resto continua a chiedere, una volta per volta.',
+  'perms.empty': 'Nessuna regola. Ogni strumento che una modalità di permessi non copre viene chiesto in chat.',
+  'perms.revoke': 'Revoca: da qui in poi tornerà a chiedere',
+  'guest.error': 'Non riesco a leggere cosa ti è stato condiviso. Il computer è acceso e sulla stessa rete?',
+  'guest.empty.title': 'Non ti è stato condiviso ancora niente.',
+  'guest.empty.blurb': 'Quando qualcuno ti condivide una scheda o una chat, comparirà qui.',
+  'guest.cards': 'Schede',
+  'guest.readOnly': 'Sola lettura. Puoi vedere, non modificare.',
+  'pair.code.aria': 'Codice di verifica {code}',
+  'pair.checkThenTap': 'Controlla che sia lo stesso, poi tocca',
+  'pair.approve': 'Autorizza',
+  'pair.waiting': 'In attesa di conferma…',
+  'pair.preparing': 'Preparo la richiesta…',
+
+  'pair.from': 'da {ip}',
+  'pair.verifyCode': 'Autorizza solo se questo codice è lo stesso mostrato su quel dispositivo.',
+  'pair.mine': 'È mio',
+  'pair.whose': 'Di chi è?',
+  'pair.personName': 'Nome della persona',
+  'pair.someoneElse': "È di un'altra persona",
+  'pair.guestBlurb': "Un'altra persona vede solo ciò che le condividi, in sola lettura.",
+  'ctx.renameTopic': 'Rinomina topic',
+  'ctx.pickColour': 'Scegli colore',
+  'ctx.archive.q1': 'Vuoi archiviare',
+  'ctx.archive.q2': '? Verrà spostato tra gli archiviati (puoi riaprirlo quando vuoi).',
+  'task.id.copy.aria': 'ID del task {id}: copia',
+  'task.id.copied': 'ID copiato',
+  'task.id.copyHint': "{short} · clicca per copiare l'ID pieno ({full})",
+  'task.dispatch.noReason': 'Motivo non registrato: la card è ferma qui e nessuno ha scritto perché. Guarda il thread.',
+  'tool.failed': 'fallita',
+  'tool.awaitingYou': 'In attesa della tua risposta',
+  'tool.freeMode.pre': 'Questa chat è passata in',
+  'tool.freeMode.name': 'modalità libera',
+  'tool.freeMode.by': ' · da {who}',
+  'tool.freeMode.post': ': da qui in poi esegue senza chiedere. Si torna indietro dal selettore di autonomia, accanto al campo di testo.',
+
   'chat.effort.set': 'Effort: {effort} · impostato per questa chat{fallback}',
   'chat.effort.providerDefaultIs': ' (default del provider: {tier})',
   'chat.effort.fromProvider': 'Effort: {tier} · default del provider',
@@ -965,6 +1083,11 @@ const IT: Dict = {
   'project.sidebar.processesFailed.one': '1 processo uscito con errore',
   'project.sidebar.processesFailed.many': '{n} processi usciti con errore',
   'processes.openFailedLog': 'Apri il log di questa uscita fallita',
+  // La spia dell'attesa: un agente ha chiesto di essere svegliato alla fine di
+  // questo processo, e finche' aspetta la riga lo dice.
+  'processes.awaited.one': 'Un agente sta aspettando la fine di questo processo',
+  'processes.awaited.many': '{n} agenti stanno aspettando la fine di questo processo',
+  'processes.awaited.chip': 'atteso',
   'sidebar.tree': 'Barra laterale',
   'sidebar.pinned': 'Fissato',
   'sidebar.moreOptions': 'Altre opzioni',
@@ -1706,6 +1829,17 @@ export function t(key: string, locale: Locale, vars?: Record<string, string | nu
  * l'unico modo di distinguere «questa lingua è incompleta» da «questa lingua
  * non è ancora arrivata», e sono due difetti diversi.
  */
+/**
+ * Tutte le chiavi del catalogo, per chi deve controllarle una per una.
+ *
+ * Esiste al posto di esportare `IT`: il dizionario intero, pubblico, invita a
+ * leggerne un valore direttamente invece di passare da `t()`, e quella e' la
+ * strada per cui una stringa smette di seguire la lingua scelta.
+ */
+export function chiaviDelCatalogo(): string[] {
+  return Object.keys(IT);
+}
+
 export async function missingKeys(locale: Locale): Promise<string[]> {
   await ensureLocaleLoaded(locale);
   await ensureLocaleLoaded(FALLBACK_LOCALE);

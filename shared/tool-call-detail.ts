@@ -122,6 +122,14 @@ const monitorSchema = z.object({
   result: z.optional(z.string()),
 });
 
+const waitSchema = z.object({
+  type: z.literal('wait'),
+  processId: z.string(),
+  until: z.optional(z.string()),
+  timeoutMs: z.optional(z.number()),
+  result: z.optional(z.string()),
+});
+
 const bashOutputSchema = z.object({
   type: z.literal('bash_output'),
   shellId: z.string(),
@@ -184,6 +192,7 @@ export const toolCallDetailSchema = z.discriminatedUnion('type', [
   planSchema,
   mcpSchema,
   monitorSchema,
+  waitSchema,
   bashOutputSchema,
   killShellSchema,
   notebookEditSchema,

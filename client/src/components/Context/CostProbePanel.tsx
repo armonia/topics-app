@@ -1,4 +1,5 @@
 import type { SessionCostProbe } from '../../types';
+import { useT } from '../../hooks/useT';
 import { formatTokens } from '../../lib/formatTokens';
 
 /**
@@ -18,6 +19,7 @@ import { formatTokens } from '../../lib/formatTokens';
  * è l'unica cosa che dice quanto è cresciuto.
  */
 export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
+  const tr = useT();
   if (!probe || probe.contextTokens <= 0 || probe.toolCalls <= 0) return null;
 
   const dollari = (v: number) => (v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(4)}`);
@@ -33,7 +35,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
       <div className="flex items-center justify-between mb-1.5">
         <span
           className="text-[12px] font-medium text-app-text"
-          title="Il costo di una chat non è quanto si è parlato: è il contesto moltiplicato per quante volte glielo si rispedisce. Ogni chiamata a un tool è una chiamata al modello, e ogni chiamata rilegge tutto il contesto."
+          title={tr('cost.hint')}
         >
           Costo · contesto × chiamate
         </span>
@@ -62,7 +64,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
       {/* Il numero su cui si può ancora decidere: non quanto è già andato, ma
           quanto costa la PROSSIMA chiamata. È sempre il contesto intero. */}
       <div className="mt-1.5 text-[11px] text-app-text-secondary">
-        Ogni chiamata a un tool rilegge{' '}
+        {tr('cost.eachCallRereads')}{' '}
         <span className="tabular-nums font-medium text-app-text">{formatTokens(probe.contextTokens)}</span>
         {probe.perCallUsd > 0 && (
           <>
@@ -73,14 +75,14 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
       </div>
 
       <div className="mt-0.5 text-[11px] text-app-text-muted">
-        Spediti davvero{' '}
+        {tr('cost.reallySent')}{' '}
         <span className="tabular-nums" data-testid="cost-probe-measured">{milioni(probe.promptTokens)}</span>
-        {' '}su {probe.messages} messaggi: il contesto cresceva, quindi i primi turni sono costati meno di questi.
+        {' '}{tr('cost.overMessages', { n: probe.messages })}
       </div>
 
       {probe.lastTurn && probe.lastTurn.toolCalls > 0 && (
         <div className="mt-1.5 pt-1.5 border-t border-app-border text-[11px] text-app-text-secondary" data-testid="cost-probe-lastturn">
-          Ultimo turno:{' '}
+          {tr('cost.lastTurn')}{' '}
           <span className="tabular-nums font-medium text-app-text">{probe.lastTurn.toolCalls}</span>
           {' '}× <span className="tabular-nums">{formatTokens(probe.lastTurn.contextTokens)}</span>
           {' '}→ <span className="tabular-nums font-medium text-app-text">{formatTokens(probe.lastTurn.promptTokens)}</span>
