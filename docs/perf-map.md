@@ -372,10 +372,29 @@ sees a change again. The dedupe guard compares against the LAST WRITTEN value,
 not the history, which is correct and is exactly why it cannot stop this.
 
 That is a concrete, checkable lead and it is written here rather than acted on,
-because the reproduction is not in hand: the burst has not been triggered
-deliberately once. Whoever picks it up starts by making it happen on demand —
-watching both the PUT body and the inbound `ui-state:updated` for that key — not
-by patching the guard.
+because the reproduction is not in hand. Five hypotheses were tried and each one
+was refuted by a measurement, which is worth listing so nobody spends the same
+hour twice:
+
+| tried | result |
+|---|---|
+| a hole in the dedupe guard | its unit test passes; the writes go *around* it |
+| `subscribeLifecycle('open')` clearing the guard | **zero** socket opens in 30 idle seconds |
+| a project window being open | opened one deliberately: **0 writes** in 30s |
+| the specific chat the server lists for that key | opened it: **0 writes** in 30s |
+| two windows (what the FIRST cycle needed) | ran two: **0 writes** in 35s |
+| the dev-reload storm after a client build | ran the gate right after `bun run build`: **0** |
+
+And then the sixth measurement explained the other five: `wsClients: 0`. **The
+user's own window was closed for all of them**, and the server saw zero writes
+from ANY client in 60 seconds. The bursts happened earlier in the evening, while
+that window was open — the same shape as the first cycle, which also needed a
+second live client and hid for weeks because every measurement was taken with
+one.
+
+So the reproduction needs the user's window open, and that is the first line of
+the next attempt: watch the PUT body and the inbound `ui-state:updated` for that
+key WITH a second real client connected. Not by patching the guard.
 
 **The bundle ratchet is red, and it is not from this work.** `check:bundle`,
 2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
