@@ -517,6 +517,24 @@ export async function runAgentTurn(
         content: out.content,
         ...(out.isError ? { is_error: true } : {}),
       });
+      // IL TURNO PUÒ ESSERE MORTO MENTRE QUESTO TOOL GIRAVA.
+      //
+      // Il controllo in cima al `for` esterno non basta: un turno sta quasi
+      // sempre fermo qui dentro, e riprendere il giro vorrebbe dire spendere
+      // una chiamata al modello — e i secondi che lo spegnimento non ha — per
+      // una risposta che nessuno leggerà. Peggio: senza uscire di qui non si
+      // chiama `onAborted`, e senza `onAborted` la route non finalizza, quindi
+      // la chat resta con la risposta troncata e nessuna spiegazione. È
+      // esattamente il 20/08 su topic:9f9e9629.
+      //
+      // Si esce SUBITO, con la prosa già scritta e la causa che viaggia nel
+      // segnale: il cartello lo compone `cancelledNotice` a valle.
+      if (opts.signal?.aborted) {
+        const causa = stopCauseFromSignal(opts.signal);
+        const end: TurnEndInfo = causa ? { end: "cancelled", cause: causa } : { end: "cancelled" };
+        handler.onAborted?.({ result: finalText, turnEnd: end });
+        return { turnEnd: end, text: finalText, usage: total };
+      }
     }
     opts.history.push({ role: "user", content: results });
   }

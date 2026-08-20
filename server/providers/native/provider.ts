@@ -425,7 +425,10 @@ export class NativeProvider implements AIProvider {
             : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),
           history: session.history,
           tools,
-          toolContext: { workspace: workspace ?? "" },
+          // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in
+          // cima al giro, ma un turno sta quasi sempre fermo dentro un tool, e
+          // da lì quel controllo non si raggiunge. Vedi `ToolContext.signal`.
+          toolContext: { workspace: workspace ?? "", signal: abort.signal },
           topics: topics ?? undefined,
           // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
           // sulla sessione: chi lo cambia in chat si aspetta che valga dal

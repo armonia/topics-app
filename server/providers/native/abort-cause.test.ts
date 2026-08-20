@@ -46,6 +46,19 @@ function sse(events: unknown[]): string {
   return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
 }
 
+/** Come `giroConTool`, ma il tool è un comando LUNGO: serve a mettere l'abort
+ *  DENTRO l'esecuzione, che è il punto dove il turno passa il suo tempo. */
+const giroConToolLungo = sse([
+  { type: "message_start", message: { usage: { input_tokens: 10 } } },
+  { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+  { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "misuro la densità" } },
+  { type: "content_block_stop", index: 0 },
+  { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tu_9", name: "bash", input: {} } },
+  { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"sleep 30"}' } },
+  { type: "content_block_stop", index: 1 },
+  { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } },
+]);
+
 /** Un giro che chiede un tool: dopo di lui il ciclo fa un altro giro, ed è
  *  proprio all'inizio del giro dopo che il controllo sull'abort scatta. */
 const giroConTool = sse([
@@ -146,6 +159,58 @@ describe("il ciclo dell'agente nativo quando il server si spegne sotto di lui", 
     // 3. IL LAVORO GIÀ FATTO NON SI PERDE: il testo prodotto prima dello stop
     //    torna al chiamante, che lo persiste sotto il cartello.
     expect(out.text).toContain("sto misurando");
+  });
+
+  /**
+   * IL CASO VERO DEL 20/08, che i due capi verdi non toccavano.
+   *
+   * Gli altri test di questo file annullano fra un giro e l'altro, con un tool
+   * istantaneo: lì il controllo in cima al giro basta. Ma un turno d'agente sta
+   * quasi tutto il tempo FERMO dentro un tool, e il 20/08 su topic:9f9e9629 lo
+   * spegnimento è arrivato dentro un `bash` con un `sleep 100`. Il comando non
+   * ascoltava il segnale, `stopAllProviders` aspetta 3,5 secondi e poi
+   * `process.exit(0)`: il turno è uscito senza mai chiamare `onAborted`, e la
+   * chat è rimasta con mezza frase e nessuna spiegazione.
+   *
+   * Il tempo QUI È IL TEST: 30 secondi di comando contro una finestra di 3,5.
+   */
+  test("abort DENTRO un tool lungo: il turno finisce subito, non alla fine del comando", async () => {
+    const ac = new AbortController();
+    let giri = 0;
+    globalThis.fetch = (async () => {
+      giri++;
+      if (giri === 1) {
+        // Annulla mentre il `sleep 30` gira, non fra un giro e l'altro.
+        setTimeout(() => ac.abort("server-shutdown"), 150);
+        return new Response(giroConToolLungo, { status: 200 });
+      }
+      throw new Error("nessun secondo giro atteso: il turno era già annullato");
+    }) as unknown as typeof fetch;
+
+    const h = spia();
+    const partito = Date.now();
+    const out = await runAgentTurn(
+      {
+        model: "claude-haiku-4-5-20251001",
+        history: [{ role: "user", content: "misura" }],
+        toolContext: { workspace: ws, signal: ac.signal },
+        autonomy: "auto-apply",
+        signal: ac.signal,
+      },
+      h,
+    );
+    const durata = Date.now() - partito;
+
+    // 1. Non ha aspettato il comando. Sopra i 3,5s il server sarebbe già uscito.
+    expect(durata).toBeLessThan(3000);
+    // 2. Qualcuno è stato avvisato: senza `onAborted` la route non finalizza,
+    //    e il cartello in chat non viene mai scritto.
+    expect(h.eventi).toContain("aborted");
+    // 3. Con la causa vera, che è quella che accende il cartello.
+    expect(out.turnEnd.end).toBe("cancelled");
+    expect(out.turnEnd.cause).toBe("server-shutdown");
+    // 4. La prosa già scritta sopravvive e finisce sotto il cartello.
+    expect(out.text).toContain("misuro la densità");
   });
 
   /**
