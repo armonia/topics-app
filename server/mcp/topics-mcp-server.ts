@@ -218,6 +218,22 @@ const TOOLS = [
     annotations: SOLA_LETTURA,
   },
   {
+    name: "wait_for_process",
+    description:
+      "WAIT for a background process instead of polling it: blocks until it exits, until a line matches `until`, or until `timeout_ms` elapses (default 120s, max 240s), then returns ONLY the new output plus the reason it stopped. Use it after run_script, or on a background shell (pass its shell id): one turn instead of a read_process_output every few seconds. A 'timeout' answer is not an error, it means still running — call again with the returned offset.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        process_id: { type: "string", description: "processId from run_script/list_processes, or the id of a background shell." },
+        until: { type: "string", description: "Optional case-insensitive regex: return as soon as the output matches it (e.g. 'listening on|ready in'). Without it the wait ends when the process exits." },
+        timeout_ms: { type: "number", description: "How long to wait at most (default 120000, max 240000)." },
+        offset: { type: "number", description: "Line cursor to read from (use the offset returned by a previous read/wait). Defaults to 0." },
+      },
+      required: ["process_id"],
+    },
+    annotations: SOLA_LETTURA,
+  },
+  {
     name: "stop_process",
     description: "Stop a running process started by run_script, by processId.",
     inputSchema: {
@@ -872,6 +888,12 @@ interface ProcessOutputResp {
   done?: boolean;
   exitCode?: number | null;
 }
+interface ProcessWaitResp extends ProcessOutputResp {
+  reason?: string;
+  waitedMs?: number;
+  truncatedLines?: number;
+  scriptName?: string;
+}
 interface TaskRow {
   status?: string;
   text?: string;
@@ -909,6 +931,9 @@ async function httpJson<T>(
   path: string,
   body: unknown | undefined,
   fetchImpl: typeof fetch,
+  /** Solo per le chiamate che restano APERTE per costruzione (l'attesa di un
+   *  processo): il trasporto deve mollare dopo il nostro timer, mai prima. */
+  signal?: AbortSignal,
 ): Promise<T | undefined> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -918,6 +943,7 @@ async function httpJson<T>(
     method,
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    ...(signal ? { signal } : {}),
     ...loopbackTlsInit(),
   });
 
@@ -1304,6 +1330,53 @@ export async function callReadProcessOutput(
   const exit = body?.exitCode !== undefined && body?.exitCode !== null ? ` exit=${body.exitCode}` : "";
   const footer = `[offset=${body?.offset ?? 0} status=${body?.status ?? "?"}${body?.done ? " done" : ""}${exit}]`;
   return `${head}${output}\n${footer}`;
+}
+
+/**
+ * L'attesa vista dal ponte MCP. Il lavoro vero e' della rotta, che tiene aperta
+ * la richiesta; qui si compone la risposta in modo che una scadenza si legga
+ * come «ancora vivo» e non come un guasto — la differenza fra un agente che
+ * richiama con il cursore giusto e uno che si ferma credendo di aver rotto
+ * qualcosa.
+ */
+export async function callWaitForProcess(
+  args: ParsedArgs,
+  toolArgs: { process_id?: unknown; until?: unknown; timeout_ms?: unknown; offset?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.process_id !== "string" || !toolArgs.process_id) {
+    throw new Error("wait_for_process: 'process_id' (string) is required");
+  }
+  const qs = new URLSearchParams();
+  if (typeof toolArgs.offset === "number") qs.set("offset", String(toolArgs.offset));
+  if (typeof toolArgs.timeout_ms === "number") qs.set("timeout_ms", String(toolArgs.timeout_ms));
+  if (typeof toolArgs.until === "string" && toolArgs.until) qs.set("until", toolArgs.until);
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/scripts/${encodeURIComponent(toolArgs.process_id)}/wait?${qs}`;
+
+  // Il margine sopra il tetto della rotta: se scade questo vuol dire che a non
+  // rispondere e' il server, non il processo atteso.
+  const budget = (typeof toolArgs.timeout_ms === "number" ? Math.min(toolArgs.timeout_ms, 240_000) : 120_000) + 20_000;
+  const body = await httpJson<ProcessWaitResp>(
+    args, "GET", path, undefined, fetchImpl, AbortSignal.timeout(budget),
+  );
+
+  let output = typeof body?.output === "string" ? body.output : "";
+  const MAX = 8000;
+  let head = "";
+  if (output.length > MAX) {
+    output = output.slice(-MAX);
+    head = "…(truncated, showing tail; re-read from the returned offset to page)\n";
+  }
+  const reason = body?.reason ?? "timeout";
+  const secs = Math.round((body?.waitedMs ?? 0) / 1000);
+  const exit = body?.exitCode !== undefined && body?.exitCode !== null ? ` exit=${body.exitCode}` : "";
+  const verdict = reason === "exit"
+    ? `finished after ${secs}s · status=${body?.status ?? "?"}${exit}`
+    : reason === "match"
+      ? `matched after ${secs}s · still ${body?.status ?? "running"}`
+      : `STILL RUNNING after ${secs}s (not an error) · call wait_for_process again with offset=${body?.offset ?? 0}`;
+  const lost = body?.truncatedLines ? ` dropped=${body.truncatedLines}` : "";
+  return `${head}${output}\n[reason=${reason} offset=${body?.offset ?? 0}${lost}] ${verdict}`;
 }
 
 export async function callStopProcess(
@@ -1914,6 +1987,7 @@ export const TOOL_HANDLERS: Record<
   run_script: (a, t) => callRunScript(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),
+  wait_for_process: (a, t) => callWaitForProcess(a, t),
   stop_process: (a, t) => callStopProcess(a, t),
   list_tasks: (a, t) => callListTasks(a, t),
   create_task: (a, t) => callCreateTask(a, t),

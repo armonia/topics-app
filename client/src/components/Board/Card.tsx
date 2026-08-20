@@ -745,6 +745,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           ) : (!task.dispatchState && task.dispatchError) ? (
             <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
           ) : null}
+          {/* Il primo tratto del turno, quello in cui la card sembra ferma:
+              l'agente sta leggendo e inquadrando, e il titolo che si sta per
+              leggere è ancora quello buttato giù di fretta. Sta PRIMA del chip
+              vivo perché è la fase, e il chip vivo è la misura. */}
+          {live?.triage && task.dispatchState === 'working' && (
+            <span
+              data-testid="card-triage"
+              title={tr('board.card.triageTitle')}
+              className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300"
+            >{tr('board.card.triage')}</span>
+          )}
           {live && task.dispatchState === 'working' ? (
             <LiveEffortChip usage={live} />
           ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (

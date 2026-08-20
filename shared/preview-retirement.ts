@@ -14,6 +14,8 @@
  * MOSTRARE una nota quando quello che afferma non è più vero.
  */
 
+import { isDeliverySheetPath } from "./media-kind";
+
 /**
  * Le note che affermano «questa card NON ha un'anteprima».
  *
@@ -53,6 +55,9 @@ export function isSupersededPreviewNote(
   c: { content: string; kind?: string | null },
   task: { previewImage?: string | null },
 ): boolean {
-  const hasPreview = !!(task.previewImage ?? "").trim();
+  // Una SCHEDA DI CONSEGNA non supera la nota: e' il ripiego disegnato dal
+  // server, e quello che la nota afferma (l'evidenza vera non c'e') resta vero.
+  const preview = (task.previewImage ?? "").trim();
+  const hasPreview = !!preview && !isDeliverySheetPath(preview);
   return hasPreview && isPreviewRetirementNote(c);
 }

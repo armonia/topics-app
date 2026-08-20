@@ -1,5 +1,6 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
 import React, { createContext, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
+import { useT } from '../hooks/useT';
 import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -940,6 +941,7 @@ function renderContentWithInlineTools(
 type MarkdownComponents = React.ComponentProps<typeof ChatMarkdown>['components'];
 
 function CompactionSummaryFold({ summary, components }: { summary: string; components: MarkdownComponents }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const approxK = Math.max(1, Math.round(summary.length / 4 / 1000));
   return (
@@ -950,7 +952,7 @@ function CompactionSummaryFold({ summary, components }: { summary: string; compo
         className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-[11px] text-app-text-muted hover:bg-app-hover transition-colors"
       >
         <Layers size={12} className="flex-shrink-0" />
-        <span className="font-medium">Riassunto del contesto compattato</span>
+        <span className="font-medium">{tr('compaction.summaryTitle')}</span>
         <span className="text-app-text-muted/70">· ~{approxK}k token</span>
         <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>

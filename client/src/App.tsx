@@ -12,6 +12,7 @@ import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { PaneType } from './types';
 import { useTopics } from './hooks/useTopics';
+import { useT } from './hooks/useT';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
 import { TabNotificationProvider } from './hooks/useTabNotifications';
@@ -32,8 +33,8 @@ import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
-import { initDevHeapProbe, registerHeapOwner, roughBytes } from './lib/devHeapProbe';
-import { residencyHeapReport } from './state/pane/residency/registry';
+import { initDevHeapProbe } from './lib/devHeapProbe';
+import { registerFeatureWeightSources } from './lib/featureWeightSources';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { ReloadedFlash } from './components/ReloadedFlash';
@@ -197,6 +198,7 @@ function App() {
   // out of the production graph entirely (PANE-05 strip contract). The static
   // import was fragile: Vite minification could flatten the path string and
   // the strip-assert script would false-green.
+  const tr = useT();
   const [DevOverlay, setDevOverlay] = useState<ComponentType | null>(null);
   useEffect(() => {
     if (import.meta.env.DEV) {
@@ -228,19 +230,15 @@ function App() {
   // E2E non riproduce il problema. Vedi lib/devLayoutProbe.ts.
   useEffect(() => initDevLayoutProbe(), []);
   useEffect(() => initDevHeapProbe(), []);
-  // Gli altri due possessori di stato di lunga vita, cosi' la sonda puo'
-  // CONFRONTARE invece di guardare una voce sola: senza un termine di paragone
-  // "chat.messages tiene 40 MB" non dice se e' tanto.
-  useEffect(() => registerHeapOwner('pane.store', () => {
-    const st = usePaneStore.getState();
-    return {
-      entries: Object.keys(st.panes).length,
-      items: Object.keys(st.tombstones ?? {}).length + (st.closedStack?.length ?? 0),
-      bytes: roughBytes(st),
-      detail: { tombstoni: Object.keys(st.tombstones ?? {}).length, closedStack: st.closedStack?.length ?? 0 },
-    };
-  }), []);
-  useEffect(() => registerHeapOwner('pane.residency', residencyHeapReport), []);
+  /* L'INVENTARIO DEL PESO: chi dichiara cosa. Una registrazione sola, qui, e
+   * non sparsa negli store — un elenco che omette in silenzio e' peggio di
+   * nessun elenco, perche' chi legge crede di vedere tutto. Vedi
+   * `lib/featureWeightSources.ts`.
+   *
+   * Ha ASSORBITO i due `registerHeapOwner` che stavano qui (`pane.store` e
+   * `pane.residency`): erano lo stesso meccanismo con un registro suo, e due
+   * elenchi di proprietari divergono al primo che ne aggiorna uno solo. */
+  useEffect(() => registerFeatureWeightSources(), []);
 
   // Click su una web-push (app aperta ma in secondo piano): il service worker
   // mette a fuoco questa finestra e ci passa la destinazione, perché non può
@@ -1863,7 +1861,7 @@ function App() {
             className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} hover:bg-app-hover transition-colors ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
           >
             <Archive size={isMobile ? 18 : 14} className={sidebar.showArchived ? 'text-primary' : ''} />
-            <span className="flex-1 text-left">Mostra archiviati</span>
+            <span className="flex-1 text-left">{tr('app.showArchived')}</span>
           </button>
           <button
             onClick={() => { sidebar.toggleViewMode(); }}
@@ -1901,7 +1899,7 @@ function App() {
               setShowTopicsMenu(false);
             }}
             className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
-            title="Riunisce tutti i pannelli in uno solo (le schede restano aperte)"
+            title={tr('app.mergePanels')}
           >
             <RotateCcw size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Reimposta pannelli</span>
@@ -1916,7 +1914,7 @@ function App() {
               setShowTopicsMenu(false);
             }}
             className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
-            title="Dispone tutte le schede aperte affiancate in una griglia bilanciata"
+            title={tr('app.tileAll')}
           >
             <Grid2x2 size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Disponi automaticamente</span>

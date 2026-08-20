@@ -1,4 +1,5 @@
 import { costTokens, partsFromMessage } from '../../../shared/token-cost';
+import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
 import { WaveLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
@@ -93,6 +94,7 @@ export function TurnActivityIndicator({
    */
   awaitingInput?: boolean;
 }) {
+  const tr = useT();
   const [now, setNow] = useState(() => Date.now());
   // `awaitingInput` è fra le dipendenze perché l'apertura e la chiusura di
   // un'attesa si misurano su `now`: rileggere l'orologio subito al cambio fa
@@ -235,10 +237,10 @@ export function TurnActivityIndicator({
       aria-live="polite"
       aria-label={
         state === 'waiting'
-          ? 'L’assistente aspetta la tua risposta'
+          ? tr('turn.waitingYou')
           : state === 'slow'
-            ? 'Lo stream è lento, il provider è ancora connesso'
-            : 'L’assistente sta elaborando'
+            ? tr('turn.slow')
+            : tr('turn.working')
       }
     >
       {/* LO STESSO glifo della sidebar e delle tab: la matrice che si accende
@@ -306,7 +308,7 @@ export function TurnActivityIndicator({
           data-testid="turn-multiplier"
           data-calls={calls}
           data-context={context}
-          title={`${calls} chiamat${calls === 1 ? 'a' : 'e'} a tool × ${formatTokens(context)} di contesto = ${formatTokens(calls * context)} token spediti.\nOgni chiamata rispedisce tutto il contesto: la prossima costa altri ${formatTokens(context)}.`}
+          title={tr('turn.multiplier', { calls, ctx: formatTokens(context), total: formatTokens(calls * context), unit: calls === 1 ? tr('turn.call') : tr('turn.calls') })}
         >
           · {calls} × {formatTokens(context)}
         </span>

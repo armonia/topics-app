@@ -1,9 +1,13 @@
+import { useEffect } from 'react';
 import { Activity, Cpu, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { computeTopicsFootprint } from '@/lib/topicsFootprint';
 import { scegliVerdetto } from './verdict';
+import { useFeatureWeights } from '@/hooks/useFeatureWeights';
+import { vociPerNatura, quantitaBreve, rigaVoce } from '@/lib/featureWeightText';
+import { webviewSnapshot, ensurePaneUsageFresh } from '@/lib/paneUsage';
 import { useT } from '@/hooks/useT';
 
 const SPARK_W = 288;
@@ -170,6 +174,21 @@ export function PerfSection() {
   // No "Fluido" line in the good case: the FPS headline + sparkline above
   // already say it. The verdict only speaks up when there's a real problem.
 
+  /* L'INVENTARIO. Sempre attivo qui — a differenza della barra, dove si accende
+   * col mouse: questo pannello e' montato SOLO mentre il dropdown e' aperto,
+   * quindi «montato» e «qualcuno sta guardando» sono la stessa cosa. E' la
+   * stessa ragione per cui il poll qui e' a 3s e in barra a 60. */
+  useEffect(() => { ensurePaneUsageFresh(); }, [status?.timestamp]);
+  const vociPeso = useFeatureWeights(true, {
+    sessioni: fleet?.sessions ?? [],
+    browser: webviewSnapshot(),
+    radici: fleet?.roots ?? [],
+    scriptsMB: fleet?.scriptsMB ?? 0,
+    scriptsProcessCount: fleet?.scriptsProcessCount ?? 0,
+  }, status?.timestamp);
+  const vociMisurateVisibili = vociPerNatura(vociPeso, 'misurato');
+  const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
+
   return (
     <div className="px-2 pt-2 pb-1 space-y-2 border-b border-app-border">
       {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
@@ -259,20 +278,47 @@ export function PerfSection() {
           />
         </div>
 
-        {/* QUALE sessione tiene la memoria: e' l'unica riga di dettaglio che
-            resta a vista, perche' e' l'unica su cui si puo' AGIRE (chiudere
-            quella sessione). Tre e non tutte. */}
-        {fleet && fleet.sessions.length > 0 && (
-          <div data-testid="perf-sessions" className="flex flex-col gap-0.5 px-0.5 text-[10px] text-app-text-muted">
-            {[...fleet.sessions]
-              .sort((a, b) => b.memoryMB - a.memoryMB)
-              .slice(0, 3)
-              .map(s => (
-                <div key={s.sessionId} className="flex items-center justify-between gap-2">
-                  <span className="truncate">{s.name || s.sessionId}</span>
-                  <span className="tabular-nums whitespace-nowrap text-app-text">{s.memoryMB} MB</span>
+        {/* COSA TIENE QUEL NUMERO — l'inventario per funzionalita'.
+            Prende il posto della vecchia riga «le tre sessioni piu' pesanti»,
+            che rispondeva alla stessa domanda ma per UNA sola categoria: le
+            sessioni erano le uniche a comparire, quindi un pannello browser da
+            440 MB o cinquanta task caricati non si vedevano da nessuna parte.
+            Adesso le sessioni restano (in cima, perche' l'ordinamento mette il
+            misurato davanti) e accanto compare tutto il resto.
+
+            DUE NATURE, MAI SOMMATE: sopra i MB veri, sotto i conteggi. Non c'e'
+            un totale che le comprenda, e non e' una dimenticanza — lo stato JS
+            di una funzionalita' non e' dove sta il suo peso (misurato: 0,2 MB
+            dichiarati contro 440 nel renderer), quindi convertirlo in MB per
+            poterlo sommare sarebbe inventare il numero. Vedi `featureWeight.ts`. */}
+        {vociPeso.length > 0 && (
+          <div data-testid="perf-inventory" className="flex flex-col gap-0.5 px-0.5 text-[10px] text-app-text-muted">
+            {vociMisurateVisibili.map(v => (
+              <div key={v.id} data-testid="perf-inventory-row" className="flex items-center justify-between gap-2" title={rigaVoce(v)}>
+                <span className="truncate">{v.label}</span>
+                <span className="tabular-nums whitespace-nowrap text-app-text">
+                  {v.errore ? tr('perf.inventory.unmeasured') : `${v.peso.memoryMB} MB`}
+                </span>
+              </div>
+            ))}
+            {vociTrattenuteVisibili.length > 0 && (
+              <>
+                {/* L'intestazione compare SOLO se sotto c'e' qualcosa, e dice
+                    perche' quei numeri non sono in MB: senza, due colonne
+                    diverse una sopra l'altra si leggono come la stessa cosa. */}
+                <div className="pt-1 text-[9px] uppercase tracking-wide opacity-60">
+                  {tr('perf.inventory.heldHeading')}
                 </div>
-              ))}
+                {vociTrattenuteVisibili.map(v => (
+                  <div key={v.id} data-testid="perf-inventory-row" className="flex items-center justify-between gap-2" title={rigaVoce(v)}>
+                    <span className="truncate">{v.label}</span>
+                    <span className="tabular-nums whitespace-nowrap text-app-text">
+                      {v.errore ? tr('perf.inventory.unmeasured') : quantitaBreve(v)}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
       </div>

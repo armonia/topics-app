@@ -1,0 +1,121 @@
+/**
+ * I TOKEN DEVONO SCORRERE MENTRE IL TURNO GIRA, non arrivare tutti alla fine.
+ *
+ * ── Il guasto ───────────────────────────────────────────────────────────────
+ * Il chip vivo sulla card della board legge il registro dell'uso ogni quattro
+ * secondi. Il runtime nativo ci depositava il totale UNA VOLTA SOLA, a turno
+ * finito: su un agente dispacciato — decine di minuti, centinaia di giri di
+ * tool — il numero restava fermo per tutto il tempo, e al primo turno restava a
+ * zero perché la card non aveva nessun totale precedente da mostrare. Segnalato
+ * con queste parole: «non vedo più i token scorrere nei task in progress».
+ *
+ * Qui si guida `runAgentTurn` contro un finto stream SSE (due giri: uno che
+ * chiede un tool, uno che chiude) e si guarda QUANDO l'uso viene consegnato.
+ * Niente rete e niente credenziali vere: la `HOME` del test contiene un token
+ * finto ma fresco, che è tutto ciò che serve per non passare dal rinnovo.
+ */
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { runAgentTurn, type AgentMessage } from "./agent-loop";
+import type { StreamHandler } from "../types";
+
+const HOME_VERA = process.env.HOME;
+let casa: string;
+let ws: string;
+const fetchVero = globalThis.fetch;
+
+/** Un evento SSE come lo manda l'API. */
+function sse(events: unknown[]): string {
+  return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+}
+
+const giroConTool = sse([
+  { type: "message_start", message: { usage: { input_tokens: 100, cache_read_input_tokens: 10, cache_creation_input_tokens: 7, cache_creation: { ephemeral_1h_input_tokens: 7 } } } },
+  { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_1", name: "read_file", input: {} } },
+  { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"path":"non-esiste.txt"}' } },
+  { type: "content_block_stop", index: 0 },
+  { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 20 } },
+]);
+
+const giroFinale = sse([
+  { type: "message_start", message: { usage: { input_tokens: 200, cache_read_input_tokens: 20, cache_creation_input_tokens: 3, cache_creation: { ephemeral_1h_input_tokens: 3 } } } },
+  { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+  { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "fatto" } },
+  { type: "content_block_stop", index: 0 },
+  { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } },
+]);
+
+function handler(): StreamHandler {
+  return {
+    onTextDelta: () => {},
+    onToolStart: () => {},
+    onToolResult: () => {},
+    onDone: () => {},
+    onError: () => {},
+  };
+}
+
+describe("l'uso del runtime nativo, giro per giro", () => {
+  beforeAll(() => {
+    casa = mkdtempSync(join(tmpdir(), "native-usage-home-"));
+    ws = mkdtempSync(join(tmpdir(), "native-usage-ws-"));
+    mkdirSync(join(casa, ".claude"), { recursive: true });
+    writeFileSync(
+      join(casa, ".claude", ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "finto-ma-fresco", refreshToken: "r", expiresAt: Date.now() + 3_600_000 } }),
+    );
+    process.env.HOME = casa;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = fetchVero;
+    if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
+    for (const d of [casa, ws]) { try { rmSync(d, { recursive: true, force: true }); } catch { /* scratch */ } }
+  });
+
+  test("ogni giro consegna il SUO uso, prima che il turno finisca", async () => {
+    const risposte = [giroConTool, giroFinale];
+    globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
+
+    const consegne: Array<{ input: number; output: number; cacheWrite1h: number }> = [];
+    const history: AgentMessage[] = [{ role: "user", content: "leggi un file" }];
+    const out = await runAgentTurn(
+      {
+        model: "claude-haiku-4-5-20251001",
+        history,
+        toolContext: { workspace: ws },
+        autonomy: "auto-apply",
+        onRoundUsage: (u) => consegne.push({ input: u.input, output: u.output, cacheWrite1h: u.cacheWrite1h }),
+      },
+      handler(),
+    );
+
+    // DUE consegne, non una: è la differenza fra un contatore che scorre e un
+    // contatore che si accende alla fine.
+    expect(consegne.length).toBe(2);
+    expect(consegne[0]).toEqual({ input: 100, output: 20, cacheWrite1h: 7 });
+    expect(consegne[1]).toEqual({ input: 200, output: 5, cacheWrite1h: 3 });
+
+    // E la somma delle consegne è ESATTAMENTE il totale del turno: chi somma i
+    // delta arriva dove arriverebbe aspettando la fine, senza contare due volte.
+    expect(out.usage.input).toBe(300);
+    expect(out.usage.output).toBe(25);
+    expect(out.turnEnd.end).toBe("end_turn");
+  });
+
+  test("la quota di cache a un'ora entra nel totale, invece di sparire", async () => {
+    // Era persa in fondo alla somma dei giri: `total.cacheWrite1h` non veniva
+    // mai incrementato, quindi la parte di scrittura che costa 2x risultava
+    // sempre zero e veniva tariffata 1.25x.
+    const risposte = [giroConTool, giroFinale];
+    globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
+    const out = await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "vai" }], toolContext: { workspace: ws }, autonomy: "auto-apply" },
+      handler(),
+    );
+    expect(out.usage.cacheWrite).toBe(10);
+    expect(out.usage.cacheWrite1h).toBe(10);
+  });
+});

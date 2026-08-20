@@ -17,6 +17,7 @@ import {
   _resetPaneUsage,
   _setPaneUsageSnapshot,
 } from './paneUsage';
+import { replaceAllMessages, __resetMessageStore } from '../state/messageStore';
 
 describe('formatPaneUsageLine', () => {
   beforeEach(() => { _resetPaneUsage(); });
@@ -209,4 +210,66 @@ describe('costo del campionamento (RES-ATTR-04)', () => {
     expect(getPaneUsage('s')?.memoryMB).toBe(10);
   });
 
+});
+
+describe('una chat dice cosa TIENE, non cosa non e\'', () => {
+  /* IL DIFETTO SEGNALATO. Passando il mouse su una tab di chat usciva solo
+   * «questa scheda non ha un processo proprio»: vero, e inutile — risponde a
+   * com'e' implementata la scheda, non a cosa costa. L'utente l'ha riportato
+   * come «non vedo dove esce il consumo», ed era la lettura giusta.
+   *
+   * Il conteggio dei messaggi non e' un ripiego: e' l'unica cosa ESATTA che si
+   * possa dire di un componente dentro un renderer condiviso. I MB non si
+   * attribuiscono (RES-ATTR-05), i messaggi si contano. */
+  beforeEach(() => { _resetPaneUsage(); __resetMessageStore(); });
+  afterEach(() => { __resetMessageStore(); });
+
+  it('conta i messaggi che quella chat tiene in memoria', () => {
+    replaceAllMessages({
+      'topic:abc': [{ id: '1' }, { id: '2' }, { id: '3' }] as never,
+    });
+    const line = formatPaneUsageLine(null, false, null, 'topic:abc');
+    expect(line).toContain('3 messaggi');
+    // E NON MISURA in megabyte: quelli non si possono attribuire a un
+    // componente dentro un renderer condiviso.
+    //
+    // L'asserzione e' su «un numero seguito da MB» e non sulla stringa «MB»
+    // nuda: la riga di spiegazione la contiene di proposito («i MB non si
+    // attribuiscono»), ed e' quella che rende il conteggio comprensibile. Il
+    // primo tentativo vietava la sottostringa e falliva sulla frase giusta.
+    expect(line).not.toMatch(/\d+\s*MB/);
+  });
+
+  it('un messaggio solo si scrive al singolare', () => {
+    replaceAllMessages({ 'topic:abc': [{ id: '1' }] as never });
+    expect(formatPaneUsageLine(null, false, null, 'topic:abc')).toContain('1 messaggio');
+  });
+
+  it('dice ANCHE perche\' non ci sono MB: senza, il conteggio sembra tutto', () => {
+    replaceAllMessages({ 'topic:abc': [{ id: '1' }] as never });
+    const line = formatPaneUsageLine(null, false, null, 'topic:abc');
+    expect(line).toContain('Nessun processo proprio');
+  });
+
+  it('una chat VUOTA ricade sulla riga generica invece di dire «0 messaggi»', () => {
+    // Uno zero qui somiglia a una misura ed e' solo «non c\'e\' ancora niente».
+    const line = formatPaneUsageLine(null, false, null, 'topic:mai-aperta');
+    expect(line).toContain('non ha un processo proprio');
+    expect(line).not.toContain('0 messaggi');
+  });
+
+  it('senza sessionKey il comportamento e\' quello di prima', () => {
+    // Kanban, file, editor: non sono chat e non hanno messaggi da contare.
+    const line = formatPaneUsageLine(null, false, null, null);
+    expect(line).toContain('non ha un processo proprio');
+  });
+
+  it('una pane CON processo non passa mai di qui', () => {
+    // La sessionKey non deve poter dirottare una misura vera.
+    _setPaneUsageSnapshot([{ sessionId: 's1', memoryMB: 396, cpuPercent: 3, processCount: 2 }]);
+    replaceAllMessages({ 'topic:abc': [{ id: '1' }] as never });
+    const line = formatPaneUsageLine('s1', true, null, 'topic:abc');
+    expect(line).toContain('396 MB');
+    expect(line).not.toContain('messaggi');
+  });
 });

@@ -14,6 +14,7 @@
  * secondi.
  */
 
+import { getSessionMessagesFromStore } from '../state/messageStore';
 import { isTauri } from './shell';
 import { tauriInvoke } from './shell/tauri';
 
@@ -225,19 +226,42 @@ export function getBrowserPaneUsage(paneId: string | null | undefined): PaneUsag
  *
  * TRE STATI, mai collassati in uno zero o in un trattino (RES-ATTR-05):
  * - `hasOwnProcess === false` → la pane vive nel renderer condiviso (topic,
- *   kanban, chat, file, editor): non esiste una misura, e una quota stimata
- *   sarebbe un numero inventato con l'aria di un dato.
+ *   kanban, chat, file, editor): non esiste una misura in MB, e una quota
+ *   stimata sarebbe un numero inventato con l'aria di un dato. Si dice invece
+ *   cosa quella scheda TRATTIENE — vedi sotto.
  * - misura assente → ha un processo ma non lo abbiamo ancora letto.
  * - misura presente, `cpuPercent === null` → processo appena nato, senza
  *   ancora un delta di CPU: "CPU non misurata", non "CPU 0%".
+ *
+ * COSA DICEVA PRIMA, e perche' non bastava. Su una chat usciva solo «questa
+ * scheda non ha un processo proprio»: vero, e inutile. Segnalato dall'utente
+ * come «non vedo dove esce il consumo» — e aveva ragione: quella frase risponde
+ * a una domanda che nessuno ha fatto (com'e' implementata la scheda) invece di
+ * quella vera (cosa mi costa questa scheda).
+ *
+ * Adesso una chat dice quanti messaggi tiene in memoria. E' un CONTEGGIO, non
+ * MB, ed e' la stessa distinzione dell'inventario del peso: i megabyte non si
+ * possono attribuire a un componente dentro un renderer condiviso, il numero di
+ * messaggi si' — ed e' esatto. La riga sui MB resta per chi un processo ce
+ * l'ha davvero.
  */
 export function formatPaneUsageLine(
   sessionId: string | null | undefined,
   hasOwnProcess: boolean,
   /** Pane browser: il consumo si cerca per label di webview, non per sessione. */
   browserPaneId?: string | null,
+  /** Chat: la sua `sessionKey`, per contare i messaggi che tiene in memoria.
+   *  Assente ⇒ si ricade sulla riga generica, come prima. */
+  chatSessionKey?: string | null,
 ): string {
-  if (!hasOwnProcess) return '\nConsumo: questa scheda non ha un processo proprio';
+  if (!hasOwnProcess) {
+    const n = chatSessionKey ? getSessionMessagesFromStore(chatSessionKey).length : 0;
+    if (n > 0) {
+      return `\nIn memoria: ${n} ${n === 1 ? 'messaggio' : 'messaggi'}`
+        + '\nNessun processo proprio: vive nella finestra, i MB non si attribuiscono';
+    }
+    return '\nConsumo: questa scheda non ha un processo proprio';
+  }
   const u = browserPaneId ? getBrowserPaneUsage(browserPaneId) : getPaneUsage(sessionId);
   if (!u) return '\nConsumo: non ancora misurato';
   const cpu = u.cpuPercent === null
@@ -245,6 +269,21 @@ export function formatPaneUsageLine(
     : `CPU ${u.cpuPercent < 1 && u.cpuPercent > 0 ? '<1' : Math.round(u.cpuPercent)}%`;
   const proc = u.processCount === 1 ? '1 processo' : `${u.processCount} processi`;
   return `\nConsumo: ${u.memoryMB} MB · ${cpu} · ${proc}`;
+}
+
+/**
+ * Le webview misurate nell'ultimo campione, per l'inventario del peso.
+ *
+ * NON MISURA NIENTE: legge lo snapshot che il tooltip delle tab ha gia' pagato.
+ * E' la regola di RES-ATTR-04 (il costo della misura non cresce col numero di
+ * superfici che la mostrano) applicata all'inventario: se lo snapshot non c'e'
+ * ancora, torna una lista vuota e la voce «Pannelli browser» semplicemente non
+ * compare, invece di comparire a zero.
+ */
+export function webviewSnapshot(): { label: string; memoryMB: number }[] {
+  if (!snapshot) return [];
+  return [...snapshot.byWebviewLabel.entries()]
+    .map(([label, e]) => ({ label, memoryMB: e.memoryMB }));
 }
 
 /** Test seam. */
