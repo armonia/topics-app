@@ -1957,10 +1957,20 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
 
     const [card] = s.list({ scope: "all", rootsOnly: true });
     const [contesto, ultima] = card!.recentComments;
-    // L'ultima parola la card la stampa intera: 1.200 caratteri. Quelle prima
-    // stanno in una riga sola già tagliata dal CSS: 200 bastano.
+    // L'ultima parola la card la stampa intera: 1.200 caratteri.
     expect(ultima!.content.length).toBe(1201);
-    expect(contesto!.content.length).toBe(201);
+    // IL CONTESTO NON È PIÙ 200, ed è una correzione non un allentamento.
+    //
+    // «Una riga sola già tagliata dal CSS» descriveva la card di allora. Il
+    // client la ripiega su tre righe e offre «mostra di più» oltre 620
+    // caratteri (`COMMENTO_PIEGA_CHARS`), promettendo che «il testo c'è tutto».
+    // Con 200 dal server quel bottone apriva sul vuoto: misurati 1.215 messaggi
+    // umani su questa macchina, mediana 520, il 76% sopra i 200.
+    //
+    // 620 non è scelto: è il massimo che sta nel cancello sul peso del payload
+    // (`board-payload-weight`), che a 800 va rosso. Le due costanti sono tenute
+    // allineate da un test apposta in `card-comments-window`.
+    expect(contesto!.content.length).toBe(621);
     expect(Object.keys(ultima!).sort()).toEqual(["author", "content", "kind"]);
   });
 
