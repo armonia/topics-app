@@ -191,8 +191,15 @@ function ChatPaneComponent({
     // con gli stati ancora vuoti, cancellerebbe il deposito che sta per essere
     // ripristinato.
     if (attachmentsHydrated.current !== topic.id) return;
-    void saveDraftAttachments(topic.id, pendingImages, pendingFiles);
-  }, [topic.id, pendingImages, pendingFiles]);
+    // Se non ci stanno, l'utente lo deve sapere ADESSO, non scoprirlo dopo un
+    // ricaricamento: il difetto che questo meccanismo chiude e' proprio una
+    // perdita silenziosa, e ripeterla al bordo del tetto sarebbe la stessa cosa
+    // con un numero diverso. `saveDraftAttachments` risponde `false` solo in
+    // quel caso, e cancella la riga invece di tenerne una a meta'.
+    void saveDraftAttachments(topic.id, pendingImages, pendingFiles).then((ok) => {
+      if (!ok) toast.error('Attachment too large to keep across a reload: send it now, or it will be lost if you refresh.');
+    });
+  }, [topic.id, pendingImages, pendingFiles, toast]);
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   // Una BOZZA vuota si chiude da sé quando smetti di guardarla, e questa riga
   // è la sola cosa che le impedisce di portarsi via del lavoro: allegati e
