@@ -107,16 +107,41 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("org-chip-online")).toHaveCount(0);
   });
 
-  test("PRESENCE-04: il chip dell'org apre la gestione delle organizzazioni", async ({ page }) => {
-    // Un dato senza la sua porta è un dato che si va poi a cercare nelle
-    // impostazioni: il chip mostra chi c'è E porta dove si governa il gruppo.
+  test("PRESENCE-04: il chip dell'org apre il pannello, e il pannello la gestione", async ({ page }) => {
+    // Il chip non salta più a una pagina: apre il suo pannello, che risponde
+    // sul posto a «chi c'è in questo gruppo». La porta della gestione resta,
+    // in fondo al pannello, per quando la domanda è davvero grossa.
     await stubIdentita(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
     const chip = page.getByTestId("org-chip");
     await expect(chip).toBeVisible({ timeout: 20000 });
     await chip.click();
+    await expect(page.getByTestId("org-panel")).toBeVisible();
+    await page.getByTestId("org-open-manage").click();
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("settings-page-organization")).toBeVisible();
+  });
+
+  test("PRESENCE-06: il pannello dell'org elenca ANCHE chi non è online", async ({ page }) => {
+    // È metà del motivo per cui il pannello si apre: cercare qualcuno che in
+    // questo momento non c'è. Il chip chiuso mostra i presenti, l'elenco no.
+    const ora = Date.now();
+    await stubIdentita(page, [
+      membro("io", "Io", ora),
+      membro("a", "Anna", ora - 30_000),
+      membro("c", "Carla", ora - 3_600_000), // oltre la soglia: c'è, ma spenta
+    ], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+      { id: "a", displayName: "Anna Rossi", isMe: false },
+      { id: "c", displayName: "Carla Bianchi", isMe: false },
+    ]);
+    await page.goto("/");
+    await page.getByTestId("org-chip").click();
+    const panel = page.getByTestId("org-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("presence-person")).toHaveCount(2);
+    await expect(panel.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(1);
+    await expect(panel).toContainText("Carla Bianchi");
   });
 
   test("PRESENCE-05: la riga degli amici mostra chi è online e apre gli amici", async ({ page }) => {
@@ -133,9 +158,27 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     const amici = page.getByTestId("identity-row-friends");
     await expect(amici).toBeVisible({ timeout: 20000 });
     await expect(amici).toContainText("1");
-    await amici.click();
+    await page.getByTestId("identity-friends-chip").click();
+    await expect(page.getByTestId("friends-panel")).toBeVisible();
+    await page.getByTestId("friends-open-all").click();
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("settings-page-friends")).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "amici-online.png") });
+  });
+
+  test("PRESENCE-07: senza nessuno la riga amici resta e dice zero", async ({ page }) => {
+    // Prima spariva. Una riga che esiste solo quando ha buone notizie lascia
+    // senza risposta «ma gli amici dove stanno?» proprio a chi non ha ancora
+    // nessuno, cioè l'unico che deve poterci entrare per cominciare.
+    await stubIdentita(page, [membro("io", "Io", Date.now())], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+    ]);
+    await page.goto("/");
+    const amici = page.getByTestId("identity-row-friends");
+    await expect(amici).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
+    // E il pannello spiega da dove arrivano le persone, invece di essere vuoto.
+    await page.getByTestId("identity-friends-chip").click();
+    await expect(page.getByTestId("friends-panel")).toContainText("organizzazioni");
   });
 });
