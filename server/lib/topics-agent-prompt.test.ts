@@ -293,33 +293,34 @@ describe('topicsAgentSystemPrompt', () => {
 });
 
 /**
- * LA PROMESSA DI RISVEGLIO CHE NESSUNO MANTIENE.
+ * IL RISVEGLIO DA UNO SHELL IN BACKGROUND: vero, ma non garantito.
  *
- * Il 20/08, topic:205d1fbb. L'utente chiede «perché non ti metti in wait?».
- * L'agente risponde «Armata. Mi sveglia quando finisce» — e aveva lanciato un
- * `Bash` con `until … done` e `run_in_background: true`.
+ * Il 20/08, topic:205d1fbb. L'utente chiede «perché non ti metti in wait?»,
+ * l'agente risponde «Armata. Mi sveglia quando finisce» e lancia un `Bash` con
+ * `until … done` e `run_in_background: true` — non un `Monitor`.
  *
- * Quel comando gira davvero, ma la sua uscita non la legge nessuno: il turno è
- * già chiuso, e in chat non sarebbe mai arrivato niente. È peggio del silenzio,
- * perché l'utente smette di controllare fidandosi della promessa.
+ * Sembrava una promessa vuota, e stavo per vietarla nel prompt. La misura dice
+ * il contrario: diciotto minuti dopo il batch è finito, la CLI ha riaperto la
+ * conversazione da sola (`[woken] … la CLI ha aperto un turno da sola`) e la
+ * risposta è arrivata in chat.
  *
- * Il prompt deve dire i tre effetti insieme, o si scambiano fra loro.
+ * Quindi la regola non è «non farlo»: è che quel risveglio dipende dal comando
+ * che TERMINA, e su un'attesa senza fine non arriva mai. Il prompt deve dire
+ * questo, non un divieto falso — un consiglio sbagliato costa quanto un bug.
  */
-describe('lo shell in background non è un risveglio', () => {
-  test('il prompt dice esplicitamente che non sveglia, e chi invece lo fa', () => {
+describe('shell in background: risveglio reale ma condizionato', () => {
+  test('il prompt non lo vieta, ma dice da cosa dipende', () => {
     const p = topicsAgentSystemPrompt();
-    expect(p).toContain('is NOT a wait that wakes you');
-    // E indica la strada giusta per riprenderne l'esito.
-    expect(p).toContain('read_process_output');
-    // E chiude la porta alla frase che ha ingannato l'utente.
-    expect(p).toContain('only `Monitor` wakes you');
+    expect(p).toContain('can also end your turn and report back');
+    // La condizione, che è il vero contenuto informativo.
+    expect(p).toContain('a command that never terminates never reports');
+    // E la via d'uscita quando il risveglio serve davvero.
+    expect(p).toContain('Prefer `Monitor` when the point IS being woken');
   });
 
-  test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, non-sveglia', () => {
+  test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, dipende', () => {
     const p = topicsAgentSystemPrompt();
-    // Monitor: chiude il turno e risveglia.
     expect(p).toMatch(/`Monitor`[\s\S]*ends your turn and wakes you/);
-    // wait_for_process: tiene il turno e riporta l'esito.
     expect(p).toMatch(/`mcp__topics__wait_for_process`[\s\S]*blocks until it exits/);
   });
 });
