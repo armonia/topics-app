@@ -21,7 +21,7 @@
  * fa comparire SOPRA la webview nativa.
  */
 import { useRef, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Download, Check, X as XIcon, FolderOpen, Loader2, AlertTriangle } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { POPOVER_DIVIDER, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';

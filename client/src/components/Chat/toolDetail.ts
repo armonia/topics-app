@@ -268,6 +268,17 @@ export function deriveToolDetail(
     };
   }
 
+  if (c === 'wait_for_process' || c.endsWith('__wait_for_process')) {
+    const timeout = typeof a.timeout_ms === 'number' ? a.timeout_ms : undefined;
+    return {
+      type: 'wait',
+      processId: s(a.process_id) ?? s(a.processId) ?? '',
+      ...(s(a.until) ? { until: s(a.until)! } : {}),
+      ...(timeout !== undefined ? { timeoutMs: timeout } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
   if (c.startsWith('mcp__')) {
     const parts = name.split('__');
     return {
@@ -374,6 +385,11 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
       return { name: `${detail.server} · ${detail.tool}`, summary: summarizeArgs(detail.args) };
     case 'monitor':
       return { name: 'Monitor', summary: detail.description || detail.command || detail.wsUrl };
+    case 'wait':
+      return {
+        name: 'Wait',
+        summary: detail.until ? `${detail.processId} · /${detail.until}/` : detail.processId,
+      };
     case 'bash_output':
       return { name: 'BashOutput', summary: detail.filter ? `${detail.shellId} · /${detail.filter}/` : detail.shellId };
     case 'kill_shell':

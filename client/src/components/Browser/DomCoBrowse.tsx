@@ -46,7 +46,7 @@
  * this viewer's input, mirroring the pixel path's take-control model.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Loader2 } from 'lucide-react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';

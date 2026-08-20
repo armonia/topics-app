@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { File, X, Search } from 'lucide-react';
 import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Cookie, Database, HardDrive } from 'lucide-react';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { planForgetSite, forgetSite, type ForgetSitePlan, type SiteDataBackend, type SiteDataGroup } from '../../lib/browserForgetSite';

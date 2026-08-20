@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Check, Loader2, Plus, Sparkles } from 'lucide-react';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ProjectTaskCounts } from './atoms';

@@ -11,6 +11,7 @@ import {
   interpolate,
   missingKeys,
   ensureLocaleLoaded,
+  chiaviDelCatalogo,
   FALLBACK_LOCALE,
   fetchOutputLanguage,
   pushOutputLanguage,
@@ -84,6 +85,36 @@ describe('allineamento fra le lingue', () => {
     // sola — ed è esattamente il momento in cui va saputo.
     expect(await missingKeys('it')).toEqual([]);
     expect(await missingKeys('en')).toEqual([]);
+  });
+
+  /**
+   * LE CHIAVI ALLINEATE NON BASTANO: contano anche i SEGNAPOSTI.
+   *
+   * `interpolate` sostituisce `{nome}` e lascia com'è un segnaposto senza
+   * valore. Quindi una traduzione che ne perde uno non esplode e non diventa
+   * rossa da nessuna parte: mostra una frase a cui manca il pezzo che la rende
+   * utile («Dimentica ?» invece di «Dimentica example.com?»). E una che ne
+   * INVENTA uno stampa `{host}` a schermo, letterale.
+   *
+   * È il difetto che il giro di traduzione del 20/08 poteva introdurre 1286
+   * volte in silenzio, ed è l'unica parte di quel lavoro che una rilettura non
+   * avrebbe preso: due frasi in due lingue si leggono bene entrambe anche
+   * quando una ha un segnaposto in meno.
+   */
+  test('i segnaposti di una chiave sono gli STESSI nelle due lingue', async () => {
+    await ensureLocaleLoaded('en');
+    const segnaposti = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',');
+    const disallineate: string[] = [];
+    for (const k of chiaviDelCatalogo()) {
+      const en = t(k, 'en');
+      const it = t(k, 'it');
+      // `t` ripiega sull'altra lingua quando la chiave manca: quel caso lo
+      // copre il test qui sopra, e qui darebbe un falso verde confrontando una
+      // stringa con se stessa.
+      if (en === it) continue;
+      if (segnaposti(it) !== segnaposti(en)) disallineate.push(`${k}: it{${segnaposti(it)}} en{${segnaposti(en)}}`);
+    }
+    expect(disallineate).toEqual([]);
   });
 });
 

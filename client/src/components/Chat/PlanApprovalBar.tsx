@@ -1,5 +1,5 @@
 import { ClipboardList, Check, X } from 'lucide-react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 
 /**
  * Il piano che aspetta la tua approvazione, DOVE si risponde.

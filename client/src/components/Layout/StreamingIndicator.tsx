@@ -33,7 +33,7 @@
  */
 
 import { useTopicLoading, useTopicAwaitingInput, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useBrowserLoading } from '../../state/signals';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 

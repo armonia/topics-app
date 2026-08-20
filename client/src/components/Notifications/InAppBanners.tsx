@@ -8,7 +8,7 @@
  * vuota per costruzione — non c'è nessun ramo che la riempie.
  */
 import { useEffect } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Bell, X } from 'lucide-react';
 import { useInAppBannerStore, IN_APP_BANNER_TTL_MS } from '../../state/inAppBanner';
 import { openTaskInApp, openTopicInApp, selfTaskLinkTarget, selfTopicLinkTarget } from '../../lib/openTaskLink';

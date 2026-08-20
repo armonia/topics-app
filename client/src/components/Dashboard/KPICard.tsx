@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 export type Trend = 'up' | 'down' | 'flat';

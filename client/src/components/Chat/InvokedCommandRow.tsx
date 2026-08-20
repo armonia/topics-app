@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, Sparkles, Terminal } from 'lucide-react';
 import { slashCommandsApi } from '../../lib/api';
 

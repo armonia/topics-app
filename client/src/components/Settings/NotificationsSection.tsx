@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Bell, BellOff, Check, AlertCircle, Moon, Smartphone } from 'lucide-react';
 import type { AppSettings } from '../../types';
 import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';

@@ -35,6 +35,8 @@
  * la heap JS non vede. Vedi `domCensus`.
  */
 
+import { collectFeatureWeights } from './featureWeight';
+
 const FLAG_KEY = 'dev-heap-probe';
 const RESULT_KEY = 'dev-heap-probe-result';
 
@@ -50,7 +52,6 @@ export interface HeapReport {
   detail?: Record<string, unknown>;
 }
 
-const owners = new Map<string, () => HeapReport>();
 
 /** Il censimento del DOM: quanti `<svg>` ci sono, e sotto CHI stanno. */
 export interface DomCensus {
@@ -101,52 +102,30 @@ export function domCensus(doc: Document | undefined = globalThis.document): DomC
 }
 
 /**
- * Dichiara di possedere stato che vale la pena misurare.
+ * Misura tutti i proprietari registrati. Esportata per i test e per la console.
  *
- * Da chiamare in un effetto, con la de-registrazione nella cleanup. Il costo a
- * riposo e' una voce in una Map: la funzione viene invocata SOLO quando la sonda
- * e' armata, quindi non c'e' niente da pagare in produzione.
+ * IL REGISTRO NON E' PIU' QUI. Questa sonda aveva il suo elenco di proprietari,
+ * e `lib/featureWeight.ts` ne ha uno per l'inventario mostrato all'utente: due
+ * elenchi della stessa cosa divergono al primo che ne aggiorna uno solo, e il
+ * modo in cui divergono e' silenzioso (una voce che manca sembra una voce a
+ * zero). Adesso ce n'e' uno, e questa sonda ne e' un LETTORE.
+ *
+ * Cosa cambia per chi la usava: niente nella forma del risultato. Le voci sono
+ * le stesse `{entries, items, bytes, detail}` di prima, piu' quelle che
+ * l'inventario ha aggiunto — che e' il punto: la diagnosi vede tutto cio' che
+ * vede l'utente, e non un sottoinsieme deciso mesi fa.
  */
-export function registerHeapOwner(name: string, report: () => HeapReport): () => void {
-  owners.set(name, report);
-  return () => {
-    owners.delete(name);
-  };
-}
-
-/** Misura tutti i proprietari registrati. Esportata per i test e per la console. */
 export function collectHeapReport(): Record<string, HeapReport & { error?: string }> {
   const out: Record<string, HeapReport & { error?: string }> = {};
-  for (const [name, fn] of owners) {
-    try {
-      out[name] = fn();
-    } catch (e) {
-      // Un proprietario che esplode non deve azzerare la misura degli altri:
-      // il valore di questa sonda sta nel confronto fra le voci.
-      out[name] = { entries: -1, error: e instanceof Error ? e.message : String(e) };
-    }
+  for (const v of collectFeatureWeights()) {
+    out[v.id] = v.errore
+      // `entries: -1` era gia' la convenzione di questa sonda per «non
+      // misurato»: si conserva, perche' i risultati vecchi si confrontano con
+      // i nuovi e cambiarla farebbe leggere un errore come un conteggio.
+      ? { entries: -1, error: v.errore }
+      : { entries: v.peso.entries, items: v.peso.items, bytes: v.peso.bytes, detail: v.peso.detail };
   }
   return out;
-}
-
-/**
- * Stima in byte di un oggetto serializzabile.
- *
- * `JSON.stringify().length` e' una PROXY, non una misura: sottostima gli oggetti
- * (niente overhead di header, puntatori, forme nascoste — in WebKit un oggetto
- * piccolo costa decine di byte a prescindere dal contenuto) e sovrastima le
- * stringhe condivise, che in heap esistono una volta sola. Serve a rispondere
- * "e' un megabyte o un gigabyte", non a fare la contabilita'.
- *
- * Ritorna 0 se l'oggetto non e' serializzabile (cicli): meglio zero che far
- * fallire tutta la misura.
- */
-export function roughBytes(value: unknown): number {
-  try {
-    return JSON.stringify(value)?.length ?? 0;
-  } catch {
-    return 0;
-  }
 }
 
 async function readFlag(): Promise<boolean> {

@@ -157,7 +157,7 @@ function countCompactions(ctx: AppContext, sessionKey: string): number {
 export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService?: BrowserService): RouteHandler {
   const {
     broadcastToAll, broadcastToTopicSubscribers, db, json, readJSON,
-    getTopicBySessionKey, saveSingleTopic,
+    getTopicBySessionKey, saveSingleTopic, touchTopicActivity,
     appendLocalMessage,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, discardIfEmptyTurn, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamContent, updateStreamActivity, endStream, isStreaming,
@@ -200,10 +200,21 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   // through a fresh POST /api/chat user message (autonomous continuation,
   // dispatched task) left the sidebar's lastActivity — and the project row
   // rolled up from it — frozen mid-conversation.
+  //
+  // Scrittura MIRATA su `updated_at`, non un upsert della riga intera: `topic`
+  // qui è l'oggetto letto quando la richiesta è arrivata, e questo bump scatta
+  // alla FINE del turno, anche venti minuti dopo. Riscrivere tutte le colonne
+  // da quell'oggetto riportava indietro qualunque cosa il turno avesse cambiato
+  // nel frattempo — in particolare `projectPath`, che `open_project` /
+  // `create_project` scrivono a metà risposta: la chat si spostava nel progetto
+  // e a fine turno si ritrovava fuori, slegata, senza un errore da nessuna
+  // parte (card 76b0058b). Il broadcast porta la riga RILETTA, così i client
+  // vedono lo stato vero e non la copia vecchia.
   const bumpTopicActivity = (topic: Topic): void => {
-    topic.updatedAt = new Date().toISOString();
-    saveSingleTopic(topic);
-    broadcastToAll({ type: "topic:updated", topic });
+    const updatedAt = new Date().toISOString();
+    topic.updatedAt = updatedAt;
+    const fresh = touchTopicActivity(topic.id, updatedAt);
+    if (fresh) broadcastToAll({ type: "topic:updated", topic: fresh });
   };
 
   // Every turn-finalization site (success / error / soft- or hard-timeout)

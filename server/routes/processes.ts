@@ -13,6 +13,10 @@ import { getDescendantPids, getPidStartTimes } from "../lib/process-tree";
 import { getTerminalSessionById } from "./terminal";
 import { getSessionCliPid } from "../providers/session-pids";
 import { backgroundShellBanner, shellProcessKey } from "../../shared/background-shell-registry";
+import {
+  awaitProcess, clampWaitTimeout, compileUntil, openWatch, watchesForProcess,
+  WAIT_DEFAULT_TIMEOUT_MS,
+} from "../lib/process-wait";
 import { registerFleetScriptSource } from "../lib/fleet-usage";
 
 interface ScriptProcess {
@@ -1472,6 +1476,14 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     const portsByPid = await getPortsForProcesses(
       running.map(sp => sp.pid).filter((p): p is number => !!p),
     );
+    // La spia dell'attesa viaggia con la riga che gia' si legge: un campo in
+    // piu' qui costa niente e toglie il dubbio «l'agente e' fermo, o sta
+    // aspettando proprio questo?». Assente quando nessuno aspetta, per non
+    // gonfiare il payload piu' comune.
+    const watchers = (sp: ScriptProcess) => {
+      const w = watchesForProcess(sp.processId);
+      return w.length ? { watchers: w } : {};
+    };
     const runningList = running.map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
       projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
@@ -1479,6 +1491,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       source: sp.source ?? "script",
       ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
       ports: sp.pid ? (portsByPid.get(sp.pid) ?? []) : [],
+      ...watchers(sp),
     }));
     const recentList = recentScripts.filter(match).map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
@@ -1719,6 +1732,63 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         }
         const offset = parseInt(url.searchParams.get("offset") || "0", 10);
         return json(outputPayload(sp, offset));
+      }
+    }
+
+    // GET /api/sessions/:sessionKey/scripts/:id/wait — attesa, non sondaggio
+    //
+    // Tiene la richiesta aperta finche' il processo esce, finche' una riga
+    // combacia con `until`, o finche' scade `timeout_ms`. Il turno del modello
+    // e' uno solo: quello che chiede. Lo scadere NON e' un errore — e' la
+    // risposta «ancora vivo», con l'output nuovo e il cursore per ripartire.
+    //
+    // `id` accetta anche l'id di una shell in background: e' l'unico handle che
+    // l'agente ha delle proprie shell, e chiedergli di tradurlo a mano nella
+    // chiave interna sarebbe un dettaglio nostro scaricato su di lui.
+    {
+      const m = method === "GET" && pathname.match(/^\/api\/sessions\/([^/]+)\/scripts\/([^/]+)\/wait$/);
+      if (m) {
+        const sessionKey = decodeURIComponent(m[1]);
+        const r = resolveSessionCwd(sessionKey);
+        if ("error" in r) return r.error;
+        const id = decodeURIComponent(m[2]);
+        const sp = getScript(id) ?? getScript(shellProcessKey(sessionKey, id));
+        if (!sp || sp.projectPath !== r.path) {
+          return json({ error: "Process not found in this project" }, 404);
+        }
+
+        let until: RegExp | undefined;
+        try {
+          until = compileUntil(url.searchParams.get("until") ?? undefined);
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+        }
+        const timeoutMs = clampWaitTimeout(url.searchParams.get("timeout_ms") ?? WAIT_DEFAULT_TIMEOUT_MS);
+        const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+        const topic = ctx.getTopicBySessionKey(sessionKey);
+        const { close } = openWatch({
+          processId: sp.processId,
+          label: topic?.name || sessionKey,
+          ...(until ? { until: until.source } : {}),
+          timeoutMs,
+        });
+        // La spia deve comparire SUBITO, non al prossimo giro di cache.
+        invalidateScriptsCache();
+        broadcastScriptsUpdate(ctx);
+        try {
+          const outcome = await awaitProcess({
+            read: (cursor) => outputPayload(sp, cursor),
+            offset: Number.isFinite(offset) ? offset : 0,
+            ...(until ? { until } : {}),
+            timeoutMs,
+          });
+          return json({ ...outcome, processId: sp.processId, scriptName: sp.scriptName });
+        } finally {
+          close();
+          invalidateScriptsCache();
+          broadcastScriptsUpdate(ctx);
+        }
       }
     }
 

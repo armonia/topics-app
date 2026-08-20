@@ -13,7 +13,7 @@
  * volte è il modo più rapido di trasformarlo in un no di sistema.
  */
 import { BellRing, X } from 'lucide-react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { usePushAskStore, shouldOfferPush } from '../../state/pushAsk';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
 
