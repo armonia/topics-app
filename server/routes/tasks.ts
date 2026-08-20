@@ -22,6 +22,8 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
+import { titoloMigliore } from "../services/task-title";
+import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
@@ -229,6 +231,14 @@ export interface TasksRouterOpts {
    * "verde" vale per QUEL codice, non per il branch a vita.
    */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
+  /**
+   * Il provider con cui ricavare un titolo leggibile da una card dettata.
+   *
+   * Assente ⇒ nessun titolo generato, resta quello del composer: è una
+   * comodità, e una board senza modello configurato deve continuare a
+   * funzionare come prima.
+   */
+  namingProvider?: () => AIProvider | null;
   /**
    * Timbra l'esito di atterraggio di UNA card, subito dopo un land.
    *
@@ -2269,6 +2279,40 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               reuseBlockerContext: body?.reuseBlockerContext === true,
             });
             broadcastToAll({ type: "task:created", projectId: effectiveProjectId, task });
+            // UN TITOLO LEGGIBILE, senza che nessuno lo chieda.
+            //
+            // La card nasce col titolo che il composer ha ricavato dalla prima
+            // riga, e su un DETTATO quella e' il preambolo: «Potremmo fare una
+            // roba molto figa per poter assicurarci che il nostro browser…»
+            // (card 235afe11, 20/08). La sostanza stava nei punti elenco piu'
+            // sotto. Segnalato: «dovrebbe mettere sempre qualcosa di utile per
+            // comprendere», e il seguito: «deve fare tutto da solo la kanban».
+            //
+            // Quindi qui, alla nascita, e in BACKGROUND: la `create` risponde
+            // subito con la card, il titolo migliore arriva un istante dopo via
+            // `task:updated` — la stessa forma dell'autoname delle chat. Se il
+            // modello non c'e', tace, e resta il titolo del composer.
+            void (async () => {
+              try {
+                const prov = opts?.namingProvider?.();
+                if (!prov) return;
+                const migliore = await titoloMigliore(prov, { text: task.text, description: task.description });
+                if (!migliore) return;
+                // Riletta PRIMA di scrivere: fra la chiamata al modello e qui
+                // (secondi) qualcuno puo' aver rinominato la card a mano, e
+                // quella e' una scelta esplicita che non si sovrascrive.
+                const fresca = svc.get(task.id)?.task;
+                if (!fresca || fresca.text !== task.text) return;
+                const aggiornata = svc.update({
+                  // `actor: "agent"`: non l'ha deciso una persona. Il campo ha
+                  // due valori soli (human | agent) e la macchina cade nel
+                  // secondo — `by: "system"` dice chi di preciso.
+                  taskId: task.id, actor: "agent", by: "system",
+                  projectId: effectiveProjectId, patch: { text: migliore },
+                });
+                if (aggiornata) broadcastToAll({ type: "task:updated", projectId: effectiveProjectId, task: aggiornata });
+              } catch { /* un titolo e' una comodita': non fallisce mai la card */ }
+            })();
             // Intake: il collegamento accettato si SCRIVE, nei due thread. Un
             // link muto è il modo in cui un feedback si perde — chi apre la card
             // bloccata deve leggere perché è ferma, e chi apre il bloccante deve

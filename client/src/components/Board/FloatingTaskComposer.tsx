@@ -15,6 +15,7 @@ import { ProjectPickerBody } from './ProjectPicker';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { useT } from '../../hooks/useT';
 import { DictationButton } from '../Shared/DictationButton';
+import { titoloDaTesto } from '../../../../shared/task-title';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -324,14 +325,21 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     const raw = text.trim();
     if (!raw || submitting) return;
     if (!target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
-    const lines = raw.split('\n');
-    const firstLine = lines[0].trim();
-    const title = firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine;
-    // Description = the text AFTER the first line — the drawer must not show
-    // the title glued again right under itself. A truncated first line keeps
-    // the full text so nothing is lost.
-    const rest = lines.slice(1).join('\n').trim();
-    const description = firstLine.length > 80 ? raw : rest || null;
+    // IL TAGLIO STA IN `shared/task-title.ts`, e taglia su PAROLA.
+    //
+    // Qui c'era `firstLine.slice(0, 77) + '…'`: un taglio al carattere,
+    // ovunque cadesse. Su un testo scritto va quasi sempre bene — chi scrive
+    // mette il titolo in cima — ma su un DETTATO diventa il preambolo mozzato:
+    // «Potremmo fare una roba molto figa per poter assicurarci che il nostro
+    // browser…» (card 235afe11, 20/08), settantotto caratteri che non dicono
+    // di che cosa parla la card.
+    //
+    // Questa e' la RETE, non la soluzione: il titolo vero lo ricava il server
+    // alla nascita della card, con lo stesso modello che nomina le chat
+    // (`services/task-title.ts`). Quando quello non c'e' — nessun modello
+    // configurato, rete assente — resta questo, che almeno non spezza le
+    // parole a meta'.
+    const { title, description } = titoloDaTesto(raw);
     setSubmitting(true);
     try {
       // Il collegamento viaggia DENTRO la create: non esiste un istante in cui
