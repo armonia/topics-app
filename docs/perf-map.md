@@ -38,7 +38,7 @@ intentions.
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
 | **Boot memory peak** | `phys_footprint (peak)` of a FRESH server booted on a copy of the real DB | `bun run probe:boot-memory` | not yet — new 2026-08-19 |
-| **What the memory panel SAYS** | that the headline number is explained when most of it is swapped, and that the advice matches the case | `tests/e2e/perf-panel.spec.ts` | yes (E2E shard) — new 2026-08-19 |
+| **What the memory panel SAYS** | that the headline number is explained when most of it is swapped, and that the advice matches the case | `tests/e2e/perf-panel.spec.ts` | yes — its 4 cases land in shard 3 of the real planner (verified, not assumed) |
 
 ## 2026-08-19: what "1.8 GB and 57 fps" actually was
 
