@@ -422,6 +422,62 @@ describe('applyHook — Monitor lifecycle (watching phase + monitorArmed flag)',
   });
 });
 
+/**
+ * LA SPIA ERA CABLATA A UN INTERRUTTORE STACCATO.
+ *
+ * Il blocco qui sopra prova la macchina di `watching` attraverso i due hook
+ * `MonitorArmed`/`MonitorClosed` — che Claude Code NON EMETTE PIÙ: sul binario
+ * 2.1.237 la lista degli eventi hook ne conta 31 e nessuno dei due c'è. Quei
+ * test erano verdi e la fase, in produzione, non si accendeva mai: una chat che
+ * sorvegliava un build si leggeva uguale a una che aveva smesso di rispondere.
+ *
+ * Il segnale che ARRIVA DAVVERO è il `PreToolUse` di `Monitor`. Questo blocco
+ * pinna quella via, ed è la ragione per cui il vecchio resta: il giorno che i
+ * due hook tornassero, entrambe le strade devono continuare a valere.
+ */
+describe('applyHook — un Monitor che parte arma l\'attesa (via PreToolUse)', () => {
+  it('il PreToolUse di Monitor arma il flag, senza cambiare la fase', () => {
+    // Il tool sta PARTENDO: la fase è `tool-running` come per ogni altro. La
+    // differenza è che questo, finendo, lascia qualcosa dietro di sé.
+    const s0 = freshState({ phase: 'running', rev: 1 });
+    const s1 = applyHook(s0, hook('PreToolUse', { tool_name: 'Monitor' }), T0 + TICK);
+    expect(s1.phase).toBe('tool-running');
+    expect(s1.monitorArmed).toBe(true);
+  });
+
+  it('e allo Stop la chat resta in ascolto invece di sembrare finita', () => {
+    // È tutto il punto: senza il flag, questo `Stop` direbbe `awaiting-user` —
+    // «tocca a te» — mentre in realtà c'è un build sotto sorveglianza e la
+    // risposta arriverà da sola.
+    let s = freshState({ phase: 'running', rev: 1 });
+    s = applyHook(s, hook('PreToolUse', { tool_name: 'Monitor' }), T0 + TICK);
+    s = applyHook(s, hook('PostToolUse', { tool_name: 'Monitor' }), T0 + 2 * TICK);
+    expect(s.phase).toBe('running');
+    s = applyHook(s, hook('Stop'), T0 + 3 * TICK);
+    expect(s.phase).toBe('watching');
+    expect(s.monitorArmed).toBe(true);
+  });
+
+  it('un tool qualunque NON arma niente', () => {
+    // La regola deve restare stretta: se `Bash` armasse un'attesa, ogni chat
+    // finirebbe in `watching` per sempre — una spia sempre accesa non dice piu'
+    // niente, esattamente come una che non si accende mai.
+    const s = applyHook(freshState({ phase: 'running', rev: 1 }), hook('PreToolUse', { tool_name: 'Bash' }), T0 + TICK);
+    expect(s.monitorArmed).toBeFalsy();
+  });
+
+  it('un secondo tool nello stesso turno non disarma il Monitor', () => {
+    // L'agente arma la sorveglianza e poi continua a lavorare: quel lavoro non
+    // ha spento niente.
+    let s = freshState({ phase: 'running', rev: 1 });
+    s = applyHook(s, hook('PreToolUse', { tool_name: 'Monitor' }), T0 + TICK);
+    s = applyHook(s, hook('PreToolUse', { tool_name: 'Edit' }), T0 + 2 * TICK);
+    expect(s.monitorArmed).toBe(true);
+    s = applyHook(s, hook('Stop'), T0 + 3 * TICK);
+    expect(s.phase).toBe('watching');
+  });
+});
+
 describe('applyJsonlEvent — replay path', () => {
   it('user event moves to running', () => {
     const s0 = freshState({ phase: 'starting', rev: 0 });
