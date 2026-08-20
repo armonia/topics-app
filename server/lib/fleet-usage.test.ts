@@ -304,3 +304,98 @@ describe("CPU istantanea, non media di vita", () => {
     expect(out.cpuPercent).toBe(198);
   });
 });
+
+describe("il buco da 911 MB: responsible pid E ppid, non l'uno O l'altro", () => {
+  /* IL CASO VERO, letto sull'app viva il 2026-08-20.
+   *
+   * I `claude` delle sessioni sono figli dell'ai-bridge, ma macOS li dichiara
+   * RESPONSABILI DI SE STESSI (`responsibility_get_pid_responsible_for_pid`
+   * torna il pid stesso). Il ramo `responsibleOf` cercava solo
+   * `responsible == root.pid`, quindi non appartenevano a nessun root: 911 MB
+   * di CLI degli agenti restavano fuori dal totale che la status bar esiste
+   * per mostrare.
+   *
+   * Non e' un caso limite: e' cio' che macOS fa a un programma lanciato come
+   * sessione propria, cioe' esattamente la parte che pesa. */
+  const rows: PsRow[] = parsePsRows(
+    [
+      " 10 1  90000  1.0 0:01.00 bun run server.ts",
+      " 57 1  20000  1.0 0:01.00 bun run ai-bridge.mjs --socket /tmp/a.sock",
+      " 95 57 554768 5.0 0:01.00 claude --print",   // figlio dell'ai-bridge…
+      " 91 57 362496 3.0 0:01.00 claude --print",   // …ma responsabile di se'
+      " 96 95 100000 1.0 0:01.00 mcp-server",       // e i loro figli
+    ].join("\n"),
+  );
+
+  /** Il responsible come lo riporta macOS in questo scenario. */
+  const responsibleOf = (pid: number): number | null => {
+    if (pid === 10 || pid === 57) return 10; // i nostri sotto il server
+    if (pid === 95 || pid === 91) return pid; // <- il caso che si perdeva
+    return null;
+  };
+
+  it("un processo responsabile di SE STESSO viene comunque attribuito al suo albero", () => {
+    const out = summarizeFleet(
+      rows,
+      [{ kind: "server", pid: 10 }, { kind: "ai-bridge", pid: 57 }],
+      undefined, 1, [], [], responsibleOf,
+    );
+    // Tutti e cinque: senza l'unione, 95/91/96 sparivano e restavano in 2.
+    expect(out.processCount).toBe(5);
+    expect(out.memoryMB).toBe(Math.round((90000 + 20000 + 554768 + 362496 + 100000) / 1024));
+  });
+
+  it("i figli di un processo che si auto-attribuisce non si perdono a loro volta", () => {
+    // 96 e' figlio di 95, che e' figlio di 57: senza risalire in modo
+    // transitivo, aggiungere 95 non basterebbe a portarsi dietro 96.
+    const out = summarizeFleet(
+      rows, [{ kind: "ai-bridge", pid: 57 }], undefined, 1, [], [], responsibleOf,
+    );
+    expect(out.roots[0].processCount).toBe(4); // 57 + 95 + 91 + 96
+  });
+
+  it("UNIRE non gonfia: nessun pid e' fatturato due volte", () => {
+    // Un pid raggiungibile sia per responsible sia per ppid deve contare una
+    // volta sola — altrimenti la correzione del buco ne aprirebbe uno opposto.
+    const out = summarizeFleet(
+      rows,
+      [{ kind: "server", pid: 10 }, { kind: "ai-bridge", pid: 57 }],
+      undefined, 1, [], [], responsibleOf,
+    );
+    const somma = out.roots.reduce((a, r) => a + r.processCount, 0);
+    expect(somma).toBe(out.processCount);
+    expect(out.processCount).toBe(new Set(rows.map(r => r.pid)).size);
+  });
+
+  it("un processo ESTRANEO resta fuori: unire non vuol dire prendere tutto", () => {
+    const conEstraneo = parsePsRows([
+      " 10 1  90000  1.0 0:01.00 bun run server.ts",
+      " 57 1  20000  1.0 0:01.00 bun run ai-bridge.mjs --socket /tmp/a.sock",
+      " 95 57 554768 5.0 0:01.00 claude --print",
+      " 77 1  700000 9.0 0:01.00 qualcun-altro",
+    ].join("\n"));
+    const out = summarizeFleet(
+      conEstraneo,
+      [{ kind: "server", pid: 10 }, { kind: "ai-bridge", pid: 57 }],
+      undefined, 1, [], [], responsibleOf,
+    );
+    expect(out.processCount).toBe(3);
+    expect(out.memoryMB).toBe(Math.round((90000 + 20000 + 554768) / 1024));
+  });
+
+  it("le SESSIONI non superano piu' il totale della flotta", () => {
+    // Il sintomo da cui e' partita la diagnosi: l'inventario mostrava
+    // «Terminali e sessioni: 669 MB» sopra un totale dichiarato di 560. Le
+    // sessioni sono una LENTE su processi gia' contati, quindi la loro somma
+    // non puo' eccedere il totale — se accade, il totale sta perdendo pezzi.
+    const out = summarizeFleet(
+      rows,
+      [{ kind: "server", pid: 10 }, { kind: "ai-bridge", pid: 57 }],
+      undefined, 1,
+      [{ sessionId: "a", name: "sessione-A", pid: 95 }, { sessionId: "b", name: "sessione-B", pid: 91 }],
+      [], responsibleOf,
+    );
+    const sessioni = out.sessions.reduce((a, s) => a + s.memoryMB, 0);
+    expect(sessioni).toBeLessThanOrEqual(out.memoryMB);
+  });
+});

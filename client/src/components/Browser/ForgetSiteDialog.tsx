@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { Cookie, Database, HardDrive } from 'lucide-react';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { planForgetSite, forgetSite, type ForgetSitePlan, type SiteDataBackend, type SiteDataGroup } from '../../lib/browserForgetSite';
@@ -43,6 +44,7 @@ const GROUP_ICON: Record<SiteDataGroup, typeof Cookie> = {
 };
 
 export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten }: ForgetSiteDialogProps) {
+  const tr = useT();
   const [plan, setPlan] = useState<ForgetSitePlan | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -72,7 +74,7 @@ export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten
 
   return (
     <ConfirmDialog
-      title={plan ? `Dimentica ${plan.host}?` : 'Dimentica questo sito?'}
+      title={plan ? tr('forget.titleHost', { host: plan.host }) : tr('forget.title')}
       confirmLabel={busy ? 'Cancello…' : 'Dimentica'}
       cancelLabel={nothing || unsupported ? 'Chiudi' : 'Annulla'}
       confirmDisabled={blocked}
@@ -80,20 +82,19 @@ export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten
       onCancel={busy ? () => {} : onClose}
     >
       <div data-testid="forget-site-dialog">
-        {!plan && <p>Leggo cosa c'è salvato per questo sito…</p>}
+        {!plan && <p>{tr('forget.loading')}</p>}
         {/* Motore esterno: i dati stanno nel profilo di quel Chromium, e da qui
             non si toccano. Dirlo è l'unica risposta onesta; elencare zero
             record farebbe credere che il sito non abbia salvato niente. */}
         {unsupported && (
           <p data-testid="forget-site-unsupported">
-            Questa scheda gira su un Chromium esterno: i dati del sito stanno nel profilo di quel
-            browser, e da qui non si cancellano.
+            {tr('forget.unsupported')}
           </p>
         )}
-        {nothing && <p>Per questo sito non c'è niente di salvato in questa tab.</p>}
+        {nothing && <p>{tr('forget.nothing')}</p>}
         {plan && !nothing && !unsupported && (
           <>
-            <p className="mb-2">Da questa tab del browser vengono cancellati:</p>
+            <p className="mb-2">{tr('forget.listIntro')}</p>
             <ul className="space-y-1.5 mb-3">
               {plan.items.map((item) => {
                 const Icon = GROUP_ICON[item.group];
@@ -111,11 +112,10 @@ export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten
             {/* I nomi dei silo, non l'host: è qui che si vede che dimenticare
                 la posta dimentica anche il resto del dominio. */}
             <p className="text-app-text-muted">
-              Vale per i dati salvati sotto{' '}
-              <span className="font-mono text-app-text-body">{plan.displayNames.join(', ')}</span>, sottodomini
-              compresi. Le altre tab e gli altri siti non si toccano.
+              {tr('forget.scopePrefix')}{' '}
+              <span className="font-mono text-app-text-body">{plan.displayNames.join(', ')}</span>{tr('forget.scopeSuffix')}
             </p>
-            <p className="text-app-text-muted mt-1">Non si può annullare.</p>
+            <p className="text-app-text-muted mt-1">{tr('forget.noUndo')}</p>
           </>
         )}
       </div>

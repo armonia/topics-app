@@ -275,6 +275,20 @@
    * sistema, questo è l'interno della finestra. */
   color-scheme: light;
 
+  /* LE DURATE E LE CURVE DEL MOVIMENTO, e sono le stesse di `lib/motion.ts`.
+   *
+   * La tabella vera sta in TS (con il perché di ogni gradino): là la leggono le
+   * animazioni scritte in JavaScript, qui i keyframe, che un modulo non lo
+   * possono importare. Le due copie non si allineano a mano: `motion.test.ts`
+   * legge QUESTO blocco e lo confronta con le costanti, riga per riga. */
+  --motion-instant: 90ms;
+  --motion-fast: 150ms;
+  --motion-base: 240ms;
+  --motion-slow: 400ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
   /* Un solo token di raggio, più la scala a tre gradini per i componenti. */
   --radius: 0.5rem;
   --radius-sm: calc(var(--radius) - 2px);
@@ -3530,4 +3544,83 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 
 @media (prefers-reduced-motion: reduce) {
   [data-drop-active] { transition: none; }
+}
+
+/* ─── Il movimento condiviso ─────────────────────────────────────────────
+ * Le durate e le curve sono i token `--motion-*` / `--ease-*` dichiarati in
+ * cima a questo file, e la loro tabella (con il perché di ogni gradino) vive in
+ * `lib/motion.ts`. Qui ci sono i tre movimenti che il CSS sa fare da solo: una
+ * frase che viene riscritta, un contenuto che prende il posto del suo
+ * scheletro, e la card che viaggia da una colonna all'altra (la parte CSS: il
+ * volo vero e proprio lo calcola `lib/boardFlight.ts`).
+ */
+
+/* Una LETTERA nuova che entra. Non è solo una dissolvenza: sale di un terzo di
+   riga e arriva a fuoco da 2px di sfocatura, che è ciò che la fa leggere come
+   una lettera che si POSA invece che come un pixel che si accende. Lo
+   `inline-block` è necessario perché `transform` non ha effetto su un inline;
+   il `nowrap` del `.morph-word` intorno impedisce che quegli inline-block
+   diventino punti dove andare a capo. */
+@keyframes morphCharIn {
+  from { opacity: 0; transform: translateY(0.34em) scale(0.94); filter: blur(2px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+
+.morph-char {
+  display: inline-block;
+  /* `both`: prima del proprio ritardo la lettera è già invisibile, altrimenti
+     tutte lampeggerebbero insieme al primo fotogramma e poi ripartirebbero. */
+  animation: morphCharIn var(--motion-base) var(--ease-standard) both;
+}
+
+.morph-word { white-space: nowrap; }
+
+/* La frase INTERA, quando le lettere cambiate sono troppe per essere contate
+   (vedi `MORPH_MAX_CHARS`): lì non c'è una parola che si corregge, c'è un'altra
+   frase, e si dissolve. */
+@keyframes morphBlockIn {
+  from { opacity: 0; filter: blur(3px); }
+  to { opacity: 1; filter: blur(0); }
+}
+
+.morph-block { animation: morphBlockIn var(--motion-fast) var(--ease-standard) both; }
+
+/* IL CONTENUTO CHE PRENDE IL POSTO DELLO SCHELETRO.
+   Lo scheletro ha già le misure del contenuto vero (vedi `Shared/Skeleton`),
+   quindi qui non c'è niente da far crescere: c'è solo da non far comparire il
+   contenuto di scatto sopra il grigio che pulsava. Una dissolvenza corta, senza
+   movimento — muovere il contenuto sarebbe tradire la promessa che lo scheletro
+   ha appena fatto sulla sua posizione. */
+@keyframes revealIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.reveal-in { animation: revealIn var(--motion-fast) var(--ease-standard) both; }
+
+/* IL FANTASMA CHE VIAGGIA fra due colonne della board.
+   È una copia della card, `fixed` sul body: dentro la colonna non poteva
+   volare, perché un corpo colonna scorre (`overflow-y: auto`) e un contenitore
+   che scorre TAGLIA anche in orizzontale, cioè proprio dove il viaggio va. Sul
+   body non c'è nessun antenato trasformato, che è la stessa ragione per cui ci
+   sta il fantasma del trascinamento. */
+.card-ghost {
+  position: fixed;
+  margin: 0;
+  pointer-events: none;
+  z-index: 60;
+  will-change: transform;
+}
+
+/* La card VERA mentre la sua copia sta volando. Non `visibility: hidden`: il
+   posto è già suo (le vicine si sono spostate per farglielo), va solo lasciato
+   vuoto finché il fantasma non ci atterra sopra. */
+.card-flying { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Il testo nuovo c'è, il viaggio no: chi ha chiesto meno movimento vede la
+     frase riscritta e la card nella colonna d'arrivo, senza niente che si
+     sposta. Le animazioni in JavaScript non partono affatto (`animateEl` in
+     `lib/motion.ts` torna null), quindi qui basta spegnere le classi CSS. */
+  .morph-char, .morph-block, .reveal-in { animation: none; }
 }

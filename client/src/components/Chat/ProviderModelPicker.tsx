@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Search, Settings, X, RefreshCw } from 'lucide-react';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
@@ -47,6 +48,7 @@ interface Props {
 }
 
 export function ProviderModelPicker({ override, defaultProviderLabel, onChange, onOpenSettings }: Props) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -197,8 +199,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             activeWindow.known ? 'bg-primary/15 text-primary' : 'bg-app-hover text-app-text-muted'
           }`}
           title={activeWindow.known
-            ? `Finestra di contesto: ${activeWindow.tokens.toLocaleString('it-IT')} token`
-            : `Modello non in tabella: finestra stimata in ${activeWindow.tokens.toLocaleString('it-IT')} token`}
+            ? tr('model.ctxWindow', { n: activeWindow.tokens.toLocaleString('it-IT') })
+            : tr('model.ctxWindow.guess', { n: activeWindow.tokens.toLocaleString('it-IT') })}
         >
           {activeWindow.known ? '' : '≈'}{formatContextWindow(activeWindow.tokens)}
         </span>
@@ -372,8 +374,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                             isSelected ? 'text-primary/80' : 'text-app-text-muted'
                           }`}
                           title={win.known
-                            ? `Finestra di contesto: ${win.tokens.toLocaleString('it-IT')} token`
-                            : `Modello non in tabella: finestra stimata in ${win.tokens.toLocaleString('it-IT')} token`}
+                            ? tr('model.ctxWindow', { n: win.tokens.toLocaleString('it-IT') })
+                            : tr('model.ctxWindow.guess', { n: win.tokens.toLocaleString('it-IT') })}
                         >
                           {win.known ? '' : '≈'}{formatContextWindow(win.tokens)}
                         </span>
