@@ -811,6 +811,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       {task.previewImage && (
         <PreviewMedia
           path={task.previewImage}
+          // Le ALTRE evidenze del thread: il carosello si naviga con la
+          // rotella e il click apre il lightbox. Vuoto = una slide sola, e il
+          // componente si comporta come prima.
+          paths={task.previewImages}
           variant="card"
           // Il click nudo sulla card apre il drawer sul Thread; questo apre lo
           // stesso task con l'anteprima GIÀ in primo piano come tab.
