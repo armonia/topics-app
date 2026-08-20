@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Cpu, FileDiff, GitBranch, Hand, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, FileDiff, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -1083,7 +1083,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
-            ><Hand className="h-3 w-3 shrink-0" /> {tr('board.card.movedByHand')}</span>
+            >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
+                  «la vedo sgranata», e misurata lo e' davvero. A 12px il
+                  viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'
+                  DENSA dell'intero set della card: 45,7px di linea da stipare
+                  in un lato di 12 (contro i 27 di questa, i 12,6 di un
+                  `user-round`, i 2 comandi di `circle-slash`). Nessun tratto
+                  piu' spesso lo ripara: il problema non e' lo spessore — 1px
+                  CSS su dpr 2 fa 2px fisici, cioe' nitido — ma il DETTAGLIO
+                  che non ci sta, cinque dita in dodici pixel.
+                  Le due frecce dicono anche meglio cosa e' successo: la card
+                  e' stata SPOSTATA, e chi l'ha spostata e' scritto accanto. */}
+              <ArrowRightLeft className="h-3 w-3 shrink-0" /> {tr('board.card.movedByHand')}</span>
           )}
           {checksGreen && (
             <span

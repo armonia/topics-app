@@ -9,6 +9,7 @@ import { runNotificationAction } from './lib/notify/notificationAction';
 import { decodeNotifyTarget, openNotifyToken } from './lib/notify/notifyTarget';
 import { boardNotificationDeps } from './lib/notify/boardActionDeps';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
+import { TooltipDelegate } from './components/Shared/TooltipDelegate';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { PaneType } from './types';
 import { useTopics } from './hooks/useTopics';
@@ -1182,6 +1183,14 @@ function App() {
     <SplitPositionProvider>
     <ToastProvider>
     <ConfirmProvider>
+    {/* IL TOOLTIP DELL'APP, per TUTTA l'app. Un delegato solo che intercetta
+        ogni `title=` esistente (erano 422) e lo rende col componente di
+        design invece che col rettangolo del sistema operativo: stessi colori,
+        piu' righe, e soprattutto compare in 350 ms invece che dopo il ritardo
+        del sistema, che su macOS supera il secondo. L'attributo viene
+        RIMESSO all'uscita, quindi i lettori di schermo continuano a trovarlo
+        dove lo cercano. Vedi `Shared/TooltipDelegate.tsx`. */}
+    <TooltipDelegate />
     {/* Il deep-link del boot (`/tab/…`, `/task/…`, `/topic/…`). Sta QUI dentro,
         e non in un effetto di App, perché il rifiuto di un permalink morto deve
         arrivare all'utente come toast — e `useToast()` sopra `<ToastProvider>`
