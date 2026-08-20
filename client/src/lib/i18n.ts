@@ -924,6 +924,8 @@ const IT: Dict = {
   'board.card.modelTitle': 'Modello: {model}',
   'board.card.liveEffortTitle': 'In esecuzione · modello {model}, {work} di lavoro{tokens} (aggiornamento live)',
   'board.card.liveEffortTokens': ', {n} token',
+  'board.card.triage': 'Triage',
+  'board.card.triageTitle': "Sta inquadrando il task: legge la card, riscrive il titolo, decide la priorità, apre i passi. Sparisce al primo segno che lascia sulla card.",
   'board.card.priorityTitle': 'Priorità: {label}',
   'board.card.seeAll': 'Vedi tutti',
   'board.card.openSubtaskTitle': '{status} · apri il sottotask',

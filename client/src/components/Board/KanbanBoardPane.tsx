@@ -1170,7 +1170,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return onMessage((msg) => {
       const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean; task?: BoardTask;
         taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null;
-        waiting?: boolean };
+        triage?: boolean; waiting?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
         // Il lampo è il segnale «è nato un task», e non ha un autore
@@ -1193,7 +1193,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
         setLiveUsage((prev) => {
           const n = new Map(prev);
-          n.set(m.taskId!, { turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0, model: m.model ?? null });
+          n.set(m.taskId!, { turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0, model: m.model ?? null, triage: m.triage === true });
           return n;
         });
       }
