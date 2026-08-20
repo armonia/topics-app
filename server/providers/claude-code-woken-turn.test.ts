@@ -33,7 +33,7 @@
  * gli eventi che non sono contenuto.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, afterEach } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import type { StreamHandler } from "./types";
@@ -95,10 +95,23 @@ const testo = (text: string) => ({
 });
 
 describe("claude-code · il turno che nasce da solo", () => {
+  // L'osservatore è STATICO (deve sopravvivere alla registrazione tardiva del
+  // provider e alla sua sostituzione: vedi `observeWokenTurns`), quindi è
+  // condiviso fra i test di questo file. Si disarma dopo ognuno, o il caso
+  // «nessuno in ascolto» erediterebbe la sveglia di quello prima e passerebbe
+  // per il motivo sbagliato.
+  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => {}); });
+
+  // L'osservatore è STATICO (deve sopravvivere alla registrazione tardiva del
+  // provider e alla sua sostituzione: vedi `observeWokenTurns`), quindi è stato
+  // condiviso fra i test di questo file. Si disarma dopo ognuno, o il caso
+  // «nessuno in ascolto» erediterebbe la sveglia di quello prima e passerebbe
+  // per il motivo sbagliato.
+  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => {}); });
   test("senza handler, un evento di contenuto SVEGLIA invece di cadere", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken1");
     const sveglie: string[] = [];
-    provider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
 
     // Il turno precedente è finito: nessun handler. È lo stato esatto in cui
     // arrivava la risposta del Monitor.
@@ -111,7 +124,7 @@ describe("claude-code · il turno che nasce da solo", () => {
   test("la sveglia si chiama UNA volta, non a ogni evento del risveglio", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken2");
     const sveglie: string[] = [];
-    provider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
 
     // La CLI manda un `assistant` per BLOCCO di contenuto: se ogni evento
     // svegliasse, un turno risvegliato aprirebbe dieci righe in chat.
@@ -124,7 +137,7 @@ describe("claude-code · il turno che nasce da solo", () => {
 
   test("gli eventi arrivati durante l'adozione si consegnano DOPO, in ordine", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken3");
-    provider.observeWokenTurns(() => { /* adozione asincrona: qui non fa nulla */ });
+    ClaudeCodeProvider.observeWokenTurns(() => { /* adozione asincrona: qui non fa nulla */ });
 
     // Fra la sveglia e l'handler passa una INSERT sul DB: in quel buco la CLI
     // continua a parlare. Questi tre eventi sono ciò che si perdeva.
@@ -147,7 +160,7 @@ describe("claude-code · il turno che nasce da solo", () => {
 
   test("il turno adottato si chiude normalmente: il `result` arriva a onDone", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken4");
-    provider.observeWokenTurns(() => {});
+    ClaudeCodeProvider.observeWokenTurns(() => {});
     emit(provider, pp, testo("Event ricevuto"));
 
     const h = makeHandler();
@@ -162,7 +175,7 @@ describe("claude-code · il turno che nasce da solo", () => {
   test("una RIADOZIONE non sveglia niente: sta rileggendo turni già finiti", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken5");
     const sveglie: string[] = [];
-    provider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
 
     // È la guardia che conta davvero. `reattach` ripercorre di proposito uno
     // store che contiene turni VECCHI: senza questa esclusione ogni riavvio del
@@ -182,7 +195,7 @@ describe("claude-code · il turno che nasce da solo", () => {
   test("con un handler vivo non si sveglia nessuno: è un turno normale", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken6");
     const sveglie: string[] = [];
-    provider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
 
     const h = makeHandler();
     pp.streamHandler = h.handler;
@@ -194,7 +207,7 @@ describe("claude-code · il turno che nasce da solo", () => {
 
   test("adottare quando qualcun altro guida già è un NO, non un doppione", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken7");
-    provider.observeWokenTurns(() => {});
+    ClaudeCodeProvider.observeWokenTurns(() => {});
     emit(provider, pp, testo("evento del monitor"));
 
     // La corsa vera: l'utente scrive un messaggio proprio mentre il Monitor
@@ -211,7 +224,7 @@ describe("claude-code · il turno che nasce da solo", () => {
 
   test("adottare una sessione morta è un NO", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken8");
-    provider.observeWokenTurns(() => {});
+    ClaudeCodeProvider.observeWokenTurns(() => {});
     emit(provider, pp, testo("evento"));
     pp.alive = false;
 
@@ -219,8 +232,11 @@ describe("claude-code · il turno che nasce da solo", () => {
   });
 
   test("senza nessuno in ascolto il comportamento resta quello di prima", () => {
-    // Nessun `observeWokenTurns`: il provider non deve rompersi né trattenere
-    // per sempre gli eventi di una sessione che nessuno adotterà.
+    // Sveglia esplicitamente SPENTA: l'osservatore è statico, quindi «non
+    // averlo mai armato» non si ottiene non facendo niente — lo si dichiara.
+    // Il provider non deve rompersi né trattenere per sempre gli eventi di una
+    // sessione che nessuno adotterà.
+    (ClaudeCodeProvider as unknown as { onWokenTurn: null }).onWokenTurn = null;
     const { provider, pp } = makeProviderWithStubProcess("topic:woken9");
     expect(() => emit(provider, pp, testo("nel vuoto"))).not.toThrow();
     expect(pp.streamHandler).toBeNull();
