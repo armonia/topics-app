@@ -78,6 +78,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { resolveBaselinePaths } from "./route-latency-baseline-pick";
 import { connect } from "node:net";
 import { cpus, loadavg } from "node:os";
 
@@ -318,63 +319,9 @@ export function benchPortFor(checkoutRoot: string): number {
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
-/**
- * QUALE BASELINE, perche' una sola non poteva bastare.
- *
- * Il commento di `calibrationOutOfScale` lo diceva gia' e questa e' la riga che
- * lo mantiene: «per quella serve una baseline registrata SUL runner e scelta
- * per macchina». Finche' il file era uno solo, il cancello rispondeva sempre
- * alla stessa domanda sbagliata — «questa macchina e' veloce quanto un M2 Max
- * scarico?» — e su qualunque altra usciva 2 (non misurabile) o un rosso che
- * descriveva l'hardware.
- *
- * Misurato il 2026-08-20 sulla postazione dell'utente, sei giri a load 24-27:
- * `topic_messages` 27,29 contro 15,18 ms fra due passate consecutive, e il
- * costo di prima chiamata di `dispatch_capacity` che `declared_limits`
- * documenta (2,0-2,5 poi 0,4-0,6, «SEMPRE in quest'ordine») non si riproduce
- * piu'. Non era una regressione: era Dia all'86% di un core.
- *
- * La chiave e' l'AMBIENTE, non il modello di CPU: `ci` quando gira in CI
- * (`GITHUB_ACTIONS`), altrimenti `local`. E' la distinzione che conta davvero,
- * perche' separa «VM condivisa, carico ignoto» da «postazione di qualcuno».
- * Un file per macchina fisica sarebbe piu' preciso e inutile: nessuno lo
- * aggiornerebbe.
- *
- * RIPIEGO ESPLICITO: se il file dell'ambiente non c'e', si usa quello storico
- * — cosi' chi non ha ancora registrato il suo continua ad avere il cancello di
- * prima invece di un errore. Il nome del file usato finisce nel referto, che e'
- * l'unico modo perche' un confronto fra macchine diverse si veda.
- */
-export function baselineEnvKey(env: NodeJS.ProcessEnv = process.env): "ci" | "local" {
-  return env.GITHUB_ACTIONS === "true" || env.CI === "true" ? "ci" : "local";
-}
-
-/** Il file per un ambiente, e quello storico come ripiego. */
-export function baselineCandidates(envKey: "ci" | "local", root = REPO_ROOT): string[] {
-  return [
-    resolve(root, `scripts/route-latency-baseline.${envKey}.json`),
-    resolve(root, "scripts/route-latency-baseline.json"),
-  ];
-}
-
-/** Il primo che esiste. `null` quando non c'e' nessuna baseline da nessuna parte. */
-export function pickBaselinePath(
-  envKey: "ci" | "local",
-  exists: (p: string) => boolean,
-  root = REPO_ROOT,
-): string | null {
-  for (const p of baselineCandidates(envKey, root)) if (exists(p)) return p;
-  return null;
-}
-
-/** L'ambiente di questa corsa, e i due file fra cui si sceglie. */
-const ENV_KEY = baselineEnvKey();
-/** Dove si SCRIVE con `--update-baseline`: sempre il file dell'ambiente, mai lo
- *  storico — cosi' registrare su una macchina non sovrascrive il numero
- *  dell'altra, che era il difetto originale. */
-const BASELINE_WRITE_PATH = baselineCandidates(ENV_KEY)[0]!;
-/** Dove si LEGGE: il file dell'ambiente se c'e', altrimenti lo storico. */
-const BASELINE_PATH = pickBaselinePath(ENV_KEY, existsSync) ?? BASELINE_WRITE_PATH;
+// Quale baseline si legge e quale si scrive: `route-latency-baseline-pick.ts`.
+const { envKey: ENV_KEY, read: BASELINE_PATH, write: BASELINE_WRITE_PATH } =
+  resolveBaselinePaths(REPO_ROOT, existsSync);
 
 /**
  * Quanto materiale c'e' nel database mentre si misura. Cambiarlo INVALIDA la
@@ -756,10 +703,7 @@ async function main(): Promise<void> {
     }
 
     const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline;
-    // QUALE baseline, detto sempre. Senza questa riga un rosso preso su una
-    // macchina e un verde preso su un'altra si leggono come lo stesso esito, e
-    // il confronto fra due numeri di provenienza diversa e' esattamente cio'
-    // che ha reso questo cancello muto per giorni.
+    // Quale baseline si sta confrontando: vedi `resolveBaselinePaths`.
     log(`baseline: ${basename(BASELINE_PATH)} (ambiente: ${ENV_KEY})`);
 
     const gap = corpusMismatch(CORPUS, baseline.corpus);

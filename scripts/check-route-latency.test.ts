@@ -12,13 +12,11 @@ import {
   machineTooLoaded,
   calibrationOutOfScale,
   CALIBRATION_KEY,
-  baselineEnvKey,
-  baselineCandidates,
-  pickBaselinePath,
   type Baseline,
   type RouteKey,
 } from "./check-route-latency";
 import { readRouteFault, applyRouteFault } from "../server/lib/route-fault";
+import { baselineEnvKey, baselineCandidates, pickBaselinePath } from "./route-latency-baseline-pick";
 
 /**
  * Il cancello sulle latenze, provato sui numeri invece che sul server.
