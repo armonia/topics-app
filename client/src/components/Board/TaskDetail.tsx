@@ -8,6 +8,7 @@ import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRi
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
+import { MorphText } from '../Shared/MorphText';
 import { ShareControl } from '../Share/ShareControl';
 import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -1886,7 +1887,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
             title={tr('board.task.editTitleTitle')}
             className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
-          >{task?.text}</p>
+          >{task ? <MorphText text={task.text} /> : null}</p>
         )}
         {/* Meta row — compact chips that wrap, card-style: priorità,
             modello · ⏱ effort (UN chip, come la card), piano-prima,
