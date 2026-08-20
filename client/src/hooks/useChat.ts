@@ -1998,7 +1998,7 @@ export function useChat() {
         // pagina come se fosse partita, mentre il testo viveva in un ref
         // invisibile che un reload buttava via — si vedeva un messaggio spedito
         // che non era mai esistito. Adesso l'unico posto in cui vive è la coda,
-        // e la coda si vede nel badge del composer.
+        // e la coda si vede come bolle «da inviare» nel trascritto.
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];
           let end = sessionMessages.length;
@@ -2086,7 +2086,7 @@ export function useChat() {
    * esplicite:
    *
    *   1. **freno**: se l'umano ha premuto «ferma», non riparte niente. La coda
-   *      resta visibile nel badge e la decide lui;
+   *      resta visibile nel trascritto e la decide lui;
    *   2. **occupato**: se un altro turno è in volo si riprova poco dopo, senza
    *      mai perdere l'item (che resta scritto su disco finché non è preso);
    *   3. **prenotazione**: la testa esce una volta sola anche con due finestre
@@ -2238,8 +2238,9 @@ export function useChat() {
     // per questo il freno si alza per primo e in modo DUREVOLE (le altre
     // finestre vedono solo «lo stream è finito», e ripartirebbero a spedire).
     // Era il guasto più grosso della coda: premere «ferma» faceva PARTIRE il
-    // messaggio successivo. La coda resta dov'è, visibile nel badge del
-    // composer: si corregge, si butta o riparte scrivendo il messaggio dopo.
+    // messaggio successivo. La coda resta dov'è, visibile come bolle «da
+    // inviare» nel trascritto: si corregge sul posto, si butta, riparte subito
+    // con «invia subito» o scrivendo il messaggio dopo.
     holdQueue(sessionKey);
     // Chi ha fermato il turno lo sa solo questa riga: da qui in poi la pagina è
     // indistinguibile da una risposta mai arrivata, e il composer accusava la
