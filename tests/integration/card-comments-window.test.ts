@@ -141,3 +141,36 @@ describe('la finestra dei commenti della card', () => {
     expect(out.some((r) => r.author === 'user')).toBe(false);
   });
 });
+
+/**
+ * LE DUE SPONDE DEVONO DIRE LA STESSA COSA sul testo che viaggia.
+ *
+ * Il client offre «mostra di più» quando il contesto supera
+ * `COMMENTO_PIEGA_CHARS` (620) e la sua doc promette: «il testo c'è tutto,
+ * basta un click». Il server ne mandava 200. Su 1.215 messaggi umani di questa
+ * macchina la mediana è 520 e il 76% sfora i 200: il bottone apriva su un testo
+ * che il server aveva già buttato — tre righe e poi il vuoto, senza che niente
+ * lo dicesse.
+ *
+ * Il numero non è libero: c'è un cancello sul peso del payload della board, e
+ * 620 è il più alto che ci sta dentro (800 lo sfonda). Questo test tiene le due
+ * costanti allineate, così chi alza una delle due trova l'altra qui.
+ */
+describe('il testo del contesto: server e client d\'accordo', () => {
+  test('il server ne manda almeno quanti il client ne mostra prima di piegare', () => {
+    const serverChars = Number(
+      TASKS_TS.match(/const CARD_CONTEXT_CHARS = (\d+);/)?.[1] ?? '0',
+    );
+    const constantsTs = fs.readFileSync(
+      path.join(PROJECT_ROOT, 'client/src/components/Board/constants.ts'), 'utf-8',
+    );
+    const clientPiega = Number(
+      constantsTs.match(/COMMENTO_PIEGA_CHARS = (\d+);/)?.[1] ?? '0',
+    );
+    expect(serverChars).toBeGreaterThan(0);
+    expect(clientPiega).toBeGreaterThan(0);
+    // Se il server ne manda MENO di quanti il client ne rende prima di offrire
+    // il pieghevole, quel bottone apre sul vuoto.
+    expect(serverChars).toBeGreaterThanOrEqual(clientPiega);
+  });
+});

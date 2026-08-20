@@ -1599,15 +1599,46 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * L'ULTIMA parola del thread la card la stampa intera, formattata, senza
    * clamp: quella tiene 1.200 caratteri (misurato il 15/08 sul DB di questa
    * macchina: 1.538 commenti idonei, 544 KB, il più lungo 4.020 caratteri —
-   * sopra il tetto ci finisce il 6% di loro). Quelle PRIMA di lei possono
-   * comparire solo come riga di contesto, che è una riga sola tagliata con
-   * `truncate`: lì 200 caratteri sono già più di quanto entri nel riquadro.
+   * sopra il tetto ci finisce il 6% di loro). Quelle PRIMA di lei compaiono
+   * come riga di contesto, sotto la risposta che stanno spiegando.
+   *
+   * ── PERCHÉ IL CONTESTO NON È PIÙ 200 ──────────────────────────────────────
+   * Erano 200 quando quella riga era «una riga sola tagliata con `truncate`»,
+   * e allora bastavano. Non lo è più da un pezzo: il client la ripiega su tre
+   * righe con un «mostra di più» che scatta a 190 caratteri
+   * (`RICHIESTA_PIEGA_CHARS`), e la sua doc promette «il testo c'è tutto,
+   * basta un click».
+   *
+   * Quella promessa era falsa, e di molto. Misurati i messaggi umani su questa
+   * macchina: 1.215 righe, mediana 520 caratteri, p90 1.776 — il 76% sopra i
+   * 200. Il bottone «mostra di più» apriva su un testo che il SERVER aveva già
+   * buttato: tre righe e poi il vuoto, senza che niente lo dicesse.
+   *
+   * Ora il contesto tiene 620, che è `COMMENTO_PIEGA_CHARS` del client: la
+   * soglia oltre la quale la card offre «mostra di più». Sotto quel numero il
+   * testo c'è davvero tutto e il bottone non compare; sopra, il bottone apre su
+   * qualcosa invece che sul vuoto.
+   *
+   * IL NUMERO NON È SCELTO, È IL PIÙ ALTO CHE STA NEL BUDGET. C'è un cancello
+   * sul peso del payload della board (`tests/integration/board-payload-weight`),
+   * e il suo commento nomina proprio questo errore fra i modi di sfondarlo:
+   * «togliendo il taglio del testo». Misurato per gradi sulla sua fixture:
+   * 200/400/620 passano, 800 sfonda (2.701 byte per task contro un tetto di
+   * 2.600), e 1.200 sfonda di brutto (2.968). Alzare il tetto per far entrare
+   * la mia scelta sarebbe stato spegnere il cancello invece di rispettarlo.
+   *
+   * Cosa compra: i messaggi umani interi passano dal 24% al 54% (1.215 righe su
+   * questa macchina). Il resto arriva tagliato ma con il pieghevole che ha
+   * qualcosa da aprire, che è il contratto che il client dichiara.
+   *
+   * Il costo in righe è misurato e trascurabile (vedi `cardCommentsFor`: 84
+   * righe in più su 1.980, query invariata a 57 ms su 18.579 commenti).
    *
    * Il dettaglio del task porta il thread intero: qui basta ciò che si legge su
    * una scheda.
    */
   const CARD_COMMENT_CHARS = 1200;
-  const CARD_CONTEXT_CHARS = 200;
+  const CARD_CONTEXT_CHARS = 620;
 
   /**
    * Il taglio del testo di un commento, CHE NON PUÒ SPEZZARE UNA ```question.
