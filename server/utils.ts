@@ -971,6 +971,29 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
+  /**
+   * Scrive SOLO `updated_at` per un topic, e restituisce la riga RILETTA.
+   *
+   * Il bump di attività chiude il turno di chat, cioè arriva MINUTI dopo che
+   * la richiesta ha letto il topic. Farlo con `saveSingleTopic(topic)` significa
+   * riscrivere venti colonne dall'oggetto letto all'inizio del turno: tutto ciò
+   * che il turno stesso ha cambiato nel frattempo — `project_path` scritto da
+   * `open_project`, il nome, il provider — torna al valore vecchio. È così che
+   * una chat spostata in un progetto a metà risposta si ritrovava slegata a fine
+   * risposta, senza un errore da nessuna parte.
+   *
+   * Ritorna `null` se il topic non esiste più (cancellato mentre il turno era in
+   * corso): il chiamante salta il broadcast invece di annunciare un fantasma.
+   */
+  function touchTopicActivity(topicId: string, updatedAt: string): Topic | null {
+    try {
+      db.prepare("UPDATE topics SET updated_at = ? WHERE id = ?").run(updatedAt, topicId);
+    } catch (err) {
+      console.warn(`[topics] touchTopicActivity(${topicId}) fallita:`, (err as Error).message);
+    }
+    return getTopicById(topicId);
+  }
+
   // Il modulo push-triggers è puro; qui gli passiamo i dati che gli servono e
   // che vivono sul DB — il nome del topic per il titolo della push di fine
   // risposta, e la riga + le impostazioni su cui `isTopicSilenced` decide il
@@ -2284,7 +2307,7 @@ export function createAppContext(baseDir: string): AppContext {
     activeStreams, wsClients,
     broadcast, broadcastToAll, broadcastProject, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
-    getTopicById, getTopicBySessionKey, setTopicBrowserState,
+    getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
     loadUnread, saveUnread,
     loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, appendToLastMessage,
