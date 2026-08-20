@@ -863,6 +863,41 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
 }
 
+/**
+ * Il gemello di `runHeadlessReattach` per il turno che la CLI apre DA SOLA
+ * (`Monitor` che consegna). Stessa route, stesso drenaggio SSE, stessa lettura
+ * della fine: cambia solo il `mode`, perché cambia solo COME ci si attacca —
+ * il provider ha già gli eventi in mano, non c'è nessuno store da rileggere.
+ *
+ * Nessun tetto a orologio come negli altri due: quel tetto è la promessa fatta
+ * al DISPATCHER, che aspetta un verdetto per una card. Qui non aspetta nessuno —
+ * è una risposta che arriva in chat mentre l'utente fa altro — e imporre una
+ * scadenza vorrebbe dire troncare la risposta di un Monitor che si è messo a
+ * lavorare sul serio. Il turno finisce quando finisce; le reti che lo chiudono
+ * comunque (watchdog d'inattività del provider, sweeper StaleStream) sono le
+ * stesse di ogni altro turno di chat.
+ */
+async function runHeadlessWoken(sessionKey: string): Promise<TurnEndInfo> {
+  const url = new URL("http://localhost/api/chat");
+  // Il provider si DICHIARA, per la stessa ragione del riattacco: senza, si
+  // cade sul default della macchina e la sveglia di claude-code finirebbe a
+  // bussare a un provider che non possiede quel figlio.
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code" });
+  // Stesso patto degli altri due: residuo via prima di iniziare.
+  takeTurnEnd(sessionKey);
+  const resp = await topicsRouter(
+    new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
+    url, "/api/chat", "POST",
+  );
+  if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat (woken)" };
+  const rejected = rejectedTurn(resp, "/api/chat (woken)");
+  if (rejected) return rejected;
+  const reader = resp.body.getReader();
+  try { while (true) { const { done } = await reader.read(); if (done) break; } }
+  finally { try { reader.releaseLock(); } catch { /* already released */ } }
+  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
+}
+
 // Ad-hoc dirs the server already references: topic projectPaths + terminal
 // cwds. Most boards belong to projects opened this way (folder picker, Claude
 // terminals) that were never registered in the ProjectStore — without these
@@ -4353,6 +4388,50 @@ function reconcileArchivedTopicSessions(): void {
     console.log(`[archived-sessions] ${rows.length} sessione/i viva/e su topic archiviati, ${parked} parcheggiata/e → dormant`);
   }
 }
+
+// ── IL TURNO CHE NASCE DA SOLO ────────────────────────────────────────────
+//
+// Un `Monitor` armato dall'agente («avvisami quando il build finisce») consegna
+// il suo evento aprendo un TURNO NUOVO: la CLI risveglia il figlio da sola e
+// produce una risposta vera, senza che nessuno abbia scritto niente. Misurato il
+// 20/08/2026 (CLI 2.1.237, stessa argv di Topics) — la traccia sta accanto a
+// `onWokenTurn` in providers/claude-code.ts.
+//
+// Fino a qui quella risposta si perdeva: nasce dopo un `result`, e dopo un
+// `result` nessuno ascolta più quella sessione. Il tool funzionava, la sua
+// risposta era invisibile — ed è per questo che il Monitor sembrava «perso».
+//
+// La cura riusa la macchina che già esiste. Un turno risvegliato è, per tutto
+// ciò che viene dopo, identico a uno riadottato dopo un riavvio: nessun
+// messaggio da mandare, una riga da riempire, uno stream da finalizzare. Quindi
+// si passa dalla STESSA route, con `mode: "woken"`, e non da una seconda copia
+// della finalizzazione.
+//
+// Fire-and-forget con la sua rete: se l'adozione fallisce (il turno è finito
+// mentre aprivamo la riga, o l'utente ha scritto e ha vinto lui) il log lo dice
+// e la sessione resta esattamente com'era.
+function adottaTurniRisvegliati(): void {
+  const prov = tryGetProvider("claude-code") as
+    | { observeWokenTurns?: (fn: (sk: string) => void) => void }
+    | undefined;
+  if (!prov?.observeWokenTurns) return;
+  prov.observeWokenTurns((sessionKey) => {
+    const topic = ctx.getTopicBySessionKey(sessionKey);
+    if (!topic || topic.archived) {
+      // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
+      // in un posto che l'utente non ha. Si lascia cadere, come prima.
+      console.log(`[woken] ${sessionKey}: turno spontaneo su una topic assente o archiviata — lasciato cadere`);
+      return;
+    }
+    console.log(`[woken] ${sessionKey}: la CLI ha aperto un turno da sola (Monitor o simile) — lo adotto`);
+    void runHeadlessWoken(sessionKey)
+      .then((end) => {
+        if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
+      })
+      .catch((err) => console.warn(`[woken] ${sessionKey} non adottato:`, err?.message ?? err));
+  });
+}
+adottaTurniRisvegliati();
 
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
 // child alive → they stay in the alive-set → reconcile skips them) and reaps
