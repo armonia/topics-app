@@ -13,6 +13,7 @@ import { Menu } from '../Shared/Menu';
 import { openExternalOnce } from '../../lib/openExternal';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, type LongPressBinding } from '../../hooks/useLongPress';
+import { useT } from '@/hooks/useT';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
  *  the rest muted). Falls back to the raw string for non-URLs (about:blank,
@@ -128,6 +129,7 @@ export function BrowserToolbar({
   onToggleShare,
   onForgetSite,
 }: BrowserToolbarProps) {
+  const tr = useT();
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -337,7 +339,7 @@ export function BrowserToolbar({
             ? navMenu.entries.filter(e => e.index < navMenu.activeIndex).reverse()
             : navMenu.entries.filter(e => e.index > navMenu.activeIndex);
           if (items.length === 0) {
-            return <div className="px-3 py-1.5 text-[11px] text-app-text-faint">Nessuna voce</div>;
+            return <div className="px-3 py-1.5 text-[11px] text-app-text-faint">{tr('browser.nav.empty')}</div>;
           }
           return (
             <div data-testid="browser-nav-history-menu">
@@ -371,8 +373,8 @@ export function BrowserToolbar({
           type="button"
           onClick={onBackToSpawner}
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-primary/15 text-app-text-secondary hover:text-primary transition-colors"
-          title={spawnerLabel ? `Torna alla chat "${spawnerLabel}"` : 'Torna alla chat che ha aperto questo browser'}
-          aria-label="Torna alla chat spawner"
+          title={spawnerLabel ? tr('browser.spawner.titleNamed', { name: spawnerLabel }) : tr('browser.spawner.title')}
+          aria-label={tr('browser.spawner.aria')}
           data-testid="browser-back-to-spawner"
         >
           <CornerUpLeft size={14} />
@@ -408,7 +410,7 @@ export function BrowserToolbar({
                   onChange={(e) => { setEditUrl(e.target.value); setEditing(true); }}
                   onFocus={() => { setEditUrl(displayUrl(url)); setEditing(true); }}
                   onBlur={() => { setTimeout(() => setEditing(false), 200); }}
-                  placeholder="Cerca o inserisci un indirizzo"
+                  placeholder={tr('browser.url.placeholder')}
                   spellCheck={false}
                   data-testid="browser-url-input"
                   className={`w-full ${padL} pr-2 py-1 text-[12px] rounded-md border border-transparent bg-transparent hover:bg-black/5 dark:hover:bg-white/5 focus:bg-transparent focus:border-app-border-input focus:outline-none text-app-text-heading placeholder-app-text-faint transition-colors ${showPretty ? 'text-transparent caret-transparent' : ''}`}
@@ -463,7 +465,7 @@ export function BrowserToolbar({
             type="button"
             onClick={() => setOverflowOpen((o) => !o)}
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors shrink-0"
-            title="Altri controlli"
+            title={tr('browser.toolbar.more')}
             data-testid="browser-toolbar-overflow"
             aria-haspopup="menu"
             aria-expanded={overflowOpen}
@@ -542,7 +544,7 @@ export function BrowserToolbar({
                   disabled={!url}
                   className={`${POPOVER_ITEM} disabled:opacity-40`}
                 >
-                  <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> Apri nel browser di sistema
+                  <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> {tr('browser.openSystem')}
                 </button>
               </>
             )}
@@ -559,10 +561,10 @@ export function BrowserToolbar({
                   className={POPOVER_ITEM_DANGER}
                   data-testid="browser-forget-site"
                   title={urlParts
-                    ? `Cancella sessione, dati e cache di ${urlParts.host} da questa tab`
-                    : 'Cancella sessione, dati e cache di questo sito da questa tab'}
+                    ? tr('browser.forget.titleHost', { host: urlParts.host })
+                    : tr('browser.forget.title')}
                 >
-                  <Trash2 size={13} className="shrink-0" /> Dimentica questo sito…
+                  <Trash2 size={13} className="shrink-0" /> {tr('browser.forget.label')}
                 </button>
               </>
             )}
@@ -627,7 +629,7 @@ export function BrowserToolbar({
             onClick={handleOpenExternal}
             disabled={!url}
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
-            title="Apri nel browser di sistema (per captcha / login difficili)"
+            title={tr('browser.openSystem.hint')}
           >
             <ExternalLink size={14} />
           </button>
