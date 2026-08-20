@@ -13,7 +13,7 @@ import { Menu } from '../Shared/Menu';
 import { openExternalOnce } from '../../lib/openExternal';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, type LongPressBinding } from '../../hooks/useLongPress';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
  *  the rest muted). Falls back to the raw string for non-URLs (about:blank,

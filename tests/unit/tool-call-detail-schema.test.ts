@@ -232,8 +232,8 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('exactly 18 variants in the union', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(18);
+  test('exactly 19 variants in the union', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(19);
   });
 
   test('all variant discriminators are unique', () => {
@@ -259,6 +259,7 @@ describe('schema completeness', () => {
         'plan',
         'mcp',
         'monitor',
+        'wait',
         'bash_output',
         'kill_shell',
         'notebook_edit',

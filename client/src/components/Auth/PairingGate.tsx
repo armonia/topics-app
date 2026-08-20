@@ -129,24 +129,24 @@ export function PairingGate({ session }: { session: SessionState }) {
           <>
             <div
               className="mt-8 select-all font-mono text-[34px] font-semibold tracking-[0.12em] text-app-text"
-              aria-label={`Codice di verifica ${code.split('').join(' ')}`}
+              aria-label={t('pair.code.aria', { code: code.split('').join(' ') })}
             >
               {code}
             </div>
             <p className="mt-4 text-[13px] leading-relaxed text-app-text-secondary">
               {t('pair.codeHint')}
               <br />
-              Controlla che sia lo stesso, poi tocca <span className="text-app-text">Autorizza</span>.
+              {t('pair.checkThenTap')} <span className="text-app-text">{t('pair.approve')}</span>.
             </p>
             <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-app-text-muted">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-              In attesa di conferma…
+              {t('pair.waiting')}
             </div>
           </>
         )}
 
         {!code && !error && !denied && (
-          <div className="mt-8 text-[13px] text-app-text-muted">Preparo la richiesta…</div>
+          <div className="mt-8 text-[13px] text-app-text-muted">{t('pair.preparing')}</div>
         )}
       </div>
     </div>

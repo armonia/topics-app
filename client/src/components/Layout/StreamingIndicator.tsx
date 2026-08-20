@@ -33,6 +33,7 @@
  */
 
 import { useTopicLoading, useTopicAwaitingInput, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useBrowserLoading } from '../../state/signals';
+import { useT } from '../../hooks/useT';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
@@ -372,6 +373,7 @@ export function ProjectStreamingSpinner({
   title,
   className = '',
 }: ProjectSpinnerProps) {
+  const tr = useT();
   // Central rollup: true if ANY child (chat / terminal / agent) of this
   // project is loading — computed from global signals, no window mount needed.
   // The project's "agg. X fa" last-update label is rendered by the sidebar row
@@ -385,7 +387,7 @@ export function ProjectStreamingSpinner({
   if (!loading) return null;
   return (
     <LoaderSlot
-      title={title ?? (waiting ? 'Una chat di questo progetto aspetta una tua risposta' : 'Una chat di questo progetto sta rispondendo')}
+      title={title ?? (waiting ? tr('project.chatWaits') : tr('project.chatAnswers'))}
       className={className}
       waiting={waiting}
     />

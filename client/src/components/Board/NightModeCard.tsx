@@ -96,7 +96,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
   return (
     <section
       className={`rounded-lg border px-2.5 py-2 transition-colors ${toneRing}`}
-      aria-label="Modalità notturna"
+      aria-label={tr('board.night.title')}
       data-testid="night-mode-card"
     >
       <label className="flex cursor-pointer items-center justify-between gap-2">

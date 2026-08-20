@@ -1,4 +1,5 @@
 import { ClipboardList, Check, X } from 'lucide-react';
+import { useT } from '../../hooks/useT';
 
 /**
  * Il piano che aspetta la tua approvazione, DOVE si risponde.
@@ -19,6 +20,7 @@ export function PlanApprovalBar({ onApprove, onReject, busy }: {
    *  manderebbe due turni. */
   busy?: boolean;
 }) {
+  const tr = useT();
   return (
     <div
       data-testid="plan-approval-bar"
@@ -26,7 +28,7 @@ export function PlanApprovalBar({ onApprove, onReject, busy }: {
     >
       <ClipboardList size={14} className="flex-shrink-0 text-amber-500" />
       <span className="min-w-0 flex-1 truncate text-[12px] text-app-text">
-        Un piano aspetta la tua approvazione
+        {tr('plan.awaiting')}
       </span>
       <button
         type="button"
@@ -44,7 +46,7 @@ export function PlanApprovalBar({ onApprove, onReject, busy }: {
         data-testid="plan-approve"
         className="flex-shrink-0 inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
       >
-        <Check size={12} /> Approva ed esegui
+        <Check size={12} /> {tr('plan.approveAndRun')}
       </button>
     </div>
   );
