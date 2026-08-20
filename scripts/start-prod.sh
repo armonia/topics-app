@@ -403,6 +403,15 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
               # avevano nessuna protezione, perche' il cancello che li tutela
               # sta DIETRO la porta che nessuno riusciva ad aprire.
               #
+              # Dal lato delle CARD, contando una uccisione per evento (il
+              # commento di requeue, non anche quello di chiusura): 93 turni
+              # tagliati su 67 task. Fra due uccisioni dello stesso task ci sono
+              # 26 intervalli — 7 sotto i cinque minuti, cioe' la raffica che
+              # nasce QUI, contro 1 solo nella finestra 25-30 minuti, che era la
+              # firma del cancello che non scadeva mai. Il difetto corretto
+              # prima di questo era reale ma raro; questo e' quello che fa i
+              # numeri.
+              #
               # Quindi prima di rassegnarsi si concede al server il tempo di
               # nascere e si RIPROVA a chiedere il riavvio pulito. Trenta
               # secondi coprono un init tipico (2-4s) con margine largo su una
