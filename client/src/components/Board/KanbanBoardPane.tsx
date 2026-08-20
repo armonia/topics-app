@@ -31,6 +31,7 @@ import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { GlobalCapControl } from './GlobalCapControl';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
+import { useBoardMotion } from './useBoardMotion';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
@@ -1364,6 +1365,23 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return groupByStatus(visible, orderScope);
   }, [tasks, filters, orderScope]);
 
+  /**
+   * LA FIRMA DELLE COLONNE, e serve al movimento.
+   *
+   * Il lampo dice DOVE guardare, ma non lega le due posizioni: una card che
+   * cambia stato spariva da una colonna e riappariva in un'altra nello stesso
+   * fotogramma. Adesso ci VIAGGIA, e le vicine le fanno spazio (vedi
+   * `useBoardMotion` e `lib/boardFlight`).
+   *
+   * Questa stringa e' il segnale che qualcosa PUO' essersi mosso: chi c'e', in
+   * che colonna, in che ordine. Non basta guardare `tasks`, perche' la board
+   * ri-renderizza ogni 4 secondi per far girare i contatori delle card al
+   * lavoro, e ogni giro costerebbe una misura di tutti i rettangoli.
+   */
+  const motionKey = useMemo(
+    () => TASK_STATUSES.map((s) => byStatus[s].map((t) => t.id).join(',')).join('|'),
+    [byStatus],
+  );
   // Le card che hanno appena cambiato COLONNA, e in quale sono arrivate: il
   // lampo prende il colore di quella colonna, quindi qui serve la destinazione,
   // non solo l'elenco. Si guarda `tasks` (la lista grezza), non `byStatus`: un
@@ -1671,6 +1689,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }, [patchTask, refetch, onCardError, flushDeferredRead]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Il movimento della board si aggancia qui: misura le colonne quando la firma
+  // cambia e anima chi si e' spostato. Mentre una card e' IN MANO non anima
+  // niente (comanda dnd-kit, che sta gia' muovendo gli stessi nodi), e la card
+  // appena lasciata la salta del tutto, perche' e' gia' arrivata dov'e' col
+  // dito: vedi `skipFlight` in `onDragEnd`.
+  const skipFlight = useBoardMotion(columnsScrollRef, motionKey, activeId === null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
   // a field that SITS ON IT: a card's quick-reply / "Scrivi all'agent" box,
   // which opens low in a column, right under the composer.
@@ -1723,6 +1747,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // qui resta solo il raccordo fra dnd-kit e la PATCH.
   const onDragEnd = useCallback((e: DragEndEvent) => {
     setActiveId(null);
+    // Questa card non viaggia al prossimo giro: il dito l'ha appena portata
+    // dov'e', e farla ripartire da dov'era per rifare il tragitto da sola
+    // sarebbe l'unica animazione che contraddice il gesto di chi guarda.
+    skipFlight(String(e.active.id));
     // Scongela le righe, e SOLO quello: la lettura che il drag ha parcheggiato
     // partirebbe prima della PATCH del drop e risponderebbe con lo stato di
     // partenza — la card tornava nella colonna di prima per un giro di rete
@@ -1751,7 +1779,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     // Nessun piano = nessuna scrittura da aspettare: la lettura parcheggiata
     // non ha più niente dietro cui mettersi in fila.
     if (plan) dropTo(task, plan); else flushDeferredRead();
-  }, [tasks, byStatus, dropTo, endDrag, flushDeferredRead, orderScope, tr]);
+  }, [tasks, byStatus, dropTo, endDrag, flushDeferredRead, orderScope, skipFlight, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
   /**
    * COSA HO IN MANO, in parole: la riga di contesto e i badge che la scheda di
@@ -1936,7 +1964,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden" data-testid="kanban-board">
+    // `reveal-in`: la board non compare di scatto al posto dell'anello. Il
+    // nodo nasce quando `loading` si spegne, quindi la dissolvenza parte una
+    // volta sola, al montaggio, e non a ogni ridisegno. Solo opacita': muovere
+    // le colonne mentre appaiono le farebbe leggere come se stessero arrivando
+    // da qualche parte, e non arrivano da nessuna parte.
+    <div className="reveal-in relative flex h-full flex-col overflow-hidden" data-testid="kanban-board">
       {/* Header: a project/all toggle inside a project, a static label globally.
           On phone the toolbar is too dense to fit — it becomes a single
           horizontally-scrollable strip (no wrap, hidden scrollbar) so nothing is
