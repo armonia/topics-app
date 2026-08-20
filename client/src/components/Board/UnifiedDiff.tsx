@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, FileCode, MessageSquarePlus, Trash2 } from 'lucide-react';
 import type { DiffBundle, DiffFileStat } from '../../lib/board';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';

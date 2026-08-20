@@ -15,7 +15,7 @@
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import type { ToolCallDetail } from '../../types';

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { X, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle } from 'lucide-react';
 import type { ProviderSnapshotEntry } from '../../types';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';

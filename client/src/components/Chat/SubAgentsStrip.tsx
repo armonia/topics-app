@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { Bot, Loader2 } from 'lucide-react';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 

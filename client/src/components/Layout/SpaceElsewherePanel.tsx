@@ -13,7 +13,7 @@
  * torna, senza nessuno da avvisare.
  */
 import { AppWindow, CornerDownLeft } from 'lucide-react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { usePaneStore } from '../../state/pane/store';
 import { closeSpaceWindow, focusSpaceWindow } from '../../lib/popOutSpace';
 import { DEFAULT_SPACE_ID } from '../../state/pane/types';

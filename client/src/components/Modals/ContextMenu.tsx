@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';

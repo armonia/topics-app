@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { ShieldCheck, Trash2, Loader2 } from 'lucide-react';
 import { toolGrantsApi, type ToolGrant } from '../../lib/api';
 

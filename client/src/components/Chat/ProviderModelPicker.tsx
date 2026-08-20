@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Search, Settings, X, RefreshCw } from 'lucide-react';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';

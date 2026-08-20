@@ -16,7 +16,7 @@
 // Non è collegabile finché il server non gestisce il canale di permesso della
 // CLI — vedi openspec/changes/autonomy-level-needs-permission-channel/.
 import { useMemo, useRef, useState } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';

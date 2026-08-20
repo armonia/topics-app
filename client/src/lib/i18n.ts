@@ -1824,6 +1824,17 @@ export function t(key: string, locale: Locale, vars?: Record<string, string | nu
  * l'unico modo di distinguere «questa lingua è incompleta» da «questa lingua
  * non è ancora arrivata», e sono due difetti diversi.
  */
+/**
+ * Tutte le chiavi del catalogo, per chi deve controllarle una per una.
+ *
+ * Esiste al posto di esportare `IT`: il dizionario intero, pubblico, invita a
+ * leggerne un valore direttamente invece di passare da `t()`, e quella e' la
+ * strada per cui una stringa smette di seguire la lingua scelta.
+ */
+export function chiaviDelCatalogo(): string[] {
+  return Object.keys(IT);
+}
+
 export async function missingKeys(locale: Locale): Promise<string[]> {
   await ensureLocaleLoaded(locale);
   await ensureLocaleLoaded(FALLBACK_LOCALE);

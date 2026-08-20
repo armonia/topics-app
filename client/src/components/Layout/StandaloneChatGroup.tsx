@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
-import { useT } from '@/hooks/useT';
+import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
