@@ -33,7 +33,7 @@
  * sul provider vero in `native/abort-cause.test.ts`.
  */
 import { test, expect, describe } from "bun:test";
-import { avvisoPerTurno, cancelledNotice, abortLogTitle } from "./cancelled-notice";
+import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione } from "./cancelled-notice";
 import type { TurnEndInfo } from "../providers/stop-reason";
 
 describe("cancelledNotice — chi merita una spiegazione in chat", () => {
@@ -169,5 +169,74 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
   test("chi non merita un cartello non ne prende uno nemmeno da qui", () => {
     expect(avvisoPerTurno({ end: "cancelled", cause: "user" }, { haProdotto: false })).toBeNull();
     expect(avvisoPerTurno({ end: "end_turn" }, { haProdotto: true })).toBeNull();
+  });
+});
+
+/**
+ * CHI MERITA UNA RIPRESA, letto dalla riga già salvata.
+ *
+ * La ripresa automatica al boot decideva su `blocks.some(b => b.kind ===
+ * "error")`: qualunque verdetto di guasto. Misurato sul database vivo, sugli
+ * ULTIMI messaggi di ogni sessione con un blocco `error`:
+ *
+ *     25 × «ai-bridge: ack timeout»
+ *      4 × «Process exited with code»
+ *      1 × «API 400»
+ *
+ * Nessuno è un'interruzione nostra. Sono guasti deterministici: rimandare il
+ * messaggio ricompra lo stesso fallimento, e su un turno lungo riapre tutti i
+ * giri di tool che aveva già fatto.
+ *
+ * Il predicato è volutamente STRETTO: un falso negativo lascia il cartello col
+ * bottone «Riprova», che è reversibile; un falso positivo brucia un turno vero.
+ */
+describe("eCartelloDiInterruzione — cosa si riprende e cosa no", () => {
+  test("i tre cartelli che nascono da un'interruzione nostra: sì", () => {
+    for (const cause of ["server-shutdown", "watchdog", "wall-clock"] as const) {
+      const testo = cancelledNotice({ end: "cancelled", cause })!;
+      expect(eCartelloDiInterruzione(testo)).toBe(true);
+    }
+  });
+
+  /**
+   * I CINQUE TESTI VERI presi dal database. Erano tutti «riprendibili» con la
+   * regola vecchia.
+   */
+  test("i guasti veri del database: no", () => {
+    for (const guasto of [
+      "ai-bridge: ack timeout (list, 5s)",
+      "ai-bridge: ack timeout (spawn topic:f4841e2f, 20s)",
+      "Process exited with code 1",
+      "API 400",
+      "Nessuna risposta: il turno si è chiuso senza produrre niente.",
+      "Riadozione del turno non riuscita: ai-bridge: ack timeout",
+    ]) {
+      expect(eCartelloDiInterruzione(guasto)).toBe(false);
+    }
+  });
+
+  /**
+   * Un annullamento SENZA causa dichiarata prende un cartello (lo dice
+   * `cancelledNotice`) ma NON si riprende: è la stessa regola di
+   * `meritaRipresaAutomatica`, e per la stessa ragione — non si indovina chi ha
+   * annullato.
+   */
+  test("il cartello generico non è un lasciapassare per la ripresa", () => {
+    const testo = cancelledNotice({ end: "cancelled" })!;
+    expect(testo).toBeTruthy();
+    expect(eCartelloDiInterruzione(testo)).toBe(false);
+  });
+
+  test("lo stop a mano non ha cartello, quindi non si riprende", () => {
+    expect(cancelledNotice({ end: "cancelled", cause: "user" })).toBeNull();
+    expect(eCartelloDiInterruzione(null)).toBe(false);
+    expect(eCartelloDiInterruzione("")).toBe(false);
+  });
+
+  /** Il prefisso ⚠️ può esserci o no: la riga in `content` lo porta, il blocco no. */
+  test("funziona con e senza il prefisso ⚠️", () => {
+    const conPrefisso = cancelledNotice({ end: "cancelled", cause: "server-shutdown" })!;
+    expect(eCartelloDiInterruzione(conPrefisso)).toBe(true);
+    expect(eCartelloDiInterruzione(conPrefisso.replace(/^⚠️\s*/, ""))).toBe(true);
   });
 });

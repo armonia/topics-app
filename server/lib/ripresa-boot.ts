@@ -35,6 +35,7 @@
  *     in mente.
  */
 import type { ContentBlock } from "../types";
+import { eCartelloDiInterruzione } from "./cancelled-notice";
 
 /** Quanto indietro si va a riprendere. Oltre, è storia. */
 export const FINESTRA_RIPRESA_MS = 30 * 60 * 1000;
@@ -65,7 +66,18 @@ export function chatDaRiprendere(r: RigaDaValutare, oraMs: number): boolean {
   // E soprattutto: c'è il verdetto di un'interruzione NOSTRA? Un turno chiuso
   // dall'utente non ce l'ha (`cancelledNotice` tace su `user`), quindi questo
   // controllo è anche il modo in cui il suo Ferma viene rispettato.
-  return r.blocks.some((b) => b?.kind === "error");
+  // NON basta «c'è un blocco error»: in quel blocco ci finisce OGNI verdetto di
+  // guasto. Misurato sul db vivo, sugli ultimi messaggi di ogni sessione con un
+  // blocco `error`: 25 «ai-bridge: ack timeout», 4 «Process exited with code»,
+  // 1 «API 400» — nessuno e' un'interruzione nostra. Sono guasti
+  // deterministici: rimandare il messaggio ricompra lo stesso fallimento, e su
+  // un turno lungo riapre tutti i giri di tool gia' fatti.
+  //
+  // Il testo del cartello lo riconosce chi lo scrive (`cancelled-notice.ts`),
+  // dove le frasi vivono: cosi' chi ne cambia una vede subito chi la legge.
+  return r.blocks.some((b) => b?.kind === "error" && eCartelloDiInterruzione(
+    typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "",
+  ));
 }
 
 /**
@@ -119,7 +131,7 @@ export async function riprendiTurniInterrotti(ctx: CtxRipresa, router: RouterCha
          FROM messages m
          JOIN (SELECT session_key, MAX(rowid) AS r FROM messages GROUP BY session_key) u
            ON u.r = m.rowid
-        WHERE m.timestamp >= datetime('now', '-1 hour')`,
+        WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`,
     ).all() as Array<{ sk: string; id: string; ruolo: string; blocks: unknown; ts: string }>;
     const ora = Date.now();
     for (const r of righe) {
