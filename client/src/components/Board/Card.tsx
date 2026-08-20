@@ -1158,7 +1158,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 // elemento che cresce col contenuto fa ballare i vicini.
                 <span className="ml-0.5 h-1 w-6 overflow-hidden rounded-full bg-white/15" aria-hidden>
                   <span
-                    data-testid="card-checks-progress-bar"
+                    /* NON `card-…`: quel prefisso e' riservato ai CHIP della
+                     * fascia, e un cancello (`card-meta-row-completeness`)
+                     * pretende che ognuno abbia una riga in `hasMetaRow` —
+                     * giustamente, perche' un chip fuori da quella condizione
+                     * non monta mai. Questa non e' un chip: e' il riempimento
+                     * DENTRO il chip dei check, e la sua condizione e' gia'
+                     * quella del chip che la contiene. */
+                    data-testid="checks-progress-bar"
                     className="block h-full rounded-full bg-app-text-muted transition-all"
                     style={{ width: `${Math.round((task.checksProgress.done / task.checksProgress.total) * 100)}%` }}
                   />
