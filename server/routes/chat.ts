@@ -1750,7 +1750,29 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // bottone «Riprova» esiste (`turnIsOnlyError`): prometterlo a chi
               // non ce l'ha era la bugia segnalata il 20/08.
               const haProdotto = fullContent.trim().length > 0 || blocks.some((b) => b.kind === "tool");
-              const avviso = avvisoPerTurno(endInfo, { haProdotto });
+              // «RIPRENDO DA SOLO» SI PROMETTE SOLO DOVE E' VERO, e la causa
+              // riprendibile e' UNA delle tre.
+              //
+              // `riprendiTurniInterrotti` e' una funzione di BOOT (server.ts, in
+              // coda al giro di riadozione). Su `server-shutdown` un boot segue
+              // per definizione — il processo sta morendo mentre scriviamo il
+              // cartello — quindi la promessa si mantiene da se'. Su `watchdog`
+              // e `wall-clock` il server RESTA SU: quella funzione non gira, e
+              // nessuno riprende niente.
+              //
+              // Prometterlo li' sarebbe il verso peggiore dell'errore: oggi
+              // l'utente vede «Riprova» e spende un turno di troppo (spreco
+              // VISIBILE), con la promessa vedrebbe «non serve che tu faccia
+              // niente» e il turno resterebbe perso in SILENZIO. Vale la regola
+              // che `meritaRipresaAutomatica` gia' dichiara: nel dubbio si
+              // lascia il cartello, che e' reversibile.
+              //
+              // Senza questa riga il campo non veniva passato da nessuno: la
+              // coda «Riprendo da solo» esisteva nel codice e non e' mai
+              // comparsa a schermo, nemmeno sui turni che il boot riprendeva
+              // davvero.
+              const riprendeDaSolo = endInfo.cause === "server-shutdown";
+              const avviso = avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
               if (avviso) {
                 blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
                 if (!fullContent.trim()) fullContent = avviso;
