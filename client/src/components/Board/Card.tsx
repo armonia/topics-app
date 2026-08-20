@@ -374,17 +374,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const lastComment = rowThread?.latest ?? thread?.latest ?? null;
   /** Chi parla non e' una persona ne' un agente: vedi `isMachineVoice`. */
   const noteDiMacchina = lastComment ? isMachineVoice(lastComment) : false;
-  /**
-   * La riga in cima e' CONTABILITA', non la parola della consegna.
-   *
-   * Quando il thread non ha nessuna parola vera, `selectCardComments` ripiega
-   * su una nota di macchina — meglio del silenzio, ma senza un cartello si
-   * legge come il riassunto dell'agente. Su `235afe11` la card apriva con
-   * «Fan-out chiuso: 3 tentativi, 1 con modifiche», e la ragione per cui un
-   * riassunto non c'era stava sepolta nel thread: il turno era stato tagliato
-   * da un riavvio prima che l'agente potesse commentare.
-   */
-  const soloCronacaMacchina = (rowThread ?? thread)?.latestIsPlumbing ?? false;
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -1393,16 +1382,29 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   `selectCardComments`), quindi il segno serve proprio nel caso in
                   cui non c'e' nient'altro con cui confrontarla. Anche il colore
                   scende a `muted`: e' contorno, non la parola della consegna. */}
-              {/* PERCHE' non c'e' un riassunto, detto prima di mostrare il
-                  ripiego. Il tag «Nota di sistema» dice CHI parla; questo dice
-                  che di consegna non ce n'e' una da leggere, ed e' l'unica
-                  informazione che salva chi guarda dal cercarla. */}
-              {soloCronacaMacchina && (
-                <span
-                  data-testid="card-comment-no-summary"
-                  className="mr-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1 py-px align-middle text-[10px] uppercase tracking-wide text-amber-200/80"
-                >{tr('board.card.noSummary')}</span>
-              )}
+              {/* IL CARTELLO «nessun riassunto» E' STATO TOLTO, e la ragione
+                  e' la stessa per cui e' uscita la scheda di consegna: ripeteva
+                  qualcosa che c'era gia'.
+
+                  Visto a schermo (20/08, card 235afe11): una fascia ambra
+                  MAIUSCOLA larga quanto la card che diceva «NESSUN RIASSUNTO
+                  DELLA CONSEGNA: SOTTO C'E' SOLO LA CRONACA DELLA MACCHINA», e
+                  subito sotto la cronaca stessa. Due righe per dire «quello che
+                  segue non vale molto» prima di mostrarlo: piu' rumore di
+                  quanto ne togliesse, su una card che ha gia' un titolo, un
+                  chip di consegna e due bottoni.
+
+                  L'informazione vera non manca — il dispatcher la scrive gia'
+                  nel thread («Consegna senza riassunto: il turno e' finito
+                  prima che l'agente commentasse»), con dentro anche il PERCHE',
+                  che un cartello generico non ha. Quella nota e' `kind:
+                  'service'`, quindi oggi la card la scarta: farla arrivare e'
+                  il modo giusto di risolvere questo, e vale piu' di
+                  un'etichetta che ripete il titolo di se' stessa.
+
+                  Resta `latestIsPlumbing` in `cardComments.ts`: la decisione e'
+                  giusta e provata, e serve a chi vorra' disegnarla meglio. Qui
+                  si toglie solo il modo in cui la disegnavo io. */}
               {noteDiMacchina && (
                 <span
                   data-testid="card-comment-system-tag"
