@@ -36,6 +36,11 @@ import type { Dict } from './i18n-types';
  * che vede.
  */
 const IT: Dict = {
+  'palette.hint.navigate': 'naviga',
+  'palette.hint.open': 'apri',
+  'palette.hint.close': 'chiudi',
+  'settings.board.showRow': 'Mostra la Board nella sidebar',
+  'settings.board.showRowBlurb': 'Una riga fissa in cima alla colonna, con i progetti e i conteggi per stato.',
   'board.night.title': 'Modalità notturna',
   'board.night.blurb':
     "Mentre sei via, la coda parte solo a macchina libera. Si spegne da sola all'orario di fine, invece di restare armata addosso a chi lavora.",
@@ -70,6 +75,10 @@ const IT: Dict = {
   'tab.menu.pin': 'Fissa',
   'tab.menu.unpin': 'Rimuovi dai Fissati',
   'board.task.movedToReviewBySystem': 'Portato in review dal sistema.',
+  // La sonda sull'output_url ha detto «morto»: il link non si apre da solo e la
+  // riga rossa dice perche', col nome dell'indirizzo dentro.
+  'board.task.previewUnreachable': 'Anteprima non raggiungibile.',
+  'board.task.previewUnreachableDetail': "Il server su {url} non risponde: il link non viene aperto automaticamente. Se il server di sviluppo e' spento, usa lo screenshot come evidenza.",
   // ── SCHEDA contro SESSIONE. Sono due superfici diverse e da qui in poi si
   //    chiamano diversamente, ovunque. La SCHEDA del task è dove si decide
   //    (descrizione, checklist, consegna, thread) ed esiste sempre; la SESSIONE
@@ -416,6 +425,23 @@ const IT: Dict = {
   'settings.page.organization.blurb': 'Il gruppo con cui condividi: nome, persone, ruoli e i progetti che gli appartengono.',
   'settings.page.friends.title': 'Amici',
   'settings.page.friends.blurb': 'Le facce e i numeri di chi lavora con te: profilo GitHub, prompt scritti, token consumati.',
+  // ── I PROGETTI DELL'ORGANIZZAZIONE (Impostazioni › Organizzazione). Erano
+  //    scritti a mano dentro il componente, quindi un utente in inglese leggeva
+  //    italiano e nessun traduttore poteva vederli. Le sei descrizioni sono
+  //    chiavi anche loro: sono la riga che spiega a cosa serve uno spazio, cioe'
+  //    l'unica cosa che si legge davvero di una proposta.
+  'settings.org.projects.title': "Progetti dell'organizzazione",
+  'settings.org.projects.empty': 'Nessun progetto ancora associato.',
+  'settings.org.projects.suggestedTitle': 'Spazi consigliati per Armonia',
+  'settings.org.projects.suggestedBadge': 'suggerito',
+  'settings.org.projects.alreadyThere': "gia' presente",
+  'settings.org.projects.hint': "Crea il progetto dalla sidebar (tasto destro) e assegnalo all'org.",
+  'settings.org.projects.blurb.danceroom': 'Spazio per la danza: coreografie, musica, sessioni live',
+  'settings.org.projects.blurb.topicsApp': 'Il prodotto principale: workspace per agenti',
+  'settings.org.projects.blurb.finance': 'Conti, budget e reportistica finanziaria',
+  'settings.org.projects.blurb.marketing': 'Campagne, contenuti e presenza online',
+  'settings.org.projects.blurb.dev': 'Progetti tecnici trasversali',
+  'settings.org.projects.blurb.ops': 'Operazioni, infrastruttura e processi interni',
   // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
   'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
@@ -1209,6 +1235,24 @@ const IT: Dict = {
   'browser.newTab.topSites': 'I tuoi siti',
   'browser.newTab.empty': 'I siti che apri più spesso compaiono qui.',
   'browser.newTab.forget': 'Togli {host} dai tuoi siti',
+  // ── Barra di sviluppo della pane browser: zoom, dispositivo e la tendina
+  //    della console. Le etichette dei chip per livello stanno in
+  //    `Browser/consoleLogModel.ts` insieme alla regola che filtrano, e restano
+  //    li'.
+  'browser.dev.zoomOut': 'Riduci zoom',
+  'browser.dev.zoomReset': 'Reimposta zoom (100%)',
+  'browser.dev.zoomIn': 'Aumenta zoom',
+  'browser.dev.device': 'Dispositivo: {name}',
+  'browser.dev.console.filterPlaceholder': 'Filtra i messaggi',
+  'browser.dev.console.filterLabel': 'Filtra i messaggi della console',
+  'browser.dev.console.copyVisible': 'Copia le righe visibili',
+  'browser.dev.console.copied': 'Copiato',
+  'browser.dev.console.copy': 'Copia',
+  'browser.dev.console.clear': 'Svuota la console',
+  'browser.dev.console.levelFilter': 'Filtra per livello',
+  'browser.dev.console.empty': 'Nessun messaggio',
+  'browser.dev.console.noMatch': 'Nessun messaggio corrisponde',
+  'browser.dev.console.toTail': 'Vai in fondo',
   // ── Gruppi (spaces) nella barra laterale. Il nome accessibile della freccia
   //    tiene il valore IT alla lettera: `sidebar-group-lifecycle.spec.ts` lo
   //    ancora come `/^(Apri|Chiudi) Gruppo 2$/`.

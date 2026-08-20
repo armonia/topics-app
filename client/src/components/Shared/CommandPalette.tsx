@@ -749,9 +749,9 @@ export function CommandPalette({
             toglie spazio proprio alla lista che deve leggersi. */}
         {!isMobile && (
           <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-[11px] text-app-text-muted flex-shrink-0">
-            <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> naviga</span>
-            <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> apri</span>
-            <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> chiudi</span>
+            <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> {t('palette.hint.navigate')}</span>
+            <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> {t('palette.hint.open')}</span>
+            <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> {t('palette.hint.close')}</span>
           </div>
         )}
       </div>
