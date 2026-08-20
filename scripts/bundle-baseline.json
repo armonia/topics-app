@@ -38,11 +38,49 @@
     "e una build sola e pulita ne emette 5 (`index-*` è il nome del chunk di ogni",
     "modulo che si chiama `index.ts`). Ora gli avanzi si riconoscono per",
     "raggiungibilità da index.html. Il valore qui è misurato a `public/assets`",
-    "pulito, 0 orfani, 164 file."
+    "pulito, 0 orfani, 164 file.",
+    "",
+    "2026-08-13 → 2026-08-20: entry eager +41.983 raw / +13.653 gz (+3,6% / +3,8%).",
+    "La stessa diligenza dei giri precedenti, e stavolta il numero netto NASCONDEVA",
+    "il fatto più interessante:",
+    "  · nessuna dipendenza nuova: `client/package.json` non cambia di una riga",
+    "    fra le due date.",
+    "  · nessun `lazy(` diventato statico. I siti pigri passano da 27 a 28 — uno in",
+    "    PIÙ — e l'elenco dei file che erano lazy e non lo sono più è vuoto.",
+    "  · critical_path ancora a 6 file: nessun asset eager in più in index.html.",
+    "  · il +13.653 gz è NETTO di un risparmio. Il dizionario EN è uscito dall'entry",
+    "    (`await import('./i18n-en')`, chunk suo da 65.824 raw / 20.567 gz); alla",
+    "    baseline del 13/08 IT ed EN erano entrambi eager dentro `i18n.ts`. Quindi",
+    "    l'entry ha ASSORBITO ~34 KB gz di codice eager nuovo mentre ne perdeva 20.",
+    "    (20.567 è il chunk isolato: dentro un chunk più grosso gzip avrebbe",
+    "    condiviso più dizionario, quindi è una stima per ECCESSO del risparmio, e",
+    "    il lordo vero è semmai un po' meno di 34.)",
+    "Comprato con 15.092 righe nette spedite in 220 file. Le altre 8.649 righe",
+    "entrate in client/src sono `.test.ts`, che non spediscono: contarle avrebbe",
+    "fatto sembrare il codice più economico di quello che è. ~2,3 byte gz per riga",
+    "spedita, in mezzo fra i 3,7 di luglio e gli 1,3 del 13/08.",
+    "",
+    "Chi alza il numero non è chi l'ha fatto crescere: il giro di QA del 20/08 ci ha",
+    "messo 3.778 raw, lo 0,31%. Il resto è cresciuto fra il 13 e il 20 senza che",
+    "nessuno alzasse la soglia, e un cancello che è rosso di default smette di",
+    "essere letto entro un mese — esattamente il motivo per cui più su esiste la",
+    "tolleranza. Alzo qui perché la diligenza che la regola «stesso commit» esiste",
+    "per imporre è stata fatta per intero e non ha trovato niente, non perché il",
+    "rosso desse fastidio. Se la prossima volta uno di quei tre controlli sporca,",
+    "il numero non si alza: si aggiusta l'import."
   ],
-  "updated": "2026-08-13",
+  "updated": "2026-08-20",
   "tolerance_pct": 2,
-  "entry_eager": { "raw": 1169907, "gz": 363223 },
-  "critical_path": { "raw": 1798822, "gz": 533227, "files": 6 },
-  "total_assets": { "raw": 8378950 }
+  "entry_eager": {
+    "raw": 1211890,
+    "gz": 376876
+  },
+  "critical_path": {
+    "raw": 1845483,
+    "gz": 548087,
+    "files": 6
+  },
+  "total_assets": {
+    "raw": 8544065
+  }
 }

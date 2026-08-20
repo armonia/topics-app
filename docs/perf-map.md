@@ -580,10 +580,22 @@ non-zero when it gets worse.
    | pty-bridge | 1 MB | 1 |
    | **total** | **179 MB** | **86 MB** |
 
-   **93 MB, 52%, for shipping two `.dmg` instead of one.** For scale: our own
-   compiled code inside that sidecar is ~2 MB (59 MB arm64 minus the 57 MB of
-   the bare `bun` binary), so rewriting the server in Rust would save ~57 MB —
-   *less* than splitting the architectures.
+   **93 MB, 52%, for shipping two `.dmg` instead of one** — on disk. The
+   DOWNLOAD is a different number and the distinction matters, because it is
+   what a user actually waits for: a `.dmg` compresses, and compressed the two
+   sides shrink unevenly. Measured with gzip on the real binaries:
+
+       universal   134 + 28 + 16 →  50 + 15 + 7 MB compressed  (~73 MB)
+       arm64 only   64 + 13 +  8 →  24 +  8 + 3 MB compressed  (~36 MB)
+
+   So the ratio holds (~51%) but the absolute saving is **~37 MB on the wire**,
+   not 93. Both numbers are real; they just answer different questions, and
+   quoting the disk figure for a download decision would overstate it by 2.5x.
+
+   For scale on the other axis: our own compiled code inside that sidecar is
+   ~2 MB (59 MB arm64 minus the 57 MB of the bare `bun` binary), so rewriting
+   the server in Rust would save ~57 MB on disk — *less* than splitting the
+   architectures.
 
    What holds the universal build is real and documented in
    `tauri-release.yml`: one universal `.dmg` means one `latest.json`, because
