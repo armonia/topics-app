@@ -87,6 +87,13 @@ for i in $(seq 1 24); do
   if trovata; then echo "== arrivato dopo ~$((i*5))s"; break; fi
 done
 
+# La sentinella compare mentre la riga e' ancora `partial`: il testo e' gia'
+# li', i BLOCCHI no. Una cronologia letta in quell'istante mostra la risposta
+# senza il suo cartello e fa gridare a una regressione che non c'e' — successo,
+# misurato. Si concede al turno di chiudersi e si rilegge.
+sleep 12
+trovata || true
+
 python3 - "$OUT/hist.json" "$SENTINELLA" <<'PY'
 import json,sys
 try: d=json.load(open(sys.argv[1]))
@@ -94,10 +101,19 @@ except Exception as e: print("   cronologia illeggibile:",e); raise SystemExit(1
 msgs=d if isinstance(d,list) else d.get("messages",[])
 print(f"== righe in chat: {len(msgs)}")
 for m in msgs: print("   ", m.get("role"), repr((m.get("content") or "")[:150]))
+svegliate=[m for m in msgs if m.get("role")=="assistant"
+           and any((b or {}).get("kind")=="woken" for b in (m.get("blocks") or []))]
 ok=any(m.get("role")=="assistant" and sys.argv[2] in (m.get("content") or "") for m in msgs)
+# Il CARTELLO: arrivare non basta, la riga deve dire da dove viene e COSA.
+cartelli=[(b.get("label") or "(muto)") for m in svegliate for b in (m.get("blocks") or [])
+          if (b or {}).get("kind")=="woken"]
+print(f"== righe col cartello [woken]: {len(svegliate)} -> {cartelli}")
+etichettato=any(c!="(muto)" for c in cartelli)
 print("\n== VERDETTO:", "la risposta del Monitor E' ARRIVATA IN CHAT" if ok
       else "NON e' arrivata — guarda le righe [woken] qui sotto")
-raise SystemExit(0 if ok else 1)
+print("== CARTELLO:", "porta il COSA: " + repr(cartelli[0]) if etichettato
+      else ("presente ma MUTO" if cartelli else "ASSENTE: la riga non dice di venire da un risveglio"))
+raise SystemExit(0 if (ok and etichettato) else 1)
 PY
 ESITO=$?
 
