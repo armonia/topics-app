@@ -142,10 +142,26 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
     return out;
   }, [path, paths]);
   const [i, setI] = useState(0);
-  /* L'indice non puo' sopravvivere a una lista che si accorcia: un task che
-   * perde un allegato mentre lo guardi lascerebbe l'indice oltre la fine, e la
-   * miniatura diventerebbe un riquadro vuoto. */
+  /* L'INDICE MOSTRATO E QUELLO MEMORIZZATO DEVONO COINCIDERE.
+   *
+   * Era `const idx = Math.min(i, slides.length - 1)`: un clamp in sola
+   * lettura, che serviva a non restare oltre la fine se la lista si accorcia.
+   * Ma nascondeva una divergenza — `i` poteva valere piu' di `idx`, e da li'
+   * tornare indietro voleva dire prima "smaltire" la differenza a vuoto.
+   *
+   * Misurato sull'app viva: con tre slide, cinque rotellate avanti e cinque
+   * indietro finivano su 1 invece che su 0. Le rotellate in eccesso in avanti
+   * non venivano scartate: `i` cresceva oltre il limite (2, 3, 4) mentre a
+   * schermo restava l'ultima, e il ritorno consumava quei passi fantasma.
+   *
+   * Adesso il clamp e' nello STATO — `setI` non scrive mai fuori dai limiti
+   * (vedi il gestore della rotella) — e qui resta solo la difesa contro una
+   * lista che si accorcia sotto: se succede, l'effetto sotto RIALLINEA anche
+   * lo stato, invece di lasciare i due numeri diversi. */
   const idx = Math.min(i, slides.length - 1);
+  useEffect(() => {
+    if (i > slides.length - 1) setI(Math.max(0, slides.length - 1));
+  }, [i, slides.length]);
   const corrente = slides[idx] ?? path;
   const url = getMediaUrl(corrente);
   const video = isVideoPath(corrente);
