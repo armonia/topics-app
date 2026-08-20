@@ -369,7 +369,68 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
               fi
               sleep 5
             else
-              echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
+              # NON SI UCCIDE UN SERVER CHE NON HA ANCORA POTUTO RISPONDERE.
+              #
+              # Si arriva qui quando `restart-when-idle` non ha risposto 202, e
+              # per mesi la conclusione e' stata «allora non e' raggiungibile:
+              # SIGTERM secco». Ma la causa piu' frequente non e' un server
+              # rotto: e' un server APPENA NATO, ancora dentro l'init, che la
+              # porta HTTP non l'ha ancora aperta. Un salvataggio emette due
+              # batch di fswatch (write + rename) e il secondo arriva proprio
+              # in quella finestra.
+              #
+              # Misurato sul log del 20/08: su 300 riavvii, 214 sono passati dal
+              # cancello e 86 da qui — e nel campione guardato da vicino ognuno
+              # colpiva un server nato da 11-18 secondi, che infatti moriva con
+              # «SIGTERM received during init — nothing owned yet». Il server
+              # ripartiva, un fswatch lo riuccideva, e via cosi': 151 uscite su
+              # 200 sotto il minuto. In quella raffica i turni delle card non
+              # avevano nessuna protezione, perche' il cancello che li tutela
+              # sta DIETRO la porta che nessuno riusciva ad aprire.
+              #
+              # Quindi prima di rassegnarsi si concede al server il tempo di
+              # nascere e si RIPROVA a chiedere il riavvio pulito. Trenta
+              # secondi coprono un init tipico (2-4s) con margine largo su una
+              # macchina carica. Solo se anche questo fallisce e' un server
+              # davvero muto, e allora il SIGTERM e' la risposta giusta.
+              RELOAD_ASKED3=0
+              if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
+                for _try in $(seq 1 15); do
+                  sleep 2
+                  kill -0 "$SP" 2>/dev/null || break   # e' gia' uscito da solo
+                  DTOKEN3=$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
+                  DPORT3=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
+                  [ -n "$DTOKEN3" ] && [ -n "$DPORT3" ] || continue
+                  for SCHEME3 in https http; do
+                    RESP3=$(curl -sk -m 3 -o /dev/null -w "%{http_code}" -X POST \
+                      -H "Authorization: Bearer $DTOKEN3" \
+                      "$SCHEME3://127.0.0.1:$DPORT3/__daemon/restart-when-idle" 2>/dev/null)
+                    if [ "$RESP3" = "202" ]; then
+                      echo "[start-prod] il server stava ancora nascendo: ora risponde → riavvio quando i turni finiscono"
+                      RELOAD_ASKED3=1
+                      break
+                    fi
+                  done
+                  [ "$RELOAD_ASKED3" = 1 ] && break
+                done
+              fi
+              if [ "$RELOAD_ASKED3" = 1 ]; then
+                # Ramo paziente: aspetta la finestra del server, come sopra.
+                QCAP_S3=$(( ${TOPICS_QUIESCENCE_CAP_MS:-1500000} / 1000 ))
+                QWAIT3=$(( QCAP_S3 + 60 ))
+                W3=0
+                while kill -0 "$SP" 2>/dev/null && [ "$W3" -lt "$QWAIT3" ]; do
+                  sleep 2
+                  W3=$((W3 + 2))
+                done
+                if kill -0 "$SP" 2>/dev/null; then
+                  echo "[start-prod] ATTENZIONE: il server $SP non e' uscito dopo ${W3}s — SIGTERM."
+                  kill -TERM "$SP" 2>/dev/null
+                fi
+                sleep 5
+                continue
+              fi
+              echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP): non risponde nemmeno dopo l'attesa di nascita"
               kill -TERM "$SP" 2>/dev/null
               # Settle window: one save can emit TWO fswatch batches (write +
               # rename straddling the 2s latency). Without this pause the second
