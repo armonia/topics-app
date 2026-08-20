@@ -194,6 +194,19 @@ export function getTopicPreview(topicId: string): TopicPreview | undefined {
   return state[topicId];
 }
 
+/**
+ * Quante anteprime sono in memoria adesso, per l'inventario del peso.
+ *
+ * CONTEGGI, non byte: questo stato vive nel renderer condiviso, dove nessuna
+ * lettura di sistema può separarne il costo da quello di chiunque altro (vedi
+ * `lib/featureWeight.ts`). Il numero utile è quanto TIENE — e ha un tetto
+ * dichiarato (`CACHE_MAX_TOPICS`), quindi conta anche sapere quanto ci si è
+ * vicini.
+ */
+export function previewsCount(): { entries: number; max: number } {
+  return { entries: Object.keys(state).length, max: CACHE_MAX_TOPICS };
+}
+
 /** Si iscrive a UN topic: un messaggio su un'altra chat non lo sveglia. */
 export function subscribeTopicPreview(topicId: string, fn: () => void): () => void {
   let subs = perTopic.get(topicId);
