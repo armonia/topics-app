@@ -61,6 +61,38 @@ test.describe.serial("Durabilita' al ricaricamento", () => {
     await page.locator('input[type=file]').first().setInputFiles(PIXEL);
     await expect(page.getByTestId("composer-attachment")).toHaveCount(1);
 
+    // Il chip che compare dice che lo STATO React ha l'allegato, non che il
+    // deposito ce l'ha: la scrittura su IndexedDB parte da un effetto ed e'
+    // asincrona. Ricaricare qui e' una corsa, e sotto contesa la si perde
+    // (visto: un flaky su una passata a due shard, 20/08). La precondizione
+    // vera e' «la riga esiste nel deposito», e si puo' chiedere.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            // `indexedDB.open(nome)` CREA il database se non c'e', a versione 1
+            // e senza object store. Se la sonda arrivasse per prima, la `open`
+            // dell'app troverebbe la versione 1 gia' buona, non farebbe scattare
+            // `onupgradeneeded`, e lo store non nascerebbe mai: la sonda
+            // romperebbe cio' che misura. Quindi prima si CHIEDE se esiste.
+            const esistenti = await indexedDB.databases();
+            if (!esistenti.some((d) => d.name === "topics-drafts")) return 0;
+            return new Promise<number>((risolvi) => {
+              const req = indexedDB.open("topics-drafts");
+              req.onerror = () => risolvi(-1);
+              req.onsuccess = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains("attachments")) return risolvi(0);
+                const q = db.transaction("attachments", "readonly").objectStore("attachments").count();
+                q.onsuccess = () => risolvi(q.result);
+                q.onerror = () => risolvi(-1);
+              };
+            });
+          }),
+        { timeout: 15_000, message: "l'allegato non e' mai arrivato nel deposito" },
+      )
+      .toBeGreaterThan(0);
+
     await page.reload({ waitUntil: "domcontentloaded" });
     const dopo = await openTestChat(page);
 
