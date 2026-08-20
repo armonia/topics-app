@@ -432,6 +432,22 @@ entry chunk, no `lazy(` went static. Healthy growth, not a bad import. The
 baseline's own rule says the number is raised in the commit that grew it, so it
 is left alone here and noted instead.
 
+**A night of real use later** (2026-08-20 morning), which is the one check no
+measurement taken the same evening could give:
+
+| | that night | after a night |
+|---|---|---|
+| server footprint | 260 MB | **273 MB** (RSS 51-64) |
+| DB | 213 MB | **229 MB**, `integrity_check` ok |
+| Topics resident, total | ~612 MB | **396 MB** |
+| writes at rest | 0 | **0** |
+
+The server has been up 6 hours and sits at 273 MB — the number that used to be
+936 at comparable age. The DB grew 16 MB from a night of writing and its
+compressed/plaintext split is unchanged (3,896 blob / 521 text, the latter all
+under the 512-byte threshold). Nothing regressed while nobody was watching,
+which is the only way that claim can be earned.
+
 **Where the user's own window ended up, measured at the close of the work.**
 This is the acceptance number — the same `mem-report` that produced the "1.8 GB"
 complaint, run again on the same live app:
