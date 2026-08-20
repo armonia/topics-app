@@ -247,3 +247,44 @@ test.describe('anteprima a piu\' slide', () => {
     await expect(pos).toHaveText('1 / 3');
   });
 });
+
+/**
+ * LA SCHEDA DI CONSEGNA NON VA SULLA CARD.
+ *
+ * Era il rimedio a «9 card su 16 col riquadro vuoto», e il ragionamento era
+ * buono: un silenzio vale come segnale solo se e' raro. Ma misurato il
+ * 2026-08-20 sulla board vera, **4 card su 10 in review mostravano una
+ * scheda** — il rimedio era diventato la norma, e quello che si vede aprendo
+ * la board non era piu' l'evidenza del lavoro ma un disegno che ripete la card.
+ *
+ * E ripete davvero: titolo, file toccati, righe aggiunte e tolte, ramo. Sono
+ * gli stessi fatti che la card ha gia' scritti sopra. Tre di quelle quattro non
+ * avevano nemmeno i numeri e dicevano «Nessun codice consegnato»: il 60% della
+ * larghezza per ripetere il titolo e dichiarare un'assenza.
+ *
+ * Resta nel DRAWER, dove lo spazio non e' conteso e dove il riassunto della
+ * consegna e' cio' che si cerca.
+ */
+test.describe('la scheda di consegna', () => {
+  test('non compare sulla card, dove ripeterebbe cio\' che c\'e\' gia\'', async ({ page }) => {
+    await apriBoard(page);
+    await expect(page.locator('[data-testid^="kanban-column-"]').first()).toBeVisible({ timeout: 20_000 });
+
+    // Nessuna anteprima di card punta a una scheda. Il percorso e' la firma:
+    // `.../task-sheets/<id>.svg` (vedi `shared/media-kind.ts`).
+    const schede = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="preview-card"] img')]
+        .map((i) => (i as HTMLImageElement).src)
+        .filter((src) => src.includes('task-sheets')));
+    expect(schede, `schede mostrate sulle card: ${schede.join(', ')}`).toEqual([]);
+  });
+
+  test('e il controllo sa vedere: le anteprime vere restano', async ({ page }) => {
+    // Il guasto silenzioso del caso qui sopra e' passare perche' NON C'E'
+    // nessuna anteprima. Questo lo esclude: la card di prova ne ha tre.
+    await apriBoard(page);
+    const img = page.locator('[data-testid="preview-card"] img');
+    await expect(img.first()).toBeVisible({ timeout: 20_000 });
+    expect(await img.count()).toBeGreaterThan(0);
+  });
+});
