@@ -1709,6 +1709,62 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const DESCRIPTION_PREVIEW_CHARS = 240;
 
   /**
+   * Quanto testo SQL porta su, prima che si scelga da dove far partire
+   * l'anteprima.
+   *
+   * Piu' di 240 perche' l'inizio si SCARTA quando e' un preambolo (vedi
+   * `anteprimaUtile`): tagliando gia' in SQL a 240, il materiale per saltarlo
+   * non arriverebbe mai. Il taglio finale resta 240 — quello che cambia e' da
+   * dove si contano.
+   *
+   * 800 e non 5.000: il tetto esiste perche' la lista non trasporti le
+   * descrizioni intere (misurate p90 2.131 caratteri, massimo 5.186, su 1.147
+   * righe), che e' la ragione per cui `substr` sta in SQL. Copre un cappello
+   * lungo piu' l'elenco che segue, senza riaprire la porta che quel taglio
+   * chiudeva.
+   */
+  const PREVIEW_SQL_CHARS = 800;
+
+  /**
+   * L'anteprima parte da dove comincia la SOSTANZA, non dal preambolo.
+   *
+   * Segnalato guardando una card: «anche la descrizione non ha senso». Su
+   * `235afe11` i 240 caratteri dell'anteprima erano cosi':
+   *
+   *     «Potremmo fare una roba molto figa per poter assicurarci che il nostro
+   *      browser ide sia effettivamente perfetto e interessante.
+   *      - Omologare la cronologia delle tab di navigazione con la cronologia
+   *        delle tab normali.
+   *      - Metterlo anche come menu»
+   *
+   * Meta' dello spazio bruciata da una frase che non dice niente, e il secondo
+   * punto elenco tagliato a meta'. La sostanza — cosa c'e' da fare — comincia
+   * al primo trattino.
+   *
+   * Quindi: se il testo ha un ELENCO, l'anteprima parte da li'. E' un taglio
+   * strutturale, non un giudizio sul contenuto: non si decide che una frase e'
+   * inutile, si osserva che chi ha scritto ha messo i punti sotto un cappello,
+   * e che i punti sono la parte che si legge.
+   *
+   * Il preambolo non si perde: il drawer mostra la descrizione INTERA. Qui si
+   * sceglie solo da dove far partire i 240 caratteri che stanno sulla card.
+   */
+  function anteprimaUtile(testo: string): string {
+    const t = testo.trimStart();
+    // Il primo punto elenco, se comincia una RIGA (non un trattino in mezzo a
+    // una frase) e se ha del testo sopra: senza cappello non c'e' niente da
+    // saltare, e partire dal secondo punto perderebbe il primo.
+    const m = t.match(/\n\s*(?:[-*•]\s+|\d+[.)]\s+)/);
+    if (!m || m.index === undefined) return t;
+    const cappello = t.slice(0, m.index).trim();
+    // Un cappello CORTO e' gia' il punto, non un preambolo: «Tre cose da fare:»
+    // vale piu' del primo elenco. Si salta solo cio' che e' lungo abbastanza da
+    // mangiarsi l'anteprima.
+    if (cappello.length < 80) return t;
+    return t.slice(m.index).trimStart();
+  }
+
+  /**
    * Il taglio dell'anteprima sui percorsi a riga singola, CON LA STESSA UNITÀ
    * dell'altro.
    *
@@ -1719,7 +1775,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `Array.from` itera per punti di codice, che è l'unità di `substr`.
    */
   const previewOf = (s: string): string =>
-    Array.from(s).slice(0, DESCRIPTION_PREVIEW_CHARS).join("");
+    Array.from(anteprimaUtile(s)).slice(0, DESCRIPTION_PREVIEW_CHARS).join("");
 
   /**
    * LA PROIEZIONE DELLA LISTA: tutte le colonne meno le due grasse.
@@ -1746,9 +1802,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         .map((c) => c.name)
         .filter((n) => n !== "checks_json" && (withDescription || n !== "description"));
       if (!cols.length) throw new Error("no columns");
-      sql = `${cols.join(", ")}, substr(description, 1, ${DESCRIPTION_PREVIEW_CHARS}) AS description_preview`;
+      sql = `${cols.join(", ")}, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
     } catch {
-      sql = `*, substr(description, 1, ${DESCRIPTION_PREVIEW_CHARS}) AS description_preview`;
+      sql = `*, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
     }
     listColumnsCache.set(key, sql);
     return sql;
@@ -2239,8 +2295,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // a riga singola, che leggono `SELECT *`, si taglia qui. Una sola forma per
     // il client, due modi di arrivarci.
     const description: string | null = r.description ?? null;
+    // UNA SOLA REGOLA PER I DUE PERCORSI. `description_preview` arriva da SQL
+    // con piu' materiale del necessario (`PREVIEW_SQL_CHARS`) proprio perche'
+    // la scelta di DOVE cominciare si fa qui, in un posto solo: se il taglio
+    // finale vivesse in due punti, la card mostrerebbe cose diverse a seconda
+    // che la riga venga da una lista o da una scrittura ribaltata sul WS.
     const preview: string | null = r.description_preview !== undefined
-      ? (r.description_preview ?? null)
+      ? (r.description_preview === null ? null : previewOf(r.description_preview))
       : description === null ? null : previewOf(description);
     return {
       id: r.id,

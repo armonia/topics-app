@@ -2530,3 +2530,61 @@ describe("uscire da Todo spegne il chip della coda", () => {
     expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "backlog" } }).dispatchState).toBe("working");
   });
 });
+
+/**
+ * L'ANTEPRIMA DELLA DESCRIZIONE parte da dove comincia la sostanza.
+ *
+ * Segnalato guardando una card: «anche la descrizione non ha senso». Su
+ * `235afe11` i 240 caratteri che la card mostra erano metà preambolo — «Potremmo
+ * fare una roba molto figa per poter assicurarci che il nostro browser ide sia
+ * effettivamente perfetto e interessante.» — e il secondo punto elenco finiva
+ * tagliato a metà. Quello che c'era da fare stava sotto.
+ *
+ * È un taglio STRUTTURALE, non un giudizio sul contenuto: non si decide che una
+ * frase è inutile, si osserva che chi scrive mette i punti sotto un cappello e
+ * che i punti sono la parte che si legge. Il preambolo non si perde: il drawer
+ * mostra la descrizione intera.
+ */
+describe("anteprima della descrizione", () => {
+  const svc2 = () => createTaskService(freshDb());
+
+  test("IL CASO 235afe11: salta il cappello lungo e parte dall'elenco", () => {
+    const s = svc2();
+    const t = s.create({
+      projectId: PID, text: "x",
+      description: "Potremmo fare una roba molto figa per poter assicurarci che il nostro browser ide sia effettivamente perfetto e interessante.\n- Omologare la cronologia delle tab.\n- Metterlo come menu nella sidebar.",
+    });
+    const [card] = s.list({ scope: "all", rootsOnly: true }).filter((r) => r.id === t.id);
+    expect(card!.descriptionPreview!.startsWith("- Omologare")).toBe(true);
+    // IL TESTO INTERO RESTA, e si legge dal DETTAGLIO — non dalla lista, che
+    // per costruzione non trasporta `description` (sono 470 KB: e' la ragione
+    // per cui il taglio sta in SQL). Qui si sceglie solo da dove partono i 240
+    // caratteri che stanno sulla card.
+    expect(s.get(t.id)?.task.description).toContain("Potremmo fare una roba");
+  });
+
+  /**
+   * UN CAPPELLO CORTO È GIÀ IL PUNTO: «Tre cose da fare:» vale più del primo
+   * elenco, e saltarlo perderebbe l'unica frase che inquadra la lista.
+   */
+  test("un cappello corto NON si salta", () => {
+    const s = svc2();
+    const t = s.create({ projectId: PID, text: "x", description: "Tre cose da fare:\n- una\n- due" });
+    const [card] = s.list({ scope: "all", rootsOnly: true }).filter((r) => r.id === t.id);
+    expect(card!.descriptionPreview!.startsWith("Tre cose da fare:")).toBe(true);
+  });
+
+  test("senza elenco l'anteprima resta l'inizio del testo", () => {
+    const s = svc2();
+    const t = s.create({ projectId: PID, text: "x", description: "Una descrizione lunga ".repeat(20) });
+    const [card] = s.list({ scope: "all", rootsOnly: true }).filter((r) => r.id === t.id);
+    expect(card!.descriptionPreview!.startsWith("Una descrizione lunga")).toBe(true);
+  });
+
+  test("il tetto resta 240 caratteri: la lista non trasporta le descrizioni intere", () => {
+    const s = svc2();
+    const t = s.create({ projectId: PID, text: "x", description: "y".repeat(5000) });
+    const [card] = s.list({ scope: "all", rootsOnly: true }).filter((r) => r.id === t.id);
+    expect(card!.descriptionPreview!.length).toBe(240);
+  });
+});
