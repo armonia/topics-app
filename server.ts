@@ -5023,6 +5023,17 @@ async function gracefulShutdown(signal: string) {
   // children orphaned and the next spawn started a fresh conversation. The
   // grace window inside stopAllProviders matches each provider's internal
   // SIGTERM→SIGKILL window so process.exit() doesn't truncate the flush.
+  //
+  // QUELLA FINESTRA ORA REGGE ANCHE IL CARTELLO IN CHAT, e va detto perché
+  // nessuno la accorci senza saperlo. `stop()` del runtime nativo annulla i
+  // turni vivi con causa `server-shutdown`; il cartello che spiega la caduta
+  // all'utente lo scrive il `catch` di `sendChat` → `onAborted` →
+  // `finalizeStream` → `updateLastMessage`. Fra l'`abort()` e quella scrittura
+  // c'è un giro di microtask (la promise del turno rigetta, il catch gira
+  // dopo): sincrono no, ma nemmeno lontanamente vicino ai 3500 ms. Se un domani
+  // questa finestra scendesse a zero, il turno morirebbe di nuovo senza una
+  // parola — con la differenza che stavolta il codice per parlare c'è, e
+  // sarebbe `closeDatabase()` a impedirglielo.
   await stopAllProviders();
   closeDatabase();
   releaseLock();
