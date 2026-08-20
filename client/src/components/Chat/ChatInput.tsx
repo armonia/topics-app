@@ -94,13 +94,6 @@ const COMPOSER_CARD =
 // Le AZIONI stanno in cima e i comandi sotto: il «+» lo apri per allegare un
 // file, non per leggere l'elenco degli slash.
 
-/** Avviso di contesto chiuso a mano, con la sessione a cui la chiusura appartiene. */
-interface DismissLatch {
-  key: string;
-  window: 'warn' | 'critical' | null;
-  cost: 'warn' | 'critical' | null;
-}
-
 function AddMenu({
   isCallActive, isListening, isSpeaking, autoTTS,
   voiceCallSupported, sttSupported, currentStreaming, uploading,
@@ -453,9 +446,9 @@ export function ChatInput({
   // Context Inspector, dove è etichettato per quello che è.
   const realContext = useRealContext(isDraftTopic ? null : topic.sessionKey, onMessage);
   const ringPercent = realContext ? realContext.percent : budgetPercent;
-  // Il tooltip dell'anello è dove vive il segnale di COSTO quando non merita un
-  // riquadro (vedi `contextNotice`): ambra sull'anello senza una riga che dica
-  // perché è un colore che l'umano non può interpretare.
+  // Il tooltip dell'anello è dove vive la SPIEGAZIONE, adesso che l'avviso è
+  // una pastiglia da tre caratteri: un numero ambra accanto all'anello dice a
+  // che punto siamo, il tooltip dice perché quel colore e cosa farci.
   //
   // La riga di base c'è SEMPRE, non solo sopra soglia, ed è un cambio voluto:
   // «ogni chiamata rilegge questi token» non è un allarme, è come funziona il
@@ -464,59 +457,38 @@ export function ChatInput({
   // nell'ispettore, a un click da qui.
   const ringCostHint = realContext
     ? realContext.level !== 'ok' && (realContext.reason ?? 'window') === 'cost'
-      ? '\nOgni chiamata a un tool rilegge questi token: è il costo per chiamata, non un problema di capienza. Apri l’ispettore per contesto × chiamate.'
-      : '\nOgni chiamata a un tool rilegge questi token: il costo è contesto × chiamate. Apri l’ispettore per il conto.'
+      ? '\nOgni chiamata a un tool rilegge questi token: è il costo per chiamata, non un problema di capienza. Apri l’ispettore per contesto × chiamate, e per «Compatta adesso».'
+      : realContext.level !== 'ok'
+        ? '\nLa finestra si sta riempiendo: quando finisce, la conversazione viene compattata e si perde dettaglio. Apri l’ispettore per compattare adesso, quando costa meno.'
+        : '\nOgni chiamata a un tool rilegge questi token: il costo è contesto × chiamate. Apri l’ispettore per il conto.'
     : '';
   const ringTitle = realContext
     ? `Contesto del modello: ${formatTokens(realContext.used)} / ${realContext.estimated ? '≈' : ''}${formatTokens(realContext.size)} (${realContext.percent}%)${realContext.model ? ` · ${realContext.model}` : ''}${ringCostHint}`
     : `Contesto iniettato (stima): ${budgetPercent}%`;
 
-  // Preavviso di compaction. Oggi la compaction si scopre a cose fatte, dal
-  // divider; con la misura reale diventa prevedibile — ed è l'unico momento in
-  // cui l'umano può ancora scegliere (compattare adesso, o aprire una chat
-  // nuova e tenersi questa intatta).
-  // La chiusura è per livello, non per sempre: chi archivia l'avviso al 72%
-  // non sta dicendo "non avvisarmi più" per quando arriverà al 93%.
-  // Il latch del dismiss è PER MOTIVO, non solo per livello.
+  // L'AVVISO DI CONTESTO, RIDOTTO A UN FATTO DERIVATO.
   //
-  // Da quando `critical` ha due trigger ortogonali — finestra piena (percentuale) e
-  // prompt costoso per chiamata (assoluto) — un solo latch li confondeva: zittire
-  // l'avviso di costo a 400k su un milione (40%, che si vede quasi subito) spegneva
-  // per sempre anche l'allarme vero di finestra piena a 900k, che è l'unico che non
-  // si può perdere. Due allarmi diversi, due latch.
+  // Era uno stato: un riquadro che si apriva sopra il composer e un latch di
+  // chiusura per motivo e per livello, perché un'interruzione larga quanto la
+  // chat DEVE potersi zittire. La pastiglia accanto all'anello non interrompe
+  // niente — sta dentro il bottone che già mostra la stessa misura — quindi non
+  // c'è più niente da zittire, e con l'interruttore se ne vanno le due cose che
+  // costava: uno stato per sessione da tenere allineato e la regola «il costo a
+  // livello warn non merita il riquadro», che esisteva solo per non stare
+  // addosso sempre. Adesso ogni livello non-`ok` si vede, perché vedersi costa
+  // tre caratteri.
   //
-  // Il latch porta con sé la SESSIONE a cui appartiene, invece di essere
-  // azzerato da un effetto al cambio di topic. Stessa regola («chiudere l'avviso
-  // vale solo per questa chat»), ma derivata: un reset in `useEffect` è un
-  // secondo render a ogni cambio di sessione, e per un fotogramma mostrava
-  // l'avviso della chat PRECEDENTE già chiuso su quella nuova.
-  const [dismissed, setDismissed] = useState<DismissLatch>({ key: topic.sessionKey, window: null, cost: null });
-  const activeDismissed: DismissLatch =
-    dismissed.key === topic.sessionKey ? dismissed : { key: topic.sessionKey, window: null, cost: null };
+  // Rosso vuol dire «stai per perdere pezzi di conversazione», e a farlo è solo
+  // la finestra che finisce. Un prompt caro resta ambra anche a livello
+  // critico: costa di più, non rompe niente.
   const contextNotice = (() => {
     if (!realContext || realContext.level === 'ok') return null;
-    const rank = { ok: 0, warn: 1, critical: 2 } as const;
     // `reason` assente = payload di un server più vecchio: si degrada a "window",
     // che è il comportamento storico.
     const reason = realContext.reason ?? 'window';
     const level = realContext.level as 'warn' | 'critical';
-    // Un riquadro con due bottoni è un'INTERRUZIONE: si spende solo dove c'è
-    // davvero una scelta da fare. Il costo per chiamata a livello `warn` — 200k
-    // su una finestra da un milione, cioè il 20% — non lo è: è lo stato normale
-    // di qualunque sessione di lavoro dopo mezz'ora, quindi l'avviso stava
-    // addosso praticamente sempre e ha smesso di voler dire qualcosa (chiesto
-    // tre volte «ma che significa?», che è la misura del fallimento). Quel
-    // segnale resta dove non costa attenzione: l'anello ambra e il suo tooltip.
-    // Il riquadro torna a 400k, dove compattare si ripaga sul serio.
-    if (reason === 'cost' && level === 'warn') return null;
-    if (rank[level] <= rank[activeDismissed[reason] ?? 'ok']) return null;
-    // Rosso vuol dire «stai per perdere pezzi di conversazione», e a farlo è
-    // solo la finestra che finisce. Un prompt caro resta ambra anche a livello
-    // critico: costa di più, non rompe niente.
     return { ...realContext, reason, level, severe: level === 'critical' && reason === 'window' };
   })();
-  const dismissNotice = (n: { reason: 'window' | 'cost'; level: 'warn' | 'critical' }) =>
-    setDismissed({ ...activeDismissed, [n.reason]: n.level });
 
   // Context Inspector popover. Anchored to the ring button below; dismisses on
   // outside-pointer / Escape via the shared useDismissable contract (the ring
@@ -1070,70 +1042,18 @@ export function ChatInput({
         </div>
       )}
 
-      {/* Preavviso di compaction — la scelta si offre PRIMA, non dopo il divider */}
-      {contextNotice && (
-        <div
-          data-testid="context-notice"
-          data-context-level={contextNotice.level}
-          className={`${CHAT_STRIP} border px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
-            contextNotice.severe
-              ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40'
-              : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40'
-          }`}
-        >
-          <div className="flex-1 min-w-0">
-            <div className={`text-[11px] font-medium ${contextNotice.severe ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
-              {/* Due motivi, due frasi. Dire "quasi pieno — 47%" perché è scattata
-                  la soglia assoluta è un avviso che non si può capire: su una
-                  finestra da 1M il problema non è la capienza, è che ogni chiamata
-                  rilegge per intero un prompt già enorme. */}
-              {contextNotice.reason === 'cost'
-                ? `Ogni risposta rilegge ${formatTokens(contextNotice.used)} token`
-                : contextNotice.level === 'critical'
-                  ? `Contesto quasi pieno, ${contextNotice.percent}%`
-                  : `Contesto che si riempie, ${contextNotice.percent}%`}
-            </div>
-            <div className={`text-[11px] line-clamp-2 ${contextNotice.severe ? 'text-red-600 dark:text-red-500' : 'text-amber-600 dark:text-amber-500'}`}>
-              {/* La seconda riga non ripete il numero della prima: dice COSA
-                  comporta. Nel caso 'cost' la capienza non è il problema — nella
-                  finestra ci sta — quindi si spiega la conseguenza vera, che è
-                  il conto e la lentezza a ogni chiamata.
-                  MAI `truncate` qui: era una spiegazione scritta per intero e poi
-                  tagliata dal CSS a una riga, quindi di fatto una frase monca che
-                  finiva su una virgola («…ci stanno (332k di 1.0M),») — il motivo
-                  per cui non si capiva. Va a capo, con un tetto di due righe per
-                  non spostare il composer. Il consiglio su cosa fare non ci sta:
-                  lo dicono già i due bottoni qui accanto. */}
-              {contextNotice.reason === 'cost'
-                ? `Nella finestra ci stanno (${contextNotice.percent}% di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)}): il problema non è lo spazio, è che li ripaghi a ogni chiamata.`
-                : `${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)}. Compattare adesso costa meno dettaglio che a ridosso.`}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => { dismissNotice(contextNotice); void sendMessageDirect('/compact'); }}
-            className={`px-2.5 py-1 text-[11px] text-white rounded-md transition-colors flex-shrink-0 ${contextNotice.severe ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
-          >
-            {tr('chat.compactNow')}
-          </button>
-          <button
-            type="button"
-            onClick={() => { dismissNotice(contextNotice); window.dispatchEvent(new CustomEvent('topics:new-chat')); }}
-            className="px-2.5 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0"
-          >
-            {tr('chat.newChat')}
-          </button>
-          <button
-            type="button"
-            onClick={() => dismissNotice(contextNotice)}
-            className="text-app-text-tertiary hover:text-app-text p-0.5 flex-shrink-0"
-            title={tr('chat.dismissNotice')}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
+      {/* IL PREAVVISO DI CONTESTO NON È PIÙ UNA STRISCIA.
+          Era un riquadro colorato largo quanto la chat, con due bottoni e una
+          spiegazione su due righe, incollato sopra il composer finché non lo si
+          chiudeva a mano: per dire «questa conversazione si sta riempiendo»
+          occupava lo spazio di un messaggio e spostava la conversazione ogni
+          volta che compariva. Un avviso che ruba più spazio del contenuto è un
+          avviso che si impara a chiudere senza leggerlo.
+          Adesso vive ACCANTO ALL'ANELLO, che è già l'indicatore del contesto:
+          una pastiglia con la percentuale (vedi `contextNotice` nella action
+          bar più sotto). Le due vie d'uscita non sono sparite — «Compatta
+          adesso» sta nell'ispettore, a un click dall'anello, che è dove si sta
+          già guardando quanto è pieno. */}
       {/* «Qualcuno sta scrivendo», SOPRA il composer e fuori dal flusso.
           Era un blocco in flusso che montava e smontava: ogni comparsa e ogni
           scomparsa spostava il composer e con lui la lista dei messaggi, e siccome
@@ -1551,10 +1471,19 @@ export function ChatInput({
                   ref={contextBtnRef}
                   type="button"
                   onClick={handleContextRingClick}
-                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
+                  className={`h-8 flex-shrink-0 flex items-center justify-center gap-1 rounded-lg transition-colors ${
+                    // La pastiglia allarga il bottone da quadrato a pillola:
+                    // senza padding orizzontale la percentuale toccherebbe i
+                    // bordi. Senza avviso resta il quadrato di sempre.
+                    contextNotice ? 'w-auto px-1.5' : 'w-8'
+                  } ${
                     showContextPopover
                       ? 'bg-primary/10 text-primary'
-                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                      : contextNotice
+                        ? contextNotice.severe
+                          ? 'text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20'
+                          : 'text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
+                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
                   }`}
                   title={ringTitle}
                   aria-label="Toggle context inspector"
@@ -1565,6 +1494,27 @@ export function ChatInput({
                   data-context-source={realContext ? 'model' : 'envelope'}
                 >
                   <ContextRing percent={ringPercent} level={realContext?.level} size={14} />
+                  {/* L'AVVISO, RIDOTTO A UN NUMERO ACCANTO ALLA SUA MISURA.
+                      Il riquadro di prima aveva due bottoni e quattro righe di
+                      prosa; qui c'è la sola cosa che cambia una decisione — a
+                      che punto è — nel posto in cui la si sta già guardando.
+                      Il perché (capienza o costo per chiamata) e il cosa fare
+                      stanno nel tooltip e, un click più in là, nell'ispettore
+                      con il suo «Compatta adesso».
+                      `pointer-events-none`: il bersaglio da toccare resta uno
+                      solo, il bottone che apre l'ispettore. */}
+                  {contextNotice && (
+                    <span
+                      data-testid="context-notice"
+                      data-context-level={contextNotice.level}
+                      data-context-reason={contextNotice.reason}
+                      className="pointer-events-none text-[10px] font-semibold leading-none tabular-nums"
+                    >
+                      {contextNotice.reason === 'cost'
+                        ? formatTokens(contextNotice.used)
+                        : `${contextNotice.percent}%`}
+                    </span>
+                  )}
                 </button>
               )}
               {onProviderOverrideChange && (
