@@ -34,6 +34,21 @@ export interface CardComments<T extends CardComment = CardComment> {
   latest: T;
   /** The human request `latest` follows, or null when there is none to quote. */
   humanContext: T | null;
+  /**
+   * `latest` è CONTABILITÀ, non la parola di qualcuno?
+   *
+   * Vero quando fra i commenti non è rimasta nessuna parola vera e si è dovuto
+   * ripiegare su una nota di macchina. La card deve poterlo DIRE, invece di
+   * presentare il ripiego con l'aria del riassunto: su `235afe11` (20/08) la
+   * riga in cima era «Fan-out chiuso: 3 tentativi, 1 con modifiche», che è
+   * bookkeeping del dispatcher, e la si leggeva come la consegna dell'agente.
+   *
+   * Il perché quella card non avesse un riassunto è scritto due righe più
+   * sotto nel suo stesso thread: «Consegna senza riassunto: il turno e' finito
+   * prima che l'agente commentasse» — il turno era stato tagliato da un
+   * riavvio. Con questo campo la card smette di indovinare e dice cos'è.
+   */
+  latestIsPlumbing: boolean;
 }
 
 /**
@@ -89,17 +104,20 @@ function isHumanRequest(comment: CardComment): boolean {
   return isHumanComment(comment) && comment.content.trim() !== '';
 }
 
-/**
- * Something ANSWERED the request: speech from someone other than the human.
+/* `isReply` VIVEVA QUI, e la sua scomparsa e' il cambiamento.
  *
- * `kind` matters. A `review-note` is evidence the machine attached to the
- * delivery, not a reply, and a thread whose only entry after the request is a
- * preview screenshot has nothing that reads as an answer. Quoting the request
- * above it would promise a pair the card cannot deliver.
+ * Serviva a citare la richiesta umana SOLO se qualcuno le aveva risposto: una
+ * domanda senza risposta, si diceva, e' gia' l'ultima parola, e citarla sopra
+ * se stessa la stamperebbe due volte. Il ragionamento vale pero' solo quando
+ * la richiesta E' `latest` — e quel caso ha il suo `return` dedicato piu'
+ * sotto. Nell'altro, dopo la domanda ha parlato la MACCHINA: la domanda non e'
+ * piu' `latest`, non viene stampata da nessuna parte, e spariva dallo schermo
+ * proprio mentre aspettava una risposta.
+ *
+ * Segnalato: «da review dovrei sempre vedere l'ultimo suo e mio messaggio».
+ * Una domanda in attesa e' la cosa piu' importante che una card in review
+ * possa mostrare, non la meno.
  */
-function isReply(comment: CardComment): boolean {
-  return comment.kind === 'comment' && comment.author !== HUMAN_AUTHOR;
-}
 
 /**
  * Pick the card's comments, or null when the thread has nothing to say.
@@ -214,6 +232,14 @@ export function selectCardComments<T extends CardComment>(
   const vive = parole.length ? parole : speech;
   const latest = vive[vive.length - 1];
   if (!latest) return null;
+  // NESSUNA PAROLA VERA: quello che stiamo per mostrare e' un RIPIEGO.
+  //
+  // `parole` vuoto vuol dire che nel thread e' rimasta solo contabilita' della
+  // macchina. Mostrarla e' meglio del silenzio (la card sarebbe cieca), ma
+  // presentarla come se fosse la consegna e' una bugia: chi guarda la board
+  // legge «Fan-out chiuso: 3 tentativi» e crede sia il riassunto dell'agente.
+  // Il campo viaggia fino alla card, che ci mette il suo cartello.
+  const latestIsPlumbing = parole.length === 0;
   // ── QUANDO NESSUNO HA RISPOSTO, LA NOTA DI SISTEMA E' LA PAROLA NUOVA ──────
   //
   // `contorno` toglie di mezzo le note di sistema perche' il sistema scrive per
@@ -255,22 +281,34 @@ export function selectCardComments<T extends CardComment>(
       // non ha ancora ricevuto risposta. Promuoverla direbbe che qualcuno ha
       // risposto quando nessuno l'ha fatto.
       const nota = speech.slice(idx + 1).filter((c) => c.author === 'system' && c.kind === 'comment').pop();
-      if (nota) return { latest: nota, humanContext: latest };
+      if (nota) return { latest: nota, humanContext: latest, latestIsPlumbing };
     }
     // Ha parlato lui per ultimo davvero (o non c'e' niente da promuovere): e' il
     // protagonista, e citarlo sopra se stesso stamperebbe due volte la stessa
     // riga. Il `return` e' qui e non piu' in basso apposta: senza, la scansione
     // all'indietro troverebbe la richiesta PRECEDENTE e la card stamperebbe
     // sopra la frase che questa ha appena sostituito.
-    return { latest, humanContext: null };
+    return { latest, humanContext: null, latestIsPlumbing };
   }
   let requestAt = -1;
   for (let i = speech.length - 2; i >= 0; i--) {
     if (isHumanRequest(speech[i]!)) { requestAt = i; break; }
   }
-  if (requestAt < 0) return { latest, humanContext: null };
-  const answered = speech.slice(requestAt + 1).some(isReply);
-  return { latest, humanContext: answered ? speech[requestAt]! : null };
+  if (requestAt < 0) return { latest, humanContext: null, latestIsPlumbing };
+  // LA MIA DOMANDA RESTA A SCHERMO ANCHE SE NESSUNO HA RISPOSTO.
+  //
+  // Prima si citava solo quando una risposta c'era davvero (`answered`), e il
+  // ragionamento era: senza risposta la richiesta è già la parola più recente,
+  // quindi citarla sopra se stessa la stamperebbe due volte. Vero — ma solo
+  // quando la richiesta È `latest`, e quel caso ha già il suo `return` più
+  // sopra. Qui siamo nel caso opposto: dopo la mia domanda ha parlato la
+  // MACCHINA (una nota di servizio, un cambio di stato), quindi `latest` non
+  // sono io, e la mia domanda spariva dallo schermo senza aver avuto risposta.
+  //
+  // È esattamente ciò che si voleva vedere: «da review dovrei sempre vedere
+  // l'ultimo suo e mio messaggio». Una domanda in attesa è la cosa PIÙ
+  // importante da mostrare su una card in review, non la meno.
+  return { latest, humanContext: speech[requestAt]!, latestIsPlumbing };
 }
 
 /** I campi della riga su cui si decide cosa la card mostra e cosa deve chiedere. */

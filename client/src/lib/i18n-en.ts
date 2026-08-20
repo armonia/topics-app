@@ -632,6 +632,7 @@ const EN = {
   'settings.org.projects.blurb.ops': 'Operations, infrastructure and internal processes',
   'board.filter.projectUnknown': 'Not among the open projects: still filterable, but where it lives is unknown.',
   'board.card.systemNote': 'System note',
+  'board.card.noSummary': 'No summary: what follows is machine bookkeeping',
   'board.card.commentMore': 'Show all',
   'board.card.commentLess': 'Show less',
   'board.card.uncommitted': 'branch with no commit',
