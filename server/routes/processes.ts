@@ -1760,8 +1760,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         let until: RegExp | undefined;
         try {
           until = compileUntil(url.searchParams.get("until") ?? undefined);
-        } catch (err: any) {
-          return json({ error: String(err?.message ?? err) }, 400);
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 400);
         }
         const timeoutMs = clampWaitTimeout(url.searchParams.get("timeout_ms") ?? WAIT_DEFAULT_TIMEOUT_MS);
         const offset = parseInt(url.searchParams.get("offset") || "0", 10);

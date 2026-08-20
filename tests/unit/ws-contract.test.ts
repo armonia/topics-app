@@ -328,8 +328,8 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 // ----- Contract: tool-call-detail (NORM-01) ---------------------------------
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
-  test('exactly 18 variants', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(18);
+  test('exactly 19 variants', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(19);
   });
 
   test('discriminator literals are frozen', () => {
@@ -345,6 +345,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     //   skill         — Skill invocation
     //   slash_command — user-typed slash command
     //   lsp           — LSP language-server query
+    //   wait          — WaitForProcess (block until a process ends)
     expect([...types].sort()).toEqual([
       'bash_output',
       'edit',
@@ -363,6 +364,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
       'sub_agent',
       'todo',
       'unknown',
+      'wait',
       'write',
     ]);
   });
