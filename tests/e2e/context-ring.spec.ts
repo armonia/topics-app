@@ -8,18 +8,25 @@ hermetic(test);
 
 /**
  * PIANO §1b.5 — il ring del composer mostra il contesto REALE del modello, e
- * sopra soglia offre la scelta PRIMA della compaction.
+ * sopra soglia lo dice ACCANTO A SÉ, non con una striscia sopra il composer.
  *
  * La misura vera nasce da `onContextSize` durante un turno del modello: qui
  * non possiamo farne partire uno (nessun account nel test server), quindi
  * intercettiamo il solo confine che il client consuma — `GET
- * /api/context/live` — e verifichiamo tutto il resto per davvero: quale
- * numero disegna il ring, da quale sorgente dice di averlo preso, e cosa
- * offre la strip di preavviso. La forma della risposta è quella prodotta da
+ * /api/context/live` — e verifichiamo tutto il resto per davvero: quale numero
+ * disegna il ring, da quale sorgente dice di averlo preso, e cosa dice la
+ * pastiglia d'avviso. La forma della risposta è quella prodotta da
  * `classifyContext` (server/usage/context-window.ts), coperta a sua volta dai
  * suoi unit test.
+ *
+ * IL RIQUADRO NON C'È PIÙ, ed è il cambiamento che questo file pinna: l'avviso
+ * era una striscia larga quanto la chat con due bottoni e quattro righe di
+ * prosa, che spostava la conversazione a ogni comparsa e si imparava a chiudere
+ * senza leggere. Adesso è una pastiglia DENTRO il bottone dell'anello — stesso
+ * bersaglio, nessun layout shift — e le vie d'uscita stanno nell'ispettore, a
+ * un click da lì.
  */
-test.describe.serial("Context ring — contesto reale + preavviso di compaction", () => {
+test.describe.serial("Context ring — contesto reale + avviso accanto all'anello", () => {
   let topicId: string;
   let topicName: string;
 
@@ -49,12 +56,12 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     const ring = page.getByTestId("chat-input-context-ring").first();
     await ring.waitFor({ state: "visible", timeout: 10_000 });
     await expect(ring).toHaveAttribute("data-context-source", "envelope");
-    // Nessuna misura reale ⇒ nessun preavviso: la strip non deve MAI nascere
+    // Nessuna misura reale ⇒ nessun avviso: la pastiglia non deve MAI nascere
     // dal preventivo, che è un'altra domanda.
     await expect(page.getByTestId("context-notice")).toHaveCount(0);
   });
 
-  test("con la misura reale il ring mostra quella, e sopra soglia offre la scelta", async ({ page }) => {
+  test("con la misura reale il ring mostra quella, e sopra soglia la pastiglia", async ({ page }) => {
     await page.route("**/api/context/live*", (route) =>
       route.fulfill({
         status: 200,
@@ -83,28 +90,44 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     await expect(ring).toHaveAttribute("data-context-percent", "93");
     await expect(ring).toHaveAttribute("title", /186k \/ 200k \(93%\)/);
 
-    // Preavviso: le due strade dell'umano, prima che la compaction accada.
+    // L'avviso: la percentuale, dentro il bottone dell'anello.
     const notice = page.getByTestId("context-notice");
     await expect(notice).toBeVisible({ timeout: 10_000 });
     await expect(notice).toHaveAttribute("data-context-level", "critical");
-    await expect(notice.getByRole("button", { name: "Compatta adesso" })).toBeVisible();
-    await expect(notice.getByRole("button", { name: "Nuova chat" })).toBeVisible();
+    await expect(notice).toHaveAttribute("data-context-reason", "window");
+    await expect(notice).toHaveText("93%");
 
-    // Chiudibile: chi ha deciso non deve riavere l'avviso addosso a ogni token.
-    await notice.getByTitle("Chiudi l'avviso").click();
-    await expect(notice).toHaveCount(0);
-    // …ma il ring continua a dire il vero.
-    await expect(ring).toHaveAttribute("data-context-percent", "93");
+    // NON è più un riquadro: niente striscia sopra il composer, niente bottoni
+    // propri. La pastiglia vive DENTRO il bottone dell'anello — è quello che
+    // toglie il layout shift, quindi si verifica la parentela, non l'aspetto.
+    const ringHandle = await ring.elementHandle();
+    expect(ringHandle).not.toBeNull();
+    const dentro = await notice.evaluate((el, ringEl) => (ringEl as Element).contains(el), ringHandle);
+    expect(dentro).toBe(true);
+    await expect(ring.getByRole("button")).toHaveCount(0);
+
+    // La via d'uscita c'è, un click più in là: l'ispettore col suo «Compatta».
+    // Le due foto sono la PROVA di consegna: la pastiglia dentro la riga dei
+    // controlli, e il pannello col grafico in cima.
+    await page.locator("form").first().screenshot({ path: "test-results/ctx-chip-composer.png" });
+    await ring.click();
+    const inspector = page.getByTestId("context-inspector").first();
+    await expect(inspector).toBeVisible({ timeout: 10_000 });
+    await expect(inspector.getByRole("button", { name: /Compatta|Compact/ })).toBeVisible();
+    await expect(inspector.getByTestId("context-budget-bar")).toBeVisible();
+    await page.locator('[data-popover="context-inspector"]').first()
+      .screenshot({ path: "test-results/ctx-inspector.png" });
   });
 
   /**
-   * Il secondo motivo di preavviso: la finestra è ampia ma il prompt è già così
+   * Il secondo motivo di avviso: la finestra è ampia ma il prompt è già così
    * grande che ogni chiamata lo rilegge per intero.
    *
-   * Serve un messaggio diverso, e questo test esiste perché la prima versione lo
-   * sbagliava: diceva «Context almost full — 40%», che è una frase che l'umano non
-   * può capire. E serve un latch di dismiss separato, perché zittire l'avviso
-   * economico non deve spegnere anche l'allarme di finestra piena.
+   * Serve un segno diverso, e questo test esiste perché la prima versione lo
+   * sbagliava: diceva «Context almost full — 40%», che è una frase che l'umano
+   * non può capire. La pastiglia mostra i TOKEN e non la percentuale, perché su
+   * una finestra da 1M il 45% non è il problema — il problema sono i 450k che
+   * ripaghi a ogni chiamata; il perché sta nel tooltip dell'anello.
    */
   test("sopra i token assoluti l'avviso parla di COSTO, non di capienza", async ({ page }) => {
     await page.route("**/api/context/live*", (route) =>
@@ -136,31 +159,24 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
 
     const notice = page.getByTestId("context-notice");
     await expect(notice).toBeVisible({ timeout: 10_000 });
-    // La frase dice il motivo VERO, e non "quasi pieno" a meno di metà finestra.
-    await expect(notice).toContainText("Ogni risposta rilegge 450k token");
-    await expect(notice).not.toContainText("quasi pieno");
-    await expect(notice).toContainText("li ripaghi a ogni chiamata");
-    // Le due vie d'uscita ci sono comunque.
-    await expect(notice.getByRole("button", { name: "Compatta adesso" })).toBeVisible();
-    // Ambra, non rosso: un prompt caro costa, non fa perdere niente. Il rosso
-    // resta alla finestra che sta finendo.
-    await expect(notice).not.toHaveClass(/border-red-200/);
-
-    // La spiegazione dev'essere LEGGIBILE per intero: stava su una riga sola con
-    // `truncate` e il CSS la tagliava a metà frase, che è il motivo per cui non
-    // si capiva. Nessun ritaglio orizzontale.
-    const detail = notice.locator("div.line-clamp-2").first();
-    const clipped = await detail.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
-    expect(clipped).toBe(false);
+    await expect(notice).toHaveAttribute("data-context-reason", "cost");
+    // I token, non la percentuale: «45%» a meno di metà finestra non spiega
+    // niente, «450k» sì.
+    await expect(notice).toHaveText("450k");
+    // La spiegazione intera sta nel tooltip, e dice COSTO, non capienza.
+    await expect(ring).toHaveAttribute("title", /costo per chiamata/);
+    await expect(ring).not.toHaveAttribute("title", /quasi pieno/);
   });
 
   /**
-   * La soglia di costo scatta a 200k, cioè al 20% di una finestra da un milione:
-   * lo stato normale di qualunque sessione dopo mezz'ora. Un riquadro con due
-   * bottoni lì dentro è un'interruzione permanente, e un avviso sempre acceso
-   * non lo legge più nessuno. A `warn` il segnale resta sull'anello.
+   * La soglia di costo scatta a 200k, cioè al 20% di una finestra da un
+   * milione: lo stato normale di qualunque sessione dopo mezz'ora. Col riquadro
+   * quel livello era MUTO di proposito, perché un'interruzione permanente non
+   * la legge più nessuno. Una pastiglia da quattro caratteri dentro un bottone
+   * che c'è comunque non interrompe niente, quindi adesso si vede — ed è il
+   * punto di tutto il cambiamento: il segnale non va più barattato con la pace.
    */
-  test("il costo a livello warn non apre il riquadro: resta sull'anello", async ({ page }) => {
+  test("anche il costo a livello warn si vede: la pastiglia non interrompe", async ({ page }) => {
     await page.route("**/api/context/live*", (route) =>
       route.fulfill({
         status: 200,
@@ -182,46 +198,55 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     const ring = page.getByTestId("chat-input-context-ring").first();
     await ring.waitFor({ state: "visible", timeout: 10_000 });
     await expect(ring).toHaveAttribute("data-context-percent", "33");
-    // Il segnale non sparisce: il tooltip dice perché l'anello è ambra.
+    // Il tooltip dice perché l'anello è ambra.
     await expect(ring).toHaveAttribute("title", /rilegge questi token/);
-    await expect(page.getByTestId("context-notice")).toHaveCount(0);
+
+    const notice = page.getByTestId("context-notice");
+    await expect(notice).toBeVisible({ timeout: 10_000 });
+    await expect(notice).toHaveAttribute("data-context-level", "warn");
+    await expect(notice).toHaveText("332k");
   });
 
-  test("zittire l'avviso di costo NON zittisce quello di finestra piena", async ({ page }) => {
-    // Il latch è per motivo: erano due allarmi ortogonali dietro un solo interruttore,
-    // e su una finestra da 1M quello economico scatta a 400k — quasi subito — mentre
-    // quello vero arriva a 900k. Con un latch unico il secondo non si vedeva più.
-    let payload = {
-      usage: { sessionUpdate: "usage_update", used: 450_000, size: 1_000_000 },
-      percent: 45, level: "critical", reason: "cost", estimated: false,
-      model: "claude-opus-5", measuredAt: new Date().toISOString(),
-    };
+  /**
+   * L'AVVISO NON SI CHIUDE PIÙ, perché non c'è più niente da chiudere.
+   *
+   * C'erano due latch di dismiss — uno per «finestra piena», uno per «prompt
+   * caro» — nati perché zittire un allarme non doveva zittire l'altro: su una
+   * finestra da 1M quello economico scatta a 400k (quasi subito) e quello vero
+   * a 900k, e con un latch solo il secondo non si vedeva più. Erano complessità
+   * al servizio di un interruttore, e l'interruttore serviva solo perché
+   * l'avviso interrompeva. Tolto il riquadro, la pastiglia segue la misura e
+   * basta: questo test pinna che NON esiste un gesto capace di spegnerla.
+   */
+  test("la pastiglia segue la misura: non c'è modo di zittirla", async ({ page }) => {
     await page.route("**/api/context/live*", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ context: payload }) }),
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          context: {
+            usage: { sessionUpdate: "usage_update", used: 940_000, size: 1_000_000 },
+            percent: 94, level: "critical", reason: "window", estimated: false,
+            model: "claude-opus-5", measuredAt: new Date().toISOString(),
+          },
+        }),
+      }),
     );
 
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
+    const ring = page.getByTestId("chat-input-context-ring").first();
+    await ring.waitFor({ state: "visible", timeout: 10_000 });
     const notice = page.getByTestId("context-notice");
-    await expect(notice).toBeVisible({ timeout: 10_000 });
-    await expect(notice).toContainText("Ogni risposta rilegge");
-    await notice.getByTitle("Chiudi l'avviso").click();
-    await expect(notice).toHaveCount(0);
+    await expect(notice).toHaveText("94%");
 
-    // Ora la finestra si riempie per davvero: l'allarme DEVE ricomparire.
-    payload = {
-      usage: { sessionUpdate: "usage_update", used: 940_000, size: 1_000_000 },
-      percent: 94, level: "critical", reason: "window", estimated: false,
-      model: "claude-opus-5", measuredAt: new Date().toISOString(),
-    };
-    await page.reload();
+    // Aprire e richiudere l'ispettore — il gesto che prima passava dal bottone
+    // di chiusura dell'avviso — non la spegne.
+    await ring.click();
+    await expect(page.getByTestId("context-inspector").first()).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
-
-    const secondo = page.getByTestId("context-notice");
-    await expect(secondo).toBeVisible({ timeout: 10_000 });
-    await expect(secondo).toContainText("quasi pieno");
+    await expect(notice).toHaveText("94%");
   });
 });
