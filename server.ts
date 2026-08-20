@@ -111,7 +111,7 @@ import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive } from "./server/providers";
-import { aiBridgeEnabled } from "./server/providers/claude-code";
+import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
@@ -4411,11 +4411,12 @@ function reconcileArchivedTopicSessions(): void {
 // mentre aprivamo la riga, o l'utente ha scritto e ha vinto lui) il log lo dice
 // e la sessione resta esattamente com'era.
 function adottaTurniRisvegliati(): void {
-  const prov = tryGetProvider("claude-code") as
-    | { observeWokenTurns?: (fn: (sk: string) => void) => void }
-    | undefined;
-  if (!prov?.observeWokenTurns) return;
-  prov.observeWokenTurns((sessionKey) => {
+  // Si arma sulla CLASSE, non su un'istanza. Al boot `claude-code` non è ancora
+  // registrato — `initProvider` lancia `initProviders()` fire-and-forget, ed è
+  // quella a sondare il PATH e a registrarlo — quindi un `tryGetProvider` qui
+  // troverebbe `undefined` e uscirebbe zitto: la sveglia sarebbe cablata e mai
+  // collegata. Vedi `ClaudeCodeProvider.observeWokenTurns`.
+  ClaudeCodeProvider.observeWokenTurns((sessionKey) => {
     const topic = ctx.getTopicBySessionKey(sessionKey);
     if (!topic || topic.archived) {
       // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
@@ -4849,18 +4850,14 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   //
   // L'attesa corta riservata alle chat vale una promessa: «la reload-resilience
   // la riadotta». Quella promessa la mantiene solo un provider il cui turno vive
-  // in un processo FIGLIO, che il SIGTERM non tocca e il broker ritrova — cioè
-  // chi implementa `reattach`. Il runtime nativo `topics` esegue il turno dentro
-  // questo processo: quando muore, muore il turno, e non c'è nessuno che lo
-  // riprenda. Vedi `unadoptableStreams`.
-  const unadoptable = unadoptableStreams(streamKeys, (sk) => {
-    try {
-      const prov = tryGetProvider(ctx.getTopicBySessionKey(sk)?.provider ?? undefined);
-      // Provider sconosciuto → `undefined`, che `unadoptableStreams` legge come
-      // «non riadottabile»: il dubbio costa un riavvio più lento, non un turno.
-      return prov ? typeof (prov as { reattach?: unknown }).reattach === "function" : undefined;
-    } catch { return undefined; }
-  }).length;
+  // in un processo FIGLIO, che il SIGTERM non tocca e il broker ritrova. Il
+  // runtime nativo `topics` esegue il turno dentro questo processo: quando muore,
+  // muore il turno.
+  //
+  // La risposta è già sulla voce dello stream (`survivesRestart`, decisa quando
+  // il turno è nato): qui si conta e basta, senza toccare il DB né il registro
+  // dei provider — questo giro batte due volte al secondo.
+  const unadoptable = unadoptableStreams(activeStreams.values()).length;
   return { busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen }), cards, unadoptable };
 }
 
@@ -4892,12 +4889,38 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     // riprendono» e ha ucciso una risposta a meta' frase che nessuno ha
     // ripreso. Quindi una chat NON riadottabile alza la scadenza come una card.
     //
+    // IL PREZZO, MISURATO invece che stimato (94 blocchi di attivita' nativa
+    // continua sul db vivo, 18-20/08):
+    //
+    //     cap      turni che arrivano in fondo    attesa media del reload
+    //     1 min          19/94  (20%)                   0.8 min
+    //     15 min         81/94  (86%)                   6.3 min
+    //     25 min         84/94  (89%)                   7.6 min
+    //
+    // Col minuto di prima, QUATTRO TURNI NATIVI SU CINQUE venivano tagliati:
+    // non era un caso sfortunato, era la norma. Si riusa `capMs` — lo stesso
+    // numero delle card — invece di introdurre una terza soglia: fra 15 e 25
+    // minuti ballano tre punti di turni salvati contro 1,3 minuti di attesa in
+    // piu', una differenza che non vale un secondo numero da tenere allineato
+    // a mano (e' la stessa ragione per cui `start-prod.sh` deriva la sua
+    // finestra da qui invece di riscriverla). Chi sfonda anche quello (10 su
+    // 94) prende comunque il cartello, che e' il punto di tutto il resto di
+    // questo lavoro: un turno tagliato ora lo DICE.
+    //
     // La scadenza si ALZA quando compaiono delle card, e non si riabbassa: una
     // card che parte mentre si aspetta ha diritto all'attesa lunga, e togliergliela
     // perche' e' finita mezzo secondo dopo sarebbe la stessa svista al contrario.
     if (cards > 0 || unadoptable > 0) deadline = Math.max(deadline, Date.now() + capMs);
     if (Date.now() >= deadline) {
-      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza, si procede lo stesso (la reload-resilience li riprende)`);
+      // La frase dice la verita' su CHI si sta tagliando. «li riprende» vale
+      // per un turno riadottabile; per uno nativo e' falso — quel turno non
+      // torna, e chi legge il log deve saperlo. Il cartello in chat lo scrive
+      // `cancelledNotice` (causa `server-shutdown`); qui si scrive per chi
+      // guarda i log chiedendosi perche' una risposta si e' fermata.
+      const sorte = unadoptable > 0
+        ? `${unadoptable} NON riadottabile/i: quel lavoro non torna, in chat resta il cartello`
+        : "la reload-resilience li riprende";
+      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza, si procede lo stesso (${sorte})`);
       return;
     }
     if (!logged) {

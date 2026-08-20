@@ -46,6 +46,23 @@ export interface QuiescenceSources {
 }
 
 /**
+ * Questo provider regge un riavvio del server?
+ *
+ * La domanda vera è «dove vive il turno»: in un processo FIGLIO, che il SIGTERM
+ * non tocca e che il broker ritrova, oppure DENTRO il processo del server. Chi
+ * sa riadottare (`reattach`) è per costruzione del primo tipo — è quel metodo a
+ * riprendere il turno dopo il riavvio — e chi non ce l'ha è del secondo.
+ *
+ * Si chiede al provider e non al nome del provider: un elenco di nomi sarebbe
+ * una tabella da aggiornare a ogni runtime nuovo, e il runtime nuovo che
+ * qualcuno dimentica di aggiungere erediterebbe in silenzio l'attesa corta —
+ * cioè il difetto del 20/08, di nuovo, con un altro nome.
+ */
+export function providerSurvivesRestart(provider: { reattach?: unknown } | null | undefined): boolean {
+  return typeof provider?.reattach === "function";
+}
+
+/**
  * Fra le chat che stanno streammando, quali NON sopravvivono al riavvio.
  *
  * L'attesa breve riservata alle chat (`QUIESCENCE_CHAT_CAP_MS`, un minuto)
@@ -66,15 +83,16 @@ export interface QuiescenceSources {
  * sopravvive al riavvio». Chi non sopravvive merita l'attesa lunga, come una
  * card — perché come per una card, quello che si taglia è perso.
  *
- * `isAdoptable` risponde per sessione. `undefined` = non lo sappiamo, e il
- * dubbio conta come NON riadottabile: sbagliare per prudenza costa un riavvio
- * più lento, sbagliare al contrario costa il lavoro di qualcuno.
+ * La risposta si legge da `ActiveStream.survivesRestart`, deciso quando lo
+ * stream nasce: non si interroga il registro dei provider due volte al secondo
+ * per una cosa che non cambia mentre il turno gira.
  */
 export function unadoptableStreams(
-  streamKeys: readonly string[],
-  isAdoptable: (sessionKey: string) => boolean | undefined,
+  streams: Iterable<{ sessionKey: string; survivesRestart: boolean }>,
 ): string[] {
-  return streamKeys.filter((k) => isAdoptable(k) !== true);
+  const out: string[] = [];
+  for (const s of streams) if (!s.survivesRestart) out.push(s.sessionKey);
+  return out;
 }
 
 /**

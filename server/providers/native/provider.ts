@@ -43,7 +43,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
-import { cancelled, type StopCause } from "../stop-reason";
+import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
 /**
  * Il modello di partenza quando nessuno ne chiede uno.
@@ -160,19 +160,14 @@ interface NativeSession {
   history: AgentMessage[];
   /** `null` = questa topic non ha un progetto: niente tool di file. */
   workspace: string | null;
-  abort?: AbortController;
   /**
-   * PERCHÉ è stato annullato questo turno — scritto da chi ha chiamato
-   * `abort()`, letto da chi raccoglie i cocci in `sendChat`.
-   *
-   * `AbortController` porta il SEGNALE e non la ragione: quando `sendChat`
-   * scopre `abort.signal.aborted` sa solo CHE qualcuno ha annullato, e prima
-   * di questo campo tirava a indovinare — scriveva sempre `cause: "user"`. Su
-   * uno spegnimento del server quell'indovinello era falso, e la falsità
-   * costava il cartello: `finalizeStream` su `cancelled/user` tace, perché chi
-   * ha premuto stop non ha bisogno che gli si spieghi cos'ha premuto.
+   * Il turno in volo. La RAGIONE di un eventuale annullamento non sta qui
+   * accanto: viaggia dentro il segnale (`abort(reason)` → `signal.reason`),
+   * che è il posto che la piattaforma prevede. Un campo parallelo sarebbe una
+   * seconda verità da tenere allineata a mano, cioè un posto in cui le due
+   * possono divergere — ed è da una divergenza così che nasce tutto questo.
    */
-  abortCause?: StopCause;
+  abort?: AbortController;
   model?: string;
   /** Quando questa sessione è stata toccata l'ultima volta. Serve allo sfratto. */
   lastUsedAt: number;
@@ -238,7 +233,7 @@ export class NativeProvider implements AIProvider {
     this.stopped = true;
     if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
     for (const s of this.sessions.values()) {
-      // LA RAGIONE VIAGGIA CON L'ANNULLAMENTO, anche qui.
+      // LA RAGIONE VIAGGIA DENTRO IL SEGNALE, anche qui.
       //
       // Un turno nativo vive DENTRO questo processo: quando il server si
       // spegne non resta nessun figlio nel broker da riadottare, quindi
@@ -247,8 +242,7 @@ export class NativeProvider implements AIProvider {
       // — registro della fine, `activity_log`, il cartello in chat — dava la
       // colpa a un utente che non aveva toccato niente. Misurato il 20/08 su
       // topic:9f9e9629: risposta troncata a metà frase, zero spiegazioni.
-      s.abortCause = "server-shutdown";
-      try { s.abort?.abort(); } catch { /* già finito */ }
+      try { s.abort?.abort("server-shutdown" satisfies StopCause); } catch { /* già finito */ }
     }
     this.sessions.clear();
   }
@@ -438,9 +432,6 @@ export class NativeProvider implements AIProvider {
           // messaggio dopo, non dalla prossima chat.
           autonomy: levelFor(readTopicAutonomy(sessionKey)),
           signal: abort.signal,
-          // La ragione si chiede QUANDO serve, non quando si parte: al momento
-          // dell'invio nessuno ha ancora annullato niente.
-          abortCause: () => session.abortCause,
           // L'USO SI DEPOSITA A OGNI GIRO, non a fine turno.
           //
           // Il registro è quello che il dispatcher rilegge ogni quattro secondi
@@ -465,11 +456,14 @@ export class NativeProvider implements AIProvider {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       // Un abort chiesto da noi non è un guasto: è la risposta a uno stop.
-      // CHI l'ha chiesto lo dice `abortCause`, scritto da `abort()`/`stop()`.
-      // Prima qui c'era `cause: "user"` fisso, e su uno spegnimento del server
-      // era una bugia che si portava via il cartello in chat.
+      // CHI l'ha chiesto viaggia dentro il segnale. Se non c'è (un `abort()`
+      // senza argomenti, da una strada che non si è dichiarata) NON si
+      // indovina: resta `cancelled` senza causa, e `cancelledNotice` su quel
+      // ramo scrive comunque un cartello. Qui prima c'era `"user"` fisso, ed è
+      // esattamente la bugia che ha fatto sparire la spiegazione dalla chat.
       if (abort.signal.aborted) {
-        const end = cancelled(session.abortCause ?? "user");
+        const causa = stopCauseFromSignal(abort.signal);
+        const end: TurnEndInfo = causa ? cancelled(causa) : { end: "cancelled" };
         recordTurnEnd(sessionKey, end);
         handler.onAborted?.({ result: "", turnEnd: end });
         return {};
@@ -479,22 +473,30 @@ export class NativeProvider implements AIProvider {
       return {};
     } finally {
       session.abort = undefined;
-      session.abortCause = undefined;
     }
   }
 
-  async abort(sessionKey: string, _runId?: string, reason: AbortReason = "user"): Promise<void> {
+  /**
+   * `reason` è OBBLIGATORIO, e non ha un default.
+   *
+   * Un default qui sarebbe una risposta inventata a una domanda che il
+   * chiamante sa già: tutti e tre i chiamanti veri (`/api/chat/abort` →
+   * "user", i due watchdog di `routes/chat.ts` → "watchdog") la passano. Ed
+   * era proprio un default — `= "user"` — a trasformare uno spegnimento del
+   * server in «l'utente ha premuto stop», che è il difetto del 20/08. Se un
+   * domani nasce una quarta strada, il compilatore la ferma qui invece di
+   * lasciarle raccontare una bugia plausibile.
+   */
+  async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
     const s = this.sessions.get(sessionKey);
     if (!s?.abort) return;
-    // La ragione si DEPOSITA prima di annullare: chi raccoglie i cocci
-    // (`sendChat`, nel suo catch) legge da qui. Farlo dopo sarebbe una corsa
-    // con il proprio `catch`, che è sincrono rispetto all'`abort()`.
+    // La ragione entra NEL segnale: `signal.reason` è dove la piattaforma la
+    // mette, ed è l'unico posto che non può divergere dal segnale stesso.
     // Nessuna traduzione: `AbortReason` è per costruzione un sottoinsieme di
     // `StopCause`, ed è per questo che è definito come tale — due vocabolari
     // per la stessa cosa avrebbero avuto bisogno di una tabella, e una tabella
     // è un posto in cui divergere.
-    s.abortCause = reason;
-    s.abort.abort();
+    s.abort.abort(reason satisfies StopCause);
   }
 
   /**

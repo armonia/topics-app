@@ -464,17 +464,38 @@ export interface AIProvider {
 
   /**
    * Cancel the in-flight turn for a session. `reason` distinguishes a human
-   * stop ("user", default) from the stream watchdog giving up ("watchdog") so
-   * the provider can label the resulting process exit honestly — a watchdog
-   * abort must NOT read as "user stop" in logs/UI.
+   * stop ("user") from the stream watchdog giving up ("watchdog") and from the
+   * server shutting down under a live turn ("server-shutdown"), so the provider
+   * can label the resulting turn end honestly — a watchdog or shutdown abort
+   * must NOT read as "user stop" in logs/UI.
    *
-   * `"server-shutdown"` è la terza, e nasce da un turno perso in silenzio il
-   * 20/08 (topic:9f9e9629): `stopAllProviders()` annullava ogni turno vivo
-   * riusando il default `"user"`, e da lì in poi tutto il resto del sistema
-   * credeva che avesse premuto l'utente — compreso `finalizeStream`, che su uno
-   * stop umano tace di proposito. Chi annulla lo sa: lo deve dire.
+   * `reason` NON ha un default, di proposito. Un default qui è una risposta
+   * inventata a una domanda che il chiamante conosce già, e per mesi è stato
+   * `"user"`: il 20/08 (topic:9f9e9629) è così che uno spegnimento del server è
+   * diventato «l'utente ha premuto stop» — e siccome a chi preme stop non si
+   * spiega cos'ha premuto, il turno è morto senza una parola in chat. Ora una
+   * strada nuova che si dimentica di dichiararsi la ferma il compilatore,
+   * invece di lasciarle raccontare una bugia plausibile.
    */
-  abort?(sessionKey: string, runId?: string, reason?: AbortReason): Promise<void>;
+  abort?(sessionKey: string, runId: string | undefined, reason: AbortReason): Promise<void>;
+
+  /**
+   * Riadotta il turno che era in volo per questa sessione, dopo un riavvio del
+   * server.
+   *
+   * DICHIARARLO QUI È IL PUNTO. Averlo o non averlo separa i provider in due
+   * specie, e la differenza non è un dettaglio implementativo: chi ce l'ha
+   * esegue il turno in un processo FIGLIO — che il SIGTERM non tocca, che il
+   * broker ritrova, e che questo metodo riprende — mentre chi non ce l'ha lo
+   * esegue DENTRO il server, e quando il server muore il turno muore con lui.
+   *
+   * Da quella differenza dipende quanto un riavvio pianificato deve aspettare
+   * (`lib/quiescence.ts`): un turno che nessuno riprenderà merita l'attesa
+   * lunga di una card. Finché il metodo esisteva solo sulla classe concreta,
+   * la domanda si poteva porre solo con un cast — cioè fuori dal controllo del
+   * compilatore, che è dove i contratti taciti vanno a marcire.
+   */
+  reattach?(sessionKey: string, handler: StreamHandler): Promise<"completed" | "live" | "awaiting-input" | "dead">;
 
   /**
    * True when the provider's child process for this session is currently

@@ -7,7 +7,7 @@
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, unadoptableStreams } from "./quiescence";
+import { describeInFlight, unadoptableStreams, providerSurvivesRestart } from "./quiescence";
 
 const nothing = { cards: 0, streamKeys: [], brokerOpenKeys: [] };
 
@@ -81,33 +81,55 @@ describe("describeInFlight — che cosa trattiene un riavvio pianificato", () =>
  * sopravvive».
  */
 describe("unadoptableStreams — quali chat NON tornano dopo un riavvio", () => {
+  const s = (sessionKey: string, survivesRestart: boolean) => ({ sessionKey, survivesRestart });
+
   test("una chat su un provider che sa riadottare non trattiene a lungo", () => {
-    expect(unadoptableStreams(["topic:aaa"], () => true)).toEqual([]);
+    expect(unadoptableStreams([s("topic:aaa", true)])).toEqual([]);
   });
 
   test("LA CHAT DEL 20/08: runtime nativo, nessuna riadozione possibile", () => {
-    expect(unadoptableStreams(["topic:9f9e9629"], () => false)).toEqual(["topic:9f9e9629"]);
-  });
-
-  /**
-   * La direzione del dubbio è una scelta, e va nella stessa direzione di tutte
-   * le altre guardie di questo file: non sapere vale «non riadottabile».
-   * Sbagliare così costa un riavvio più lento; sbagliare al contrario costa il
-   * lavoro di qualcuno, che è ciò che è successo.
-   */
-  test("provider sconosciuto: il dubbio conta come NON riadottabile", () => {
-    expect(unadoptableStreams(["topic:boh"], () => undefined)).toEqual(["topic:boh"]);
+    expect(unadoptableStreams([s("topic:9f9e9629", false)])).toEqual(["topic:9f9e9629"]);
   });
 
   test("si guarda una sessione alla volta: le due specie convivono", () => {
-    const out = unadoptableStreams(
-      ["topic:cli", "topic:nativa"],
-      (k) => k === "topic:cli",
-    );
-    expect(out).toEqual(["topic:nativa"]);
+    expect(unadoptableStreams([s("topic:cli", true), s("topic:nativa", false)]))
+      .toEqual(["topic:nativa"]);
   });
 
   test("nessuno stream, niente da trattenere", () => {
-    expect(unadoptableStreams([], () => false)).toEqual([]);
+    expect(unadoptableStreams([])).toEqual([]);
+  });
+});
+
+/**
+ * IL PREDICATO A MONTE: chi decide `survivesRestart` quando lo stream nasce.
+ *
+ * Si chiede al provider e non al suo NOME. Un elenco di nomi ("topics" e' fragile,
+ * "claude-code" e' solido) sarebbe una tabella da aggiornare a ogni runtime
+ * nuovo, e il runtime che qualcuno dimenticasse di aggiungerci erediterebbe in
+ * silenzio l'attesa corta — cioe' il difetto del 20/08 daccapo, con un altro
+ * nome. `reattach` non e' un indizio del fatto che il turno sopravvive: e' il
+ * metodo che lo fa sopravvivere.
+ */
+describe("providerSurvivesRestart — la domanda si fa al provider, non al nome", () => {
+  test("chi sa riadottare sopravvive", () => {
+    expect(providerSurvivesRestart({ reattach: async () => "live" })).toBe(true);
+  });
+
+  test("chi non sa riadottare no: il turno vive nel processo del server", () => {
+    expect(providerSurvivesRestart({})).toBe(false);
+  });
+
+  test("un provider assente non promette niente", () => {
+    expect(providerSurvivesRestart(undefined)).toBe(false);
+    expect(providerSurvivesRestart(null)).toBe(false);
+  });
+
+  /**
+   * Il campo c'e' ma non e' chiamabile: e' una promessa che nessuno puo'
+   * mantenere, e vale come assente.
+   */
+  test("un `reattach` che non e' una funzione non conta", () => {
+    expect(providerSurvivesRestart({ reattach: true })).toBe(false);
   });
 });

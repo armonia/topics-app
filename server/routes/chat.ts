@@ -89,6 +89,7 @@ import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { cancelledNotice, abortLogTitle } from "../lib/cancelled-notice";
+import { providerSurvivesRestart } from "../lib/quiescence";
 
 /**
  * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
@@ -1074,7 +1075,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (Number.isFinite(born) && born > 0 && born <= Date.now()) turnStartMs = born;
           }
           const externalAbort = new AbortController();
-          startStream(sessionKey, partialMsg.id, externalAbort);
+          // Un turno che regge un riavvio è un turno che gira in un processo
+          // FIGLIO, cioè un provider che sa riadottare. Si chiede UNA volta, qui:
+          // il provider di una sessione non cambia mentre il turno gira.
+          startStream(sessionKey, partialMsg.id, externalAbort, providerSurvivesRestart(topicProvider));
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
           // e sto per ricostruirla da capo — svuotala PRIMA che arrivino le
           // delta, o il replay si somma a quello che c'è già e il testo esce
@@ -3028,7 +3032,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const originalBody = resp.body!;
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
-          startStream(sessionKey, partialMsg.id, abortController);
+          startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
           // Mutable state via refs so that both the WS onToolStart callback and
