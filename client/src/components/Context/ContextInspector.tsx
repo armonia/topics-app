@@ -74,6 +74,9 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   const toast = useToast();
 
   const [browsingMemoryTree, setBrowsingMemoryTree] = useState(false);
+  /** La diagnostica dell'envelope è aperta? Vedi il `<details>` in fondo: da
+   *  chiusa il suo contenuto non si monta, quindi non fa le sue due fetch. */
+  const [envelopeAperto, setEnvelopeAperto] = useState(false);
 
   // Re-analyze when topic changes
   useEffect(() => {
@@ -361,21 +364,32 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
               del provider, blocchi di sistema composti, storia con i marker
               tolti, e l'anello degli ultimi invii.
 
-              È una vista da DEBUG e adesso lo dichiara: sta chiusa dentro un
-              `<details>`, in fondo. Aperta di default aggiungeva tre tab, un
-              JSON grezzo e un pannello di snapshot a un pannello che deve
-              rispondere a «quanto è pieno e di cosa»: informazione vera, ma per
-              chi sviluppa Topics, non per chi ci chatta dentro.
+              È una vista da DEBUG e adesso lo dichiara: sta chiusa in fondo.
+              Aperta di default aggiungeva tre tab, un JSON grezzo e un pannello
+              di snapshot a un pannello che deve rispondere a «quanto è pieno e
+              di cosa»: informazione vera, ma per chi sviluppa Topics.
+
+              E si monta SOLO QUANDO SI APRE. Un `<details>` chiuso nasconde i
+              figli, non li smonta: il componente dentro girava comunque, e con
+              lui le sue DUE fetch (`context-preview` + `context-snapshots`) —
+              pagate a ogni apertura del pannello da chiunque non guarderà mai
+              quella sezione. Il difetto era invisibile a occhio e l'ha trovato
+              un'asserzione sul `<details>`, non un umano.
             */}
-            <details className="border-t border-app-border">
+            <details
+              className="border-t border-app-border"
+              onToggle={(e) => setEnvelopeAperto((e.currentTarget as HTMLDetailsElement).open)}
+            >
               <summary className="px-4 py-2 text-[11px] text-app-text-tertiary cursor-pointer hover:text-app-text-secondary select-none">
                 {tr('ctxInspector.envelope')}
               </summary>
-              <ContextEnvelopeView
-                topicId={topic.id}
-                providerName={topic.provider ?? undefined}
-                onMessage={onMessage}
-              />
+              {envelopeAperto && (
+                <ContextEnvelopeView
+                  topicId={topic.id}
+                  providerName={topic.provider ?? undefined}
+                  onMessage={onMessage}
+                />
+              )}
             </details>
           </div>
         )}
