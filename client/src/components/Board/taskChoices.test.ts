@@ -529,6 +529,38 @@ describe('usableQuestionOptions', () => {
     const chiusa = { ...consegnata, status: 'done' as const };
     expect(usableQuestionOptions(chiusa, ['Landa su main'])).toEqual(['Landa su main']);
   });
+
+  /**
+   * IL GEMELLO CHE LA PAROLA NUOVA HA LASCIATO PASSARE.
+   *
+   * Misurato su una schermata vera (card a41af39a, 21/08): in cima «Landa su
+   * main», sotto quattro bottoni, e fra quelli il land VERO si chiamava «Landa
+   * comunque». Due porte allo stesso merge, a mezzo centimetro l'una
+   * dall'altra, e chi guarda non ha modo di sapere che sono la stessa.
+   *
+   * Il buco sta nel confronto: il de-dup sottrae le parole DISEGNATE, e su una
+   * card che nessuno ha consegnato quella parola è cambiata («comunque»),
+   * mentre l'opzione dell'agente resta la stringa che il server esegue
+   * (`LAND_ACTION_LABEL`, per valore, non tradotta). Rinominare il bottone ha
+   * quindi riaperto da solo la porta che il de-dup chiudeva — la stessa
+   * trappola già pagata due volte, e stavolta l'ha aperta un fix.
+   *
+   * Quindi il confronto non può guardare solo la parola: deve conoscere anche
+   * la stringa RISERVATA dell'azione, che è ciò che l'agente scriverà sempre.
+   */
+  it('«Landa su main» cade anche quando il bottone vero dice «Landa comunque»', () => {
+    const reaper = { ...consegnata, deliveredBy: 'system' as const, deliveredReason: 'retries_exhausted' as const };
+    // Precondizione: è proprio il caso in cui la parola sul bottone cambia.
+    expect(taskChoices(reaper).find((c) => c.id === 'land')!.label).toBe(landWord(true).label);
+    expect(landWord(true).label).not.toBe(LAND_ACTION_LABEL);
+    // E il gemello deve sparire lo stesso: stessa porta, stesso merge.
+    expect(usableQuestionOptions(reaper, [LAND_ACTION_LABEL])).toEqual([]);
+    expect(usableQuestionOptions(reaper, ['🚀 Landa su main'])).toEqual([]);
+    // Ma solo quando il land è davvero fra le scelte: senza ramo non c'è
+    // nessun bottone sotto, e togliere l'opzione lascerebbe la card muta.
+    const senzaRamo = { ...reaper, deliveryBranch: null };
+    expect(usableQuestionOptions(senzaRamo, [LAND_ACTION_LABEL])).toEqual([LAND_ACTION_LABEL]);
+  });
 });
 
 /**

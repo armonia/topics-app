@@ -104,7 +104,7 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   // Quindi il consiglio giusto non è «non farlo», è «sappi da cosa dipende»:
   // quel risveglio lo decide la CLI, non noi, e su un comando che non termina
   // (o che nessuno chiude) non arriva mai. `Monitor` invece è fatto per questo.
-  'A background shell can also end your turn and report back when it finishes — the CLI',
+  'A background shell can also end your turn and report back when it finishes: the CLI',
   'reopens the conversation with its output. But that is its behaviour, not a guarantee',
   'you control: a command that never terminates never reports. Prefer `Monitor` when the',
   'point IS being woken, and if you promise the user a wake-up, make sure the command can',
