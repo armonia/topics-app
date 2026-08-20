@@ -635,17 +635,20 @@ non-zero when it gets worse.
    it is the update channel, so it deserves care rather than a quick patch.
    No gate watches this number today.
 
-   **What is proven here and what is not**, because the difference decides how
-   much this estimate can be leaned on. Proven: the sizes, the file
-   architecture (`Mach-O 64-bit executable arm64`), and that the signature
-   still validates after `lipo -thin` (`codesign -v` exits 0). NOT proven: that
-   a single-arch build SERVES requests — launched by hand the thin binary exits
-   immediately with an empty log. Crucially the UNIVERSAL original does exactly
-   the same in the same environment, so `lipo` broke nothing; both exit for
-   their own reason (singleton lock, or arguments the Tauri shell passes that a
-   manual launch does not). The 93 MB is arithmetic on real binaries, not an
-   end-to-end result. Closing that gap is half an hour: build the sidecar with
-   a single target instead of `universal`, start it, send it one request.
+   **And a single-arch sidecar does serve requests** — checked rather than
+   assumed, because that is what turns the arithmetic into a result.
+   `./scripts/build-server-sidecar.sh smoke` compiles for the HOST target only
+   (`bun-darwin-arm64`, no `universal`) and exercises it in isolation:
+   **`/api/topics` → 200**, the 123 embedded migrations load, the PTY bridge
+   stays untouched. So the shipping path is not the obstacle; the updater
+   manifest is.
+
+   Worth recording because it cost a detour: launching the `lipo`-thinned
+   binary BY HAND exits immediately with an empty log — but so does the
+   UNIVERSAL original in the same environment, so `lipo` broke nothing. Both
+   exit for their own reason (the singleton lock, or arguments the shell
+   passes). A by-hand launch was simply the wrong probe; the repo already had
+   the right one.
 2. **Memory.** The shell still has no ceiling; the SERVER's boot peak got one
    on 2026-08-19 (`probe:boot-memory`, above). Its steady state is still a
    number without a budget. Still a
