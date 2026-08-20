@@ -273,8 +273,26 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
             # (`TOPICS_QUIESCENCE_CAP_MS`, default 25 minuti = il tetto di un
             # turno d'agente piu' margine), e qui si aggiunge solo il margine
             # per il commiato.
+            #
+            # IL MARGINE E' 30s + LO SPEGNIMENTO, non 30s soli. Derivare lo
+            # stesso NUMERO non basta se i due lo usano in modo diverso, ed e'
+            # esattamente cosa e' successo al task 235afe11 il 20/08: il server
+            # rinnovava la sua scadenza a ogni giro con del lavoro in volo,
+            # quindi non scadeva mai; qui si contavano 1530s dall'inizio e poi
+            # partiva il SIGTERM. Tre volte di fila, a 27 minuti esatti, con un
+            # turno d'agente vivo ogni volta — worktree buttato e task rimesso
+            # in coda.
+            #
+            # Il rinnovo e' stato tolto (il tetto del server ora e' vero), ma il
+            # margine resta piu' largo: quando il server DECIDE di uscire deve
+            # ancora eseguire `gracefulShutdown` per intero — fermare i
+            # provider con la loro finestra di grazia (3,5s), staccare il
+            # broker, chiudere il DB. Trenta secondi coprivano il commiato solo
+            # se lo spegnimento fosse istantaneo, e non lo e'. Qui si concede
+            # un minuto: se il server sfonda ANCHE questo, allora e' appeso
+            # davvero ed e' giusto insistere.
             QCAP_S=$(( ${TOPICS_QUIESCENCE_CAP_MS:-1500000} / 1000 ))
-            QWAIT=$(( QCAP_S + 30 ))
+            QWAIT=$(( QCAP_S + 60 ))
             echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: $((QCAP_S / 60)) min)"
             WAITED=0
             while kill -0 "$SP" 2>/dev/null && [ "$WAITED" -lt "$QWAIT" ]; do

@@ -31,7 +31,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
-import { describeInFlight, unadoptableStreams } from "./server/lib/quiescence";
+import { describeInFlight, unadoptableStreams, quiescenceVerdict } from "./server/lib/quiescence";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
@@ -4862,11 +4862,50 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
 }
 
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
-  let deadline = Date.now() + QUIESCENCE_CHAT_CAP_MS;
+  // DUE SCADENZE, E TUTTE E DUE SONO TETTI VERI — contate dall'INIZIO
+  // dell'attesa, non da «l'ultima volta che ho visto del lavoro».
+  //
+  // Prima la scadenza si RINNOVAVA a ogni giro con del lavoro in volo
+  // (`deadline = max(deadline, now + capMs)`), e con una card sempre presente
+  // non scadeva mai: simulato, dopo 2000 s la scadenza era ancora 1500 s più in
+  // là. Non era un tetto, era una promessa infinita.
+  //
+  // COSA COSTAVA, misurato sul task 235afe11 il 20/08. Il server aspettava
+  // senza fine; `start-prod.sh`, che di suo conta 1530 s DALL'INIZIO, arrivava
+  // alla propria scadenza e sparava il SIGTERM su un turno vivo:
+  //
+  //     17:55:39  tentativo #1 parte
+  //     18:22:46  il server riparte  (+27m)   → worktree buttato, task in coda
+  //     18:23:12  tentativo #2 parte
+  //     18:50:35  il server riparte  (+27m)   → di nuovo
+  //     18:51:20  tentativo #3 parte
+  //     19:18:07  SIGTERM            (+27m)   → «restart-when-idle accettato,
+  //                                             ma il server è ancora vivo
+  //                                             dopo 1530s — SIGTERM»
+  //
+  // Tre volte lo stesso task, a ventisette minuti esatti: la firma di un
+  // orologio, non della sfortuna. E il cancello scritto per non tagliare i
+  // turni non ha mai loggato una sola scadenza — perché non poteva scadere.
+  //
+  // Due orologi che si contraddicono sono peggio di un orologio solo troppo
+  // stretto: quello che promette di aspettare non ferma il SIGTERM di quello
+  // che ha smesso, e il turno muore comunque — ma senza che nessuno dei due
+  // lo sappia. Ora il tetto è vero e il server esce DA SÉ, con `gracefulShutdown`
+  // che gira per intero, prima che lo script perda la pazienza.
+  const inizio = Date.now();
   let logged = false;
   for (;;) {
     const { busy, cards, unadoptable } = await whatIsStillWorking();
     if (!busy) break;
+    // La REGOLA sta in `lib/quiescence.ts`, pura e provata: qui si applica.
+    // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
+    // senza avviare un server — che e' il motivo per cui il difetto del
+    // rinnovo infinito e' sopravvissuto tanto a lungo.
+    const verdetto = quiescenceVerdict({
+      busy, unrecoverable: cards + unadoptable,
+      now: Date.now(), startedAt: inizio,
+      capMs, chatCapMs: QUIESCENCE_CHAT_CAP_MS,
+    });
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
     //
     // Un turno di CARD tagliato a meta' e' lavoro perso: l'agente stava
@@ -4907,11 +4946,15 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     // 94) prende comunque il cartello, che e' il punto di tutto il resto di
     // questo lavoro: un turno tagliato ora lo DICE.
     //
-    // La scadenza si ALZA quando compaiono delle card, e non si riabbassa: una
-    // card che parte mentre si aspetta ha diritto all'attesa lunga, e togliergliela
-    // perche' e' finita mezzo secondo dopo sarebbe la stessa svista al contrario.
-    if (cards > 0 || unadoptable > 0) deadline = Math.max(deadline, Date.now() + capMs);
-    if (Date.now() >= deadline) {
+    // La scadenza NON si rinnova più a ogni giro: si sceglie fra due tetti
+    // fissi, calcolati all'inizio dell'attesa (vedi in cima alla funzione). Il
+    // rinnovo sembrava generoso — «una card che parte mentre aspetto ha diritto
+    // all'attesa lunga» — ma era la ragione per cui questo cancello non è mai
+    // scaduto una sola volta, e per cui a decidere finiva il SIGTERM dello
+    // script. Una card che parte mentre stiamo già uscendo prende il tempo che
+    // resta e poi, se non basta, muore DICENDOLO: è meglio di un'attesa che non
+    // finisce e di un taglio che nessuno annuncia.
+    if (verdetto === "scaduto") {
       // La frase dice la verita' su CHI si sta tagliando. «li riprende» vale
       // per un turno riadottabile; per uno nativo e' falso — quel turno non
       // torna, e chi legge il log deve saperlo. Il cartello in chat lo scrive
