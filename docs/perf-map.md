@@ -396,6 +396,24 @@ So the reproduction needs the user's window open, and that is the first line of
 the next attempt: watch the PUT body and the inbound `ui-state:updated` for that
 key WITH a second real client connected. Not by patching the guard.
 
+**The route ratchet is red too, on ONE route, and it took a quiet machine to
+know it.** Re-run four times at load 20-26 with `--samples=80`:
+
+    all_boards_tasks   2.53 · 2.72 · 2.90 · 2.64 ms   ceiling 2.25, baseline 0.75
+
+The two passes agree every time, so the gate itself calls the number true rather
+than noise — which is exactly what it refused to do earlier the same evening: at
+load 238 (an unrelated `ffmpeg` at 490% CPU) it printed **NON MISURABILE** and
+named the witness route instead of inventing a verdict. That refusal is the
+feature; the number only became readable once the machine came back down.
+
+Not from this work, verified by stashing everything and re-running: **2.64 ms**
+with the changes gone. It is drift accumulated in the **58 commits** that touched
+`server/routes/tasks.ts`, `server/services/tasks.ts` and `shared/board.ts` since
+the baseline was recorded on 2026-08-15. The other three routes are inside:
+`topic_messages` 4.13 (ceiling 5.41), `dispatch_capacity` 0.23-0.32 (1.68),
+`topics` inside.
+
 **The bundle ratchet is red, and it is not from this work.** `check:bundle`,
 2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
 exhausted), critical_path likewise. Measured against the 2026-08-13 baseline:
