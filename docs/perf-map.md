@@ -432,6 +432,37 @@ entry chunk, no `lazy(` went static. Healthy growth, not a bad import. The
 baseline's own rule says the number is raised in the commit that grew it, so it
 is left alone here and noted instead.
 
+**Where the user's own window ended up, measured at the close of the work.**
+This is the acceptance number — the same `mem-report` that produced the "1.8 GB"
+complaint, run again on the same live app:
+
+| | footprint | **resident** |
+|---|---|---|
+| device (app + 4 WebViews) | 1,768 MB | **352 MB** |
+| ├ WebContent, 7h39 old | 1,137 MB | 104-217 MB |
+| └ three younger WebContents | 412 MB | 13 MB |
+| server (bun + sidecars) | 260 MB | ~110 MB |
+| **Topics, resident total** | | **~612 MB** |
+
+**80% of the headline is already ceded to the system.** And the machine was
+genuinely under pressure at that moment (22.5 GB of swap, 208 MB unused) — but
+not because of us: `ollama` alone held **5,054 MB resident**, eight times
+Topics.
+
+So the honest close is split. What was ours and could be fixed, was: the server
+went 936 → 260 MB, the DB 849 → 213, the idle write cycle 27 → 0. What remains
+is a 7-hour-old renderer holding 1.1 GB of footprint against ~150 MB resident,
+flat across samples — pages the system already took back and still charges to
+the app. **No public API returns them**: `malloc_zone_pressure_relief` acts only
+within its own process, and `memorystatus_control` on another pid returns -1
+(privileged). The only lever the shell has is `-[WKWebView _close]`, i.e.
+recreating the renderer — which costs the user their scroll position and pane
+state to reclaim memory nobody is short of.
+
+That is why the panel line exists, and on these exact numbers it fires: *"the
+80% is already compressed or swapped: 352 MB in RAM right now"*. It does not
+shrink the number; it stops the number from meaning something it does not mean.
+
 **And the client turns out to have the SAME defect as the server, not the one
 this page spent a day on.** Measured at 00:23 on the user's own window, two
 WebContent processes side by side:
