@@ -261,11 +261,20 @@ touched rows written after it existed:
     blocks      273 rows compressed (4 MB)  ·  4,131 plaintext (481 MB)
     tool_calls  291 rows compressed (4 MB)  ·  8,762 plaintext (288 MB)
 
-`bun run db:compress` backfills them. Measured on a coherent snapshot of the
-real database: **775 MB → 152 MB (5.11x)**, and after `VACUUM` the file goes
-from **848 MB to 213**. Every row is read back before it is replaced, and the
-whole thing was verified column by column against the untouched snapshot:
-**18,877 rows, zero differences**.
+`bun run db:compress` backfills them, and on 2026-08-20 it was **run on the
+production database**, not just measured: **849 MB → 213 MB on disk**, WAL
+reabsorbed. 776.9 MB of plaintext became 151.9 (5.11x); the `VACUUM` took 4
+seconds.
+
+Every row is read back before it is replaced, and the result was verified
+against an atomic `.backup` taken first: **18,902 rows × 8 columns = 151,216
+comparisons, zero differences**, `PRAGMA integrity_check` = ok, and the row
+counts of `topics` / `tasks` / `ui_state` / `messages` unchanged. Then the part
+that actually matters — the app still works: `/api/topics`, `/api/all-boards/tasks`
+and `/api/system/presence` all 200, and a chat whose `tool_calls` are now zstd
+blobs still delivers **250 decoded tool blocks** through the API. The codec is
+transparent to every reader, which is what made the backfill safe in the first
+place.
 
 That verification is also where a lesson sits. The first run compared a `cp` of
 a live database and found TWO differences — real ones: a row the server was
