@@ -27,6 +27,7 @@ import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
 import { installViewportZoomGuard } from '../../lib/viewportZoomGuard';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
+import { useT } from '@/hooks/useT';
 import type { Topic } from '../../types';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './BrowserKeyboardCapture';
@@ -302,6 +303,7 @@ function useBackToSpawner(
  * absent, so there are never dead buttons.
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
+  const tr = useT();
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   const dl = useBrowserDownloads(contextId);
   // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
@@ -523,7 +525,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
               if (e.key === 'Enter') { e.preventDefault(); void runFind(!e.shiftKey); }
               else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
             }}
-            placeholder="Trova nella pagina"
+            placeholder={tr('browser.find.placeholder')}
             data-testid="browser-find-input"
             className="flex-1 h-6 px-2 text-[12px] rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary"
           />
@@ -536,16 +538,16 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
               `findInPage` dichiarava `matchCase` e nessuno glielo passava. */}
           <button
             className={`${findBtn} ${findMatchCase ? 'text-app-text bg-app-hover' : ''}`}
-            title={findMatchCase ? 'Maiuscole/minuscole: attivo' : 'Maiuscole/minuscole'}
+            title={findMatchCase ? tr('browser.find.caseOn') : tr('browser.find.case')}
             aria-pressed={findMatchCase}
             data-testid="browser-find-matchcase"
             onClick={() => { setFindMatchCase((v) => !v); setFindIndex(0); }}
           >
             <CaseSensitive size={14} aria-hidden />
           </button>
-          <button className={findBtn} title="Precedente (⇧⏎)" onClick={() => void runFind(false)}><ChevronUp size={14} aria-hidden /></button>
-          <button className={findBtn} title="Successivo (⏎)" onClick={() => void runFind(true)}><ChevronDown size={14} aria-hidden /></button>
-          <button className={findBtn} title="Chiudi (Esc)" onClick={closeFind}><X size={14} aria-hidden /></button>
+          <button className={findBtn} title={tr('browser.find.prev')} onClick={() => void runFind(false)}><ChevronUp size={14} aria-hidden /></button>
+          <button className={findBtn} title={tr('browser.find.next')} onClick={() => void runFind(true)}><ChevronDown size={14} aria-hidden /></button>
+          <button className={findBtn} title={tr('browser.find.close')} onClick={closeFind}><X size={14} aria-hidden /></button>
         </div>
       )}
       {/* La scheda non risponde più. Sta SOPRA l'errore di navigazione perché lo
@@ -643,6 +645,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
 function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
+  const tr = useT();
   const browser = useRemoteBrowser(contextId, isVisible);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   // Vedi il gemello nel ramo Tauri: login salvato dall'agente → reiniettato una
@@ -1074,8 +1077,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             onClick={() => browser.setEngine(browser.engine === 'chromium' ? 'native' : 'chromium')}
             icon={<Puzzle size={12} className="flex-shrink-0" aria-hidden />}
             title={browser.engine === 'chromium'
-              ? `Chromium reale · ${browser.engineExtensions} estensioni · clicca per tornare al motore nativo`
-              : 'Motore nativo · clicca per usare il tuo Chromium reale (con le estensioni)'}
+              ? tr('browser.engine.real', { n: browser.engineExtensions })
+              : tr('browser.engine.native')}
           >
             {browser.engine === 'chromium' ? `Chromium · ${browser.engineExtensions}` : 'Nativo'}
           </BrowserPaneChip>
@@ -1096,8 +1099,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
               ? <Boxes size={12} className="flex-shrink-0" aria-hidden />
               : <MonitorPlay size={12} className="flex-shrink-0" aria-hidden />}
             title={browser.renderMode === 'dom'
-              ? 'Modalità DOM: browser vero ricostruito nativamente (cross-device). Clicca per tornare al video.'
-              : 'Modalità video (stream a pixel). Clicca per la modalità DOM: il browser vero, nativo e cross-device.'}
+              ? tr('browser.mode.dom')
+              : tr('browser.mode.video')}
           >
             {browser.renderMode === 'dom' ? 'DOM' : 'Video'}
           </BrowserPaneChip>
@@ -1120,7 +1123,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/15 hover:bg-red-500/25 font-medium transition-colors flex-shrink-0"
               >
                 <RotateCw size={11} />
-                Riprova
+                {tr('common.retry')}
               </button>
             )}
           </div>
@@ -1185,8 +1188,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           <div className="flex items-center justify-center h-full" data-testid="browser-webrtc-error">
             <div className="text-center max-w-xs px-4">
               <AlertTriangle size={30} className="mx-auto mb-3 text-red-500" />
-              <p className="text-[13px] text-app-text-muted mb-1">Sessione video non disponibile</p>
-              <p className="text-[11px] text-app-text-faint mb-3">Il transport WebRTC non si è connesso. Prova la modalità DOM: il browser vero, ricostruito nativamente e cross-device.</p>
+              <p className="text-[13px] text-app-text-muted mb-1">{tr('browser.video.unavailable')}</p>
+              <p className="text-[11px] text-app-text-faint mb-3">{tr('browser.video.blurb')}</p>
               <div className="flex items-center justify-center gap-2">
                 <button
                   type="button"
@@ -1195,7 +1198,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                   data-testid="browser-dom-fallback"
                 >
                   <Boxes size={12} />
-                  Modalità DOM
+                  {tr('browser.mode.domShort')}
                 </button>
                 <button
                   type="button"
@@ -1204,7 +1207,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                   data-testid="browser-webrtc-retry"
                 >
                   <RotateCw size={12} />
-                  Riprova video
+                  {tr('browser.video.retry')}
                 </button>
               </div>
             </div>
@@ -1222,7 +1225,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
-              <p className="text-[12px] text-app-text-muted">Avvio sessione condivisa…</p>
+              <p className="text-[12px] text-app-text-muted">{tr('browser.shared.starting')}</p>
             </div>
           </div>
         )}
