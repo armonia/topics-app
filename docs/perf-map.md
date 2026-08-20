@@ -33,7 +33,7 @@ intentions.
 | Pane residency cap | how many panes stay mounted | `tests/e2e/pane-residency-cap.spec.ts` | yes (E2E shard) |
 | Transcript eviction | how many chats stay hydrated | `tests/e2e/chat-transcript-residency.spec.ts` | yes (E2E shard) |
 | Browser pane streaming | fps, p95 input latency, bandwidth, first frame | `tests/e2e/browser-ws-streaming.spec.ts` plus `perf-baseline.json` | yes (E2E shard) |
-| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **GREEN since 2026-08-19: 0 writes, see below** |
+| Writes at rest | API writes an IDLE window sends in 30s (after a 20s settle) | `node scripts/check-idle-writes.mjs` | not yet — **`pane-store-v2` cycle CLOSED (27→0); a SECOND channel still spikes, see below** |
 | Dropped frames under gesture | % of frames dropped while scrolling, median of 5 runs | `node scripts/check-frames.mjs` | not yet |
 | Compositor layer growth | `owned unmapped (graphics)` regions per minute on the REAL window | `bun run scripts/layer-growth.ts` | no (needs a live window) |
 | Cost of a window | footprint of a freshly-opened window vs one that has lived | `node scripts/window-cost.mjs` | no (diagnostic) |
@@ -335,6 +335,33 @@ The second row is the one that matters: those two E2E are what failed the two
 previous attempts, and a gate that reaches zero writes by no longer
 synchronising has not fixed anything — it has moved the damage somewhere more
 visible.
+
+**But re-measuring eleven times found a SECOND channel, and one run is not a
+measurement.** The same command, same evening, same machine:
+
+    0, 3, 0 · 0, 1, 0 · 5, 9, 15, 0 · 0, 0, 0, 0, 0
+
+Declaring "0" off the first run would have been exactly the kind of stale this
+page exists to prevent. The spike is real and it is NOT the cycle coming back:
+every write in it is on `topics-project-panes-<hash>`, a different key from
+`pane-store-v2`, written by `useProjectPersistenceSave` — which only runs inside
+a ProjectWindow. Eleven of the fifteen arrived ~2.3s apart with an IDENTICAL
+body (`{"nonChatPanes":[],"openChatTopicIds":[]}`), i.e. the same signature as
+the first cycle on a different channel.
+
+Ruled out already, measured rather than reasoned:
+
+· **not the dedupe guard being wrong** — `projectLayoutSync.dedupe.test.ts`
+  covers it and passes; the writes go *around* it, not through a hole in it.
+· **not `subscribeLifecycle('open')` clearing the guard** — instrumented the
+  page: **zero** socket opens in 30 idle seconds.
+· **not always present** — a dedicated probe watching 120 seconds saw ZERO, and
+  the server log (which sees every client) counted zero in 45 seconds.
+
+So it is conditional on state the ceiling-3 gate happens to catch sometimes:
+the likely trigger is having a project window open, since that key has no writer
+otherwise. That is where the next attempt starts — and it starts from a
+reproduction, not from this table.
 
 **The bundle ratchet is red, and it is not from this work.** `check:bundle`,
 2026-08-19: entry_eager 1,207,328 raw against a 1,169,907 baseline (+2% tolerance
