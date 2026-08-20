@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { useT } from '../../hooks/useT';
 import { Check, Loader2, Plus, Sparkles } from 'lucide-react';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ProjectTaskCounts } from './atoms';
@@ -60,6 +61,7 @@ export function ProjectPickerBody({
    *  riga: è dedotta dal server, e va detta prima di creare. */
   newProjectDir?: string | null;
 }) {
+  const tr = useT();
   const [query, setQuery] = useState('');
   const multi = selectedIds !== undefined;
   const filtered = useMemo(() => {
@@ -105,8 +107,8 @@ export function ProjectPickerBody({
           autoFocus value={query} disabled={busy}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={onCreate ? 'Cerca o crea…' : 'Cerca…'}
-          aria-label={onCreate ? 'Cerca o crea un progetto' : 'Cerca un progetto'}
+          placeholder={onCreate ? tr('picker.searchOrCreate') : tr('picker.search')}
+          aria-label={onCreate ? tr('picker.searchOrCreate.aria') : tr('picker.search.aria')}
           className="w-full rounded bg-black/5 px-2 py-1 text-xs text-app-text outline-none placeholder:text-app-placeholder dark:bg-white/5"
         />
       </div>
@@ -115,7 +117,7 @@ export function ProjectPickerBody({
           <button
             role="option" aria-selected={!!autoSelected} disabled={busy}
             onClick={onPickAuto}
-            title="Il progetto lo capisce il sistema dal testo del task (nome di progetto citato); se non è chiaro va nel progetto 'generale'"
+            title={tr('picker.auto.hint')}
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-app-text-heading hover:bg-black/10 disabled:opacity-40 dark:hover:bg-white/10"
           >
             <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -153,10 +155,10 @@ export function ProjectPickerBody({
             onClick={runCreate}
             data-testid="project-picker-create"
             title={createState === 'exists'
-              ? `"${typed}" esiste già: è nella lista qui sopra`
+              ? tr('picker.exists', { name: typed })
               : createState === 'ready'
-                ? `Crea il progetto "${typed}"${newProjectDir ? ` in ${newProjectDir}` : ''}`
-                : `Scrivi il nome nella casella qui sopra: quella è anche la casella di creazione${newProjectDir ? `, e il progetto nasce in ${newProjectDir}` : ''}`}
+                ? tr('picker.create', { name: typed, where: newProjectDir ? tr('picker.create.in', { dir: newProjectDir }) : '' })
+                : tr('picker.typeName', { where: newProjectDir ? tr('picker.typeName.in', { dir: newProjectDir }) : '' })}
             className={`${POPOVER_ITEM} disabled:opacity-40`}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Plus className="h-3.5 w-3.5 shrink-0" />}

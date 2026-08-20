@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useT } from '../../hooks/useT';
 import { X, RefreshCw, ChevronLeft, FileText, FolderOpen, Upload, Trash2, ChevronsDownUp } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, WSMessage } from '../../types';
 import { useContextInspector } from '../../hooks/useContextInspector';
@@ -37,6 +38,7 @@ interface ContextInspectorProps {
 }
 
 export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile, onCompact }: ContextInspectorProps) {
+  const tr = useT();
   // Keep the latest topic in a ref so stable callbacks (handleToggleSource) read
   // current values without listing `topic` in their deps. Synced in an effect to
   // avoid mutating a ref during render.
@@ -195,7 +197,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             OpenClaw Memory Tree
           </span>
           <div className="flex-1" />
-          <button aria-label="Chiudi l'ispettore del contesto" onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary">
+          <button aria-label={tr('ctxInspector.close')} onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary">
             <X size={14} />
           </button>
         </div>
@@ -226,7 +228,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
         </button>
         <button
           onClick={onClose}
-          aria-label="Chiudi l'ispettore del contesto"
+          aria-label={tr('ctxInspector.close')}
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary"
         >
           <X size={14} />
@@ -262,7 +264,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             type="button"
             onClick={() => { onCompact(); onClose(); }}
             className="px-2 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors inline-flex items-center gap-1.5"
-            title="Riassume la storia della conversazione e libera spazio nel contesto"
+            title={tr('ctxInspector.compact')}
           >
             <ChevronsDownUp size={12} />
             Compatta ora
@@ -351,7 +353,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                       <span className="text-[13px]">{'\u{1F4CE}'}</span>
                       <span className="text-[12px] text-app-text truncate flex-1">{source.label}</span>
                       <span className="text-[11px] text-app-text-muted tabular-nums">~{source.tokens > 1000 ? `${(source.tokens / 1000).toFixed(1)}K` : source.tokens} tok</span>
-                      <button aria-label="Rimuovi la sorgente dal contesto"
+                      <button aria-label={tr('ctxInspector.removeSource')}
                         onClick={() => handleRemoveContextFile(source.id.replace('file:', ''))}
                         className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 text-app-text-muted hover:text-red-500 transition-colors"
                       >

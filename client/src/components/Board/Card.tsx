@@ -16,6 +16,7 @@ import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
+import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
@@ -744,6 +745,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           ) : (!task.dispatchState && task.dispatchError) ? (
             <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
           ) : null}
+          {/* Il primo tratto del turno, quello in cui la card sembra ferma:
+              l'agente sta leggendo e inquadrando, e il titolo che si sta per
+              leggere è ancora quello buttato giù di fretta. Sta PRIMA del chip
+              vivo perché è la fase, e il chip vivo è la misura. */}
+          {live?.triage && task.dispatchState === 'working' && (
+            <span
+              data-testid="card-triage"
+              title={tr('board.card.triageTitle')}
+              className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300"
+            >{tr('board.card.triage')}</span>
+          )}
           {live && task.dispatchState === 'working' ? (
             <LiveEffortChip usage={live} />
           ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
@@ -868,7 +880,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           )}
           <TaskIdChip id={task.id} />
         </span>
-        {task.text}
+        {/* Il titolo RISCRITTO non viene sostituito: le lettere cambiate
+            entrano una dietro l'altra (vedi `Shared/MorphText`). Riscrivere il
+            nome di un task e' una cosa che succede spesso e sempre altrove —
+            lo fa una persona dal drawer, o l'agente che lo ha preso in carico e
+            gli da' un titolo vero — quindi chi guarda la board vedeva una card
+            diversa senza sapere che fosse la stessa. A riposo il componente non
+            aggiunge un solo nodo al DOM. */}
+        <MorphText text={task.text} />
       </span>
       {/* Description preview — plain text, clamped (the full markdown lives in
           the drawer). The update time closes the body — but on a REVIEW card the

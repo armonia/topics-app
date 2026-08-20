@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { useT } from '../../hooks/useT';
 import { Bot, Loader2 } from 'lucide-react';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 
@@ -16,11 +17,12 @@ import { useTerminalSessions } from '../../contexts/TopicsContext';
  * (now non-blank) terminal pane.
  */
 function SubAgentRow({ id, name, busy }: { id: string; name: string; busy: boolean }) {
+  const tr = useT();
   return (
     <button
       type="button"
       onClick={() => window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }))}
-      title={busy ? `${name} · al lavoro (apri)` : `${name} · apri`}
+      title={busy ? tr('subagent.busy', { name }) : tr('subagent.open', { name })}
       className="flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface/60 px-2.5 py-1 text-[11px] text-app-text hover:bg-app-surface transition-colors max-w-[200px]"
     >
       {busy

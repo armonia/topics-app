@@ -9,6 +9,7 @@
 // the window is gone / on another machine (window_focus_label false), fall back
 // to reopening its topics locally.
 import { AppWindow } from 'lucide-react';
+import { useT } from '../../hooks/useT';
 import { cn } from '@/lib/utils';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
 import { detachedWindowLabel, focusOrReopenDetachedWindow } from '@/lib/detachedWindow';
@@ -23,6 +24,7 @@ interface DetachedWindowMarkerProps {
 }
 
 export function DetachedWindowMarker({ topics, onReopenTopic }: DetachedWindowMarkerProps) {
+  const tr = useT();
   const windows = useDetachedWindows();
   if (windows.length === 0) return null;
 
@@ -40,13 +42,13 @@ export function DetachedWindowMarker({ topics, onReopenTopic }: DetachedWindowMa
               // tailwind-merge, e `.py-1` viene emesso dopo `.py-0`. Tolto.
               'glass-surface-hover cursor-pointer flex items-center gap-2 h-11 px-3 text-left transition-colors',
             )}
-            title="Apri l'altra finestra"
-            aria-label={`Apri la finestra con ${label}`}
+            title={tr('window.openOther')}
+            aria-label={tr('window.openWith', { what: label })}
           >
             <AppWindow size={16} className="flex-shrink-0 text-app-text-tertiary" />
             <div className="min-w-0 flex-1">
               <div className="text-[12px] text-app-text truncate">{label}</div>
-              <div className="text-[11px] text-app-text-tertiary">In un'altra finestra</div>
+              <div className="text-[11px] text-app-text-tertiary">{tr('window.elsewhere')}</div>
             </div>
           </button>
         );

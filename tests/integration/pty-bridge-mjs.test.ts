@@ -13,9 +13,17 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { testTmpDir, PROJECT_ROOT } from "./helpers";
+import { resolveNodeBin, nodeMancanteMessage } from "../../server/lib/test-node-bin";
 
 const ROOT = testTmpDir("pty-bridge-mjs");
 const BRIDGE = path.join(PROJECT_ROOT, "server", "pty-bridge.mjs");
+
+/** L'eseguibile Node con cui lanciare il ponte: il PATH di chi esegue i test
+ *  non e' garantito. La ricerca e il messaggio d'errore stanno in
+ *  `shared/test-node-bin.ts`, condivisi con `server/pty-bridge-orphan.test.ts` —
+ *  due copie della stessa ricerca divergono, e la seconda si scopre rotta solo
+ *  quando fallisce come la prima. */
+const NODE = resolveNodeBin();
 /** Corta per forza: un socket unix oltre i 104 byte non si lega (EINVAL). */
 const GRACE_MS = 400;
 
@@ -30,14 +38,22 @@ class Bridge {
 
   static async start(label: string, env: Record<string, string> = {}): Promise<Bridge> {
     const socketPath = path.join(ROOT, `${label}.sock`);
-    const proc = Bun.spawn(
-      ["node", BRIDGE, "--socket", socketPath, "--parent-pid", String(process.pid)],
-      {
-        stdout: "ignore",
-        stderr: "ignore",
-        env: { ...process.env, TOPICS_PTY_BRIDGE_KILL_GRACE_MS: String(GRACE_MS), ...env },
-      },
-    );
+    let proc: ReturnType<typeof Bun.spawn>;
+    try {
+      proc = Bun.spawn(
+        [NODE, BRIDGE, "--socket", socketPath, "--parent-pid", String(process.pid)],
+        {
+          stdout: "ignore",
+          stderr: "ignore",
+          env: { ...process.env, TOPICS_PTY_BRIDGE_KILL_GRACE_MS: String(GRACE_MS), ...env },
+        },
+      );
+    } catch (e) {
+      // ACCUSA L'AMBIENTE, non il ponte. Un `ENOENT` grezzo qui produceva
+      // cinque rossi che sembravano difetti dello shutdown, e sono costati una
+      // diagnosi: il rosso deve dire cosa manca e come si ripara.
+      throw new Error(nodeMancanteMessage(NODE, e));
+    }
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
       if (fs.existsSync(socketPath)) break;
