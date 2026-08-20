@@ -53,3 +53,54 @@ describe("isEmptyAssistantTurn", () => {
     expect(isEmptyAssistantTurn({ role: "user", content: "" })).toBe(false);
   });
 });
+
+/**
+ * LE FRASI CON CUI LA CLI DICE «NIENTE».
+ *
+ * `(no content)` e `No response requested.` non sono risposte: sono segnaposto
+ * che Claude Code emette quando un turno si chiude senza avere nulla da dire —
+ * stanno una accanto all'altra nel suo binario, e il suo stesso classificatore
+ * di stato le legge come «finito», non come contenuto.
+ *
+ * Arrivano però nel canale del testo, quindi il predicato le prendeva per una
+ * risposta vera. Su un turno chiesto da una persona passa inosservato; su un
+ * turno RISVEGLIATO no — un Monitor che si chiude ne sveglia uno per dirlo, e
+ * in chat restava una riga che l'utente non aveva chiesto (osservato sulla chat
+ * 205d1fbb il 20/08).
+ */
+describe("isEmptyAssistantTurn — le sentinelle della CLI", () => {
+  test("«No response requested.» non è una risposta", () => {
+    expect(isEmptyAssistantTurn({ content: "No response requested." })).toBe(true);
+  });
+
+  test("«(no content)» nemmeno", () => {
+    expect(isEmptyAssistantTurn({ content: "(no content)" })).toBe(true);
+  });
+
+  test("spazi attorno non cambiano la risposta", () => {
+    expect(isEmptyAssistantTurn({ content: "  No response requested.  " })).toBe(true);
+  });
+
+  test("ma se quel turno ha prodotto LAVORO, resta", () => {
+    // La sentinella dice «non ho altro da aggiungere», non «non ho fatto
+    // niente»: un turno che ha girato tre tool e poi tace ha prodotto, e
+    // cancellarlo sarebbe perdita di dati.
+    expect(isEmptyAssistantTurn({
+      content: "No response requested.",
+      toolCalls: [{ id: "t1" }],
+    })).toBe(false);
+    expect(isEmptyAssistantTurn({
+      content: "No response requested.",
+      blocks: [{ kind: "tool" }],
+    })).toBe(false);
+  });
+
+  test("PARLARE della sentinella non è emetterla", () => {
+    // Il confronto è sul testo INTERO. Un modello che spiega «la CLI risponde
+    // "No response requested." quando…» sta dicendo qualcosa di suo, e quella
+    // riga non si tocca.
+    expect(isEmptyAssistantTurn({
+      content: 'La CLI risponde "No response requested." quando non ha altro da dire.',
+    })).toBe(false);
+  });
+});

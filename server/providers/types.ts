@@ -435,8 +435,16 @@ export interface AIProvider {
    */
   registerStreamHandler?(sessionKey: string, runId: string | undefined, handler: StreamHandler): void;
 
-  /** Unregister a stream handler */
-  unregisterStreamHandler?(sessionKey: string): void;
+  /**
+   * Unregister a stream handler.
+   *
+   * `handler` è OPZIONALE ma va passato quando lo si ha: chi lo riceve deve
+   * spegnere solo SE è ancora il proprietario corrente. La route chiude i turni
+   * in ordine sparso — un `onDone` che finalizza mentre un secondo turno è già
+   * partito è la norma su una chat viva — e un azzeramento incondizionato
+   * spegnerebbe l'handler del turno NUOVO, lasciandolo muto.
+   */
+  unregisterStreamHandler?(sessionKey: string, handler?: StreamHandler): void;
 
   // --- HTTP Streaming (SSE fallback) ---
 

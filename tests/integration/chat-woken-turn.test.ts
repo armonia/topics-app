@@ -26,6 +26,8 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 
 interface Harness {
   ctx: AppContext;
+  /** Semina una riga assistente conclusa, come quella del turno precedente. */
+  rigaPrecedente: (content: string, blocks: unknown[]) => void;
   /** Chiama la route in modalità `woken` e torna lo handler che ha registrato. */
   adotta: (opts?: { adottabile?: boolean }) => Promise<{ resp: Response | null; handler?: StreamHandler }>;
   righe: () => Array<{ role: string; content: string; partial: boolean }>;
@@ -96,12 +98,22 @@ async function harness(sessionKey: string): Promise<Harness> {
     return { resp, handler: captured };
   };
 
+  /** Scrive a mano una riga assistente «di prima», come farebbe un turno vero. */
+  const rigaPrecedente = (content: string, blocks: unknown[]) => {
+    const now = new Date().toISOString();
+    ctx.db.run(
+      `INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order)
+       VALUES (?, ?, 'assistant', ?, ?, 0, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM messages WHERE session_key = ?))`,
+      [`m-${Math.random().toString(36).slice(2)}`, sessionKey, content, JSON.stringify(blocks), now, sessionKey],
+    );
+  };
+
   const righe = () =>
     ctx.loadLocalMessages(sessionKey).map((m) => ({
       role: m.role, content: m.content, partial: m.partial === true,
     }));
 
-  return { ctx, adotta, righe };
+  return { ctx, adotta, righe, rigaPrecedente };
 }
 
 describe("il turno risvegliato dal Monitor finisce in chat", () => {
@@ -123,6 +135,59 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
     expect(assistente[0]!.content).toBe("Il build è fallito: BUILD-FALLITO-XYZ");
     // Turno chiuso, non una riga rimasta a metà.
     expect(assistente[0]!.partial).toBe(false);
+  });
+
+  /**
+   * IL RISVEGLIO NON EREDITA IL TURNO DI PRIMA.
+   *
+   * `mode: "woken"` riusa la macchina del riattacco, e per un pezzo l'ha riusata
+   * TROPPO: prendeva anche l'istantanea della riga precedente. Quell'istantanea
+   * esiste perché un riattacco SVUOTA la riga che riusa e deve poter ripescare
+   * ciò che il replay non ri-emette (`reattachMerge.ts`); un risveglio invece
+   * apre una riga NUOVA, quindi il merge gli incollava addosso il turno prima.
+   *
+   * Misurato sulla chat 205d1fbb il 20/08: tre righe di fila con gli stessi due
+   * tool e lo stesso testo «armato», di cui una sola vera.
+   */
+  test("non eredita blocchi e testo della riga precedente", async () => {
+    const h = await harness("topic:woken-no-eredita");
+    // Il turno di prima: due tool e una frase, conclusi.
+    h.rigaPrecedente("armato", [
+      { kind: "tool", toolCall: { id: "t1", name: "Monitor", status: "success" } },
+      { kind: "text", text: "armato" },
+    ]);
+
+    const { handler } = await h.adotta();
+    handler!.onTextDelta("Il build e' fallito", "Il build e' fallito");
+    handler!.onDone({ result: "Il build e' fallito" });
+    await Bun.sleep(60);
+
+    const righe = h.righe().filter((r) => r.role === "assistant");
+    expect(righe.length).toBe(2);
+    // La riga vecchia resta com'era…
+    expect(righe[0]!.content).toBe("armato");
+    // …e la nuova porta SOLO il suo contenuto, non quello di prima.
+    expect(righe[1]!.content).toBe("Il build e' fallito");
+    expect(righe[1]!.content).not.toContain("armato");
+  });
+
+  /**
+   * IL RISVEGLIO A MANI VUOTE NON LASCIA UNA RIGA.
+   *
+   * Un Monitor che si chiude sveglia un turno per annunciarlo, e quel turno
+   * spesso non ha niente da dire: la CLI emette la sua sentinella
+   * («No response requested.»). Nessuno l'ha chiesto, quindi il silenzio è la
+   * risposta giusta — e in chat non deve restare niente.
+   */
+  test("un risveglio che non ha niente da dire non lascia una riga", async () => {
+    const h = await harness("topic:woken-vuoto");
+    const prima = h.righe().length;
+    const { handler } = await h.adotta();
+    handler!.onTextDelta("No response requested.", "No response requested.");
+    handler!.onDone({ result: "No response requested." });
+    await Bun.sleep(80);
+
+    expect(h.righe().length).toBe(prima);
   });
 
   test("NESSUN messaggio utente viene inventato per far partire il turno", async () => {
