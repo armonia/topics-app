@@ -1,6 +1,7 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
+import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
@@ -177,6 +178,7 @@ import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
+import { TURN_ERROR_PREFIX } from "./shared/board";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -1363,7 +1365,30 @@ const taskDispatcher = createTaskDispatcher({
       const msgs = ctx.loadLocalMessages(sessionKey, { withBlocks: false });
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
-        if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) return m.content;
+        if (m.role !== "assistant" || typeof m.content !== "string") continue;
+        const testo = m.content.trim();
+        if (!testo) continue;
+        // UN CARTELLO NON SONO LE PAROLE DELL'AGENTE.
+        //
+        // Questo recupero esiste per una ragione precisa: quando un turno
+        // muore prima che l'agente possa commentare, il dispatcher rispecchia
+        // la sua ultima prosa nel thread della card, cosi' chi rivede legge
+        // "cosa ho fatto" invece di una nota di sistema. Ma prendeva l'ultimo
+        // messaggio assistente QUALUNQUE FOSSE — e quando il turno muore, il
+        // messaggio piu' recente e' proprio il cartello che ne annuncia la
+        // morte: «⚠️ Turno interrotto da un riavvio del server…».
+        //
+        // Misurato sulla card 235afe11 (20/08): sotto quel cartello c'erano le
+        // parole vere dell'agente, ma il recupero si fermava alla prima riga e
+        // portava il cartello — cioe' rispecchiava sulla card l'annuncio del
+        // guasto al posto del lavoro. La card e' arrivata in review muta con il
+        // testo buono a due righe di distanza.
+        //
+        // I cartelli sono quelli che il client riconosce col prefisso ⚠️
+        // (`turnError.ts`): li si SALTA e si continua a scendere, perche' sotto
+        // c'e' quasi sempre la prosa che stiamo cercando.
+        if (testo.startsWith(TURN_ERROR_PREFIX)) continue;
+        return m.content;
       }
     } catch { /* best-effort — no mirror on failure */ }
     return null;
@@ -4465,6 +4490,7 @@ reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
+  .then(() => riprendiTurniInterrotti(ctx, topicsRouter))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
