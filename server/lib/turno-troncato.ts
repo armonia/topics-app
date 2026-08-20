@@ -38,9 +38,13 @@ export const TURNO_TRONCATO =
 
 /** Quel poco di `Database` che serve. Vedi la stessa scelta in `ripresa-boot.ts`. */
 interface DbLike {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // `any` non per pigrizia: `bun:sqlite` tipizza `prepare` e `query` con
+  // generici che obbligano il chiamante a dichiarare la forma della riga, e
+  // riscriverli qui vorrebbe dire copiare il driver dentro questo modulo. La
+  // stessa scelta, con la stessa motivazione, sta in `verdetto-turno-interrotto.ts`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- il driver tipizza con generici che legherebbero questo modulo alla sua superficie
   prepare(sql: string): any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- stessa ragione di `prepare` qui sopra: la forma della riga la dicono i chiamanti
   query(sql: string): any;
 }
 

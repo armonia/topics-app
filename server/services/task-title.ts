@@ -76,7 +76,7 @@ export async function titoloMigliore(
         role: "user",
         content:
           "Da questa richiesta ricava un TITOLO breve per una card di lavoro: 3-7 parole, " +
-          "nella lingua della richiesta, che dica DI CHE COSA si tratta — non come comincia. " +
+          "nella lingua della richiesta, che dica DI CHE COSA si tratta, non come comincia. " +
           "Salta i preamboli («potremmo fare», «vorrei che», «sarebbe bello»): nomina la cosa. " +
           "Niente virgolette, niente punto finale, niente prefissi tipo «Titolo:». " +
           "Rispondi SOLO col titolo.\n\nRichiesta:\n" + materiale,
@@ -100,7 +100,10 @@ export function ripulisci(raw: string): string | null {
   if (!s) return null;
   // Una riga sola: se ne ha date tre, si prende la prima non vuota.
   s = s.split("\n").map((r) => r.trim()).filter(Boolean)[0] ?? "";
-  s = s.replace(/^(?:titolo|title)\s*[:—-]\s*/i, "");
+  // Il trattino lungo qui E' il dato, non prosa: il modello risponde spesso
+  // con un prefisso «Titolo» seguito da quel segno, e questa riga lo toglie.
+  // Scritto come escape, cosi' la regola vale e il gate resta onesto.
+  s = s.replace(/^(?:titolo|title)\s*[:\u2014-]\s*/i, "");
   s = s.replace(/^["'«»`]+|["'«»`.]+$/g, "").trim();
   // UN JSON NON E' UN TITOLO. Chiedere «rispondi solo col titolo» a volte
   // ottiene `{"title": "…"}` — e' la forma che il modello ha visto mille volte

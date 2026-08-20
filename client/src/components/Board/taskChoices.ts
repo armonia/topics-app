@@ -17,7 +17,7 @@
 
 import { isAgentWorking, isUnfinishedReview, normalizeActionLabel, type BoardTask } from '../../lib/board';
 import {
-  acceptWord, fallbackTranslate, landWord, redoWord, sendBackDest, sendBackWord, stopWord, taskActionWord, unblockWord,
+  acceptWord, fallbackTranslate, landWord, redoWord, reservedActionLabel, sendBackDest, sendBackWord, stopWord, taskActionWord, unblockWord,
   type TaskActionId, type Translate,
 } from './taskActionWords';
 
@@ -261,11 +261,19 @@ export function usableQuestionOptions(
   options: readonly string[],
   opts?: { exclude?: TaskChoiceId[]; surfaceLabels?: readonly string[]; t?: Translate },
 ): string[] {
+  const scelte = taskChoices(task, opts);
   const labels = [
-    ...taskChoices(task, opts).map((c) => c.label),
+    ...scelte.map((c) => c.label),
     // The same choices said the way the agent says them. `surfaceLabels` is
     // expected to carry both names already (see `drawerSurfaceLabels`).
     ...taskChoices(task, { ...opts, t: fallbackTranslate }).map((c) => c.label),
+    // E la stringa che il SERVER esegue per quell'azione, che non è né la
+    // parola italiana né quella inglese quando il bottone si rinomina: su una
+    // card mai consegnata il land dice «Landa comunque», mentre l'agente
+    // scrive sempre «Landa su main» perché è quella che la route intercetta.
+    // Confrontare le sole parole disegnate lasciava passare il gemello (vedi
+    // `reservedActionLabel`).
+    ...scelte.map((c) => reservedActionLabel(c.id)).filter((s): s is string => s !== null),
     ...(opts?.surfaceLabels ?? []),
   ];
   return options.filter((o) => !labels.some((l) => sameLabel(o, l)));

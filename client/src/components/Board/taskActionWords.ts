@@ -29,7 +29,7 @@
  */
 
 import { t as translate, FALLBACK_LOCALE } from '../../lib/i18n';
-import { isUnfinishedReview, type BoardTask } from '../../lib/board';
+import { isUnfinishedReview, LAND_ACTION_LABEL, type BoardTask } from '../../lib/board';
 
 /**
  * Everything a task surface can offer. Same id space as `TaskChoiceId` in
@@ -76,6 +76,39 @@ const KEYS: Record<TaskActionId, { label: string; title: string }> = {
   'unblock': { label: 'board.action.unblock', title: 'board.action.unblock.title' },
   'unlink': { label: 'board.action.unlink', title: 'board.action.unlink.title' },
 };
+
+/**
+ * LA STRINGA CHE IL SERVER ESEGUE, per le azioni che ne hanno una.
+ *
+ * Una risposta rapida non è testo libero quando il suo valore sta nella lista
+ * riservata (`shared/board.ts`): la route la intercetta e ESEGUE l'azione
+ * invece di rigettare. Quindi «Landa su main» è la stessa porta del bottone
+ * land, sempre — comunque quel bottone si chiami oggi, e in qualunque lingua
+ * sia disegnato.
+ *
+ * Sta qui e non nel de-duplicatore perché è un fatto sull'AZIONE, come la sua
+ * parola: chi aggiunge un'azione eseguita dal server la dichiara nella stessa
+ * tabella, e il confronto la vede senza che nessuno se lo ricordi.
+ *
+ * Il costo di non averla: il 21/08 il bottone di land su una card mai
+ * consegnata è stato rinominato «Landa comunque» (parola giusta: non c'era
+ * nessuna consegna da promettere). Il de-dup confrontava solo le parole
+ * disegnate, la parola era cambiata, l'opzione dell'agente no — e il gemello è
+ * ricomparso sopra il bottone vero. Un fix ha riaperto la porta che un altro
+ * fix chiudeva, perché il legame era la STRINGA e il codice guardava la parola.
+ *
+ * `PUBLISH_ACTION_LABEL` resta fuori di proposito: anche quella la esegue il
+ * board, ma fa una cosa in più (pubblica), quindi non è il gemello di nessun
+ * bottone qui — toglierla cancellerebbe una scelta vera.
+ */
+const RESERVED: Partial<Record<TaskActionId, string>> = {
+  'land': LAND_ACTION_LABEL,
+};
+
+/** La stringa riservata di un'azione, se il board la esegue da sé. */
+export function reservedActionLabel(id: TaskActionId): string | null {
+  return RESERVED[id] ?? null;
+}
 
 /**
  * The word for one action.
