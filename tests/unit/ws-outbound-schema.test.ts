@@ -763,6 +763,18 @@ describe('validateOutbound — board + task', () => {
     }).ok).toBe(true);
   });
 
+  test('task:usage-live — `triage` è facoltativo, ma se c\'è è un booleano', () => {
+    // Facoltativo perché le due metà invecchiano separate: un guscio più vecchio
+    // del server non lo conosce, un server più vecchio del client non lo manda.
+    const base = {
+      type: 'task:usage-live', projectId: 'p-1', taskId: 't-1',
+      turnStartedAt: 1753700000000, baseMs: 0, liveTokens: 0, model: 'opus',
+    };
+    expect(validateOutbound({ ...base, triage: true }).ok).toBe(true);
+    expect(validateOutbound({ ...base, triage: false }).ok).toBe(true);
+    expect(validateOutbound({ ...base, triage: 'si' }).ok).toBe(false);
+  });
+
   test('board:global-cap — maxAgentsAuto è un BOOLEANO, non un numero', () => {
     expect(validateOutbound({ type: 'board:global-cap', maxAgentsAuto: true, maxAgents: 3 }).ok).toBe(true);
     expect(validateOutbound({ type: 'board:global-cap', maxAgentsAuto: 3, maxAgents: 3 }).ok).toBe(false);

@@ -377,6 +377,13 @@ export interface DispatcherDeps {
    * instead of the 20-minute wall-clock, and a starting one is never touched.
    */
   livenessGraceMs?: number;
+  /**
+   * Ogni quanto ripassa l'anteprima viva della card (token, tempo, triage).
+   * Default 4000. Esiste per i test: senza, provare che il chip del triage si
+   * spegne quando l'agente lascia il primo segno vorrebbe dire aspettare
+   * quattro secondi veri.
+   */
+  usageTickMs?: number;
 }
 
 export interface TaskDispatcher {
@@ -1357,9 +1364,60 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // turn — the gaps between turns (queued / parked / asleep) are never counted.
   // `task:usage-live` is transient (never persisted); the card falls back to the
   // static agent_ms/agent_tokens chip the moment the turn ends.
-  interface LiveTurn { projectId: string; sessionKey: string; turnStartedAt: number; baseMs: number; baseTokens: number; usage0: SessionUsage | null; model: string | null; }
+  interface LiveTurn { projectId: string; sessionKey: string; turnStartedAt: number; baseMs: number; baseTokens: number; usage0: SessionUsage | null; model: string | null; triage: boolean; frame: FrameMark | null; }
   const liveTurns = new Map<string, LiveTurn>();
   let usageTicker: ReturnType<typeof setInterval> | null = null;
+
+  // ── Il TRIAGE, cioè i primi minuti in cui non si vede niente ──────────────
+  //
+  // Il primo turno di un agente non comincia dal lavoro: comincia
+  // dall'inquadrarlo. Legge la card, si fa un'idea, riscrive il titolo grezzo,
+  // giudica la priorità che nessuno ha scelto, apre i passi. Per chi guarda la
+  // board sono minuti in cui la card è identica a com'era — stesso titolo
+  // buttato giù di fretta, nessun commento — e l'unica cosa che si muove è un
+  // cronometro. Sembra ferma proprio mentre sta facendo la parte che decide
+  // come andrà il resto.
+  //
+  // COSA CHIUDE IL TRIAGE: il primo SEGNO che l'agente lascia sulla card. Non
+  // un tempo, non un tetto arbitrario: il titolo riscritto, la priorità
+  // automatica risolta, il primo commento suo, il primo sottotask. Sono
+  // esattamente gli atti che il kickoff gli chiede «appena hai inquadrato il
+  // lavoro», quindi il chip si spegne quando la promessa è mantenuta, non
+  // quando scade un timer.
+  //
+  // SOLO AL PRIMO TURNO (`baseMs === 0`): una ripresa riprende un lavoro già
+  // inquadrato, e mostrarle «triage» direbbe una cosa falsa.
+  //
+  // Non torna mai indietro: una volta spento resta spento per il turno, anche
+  // se qualcuno rimette a mano il titolo di prima.
+  interface FrameMark { text: string; priorityAuto: boolean; marks: number }
+
+  /**
+   * I segni dell'agente sulla card: i suoi commenti e i suoi sottotask.
+   *
+   * Gli eventi di stato e le note di servizio NON contano: le scrive il
+   * dispatcher stesso («todo→in_progress», «Nuovo worktree»), e conteggiarle
+   * spegnerebbe il chip prima ancora che l'agente abbia letto la card.
+   */
+  function framingSnapshot(taskId: string): FrameMark | null {
+    try {
+      const row = deps.svc.get(taskId);
+      if (!row) return null;
+      const words = (row.comments ?? []).filter(
+        (c) => c.author !== "system" && (c.kind ?? "comment") === "comment",
+      ).length;
+      return { text: row.task.text, priorityAuto: row.task.priorityAuto, marks: words + (row.children ?? []).length };
+    } catch { return null; }
+  }
+
+  /** Vero finché la card è ancora quella di partenza, segni compresi. */
+  function stillTriaging(taskId: string, from: FrameMark): boolean {
+    const now = framingSnapshot(taskId);
+    // Illeggibile: non si cambia idea su una lettura mancata (stessa regola di
+    // `sessionUsage`, per la stessa ragione).
+    if (!now) return true;
+    return now.text === from.text && now.priorityAuto === from.priorityAuto && now.marks <= from.marks;
+  }
 
   function broadcastLiveUsage(): void {
     for (const [taskId, lt] of liveTurns) {
@@ -1370,21 +1428,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         const now = sessionUsage(lt.sessionKey);
         if (now && lt.usage0) liveTokens = lt.baseTokens + Math.max(0, now.billableTokens - lt.usage0.billableTokens);
       } catch { /* keep base */ }
+      if (lt.triage && lt.frame && !stillTriaging(taskId, lt.frame)) lt.triage = false;
       try {
         deps.broadcast({
           type: "task:usage-live", projectId: lt.projectId, taskId,
           turnStartedAt: lt.turnStartedAt, baseMs: lt.baseMs, liveTokens, model: lt.model,
+          triage: lt.triage,
         });
       } catch { /* best-effort */ }
     }
   }
 
   function startLiveTurn(task: Task, sessionKey: string, t0: number, usage0: SessionUsage | null, model: string | null): void {
+    const frame = (task.agentMs ?? 0) === 0 ? framingSnapshot(task.id) : null;
     liveTurns.set(task.id, {
       projectId: task.projectId, sessionKey, turnStartedAt: t0,
       baseMs: task.agentMs ?? 0, baseTokens: task.agentTokens ?? 0, usage0, model,
+      triage: frame !== null, frame,
     });
-    if (!usageTicker) usageTicker = setInterval(broadcastLiveUsage, 4000);
+    if (!usageTicker) usageTicker = setInterval(broadcastLiveUsage, deps.usageTickMs ?? 4000);
     broadcastLiveUsage(); // paint immediately, don't wait a full interval
   }
 
