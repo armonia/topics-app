@@ -26,6 +26,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
 import { imageShape } from "./image-shape";
+import { renderDeliverySheet } from "./delivery-sheet";
+import { isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readGlobalCap } from "./dispatch-capacity";
 import { liveAgentCount } from "./agent-census";
@@ -605,6 +607,12 @@ interface ServiceOpts {
   nudgeClaimMs?: number;
   /** Injectable for tests: whether a media path exists on disk (default node:fs existsSync). */
   fileExists?: (p: string) => boolean;
+  /**
+   * Scrive la SCHEDA DI CONSEGNA su disco e torna il path (null se non si e'
+   * potuto). Iniettata dall'host perche' questo servizio non conosce la media
+   * dir e non deve toccare il filesystem: vedi `services/delivery-sheet.ts`.
+   */
+  writeDeliverySheet?: (taskId: string, svg: string) => string | null;
 }
 
 /** Cosa e' stato spostato da una fusione. I conti servono a chi la annuncia. */
@@ -1010,6 +1018,13 @@ export interface TaskService {
   /** Toglie l'anteprima e scrive sulla card PERCHÉ (stato, non messaggio). */
   retirePreview(args: { taskId: string; reason: string }): Task;
   /**
+   * Disegna la SCHEDA DI CONSEGNA sulle card in review rimaste senza anteprima
+   * e torna quante ne ha coperte. Serve all'avvio: le card gia' ferme in review
+   * quando questo codice e' arrivato non passano piu' da nessuna transizione,
+   * e sarebbero rimaste cieche per sempre.
+   */
+  sweepReviewPreviews(): number;
+  /**
    * Scrive l'esito della sonda sull'output_url.
    * Chiamato dal background probe trigger dopo ogni sonda HTTP.
    */
@@ -1142,6 +1157,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const interruptClaimMs = opts.interruptClaimMs ?? INTERRUPT_CLAIM_MS;
   const nudgeClaimMs = opts.nudgeClaimMs ?? NUDGE_CLAIM_MS;
   const fileExists = opts.fileExists ?? existsSync;
+  const writeDeliverySheet = opts.writeDeliverySheet;
 
   // ── Review-evidence promotion ──
   // The delivery protocol asks agents for update_task(previewImage=…), but in
@@ -1192,10 +1208,66 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return shape.ratio > PREVIEW_CARD_MAX_RATIO ? shape : null;
   }
 
+  /**
+   * L'ULTIMO RAMO, quello che non puo' fallire: se la card non ha evidenza, la
+   * si DISEGNA con i fatti che stanno gia' in colonna (ramo, file, righe,
+   * passi, etichette).
+   *
+   * Idempotente: si rigenera solo sopra il vuoto o sopra una scheda precedente,
+   * mai sopra l'evidenza di qualcuno. Best-effort come tutto quello che sta
+   * attorno: senza `writeDeliverySheet` iniettata (test, host minimi) non fa
+   * niente e la card resta com'era.
+   */
+  function ensureDeliverySheet(taskId: string): void {
+    if (!writeDeliverySheet) return;
+    try {
+      const row = getTaskRow(taskId) as {
+        status?: string;
+        text?: string | null;
+        preview_image?: string | null;
+        delivery_branch?: string | null;
+        delivery_files_changed?: number | null;
+        delivery_insertions?: number | null;
+        delivery_deletions?: number | null;
+      } | undefined;
+      if (!row || row.status !== "review") return;
+      const attuale = (row.preview_image ?? "").trim();
+      if (attuale && !isDeliverySheetPath(attuale)) return;
+      const figli = db.prepare(
+        "SELECT status FROM tasks WHERE parent_task_id = ? AND COALESCE(archived, 0) = 0",
+      ).all(taskId) as Array<{ status: string }>;
+      const labels = (db.prepare(
+        "SELECT label FROM task_labels WHERE task_id = ? ORDER BY label",
+      ).all(taskId) as Array<{ label: string }>).map((r) => r.label);
+      const svg = renderDeliverySheet({
+        taskId,
+        title: row.text ?? "",
+        branch: row.delivery_branch ?? null,
+        filesChanged: row.delivery_files_changed ?? null,
+        insertions: row.delivery_insertions ?? null,
+        deletions: row.delivery_deletions ?? null,
+        subtasksTotal: figli.length,
+        subtasksDone: figli.filter((f) => f.status === "done").length,
+        labels,
+      });
+      const path = writeDeliverySheet(taskId, svg);
+      if (!path) return;
+      // Il ritiro NON si spegne qui: una scheda non e' l'evidenza nuova che
+      // supera un ritiro, e' il ripiego che tiene la card leggibile intanto.
+      db.prepare("UPDATE tasks SET preview_image = ?, updated_at = ? WHERE id = ?")
+        .run(path, now(), taskId);
+    } catch { /* best-effort: senza scheda la card torna com'era, vuota */ }
+  }
+
   function promoteReviewPreview(taskId: string): void {
     try {
       const row = getTaskRow(taskId);
-      if (!row || row.status !== "review" || (row.preview_image ?? "").trim()) return;
+      if (!row || row.status !== "review") return;
+      // Una SCHEDA vale come riquadro vuoto: e' il ripiego che abbiamo disegnato
+      // noi, quindi la prima evidenza vera deve poterla sostituire. Qualunque
+      // altra anteprima, invece, e' di qualcuno e non si tocca.
+      const attuale = (row.preview_image ?? "").trim();
+      if (attuale && !isDeliverySheetPath(attuale)) return;
       const rows = db.prepare(
         "SELECT media FROM task_comments WHERE task_id = ? AND media IS NOT NULL ORDER BY created_at DESC LIMIT 10",
       ).all(taskId) as Array<{ media: string }>;
@@ -1218,10 +1290,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           return;
         }
       }
-      // Nessun candidato: la card resta cieca. Il riquadro vuoto lo dice gia'.
-      // Le istruzioni su come allegare l'evidenza vivono nell'envelope
-      // dell'agente (PREVIEW_RULE in buildKickoff e buildResume), non nel
-      // thread di chi decide.
+      // Nessun candidato da promuovere. Il riquadro NON resta vuoto: il vuoto
+      // valeva come segnale finche' era raro, e il 20/08 era 9 card su 16.
+      // Vedi `services/delivery-sheet.ts` per il perche' e per l'onesta' della
+      // scheda (dichiaratamente disegnata, sostituita dalla prima evidenza
+      // vera). Le istruzioni su come allegare l'evidenza restano nell'envelope
+      // dell'agente (PREVIEW_RULE), non nel thread di chi decide.
+      ensureDeliverySheet(taskId);
       if (!rejected.length && !rows.some((r) => (r.media ?? "").trim())) {
         return;
       }
@@ -4577,10 +4652,33 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     retirePreview({ taskId, reason }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // Una SCHEDA DI CONSEGNA non si ritira: non e' una fotografia falsa, e'
+      // il ripiego disegnato dal server. Toglierla riporterebbe la card cieca
+      // proprio nel momento in cui l'anteprima viva ha appena fallito, cioe'
+      // esattamente il caso per cui la scheda esiste. Il motivo resta scritto
+      // (la nota di chi ritira), l'immagine resta.
+      if (isDeliverySheetPath(row.preview_image)) return rowToTask(row);
       db.prepare(
         "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
       ).run(now(), reason.trim() || null, now(), taskId);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    sweepReviewPreviews(): number {
+      try {
+        const rows = db.prepare(
+          "SELECT id FROM tasks WHERE status = 'review' AND COALESCE(archived, 0) = 0 AND COALESCE(TRIM(preview_image), '') = ''",
+        ).all() as Array<{ id: string }>;
+        let coperte = 0;
+        for (const r of rows) {
+          // Prima si prova l'evidenza VERA (un allegato promuovibile nel
+          // thread): la scheda e' l'ultimo ramo, non il primo.
+          promoteReviewPreview(r.id);
+          const dopo = getTaskRow(r.id);
+          if ((dopo?.preview_image ?? "").trim()) coperte++;
+        }
+        return coperte;
+      } catch { return 0; }
     },
 
     setUrlProbeStatus({ taskId, status, checkedAt }): Task {
