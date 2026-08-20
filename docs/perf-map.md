@@ -634,6 +634,18 @@ non-zero when it gets worse.
    (Tauri's manifest keys `darwin-aarch64` and `darwin-x86_64` separately) but
    it is the update channel, so it deserves care rather than a quick patch.
    No gate watches this number today.
+
+   **What is proven here and what is not**, because the difference decides how
+   much this estimate can be leaned on. Proven: the sizes, the file
+   architecture (`Mach-O 64-bit executable arm64`), and that the signature
+   still validates after `lipo -thin` (`codesign -v` exits 0). NOT proven: that
+   a single-arch build SERVES requests — launched by hand the thin binary exits
+   immediately with an empty log. Crucially the UNIVERSAL original does exactly
+   the same in the same environment, so `lipo` broke nothing; both exit for
+   their own reason (singleton lock, or arguments the Tauri shell passes that a
+   manual launch does not). The 93 MB is arithmetic on real binaries, not an
+   end-to-end result. Closing that gap is half an hour: build the sidecar with
+   a single target instead of `universal`, start it, send it one request.
 2. **Memory.** The shell still has no ceiling; the SERVER's boot peak got one
    on 2026-08-19 (`probe:boot-memory`, above). Its steady state is still a
    number without a budget. Still a
