@@ -17,6 +17,7 @@
  */
 
 import type { StreamLineKind } from "./events";
+import type { ContentBlock } from "../../types";
 
 /**
  * Questa riga apre un turno che nessuno ha chiesto?
@@ -95,6 +96,9 @@ export interface WokenSlot {
   sessionKey: string;
   wokenBuffer?: unknown[] | null;
   streamHandler: unknown;
+  /** La `description` dell'ultimo Monitor armato: viaggia con la sveglia
+   *  perché è la sola cosa che risponde a «arrivato COSA». */
+  ultimoMonitor?: string;
 }
 
 /**
@@ -111,11 +115,11 @@ export interface WokenSlot {
 export function bufferWoken(
   slot: WokenSlot,
   event: unknown,
-  sveglia: ((sessionKey: string) => void) | null,
+  sveglia: ((sessionKey: string, label?: string) => void) | null,
 ): boolean {
   if (slot.wokenBuffer == null) {
     slot.wokenBuffer = [];
-    try { sveglia?.(slot.sessionKey); }
+    try { sveglia?.(slot.sessionKey, slot.ultimoMonitor); }
     catch (err) { console.warn(`[claude-code] la sveglia del turno spontaneo su ${slot.sessionKey} ha rigettato:`, err); }
   }
   // La sveglia può aver adottato sul posto: allora il buffer è già stato
@@ -128,4 +132,42 @@ export function bufferWoken(
     buf.push(event); // supera il tetto: il ramo sopra non ripete il log
   }
   return true;
+}
+
+/**
+ * Si ricorda COSA sorveglia un `Monitor` appena armato.
+ *
+ * La sua `description` è l'unica cosa che risponde a «arrivato COSA» quando il
+ * risveglio consegna — minuti dopo, sotto un messaggio che non c'entra, quando
+ * il `tool_use` che l'ha armato è passato da un pezzo. Si tiene ORA, che è
+ * l'unico momento in cui la si vede.
+ *
+ * L'ultimo vince: fra due Monitor armati, il più recente è quasi sempre quello
+ * che sveglierà per primo, e una descrizione plausibile vale più di nessuna.
+ */
+export function ricordaMonitor(
+  slot: { ultimoMonitor?: string },
+  toolName: string,
+  input: unknown,
+): void {
+  if (toolName !== "Monitor") return;
+  const d = (input as Record<string, unknown> | undefined)?.description;
+  if (typeof d === "string" && d.trim()) slot.ultimoMonitor = d.trim();
+}
+
+/**
+ * Il CARTELLO in cima a una risposta nata da un risveglio.
+ *
+ * Una risposta così arriva minuti dopo, sotto un messaggio che non c'entra, e
+ * senza niente che dica da dove viene: in chat era indistinguibile da una
+ * risposta qualunque. Il blocco porta la `description` che l'agente aveva dato
+ * al Monitor — «arrivato COSA» — e il client la rende come intestazione.
+ *
+ * Un'etichetta vuota o assente lascia il cartello senza `label`: meglio muto
+ * che con un'etichetta inventata.
+ */
+export function cartelloRisveglio(isWoken: boolean, label: unknown): ContentBlock[] {
+  if (!isWoken) return [];
+  const l = typeof label === "string" ? label.trim() : "";
+  return [{ kind: "woken", ...(l ? { label: l } : {}) }];
 }

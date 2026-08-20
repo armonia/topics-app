@@ -1064,6 +1064,34 @@ function TurnErrorBanner({ text }: { text: string }) {
   );
 }
 
+/**
+ * DA DOVE VIENE QUESTA RISPOSTA.
+ *
+ * Un `Monitor` armato consegna il suo evento risvegliando la sessione: la
+ * risposta compare in chat minuti dopo, sotto un messaggio che non c'entra e
+ * senza che nessuno l'abbia chiesta. Senza un cartello è indistinguibile da una
+ * risposta qualunque — osservato il 20/08: «Risveglio arrivato: …» apparso da
+ * solo, con l'utente che ha dovuto domandare cosa fosse.
+ *
+ * Gemello di `TurnErrorBanner`: stessa forma, stesso posto (in cima alla bolla,
+ * non nella cronologia), colore diverso. Blu e non ambra perché non è un
+ * problema: è una consegna, ed è la cosa che si stava aspettando.
+ */
+function WokenBanner({ label }: { label?: string }) {
+  const tr = useT();
+  return (
+    <div
+      data-testid="woken-banner"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-[12px] leading-snug text-blue-900 dark:text-blue-200"
+    >
+      <span aria-hidden className="flex-shrink-0 leading-snug">🔔</span>
+      <span className="min-w-0 break-words">
+        {label ? tr('woken.arrivedFor', { what: label }) : tr('woken.arrived')}
+      </span>
+    </div>
+  );
+}
+
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, sessionKey, messageId, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
@@ -1081,6 +1109,11 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     [role, rawCleanText, blocks],
   );
   const isLegacyErrorOnlyText = turnError !== null && rawCleanText.trim().startsWith(LEGACY_ERROR_PREFIX);
+  // Il cartello del risveglio: c'è solo se questo turno è nato da un Monitor.
+  const woken = useMemo(
+    () => blocks?.find((b) => b.kind === 'woken') as { kind: 'woken'; label?: string } | undefined,
+    [blocks],
+  );
 
   // During streaming, close any incomplete markdown tokens to prevent rendering glitches
   const streamSafeText = useMemo(
@@ -1147,6 +1180,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // Il blocco `error` non è una tratta della cronologia: è il verdetto, e
       // si rende in cima. Qui si salta.
       if (b.kind === 'error') continue;
+      // Nemmeno `woken`: dice DA DOVE viene la risposta, non cosa è successo
+      // dentro il turno. Si rende come intestazione della bolla, sopra.
+      if (b.kind === 'woken') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
@@ -1228,6 +1264,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // unrelated rows. Visually lighter, easier to scan.
     return (
       <div data-testid="message-content-assistant">
+        {woken && <WokenBanner label={woken.label} />}
         {turnError && <TurnErrorBanner text={turnError} />}
         {blockGroups.map((g) => {
           if (g.kind === 'thinking') {

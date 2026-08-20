@@ -877,12 +877,14 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
  * comunque (watchdog d'inattività del provider, sweeper StaleStream) sono le
  * stesse di ogni altro turno di chat.
  */
-async function runHeadlessWoken(sessionKey: string): Promise<TurnEndInfo> {
+async function runHeadlessWoken(sessionKey: string, label?: string): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
   // Il provider si DICHIARA, per la stessa ragione del riattacco: senza, si
   // cade sul default della macchina e la sveglia di claude-code finirebbe a
   // bussare a un provider che non possiede quel figlio.
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code" });
+  // `wokenLabel`: COSA stava sorvegliando il Monitor. Viaggia fino alla riga in
+  // chat, che senza di essa mostrerebbe una risposta senza provenienza.
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code", ...(label ? { wokenLabel: label } : {}) });
   // Stesso patto degli altri due: residuo via prima di iniziare.
   takeTurnEnd(sessionKey);
   const resp = await topicsRouter(
@@ -4416,7 +4418,7 @@ function adottaTurniRisvegliati(): void {
   // quella a sondare il PATH e a registrarlo — quindi un `tryGetProvider` qui
   // troverebbe `undefined` e uscirebbe zitto: la sveglia sarebbe cablata e mai
   // collegata. Vedi `ClaudeCodeProvider.observeWokenTurns`.
-  ClaudeCodeProvider.observeWokenTurns((sessionKey) => {
+  ClaudeCodeProvider.observeWokenTurns((sessionKey, label) => {
     const topic = ctx.getTopicBySessionKey(sessionKey);
     if (!topic || topic.archived) {
       // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
@@ -4436,7 +4438,7 @@ function adottaTurniRisvegliati(): void {
     // di una spia che non si accende mai.
     try { claudeSessionTracker.noteWatchDelivered(sessionKey); }
     catch (err) { console.warn(`[woken] ${sessionKey}: attesa non disarmata:`, err); }
-    void runHeadlessWoken(sessionKey)
+    void runHeadlessWoken(sessionKey, label)
       .then((end) => {
         if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
       })

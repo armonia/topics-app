@@ -79,6 +79,8 @@ const IT: Dict = {
   'ctxInspector.close': "Chiudi l'ispettore del contesto",
   'ctxInspector.compact': 'Riassume la storia della conversazione e libera spazio nel contesto',
   'ctxInspector.removeSource': 'Rimuovi la sorgente dal contesto',
+  'woken.arrived': 'Arrivato mentre eri via: risposta di un controllo in ascolto.',
+  'woken.arrivedFor': 'Arrivato: {what}',
   'monitor.armed': 'in ascolto',
   'monitor.armed.blurb': "L'agente non sta aspettando fermo: quando l'evento arriva, la risposta compare qui come messaggio nuovo.",
   'ctxInspector.title': 'Contesto',

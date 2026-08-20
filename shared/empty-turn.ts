@@ -83,8 +83,11 @@ export function isNoContentSentinel(text: string | null | undefined): boolean {
  * da `hasItems` — mentre il campo `content`, appena sopra, l'ha dichiarata
  * vuota. Due letture della stessa riga che si contraddicono.
  *
- * Un blocco `tool` (o qualunque altro tipo) è lavoro e vince sempre: qui si
- * guarda solo il caso «tutti testo, e tutto testo nullo».
+ * Vale anche per il cartello `woken`, che dice DA DOVE viene una risposta e non
+ * È la risposta: da solo, su un risveglio che non ha niente da dire, sarebbe
+ * un'intestazione senza corpo — una bolla in chat per annunciare il nulla.
+ *
+ * Un blocco `tool` (o qualunque altro tipo) è lavoro e vince sempre.
  */
 function blocksAreOnlyEmptyText(v: unknown[] | string | null | undefined): boolean {
   if (!hasItems(v)) return false;
@@ -97,7 +100,9 @@ function blocksAreOnlyEmptyText(v: unknown[] | string | null | undefined): boole
   if (!Array.isArray(arr) || arr.length === 0) return false;
   return arr.every((b) => {
     const blocco = b as { kind?: string; text?: string } | null;
-    if (!blocco || blocco.kind !== "text") return false;
+    if (!blocco) return false;
+    if (blocco.kind === "woken") return true; // un cartello non è un contenuto
+    if (blocco.kind !== "text") return false;
     const t = (blocco.text ?? "").trim();
     return !t || isNoContentSentinel(t);
   });

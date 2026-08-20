@@ -20,6 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
+import { cartelloRisveglio } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
 import { getSessionCliPid } from "../providers/session-pids";
 import {
@@ -648,9 +649,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * solo, ma chiude la via a chi chiamasse questa route a mano.
        */
       if (isWoken && typeof (topicProvider as unknown as { adoptWokenTurn?: unknown }).adoptWokenTurn !== "function") {
-        console.warn(
-          `[Chat] risveglio RIFIUTATO su ${sessionKey}: il provider "${topicProvider.name}" non sa adottare un turno spontaneo.`,
-        );
+        console.warn(`[Chat] risveglio RIFIUTATO su ${sessionKey}: il provider "${topicProvider.name}" non sa adottare un turno spontaneo.`);
         return json(
           { error: `provider "${topicProvider.name}" cannot adopt a woken turn`, code: "woken_unsupported", provider: topicProvider.name },
           501,
@@ -896,7 +895,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // new block. Persisted on finalize so reload preserves ordering.
           // See `server/types.ts:ContentBlock` — same shape lives on
           // `StoredMessage.blocks` and (mirror-typed) on the client.
-          const blocks: ContentBlock[] = [];
+          const blocks: ContentBlock[] = cartelloRisveglio(isWoken, body.wokenLabel);
           const appendTextBlock = (delta: string) => {
             if (!delta) return;
             const last = blocks[blocks.length - 1];

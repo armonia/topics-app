@@ -48,7 +48,7 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
-import { isWokenTurnLine, bufferWoken, drainWoken } from "./claude/woken-turn";
+import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor } from "./claude/woken-turn";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -973,6 +973,8 @@ interface PersistentProcess {
    * eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
    */
   wokenBuffer?: unknown[] | null;
+  /** `description` dell'ultimo `Monitor`: il «COSA» del risveglio. */
+  ultimoMonitor?: string;
   /** Pending promise resolvers for sendChat */
   pendingResolve: ((result: { runId: string }) => void) | null;
   pendingReject: ((err: Error) => void) | null;
@@ -1196,10 +1198,10 @@ export class ClaudeCodeProvider implements AIProvider {
    * usciva zitta: cablaggio perfetto, mai collegato. Vale anche a caldo, perché
    * `registerProvider` SOSTITUISCE l'istanza a ogni cambio di modello.
    */
-  static observeWokenTurns(fn: (sessionKey: string) => void): void {
+  static observeWokenTurns(fn: (sessionKey: string, label?: string) => void): void {
     ClaudeCodeProvider.onWokenTurn = fn;
   }
-  private static onWokenTurn: ((sessionKey: string) => void) | null = null;
+  private static onWokenTurn: ((sessionKey: string, label?: string) => void) | null = null;
 
   /**
    * IL TURNO È STATO CHIESTO — anche se non è ancora partito.
@@ -1246,19 +1248,16 @@ export class ClaudeCodeProvider implements AIProvider {
    * lo store del broker; qui il turno è partito ADESSO e i suoi byte li abbiamo
    * già: non c'è niente da rileggere, c'è da non buttare.
    *
-   * `false` = non c'è più niente da adottare: figlio morto, o qualcun altro sta
-   * già guidando — il caso di una persona che scrive proprio mentre il Monitor
-   * consegna. Allora vince il turno vero e il risveglio si fonde con lui: gli
-   * eventi in buffer erano dello stesso figlio, e il suo handler li vede
-   * comunque da qui in avanti.
+   * `false` = niente da adottare: figlio morto, o qualcun altro sta già guidando
+   * — una persona che scrive mentre il Monitor consegna. Vince il turno vero e
+   * il risveglio si fonde con lui: gli eventi in buffer sono dello stesso figlio.
    */
   adoptWokenTurn(sessionKey: string, handler: StreamHandler): boolean {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return false;
     // «Occupata da sé stessa» non è occupata: la route registra l'handler PRIMA
-    // di guidare il turno, quindi qui lo trova già installato. Confrontarlo con
-    // `!== null` faceva rifiutare OGNI risveglio — dieci sveglie, zero
-    // risposte, misurato. Si guarda CHI c'è, non SE.
+    // di guidare. Con `!== null` si rifiutava OGNI risveglio (dieci sveglie,
+    // zero risposte): si guarda CHI c'è, non SE.
     if (pp.streamHandler && pp.streamHandler !== handler) {
       // Guida davvero qualcun altro: quegli eventi appartengono al suo stream.
       pp.wokenBuffer = null;
@@ -3254,6 +3253,7 @@ export class ClaudeCodeProvider implements AIProvider {
             const skillName = (block.input as Record<string, unknown> | undefined)?.skill;
             (pp.skillToolNames ??= new Map()).set(toolId, typeof skillName === "string" ? skillName : "");
           }
+          ricordaMonitor(pp, toolName, block.input); // il «COSA» del prossimo risveglio
           const input = block.input as Record<string, unknown> | undefined;
           if (pp.activeToolCalls.has(toolId)) {
             // Already announced EARLY by handlePartialStreamEvent (args were
