@@ -2,6 +2,7 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
+import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
@@ -4174,10 +4175,22 @@ async function reattachSurvivingChatTurns(): Promise<void> {
               return;
             }
           } catch { /* nessuna risposta dal broker: si pulisce, come prima */ }
-          // The turn is over (completed, died, or timed out): clear any
-          // partial leftovers for the session — including the pre-reload row
-          // the startup reset deliberately skipped while the child was alive.
-          try { ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]); } catch { /* next boot's reset catches it */ }
+          // IL TURNO È FINITO — MA SE È FINITO MALE VA DETTO.
+          //
+          // Questa riga spegneva `partial` in SILENZIO. Un turno completato non
+          // ha niente da spiegare, ma qui ci arriva anche chi è MORTO col
+          // riavvio: la riga si chiudeva a metà frase, senza cartello e senza
+          // niente che la distinguesse da una risposta finita bene. Le due chat
+          // segnalate il 20/08 («penso abbiano interrotto involontariamente»)
+          // erano esattamente questo: nel log `reaping idle broker session`,
+          // in chat nulla.
+          //
+          // Il cartello lo scrive `spiegaTurnoTroncato`, che riconosce da sé
+          // chi ha davvero bisogno di una spiegazione — e non ne scrive due.
+          try {
+            const chiuse = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]).changes;
+            if (chiuse > 0) spiegaTurnoTroncato(ctx.db, s.id);
+          } catch { /* next boot's reset catches it */ }
         });
       continue;
     }
