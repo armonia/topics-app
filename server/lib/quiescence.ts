@@ -96,6 +96,44 @@ export function unadoptableStreams(
 }
 
 /**
+ * L'attesa è finita?
+ *
+ * PERCHÉ È UNA FUNZIONE. La regola viveva dentro il `for(;;)` di
+ * `waitForDispatcherQuiescent`, in `server.ts`, dove nessun test poteva
+ * arrivarci senza avviare un server intero — e infatti conteneva un difetto
+ * che è sopravvissuto a mesi di riavvii: la scadenza si RINNOVAVA a ogni giro
+ * in cui c'era del lavoro in volo (`deadline = max(deadline, now + capMs)`),
+ * quindi con una card sempre presente non scadeva MAI. Non era un tetto, era
+ * una promessa infinita, e a decidere finiva l'unico orologio che scadeva
+ * davvero: il SIGTERM di `start-prod.sh`.
+ *
+ * Costo misurato sul task 235afe11 (20/08): ucciso TRE volte, a 27 minuti
+ * esatti l'una dall'altra, ogni volta con un turno d'agente vivo — worktree
+ * buttato e task rimesso in coda. Il log del cancello non riporta una sola
+ * scadenza in tutta la sua storia: non poteva averne.
+ *
+ * `now` è un parametro perché un tetto si prova facendolo scadere, non
+ * aspettando venticinque minuti.
+ */
+export function quiescenceVerdict(args: {
+  /** Che cosa trattiene, o `null` se niente. */
+  busy: string | null;
+  /** Chi non torna dopo un riavvio: card in volo + chat non riadottabili. */
+  unrecoverable: number;
+  now: number;
+  /** Quando è cominciata l'attesa. I tetti si contano da QUI. */
+  startedAt: number;
+  /** Tetto per ciò che non sopravvive al riavvio. */
+  capMs: number;
+  /** Tetto per una chat che verrà riadottata: la sua pausa è visibile, non persa. */
+  chatCapMs: number;
+}): "procedi" | "aspetta" | "scaduto" {
+  if (!args.busy) return "procedi";
+  const tetto = args.unrecoverable > 0 ? args.capMs : args.chatCapMs;
+  return args.now - args.startedAt >= tetto ? "scaduto" : "aspetta";
+}
+
+/**
  * Una frase che dice che cosa trattiene il riavvio, o `null` se niente.
  *
  * `null` è l'unica risposta che autorizza il riavvio: chi chiama non deve

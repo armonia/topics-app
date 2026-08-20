@@ -7,7 +7,7 @@
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, unadoptableStreams, providerSurvivesRestart } from "./quiescence";
+import { describeInFlight, unadoptableStreams, providerSurvivesRestart, quiescenceVerdict } from "./quiescence";
 
 const nothing = { cards: 0, streamKeys: [], brokerOpenKeys: [] };
 
@@ -131,5 +131,87 @@ describe("providerSurvivesRestart — la domanda si fa al provider, non al nome"
    */
   test("un `reattach` che non e' una funzione non conta", () => {
     expect(providerSurvivesRestart({ reattach: true })).toBe(false);
+  });
+});
+
+/**
+ * IL TETTO CHE NON SCADEVA MAI — il difetto che ha ucciso il task 235afe11.
+ *
+ * La regola stava dentro il `for(;;)` di `waitForDispatcherQuiescent`, e la
+ * scadenza si RINNOVAVA a ogni giro con del lavoro in volo:
+ *
+ *     deadline = Math.max(deadline, Date.now() + capMs)
+ *
+ * Con una card sempre presente quella riga rimandava la scadenza per sempre.
+ * Non era un tetto: era una promessa infinita. E siccome `start-prod.sh` il suo
+ * orologio ce l'aveva davvero (1530s dall'inizio, poi SIGTERM), a decidere
+ * finiva sempre lui — su un turno d'agente vivo.
+ *
+ * Il 20/08 il task 235afe11 e' stato ucciso TRE volte, a 27 minuti esatti
+ * l'una dall'altra: 17:55 → 18:22 → 18:51 → 19:18. Ogni volta worktree buttato
+ * e task rimesso in coda. Nel log del cancello non c'e' una sola riga di
+ * scadenza in tutta la sua storia — non poteva averne.
+ *
+ * Il primo test qui sotto e' quello che il difetto rendeva IMPOSSIBILE da
+ * superare: dopo il tetto, con del lavoro ancora in volo, si deve scadere.
+ */
+describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
+  const CAP = 25 * 60_000;
+  const CHAT = 60_000;
+  const base = { startedAt: 0, capMs: CAP, chatCapMs: CHAT };
+
+  test("IL DIFETTO: con una card in volo, oltre il tetto si SCADE", () => {
+    // Con il rinnovo questo caso non arrivava mai: `deadline` era sempre
+    // `now + capMs`, cioe' sempre nel futuro.
+    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP + 1 }))
+      .toBe("scaduto");
+  });
+
+  test("prima del tetto si aspetta, anche a lungo", () => {
+    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP - 1 }))
+      .toBe("aspetta");
+  });
+
+  test("niente in volo: si procede subito, senza aspettare nessun tetto", () => {
+    expect(quiescenceVerdict({ ...base, busy: null, unrecoverable: 0, now: 0 }))
+      .toBe("procedi");
+  });
+
+  /**
+   * Le due attese restano DUE, ed e' il punto di tutto il meccanismo: una chat
+   * riadottabile non merita 25 minuti (il hot-reload morirebbe per chiunque
+   * abbia una conversazione aperta), una card si'.
+   */
+  test("una chat riadottabile ha il tetto CORTO", () => {
+    expect(quiescenceVerdict({ ...base, busy: "1 chat", unrecoverable: 0, now: CHAT + 1 }))
+      .toBe("scaduto");
+    // Alla stessa ora, una card starebbe ancora aspettando.
+    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CHAT + 1 }))
+      .toBe("aspetta");
+  });
+
+  test("il confine e' incluso: AL tetto si scade, non un giro dopo", () => {
+    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP }))
+      .toBe("scaduto");
+  });
+
+  /**
+   * LA PROVA CHE IL RINNOVO NON PUO' TORNARE. Si simula il loop vero: giri da
+   * mezzo secondo con del lavoro sempre in volo. Con la riga di prima questo
+   * test non terminava (la scadenza scappava in avanti a ogni giro); ora
+   * l'attesa finisce, e finisce QUANDO promesso.
+   */
+  test("un loop con lavoro sempre presente ARRIVA a scadenza", () => {
+    let now = 0;
+    let giri = 0;
+    for (;;) {
+      const v = quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now });
+      if (v === "scaduto") break;
+      now += 500;
+      if (++giri > 10_000) throw new Error("l'attesa non e' mai scaduta: il rinnovo e' tornato");
+    }
+    // 25 minuti a mezzo secondo per giro.
+    expect(giri).toBe(CAP / 500);
+    expect(now).toBeGreaterThanOrEqual(CAP);
   });
 });
