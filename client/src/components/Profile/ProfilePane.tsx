@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ProfilePage, OrganizationPage, FriendsPage } from '../Settings/IdentityPages';
 import { IDENTITY_SECTIONS, SETTINGS_SECTIONS, type SectionId } from '../Settings/sections';
+import { consumaPaginaProfilo, EVENTO_PAGINA_PROFILO, type PaginaProfilo } from '@/state/profileTarget';
 
 /**
  * Pane «Profilo» — la tab dedicata a chi sei, con chi stai e chi hai intorno.
@@ -23,7 +24,20 @@ import { IDENTITY_SECTIONS, SETTINGS_SECTIONS, type SectionId } from '../Setting
  */
 export function ProfilePane() {
   const t = useT();
-  const [pagina, setPagina] = useState<SectionId>('profile');
+  // La pagina chiesta da chi ha aperto il pane, se qualcuno l'ha chiesta. Si
+  // legge in montaggio (il pane e' `lazy()`: quando parte la richiesta questo
+  // componente puo' non esistere ancora) e si ascolta l'evento per il caso
+  // opposto, il pane gia' aperto che deve cambiare scheda sotto il clic.
+  const [pagina, setPagina] = useState<SectionId>(() => consumaPaginaProfilo() ?? 'profile');
+
+  useEffect(() => {
+    const vai = (e: Event) => {
+      const chiesta = (e as CustomEvent<{ pagina?: PaginaProfilo }>).detail?.pagina;
+      if (chiesta) { consumaPaginaProfilo(); setPagina(chiesta); }
+    };
+    window.addEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
+    return () => window.removeEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
+  }, []);
 
   return (
     <div data-testid="profile-pane" className="flex flex-1 flex-col min-h-0 overflow-hidden">
