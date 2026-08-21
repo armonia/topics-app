@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.169",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una CLI morta rinominava la tua card col proprio messaggio d'errore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.168",
     "date": "2026-08-21",
     "sections": {

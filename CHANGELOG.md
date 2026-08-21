@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.169 — 2026-08-21
+
+### Sotto il cofano
+- Una CLI morta rinominava la tua card col proprio messaggio d'errore
+
 ## 2.2.168 — 2026-08-21
 
 ### Sotto il cofano
