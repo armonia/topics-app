@@ -262,7 +262,15 @@ export function DevicesSection() {
                 )}
               </span>
               <div className="min-w-0 flex-1">
-                {rinomina?.id === d.id ? (
+                {/* CHECK THE OBJECT FIRST, THEN THE ID. The optional-chain
+                    form of this test is true even when the state is null, as
+                    long as `d.id` is missing too — `undefined === undefined` —
+                    and the line below then dereferences that null. TypeScript
+                    cannot see it: `d.id` is typed `string`, so from there it
+                    infers the state is not null. Measured: a device with no
+                    `id` crashed the WHOLE app (white screen, outside every
+                    ErrorBoundary) on opening the Devices section. */}
+                {rinomina && rinomina.id === d.id ? (
                   <input
                     autoFocus
                     value={rinomina.valore}

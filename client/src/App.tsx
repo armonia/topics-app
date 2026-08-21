@@ -1997,6 +1997,14 @@ function App() {
 
       {/* Settings modal */}
       {showSettings && (
+        /* A SECTION THAT BREAKS DOES NOT TAKE THE APP WITH IT. Without this
+           net an error inside Settings climbed to the root: a white screen,
+           with not even a way to close it. Measured for real — a device with no
+           `id` blew up `DevicesSection` and everything else with it (an
+           optional-chain comparison that was true against null, closed over
+           there). It is the same net the sidebar, the status bar and the panels
+           already have. */
+        <ErrorBoundary fallbackMessage="Settings error">
         <Suspense fallback={null}>
           <GlobalSettings
             isOpen={showSettings}
@@ -2018,6 +2026,7 @@ function App() {
             }}
           />
         </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Command Palette (⌘K = everything, ⌘F = projects scope). */}
