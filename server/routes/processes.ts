@@ -854,6 +854,28 @@ function finishBackgroundShell(
  * topic che lanciano `bun run dev` sono indistinguibili senza l'albero, e
  * l'albero da solo contiene anche il CLI e i suoi MCP.
  */
+/**
+ * COM'È FINITA una shell in background che non c'è più.
+ *
+ * «Conclusa» e «interrotta» non sono la stessa cosa, e il pannello le scriveva
+ * uguali. Il 20/08, su topic:205d1fbb, un'attesa in background armata sul batch
+ * dei video è morta con il CLI durante un riavvio del server — nel suo file di
+ * output c'è `[killed]` — e il pannello la dava per «conclusa». Chi guardava non
+ * aveva modo di sapere che quella sveglia non sarebbe mai arrivata.
+ *
+ * La lettura è semplice: se è morto il PROCESSO della shell, è finita (bene o
+ * male lo dice il suo codice d'uscita). Se è morto il CLI che la teneva mentre
+ * lei girava ancora, è stata INTERROTTA.
+ */
+export function esitoShellMorta(
+  stato: { shellDead: boolean; ownerDead: boolean },
+): "completed" | "killed" {
+  // Il processo della shell è finito da sé: conta questo, anche se nel
+  // frattempo è caduto pure il padre.
+  if (stato.shellDead) return "completed";
+  return stato.ownerDead ? "killed" : "completed";
+}
+
 async function reconcileBackgroundShells(): Promise<boolean> {
   const shells = [...runningScripts.values()].filter(sp => sp.source === "shell" && sp.status === "running");
   if (!shells.length) return false;
@@ -877,7 +899,20 @@ async function reconcileBackgroundShells(): Promise<boolean> {
         // Prima di chiudere la riga li spazziamo, usando l'ultimo sottoalbero
         // catturato mentre la shell era viva.
         await sweepOrphanedShellTree(meta);
-        finishBackgroundShell(sp, "completed");
+        // CHIUSA NON VUOL DIRE FINITA, e la differenza è tutta per chi guarda.
+        //
+        // Qui si scriveva sempre `completed`, cioè «conclusa»: la stessa parola
+        // per un comando arrivato in fondo e per uno ucciso a metà dal riavvio
+        // del server. Il 20/08, su topic:205d1fbb, l'agente aveva armato
+        // un'attesa in background sul batch dei video; un riavvio ha portato via
+        // il CLI, l'attesa è morta con lui (`[killed]` nel suo file di output) e
+        // il pannello la dava per «conclusa». L'utente ha chiesto «non vedo se
+        // ha fatto Monitor», e la risposta onesta era: l'attesa c'era, è stata
+        // uccisa, e nessuno gliel'ha detto.
+        //
+        // Se a morire è il PADRE, la shell non è finita: è stata interrotta.
+        // La REGOLA sta in `esitoShellMorta`, provata a parte.
+        finishBackgroundShell(sp, esitoShellMorta({ shellDead, ownerDead }));
         changed = true;
         continue;
       }
@@ -900,7 +935,9 @@ async function reconcileBackgroundShells(): Promise<boolean> {
     // c'è sottoalbero da spazzare: best effort, no-op.)
     if (!owner || !isPidAlive(owner)) {
       await sweepOrphanedShellTree(meta);
-      finishBackgroundShell(sp, "completed");
+      // Stessa lettura del ramo sopra: è morto il CLI che la teneva, quindi la
+      // shell è stata interrotta — non è arrivata in fondo.
+      finishBackgroundShell(sp, esitoShellMorta({ shellDead: false, ownerDead: true }));
       changed = true;
       continue;
     }

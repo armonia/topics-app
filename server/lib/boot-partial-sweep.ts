@@ -129,9 +129,25 @@ export function insertRestartNotification(
   ).get(sessionKey) as { mo: number } | null;
   const nextOrder = (maxRow?.mo ?? -1) + 1;
 
+  // IL CARTELLO DEVE STARE NEL FILO, altrimenti non lo legge nessuno.
+  //
+  // La riga nasceva senza `parent_id`, cioè come una SECONDA RADICE della
+  // conversazione. `loadActiveThread` (server/utils.ts) cammina da una radice
+  // sola seguendo i rami attivi: una seconda radice non viene mai raggiunta,
+  // quindi `/api/history` non la serve e in chat non compare. Misurato il
+  // 20/08 sul DB vero: 10 cartelli «Turno interrotto da un riavvio» scritti in
+  // un giorno, ZERO visibili — fra cui quelli delle chat che l'utente vedeva
+  // ferme senza spiegazione.
+  //
+  // Il padre è l'ULTIMA riga della sessione: il cartello è la cosa successiva
+  // accaduta in quella conversazione, ed è esattamente lì che va letto.
+  const ultimo = db.query(
+    "SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT 1"
+  ).get(sessionKey) as { id: string } | null;
+
   db.run(
-    `INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order)
-     VALUES (?, ?, 'assistant', ?, 0, ?, ?)`,
-    [generateId(), sessionKey, RESTART_INTERRUPTED_MARKER, now(), nextOrder]
+    `INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, branch_index)
+     VALUES (?, ?, 'assistant', ?, 0, ?, ?, ?, 0)`,
+    [generateId(), sessionKey, RESTART_INTERRUPTED_MARKER, now(), nextOrder, ultimo?.id ?? null]
   );
 }

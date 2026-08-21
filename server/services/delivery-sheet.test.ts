@@ -62,9 +62,18 @@ describe("renderDeliverySheet", () => {
     expect(svg).toContain("#6db64c12");
   });
 
-  test("senza ramo dice che non c'e' codice invece di mostrare uno zero muto", () => {
+  /**
+   * IL RAMO SENZA RAMO non dichiara piu' un'assenza: prova a dire cosa e' stato
+   * fatto. «Nessun codice consegnato. La consegna sta nel thread della card»
+   * occupava il 60% della scheda per dire che l'informazione era altrove —
+   * segnalato guardando una card in review («dovrebbe mettere sempre qualcosa
+   * di utile per comprendere»). Quando una parola nel thread non c'e' davvero,
+   * la scheda lo dice col MOTIVO, che e' un'altra cosa.
+   */
+  test("senza ramo non mostra uno zero muto ne' un rimando", () => {
     const svg = renderDeliverySheet({ ...base, branch: null, filesChanged: null });
-    expect(svg).toContain("Nessun codice consegnato");
+    expect(svg).toContain("Nessun riassunto");
+    expect(svg).not.toContain("La consegna sta nel thread");
     expect(svg).not.toContain("topics/");
   });
 
@@ -92,5 +101,82 @@ describe("renderDeliverySheet", () => {
     const svg = renderDeliverySheet({ ...base, labels: ["feature", "visibile", "chore", "misura"] });
     expect(svg).toContain("feature");
     expect(svg).not.toContain("misura");
+  });
+});
+
+/**
+ * IL RAMO SENZA CODICE deve dire cosa è stato fatto, non che non c'è nulla.
+ *
+ * Diceva «Nessun codice consegnato. La consegna sta nel thread della card»: il
+ * 60% della larghezza della scheda per dichiarare un'ASSENZA e mandare a
+ * leggere altrove. Segnalato guardando una card in review: «dovrebbe mettere
+ * sempre qualcosa di utile per comprendere».
+ *
+ * Ora ci va l'ultima parola del thread — la stessa riga che la card disegna
+ * sopra il titolo, così le due superfici non si contraddicono.
+ */
+describe("la scheda senza numeri di consegna", () => {
+  const base = { taskId: "t1", title: "Cronologia tab unificata" };
+
+  test("scrive COSA è stato fatto, quando il thread ha una parola", () => {
+    const svg = renderDeliverySheet({
+      ...base,
+      summary: "Rifatta la fascia: via i separatori, chip che vanno a capo, amici resta anche a zero.",
+    });
+    expect(svg).toContain("Rifatta la fascia");
+    // E non la vecchia dichiarazione di assenza.
+    expect(svg).not.toContain("Nessun codice consegnato");
+  });
+
+  /**
+   * Quando una parola non c'è DAVVERO (turno morto prima di commentare),
+   * l'assenza È l'informazione: dirla è onesto, e dice anche il perché.
+   */
+  test("senza parole lo dice, col motivo", () => {
+    const svg = renderDeliverySheet({ ...base });
+    expect(svg).toContain("Nessun riassunto");
+    expect(svg).toContain("prima che l");
+  });
+
+  test("un riassunto lungo si spezza in righe, non esce dalla scheda", () => {
+    const svg = renderDeliverySheet({ ...base, summary: "parola ".repeat(80) });
+    const righe = [...svg.matchAll(/class="b">([^<]+)</g)].map((m) => m[1]!);
+    expect(righe.length).toBeLessThanOrEqual(3);
+    for (const r of righe) expect(r.length).toBeLessThanOrEqual(70);
+  });
+
+  /** Il ramo CON codice non cambia: i numeri restano quelli che erano. */
+  test("con i numeri di consegna la scheda resta com'era", () => {
+    const svg = renderDeliverySheet({
+      ...base, branch: "topics/x", filesChanged: 10, insertions: 525, deletions: 58,
+      summary: "questo non deve comparire",
+    });
+    expect(svg).toContain("525");
+    expect(svg).toContain("topics/x");
+    expect(svg).not.toContain("questo non deve comparire");
+  });
+});
+
+/**
+ * IL RIASSUNTO ARRIVA DAL THREAD, cioè da testo che nessuno ha ripulito: lo
+ * scrive un agente, e può contenere qualunque cosa. Un SVG rotto sulla card è
+ * peggio di una card senza anteprima — non si vede l'errore, si vede il vuoto.
+ */
+describe("un riassunto ostile nella scheda", () => {
+  test("tag e ampersand non rompono l'SVG", () => {
+    const svg = renderDeliverySheet({
+      taskId: "t1", title: "x",
+      summary: 'Fatto <script>alert(1)</script> & "virgolette" con <tag>',
+    });
+    expect(svg).not.toContain("<script>");
+    expect(svg).toContain("&lt;script&gt;");
+    expect(svg).toContain("&amp;");
+  });
+
+  test("newline e spazi multipli si normalizzano invece di spezzare il layout", () => {
+    const svg = renderDeliverySheet({ taskId: "t1", title: "x", summary: "riga1\n\n\nriga2\t\tcon   spazi" });
+    const righe = [...svg.matchAll(/class="b">([^<]+)</g)].map((m) => m[1]!);
+    expect(righe.length).toBeLessThanOrEqual(3);
+    expect(righe[0]).toBe("riga1 riga2 con spazi");
   });
 });

@@ -1,5 +1,8 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
+import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
+import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
+import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
@@ -31,7 +34,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
-import { describeInFlight } from "./server/lib/quiescence";
+import { describeInFlight, unadoptableStreams, quiescenceVerdict } from "./server/lib/quiescence";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
@@ -111,7 +114,7 @@ import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive } from "./server/providers";
-import { aiBridgeEnabled } from "./server/providers/claude-code";
+import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
@@ -176,6 +179,7 @@ import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
+import { TURN_ERROR_PREFIX } from "./shared/board";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -863,6 +867,43 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
 }
 
+/**
+ * Il gemello di `runHeadlessReattach` per il turno che la CLI apre DA SOLA
+ * (`Monitor` che consegna). Stessa route, stesso drenaggio SSE, stessa lettura
+ * della fine: cambia solo il `mode`, perché cambia solo COME ci si attacca —
+ * il provider ha già gli eventi in mano, non c'è nessuno store da rileggere.
+ *
+ * Nessun tetto a orologio come negli altri due: quel tetto è la promessa fatta
+ * al DISPATCHER, che aspetta un verdetto per una card. Qui non aspetta nessuno —
+ * è una risposta che arriva in chat mentre l'utente fa altro — e imporre una
+ * scadenza vorrebbe dire troncare la risposta di un Monitor che si è messo a
+ * lavorare sul serio. Il turno finisce quando finisce; le reti che lo chiudono
+ * comunque (watchdog d'inattività del provider, sweeper StaleStream) sono le
+ * stesse di ogni altro turno di chat.
+ */
+async function runHeadlessWoken(sessionKey: string, label?: string): Promise<TurnEndInfo> {
+  const url = new URL("http://localhost/api/chat");
+  // Il provider si DICHIARA, per la stessa ragione del riattacco: senza, si
+  // cade sul default della macchina e la sveglia di claude-code finirebbe a
+  // bussare a un provider che non possiede quel figlio.
+  // `wokenLabel`: COSA stava sorvegliando il Monitor. Viaggia fino alla riga in
+  // chat, che senza di essa mostrerebbe una risposta senza provenienza.
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code", ...(label ? { wokenLabel: label } : {}) });
+  // Stesso patto degli altri due: residuo via prima di iniziare.
+  takeTurnEnd(sessionKey);
+  const resp = await topicsRouter(
+    new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
+    url, "/api/chat", "POST",
+  );
+  if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat (woken)" };
+  const rejected = rejectedTurn(resp, "/api/chat (woken)");
+  if (rejected) return rejected;
+  const reader = resp.body.getReader();
+  try { while (true) { const { done } = await reader.read(); if (done) break; } }
+  finally { try { reader.releaseLock(); } catch { /* already released */ } }
+  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
+}
+
 // Ad-hoc dirs the server already references: topic projectPaths + terminal
 // cwds. Most boards belong to projects opened this way (folder picker, Claude
 // terminals) that were never registered in the ProjectStore — without these
@@ -1325,7 +1366,30 @@ const taskDispatcher = createTaskDispatcher({
       const msgs = ctx.loadLocalMessages(sessionKey, { withBlocks: false });
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
-        if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) return m.content;
+        if (m.role !== "assistant" || typeof m.content !== "string") continue;
+        const testo = m.content.trim();
+        if (!testo) continue;
+        // UN CARTELLO NON SONO LE PAROLE DELL'AGENTE.
+        //
+        // Questo recupero esiste per una ragione precisa: quando un turno
+        // muore prima che l'agente possa commentare, il dispatcher rispecchia
+        // la sua ultima prosa nel thread della card, cosi' chi rivede legge
+        // "cosa ho fatto" invece di una nota di sistema. Ma prendeva l'ultimo
+        // messaggio assistente QUALUNQUE FOSSE — e quando il turno muore, il
+        // messaggio piu' recente e' proprio il cartello che ne annuncia la
+        // morte: «⚠️ Turno interrotto da un riavvio del server…».
+        //
+        // Misurato sulla card 235afe11 (20/08): sotto quel cartello c'erano le
+        // parole vere dell'agente, ma il recupero si fermava alla prima riga e
+        // portava il cartello — cioe' rispecchiava sulla card l'annuncio del
+        // guasto al posto del lavoro. La card e' arrivata in review muta con il
+        // testo buono a due righe di distanza.
+        //
+        // I cartelli sono quelli che il client riconosce col prefisso ⚠️
+        // (`turnError.ts`): li si SALTA e si continua a scendere, perche' sotto
+        // c'e' quasi sempre la prosa che stiamo cercando.
+        if (testo.startsWith(TURN_ERROR_PREFIX)) continue;
+        return m.content;
       }
     } catch { /* best-effort — no mirror on failure */ }
     return null;
@@ -1748,6 +1812,12 @@ sondaLavoroNonCommittato = async (taskId: string) => {
 
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
+  // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
+  // risolve al momento della chiamata e non all'avvio: il default della
+  // macchina si ricalcola a ogni boot, e una funzione lo rilegge sempre fresco.
+  // `null` in caso di guasto: senza modello la card tiene il titolo del
+  // composer, che e' come si e' sempre comportata.
+  namingProvider: () => tryGetProvider() ?? null,
   autoMerge: taskAutoMerge,
   // Structural review gate: real uncommitted changes in the task's branch
   // worktree (junk excluded); null = no worktree, gate skipped.
@@ -3878,6 +3948,12 @@ function finalizeOrphanedRunningTools() {
     }
     for (const id of daSpiegare) { explainUpd.run(INTERRUPTED_MARKER, id); explainCount++; }
     if (explainCount > 0) console.log(`[boot] added interruption explanation to ${explainCount} message(s)`);
+
+    // TERZA PASSATA: I MUTI CON LA PROSA, che sono la maggioranza. Le due
+    // sopra spiegano solo chi non aveva scritto NIENTE, e un turno d'agente
+    // quasi sempre qualcosa lo scrive. Il giro e la sua ragione stanno in
+    // `lib/verdetto-turno-interrotto.ts`, provati a parte.
+    bonificaTurniMuti(db, INTERRUPTED_MARKER.replace(/^⚠️\s*/, ""));
   } catch (e) {
     console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
   }
@@ -4099,10 +4175,22 @@ async function reattachSurvivingChatTurns(): Promise<void> {
               return;
             }
           } catch { /* nessuna risposta dal broker: si pulisce, come prima */ }
-          // The turn is over (completed, died, or timed out): clear any
-          // partial leftovers for the session — including the pre-reload row
-          // the startup reset deliberately skipped while the child was alive.
-          try { ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]); } catch { /* next boot's reset catches it */ }
+          // IL TURNO È FINITO — MA SE È FINITO MALE VA DETTO.
+          //
+          // Questa riga spegneva `partial` in SILENZIO. Un turno completato non
+          // ha niente da spiegare, ma qui ci arriva anche chi è MORTO col
+          // riavvio: la riga si chiudeva a metà frase, senza cartello e senza
+          // niente che la distinguesse da una risposta finita bene. Le due chat
+          // segnalate il 20/08 («penso abbiano interrotto involontariamente»)
+          // erano esattamente questo: nel log `reaping idle broker session`,
+          // in chat nulla.
+          //
+          // Il cartello lo scrive `spiegaTurnoTroncato`, che riconosce da sé
+          // chi ha davvero bisogno di una spiegazione — e non ne scrive due.
+          try {
+            const chiuse = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]).changes;
+            if (chiuse > 0) spiegaTurnoTroncato(ctx.db, s.id);
+          } catch { /* next boot's reset catches it */ }
         });
       continue;
     }
@@ -4354,17 +4442,75 @@ function reconcileArchivedTopicSessions(): void {
   }
 }
 
+// ── IL TURNO CHE NASCE DA SOLO ────────────────────────────────────────────
+//
+// Un `Monitor` armato dall'agente («avvisami quando il build finisce») consegna
+// il suo evento aprendo un TURNO NUOVO: la CLI risveglia il figlio da sola e
+// produce una risposta vera, senza che nessuno abbia scritto niente. Misurato il
+// 20/08/2026 (CLI 2.1.237, stessa argv di Topics) — la traccia sta accanto a
+// `onWokenTurn` in providers/claude-code.ts.
+//
+// Fino a qui quella risposta si perdeva: nasce dopo un `result`, e dopo un
+// `result` nessuno ascolta più quella sessione. Il tool funzionava, la sua
+// risposta era invisibile — ed è per questo che il Monitor sembrava «perso».
+//
+// La cura riusa la macchina che già esiste. Un turno risvegliato è, per tutto
+// ciò che viene dopo, identico a uno riadottato dopo un riavvio: nessun
+// messaggio da mandare, una riga da riempire, uno stream da finalizzare. Quindi
+// si passa dalla STESSA route, con `mode: "woken"`, e non da una seconda copia
+// della finalizzazione.
+//
+// Fire-and-forget con la sua rete: se l'adozione fallisce (il turno è finito
+// mentre aprivamo la riga, o l'utente ha scritto e ha vinto lui) il log lo dice
+// e la sessione resta esattamente com'era.
+function adottaTurniRisvegliati(): void {
+  // Si arma sulla CLASSE, non su un'istanza. Al boot `claude-code` non è ancora
+  // registrato — `initProvider` lancia `initProviders()` fire-and-forget, ed è
+  // quella a sondare il PATH e a registrarlo — quindi un `tryGetProvider` qui
+  // troverebbe `undefined` e uscirebbe zitto: la sveglia sarebbe cablata e mai
+  // collegata. Vedi `ClaudeCodeProvider.observeWokenTurns`.
+  ClaudeCodeProvider.observeWokenTurns((sessionKey, label) => {
+    const topic = ctx.getTopicBySessionKey(sessionKey);
+    if (!topic || topic.archived) {
+      // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
+      // in un posto che l'utente non ha. Si lascia cadere, come prima.
+      console.log(`[woken] ${sessionKey}: turno spontaneo su una topic assente o archiviata — lasciato cadere`);
+      return;
+    }
+    console.log(`[woken] ${sessionKey}: la CLI ha aperto un turno da sola (Monitor o simile) — lo adotto`);
+    // L'ATTESA È FINITA, e va detto PRIMA di guidare il turno.
+    //
+    // `monitorArmed` è ciò che tiene la sessione in `watching` attraverso lo
+    // `Stop` di fine turno (vedi `applyHook`): serviva a non far sembrare
+    // inattiva una chat che stava sorvegliando un build. Adesso il Monitor ha
+    // consegnato, quindi la sorveglianza è chiusa — e se il flag restasse
+    // acceso, lo `Stop` di QUESTO turno rimetterebbe la chat in `watching` con
+    // nessuno che guarda più niente: una spia accesa per sempre, che è peggio
+    // di una spia che non si accende mai.
+    try { claudeSessionTracker.noteWatchDelivered(sessionKey); }
+    catch (err) { console.warn(`[woken] ${sessionKey}: attesa non disarmata:`, err); }
+    void runHeadlessWoken(sessionKey, label)
+      .then((end) => {
+        if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
+      })
+      .catch((err) => console.warn(`[woken] ${sessionKey} non adottato:`, err?.message ?? err));
+  });
+}
+adottaTurniRisvegliati();
+
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
 // child alive → they stay in the alive-set → reconcile skips them) and reaps
 // idle children (so reconcile's fresh list sees them dead → demotes their
 // phantom phase). Running it after avoids a race where a just-reaped session is
 // still listed alive. The orphaned-transcript sweep runs last: reattach has by
-// then re-homed every survivor, so a missing transcript is proof of a dead cwd,
-// not of an unfinished adopt.
+// then re-homed every survivor, so a missing transcript is proof of a dead cwd.
+// In coda `riprendiTurniInterrotti`: rimanda i turni uccisi dal riavvio che
+// nessuno riadotterà (`lib/ripresa-boot.ts`).
 reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
+  .then(() => riprendiTurniInterrotti(ctx, topicsRouter))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
@@ -4742,7 +4888,7 @@ let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number }> {
   const cards = taskDispatcher.busyCount();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
@@ -4755,15 +4901,66 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     }
     brokerOpen = brokerProbeCache.open;
   }
-  return { busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen }), cards };
+  // QUALI DI QUESTE CHAT NON TORNANO PIÙ, se le tagliamo adesso.
+  //
+  // L'attesa corta riservata alle chat vale una promessa: «la reload-resilience
+  // la riadotta». Quella promessa la mantiene solo un provider il cui turno vive
+  // in un processo FIGLIO, che il SIGTERM non tocca e il broker ritrova. Il
+  // runtime nativo `topics` esegue il turno dentro questo processo: quando muore,
+  // muore il turno.
+  //
+  // La risposta è già sulla voce dello stream (`survivesRestart`, decisa quando
+  // il turno è nato): qui si conta e basta, senza toccare il DB né il registro
+  // dei provider — questo giro batte due volte al secondo.
+  const unadoptable = unadoptableStreams(activeStreams.values()).length;
+  return { busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen }), cards, unadoptable };
 }
 
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
-  let deadline = Date.now() + QUIESCENCE_CHAT_CAP_MS;
+  // DUE SCADENZE, E TUTTE E DUE SONO TETTI VERI — contate dall'INIZIO
+  // dell'attesa, non da «l'ultima volta che ho visto del lavoro».
+  //
+  // Prima la scadenza si RINNOVAVA a ogni giro con del lavoro in volo
+  // (`deadline = max(deadline, now + capMs)`), e con una card sempre presente
+  // non scadeva mai: simulato, dopo 2000 s la scadenza era ancora 1500 s più in
+  // là. Non era un tetto, era una promessa infinita.
+  //
+  // COSA COSTAVA, misurato sul task 235afe11 il 20/08. Il server aspettava
+  // senza fine; `start-prod.sh`, che di suo conta 1530 s DALL'INIZIO, arrivava
+  // alla propria scadenza e sparava il SIGTERM su un turno vivo:
+  //
+  //     17:55:39  tentativo #1 parte
+  //     18:22:46  il server riparte  (+27m)   → worktree buttato, task in coda
+  //     18:23:12  tentativo #2 parte
+  //     18:50:35  il server riparte  (+27m)   → di nuovo
+  //     18:51:20  tentativo #3 parte
+  //     19:18:07  SIGTERM            (+27m)   → «restart-when-idle accettato,
+  //                                             ma il server è ancora vivo
+  //                                             dopo 1530s — SIGTERM»
+  //
+  // Tre volte lo stesso task, a ventisette minuti esatti: la firma di un
+  // orologio, non della sfortuna. E il cancello scritto per non tagliare i
+  // turni non ha mai loggato una sola scadenza — perché non poteva scadere.
+  //
+  // Due orologi che si contraddicono sono peggio di un orologio solo troppo
+  // stretto: quello che promette di aspettare non ferma il SIGTERM di quello
+  // che ha smesso, e il turno muore comunque — ma senza che nessuno dei due
+  // lo sappia. Ora il tetto è vero e il server esce DA SÉ, con `gracefulShutdown`
+  // che gira per intero, prima che lo script perda la pazienza.
+  const inizio = Date.now();
   let logged = false;
   for (;;) {
-    const { busy, cards } = await whatIsStillWorking();
+    const { busy, cards, unadoptable } = await whatIsStillWorking();
     if (!busy) break;
+    // La REGOLA sta in `lib/quiescence.ts`, pura e provata: qui si applica.
+    // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
+    // senza avviare un server — che e' il motivo per cui il difetto del
+    // rinnovo infinito e' sopravvissuto tanto a lungo.
+    const verdetto = quiescenceVerdict({
+      busy, unrecoverable: cards + unadoptable,
+      now: Date.now(), startedAt: inizio,
+      capMs, chatCapMs: QUIESCENCE_CHAT_CAP_MS,
+    });
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
     //
     // Un turno di CARD tagliato a meta' e' lavoro perso: l'agente stava
@@ -4776,16 +4973,63 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     // minuti: `restart-when-idle` rispondeva 202 e il server non usciva piu',
     // perche' a non drenare era la chat di chi stava lavorando.
     //
-    // La scadenza si ALZA quando compaiono delle card, e non si riabbassa: una
-    // card che parte mentre si aspetta ha diritto all'attesa lunga, e togliergliela
-    // perche' e' finita mezzo secondo dopo sarebbe la stessa svista al contrario.
-    if (cards > 0) deadline = Math.max(deadline, Date.now() + capMs);
-    if (Date.now() >= deadline) {
-      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza, si procede lo stesso (la reload-resilience li riprende)`);
+    // …SALVO QUANDO LA RIADOZIONE NON ESISTE. Quel «la riadotta» vale per un
+    // turno che gira in un processo FIGLIO (claude-code): il SIGTERM non lo
+    // tocca, il broker lo tiene, al riavvio torna. Un turno del runtime nativo
+    // `topics` gira DENTRO questo processo, e quando il processo muore non c'e'
+    // nessun figlio da riadottare: tagliarlo e' esattamente lo stesso danno di
+    // una card tagliata, lavoro perso senza ritorno. Il 20/08, su
+    // topic:9f9e9629, il cancello ha aspettato il suo minuto, ha concluso «la
+    // riprendono» e ha ucciso una risposta a meta' frase che nessuno ha
+    // ripreso. Quindi una chat NON riadottabile alza la scadenza come una card.
+    //
+    // IL PREZZO, MISURATO invece che stimato (94 blocchi di attivita' nativa
+    // continua sul db vivo, 18-20/08):
+    //
+    //     cap      turni che arrivano in fondo    attesa media del reload
+    //     1 min          19/94  (20%)                   0.8 min
+    //     15 min         81/94  (86%)                   6.3 min
+    //     25 min         84/94  (89%)                   7.6 min
+    //
+    // Col minuto di prima, QUATTRO TURNI NATIVI SU CINQUE venivano tagliati:
+    // non era un caso sfortunato, era la norma. Si riusa `capMs` — lo stesso
+    // numero delle card — invece di introdurre una terza soglia: fra 15 e 25
+    // minuti ballano tre punti di turni salvati contro 1,3 minuti di attesa in
+    // piu', una differenza che non vale un secondo numero da tenere allineato
+    // a mano (e' la stessa ragione per cui `start-prod.sh` deriva la sua
+    // finestra da qui invece di riscriverla). Chi sfonda anche quello (10 su
+    // 94) prende comunque il cartello, che e' il punto di tutto il resto di
+    // questo lavoro: un turno tagliato ora lo DICE.
+    //
+    // La scadenza NON si rinnova più a ogni giro: si sceglie fra due tetti
+    // fissi, calcolati all'inizio dell'attesa (vedi in cima alla funzione). Il
+    // rinnovo sembrava generoso — «una card che parte mentre aspetto ha diritto
+    // all'attesa lunga» — ma era la ragione per cui questo cancello non è mai
+    // scaduto una sola volta, e per cui a decidere finiva il SIGTERM dello
+    // script. Una card che parte mentre stiamo già uscendo prende il tempo che
+    // resta e poi, se non basta, muore DICENDOLO: è meglio di un'attesa che non
+    // finisce e di un taglio che nessuno annuncia.
+    if (verdetto === "scaduto") {
+      // LA FRASE DICE LA VERITA' SU CHI SI STA TAGLIANDO, e sono tre sorti
+      // diverse — non una.
+      //
+      // «la reload-resilience li riprende» era scritto per un turno che vive in
+      // un processo FIGLIO: quello torna davvero. Ma qui ci passano anche le
+      // CARD, e una card non viene riadottata: il dispatcher la rimette in coda
+      // e il suo turno riparte DA CAPO (il worktree sopravvive, il turno no).
+      // Dirle «ti riprendo» e' la stessa specie di bugia di «stream aborted by
+      // user» su uno spegnimento — chi legge il log cerca dalla parte
+      // sbagliata. Sul task 235afe11 e' successo tre volte in un'ora, e ogni
+      // riga di quel giro raccontava una ripresa che non c'e' stata.
+      const sorti: string[] = [];
+      if (cards > 0) sorti.push(`${cards} card: turno perso, rimessa in coda (riparte da capo, il worktree resta)`);
+      if (unadoptable > 0) sorti.push(`${unadoptable} chat NON riadottabile/i: quel lavoro non torna, in chat resta il cartello`);
+      if (!sorti.length) sorti.push("la reload-resilience li riprende");
+      console.warn(`[quiescence] ${label}: ${busy} — ancora in volo alla scadenza dopo ${Math.round((Date.now() - inizio) / 1000)}s, si procede lo stesso (${sorti.join("; ")})`);
       return;
     }
     if (!logged) {
-      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}`);
+      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}${unadoptable > 0 ? ` (${unadoptable} non riadottabile/i: attesa lunga)` : ""}`);
       logged = true;
     }
     await new Promise((r) => setTimeout(r, 500));
@@ -4884,6 +5128,17 @@ async function gracefulShutdown(signal: string) {
   // children orphaned and the next spawn started a fresh conversation. The
   // grace window inside stopAllProviders matches each provider's internal
   // SIGTERM→SIGKILL window so process.exit() doesn't truncate the flush.
+  //
+  // QUELLA FINESTRA ORA REGGE ANCHE IL CARTELLO IN CHAT, e va detto perché
+  // nessuno la accorci senza saperlo. `stop()` del runtime nativo annulla i
+  // turni vivi con causa `server-shutdown`; il cartello che spiega la caduta
+  // all'utente lo scrive il `catch` di `sendChat` → `onAborted` →
+  // `finalizeStream` → `updateLastMessage`. Fra l'`abort()` e quella scrittura
+  // c'è un giro di microtask (la promise del turno rigetta, il catch gira
+  // dopo): sincrono no, ma nemmeno lontanamente vicino ai 3500 ms. Se un domani
+  // questa finestra scendesse a zero, il turno morirebbe di nuovo senza una
+  // parola — con la differenza che stavolta il codice per parlare c'è, e
+  // sarebbe `closeDatabase()` a impedirglielo.
   await stopAllProviders();
   closeDatabase();
   releaseLock();

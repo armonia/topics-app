@@ -315,6 +315,14 @@ export function createAppContext(baseDir: string): AppContext {
               CASE WHEN blocks     IS NULL OR blocks     IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_blocks
        FROM messages WHERE id = ?`,
     ),
+    /** La sola colonna `blocks`, per id.
+     *
+     *  La legge `discardIfEmptyTurn` e nessun altro, su una riga che la sonda
+     *  qui sopra ha già dichiarato senza tool: serve a distinguere «blocchi che
+     *  sono LAVORO» da «blocchi che sono solo l'eco di un testo nullo». Una
+     *  lettura mirata invece che l'intera riga, e su un cammino che si percorre
+     *  quasi mai. */
+    getMessageBlocks: db.prepare(`SELECT blocks FROM messages WHERE id = ?`),
     getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
@@ -1598,8 +1606,8 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Streams (in-memory, unchanged) ---
-  function startStream(sessionKey: string, messageId: string, abortController?: AbortController) {
-    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController });
+  function startStream(sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart = false) {
+    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController, survivesRestart });
   }
 
   function updateStreamActivity(sessionKey: string, isThinking?: boolean) {
@@ -2280,7 +2288,23 @@ export function createAppContext(baseDir: string): AppContext {
     // fatto, cancellato in silenzio.
     const presence = stmts.messageBodyPresence.get(msg.id) as
       { has_tool_calls?: number; has_blocks?: number } | undefined;
-    if (presence && (presence.has_tool_calls || presence.has_blocks)) return null;
+    if (presence?.has_tool_calls) return null;
+    // I BLOCCHI non bastano a salvare una riga, se sono solo l'eco del testo.
+    //
+    // La sonda SQL risponde «ci sono blocchi», e per un turno di soli tool è la
+    // risposta giusta — quello è lavoro. Ma il testo diventa anch'esso un
+    // blocco, quindi una riga il cui unico contenuto è una SENTINELLA della CLI
+    // («No response requested.») arriverebbe qui con un blocco `text` e si
+    // salverebbe, mentre il predicato l'ha appena dichiarata vuota: due letture
+    // della stessa riga che si contraddicono.
+    //
+    // Il giudizio su COSA c'è dentro sta in un posto solo — `isEmptyAssistantTurn`
+    // in shared/empty-turn.ts — quindi qui si va a prendere la colonna e gliela
+    // si dà. Costa una lettura mirata, e solo su una riga già dichiarata vuota.
+    if (presence?.has_blocks) {
+      const row = stmts.getMessageBlocks.get(msg.id) as { blocks?: string | null } | undefined;
+      if (!isEmptyAssistantTurn({ role: "assistant", blocks: row?.blocks ?? null })) return null;
+    }
     return deleteMessageSubtree(sessionKey, msg.id) ? msg.id : null;
   }
 

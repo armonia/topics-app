@@ -133,7 +133,9 @@ test.describe("Domanda a schermo · si risponde dal composer", () => {
     });
     // Niente coda, niente 409: il turno non è stato toccato.
     expect(chatPosts).toEqual([]);
-    await expect(page.getByTestId("message-queue-badge")).toHaveCount(0);
+    // Niente in coda: la coda si vede come bolle «da inviare» nel trascritto
+    // (il badge del composer non esiste più, vedi `QueuedTurns`).
+    await expect(page.getByTestId("queued-bubble")).toHaveCount(0);
     // Il campo si svuota come dopo un invio: il testo è partito.
     await expect(chatPage.messageInput).toHaveValue("");
   });

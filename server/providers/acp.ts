@@ -46,6 +46,7 @@ import type {
   ProviderDoneMessage,
   ProviderRequirement,
   StreamHandler,
+  AbortReason,
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
@@ -140,7 +141,7 @@ interface AcpSessionState {
   /** Testo accumulato: `onTextDelta` vuole anche il cumulato. */
   fullText: string;
   /** Qualcuno ha chiesto lo stop: il `cancelled` che tornerà è nostro. */
-  aborting?: "user" | "watchdog";
+  aborting?: AbortReason;
   promptInFlight: boolean;
   /**
    * L'ultimo modello che abbiamo CHIESTO all'agente per questa sessione.
@@ -668,7 +669,7 @@ export class AcpProvider implements AIProvider {
     return {};
   }
 
-  async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {
+  async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
     const state = this.sessions.get(sessionKey);
     if (!state) return;
     state.aborting = reason;

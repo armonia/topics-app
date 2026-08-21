@@ -3,7 +3,6 @@ import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
-import { parseSlashInvocation } from '../../../../shared/slash-invocation';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
 import { turnIsOnlyError } from './turnError';
@@ -132,13 +131,6 @@ export const MessageBubble = memo(function MessageBubble({
   isLast,
 }: MessageBubbleProps) {
   const tr = useT();
-  // Il turno è stato aperto da un comando digitato? Lo sa solo il messaggio
-  // precedente: la CLI espande lo slash prima del turno e sul filo non lascia
-  // niente.
-  const invokedCommand = msg.role === 'assistant' && prev?.role === 'user'
-    ? parseSlashInvocation(prev.content)
-    : null;
-
   // I numeri del turno: se non ce n'è nemmeno uno, la riga dei metadati non ha
   // niente da dire oltre all'ora.
   const hasTurnMetrics =
@@ -386,7 +378,6 @@ export const MessageBubble = memo(function MessageBubble({
                 usageCompletionTokens={msg.usageCompletionTokens}
                 costCents={msg.costCents}
                 onPlanDecision={onPlanDecision}
-                invokedCommand={invokedCommand}
                 sessionKey={topic.sessionKey}
                 messageId={msg.id}
                 onMessage={onMessage}

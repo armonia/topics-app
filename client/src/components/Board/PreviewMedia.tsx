@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { FileText, Maximize2, PanelTop, X } from 'lucide-react';
@@ -10,8 +10,29 @@ import { useModalDialog } from '../../hooks/useModalDialog';
 /** Full-window overlay (portal, over the app — NOT a separate OS window) showing
  *  the evidence at large size. Close on Esc, click-outside, or the X. A video
  *  autoplays with controls + sound; an image fills the viewport. */
-function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClose: () => void }) {
+function Lightbox({ url, video, onClose, su, giu, posizione }: {
+  url: string;
+  video: boolean;
+  onClose: () => void;
+  /** Slide precedente/successiva, assenti quando ce n'e' una sola. */
+  su?: () => void;
+  giu?: () => void;
+  /** «2 / 5», per sapere dove si e' arrivati. */
+  posizione?: string;
+}) {
   const tr = useT();
+  /* ANCHE QUI SI NAVIGA, con le frecce: chi ha ingrandito la prima evidenza
+   * vuole vedere le altre senza richiudere, e a schermo intero le frecce sono
+   * il gesto che ci si aspetta. */
+  useEffect(() => {
+    if (!su && !giu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); su?.(); }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); giu?.(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [su, giu]);
   // Escape, trappola del focus e ritorno del focus: il contratto comune dei
   // dialoghi (hooks/useModalDialog), invece di un listener scritto a mano qui.
   const panelRef = useRef<HTMLDivElement>(null);
@@ -33,7 +54,19 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
       role="dialog"
       aria-modal="true"
       aria-label={tr('board.preview.label')}
+      onWheel={(e) => {
+        if (!su && !giu) return;
+        const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (Math.abs(d) < 8) return;
+        (d > 0 ? giu : su)?.();
+      }}
     >
+      {posizione && (
+        <div
+          data-testid="lightbox-posizione"
+          className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-white"
+        >{posizione}</div>
+      )}
       <button
         onClick={onClose}
         title={tr('board.preview.close')}
@@ -84,19 +117,59 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
  * un'occhiata; una tab resta lì mentre leggi il thread, si affianca in split e
  * la ritrovi tornando sul task — che è come si guarda un'evidenza di review.
  */
-export function PreviewMedia({ path, variant, onOpenTab }: {
+export function PreviewMedia({ path, paths, variant, onOpenTab }: {
+  /** L'evidenza principale. Resta il contratto di prima. */
   path: string;
+  /** LE ALTRE evidenze dello stesso task, se ce ne sono.
+   *
+   *  PERCHE' UNA LISTA A PARTE e non un solo array: `path` e' quello che il
+   *  server ha scelto come copertina (`preview_image`), e deve restare il
+   *  primo fotogramma anche quando gli altri arrivano dopo o cambiano ordine.
+   *  Chi non ne ha piu' d'una non passa niente e il componente si comporta
+   *  esattamente come prima. */
+  paths?: readonly string[];
   variant: 'card' | 'drawer';
   onOpenTab?: () => void;
 }) {
   const tr = useT();
   const [lightbox, setLightbox] = useState(false);
-  const url = getMediaUrl(path);
-  const video = isVideoPath(path);
+  /* LE SLIDE. La copertina in testa, poi le altre senza ripetizioni: un
+   * allegato promosso a copertina resta anche nella lista dei commenti, e
+   * senza la deduplica lo si vedrebbe due volte di fila. */
+  const slides = useMemo(() => {
+    const out = [path];
+    for (const p of paths ?? []) if (p && p !== path && !out.includes(p)) out.push(p);
+    return out;
+  }, [path, paths]);
+  const [i, setI] = useState(0);
+  /* L'INDICE MOSTRATO E QUELLO MEMORIZZATO DEVONO COINCIDERE.
+   *
+   * Era `const idx = Math.min(i, slides.length - 1)`: un clamp in sola
+   * lettura, che serviva a non restare oltre la fine se la lista si accorcia.
+   * Ma nascondeva una divergenza — `i` poteva valere piu' di `idx`, e da li'
+   * tornare indietro voleva dire prima "smaltire" la differenza a vuoto.
+   *
+   * Misurato sull'app viva: con tre slide, cinque rotellate avanti e cinque
+   * indietro finivano su 1 invece che su 0. Le rotellate in eccesso in avanti
+   * non venivano scartate: `i` cresceva oltre il limite (2, 3, 4) mentre a
+   * schermo restava l'ultima, e il ritorno consumava quei passi fantasma.
+   *
+   * Adesso il clamp e' nello STATO — `setI` non scrive mai fuori dai limiti
+   * (vedi il gestore della rotella) — e qui resta solo la difesa contro una
+   * lista che si accorcia sotto: se succede, l'effetto sotto RIALLINEA anche
+   * lo stato, invece di lasciare i due numeri diversi. */
+  const idx = Math.min(i, slides.length - 1);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- riallineamento difensivo, non stato derivato: la guardia scatta SOLO quando la lista si accorcia sotto l'indice, converge in un giro (il nuovo `i` non puo' superare il limite) e non puo' ciclare. Il perche' e' scritto per esteso nel commento sopra.
+    if (i > slides.length - 1) setI(Math.max(0, slides.length - 1));
+  }, [i, slides.length]);
+  const corrente = slides[idx] ?? path;
+  const url = getMediaUrl(corrente);
+  const video = isVideoPath(corrente);
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   /** Un video di card, cioè quello che si muove da solo: solo qui serve il gate. */
-  const cardVideo = video && variant === 'card' && isPreviewablePath(path);
+  const cardVideo = video && variant === 'card' && isPreviewablePath(corrente);
 
   // UN VIDEO CHE NESSUNO GUARDA NON DECODIFICA.
   //
@@ -130,8 +203,62 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   }, [cardVideo]);
   // Il lightbox mostra `<img>` o `<video>`: offrirlo su un file che nessuno dei
   // due sa aprire riproporrebbe l'icona rotta, solo a schermo intero.
-  const expandable = variant === 'drawer' && isPreviewablePath(path);
+  /* IL LIGHTBOX SI APRE ANCHE DALLA CARD. Prima solo dal drawer, e non c'era
+   * una ragione: chi guarda la colonna review vuole ingrandire l'evidenza
+   * senza prima aprire il task. Segnalato («cliccando si apre lightbox»). */
+  const expandable = isPreviewablePath(corrente);
   const openLightbox = useCallback(() => setLightbox(true), []);
+
+  /* SI NAVIGA CON LA ROTELLA, come chiesto («piu' slide navigabili
+   * semplicemente scrollando il mouse»).
+   *
+   * `onWheel` con `preventDefault` SOLO quando c'e' davvero piu' di una slide:
+   * con una sola, mangiare la rotella impedirebbe di scorrere la colonna della
+   * kanban col mouse sopra una card, che e' il gesto piu' comune di tutti.
+   *
+   * La soglia sul delta esiste perche' un trackpad manda decine di eventi per
+   * un gesto solo: senza, un colpo di due dita salterebbe cinque slide. E il
+   * blocco temporale (`ultimoScroll`) rende un gesto = una slide, che e' come
+   * si comportano i caroselli che non danno fastidio. */
+  const ultimoScroll = useRef(0);
+  /* UN LISTENER NATIVO, e NON `onWheel` di React.
+   *
+   * Trovato provando: con `onWheel` la rotella non muoveva niente. React
+   * registra `wheel` come listener PASSIVO (lo fa da React 17 per non
+   * bloccare lo scorrimento della pagina), e in un listener passivo
+   * `preventDefault()` non fa nulla — il browser scorre la colonna e l'evento
+   * arriva sì, ma la pagina si è già mossa sotto il mouse, quindi il puntatore
+   * lascia la miniatura prima che il cambio slide si veda.
+   *
+   * `{ passive: false }` si può chiedere solo registrando a mano. */
+  useEffect(() => {
+    const el = wrapRef.current;
+    // Con UNA slide non si registra affatto: mangiare la rotella impedirebbe
+    // di scorrere la colonna della kanban col mouse sopra una card, che è il
+    // gesto più comune di tutti.
+    if (!el || slides.length < 2) return;
+    const onWheel = (e: WheelEvent) => {
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (Math.abs(d) < 8) return;
+      // La colonna NON scorre mentre si naviga il carosello: senza, il gesto
+      // farebbe due cose insieme.
+      e.preventDefault();
+      e.stopPropagation();
+      // Un gesto = una slide. Un trackpad manda decine di eventi per un colpo
+      // di due dita: senza questa quiete ne salterebbe cinque.
+      const ora = performance.now();
+      if (ora - ultimoScroll.current < 260) return;
+      ultimoScroll.current = ora;
+      setI((n) => {
+        const next = d > 0 ? n + 1 : n - 1;
+        // Si FERMA agli estremi invece di girare in tondo: un carosello che
+        // riparte da capo fa perdere il conto di dove si e' arrivati.
+        return Math.max(0, Math.min(next, slides.length - 1));
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [slides.length]);
 
   // IL TETTO È UN RAPPORTO, non un'altezza.
   //
@@ -193,13 +320,13 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   // e diventava un'icona rotta: la card sembrava consegnata e non mostrava
   // niente, che è peggio di un'anteprima assente. Qui si dichiara — nome del
   // file e un gesto per aprirlo — invece di fingere un'immagine.
-  const media = !isPreviewablePath(path) ? (
+  const media = !isPreviewablePath(corrente) ? (
     <a
       href={url}
       target="_blank"
       rel="noreferrer"
       onClick={(e) => e.stopPropagation()}
-      title={path}
+      title={corrente}
       data-testid="preview-unrenderable"
       className={`flex items-center gap-2 px-2.5 py-2 text-left text-xs ${
         variant === 'card'
@@ -208,7 +335,7 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
       } text-app-text-muted hover:text-app-text`}
     >
       <FileText className="h-4 w-4 shrink-0" />
-      <span className="truncate">{path.split('/').pop() || path}</span>
+      <span className="truncate">{corrente.split('/').pop() || corrente}</span>
     </a>
   ) : video ? (
     <video
@@ -221,10 +348,16 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
       // stai già guardando.
       preload={variant === 'card' ? 'none' : 'metadata'}
       draggable={false}
-      className={mediaCls}
+      className={`${mediaCls}${variant === 'card' && expandable ? ' cursor-zoom-in' : ''}`}
       // card: loop so the behaviour shows at a glance (muted) — ma la partenza
       // la decide l'IntersectionObserver qui sopra, non `autoPlay`; drawer:
       // inline controls (scrub/fullscreen) + the expand button for the lightbox.
+      /* ANCHE IL VIDEO SI APRE, e col cursore che lo dice. Sulla card non ha
+       * `controls` (sarebbero inusabili a quella dimensione) quindi il click
+       * era un gesto morto: adesso porta al lightbox, dove i controlli ci sono
+       * e il suono pure. Nel drawer i controlli ci sono gia' e il click deve
+       * restare loro — premere «play» non deve aprire un lightbox. */
+      onClick={variant === 'card' && expandable ? (e) => { e.stopPropagation(); openLightbox(); } : undefined}
       {...(variant === 'card' ? { loop: true } : { controls: true })}
     />
   ) : (
@@ -233,7 +366,11 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
       alt={expandable ? tr('board.preview.deliveryAlt') : ''}
       loading="lazy"
       draggable={false}
-      onClick={expandable ? openLightbox : undefined}
+      /* `stopPropagation`: sulla card il click NUDO apre il drawer del task, e
+       * senza questo si aprirebbero tutte e due le cose insieme — il lightbox
+       * sopra un drawer che intanto scivola dentro. Nel drawer non c'e' niente
+       * sotto, ma fermarlo comunque tiene il gesto uguale nelle due superfici. */
+      onClick={expandable ? (e) => { e.stopPropagation(); openLightbox(); } : undefined}
       className={`${mediaCls}${expandable ? ' cursor-zoom-in' : ''}`}
     />
   );
@@ -261,6 +398,30 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
           primo perché è quello che porta l'evidenza dentro il flusso di lavoro.
           stopPropagation: sulla card il click nudo apre il drawer, e qui NON
           vogliamo tutte e due le cose insieme. */}
+      {/* I PUNTINI: quante slide ci sono e dove sei. Senza, la rotella
+          sposterebbe l'immagine senza che niente dica che ce n'erano altre —
+          cioe' una funzione invisibile. Cliccabili, perche' con tre slide
+          arrivare alla terza con la rotella e' piu' lento che puntarla. */}
+      {slides.length > 1 && (
+        <div
+          data-testid="preview-slides"
+          className="absolute inset-x-0 bottom-1.5 flex items-center justify-center gap-1.5"
+        >
+          {slides.map((s, n) => (
+            <button
+              key={s}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setI(n); }}
+              aria-label={tr('board.preview.slide', { n: n + 1, tot: slides.length })}
+              aria-current={n === idx}
+              data-testid={n === idx ? 'preview-slide-attiva' : 'preview-slide'}
+              className={`h-1.5 rounded-full transition-all ${
+                n === idx ? 'w-4 bg-white' : 'w-1.5 bg-white/50 hover:bg-white/80'
+              }`}
+            />
+          ))}
+        </div>
+      )}
       <div className="absolute right-1.5 top-1.5 flex gap-1">
         {onOpenTab && (
           <button
@@ -279,7 +440,16 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
           ><Maximize2 className="h-3.5 w-3.5" /></button>
         )}
       </div>
-      {lightbox && expandable && <Lightbox url={url} video={video} onClose={() => setLightbox(false)} />}
+      {lightbox && expandable && (
+        <Lightbox
+          url={url}
+          video={video}
+          onClose={() => setLightbox(false)}
+          su={slides.length > 1 ? () => setI((n) => Math.max(0, n - 1)) : undefined}
+          giu={slides.length > 1 ? () => setI((n) => Math.min(slides.length - 1, n + 1)) : undefined}
+          posizione={slides.length > 1 ? `${idx + 1} / ${slides.length}` : undefined}
+        />
+      )}
     </div>
   );
 }

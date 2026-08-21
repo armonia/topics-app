@@ -2621,6 +2621,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               {task.previewImage && previewOpen && (
                 <PreviewMedia
                   path={task.previewImage}
+                  // Anche qui il carosello: le altre evidenze del thread sono
+                  // proprio cio' che si cerca aprendo il drawer di una card in
+                  // review, e scorrerle qui costa una rotellata invece di
+                  // scendere lungo tutti i commenti.
+                  paths={task.previewImages}
                   variant="drawer"
                   onOpenTab={() => browser.focusPane(mediaPaneIdFor(task.previewImage!))}
                 />

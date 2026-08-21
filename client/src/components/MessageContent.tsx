@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, Terminal } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import { getFileIconDef } from '../lib/fileIcons';
@@ -16,7 +16,7 @@ import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { Spinner } from './Shared/Spinner';
-import { InvokedCommandRow } from './Chat/InvokedCommandRow';
+import { SlashCommandChip } from './Chat/SlashCommandChip';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
@@ -1015,9 +1015,6 @@ interface MessageContentProps {
   costCents?: number | null;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
   onPlanDecision?: (approved: boolean) => void;
-  /** Il comando che ha aperto QUESTO turno, quando l'utente l'ha digitato:
-   *  la CLI lo espande prima del turno e sul filo non resta traccia. */
-  invokedCommand?: { command: string; args?: string } | null;
   // Session viewer
   /**
    * The session key this message belongs to. Threaded down to
@@ -1067,7 +1064,59 @@ function TurnErrorBanner({ text }: { text: string }) {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, invokedCommand, sessionKey, messageId, onMessage }: MessageContentProps) {
+/**
+ * DA DOVE VIENE QUESTA RISPOSTA.
+ *
+ * Un `Monitor` armato consegna il suo evento risvegliando la sessione: la
+ * risposta compare in chat minuti dopo, sotto un messaggio che non c'entra e
+ * senza che nessuno l'abbia chiesta. Senza un cartello è indistinguibile da una
+ * risposta qualunque — osservato il 20/08: «Risveglio arrivato: …» apparso da
+ * solo, con l'utente che ha dovuto domandare cosa fosse.
+ *
+ * Gemello di `TurnErrorBanner`: stessa forma, stesso posto (in cima alla bolla,
+ * non nella cronologia), colore diverso. Blu e non ambra perché non è un
+ * problema: è una consegna, ed è la cosa che si stava aspettando.
+ */
+function WokenBanner({ label }: { label?: string }) {
+  const tr = useT();
+  return (
+    <div
+      data-testid="woken-banner"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-[12px] leading-snug text-blue-900 dark:text-blue-200"
+    >
+      <span aria-hidden className="flex-shrink-0 leading-snug">🔔</span>
+      <span className="min-w-0 break-words">
+        {label ? tr('woken.arrivedFor', { what: label }) : tr('woken.arrived')}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * QUESTA RISPOSTA È UNA RIPRESA, e chi legge deve saperlo.
+ *
+ * Il server ha ucciso il turno precedente riavviandosi, e l'ha rimandato da sé
+ * (`lib/ripresa-boot.ts`). Senza questo cartello sembrerebbe che l'agente abbia
+ * risposto due volte alla stessa domanda — e chi legge cercherebbe la
+ * differenza fra le due invece di leggere quella buona.
+ *
+ * Gemello di `WokenBanner`, stesso posto e stessa forma. Blu come lui: non è un
+ * problema, è un recupero già avvenuto.
+ */
+function RipresoBanner() {
+  const tr = useT();
+  return (
+    <div
+      data-testid="ripreso-banner"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-[12px] leading-snug text-blue-900 dark:text-blue-200"
+    >
+      <span aria-hidden className="flex-shrink-0 leading-snug">↻</span>
+      <span className="min-w-0 break-words">{tr('ripreso.banner')}</span>
+    </div>
+  );
+}
+
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, sessionKey, messageId, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1084,6 +1133,12 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     [role, rawCleanText, blocks],
   );
   const isLegacyErrorOnlyText = turnError !== null && rawCleanText.trim().startsWith(LEGACY_ERROR_PREFIX);
+  // Il cartello del risveglio: c'è solo se questo turno è nato da un Monitor.
+  const ripreso = useMemo(() => blocks?.some((b) => b.kind === 'ripreso') ?? false, [blocks]);
+  const woken = useMemo(
+    () => blocks?.find((b) => b.kind === 'woken') as { kind: 'woken'; label?: string } | undefined,
+    [blocks],
+  );
 
   // During streaming, close any incomplete markdown tokens to prevent rendering glitches
   const streamSafeText = useMemo(
@@ -1120,15 +1175,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     [role, cleanText],
   );
 
-  // La riga del comando NON si mostra se il turno ha già una sua riga di
-  // `Skill`/`SlashCommand`: quello è il caso in cui è stato il MODELLO a
-  // chiamarla, e dirlo due volte sarebbe rumore.
-  const showInvoked = useMemo(() => {
-    if (!invokedCommand || role !== 'assistant') return false;
-    const tools = (blocks ?? []).flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : [])).concat(toolCalls ?? []);
-    return !tools.some((t) => /^(skill|slashcommand|slash_command)$/i.test(t.name));
-  }, [invokedCommand, role, blocks, toolCalls]);
-
   // Il turno è fermo su una domanda a schermo? Guarda entrambe le sorgenti: la
   // timeline `blocks` (percorso attuale) e il vecchio secchio `toolCalls`, così
   // l'indicatore dice la verità in tutti e due i rami di render.
@@ -1159,6 +1205,12 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // Il blocco `error` non è una tratta della cronologia: è il verdetto, e
       // si rende in cima. Qui si salta.
       if (b.kind === 'error') continue;
+      // Nemmeno `woken`: dice DA DOVE viene la risposta, non cosa è successo
+      // dentro il turno. Si rende come intestazione della bolla, sopra.
+      if (b.kind === 'woken') continue;
+      // Nemmeno `ripreso`: dice da dove viene il turno, non cosa è successo
+      // dentro. Si rende in cima, come gli altri due cartelli.
+      if (b.kind === 'ripreso') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
@@ -1221,15 +1273,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             segnale c'era per sbaglio. Qui è al suo posto, e non inventa una
             chiamata a un tool che non c'è stata. */}
         {cleanText && slashInvocation ? (
-          <span
-            data-testid="user-slash-command"
-            data-command={slashInvocation.command}
-            className="inline-flex items-center gap-1.5 font-mono text-[0.92em]"
-          >
-            <Terminal size={12} className="flex-shrink-0 opacity-70" />
-            <span className="font-medium">/{slashInvocation.command}</span>
-            {slashInvocation.args && <span className="opacity-80">{slashInvocation.args}</span>}
-          </span>
+          <SlashCommandChip command={slashInvocation.command} args={slashInvocation.args} />
         ) : (
           cleanText && renderUserText(cleanText)
         )}
@@ -1248,10 +1292,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // unrelated rows. Visually lighter, easier to scan.
     return (
       <div data-testid="message-content-assistant">
+        {ripreso && <RipresoBanner />}
+        {woken && <WokenBanner label={woken.label} />}
         {turnError && <TurnErrorBanner text={turnError} />}
-        {showInvoked && invokedCommand && (
-          <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
-        )}
         {blockGroups.map((g) => {
           if (g.kind === 'thinking') {
             return (
@@ -1325,9 +1368,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   return (
     <div data-testid="message-content-assistant">
       {turnError && <TurnErrorBanner text={turnError} />}
-      {showInvoked && invokedCommand && (
-        <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
-      )}
       {(() => {
         // When there's no prose, the inline-tools-with-contentOffset path
         // would render NOTHING (it only fires inside `cleanText && ...`),

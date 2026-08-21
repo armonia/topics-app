@@ -22,6 +22,8 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
+import { titoloMigliore } from "../services/task-title";
+import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
@@ -229,6 +231,14 @@ export interface TasksRouterOpts {
    * "verde" vale per QUEL codice, non per il branch a vita.
    */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
+  /**
+   * Il provider con cui ricavare un titolo leggibile da una card dettata.
+   *
+   * Assente ⇒ nessun titolo generato, resta quello del composer: è una
+   * comodità, e una board senza modello configurato deve continuare a
+   * funzionare come prima.
+   */
+  namingProvider?: () => AIProvider | null;
   /**
    * Timbra l'esito di atterraggio di UNA card, subito dopo un land.
    *
@@ -506,6 +516,44 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const svc = createTaskService(db, { writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR) });
   const attempts = createTaskAttemptStore(db);
 
+  /**
+   * UN TITOLO LEGGIBILE, in sottofondo, per una card appena nata.
+   *
+   * VIVE QUI e non dentro una delle due rotte perche' i creatori sono DUE e
+   * il difetto e' lo stesso per entrambi: la board (una persona che scrive o
+   * detta) e `create_task` via MCP (un agente). La prima versione lo cablava
+   * solo sulla rotta della board, e sul database vivo quella scelta lasciava
+   * scoperti 267 titoli oltre gli 80 caratteri creati da agenti — il difetto
+   * c'era, era solo meno visibile perche' lo schema MCP chiede «Task title /
+   * one-line description» e di solito viene rispettato.
+   *
+   * In background per costruzione: la `create` risponde subito con la card e
+   * il titolo migliore arriva un istante dopo via `task:updated`. Se il modello
+   * non c'e' o risponde storto, non succede niente e resta il titolo di
+   * partenza — un titolo e' una comodita', non puo' far fallire una card.
+   */
+  function titoloInSottofondo(task: { id: string; text: string; description: string | null }, projectId: string): void {
+    void (async () => {
+      try {
+        const prov = opts?.namingProvider?.();
+        if (!prov) return;
+        const migliore = await titoloMigliore(prov, { text: task.text, description: task.description });
+        if (!migliore) return;
+        // Riletta PRIMA di scrivere: fra la chiamata al modello e qui (secondi)
+        // qualcuno puo' aver rinominato la card a mano, e quella e' una scelta
+        // esplicita che non si sovrascrive.
+        const fresca = svc.get(task.id)?.task;
+        if (!fresca || fresca.text !== task.text) return;
+        const aggiornata = svc.update({
+          taskId: task.id, actor: "agent", by: "system",
+          projectId, patch: { text: migliore },
+        });
+        if (aggiornata) broadcastToAll({ type: "task:updated", projectId, task: aggiornata });
+      } catch { /* un titolo e' una comodita': non fallisce mai la card */ }
+    })();
+  }
+
+
   // Il lato «risposta» dell'instradamento delle domande (board-ask-routing.ts).
   // Qui serve solo `deliver`: il commento con la domanda lo scrive l'altra
   // sponda, la gamba dell'attesa in routes/permission.ts.
@@ -760,11 +808,39 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // 'running' subito e in broadcast: i comandi possono durare minuti e una
         // board ferma senza spiegazioni si legge come "si è impiantato".
         try {
-          const t = svc.recordChecks({ taskId, state: "running", commit: ref.commit, runs: null });
+          const t = svc.recordChecks({
+            taskId, state: "running", commit: ref.commit, runs: null,
+            // Zero su N: la spia si accende gia' sapendo QUANTI comandi
+            // aspettano, cosi' la card dice «0/4» invece di «in corso».
+            progress: { done: 0, total: checks.length },
+          });
           broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* il gate vale anche senza la spia */ }
 
-        const runs = await runReviewChecks(checks, { cwd: ref.cwd });
+        /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
+         *
+         * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
+         * i comandi giravano uno per uno e la card diceva «check in corso»
+         * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
+         * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
+         *
+         * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
+         * continua: un progresso mancato non deve poter fermare una consegna. */
+        const runs = await runReviewChecks(checks, {
+          cwd: ref.cwd,
+          onProgress: (_run, i, total) => {
+            try {
+              const t = svc.recordChecks({
+                taskId, state: "running", commit: ref.commit,
+                // I run PARZIALI viaggiano con lui: un comando gia' rosso si
+                // vede subito nel drawer, invece di aspettare la fine del giro.
+                runs: null,
+                progress: { done: i + 1, total },
+              });
+              broadcastToAll({ type: "task:updated", projectId, task: t });
+            } catch { /* una spia persa non ferma il gate */ }
+          },
+        });
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
         const comment = formatChecksComment(runs, { commit: ref.commit });
         try {
@@ -2241,6 +2317,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               reuseBlockerContext: body?.reuseBlockerContext === true,
             });
             broadcastToAll({ type: "task:created", projectId: effectiveProjectId, task });
+            // Il titolo leggibile: vedi `titoloInSottofondo`. Vale per
+            // ENTRAMBI i creatori — questa rotta e quella di `create_task`.
+            titoloInSottofondo(task, effectiveProjectId);
             // Intake: il collegamento accettato si SCRIVE, nei due thread. Un
             // link muto è il modo in cui un feedback si perde — chi apre la card
             // bloccata deve leggere perché è ferma, e chi apre il bloccante deve
@@ -2663,6 +2742,34 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         } catch (e) { return fail(e); }
       }
 
+      // RIGENERA IL TITOLO di una card che ce l'ha ancora mozzato.
+      //
+      // Il titolo leggibile lo ricava la board alla NASCITA della card
+      // (`services/task-title.ts`), ma le card che c'erano gia' tengono quello
+      // vecchio: sul database vivo erano 24, di cui 2 in review — le stesse due
+      // che hanno fatto nascere questo lavoro. Una migration non serviva (il
+      // titolo lo deve scrivere un modello, non uno UPDATE), e riscriverlo a
+      // mano nel database sarebbe stato un gesto che nessuno puo' ripetere.
+      //
+      // Le guardie sono quelle della creazione, perche' e' la stessa decisione:
+      // un titolo corto non si tocca, una risposta storta si scarta, e senza
+      // modello non succede niente.
+      const bTitolo = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/retitle");
+      if (bTitolo && method === "POST") {
+        const t = svc.get(bTitolo.taskId, { projectId: bTitolo.projectId })?.task;
+        if (!t) return json({ error: "not_found" }, 404);
+        const prov = opts?.namingProvider?.();
+        if (!prov) return json({ ok: false, reason: "no_provider" });
+        const migliore = await titoloMigliore(prov, { text: t.text, description: t.description });
+        if (!migliore) return json({ ok: false, reason: "nothing_better", text: t.text });
+        const aggiornata = svc.update({
+          taskId: t.id, actor: "agent", by: "system",
+          projectId: bTitolo.projectId, patch: { text: migliore },
+        });
+        if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bTitolo.projectId, task: aggiornata });
+        return json({ ok: true, text: migliore, before: t.text });
+      }
+
       const bComments = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/comments");
       if (bComments && method === "POST") {
         const body = (await readJSON(req)) as any;
@@ -2921,6 +3028,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdByTopicId: sess.topicId,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
+          // ANCHE QUI, ed e' la meta' che la prima versione aveva scordato.
+          // `create_task` (MCP) e' l'altro creatore di card: lo schema chiede
+          // «Task title / one-line description» e di solito viene rispettato,
+          // ma sul database vivo 267 titoli creati da agenti superavano gli 80
+          // caratteri. Lo stesso difetto, meno visibile.
+          titoloInSottofondo(task, sess.projectId);
           return json(task, 201);
         } catch (e) { return fail(e); }
       }

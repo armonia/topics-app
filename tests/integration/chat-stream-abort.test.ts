@@ -201,3 +201,167 @@ describe("lo snapshot del sotto-agente va alla topic, non a tutti", () => {
     await h.abort();
   });
 });
+
+/**
+ * IL TURNO DEL 20/08 (topic:9f9e9629) CHE È FINITO SENZA DIRE NIENTE.
+ *
+ * Questa è la prova che chiude il cerchio: non la decisione pura
+ * (`lib/cancelled-notice.test.ts`) né il ciclo del provider
+ * (`native/abort-cause.test.ts`), ma la RIGA che resta in database dopo che il
+ * server si è spento sopra un turno vivo — cioè esattamente ciò che l'utente
+ * riapre e legge.
+ *
+ * Le condizioni ricreate, una per una:
+ *   · un turno che ha già scritto della prosa e chiamato dei tool;
+ *   · nessuno che preme Ferma;
+ *   · l'annullamento che arriva dal provider con `cause: "server-shutdown"`,
+ *     che è ciò che `NativeProvider.stop()` produce quando `stopAllProviders()`
+ *     gira dentro `gracefulShutdown`.
+ *
+ * Contro il codice di prima questo test è ROSSO: `finalizeStream` su `aborted`
+ * non scriveva niente, quindi la riga restava con la sola prosa a metà, senza
+ * blocco `error` — e senza blocco `error` il client (`turnError.ts`) non accende
+ * né il banner né il bottone «Riprova». Il turno moriva muto.
+ */
+describe("il server si spegne sopra un turno vivo", () => {
+  test("LA RIGA PARLA: cartello, causa, e il lavoro già fatto sotto", async () => {
+    const h = await harness("topic:shutdown-notice");
+    const handler = await h.startTurn();
+
+    // Il turno aveva già detto qualcosa — come il vero: «Ho capito il richiamo:
+    // Nerissima Serpe — la pazzia è il verso ospite.»
+    let cumulato = "";
+    for (const d of ["Ho capito il richiamo. ", "Prima misuro il divario."]) {
+      cumulato += d;
+      handler.onTextDelta(d, cumulato);
+    }
+
+    // …e poi il server si spegne. Questa è la forma ESATTA con cui l'annuncio
+    // arriva alla route: `onAborted` con la causa dichiarata dal provider.
+    handler.onAborted?.({ result: cumulato, turnEnd: { end: "cancelled", cause: "server-shutdown" } });
+    // La finalizzazione è asincrona (scrive, poi chiude l'SSE).
+    await new Promise((r) => setTimeout(r, 50));
+
+    const messages = h.ctx.loadLocalMessages("topic:shutdown-notice");
+    const assistente = messages.filter((m) => m.role === "assistant").pop()!;
+
+    // 1. LA RIGA C'È ANCORA. Un turno con del lavoro dentro non si butta.
+    expect(assistente).toBeDefined();
+    expect(assistente.partial).toBeFalsy();
+
+    // 2. IL LAVORO GIÀ FATTO È SALVO: quello che il modello aveva scritto prima
+    //    dello spegnimento resta leggibile.
+    const prosa = (assistente.blocks ?? [])
+      .filter((b) => b.kind === "text")
+      .map((b) => (b.kind === "text" ? b.text : ""))
+      .join("");
+    expect(prosa).toContain("Ho capito il richiamo");
+    expect(prosa).toContain("Prima misuro il divario");
+
+    // 3. E ACCANTO C'È LA SPIEGAZIONE. È il pezzo che mancava: senza un blocco
+    //    `error`, `turnErrorOf` ritorna null e il client non disegna né il
+    //    banner ambra né il bottone per rimandare il messaggio.
+    const cartello = (assistente.blocks ?? []).find((b) => b.kind === "error");
+    expect(cartello).toBeDefined();
+    expect(cartello && cartello.kind === "error" ? cartello.text : "").toContain("riavviato");
+  });
+
+  /**
+   * L'ALTRO VERSO, e va provato insieme al primo: la correzione non deve
+   * trasformare lo stop a mano in un turno che spiega a chi ha premuto cosa ha
+   * premuto. Un umano che ferma la risposta vede la sua prosa e basta.
+   */
+  test("lo stop premuto dall'umano resta muto come prima", async () => {
+    const h = await harness("topic:shutdown-user-quiet");
+    const handler = await h.startTurn();
+
+    let cumulato = "";
+    for (const d of ["Sto scrivendo", " una risposta."]) { cumulato += d; handler.onTextDelta(d, cumulato); }
+
+    handler.onAborted?.({ result: cumulato, turnEnd: { end: "cancelled", cause: "user" } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const messages = h.ctx.loadLocalMessages("topic:shutdown-user-quiet");
+    const assistente = messages.filter((m) => m.role === "assistant").pop()!;
+    expect(assistente).toBeDefined();
+    const cartello = (assistente.blocks ?? []).find((b) => b.kind === "error");
+    expect(cartello).toBeUndefined();
+    expect(assistente.content).toBe("Sto scrivendo una risposta.");
+  });
+
+  /**
+   * IL CASO PIÙ CRUDO: lo spegnimento arriva PRIMA che il modello dica una sola
+   * parola. Con la regola vecchia la riga era vuota e veniva buttata
+   * (`shared/empty-turn.ts`), quindi in chat restava il messaggio dell'utente e
+   * NIENTE dopo: nessuna risposta, nessuna spiegazione, nessun bottone. È il
+   * silenzio nella sua forma peggiore, perché non lascia nemmeno una traccia da
+   * cui capire cos'è successo.
+   */
+  test("spegnimento prima di una sola parola: resta comunque il cartello", async () => {
+    const h = await harness("topic:shutdown-vuoto");
+    const handler = await h.startTurn();
+
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "server-shutdown" } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const messages = h.ctx.loadLocalMessages("topic:shutdown-vuoto");
+    const assistente = messages.filter((m) => m.role === "assistant").pop();
+    expect(assistente).toBeDefined();
+    // Il testo porta il cartello: è ciò che legge la ricerca ⌘K e ciò che
+    // rende un client vecchio, che il blocco `error` non lo conosce.
+    expect(assistente!.content).toContain("⚠️");
+    expect(assistente!.content).toContain("riavviato");
+  });
+});
+
+/**
+ * «RIPRENDO DA SOLO» SI PROMETTE SOLO DOVE È VERO.
+ *
+ * `avvisoPerTurno` sa dire «non serve che tu faccia niente» al posto di
+ * «Riprova» — ma il campo che lo attiva non veniva passato da NESSUNO: la coda
+ * esisteva nel codice e non è mai comparsa a schermo, nemmeno sui turni che il
+ * boot riprendeva davvero. Chi vedeva un turno ucciso da un riavvio leggeva
+ * «Riprova rimanda il tuo messaggio»: premendolo partivano due turni, entrambi
+ * a pagamento.
+ *
+ * E LA CAUSA RIPRENDIBILE È UNA SOLA DELLE TRE. `riprendiTurniInterrotti` è una
+ * funzione di BOOT (`server.ts`, in coda al giro di riadozione):
+ *
+ *  · `server-shutdown` → un boot segue per definizione, il processo sta morendo
+ *    mentre scriviamo il cartello. La promessa si mantiene da sé.
+ *  · `watchdog` / `wall-clock` → il server RESTA SU: quella funzione non gira,
+ *    e nessuno riprende niente. Prometterlo qui sarebbe il verso peggiore
+ *    dell'errore — oggi si spreca un turno in modo VISIBILE, con la promessa si
+ *    perderebbe il turno in SILENZIO.
+ */
+describe("la promessa di ripresa sul cartello", () => {
+  test("spegnimento del server: la card dice che non serve fare niente", async () => {
+    const h = await harness("topic:ripresa-shutdown");
+    const handler = await h.startTurn();
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "server-shutdown" } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const m = h.ctx.loadLocalMessages("topic:ripresa-shutdown").filter((x) => x.role === "assistant").pop()!;
+    const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
+    const testo = cartello && cartello.kind === "error" ? cartello.text : "";
+    expect(testo).toContain("Riprendo da solo");
+    // E NON il bottone: chiedere un gesto per una cosa che sta già succedendo
+    // fa spendere un turno in più.
+    expect(testo).not.toContain("«Riprova»");
+  });
+
+  test("watchdog e limite di tempo: resta «Riprova», perché nessuno riprende", async () => {
+    for (const cause of ["watchdog", "wall-clock"] as const) {
+      const h = await harness(`topic:ripresa-${cause}`);
+      const handler = await h.startTurn();
+      handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause } });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const m = h.ctx.loadLocalMessages(`topic:ripresa-${cause}`).filter((x) => x.role === "assistant").pop()!;
+      const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
+      const testo = cartello && cartello.kind === "error" ? cartello.text : "";
+      expect(testo, cause).toContain("«Riprova»");
+      expect(testo, cause).not.toContain("Riprendo da solo");
+    }
+  });
+});

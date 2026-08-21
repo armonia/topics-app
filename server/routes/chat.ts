@@ -20,6 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
+import { cartelloRisveglio } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
 import { getSessionCliPid } from "../providers/session-pids";
 import {
@@ -88,6 +89,8 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
+import { avvisoPerTurno, abortLogTitle } from "../lib/cancelled-notice";
+import { providerSurvivesRestart } from "../lib/quiescence";
 
 /**
  * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
@@ -337,7 +340,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * quindi irraggiungibile.
        */
       const isReattach = body.mode === "reattach";
-      if (!messages || !Array.isArray(messages) || (messages.length === 0 && !isReattach)) {
+      /**
+       * `woken`: il turno che la CLI ha aperto DA SOLA — un `Monitor` che
+       * consegna il suo evento (vedi `claude/woken-turn.ts`). Adotta un turno
+       * già in corso senza portare un messaggio, come un riattacco: riga, SSE,
+       * finalizzazione, usage e broadcast sono identici.
+       *
+       * Ma NON per la RIGA: `reattach` RIUSA quella del turno interrotto e la
+       * svuota, quindi ha bisogno di un'istantanea da cui ripescare ciò che il
+       * replay non ri-emette (`reattachMerge.ts`); un risveglio apre una riga
+       * NUOVA, e quella istantanea gli incollerebbe addosso il turno prima —
+       * osservato sulla chat 205d1fbb il 20/08, tre righe con gli stessi tool.
+       * Quindi `adottaTurnoVivo` per chi CHIAMA, `isReattach` per la riga.
+       */
+      const isWoken = body.mode === "woken";
+      const adottaTurnoVivo = isReattach || isWoken;
+
+      if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
       }
 
@@ -364,9 +383,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * Non blocca per sempre: `isStreaming` considera morto uno stream fermo
        * da oltre 3 minuti, e lo sweeper `[StaleStream]` lo finalizza.
        * `reattach` è esente per costruzione — adottare il turno vivo È il suo
-       * mestiere.
+       * mestiere, e vale identico per `woken` (`adottaTurnoVivo`).
        */
-      if (!isReattach) {
+      if (!adottaTurnoVivo) {
         const live = isStreaming(sessionKey);
         if (live) {
           console.log(`[HTTP] POST /api/chat 409 — turno già in volo su ${sessionKey} (messageId ${live.messageId})`);
@@ -623,6 +642,19 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           501,
         );
       }
+      /**
+       * Stessa regola per il turno spontaneo: chi non sa adottarlo non deve
+       * MANDARE qualcosa al suo posto (sarebbe il turno fabbricato descritto
+       * sopra, per giunta addosso a uno che sta parlando). Non può capitare da
+       * solo, ma chiude la via a chi chiamasse questa route a mano.
+       */
+      if (isWoken && typeof (topicProvider as unknown as { adoptWokenTurn?: unknown }).adoptWokenTurn !== "function") {
+        console.warn(`[Chat] risveglio RIFIUTATO su ${sessionKey}: il provider "${topicProvider.name}" non sa adottare un turno spontaneo.`);
+        return json(
+          { error: `provider "${topicProvider.name}" cannot adopt a woken turn`, code: "woken_unsupported", provider: topicProvider.name },
+          501,
+        );
+      }
 
       /**
        * UNA CONVERSAZIONE TIENE IL CERVELLO CON CUI È NATA.
@@ -651,7 +683,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * cambia questo campo. Un riattacco non pinna niente — non è una scelta,
        * è un'eredità.
        */
-      if (!isReattach && matchedTopic && !matchedTopic.provider && topicProvider.name) {
+      if (!adottaTurnoVivo && matchedTopic && !matchedTopic.provider && topicProvider.name) {
         matchedTopic.provider = topicProvider.name;
         saveSingleTopic(matchedTopic);
         broadcastToAll({ type: "topic:updated", topic: matchedTopic });
@@ -863,7 +895,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // new block. Persisted on finalize so reload preserves ordering.
           // See `server/types.ts:ContentBlock` — same shape lives on
           // `StoredMessage.blocks` and (mirror-typed) on the client.
-          const blocks: ContentBlock[] = [];
+          const blocks: ContentBlock[] = cartelloRisveglio(isWoken, body.wokenLabel);
+          // Il cartello della RIPRESA (`lib/ripresa-boot.ts`): senza, sembrerebbe
+          // che l'agente abbia risposto due volte alla stessa domanda.
+          if (body.ripresa === true) blocks.push({ kind: "ripreso" });
           const appendTextBlock = (delta: string) => {
             if (!delta) return;
             const last = blocks[blocks.length - 1];
@@ -1003,6 +1038,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // La riga com'è ADESSO, prima che il riattacco la svuoti per riusarla.
           // Serve a garantire l'unica regola che conta qui: una riadozione può
           // aggiungere, mai togliere. Vedi reattachMerge.ts.
+          // L'istantanea serve solo a chi RIUSA una riga: vedi `isWoken`.
           const reattachSnapshot: RowSnapshot | null = isReattach
             ? (() => {
                 try {
@@ -1041,7 +1077,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (Number.isFinite(born) && born > 0 && born <= Date.now()) turnStartMs = born;
           }
           const externalAbort = new AbortController();
-          startStream(sessionKey, partialMsg.id, externalAbort);
+          // Un turno che regge un riavvio è un turno che gira in un processo
+          // FIGLIO, cioè un provider che sa riadottare. Si chiede UNA volta, qui:
+          // il provider di una sessione non cambia mentre il turno gira.
+          startStream(sessionKey, partialMsg.id, externalAbort, providerSurvivesRestart(topicProvider));
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
           // e sto per ricostruirla da capo — svuotala PRIMA che arrivino le
           // delta, o il replay si somma a quello che c'è già e il testo esce
@@ -1668,7 +1707,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // prodotto niente: è successo su un turno con 54 tool e 14 blocchi
             // di testo, riadottato dopo un hot-reload del server. Il fix
             // precedente guardava le colonne giuste ma nel momento sbagliato.
-            if (reason === "done" && !fullContent.trim() && !rowHasWorkDopoMerge() && !askingPlanApproval) {
+            // UNA COMPATTAZIONE NON È UNA RISPOSTA MANCATA.
+            //
+            // `/compact` chiude con `result: ""` per costruzione: la CLI non
+            // produce testo, perché l'esito della compattazione è il divider
+            // «Contesto compattato» che è già stato disegnato dal suo
+            // `compact_boundary`. Senza questa esclusione, il turno che ora si
+            // chiude correttamente (vedi il commento sul `result` vuoto in
+            // `providers/claude-code.ts`) si prenderebbe subito il cartello
+            // «Nessuna risposta: il turno si è chiuso senza produrre niente» —
+            // cioè scambieremmo un successo per un guasto, che è esattamente il
+            // modo in cui il vecchio bug si sarebbe ripresentato con un'altra
+            // faccia.
+            const soloCompattazione = compactedThisTurn;
+            if (reason === "done" && !fullContent.trim() && !rowHasWorkDopoMerge() && !askingPlanApproval && !soloCompattazione) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
@@ -1677,6 +1729,59 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: emptyErrorMsg });
               }
             }
+            // UN TURNO ANNULLATO NON DALL'UTENTE DEVE DIRLO.
+            //
+            // `aborted` è sempre stato muto, e per l'unico caso che esisteva
+            // quando fu scritto — l'umano preme Ferma — è giusto: sa già cos'ha
+            // premuto, e la riga vuota che lascia viene buttata poco sotto.
+            //
+            // Ma ad annullare non è solo l'umano. Il 20/08 su topic:9f9e9629 è
+            // stato lo SPEGNIMENTO del server (salvataggio in `server/` →
+            // fswatch → SIGTERM), e il silenzio pensato per lo stop a mano è
+            // finito sopra un turno che nessuno aveva fermato: risposta
+            // troncata a metà e nessuna spiegazione. Regola in
+            // `lib/cancelled-notice.ts`, provata a parte.
+            //
+            // Il cartello va nei BLOCCHI — ciò che il client disegna — e nel
+            // TESTO solo se il testo è vuoto: chi ha già scritto della prosa se
+            // la tiene, il verdetto lo porta il blocco.
+            if (reason === "aborted") {
+              // «Ha prodotto» decide la coda del cartello, perché decide se il
+              // bottone «Riprova» esiste (`turnIsOnlyError`): prometterlo a chi
+              // non ce l'ha era la bugia segnalata il 20/08.
+              const haProdotto = fullContent.trim().length > 0 || blocks.some((b) => b.kind === "tool");
+              // «RIPRENDO DA SOLO» SI PROMETTE SOLO DOVE E' VERO, e la causa
+              // riprendibile e' UNA delle tre.
+              //
+              // `riprendiTurniInterrotti` e' una funzione di BOOT (server.ts, in
+              // coda al giro di riadozione). Su `server-shutdown` un boot segue
+              // per definizione — il processo sta morendo mentre scriviamo il
+              // cartello — quindi la promessa si mantiene da se'. Su `watchdog`
+              // e `wall-clock` il server RESTA SU: quella funzione non gira, e
+              // nessuno riprende niente.
+              //
+              // Prometterlo li' sarebbe il verso peggiore dell'errore: oggi
+              // l'utente vede «Riprova» e spende un turno di troppo (spreco
+              // VISIBILE), con la promessa vedrebbe «non serve che tu faccia
+              // niente» e il turno resterebbe perso in SILENZIO. Vale la regola
+              // che `meritaRipresaAutomatica` gia' dichiara: nel dubbio si
+              // lascia il cartello, che e' reversibile.
+              //
+              // Senza questa riga il campo non veniva passato da nessuno: la
+              // coda «Riprendo da solo» esisteva nel codice e non e' mai
+              // comparsa a schermo, nemmeno sui turni che il boot riprendeva
+              // davvero.
+              const riprendeDaSolo = endInfo.cause === "server-shutdown";
+              const avviso = avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
+              if (avviso) {
+                blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
+                if (!fullContent.trim()) fullContent = avviso;
+                if (matchedTopic) {
+                  broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: avviso });
+                }
+              }
+            }
+
             const latencyMs = Math.max(0, Date.now() - turnStartMs - humanWait.totalMs());
             const finalizedMsg = updateLastMessage(sessionKey, {
               content: fullContent,
@@ -1699,10 +1804,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // e rientrava nella history rimandata al modello a ogni turno dopo.
             // Solo su `aborted`: `done` ed `error` scrivono comunque il loro ⚠️,
             // quindi vuoti non sono mai. Vedi shared/empty-turn.ts.
-            const discardedMessageId = reason === "aborted" ? discardIfEmptyTurn(sessionKey, finalizedMsg) : null;
+            // …e la riga vuota che quel turno lascia non deve restare in chat.
+            // `/compact` non ha prodotto nulla di mostrabile — il divider vive
+            // in una tabella sua — quindi il segnaposto dell'assistente è una
+            // bolla vuota, che oltre a sporcare il trascritto rientrerebbe nella
+            // history rimandata al modello a ogni turno successivo. Stessa
+            // regola dello stop-prima-di-qualsiasi-cosa, stesso predicato
+            // (`shared/empty-turn.ts`): se non c'è NIENTE dentro, non resta.
+            //
+            // E il RISVEGLIO A MANI VUOTE: un Monitor che si chiude sveglia un
+            // turno per dirlo, e quello spesso tace (sentinella della CLI, vedi
+            // shared/empty-turn.ts). Solo per `woken`: un turno CHIESTO che
+            // finisce vuoto è un guasto, e il suo ⚠️ resta.
+            const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || isWoken)))
+              ? discardIfEmptyTurn(sessionKey, finalizedMsg)
+              : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
             endStream(sessionKey);
-            topicProvider.unregisterStreamHandler?.(sessionKey);
+            topicProvider.unregisterStreamHandler?.(sessionKey, handler);
 
             // Detect sub-agent launches
             if (matchedTopic && /sub.?agent|subagent|lanciato|spawned|sessions_spawn/i.test(fullContent)) {
@@ -1763,7 +1882,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               costCents,
             };
             if (reason === "done") logStreamComplete(logCtx);
-            else if (reason === "aborted") logStreamAborted(logCtx);
+            // Il titolo dice CHI ha annullato, non «l'utente» sempre. Un
+            // registro che attribuisce a una persona ciò che ha fatto una
+            // macchina manda a cercare dalla parte sbagliata: il 20/08 la riga
+            // «stream aborted by user» era l'unica traccia di uno spegnimento
+            // del server, e diceva il contrario di quello che era successo.
+            else if (reason === "aborted") logStreamAborted({ ...logCtx, title: abortLogTitle(endInfo) });
             else if (reason === "error") logStreamError({ ...logCtx, errorMessage: errorMsg });
 
             // (Topic switching is now a tool — `switch_topic`/`new_topic` —
@@ -2725,7 +2849,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // `reattach_unsupported` alla risoluzione del provider. `!` qui è
             // sostenuto da quella guardia, non da un'assunzione.
             const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
-            const drive = isReattach
+            // Il risveglio si adotta in modo SINCRONO (gli eventi sono già nel
+            // provider). `false` = l'ha preso qualcun altro, o il figlio è morto.
+            const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler) => boolean }).adoptWokenTurn;
+            const drive = isWoken
+              ? (adoptWoken!.call(topicProvider, sessionKey, handler)
+                  ? Promise.resolve({ runId: "woken" })
+                  : Promise.reject(new Error("WOKEN_TURN_GONE")))
+              : isReattach
               ? reattachFn!.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,
@@ -2734,7 +2865,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
                 );
             drive.then((result) => {
-              topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
+              // SOLO SE IL TURNO È ANCORA VIVO. `sendChat` risolve quando il
+              // turno è FINITO, non quando parte: qui si arrivava dopo `onDone`
+              // e si reinstallava un handler morto, dopo di che ogni risveglio
+              // trovava la sessione «occupata» — cinque sveglie, zero risposte.
+              if (streamState !== "finalized") {
+                topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
+              }
               // Il primo turno di una sessione CLI ha composto lo scope quando la
               // riga di `claude_code_sessions` non esisteva ancora — la crea lo
               // spawn, dentro questa stessa sendChat. Ora l'id c'è: sposta lo stato
@@ -2751,6 +2888,32 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
               console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
             }).catch(async (err: any) => {
+              // «IL RISVEGLIO NON È PIÙ MIO» NON È UN GUASTO.
+              // `adoptWokenTurn` torna `false` quando qualcun altro ha preso la
+              // sessione (tipicamente l'utente che scrive mentre il Monitor
+              // consegna) o il figlio è morto. Nel primo caso la risposta arriva
+              // sull'ALTRO turno: un «⚠️ Non sono riuscito ad avviare il turno»
+              // sarebbe un allarme in mezzo a una chat che funziona, per un
+              // turno che nessuno ha chiesto. Si chiude in silenzio — la riga
+              // aperta è sempre vuota qui — e ogni ALTRO errore resta rumoroso.
+              if (isWoken && err?.message === "WOKEN_TURN_GONE") {
+                console.log(`[StreamWS] ${sessionKey}: il turno spontaneo era già stato preso da qualcun altro — chiudo senza scrivere niente`);
+                undoInlineMark();
+                topicProvider.unregisterStreamHandler?.(sessionKey);
+                endStream(sessionKey);
+                streamState = "finalized";
+                // `discardIfEmptyTurn` vuole la RIGA, non un id, e verifica in
+                // SQL che non ci siano blocchi o tool (una riga di soli tool non
+                // è vuota). Qui non è arrivato un byte: la riga sparisce.
+                try {
+                  const vuota = updateLastMessage(sessionKey, { partial: undefined, streamedAt: undefined });
+                  const scartata = discardIfEmptyTurn(sessionKey, vuota);
+                  if (scartata) console.log(`[StreamWS] ${sessionKey}: riga del risveglio non adottato scartata (${scartata})`);
+                } catch (e) { console.warn(`[StreamWS] ${sessionKey}: riga del risveglio non ripulita:`, e); }
+                await writeSSE("[DONE]");
+                await closeClient();
+                return;
+              }
               console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
               // Il turno non è mai arrivato alla CLI: quel preambolo non è in
               // sessione, e il prossimo messaggio deve tornare a portarlo. Qui
@@ -2897,7 +3060,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const originalBody = resp.body!;
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
-          startStream(sessionKey, partialMsg.id, abortController);
+          startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
           // Mutable state via refs so that both the WS onToolStart callback and

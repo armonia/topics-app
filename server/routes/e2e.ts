@@ -304,6 +304,50 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     // «in corso» — con l'agente al lavoro, che è lo stato in cui l'umano vuole
     // poter dire «fermati» — non è raggiungibile da nessun test end-to-end.
     // Passa dal servizio vero (`setDispatchState`), nessuna seconda copia.
+    // POST /api/test/tasks/:id/delivery — la consegna, come la scriverebbe una
+    // consegna vera.
+    //
+    // Stessa ragione di `dispatch-state`: il diffstat (`delivery_files_changed`
+    // e i due versi) lo scrive SOLO `recordDelivery`, chiamato dall'edge verso
+    // review dopo aver letto GIT nel worktree dell'agente. La PATCH del task
+    // non lo accetta, di proposito — sono numeri MISURATI, non dichiarati.
+    //
+    // Senza questa porta, una card «con una consegna dentro» non e'
+    // raggiungibile da nessun test: e' esattamente cio' che ha lasciato i due
+    // casi sull'elenco dei file modificati a `test.skip`. Uno skip non prova
+    // niente, e la strada per toglierlo e' questa — non allentare le
+    // asserzioni finche' passano.
+    //
+    // Passa dal servizio VERO (`recordDelivery`), nessuna seconda copia della
+    // regola: quello che il test vede e' cio' che scriverebbe una consegna.
+    const delivery = /^\/api\/test\/tasks\/([^/]+)\/delivery$/.exec(pathname);
+    if (method === "POST" && delivery) {
+      const body = (await req.json().catch(() => null)) as {
+        branch?: string | null; commit?: string | null;
+        filesChanged?: number; insertions?: number; deletions?: number;
+      } | null;
+      try {
+        const svc = createTaskService(db);
+        svc.recordDelivery({
+          taskId: decodeURIComponent(delivery[1]),
+          branch: body?.branch ?? null,
+          commit: body?.commit ?? null,
+          // `stat` assente ⇒ NULL, cioe' «non misurato»: la stessa distinzione
+          // del servizio vero, che non e' lo zero.
+          stat: typeof body?.filesChanged === "number"
+            ? {
+                filesChanged: body.filesChanged,
+                insertions: body.insertions ?? 0,
+                deletions: body.deletions ?? 0,
+              }
+            : null,
+        });
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
     const dispatchState = /^\/api\/test\/tasks\/([^/]+)\/dispatch-state$/.exec(pathname);
     if (method === "POST" && dispatchState) {
       const body = (await req.json().catch(() => null)) as { state?: string | null; error?: string | null } | null;

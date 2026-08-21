@@ -109,8 +109,21 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * `search-shortcuts.spec.ts:120`). Non sono skip nel sorgente: sono la
  * cascata di un `describe.serial` il cui test precedente era caduto sotto la
  * contesa di quattro shard. Ripetuti da soli, passano entrambi.
+ *
+ * 24 dal 21/08/2026: `composer-model-memory.spec.ts:51`, ed e' onesto.
+ * Lo skip scatta solo se il popover del picker non offre NESSUN modello
+ * abilitato, cioe' in CI, dove nessun workflow esporta una credenziale di
+ * provider (`.github/workflows/*.yml` non nomina ANTHROPIC ne' MODEL).
+ * In locale i provider ci sono e il test GIRA DAVVERO: misurato lo stesso
+ * giorno, `1 passed (7.7s)`, `skipped: 0`, contro un bundle costruito da un
+ * commit pulito. Non e' quindi un test decorativo, ed e' la ragione per cui
+ * alzo la soglia invece di trasformare la guardia in un `expect`: quello
+ * renderebbe la CI rossa per una credenziale assente, che non e' un difetto
+ * del prodotto.
+ * Resta un buco VERO da dire ad alta voce: la memoria del modello e' coperta
+ * solo sulla macchina di chi sviluppa, mai in CI.
  */
-const BASELINE = 23;
+const BASELINE = 24;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;

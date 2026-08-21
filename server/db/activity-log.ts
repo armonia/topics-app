@@ -192,12 +192,22 @@ export function logStreamComplete(ctx: StreamLogContext): void {
   });
 }
 
-/** User clicked stop / aborted intentionally. */
-export function logStreamAborted(ctx: StreamLogContext): void {
+/**
+ * Un turno annullato.
+ *
+ * `title` è un PARAMETRO e non una costante da quando si è scoperto che il
+ * titolo fisso «stream aborted by user» era l'unica traccia lasciata da uno
+ * spegnimento del server sopra un turno vivo (20/08, topic:9f9e9629): chi
+ * cercava la causa leggeva «l'utente», e l'utente non aveva toccato niente.
+ * Chi chiama sa CHI ha annullato — lo decide `lib/cancelled-notice.ts` a
+ * partire dalla `StopCause` — e il default resta quello storico per i
+ * chiamanti che davvero parlano dello stop a mano.
+ */
+export function logStreamAborted(ctx: StreamLogContext & { title?: string }): void {
   logActivity({
     category: "stream",
     level: "info",
-    title: "stream aborted by user",
+    title: ctx.title ?? "stream aborted by user",
     sessionKey: ctx.sessionKey,
     entityType: "topic",
     entityId: ctx.topicId,
