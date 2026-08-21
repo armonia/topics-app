@@ -7,6 +7,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Il falso «Nessuna risposta» sopra la risposta che era arrivata
 - La bolla riusata non diventa un gemello a schermo
+- Il controllo sui commit fantasma scambiava un id di card per uno sha
 
 ## 2.2.163 — 2026-08-21
 
