@@ -2696,7 +2696,18 @@ const opzioniServer = {
         identity,
       });
       if (!decision.allow) {
-        if (isApiRequest) console.log(`[HTTP] ✗ ${method} ${pathname} — ${decision.status}: ${decision.reason}`);
+        // Il valore RIFIUTATO, non solo l'asse. «host not allowed» senza dire
+        // QUALE host manda a leggere il codice per indovinarlo: successo il
+        // 21/08 su un pairing dal telefono, con l'allowlist che dal log
+        // sembrava giusta e il telefono che mandava un nome che non c'era.
+        if (isApiRequest) {
+          const dettaglio = decision.reason === "host not allowed"
+            ? ` (host="${req.headers.get("host") ?? ""}")`
+            : decision.reason?.includes("origin")
+              ? ` (origin="${req.headers.get("origin") ?? ""}")`
+              : "";
+          console.log(`[HTTP] ✗ ${method} ${pathname} — ${decision.status}: ${decision.reason}${dettaglio}`);
+        }
         const o = corsAllowOrigin(req);
         // Il `code` distingue «non sei appaiato» da «origine forestiera»: e' su
         // quello che il client decide se aprire la schermata di appaiamento o
