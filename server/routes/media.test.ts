@@ -40,6 +40,19 @@ import {
 } from "./media";
 import type { AppContext } from "../types";
 
+/* DATA_DIR E' AMBIENTE CONDIVISO, e questo file lo scrive.
+ *
+ * `server/db.ts:17` risolve la cartella dati come `process.env.DATA_DIR ||
+ * join(dataRoot, "data")`: l'ambiente vince sull'argomento esplicito. Bun
+ * carica piu' file di test nello STESSO processo, quindi una scrittura non
+ * restituita decide dove finisce il database di tutti i file caricati dopo.
+ * Misurato il 21/08: due file lanciati insieme aprivano quattro volte lo
+ * stesso db temporaneo di uno dei due, mentre da soli ne creavano di propri.
+ * Qui la variabile serve davvero (non si passa da `initDatabase`), quindi si
+ * RESTITUISCE invece di toglierla. */
+const DATA_DIR_PRIMA = process.env.DATA_DIR;
+
+
 const tmpRoot = mkdtempSync(join(tmpdir(), "media-route-test-"));
 let uploadsDir: string;
 let contextDir: string;
@@ -417,4 +430,9 @@ describe("/api/media · come torna indietro ciò che è stato caricato", () => {
     expect(res.headers.get("content-security-policy")).toBe("sandbox");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
+});
+
+afterAll(() => {
+  if (DATA_DIR_PRIMA === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = DATA_DIR_PRIMA;
 });
