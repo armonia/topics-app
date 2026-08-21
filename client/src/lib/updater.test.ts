@@ -45,35 +45,35 @@ describe('shouldShowUpdaterToast', () => {
   });
 });
 
-describe("in automatico non si annuncia un aggiornamento che arriva da solo", () => {
-  // Segnalato DUE volte: «mi esce nuova versione disponibile anche se sono in
-  // modalità automatica», e poi «ancora mi esce nuova versione disponibile».
-  // La prima correzione aveva sistemato il PANNELLO della versione e non questo
-  // banner, che è una seconda superficie con la stessa frase — il difetto era
-  // sopravvissuto in un posto che nessuno aveva guardato.
-  const auto = { dismissed: false, versionPopoverOpen: false, autoUpdate: true };
-
-  test("«disponibile» non compare: le finestre si ricaricano da sole", () => {
+describe("an available update is announced, because it no longer arrives by itself", () => {
+  // THE OPPOSITE RULE USED TO LIVE HERE. With `autoUpdate` on, the banner stayed
+  // quiet about everything except "ready", and the reason was sound for as long
+  // as it was true: the windows reloaded themselves, so offering a "Scarica"
+  // button asked for a gesture on work already under way. Reported twice, fixed
+  // twice (fda59c2b the version panel, then this banner).
+  //
+  // It stopped being true. The shell now reinstalls and relaunches on its own
+  // ONLY while the main window is hidden (may_relaunch_unattended), and while it
+  // is hidden this toast is not drawn. So the branch could only fire in the case
+  // it was never written for: an update waiting for a click, in an app with no
+  // way left to mention it. On 2026-08-21 the app had already reinstalled and
+  // relaunched itself eight times in one week.
+  test("available shows: without the banner nobody would know", () => {
     const s: UpdaterStatus = { state: "update-available", version: "2.3.0" };
     expect(shouldShowUpdaterToast(s, quiet)).toBe(true);
-    expect(shouldShowUpdaterToast(s, auto)).toBe(false);
   });
 
-  test("nemmeno lo scaricamento in corso: è un lavoro che non hai chiesto", () => {
-    expect(shouldShowUpdaterToast({ state: "downloading", progress: 40 }, auto)).toBe(false);
+  test("ready shows: a downloaded binary is waiting for a restart", () => {
+    expect(shouldShowUpdaterToast({ state: "ready", version: "2.3.0" }, quiet)).toBe(true);
   });
 
-  test("«pronto» invece PASSA: lì il gesto serve davvero", () => {
-    // C'è un binario scaricato che aspetta un riavvio. È l'unico stato in cui
-    // la persona deve fare qualcosa, e tacere lascerebbe l'aggiornamento in
-    // panchina per sempre.
-    expect(shouldShowUpdaterToast({ state: "ready", version: "2.3.0" }, auto)).toBe(true);
+  test("downloading shows: it is the state between the other two", () => {
+    expect(shouldShowUpdaterToast({ state: "downloading", progress: 40 }, quiet)).toBe(true);
   });
 
-  test("senza il flag non cambia niente: chi non è in automatico vede tutto", () => {
-    // La regola vale solo dove l'aggiornamento arriva davvero da sé. Applicarla
-    // sempre renderebbe l'app muta su una macchina che aspetta un clic.
-    const s: UpdaterStatus = { state: "update-available", version: "2.3.0" };
-    expect(shouldShowUpdaterToast(s, { ...quiet, autoUpdate: false })).toBe(true);
+  test("the silent boot check stays silent", () => {
+    // The one thing boot must not draw: the outcome of a check nobody asked for.
+    const s: UpdaterStatus = { state: "update-available", version: "2.3.0", silent: true };
+    expect(shouldShowUpdaterToast(s, quiet)).toBe(false);
   });
 });

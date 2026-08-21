@@ -36,23 +36,21 @@ export interface UpdaterStatus {
  */
 export function shouldShowUpdaterToast(
   status: UpdaterStatus,
-  opts: { dismissed: boolean; versionPopoverOpen: boolean; autoUpdate?: boolean },
+  opts: { dismissed: boolean; versionPopoverOpen: boolean },
 ): boolean {
   if (status.state === 'idle') return false;      // niente da dire
   if (opts.dismissed) return false;               // l'utente l'ha chiuso
   if (opts.versionPopoverOpen) return false;      // lo direbbe due volte
   if (status.silent) return false;                // esito di un controllo al boot
-  // IN AUTOMATICO NON SI ANNUNCIA UN AGGIORNAMENTO CHE ARRIVA DA SOLO.
-  //
-  // Col flag `topics-dev.json` acceso le finestre si ricaricano a ogni build:
-  // «nuova versione disponibile» con il suo «Scarica» chiede un gesto per una
-  // cosa gia' in corso. Segnalato due volte - la prima correzione (fda59c2b)
-  // aveva sistemato il PANNELLO della versione e non questo banner, che e' una
-  // seconda superficie con la stessa frase.
-  //
-  // `ready` passa comunque: li' c'e' un binario scaricato che aspetta un
-  // riavvio, ed e' l'unico stato in cui il gesto serve davvero.
-  if (opts.autoUpdate && status.state !== 'ready') return false;
+  // AN `autoUpdate` SUPPRESSION USED TO LIVE HERE, and its own last test said
+  // why it had to go: "la regola vale solo dove l'aggiornamento arriva davvero
+  // da se'". allow-italian: the removed rule's words are the argument for
+  // removing it. It no longer arrives by itself. The shell installs and
+  // relaunches on its own only while the main window is hidden
+  // (may_relaunch_unattended in desktop-tauri), which is exactly when this toast
+  // is not on screen to be suppressed. So the branch could only ever fire in the
+  // case it was not written for: a visible window, an update that now waits for a
+  // click, and an app with no way left to mention it.
   return true;
 }
 
