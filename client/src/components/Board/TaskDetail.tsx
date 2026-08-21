@@ -5,6 +5,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
 import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, Sparkles, Square, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
+import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -798,22 +799,22 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Collapsible description + subtask sections (sticky per client): the drawer
   // header can grow tall, and both are secondary to the thread/body — collapsing
   // them reclaims vertical room for the chat.
-  const [descOpen, setDescOpen] = useState(() => { try { return localStorage.getItem('board:taskDescOpen') !== '0'; } catch { return true; } });
-  const [subtasksOpen, setSubtasksOpen] = useState(() => { try { return localStorage.getItem('board:taskSubtasksOpen') !== '0'; } catch { return true; } });
-  // L'anteprima ha una sezione SUA, che si chiude da sola. Prima era sorella
-  // della descrizione dentro lo stesso riquadro ma FUORI dal ramo `descOpen`:
-  // chiudere la descrizione non la nascondeva, e nessuna maniglia la nascondeva.
-  // Non era un bug — mancava lo slot per «la consegna», che è la cosa per cui
-  // il drawer si apre.
-  const [previewOpen, setPreviewOpen] = useState(() => { try { return localStorage.getItem('board:taskPreviewOpen') !== '0'; } catch { return true; } });
-  const togglePreviewOpen = () => setPreviewOpen((o) => { const n = !o; try { localStorage.setItem('board:taskPreviewOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
-  const toggleDescOpen = () => setDescOpen((o) => { const n = !o; try { localStorage.setItem('board:taskDescOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
-  const toggleSubtasksOpen = () => setSubtasksOpen((o) => { const n = !o; try { localStorage.setItem('board:taskSubtasksOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
+  // The drawer's remembered sections, the sixth included. The shape lives in
+  // `sectionAccordion.tsx`: these were five hand-written copies of the same
+  // useState + localStorage + button, which is exactly why the sixth ("File
+  // consegnati") had no handle at all.
+  const [descOpen, toggleDescOpen] = useSectionOpen('Desc');
+  const [subtasksOpen, toggleSubtasksOpen, setSubtasksOpen] = useSectionOpen('Subtasks');
+  // The preview has a section of its OWN. It used to sit beside the description
+  // inside the same box but OUTSIDE its `descOpen` branch: closing the
+  // description did not hide it, and no handle did either.
+  const [previewOpen, togglePreviewOpen] = useSectionOpen('Preview');
+  const [downloadsOpen, toggleDownloadsOpen] = useSectionOpen('Downloads');
   // The workspace (the task's GroupLayout: thread + browser + piano + media) is
-  // itself an accordion, coherent with the others — the tab bar sits UNDER a
-  // "Spazio di lavoro" label. Default open.
-  const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem('board:taskWorkspaceOpen') !== '0'; } catch { return true; } });
-  const toggleWorkspaceOpen = () => setWorkspaceOpen((o) => { const n = !o; try { localStorage.setItem('board:taskWorkspaceOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
+  // itself an accordion, coherent with the others. Its open state is read by the
+  // layout AROUND it (flex-1 vs shrink-0, and the scroll cap), which is why it
+  // stays a hook here instead of a self-contained section component.
+  const [workspaceOpen, toggleWorkspaceOpen] = useSectionOpen('Workspace');
   // DUE COLONNE — «a sinistra la sessione stretta col task, a destra la tab
   // aperta con quello che devo vedere». Serve spazio VERO: a sinistra 22rem di
   // brief+sessione, a destra il tiling. Il drawer in modo largo misura
@@ -2119,12 +2120,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 descrizione utile» (il rilievo su `d4fcce17`). Il chevron non
                 è evidenza di contenuto, quindi da chiuso la maniglia porta
                 con sé la MISURA (quanto testo c'è) e la prima riga vera. */}
-            <button
-              onClick={toggleDescOpen}
-              className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
-            >
-              {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.descLabel')}
-            </button>
+            <SectionHeader open={descOpen} onToggle={toggleDescOpen} label={tr('board.task.descLabel')} testId="task-section-desc" />
             {/* La misura sta FUORI dal bottone di proposito: il nome
                 accessibile della maniglia resta «Descrizione» esatto, che è
                 come la cercano le spec e chi naviga a voce. Qui dentro
@@ -2165,8 +2161,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             il risultato è tab + lista scaricabili. */}
         {mediaPaths.length > 0 && (
           <div className="mt-3" data-testid="task-downloads">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint">{tr('board.task.deliveredFiles')}</div>
-            <ul className="flex flex-col gap-1">
+            <SectionHeader
+              open={downloadsOpen}
+              onToggle={toggleDownloadsOpen}
+              label={tr('board.task.deliveredFiles')}
+              suffix={` · ${mediaPaths.length}`}
+              testId="task-section-downloads"
+            />
+            {downloadsOpen && (
+            <ul className="mt-1.5 flex flex-col gap-1">
               {mediaPaths.map((p) => {
                 const name = p.split('/').pop() || p;
                 return (
@@ -2188,6 +2191,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 );
               })}
             </ul>
+            )}
           </div>
         )}
       </div>
@@ -2205,13 +2209,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           il brief. */}
       {(children.length > 0 || subtaskComposerOpen) && (
       <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-subtasks">
-        <button
-          onClick={toggleSubtasksOpen}
-          className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
-        >
-          {subtasksOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          {tr('board.task.subtasksLabel')}{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
-        </button>
+        <SectionHeader
+          open={subtasksOpen}
+          onToggle={toggleSubtasksOpen}
+          label={tr('board.task.subtasksLabel')}
+          suffix={children.length > 0 ? ` · ${doneCount}/${children.length}` : undefined}
+          testId="task-section-subtasks"
+        />
         {subtasksOpen && (
           <div className="mt-1.5">
             {children.map((c) => (
@@ -2598,12 +2602,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
               <div className="flex items-center gap-2">
                 {task.previewImage ? (
-                  <button
-                    onClick={togglePreviewOpen}
-                    className="flex min-w-0 flex-1 items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
-                  >
-                    {previewOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.deliveryLabel')}
-                  </button>
+                  <SectionHeader
+                    open={previewOpen}
+                    onToggle={togglePreviewOpen}
+                    label={tr('board.task.deliveryLabel')}
+                    testId="task-section-preview"
+                    grow
+                  />
                 ) : (
                   <span className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
                     {tr('board.task.deliveryLabel')}
@@ -2716,17 +2721,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {!twoCol && (
           <div className={`flex min-w-0 flex-col ${workspaceOpen && hasWorkspacePanes ? 'min-h-0 flex-1' : 'shrink-0'}`}>
             <div className="flex w-full shrink-0 items-center gap-1 border-y border-app-border pl-3 pr-1.5">
-              <button
-                onClick={toggleWorkspaceOpen} disabled={!hasWorkspacePanes}
-                data-testid="task-workspace-toggle"
-                className="flex min-w-0 flex-1 items-center gap-1 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading disabled:hover:text-app-text-muted"
-              >
-                {hasWorkspacePanes && (workspaceOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />)}
-                <span className="truncate">{tr('board.task.workspaceLabel')}</span>
-                {hasWorkspacePanes && (
-                  <span className="shrink-0 text-[10px] font-normal text-app-text-faint">{workspacePaneCount}</span>
-                )}
-              </button>
+              <SectionHeader
+                open={workspaceOpen}
+                onToggle={toggleWorkspaceOpen}
+                label={tr('board.task.workspaceLabel')}
+                suffix={hasWorkspacePanes ? ` ${workspacePaneCount}` : undefined}
+                testId="task-workspace-toggle"
+                chevron={hasWorkspacePanes}
+                disabled={!hasWorkspacePanes}
+                grow
+                padded
+              />
               <button
                 onClick={browser.addBrowserTab}
                 title={tr('board.task.openTab')} aria-label={tr('board.task.openTab')}
