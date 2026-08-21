@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.167 — 2026-08-21
+
+### Sotto il cofano
+- Topics si chiudeva da sola mentre la guardavi
+- Adesso che l'aggiornamento non arriva da solo, qualcuno deve dirlo
+
 ## 2.2.166 — 2026-08-21
 
 ### Sotto il cofano

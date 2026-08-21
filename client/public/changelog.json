@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.167",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Topics si chiudeva da sola mentre la guardavi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Adesso che l'aggiornamento non arriva da solo, qualcuno deve dirlo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.166",
     "date": "2026-08-21",
     "sections": {
