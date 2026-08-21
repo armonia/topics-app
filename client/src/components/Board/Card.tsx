@@ -22,7 +22,7 @@ import { DeliveryFiles } from './DeliveryFiles';
 import { isDeliverySheetPath } from '../../../../shared/media-kind';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
-import { taskChoices, usableQuestionOptions } from './taskChoices';
+import { choiceForText, taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
@@ -427,44 +427,54 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // dispatcher.resume), so the answer is a reject carrying the human's choice.
   const answer = (text: string) => review('reject', text);
   /**
-   * INVIO NEL CAMPO = LA SCELTA PRINCIPALE, con dentro quello che hai scritto.
+   * ENTER IN THE FIELD = A BUTTON FROM THE ROW ABOVE, carrying what you wrote.
    *
-   * Il campo non ha piu' un bottone suo: aveva «Rimanda» (gemello esatto di
-   * «Rimandalo avanti») e «Nota» (un commento che non risveglia nessuno, cioe'
-   * l'unica voce di una colonna di decisioni che non decideva niente). Tolti
-   * tutti e due, la tastiera non puo' restare l'unica strada per un gesto che
-   * i bottoni non offrono: farebbe la cosa peggiore, cioe' una scorciatoia
-   * invisibile con un effetto suo.
+   * The field no longer has a button of its own: it used to have «Rimanda» (an
+   * exact twin of «Rimandalo avanti») and «Nota» (a comment that wakes nobody
+   * up, that is, the one entry in a column of decisions that decided nothing).
+   * With both gone, the keyboard cannot remain the only road to a gesture the
+   * buttons do not offer: that would be the worst of all, an invisible
+   * shortcut with an effect of its own.
    *
-   * Quindi Invio fa ESATTAMENTE il primo bottone della riga qui sopra — quello
-   * che la card raccomanda: «Rimandalo avanti» su una consegna mai arrivata,
-   * «Landa su main» su una col ramo. La logica di QUALE sia non si riscrive: si
-   * chiede a `taskChoices`, la stessa funzione pura che disegna quei bottoni,
-   * cosi' tastiera e click non possono divergere.
+   * So Enter runs EXACTLY one of the buttons in the row above — but not «the
+   * first one»: the one the sentence just typed BELONGS to. On a delivery that
+   * never arrived that is «Rimandalo avanti», which carries the text with it.
+   * On one with a branch the first button is «Landa su main», and a verdict has
+   * no field to put a sentence in: writing a remark and pressing Enter merged
+   * the branch and closed the task (b673a253). Which one it is is not rewritten
+   * here: `choiceForText` says so — pure, tested, and living next to
+   * `taskChoices`, which draws those buttons, so keyboard and click cannot
+   * diverge.
    *
-   * Fuori dalla review (nessuna scelta da fare) resta quello che era: un
-   * commento, che sulla card in corso l'agent riceve al turno dopo.
+   * Outside review (nothing to decide) it stays what it was: a comment, which
+   * on a card in progress the agent receives on the next turn.
    */
   const primaryChoiceWithText = async () => {
     const v = freeText.trim();
     if (!v || busy) return;
     const scelte = taskChoices(task, { t: tr });
-    const prima = scelte[0];
-    // Nessuna scelta (o una che vuole solo il fuoco nel campo, dove siamo gia'):
-    // allora il testo e' una nota, ed e' l'unica cosa sensata da farne.
+    // NOT `scelte[0]`: the choice the SENTENCE belongs to. On two of the three
+    // review shapes the first choice is a verdict — «Landa su main», «Approva»
+    // — and running a verdict because someone typed is how a remark merged a
+    // branch and closed its task (b673a253). See `choiceForText`.
+    const prima = choiceForText(scelte);
+    // No choice takes it (or the one that does only wants the focus in the
+    // field, where we already are): then the text is a note, and that is the
+    // only sensible thing to do with it.
     if (!prima || prima.needsText) { void steer(v, { quiet: true }); return; }
     setBusy(true); clearError();
     try {
-      // `send-back` porta con se' l'indicazione, come fa il bottone.
+      // `send-back` carries the instruction with it, the way the button does.
       if (prima.id === 'send-back') await boardApi.review(task.projectId, task.id, 'reject', v);
       else {
-        // Le altre non hanno un campo dove mettere una frase: la si lascia
-        // sulla card PRIMA di agire, cosi' il perche' resta scritto accanto
-        // all'effetto invece di andare perso premendo Invio.
+        // The others have no field to put a sentence in: it is left on the
+        // card BEFORE acting, so the why stays written next to the effect
+        // instead of being lost by pressing Enter.
         await boardApi.comment(task.projectId, task.id, v, { quiet: true });
-        if (prima.id === 'land') await boardApi.land(task.projectId, task.id);
-        else if (prima.id === 'accept') await boardApi.review(task.projectId, task.id, 'approve');
-        else if (prima.id === 'take-over') await boardApi.update(task.projectId, task.id, { status: 'in_progress', assignee: 'io' });
+        // `land` and `accept` are absent ON PURPOSE: `choiceForText` never
+        // returns a verdict, so a sentence cannot merge or approve. Both keep
+        // their own button, which is where an irreversible gesture belongs.
+        if (prima.id === 'take-over') await boardApi.update(task.projectId, task.id, { status: 'in_progress', assignee: 'io' });
         else if (prima.id === 'unblock') await boardApi.update(task.projectId, task.id, { blockedByTaskId: null, status: 'todo' });
         else if (prima.id === 'stop') await boardApi.stop(task.projectId, task.id);
       }
@@ -659,7 +669,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
    * («Rimanda indietro», «Landa su main»…): non un secondo bottone con un
    * effetto suo, la stessa azione della riga sopra con dentro la frase.
    */
-  const primaChoice = useMemo(() => taskChoices(task, { t: tr })[0] ?? null, [task, tr]);
+  // The send button names the action IT PERFORMS — the text's one, not the
+  // first in the row: with `[0]` it promised «Landa su main» and sent back.
+  const primaChoice = useMemo(() => choiceForText(taskChoices(task, { t: tr })), [task, tr]);
   // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
   // Anche questo numero è un fatto del DB, non della lista fetchata — un
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
@@ -1488,9 +1500,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               ref={freeTextRef}
               value={freeText} disabled={busy}
               onChange={(e) => setFreeText(e.target.value)}
-              // Invio = la scelta principale della riga sopra, con questo testo
-              // gia' dentro. E' la stessa cosa che fa il click, quindi la
-              // tastiera non e' una seconda strada: e' la stessa.
+              // Enter = the choice from the row above this text belongs to,
+              // with the text inside. It is the same thing the button next to
+              // it does, so the keyboard is not a second road: it is the same
+              // one. Never a verdict (see `choiceForText`).
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); void primaryChoiceWithText(); } }}
               // `{sendBack}` va INTERPOLATO col nome vero del bottone qui
               // sopra: su una card che nessuno ha consegnato non si chiama
