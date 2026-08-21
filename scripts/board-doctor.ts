@@ -140,6 +140,7 @@ export const DOCTOR = {
 } as const;
 
 export type CheckId =
+  | "claimed-commit-missing"
   | "delivery-cites-absent-artifact"
   | "behaviour-without-preview"
   | "land-drags-foreign-commits"
@@ -434,6 +435,13 @@ export interface DoctorInput {
   documentedParams: readonly DocumentedParam[];
   /** I documenti di protocollo che il controllo 7 doveva leggere e non ha trovato. */
   missingProtocolDocs: readonly string[];
+  /**
+   * For every sha CLAIMED in a delivery comment: does the repo have it?
+   *
+   * Prepared here, with a single `cat-file --batch-check`, because the checks are
+   * pure over the context. Key = the sha exactly as written in the comment.
+   */
+  claimedShaResolves: Readonly<Record<string, boolean>>;
 }
 
 export interface DoctorCheck {
@@ -442,6 +450,17 @@ export interface DoctorCheck {
   bornFrom: string;
   run(input: DoctorInput): Finding[];
 }
+
+/**
+ * A sha CITED in prose, in the shapes git actually prints.
+ *
+ * 7 to 12 hex digits (git's abbreviations) or exactly 40 (the full id), with
+ * boundaries on both sides. Not "7 or more": a 19-hex token is something else,
+ * a filename or an id, and this check only speaks when git answers `missing`,
+ * so a token that was never a commit would be accused every single time. Below
+ * 7 git itself refuses to resolve.
+ */
+const SHA_IN_TESTO = /(?:^|[^0-9a-zA-Z])([0-9a-f]{7,12}|[0-9a-f]{40})(?![0-9a-zA-Z])/g;
 
 const sq = (s: string) => s.replace(/'/g, "''");
 const shq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
@@ -808,6 +827,67 @@ const checkDeliveryCommitNotOwn: DoctorCheck = {
   },
 };
 
+// ── 8b. The delivery claims a commit that does not exist ────────────────
+
+/**
+ * A delivery that names a commit the repository does not have.
+ *
+ * BORN FROM FIVE CARDS IN ONE AUDIT (2026-08-21). Each was closed `done` citing
+ * a commit `git cat-file -t` refuses: `6dc39750`, `39931015`, `60a4f445`,
+ * `eac6a699`, `b804e291`. Three of them also carried a green "independent
+ * verification" in the thread, run inside the agent's own worktree, which never
+ * reached main. One even kept the line that explains the whole thing, "merge
+ * skipped: the checkout is on the wrong branch, not main", and stayed done.
+ *
+ * WHY IT HAS TO BE CHECKED WHILE THE CLAIM IS FRESH. Once the branch is reaped,
+ * a commit that never existed and a commit that landed and was pruned look
+ * identical: both are simply absent. `classifyCommitLanding` already says "the
+ * repo no longer has that commit" and files it under `unverifiable`, a quiet
+ * state nobody reads (127 cards sit there). The only moment the two can be told
+ * apart is while the object is still reachable.
+ *
+ * SCOPE, stated because it matters: the doctor only reads cards in
+ * `todo | in_progress | review`, so this STOPS THE NEXT ONE rather than
+ * resurrecting the five already closed. That is the right boundary. On a closed
+ * card whose branch has been reaped there is nothing left to act on, and a
+ * watchdog that reports what cannot be fixed is a watchdog people switch off.
+ *
+ * DELIBERATELY NARROW. It reads the delivery comment only, tokens shaped like a
+ * sha only, and speaks only when the repo answers `missing`. A prefix that
+ * resolves is fine; a sha belonging to another branch is fine (that is
+ * `delivery-commit-not-own`'s job). The claim checked here is the weakest one
+ * there is, "this object exists at all", and it is the one that failed five
+ * times.
+ */
+const checkClaimedCommitMissing: DoctorCheck = {
+  id: "claimed-commit-missing",
+  bornFrom: "cinque card chiuse citando un commit che `git cat-file -t` rifiuta, tre con un visto verde di verifica indipendente", // allow-italian: i `bornFrom` sono in italiano in tutto il file, e si leggono in fila
+  run({ tasks, claimedShaResolves, repoPath }) {
+    const out: Finding[] = [];
+    for (const t of tasks) {
+      const c = t.lastAgentComment;
+      if (!c) continue;
+      const mancanti: string[] = [];
+      for (const m of c.content.matchAll(SHA_IN_TESTO)) {
+        const sha = m[1]!;
+        // Absent from the prepared map = never asked: silence, not an accusation.
+        if (claimedShaResolves[sha] === false && !mancanti.includes(sha)) mancanti.push(sha);
+      }
+      if (!mancanti.length) continue;
+      out.push(finding({
+        check: "claimed-commit-missing",
+        taskId: t.id,
+        taskText: t.text,
+        what: `la consegna cita ${mancanti.length === 1 ? "un commit che" : "commit che"} il repo non ha: ${mancanti.map((x) => x.slice(0, 9)).join(", ")}`,
+        proof: `R=${shq(repoPath)}; ${mancanti.map((x) => `git -C "$R" cat-file -t ${x}`).join("; ")}`,
+        action: "chiedi alla card DOVE sta quel commit (ramo, worktree) prima di crederle: se non risolve qui, non e' su main e la consegna non e' verificabile",
+        occurrence: `claimed-commit-missing:${t.id}:${mancanti.join(",")}`,
+      }));
+    }
+    return out;
+  },
+};
+
 // ── 9. Il documento che il controllo 7 legge non c'e' ────────────────────────
 
 /**
@@ -853,6 +933,7 @@ export const CHECKS: readonly DoctorCheck[] = Object.freeze([
   checkCostOutOfClass,
   checkDocumentedParameterNotDeclared,
   checkDeliveryCommitNotOwn,
+  checkClaimedCommitMissing,
   checkProtocolDocMissing,
 ]);
 
@@ -1265,9 +1346,39 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
       skipped.push("rosso ambientale: nessuna coppia di esiti misurata (--probe-red) — controllo inerte");
     }
 
+    /* THE SHAS DELIVERIES CLAIM, checked while checking is still possible.
+     *
+     * On 2026-08-21 five cards were closed citing a commit `git cat-file -t`
+     * refuses: `6dc39750`, `39931015`, `60a4f445`, `eac6a699`, `b804e291`.
+     * Three also carried a green "independent verification", run inside the
+     * agent's worktree, which never reached main. Nothing asked the question, so
+     * the board counted them as done and nobody noticed.
+     *
+     * One `cat-file --batch-check` for all of them rather than a process per
+     * sha: on a board with thousands of cards that is the difference between a
+     * check that runs and one nobody leaves switched on. */
+    const shaRivendicati = new Set<string>();
+    for (const t of tasks) {
+      const testo = t.lastAgentComment?.content ?? "";
+      for (const m of testo.matchAll(SHA_IN_TESTO)) shaRivendicati.add(m[1]!);
+    }
+    const claimedShaResolves: Record<string, boolean> = {};
+    if (shaRivendicati.size) {
+      const elenco = [...shaRivendicati];
+      const res = spawnSync("git", ["-C", repoPath, "cat-file", "--batch-check"], {
+        input: elenco.join("\n") + "\n", encoding: "utf8",
+      });
+      const righe = (res.stdout ?? "").split("\n");
+      elenco.forEach((sha, i) => {
+        // `<sha> commit <size>` when present; `<sha> missing` when not.
+        claimedShaResolves[sha] = / commit \d+$/.test((righe[i] ?? "").trim());
+      });
+    }
+
     return {
       input: {
         nowMs, dbPath, repoPath, tasks, branches,
+        claimedShaResolves,
         reds: opts.reds ?? [],
         costBaseline,
         probes: opts.probes ?? {},
