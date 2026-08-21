@@ -110,7 +110,33 @@ fi
 # that is perfectly correct.
 ASSET="$(grep -o '/assets/index-[A-Za-z0-9_-]*\.js' "$REPO_ROOT/public/index.html" | head -1 || true)"
 
-echo "▸ 2/5  cargo build --release"
+# PROFILE. Release is what ships and stays the default. Debug exists because the
+# release profile carries `lto = true` and `codegen-units = 1`, and those two turn
+# a one-line change into a full relink.
+#
+# MEASURED on 2026-08-21, same machine, same edit, full swap cycle including the
+# signing and the relaunch:
+#
+#            swap cycle   cold start to window   RSS at 30s   binary
+#   release       149s          0.38s              147 MB      14 MB
+#   debug          20s          0.39s              153 MB      61 MB
+#
+# The thing everyone assumes about a debug build, that it is slower and heavier to
+# live with, does not show up here: six megabytes and a hundredth of a second. The
+# heavy work is WKWebView, which is the same binary in both cases, and this shell
+# is IPC and UI glue (the Cargo.toml comment says so). What changes is the seven
+# and a half times you get back on every iteration.
+#
+# Still opt-in, and still announced on the way out: release is what a user
+# installs, so it must be what you get when you do not ask for anything.
+PROFILE="${TOPICS_SHELL_PROFILE:-release}"
+case "$PROFILE" in
+  release) CARGO_PROFILE_ARGS="--release"; TARGET_SUBDIR="release" ;;
+  debug)   CARGO_PROFILE_ARGS="";          TARGET_SUBDIR="debug" ;;
+  *) die "TOPICS_SHELL_PROFILE dev'essere 'release' o 'debug', non '$PROFILE'" ;;
+esac
+
+echo "▸ 2/5  cargo build ($PROFILE)"
 # `touch build.rs` NON è scaramanzia. `tauri.conf.json` punta `frontendDist` a
 # ../../public e `tauri_build::build()` embedda quei file nel binario, ma NIENTE
 # dichiara un `rerun-if-changed` sul contenuto di public/. Cargo quindi non sa
@@ -127,11 +153,11 @@ echo "▸ 2/5  cargo build --release"
 # build.rs ma l'artefatto con gli asset resta quello in OUT_DIR. Si pulisce il
 # solo crate `app` — le dipendenze restano compilate, quindi si paga circa lo
 # stesso tempo di un build incrementale del crate, non una build da zero.
-"$HOME/.cargo/bin/cargo" clean -p app --release \
+"$HOME/.cargo/bin/cargo" clean -p app $CARGO_PROFILE_ARGS \
   --manifest-path "$REPO_ROOT/desktop-tauri/src-tauri/Cargo.toml" 2>/dev/null || true
-(cd "$REPO_ROOT/desktop-tauri/src-tauri" && "$HOME/.cargo/bin/cargo" build --release)
+(cd "$REPO_ROOT/desktop-tauri/src-tauri" && "$HOME/.cargo/bin/cargo" build $CARGO_PROFILE_ARGS)
 
-BIN="$REPO_ROOT/desktop-tauri/src-tauri/target/release/app"
+BIN="$REPO_ROOT/desktop-tauri/src-tauri/target/$TARGET_SUBDIR/app"
 [ -f "$BIN" ] || die "binario non prodotto: $BIN"
 
 # Il bundle appena costruito dev'essere DAVVERO dentro il binario: senza questo
@@ -225,6 +251,7 @@ sleep 5
 PID="$(pgrep -f "$APP/Contents/MacOS/app" | head -1 || true)"
 [ -n "$PID" ] || die "l'app non è ripartita — ripristina con: cp '$BACKUP' '$APP/Contents/MacOS/app'"
 _swap_done=1                      # da qui il trap non deve più ripristinare
+[ "$PROFILE" = "debug" ] && echo "  ⚠ profilo DEBUG installato: piu' lento e piu' grosso, rifai lo swap senza TOPICS_SHELL_PROFILE per tornare a release" >&2
 trap - ERR EXIT INT TERM
 echo "  ✓ viva (pid $PID)"
 echo
