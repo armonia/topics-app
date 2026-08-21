@@ -202,7 +202,20 @@ export class SessioneRelay {
    */
   private diciAllaMacchina(m: MessaggioRelay): boolean {
     const ws = this.macchina();
-    if (!ws) return false;
+    // NESSUNA macchina agganciata non è un invio FALLITO, ed è la distinzione
+    // che questa riga esiste per fare.
+    //
+    // Il chiamante che reagisce a un `false` chiude ciò che sta aspettando. Ma
+    // «non c'è nessuno» capita anche nell'istante normalissimo in cui il ponte
+    // nasce prima che la macchina si sia riagganciata, e trattarlo come un
+    // guasto significa buttare via richieste appena nate: misurato in
+    // produzione il 21/08/2026, ogni richiesta dal relay tornava `502` con la
+    // macchina viva e il tunnel che rispondeva `200`.
+    //
+    // Chi non ha nessuno a cui parlare non ha fallito: non aveva niente da
+    // fare. Il caso «la macchina è sparita mentre le parlavo» resta il `catch`
+    // qui sotto, che è l'unico che deve svegliare chi aspetta.
+    if (!ws) return true;
     try {
       ws.send(JSON.stringify(m));
       return true;
