@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.168",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le tre strade per rientrare nella app finivano tutte in un ramo muto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.167",
     "date": "2026-08-21",
     "sections": {

@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.168 — 2026-08-21
+
+### Sotto il cofano
+- Le tre strade per rientrare nella app finivano tutte in un ramo muto
+
 ## 2.2.167 — 2026-08-21
 
 ### Sotto il cofano
