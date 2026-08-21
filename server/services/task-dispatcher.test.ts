@@ -10,7 +10,7 @@ import { PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
-import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
+import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -1014,7 +1014,12 @@ describe("task-dispatcher", () => {
     const t = h.task("t1")!;
     expect(t.dispatchAttempts).toBe(2);
     const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
-    expect(notes).toContain("limite di tempo");
+    // The CONTRACT: the note says the declared cause instead of guessing. It is
+    // taken from `describeTurnEnd`, not copied here, so rewording the sentence
+    // never turns an honest fix into a red (that is what happened on
+    // 2026-08-21, when the cap stopped counting elapsed time and its old
+    // wording became false).
+    expect(notes).toContain(describeTurnEnd(cancelled("wall-clock")));
     expect(notes).not.toContain("probabile"); // niente più indovinelli
   });
 
