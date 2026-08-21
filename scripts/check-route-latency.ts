@@ -156,6 +156,14 @@ export interface Corpus {
   topics: number;
   messages: number;
   tasks: number;
+  /**
+   * Characters of description per task. PART OF THE CONTRACT, like the counts:
+   * the feed slices `description` in SQL (`PREVIEW_SQL_CHARS`), so a corpus whose
+   * descriptions are shorter than the slice cannot see that slice change at all.
+   * It was 156 until 2026-08-21, below both the old cut (240) and the new one
+   * (800), and the constant moved between them without the bench noticing.
+   */
+  description_chars: number;
 }
 
 export interface Baseline {
@@ -337,7 +345,7 @@ const { envKey: ENV_KEY, read: BASELINE_PATH, write: BASELINE_WRITE_PATH } =
  * `fetch`. Servono quantita' da utente vero, dove il costo del GESTORE supera
  * quello del tubo.
  */
-const CORPUS: Corpus = { topics: 150, messages: 3000, tasks: 150 };
+const CORPUS: Corpus = { topics: 150, messages: 3000, tasks: 150, description_chars: 1200 };
 
 /** Chiamate cronometrate per rotta e per passata. */
 const DEFAULT_SAMPLES = 25;
@@ -476,15 +484,12 @@ async function seed(base: string): Promise<{ topicId: string }> {
         method: "POST",
         body: JSON.stringify({
           text: `Task del banco numero ${i}`,
-          // KNOWN BLIND SPOT (2026-08-21): ~156 chars, BELOW both the old
-          // preview cut (240) and the new one (800), so this bench does not
-          // exercise `PREVIEW_SQL_CHARS` at all. That day the constant went
-          // 240 -> 800 and the measurement never noticed, in either direction.
-          // Lengthening it is one line, but it moves all four routes, so it must
-          // land together with a baseline re-record and ONLY on an idle machine;
-          // the declared `corpus` needs the length too, or the gate compares two
-          // measurements that are not about the same thing.
-          description: `Descrizione del task ${i}. `.repeat(6),
+          // Long enough to exceed the SQL slice (`PREVIEW_SQL_CHARS`, 800), so a
+          // change to that cut moves this number instead of hiding in it. Until
+          // 2026-08-21 these were ~156 chars and the bench was blind to it.
+          description: `Descrizione del task ${i}. `.repeat(
+            Math.ceil(CORPUS.description_chars / 27),
+          ),
         }),
       })),
   );
@@ -501,6 +506,10 @@ async function measuredCorpus(base: string, topicId: string): Promise<Corpus> {
     topics: Object.keys(topics.topics ?? {}).length,
     messages: Number(msgs.total ?? 0),
     tasks: (tasks.tasks ?? []).length,
+    // Declared, not measured: the feed returns `description_preview`, already
+    // sliced, so the real length is not visible from here. This is what the
+    // seeder wrote, and the seeder is the only thing that knows it.
+    description_chars: CORPUS.description_chars,
   };
 }
 

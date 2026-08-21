@@ -35,7 +35,7 @@ const baseline: Baseline = {
   floor_ms: 1.5,
   noise_guard_pct: 60,
   samples: 15,
-  corpus: { topics: 24, messages: 300, tasks: 40 },
+  corpus: { topics: 24, messages: 300, tasks: 40, description_chars: 1200 },
   routes: {
     topics: { median_ms: 3 },
     topic_messages: { median_ms: 12 },
@@ -220,13 +220,13 @@ describe("unstableRoutes", () => {
 
 describe("corpusMismatch", () => {
   test("stesso corpus, nessuna obiezione", () => {
-    expect(corpusMismatch({ topics: 24, messages: 300, tasks: 40 }, baseline.corpus)).toBeNull();
+    expect(corpusMismatch({ topics: 24, messages: 300, tasks: 40, description_chars: 1200 }, baseline.corpus)).toBeNull();
   });
 
   test("un database quasi vuoto non si confronta con una baseline piena", () => {
     // E' il modo piu' facile di certificare un verde che non e' mai stato
     // misurato: la semina fallisce a meta' e le rotte rispondono su niente.
-    const gap = corpusMismatch({ topics: 24, messages: 0, tasks: 40 }, baseline.corpus);
+    const gap = corpusMismatch({ topics: 24, messages: 0, tasks: 40, description_chars: 1200 }, baseline.corpus);
     expect(gap).toContain("messages");
   });
 });

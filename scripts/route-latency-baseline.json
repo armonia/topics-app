@@ -30,9 +30,23 @@
     "noise_guard_pct e' la distanza massima ammessa fra le due passate della",
     "STESSA run. Oltre quella il banco esce 2 (non confrontabile) invece di 1:",
     "una macchina che si muove sotto la misura non e' una regressione, e dirlo",
-    "e' l'unico modo perche' un rosso di questo cancello resti credibile."
+    "e' l'unico modo perche' un rosso di questo cancello resti credibile.",
+    "",
+    "2026-08-21: RITARATA perche' il CORPUS e' cambiato, non perche' le rotte",
+    "sono peggiorate. Le descrizioni seminate erano di ~156 caratteri, sotto sia",
+    "il vecchio taglio dell'anteprima (240) sia quello nuovo (800): il banco non",
+    "vedeva `PREVIEW_SQL_CHARS` per niente, e quel giorno la costante e' passata",
+    "da 240 a 800 senza che la misura se ne accorgesse in nessuna direzione.",
+    "Adesso sono 1200 caratteri e la lunghezza fa parte del contratto, cosi' una",
+    "misura vecchia e una nuova non possono piu' fingere di parlare della stessa",
+    "cosa. Effetto sul numero: `all_boards_tasks` da 2,86 a 4,16 ms, cioe' il",
+    "costo del taglio per riga che prima era invisibile.",
+    "",
+    "Misurate su questa macchina a carico ~5 con 150 campioni e le due passate",
+    "d'accordo (il tubo a 0,32 contro 0,18: c'e' dentro overhead di macchina).",
+    "CI registra la sua, per il suo runner."
   ],
-  "updated": "2026-08-14",
+  "updated": "2026-08-21",
   "samples": 25,
   "tolerance_pct": 60,
   "floor_ms": 1.5,
@@ -40,20 +54,21 @@
   "corpus": {
     "topics": 150,
     "messages": 3000,
-    "tasks": 150
+    "tasks": 150,
+    "description_chars": 1200
   },
   "routes": {
     "topics": {
-      "median_ms": 0.36
+      "median_ms": 0.45
     },
     "topic_messages": {
-      "median_ms": 3.38
+      "median_ms": 3.57
     },
     "all_boards_tasks": {
-      "median_ms": 0.75
+      "median_ms": 3.92
     },
     "dispatch_capacity": {
-      "median_ms": 0.18
+      "median_ms": 0.32
     }
   },
   "declared_limits": {
