@@ -232,7 +232,7 @@ describe('un riferimento a un file di questo server', () => {
    * `https:///api/media?…`, and WebKit turned `api` into the HOSTNAME. The pane
    * hung on a DNS lookup for a host that does not exist.
    */
-  const MEDIA = '/api/media?path=%2FUsers%2Fzorahrel%2F.topics%2Fmedia%2Fpreview.png';
+  const MEDIA = '/api/media?path=%2Fhome%2Futente%2F.topics%2Fmedia%2Fpreview.png';
 
   it('non diventa un dominio inventato', () => {
     const out = normalizeUrl(MEDIA, '');
@@ -245,7 +245,7 @@ describe('un riferimento a un file di questo server', () => {
     const u = new URL(normalizeUrl(MEDIA, 'https://127.0.0.1:3333'));
     expect(u.origin).toBe('https://127.0.0.1:3333');
     expect(u.pathname).toBe('/api/media');
-    expect(u.searchParams.get('path')).toBe('/Users/zorahrel/.topics/media/preview.png');
+    expect(u.searchParams.get('path')).toBe('/home/utente/.topics/media/preview.png');
   });
 
   it('un vero dominio continua a essere un dominio', () => {
