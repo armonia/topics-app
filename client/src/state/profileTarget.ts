@@ -1,27 +1,27 @@
 /**
- * APRIRE IL PROFILO SU UNA PAGINA PRECISA.
+ * OPENING THE PROFILE ON ONE PARTICULAR PAGE.
  *
- * Il pane «Profilo» ha tre pagine — chi sei, con chi stai, chi hai intorno — e
- * fino a ieri si apriva sempre sulla prima: chi cliccava «organizzazioni» in
- * fondo alla sidebar atterrava sul proprio profilo e doveva cercare la scheda.
- * Un collegamento che porta VICINO a dove hai chiesto e' un collegamento che
- * chiede un gesto in piu' ogni volta.
+ * The "Profile" pane has three pages (who you are, who you are with, who is
+ * around you) and until yesterday it always opened on the first one: clicking
+ * "organisations" at the bottom of the sidebar landed you on your own profile,
+ * with the tab still to find. A link that gets you NEAR where you asked to go
+ * is a link that charges one extra gesture every single time.
  *
- * PERCHE' UN VALORE E NON SOLO UN EVENTO. Il pane e' `lazy()`: quando parte la
- * richiesta il componente puo' non essere ancora montato, e un evento sparato
- * nel vuoto e' perso per sempre. Qui la richiesta si POSA, e chi monta la
- * raccoglie; l'evento serve al caso opposto, il pane gia' aperto che deve
- * cambiare scheda subito. I due casi sono entrambi veri, e uno solo dei due
- * meccanismi ne copre uno.
+ * WHY A VALUE AND NOT JUST AN EVENT. The pane is `lazy()`: when the request is
+ * made the component may not be mounted yet, and an event fired into the void
+ * is lost forever. Here the request is SET DOWN, and whoever mounts picks it
+ * up; the event covers the opposite case, a pane already open that has to
+ * switch tab straight away. Both cases are real, and each mechanism alone
+ * covers only one of them.
  *
- * LA RICHIESTA SI CONSUMA. Letta una volta, sparisce: senza, riaprire il
- * profilo un'ora dopo dal menu «Topics» lo riporterebbe sulla scheda che
- * qualcuno aveva chiesto in un altro momento, e sarebbe un pane che ricorda una
- * cosa che nessuno gli ha piu' detto.
+ * THE REQUEST IS CONSUMED. Read once, it disappears: without that, reopening
+ * the profile an hour later from the "Topics" menu would drop you back on the
+ * tab somebody asked for at some other moment, which is a pane remembering
+ * something nobody has told it since.
  */
 import type { SectionId } from '@/components/Settings/sections';
 
-/** Le sole pagine che il pane Profilo conosce (`IDENTITY_SECTIONS`). */
+/** The only pages the Profile pane knows about (`IDENTITY_SECTIONS`). */
 export type PaginaProfilo = Extract<SectionId, 'profile' | 'organization' | 'friends'>;
 
 export const EVENTO_PAGINA_PROFILO = 'topics:profile-page';
@@ -29,8 +29,8 @@ export const EVENTO_PAGINA_PROFILO = 'topics:profile-page';
 let richiesta: PaginaProfilo | null = null;
 
 /**
- * Apre il pane Profilo su una pagina. Un gesto solo per chi chiama: la pagina
- * si posa qui, il pane si apre col bus che apre tutte le utility.
+ * Opens the Profile pane on a page. One single gesture for the caller: the page
+ * is set down here, the pane opens through the bus that opens every utility.
  */
 export function apriProfilo(pagina: PaginaProfilo): void {
   richiesta = pagina;
@@ -38,7 +38,7 @@ export function apriProfilo(pagina: PaginaProfilo): void {
   window.dispatchEvent(new CustomEvent(EVENTO_PAGINA_PROFILO, { detail: { pagina } }));
 }
 
-/** La pagina chiesta, una volta sola. `null` = nessuno ha chiesto niente. */
+/** The requested page, once only. `null` means nobody asked for anything. */
 export function consumaPaginaProfilo(): PaginaProfilo | null {
   const p = richiesta;
   richiesta = null;
