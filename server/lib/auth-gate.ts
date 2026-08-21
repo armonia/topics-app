@@ -295,6 +295,18 @@ export function isAllowedHost(host: string | null | undefined, allowedOrigins: r
   if (h === LOCAL_CLASS) return true;
   if (isIpLiteral(h)) return true;
   if (h.endsWith(".local") || h.endsWith(".ts.net")) return true;
+  // NOME A UN'ETICHETTA SOLA (`topics:3333`, `macbook-pro-di-attilio:3333`).
+  //
+  // Il rebinding ha bisogno di un nome che l'attaccante possa registrare nel DNS
+  // PUBBLICO e ri-puntare su 127.0.0.1: un nome pubblico ha sempre un punto.
+  // Un'etichetta sola non e' registrabile la' fuori — risolve solo perche' la
+  // risolve la rete di chi chiede: MagicDNS di Tailscale, il DNS del router, un
+  // suffisso di ricerca, /etc/hosts. E' la stessa fiducia che diamo gia' a
+  // `.local`, e senza questa riga il 403 colpiva il nome di rete della propria
+  // macchina: misurato il 21/08 su un telefono in LAN e su Tailscale, con
+  // `POST /api/auth/pair/request` respinto e la PWA che diceva soltanto «non ci
+  // e' riuscito», cioe' il caso che il commento qui sopra dice di voler evitare.
+  if (!h.includes(".")) return true;
   for (const o of allowedOrigins) {
     // Si accetta sia l'origine intera (`https://tunnel.example`, la forma
     // documentata) sia un hostname nudo, perché chi configura la variabile

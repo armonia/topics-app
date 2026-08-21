@@ -208,7 +208,11 @@ describe("auth-gate · isAllowedHost", () => {
       "rebind.evil.com:13333", "evil.com", "notlocalhost.com",
       "topics.esempio.io",                       // non dichiarato ⇒ non nostro
       "macbook.local.evil.com", "mac.ts.net.evil.com",
-      "local", "ts.net",                         // il suffisso NUDO non è un nostro nome
+      "ts.net",                                  // il suffisso NUDO non è un nostro nome
+      // `local` non sta piu' qui: da quando un'etichetta sola passa (nome di
+      // rete della propria macchina, MagicDNS, /etc/hosts) `local` e' un nome
+      // come `topics`, e per la stessa ragione — nel DNS pubblico non esiste.
+      // `ts.net` invece il punto ce l'ha, quindi resta registrabile e resta no.
       "999.1.1.1",                               // sembra un IP, non lo è
     ]) {
       expect(`${h}→${isAllowedHost(h)}`).toBe(`${h}→false`);
@@ -507,5 +511,24 @@ describe("origine · l'asse che da curl non si vede", () => {
       method: "GET", pathname: "/api/topics",
       origin: "https://cattivo.example", host: "127.0.0.1:3334", allowedOrigins: [], authOff: false,
     }).allow).toBe(true);
+  });
+});
+
+describe("nome di rete a un'etichetta sola", () => {
+  /**
+   * Il 403 sul proprio nome di rete e' il guasto che questa regola esiste per
+   * evitare, e ci cadeva: da un telefono in LAN o su Tailscale il Host e' il
+   * nome corto della macchina, senza punti, e non era nell'allowlist.
+   */
+  it("accetta un nome senza punti, con e senza porta", () => {
+    expect(isAllowedHost("macbook-pro-di-attilio")).toBe(true);
+    expect(isAllowedHost("macbook-pro-di-attilio:3333")).toBe(true);
+    expect(isAllowedHost("topics:13333")).toBe(true);
+  });
+
+  it("continua a rifiutare un nome PUBBLICO, che i punti ce li ha sempre", () => {
+    expect(isAllowedHost("evil.example")).toBe(false);
+    expect(isAllowedHost("127.0.0.1.nip.io")).toBe(false);
+    expect(isAllowedHost("topics.attacker.com:3333")).toBe(false);
   });
 });
