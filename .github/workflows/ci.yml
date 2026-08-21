@@ -78,6 +78,7 @@ jobs:
       # test cadono con «Chromium executable not found» — un rosso che in locale
       # non si vede mai, perché la macchina di sviluppo il browser ce l'ha.
       - name: Install Playwright browsers (Chromium)
+        id: setup
         run: npx playwright install --with-deps chromium
 
       # All three projects in one step. Each `typecheck:*` script uses the
@@ -86,7 +87,26 @@ jobs:
       #
       # This also finally RUNS `typecheck:e2e`, which existed in package.json
       # for months without appearing in any workflow.
+      # DA QUI IN GIU' OGNI PASSO E' UNA MISURA INDIPENDENTE, e nessuna deve
+      # sparire perche' quella prima e' rossa.
+      #
+      # Fino al 21/08/2026 questi 15 passi erano in fila senza condizione: il
+      # primo cancello rosso abortiva il job e gli altri NON GIRAVANO. Misurato:
+      # CI rossa dal 16/08 15:40, 27 passate e una sola verde, e in tutta quella
+      # finestra la suite unitaria e TUTTI E OTTO i budget non sono mai stati
+      # eseguiti. Su quei passi «verde» voleva dire «non eseguito», ed e' cosi'
+      # che un test rotto solo su Linux e' rimasto invisibile per giorni.
+      #
+      # `steps.setup.outcome == 'success'` e non `always()`: se la PREPARAZIONE
+      # fallisce (deps, node-pty, browser) misurare non ha senso e 15 rossi
+      # identici nascondono l'unica riga che conta. `!cancelled()` invece di
+      # `always()` perche' un job annullato a mano non deve continuare a girare.
+      #
+      # Il job resta rosso se una qualunque misura e' rossa: GitHub somma gli
+      # esiti dei passi. Cambia solo che adesso le vedi TUTTE in una passata,
+      # invece di scoprirne una per giro.
       - name: Typecheck (client + server ratchet + e2e)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run typecheck
 
       # The ROOT `lint`, run from the repo root, and both halves of that matter.
@@ -100,6 +120,7 @@ jobs:
       # `relay/gate-coverage.test.ts` then asserts the wiring by MEASURING the
       # file list eslint actually opens, so this cannot be silently unpicked.
       - name: Lint client + relay worker (eslint)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run lint
 
       # Quattro cancelli che esistevano in package.json e non comparivano in
@@ -151,6 +172,7 @@ jobs:
       # stderr and exit 0, so renaming a ratcheted file quietly removed it from
       # the gate while this step stayed green and the warning was folded away.
       - name: Static guard rails (any in 6 ratcheted files / NUL / dead code / eslint-disable / test skip / long dash / bloat / UI language / E2E sleeps)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
           bun run check:any
           # Il fratello del ratchet: quello difende lo ZERO sui sei file gia'
@@ -223,6 +245,7 @@ jobs:
       # quindi stanno fra i guard rails. `dependencies` è l'unico passo di questa
       # fila che tocca la rete: senza registro non stampa verde, esce 2.
       - name: Il checkout è pubblicabile (segreti in chiaro, avvisi sulle dipendenze)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:security --only=secrets,dependencies
 
       # `check:deadcode` dice «zero export morti». Non dice su quanti file
@@ -241,6 +264,7 @@ jobs:
       # un checkout di CI, comunque usa-e-getta, il danno massimo di un crash è
       # zero.
       - name: Il cancello sul codice morto non è cieco su nessun file
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:deadcode-blindspots
 
       # Il prefisso di una migration non è una scelta libera di chi scrive il
@@ -277,11 +301,13 @@ jobs:
       # tutto zeri, cioè force-push o ramo nuovo): è un cambio più grosso di
       # questa riga e va fatto guardando, non di corsa.
       - name: Le migration nuove usano il timestamp, e nessun numero è doppio
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
           git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
       - name: Unit + integration tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun test:unit
 
       # Guards a real production contract: the dev-only pane mutation log must
@@ -289,12 +315,14 @@ jobs:
       # and, like typecheck:e2e, had never been wired to a workflow — so the
       # contract was only ever checked by hand.
       - name: Verify dev overlay stripped from the production bundle
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run verify:phase30-strip
 
       # Reuses the bundle `verify:phase30-strip` just built — no second build.
       # Bundle size was the one quality metric with no ratchet under it, and it
       # drifted ~3 KB on the eager entry in a single day with nobody noticing.
       - name: Bundle size budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:bundle
 
       # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
@@ -304,6 +332,7 @@ jobs:
       # carico il banco esce 2 («non misurabile») invece di inventare un rosso,
       # e un 2 qui non ferma la pipeline.
       - name: Route latency budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:route-latency || test $? -eq 2
 
       # LA BASELINE DEL RUNNER, quando non c'e' ancora.
@@ -321,11 +350,11 @@ jobs:
       # committa a mano, UNA volta. Fino ad allora costa una corsa del banco e
       # non fallisce mai (`|| true`): un passo informativo non ferma la pipeline.
       - name: Record CI route-latency baseline (only if missing)
-        if: hashFiles('scripts/route-latency-baseline.ci.json') == ''
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (hashFiles('scripts/route-latency-baseline.ci.json') == '') }}
         run: bun run check:route-latency -- --update-baseline --samples=40 || true
 
       - name: Upload CI route-latency baseline
-        if: hashFiles('scripts/route-latency-baseline.ci.json') == ''
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (hashFiles('scripts/route-latency-baseline.ci.json') == '') }}
         uses: actions/upload-artifact@v4
         with:
           name: route-latency-baseline-ci
@@ -339,6 +368,7 @@ jobs:
       # su una misura che non vale e' il modo piu' rapido per far disattivare un
       # cancello.
       - name: Scroll fluidity budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:scroll-fluidity || test $? -eq 2
 
       # CLICK -> INK: the milliseconds between the gesture and the first frame
@@ -359,6 +389,7 @@ jobs:
       #
       # Reuses the bundle built by `verify:phase30-strip`, like check:bundle.
       - name: Click-to-ink budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:ink
 
       # FRAME TIME WHILE A CARD IS DRAGGED across the Kanban board. The goal asks
@@ -381,6 +412,7 @@ jobs:
       # pointer moves coalesce to one per frame: 12 ms produced p95 10 ms and
       # stayed green, which looks like a broken gate and is not one.
       - name: Kanban drag frame budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:drag || test $? -eq 2
 
       # WHAT A LONG SESSION ACCUMULATES: heap, DOM nodes and listeners after
@@ -407,7 +439,7 @@ jobs:
       # Note that until the baseline is recorded this step costs nothing at all:
       # the script answers "never recorded" BEFORE spawning the bench.
       - name: Long-session growth budget
-        if: github.event_name == 'push'
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (github.event_name == 'push') }}
         run: bun run check:growth || test $? -eq 2
 
   # Runs the real E2E suite against the isolated server that globalSetup spawns
