@@ -157,9 +157,66 @@ export class SessioneRelay {
    */
   private ponte: { capo: ReturnType<typeof creaPonte>; gen: string } | null = null;
 
+  /**
+   * Una frase a un socket qualunque, che sopravvive se quel filo è già morto.
+   *
+   * Stessa ragione di `diciAllaMacchina`, dall'altro lato: un ospite o un
+   * browser che se ne va lascia il proprio socket nell'elenco per un istante, e
+   * un `send()` lì dentro fa esplodere la richiesta di QUALCUN ALTRO. Chi non
+   * c'è più non ha bisogno di sentirsi dire niente.
+   */
+  private static dilloA(ws: WebSocket | undefined, m: MessaggioRelay | Rifiutato): void {
+    if (!ws) return;
+    try { ws.send(JSON.stringify(m)); } catch { /* se n'è andato: non c'è nulla da dirgli */ }
+  }
+
   /** La macchina, o `null` se non è collegata. */
   private macchina(): WebSocket | undefined {
     return this.state.getWebSockets(TAG_MACCHINA)[0];
+  }
+
+  /**
+   * Dice una frase alla macchina, e sopravvive a un filo già morto.
+   *
+   * ── PERCHÉ NON BASTA `macchina()?.send(...)` ────────────────────────────────
+   * `getWebSockets()` restituisce i socket REGISTRATI, non quelli vivi. Fra
+   * l'istante in cui il filo si chiude e quello in cui il runtime consegna
+   * `webSocketClose` c'è una finestra in cui l'oggetto è ancora nell'elenco e
+   * `send()` LANCIA: «Can't call WebSocket send() after close()». Da dentro
+   * `fetch()` quell'eccezione non ha nessuno che la raccolga, quindi non muore
+   * la frase — muore la RICHIESTA, e Cloudflare risponde `500` (1101, «Worker
+   * threw exception»).
+   *
+   * Misurato in produzione il 21/08/2026 leggendo `wrangler tail`: ogni
+   * `GET /` dava `500` con quel `TypeError`, cioè l'applicazione intera
+   * irraggiungibile dal telefono finché il socket morto restava nell'elenco.
+   *
+   * Una macchina che non riceve un avviso è un guaio piccolo e già previsto:
+   * si riconnette, e alla riconnessione il relay rifà le sessioni da capo. Una
+   * richiesta che esplode è un guaio grande. Quindi la frase si prova e, se il
+   * filo non c'è più, si lascia cadere.
+   *
+   * Vale per TUTTE le frasi verso la macchina, ed è il motivo per cui esiste
+   * questo metodo invece di sei `try` sparsi: quello dimenticato sarebbe
+   * esattamente quello che un giorno spegne l'applicazione.
+   */
+  private diciAllaMacchina(m: MessaggioRelay): boolean {
+    const ws = this.macchina();
+    if (!ws) return false;
+    try {
+      ws.send(JSON.stringify(m));
+      return true;
+    } catch {
+      // Il filo era già morto: lo dirà `webSocketClose`, e la macchina si
+      // riconnette da sé. Qui l'unica cosa che conta è non far esplodere la
+      // richiesta di chi sta aspettando una pagina.
+      //
+      // Si RIFERISCE però l'esito, e non è un dettaglio: chi ha bussato sta
+      // aspettando una risposta che non arriverà mai, e un guasto muto è
+      // peggio di un guasto — la richiesta resterebbe appesa fino alla
+      // scadenza invece di dire subito che la macchina non c'è.
+      return false;
+    }
   }
 
   /**
@@ -177,9 +234,7 @@ export class SessioneRelay {
    * nome è fisso e non è un UUID, quindi non collide con nessuna sessione vera.
    */
   private congedaPonte(): void {
-    this.macchina()?.send(JSON.stringify(
-      { t: "guest-left", sessionId: SID_PONTE, ruolo: "guest" } satisfies MessaggioRelay,
-    ));
+    this.diciAllaMacchina({ t: "guest-left", sessionId: SID_PONTE, ruolo: "guest" });
   }
 
   private ponteVivo(): { capo: ReturnType<typeof creaPonte>; gen: string } {
@@ -209,7 +264,17 @@ export class SessioneRelay {
           // Si rilegge la macchina a ogni frame invece di tenersela: fra una
           // richiesta e l'altra può essere stata sostituita, e scrivere sulla
           // socket di prima vorrebbe dire parlare a nessuno senza accorgersene.
-          this.macchina()?.send(JSON.stringify({ t: "to-guest", to: SID_PONTE, payload } satisfies MessaggioRelay));
+          //
+          // E se la frase NON parte, chi aspetta lo deve sapere subito.
+          // Ingoiare l'errore e basta trasformava l'esplosione in un'attesa
+          // muta: la richiesta restava appesa fino alla scadenza, cioè mezzo
+          // minuto di clessidra per dire una cosa che si sapeva già. È la
+          // stessa lezione di `abbandona()`, applicata all'altro modo in cui
+          // la macchina può sparire — non il filo che si chiude, ma il filo
+          // che è già chiuso mentre lo usiamo.
+          if (!this.diciAllaMacchina({ t: "to-guest", to: SID_PONTE, payload })) {
+            this.ponte?.capo.abbandona();
+          }
         },
       }),
     };
@@ -322,7 +387,7 @@ export class SessioneRelay {
       // sapere adesso, e la sessione del ponte va rifatta con quella nuova.
       this.scollegaPonte();
       this.state.acceptWebSocket(mio, [TAG_MACCHINA]);
-      mio.send(JSON.stringify({ t: "ready", v: RELAY_PROTOCOL_VERSION } satisfies MessaggioRelay));
+      SessioneRelay.dilloA(mio, { t: "ready", v: RELAY_PROTOCOL_VERSION });
     } else {
       const host = this.state.getWebSockets(TAG_MACCHINA);
       if (host.length === 0) {
@@ -339,8 +404,8 @@ export class SessioneRelay {
       const sessione: RuoloSessione = ruolo === "device" ? "device" : "guest";
       const sid = crypto.randomUUID();
       this.state.acceptWebSocket(mio, [tagSessione(sid), tagRuolo(sessione)]);
-      mio.send(JSON.stringify({ t: "ready", v: RELAY_PROTOCOL_VERSION, sessionId: sid } satisfies MessaggioRelay));
-      host[0].send(JSON.stringify({ t: "guest-joined", sessionId: sid, ruolo: sessione } satisfies MessaggioRelay));
+      SessioneRelay.dilloA(mio, { t: "ready", v: RELAY_PROTOCOL_VERSION, sessionId: sid });
+      this.diciAllaMacchina({ t: "guest-joined", sessionId: sid, ruolo: sessione });
     }
 
     return new Response(null, { status: 101, webSocket: client });
@@ -401,7 +466,7 @@ export class SessioneRelay {
     if (!m) {
       // Un capo che accetta ciò che quasi capisce è un capo che un giorno
       // accetta ciò che non capisce affatto.
-      ws.send(JSON.stringify({ t: "denied", motivo: "bad-version" } satisfies Rifiutato));
+      SessioneRelay.dilloA(ws, { t: "denied", motivo: "bad-version" });
       return;
     }
 
@@ -413,7 +478,10 @@ export class SessioneRelay {
       if (dest.length > 0) {
         // Per una sessione con una socket dietro si inoltra e basta, byte per
         // byte: il relay non guarda dentro ciò che non è suo.
-        dest[0]?.send(raw);
+        // Byte per byte, e non `dilloA`: questo è l'inoltro di una busta che
+        // non è nostra, e ricostruirla vorrebbe dire guardarci dentro. Il
+        // `try` serve lo stesso, per la stessa finestra di socket morto.
+        try { dest[0]?.send(raw); } catch { /* il destinatario se n'è andato */ }
         return;
       }
       // …la sola busta che è INDIRIZZATA al relay: quella della sessione del
@@ -428,12 +496,12 @@ export class SessioneRelay {
     if ("sid" in chi && m.t === "to-host") {
       const host = this.state.getWebSockets(TAG_MACCHINA);
       if (host.length === 0) {
-        ws.send(JSON.stringify({ t: "denied", motivo: "host-offline" } satisfies Rifiutato));
+        SessioneRelay.dilloA(ws, { t: "denied", motivo: "host-offline" });
         return;
       }
       // È il RELAY ad attaccare il mittente, non l'ospite: se lo scegliesse lui
       // potrebbe spacciarsi per un'altra sessione.
-      host[0].send(JSON.stringify({ t: "to-guest", to: chi.sid, payload: m.payload } satisfies MessaggioRelay));
+      this.diciAllaMacchina({ t: "to-guest", to: chi.sid, payload: m.payload });
     }
   }
 
@@ -499,13 +567,13 @@ export class SessioneRelay {
       for (const g of this.state.getWebSockets()) {
         const suo = this.chiE(g);
         if (suo && "sid" in suo) {
-          try { g.send(JSON.stringify({ t: "denied", motivo: "host-offline" } satisfies Rifiutato)); } catch { /* va bene */ }
+          SessioneRelay.dilloA(g, { t: "denied", motivo: "host-offline" });
         }
       }
       return;
     }
 
     const host = this.state.getWebSockets(TAG_MACCHINA);
-    host[0]?.send(JSON.stringify({ t: "guest-left", sessionId: chi.sid, ruolo: chi.ruolo } satisfies MessaggioRelay));
+    this.diciAllaMacchina({ t: "guest-left", sessionId: chi.sid, ruolo: chi.ruolo });
   }
 }

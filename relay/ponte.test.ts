@@ -33,7 +33,20 @@ import { GENERE_RISPOSTA, scriviTesta } from "../shared/relay-http";
 class SocketFinta {
   inviati: string[] = [];
   chiusa = false;
-  send(d: string): void { this.inviati.push(d); }
+  /**
+   * LANCIA dopo la chiusura, come fa il runtime vero.
+   *
+   * Non è pignoleria: `getWebSockets()` restituisce i socket REGISTRATI, e fra
+   * la chiusura di un filo e la consegna di `webSocketClose` c'è una finestra
+   * in cui l'oggetto è ancora nell'elenco e `send()` solleva «Can't call
+   * WebSocket send() after close()». Con una finta che ingoia tutto quella
+   * finestra qui dentro non esiste, e infatti 111 test erano verdi mentre in
+   * produzione OGNI `GET /` rispondeva 500 (Cloudflare 1101).
+   */
+  send(d: string): void {
+    if (this.chiusa) throw new TypeError("Can't call WebSocket send() after close().");
+    this.inviati.push(d);
+  }
   close(): void { this.chiusa = true; }
 }
 
@@ -250,6 +263,8 @@ describe("ponte · una richiesta del browser attraversa il tubo", () => {
   });
 
   it("il cookie di una installazione non finisce addosso alle altre", async () => {
+    // (vedi anche il caso «la radice CON il biscotto» più sotto: è la strada
+    //  che l'app percorre davvero a ogni richiesta, e non passava di qui)
     // L'OBIETTIVO non è cambiato: il gettone di sessione di una installazione
     // non deve finire in mano a un'altra collegata allo stesso relay. È
     // cambiato il MECCANISMO, e questo test ora prova l'obiettivo invece della
@@ -728,5 +743,58 @@ describe("ponte · l'instradamento di prima non si muove", () => {
         .toBe("404/false");
       expect(await r.text()).toBe("not found");
     }
+  });
+
+  it("la radice CON il biscotto arriva alla macchina: è la strada di ogni richiesta dell'app", async () => {
+    // IL BUCO CHE QUESTO FILE AVEVA. Ogni caso qui sopra chiama
+    // `/i/<id>/qualcosa` a mano, cioè la porta d'ingresso. Ma l'app ci passa
+    // UNA volta sola: quel primo giro deposita il biscotto e rimanda a `/`, e
+    // da lì in poi TUTTO — la shell, `/boot.js`, ogni `/api/**` — arriva alla
+    // radice e viene instradato dal biscotto.
+    //
+    // Quel ramo non era coperto da niente, ed è esattamente quello che si è
+    // rotto in produzione: 111 test verdi e `GET /` che rispondeva `500`
+    // (Cloudflare 1101, «Worker threw exception»), cioè l'app intera
+    // irraggiungibile mentre la suite diceva che andava tutto bene.
+    const s = scena();
+    const conBiscotto = { headers: { cookie: "topics_inst=inst-1" } };
+
+    // La shell.
+    const shell = await s.chiedi("/", conBiscotto);
+    expect(shell.status).toBe(200);
+    // E la macchina l'ha vista arrivare alla RADICE, non sotto il prefisso:
+    // il prefisso è roba dell'instradamento e non deve uscirne.
+    expect(s.arrivate.at(-1)!.percorso).toBe("/");
+
+    // Un asset e una chiamata all'API: le due forme che l'app usa di continuo.
+    for (const p of ["/boot.js", "/api/auth/session"]) {
+      const r = await s.chiedi(p, conBiscotto);
+      expect(`${p}→${r.status}`).toBe(`${p}→200`);
+      expect(s.arrivate.at(-1)!.percorso).toBe(p);
+    }
+  });
+
+  it("un filo della macchina già morto non fa esplodere la richiesta di chi bussa", async () => {
+    // IL GUASTO, per intero. `getWebSockets()` restituisce i socket
+    // REGISTRATI, non quelli vivi: fra la chiusura di un filo e la consegna di
+    // `webSocketClose` c'è una finestra in cui la macchina è ancora
+    // nell'elenco e `send()` LANCIA. Quell'eccezione, dentro `fetch()`, non
+    // uccide la frase — uccide la RICHIESTA, e Cloudflare risponde 500.
+    //
+    // Visto in produzione il 21/08/2026 con `wrangler tail`: ogni `GET /`
+    // dava «TypeError: Can't call WebSocket send() after close()», cioè
+    // l'applicazione intera irraggiungibile dal telefono. E la suite era
+    // verde, perché la socket finta ingoiava i `send` dopo la chiusura.
+    const s = scena();
+    // Il filo muore senza che il Durable Object lo sappia ancora: è la
+    // finestra vera, non un caso di laboratorio.
+    s.host.close();
+
+    const r = await s.chiedi("/i/inst-1/api/auth/session");
+    // Un guasto che si LEGGE, invece di un'eccezione: la macchina non risponde
+    // e lo si dice. Ciò che conta è che non sia un 500 del Worker.
+    expect(r.status).toBeGreaterThanOrEqual(500);
+    expect(r.status).toBeLessThan(600);
+    expect(await r.text()).not.toContain("Can't call WebSocket send()");
   });
 });
