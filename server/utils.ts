@@ -6,6 +6,7 @@ import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
+import { isReusableHeadstone } from "./lib/empty-turn-headstone";
 import type {
   WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
   ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts,
@@ -1404,6 +1405,48 @@ export function createAppContext(baseDir: string): AppContext {
     return { ...createPartialMessage(sessionKey, "assistant"), reusedBody: false };
   }
 
+  /**
+   * A SPONTANEOUS TURN PICKS UP THE HEADSTONE BEFORE IT, when there is one.
+   *
+   * A task notification delivered by the CLI opens a turn of its own, and its
+   * empty `result` closes the row of a send that has just started, stamping it
+   * with the «no answer» notice. The real prompt arrives right after and gets
+   * adopted as a spontaneous turn: without this, the answer is born in a NEW
+   * row and the notice stays above it saying it never came. When a row IS that
+   * headstone — and the trace of the failure — lives in
+   * `lib/empty-turn-headstone.ts`; only the write is here.
+   *
+   * The body really is emptied, unlike the post-restart reattach: there the
+   * body is history to be rebuilt, here it is a notice we know to be false.
+   * `streamed_at` restarts because the row is alive again.
+   */
+  function reuseHeadstoneOrCreate(sessionKey: string): StoredMessage {
+    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const riusabile = isReusableHeadstone(
+      row
+        ? {
+            role: String(row.role ?? ""),
+            content: String(row.content ?? ""),
+            toolCallsJson: row.tool_calls == null ? null : String(row.tool_calls),
+            blocksJson: row.blocks == null ? null : String(row.blocks),
+            timestamp: String(row.timestamp ?? ""),
+            partial: row.partial === 1 || row.partial === true,
+          }
+        : null,
+      Date.now(),
+    );
+    if (!riusabile) return createPartialMessage(sessionKey, "assistant");
+    const now = new Date().toISOString();
+    db.run(
+      "UPDATE messages SET content = '', blocks = NULL, tool_calls = NULL, streamed_at = ?, partial = 1, latency_ms = NULL WHERE id = ?",
+      [now, String(row.id)],
+    );
+    return {
+      id: String(row.id), role: "assistant", content: "", timestamp: String(row.timestamp),
+      partial: true, streamedAt: now, parentId: row.parent_id ?? null, branchIndex: row.branch_index ?? 0,
+    } as StoredMessage;
+  }
+
   function updateLastMessage(sessionKey: string, updates: Partial<StoredMessage>): StoredMessage | null {
     // Lettura magra: `blocks` e `tool_calls` non arrivano nemmeno da SQLite.
     // Questa funzione non li legge — riscrive `tool_calls` solo se glielo passa
@@ -2334,7 +2377,7 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
     loadUnread, saveUnread,
     loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
-    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, appendToLastMessage,
+    createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,

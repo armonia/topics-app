@@ -440,6 +440,9 @@ export interface AppContext {
   appendImportedMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
   reuseOrCreatePartialForReattach: (sessionKey: string) => ReattachedPartial;
+  /** A spontaneous turn picks up the «no answer» headstone before it, when
+   *  there is one: see `lib/empty-turn-headstone.ts`. */
+  reuseHeadstoneOrCreate: (sessionKey: string) => StoredMessage;
   updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;

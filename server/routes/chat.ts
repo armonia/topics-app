@@ -162,7 +162,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     broadcastToAll, broadcastToTopicSubscribers, db, json, readJSON,
     getTopicBySessionKey, saveSingleTopic, touchTopicActivity,
     appendLocalMessage,
-    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, discardIfEmptyTurn, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
+    createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, discardIfEmptyTurn, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamContent, updateStreamActivity, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
@@ -1054,8 +1054,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 } catch { return null; }
               })()
             : null;
+          // A SPONTANEOUS turn picks up the headstone before it, when there is
+          // one. A task notification delivered by the CLI opens a turn of its
+          // own, and its empty `result` stamps the «no answer» notice on the
+          // row of a send that has just started; the real prompt arrives right
+          // after and ends up here, adopted. Without this the answer was born
+          // in a NEW row and the notice stayed above it saying it never came.
+          // When the previous row is NOT that headstone nothing is touched:
+          // the rule, and the trace, in `lib/empty-turn-headstone.ts`.
           const partialMsg = isReattach
             ? reuseOrCreatePartialForReattach(sessionKey)
+            : isWoken
+            ? reuseHeadstoneOrCreate(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
           // L'AbortController registrato insieme allo stream è l'unica maniglia
           // che chi finalizza da FUORI questa route ha sul client SSE. Lo

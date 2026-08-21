@@ -20,7 +20,7 @@
     "client/src/components/Auth/PairingGate.tsx": 32,
     "client/src/components/Board/BoardSettingsPanel.tsx": 60,
     "client/src/components/Board/Card.test.ts": 40,
-    "client/src/components/Board/Card.tsx": 582,
+    "client/src/components/Board/Card.tsx": 560,
     "client/src/components/Board/DeliveryFiles.tsx": 27,
     "client/src/components/Board/FloatingTaskComposer.tsx": 111,
     "client/src/components/Board/GlobalCapControl.test.tsx": 29,
