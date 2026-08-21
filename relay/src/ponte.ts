@@ -300,8 +300,41 @@ function seNeVa(req: Request): { andato: Promise<"andato">; stacca: () => void }
  *
  * Quindi la strada si riscrive sempre, esattamente come si fa con `location`:
  * quella che c'è si porta sotto il prefisso, quella che manca si scrive.
+ *
+ * ── PERCHÉ IL PREFISSO NON BASTA PIÙ, E COSA LO SOSTITUISCE ─────────────────
+ * Questo confinava il cookie a `/i/<installazione>/`, ed era giusto FINCHÉ
+ * l'app viveva là sotto. Il giorno dopo (`7cf2b9686`, «Pagina bianca dal
+ * telefono») il prefisso è diventato un ingresso di passaggio: la prima
+ * navigazione deposita il biscotto `topics_inst` e RIMANDA a `/`, perché il
+ * bundle chiede percorsi assoluti. Da lì in poi il browser sta su `/`.
+ *
+ * Nessuno dei due sapeva dell'altro, e il risultato si vedeva solo alla fine
+ * di un appaiamento: il telefono mostrava il codice, il computer approvava,
+ * `/api/auth/pair/status` rispondeva `approved` con il suo `Set-Cookie`… e la
+ * sessione veniva scritta sotto `/i/<id>/`, dove l'app non torna mai più.
+ * Misurato il 21/08/2026 sul relay vero: con lo STESSO cookie in mano,
+ * `/api/auth/session` diceva `paired:false` e
+ * `/i/<id>/api/auth/session` diceva `paired:true`. Il telefono restava alla
+ * schermata di appaiamento per sempre, riappaiandosi a vuoto.
+ *
+ * Il cookie quindi torna su `Path=/`, che è dove sta l'app.
+ *
+ * E l'isolamento? Il percorso non lo reggeva davvero, perché il gettone non è
+ * una password comune: è un valore casuale che vale SOLO nel database che lo
+ * ha coniato. `resolveIdentity` lo cerca con `SELECT * FROM devices WHERE
+ * token_hash = ?` nel DB di quella installazione, quindi un gettone arrivato
+ * a una macchina diversa non trova nessuna riga e non è nessuno. Il confine è
+ * il database, non la cartella.
+ *
+ * Resta vero ciò che il caso di prima aveva visto: con `Path=/` il browser
+ * MANDA il cookie anche a `/i/<un'altra>/…`. È una perdita di RISERVATEZZA,
+ * non di autorizzazione — l'altra macchina vede passare un gettone che non
+ * può spendere in casa propria, ma potrebbe rigiocarlo verso la vittima. Per
+ * questo non basta fermarsi qui: `servi` non consegna più alla macchina i
+ * cookie di un'installazione che non è la sua (vedi `soloCookieNostri`), così
+ * ciò che non le spetta non le arriva nemmeno.
  */
-function stradaCookie(v: string, prefisso: string): string {
+function stradaCookie(v: string): string {
   const pezzi = v.split(";");
   // Si parte da 1: il primo pezzo è `nome=valore`, e un cookie che si chiama
   // `path` non è l'attributo `Path`.
@@ -309,14 +342,74 @@ function stradaCookie(v: string, prefisso: string): string {
     const pezzo = pezzi[i]!;
     const eq = pezzo.indexOf("=");
     if ((eq === -1 ? pezzo : pezzo.slice(0, eq)).trim().toLowerCase() !== "path") continue;
-    const strada = eq === -1 ? "" : pezzo.slice(eq + 1).trim();
-    // Una strada che non comincia da `/` non vale come strada: il browser la
-    // butta e ricade sulla cartella della richiesta. La si normalizza in
-    // radice, così il prefisso resta l'unico confine.
-    pezzi[i] = ` Path=${prefisso}${strada.startsWith("/") ? strada : "/"}`;
+    // Qualunque strada la macchina abbia scritto, di qua vale la radice:
+    // l'app sta su `/`, e un cookie confinato altrove è un cookie che non
+    // torna mai. Una strada che non comincia da `/` non vale nemmeno come
+    // strada — il browser la butta e ricade sulla cartella della richiesta,
+    // che è proprio il modo silenzioso di sparire.
+    pezzi[i] = " Path=/";
     return pezzi.join(";");
   }
-  return `${v}; Path=${prefisso}/`;
+  // Senza `Path` il browser userebbe la cartella della richiesta
+  // (`/i/<id>/api`): si scrive, invece di lasciarlo accadere.
+  return `${v}; Path=/`;
+}
+
+/**
+ * Quale installazione il browser dice di star guardando.
+ *
+ * È il biscotto che il Worker deposita alla prima navigazione col prefisso
+ * (`BISCOTTO_INSTALLAZIONE` in `worker.ts`). Qui serve a una sola domanda: i
+ * cookie che stanno viaggiando appartengono a QUESTA macchina o a un'altra?
+ */
+const BISCOTTO_INSTALLAZIONE = "topics_inst";
+
+/**
+ * I cookie del browser, meno quelli che non spettano a questa installazione.
+ *
+ * ── PERCHÉ SERVE, ED È IL PEZZO CHE REGGE `Path=/` ──────────────────────────
+ * Da quando il cookie di sessione vive su `/` (vedi `stradaCookie`), il
+ * browser lo manda a ogni percorso di questa origine, quindi anche a
+ * `/i/<un'altra installazione>/…`. Il gettone non VALE su un'altra macchina —
+ * si risolve in `SELECT * FROM devices WHERE token_hash = ?` nel database di
+ * chi lo ha coniato — ma consegnarglielo lo stesso significa farglielo VEDERE,
+ * e chi lo vede può rigiocarlo verso la vittima. È esattamente il difetto che
+ * il confinamento per percorso aveva chiuso il 09/08, e riaprirlo per far
+ * funzionare l'appaiamento sarebbe stato uno scambio, non una correzione.
+ *
+ * Quindi il confine si sposta dove il dato è: il ponte consegna i cookie di
+ * sessione SOLO alla macchina che il browser dichiara di star guardando. Se
+ * `topics_inst` non è questa installazione, i cookie non attraversano il tubo.
+ *
+ * `topics_inst` stesso passa sempre: non è un segreto, lo scrive il relay, e
+ * serve a sapere di chi sono gli altri.
+ */
+function soloCookieNostri(v: string, installazione: string): string | null {
+  const pezzi = v.split(";");
+  const tenuti: string[] = [];
+  let dichiarata: string | null = null;
+
+  for (const pezzo of pezzi) {
+    const eq = pezzo.indexOf("=");
+    if (eq === -1) continue;
+    const nome = pezzo.slice(0, eq).trim();
+    if (nome === BISCOTTO_INSTALLAZIONE) {
+      dichiarata = pezzo.slice(eq + 1).trim();
+      tenuti.push(pezzo.trim());
+      continue;
+    }
+    tenuti.push(pezzo.trim());
+  }
+
+  // Il browser sta guardando un'ALTRA macchina: le sue credenziali non sono
+  // affari di questa. Resta solo la dichiarazione di chi sta guardando, che il
+  // relay ha scritto lui e non è di nessuno.
+  if (dichiarata !== null && dichiarata !== installazione) {
+    const solo = tenuti.filter((p) => p.startsWith(`${BISCOTTO_INSTALLAZIONE}=`));
+    return solo.length > 0 ? solo.join("; ") : null;
+  }
+
+  return tenuti.length > 0 ? tenuti.join("; ") : null;
 }
 
 export function creaPonte(opts: PonteOpts) {
@@ -516,7 +609,7 @@ export function creaPonte(opts: PonteOpts) {
       // il prefisso da cui è entrato — e SOLO se è un percorso, mai se è un
       // indirizzo assoluto, che è roba di chi lo ha scritto.
       if (n === "location" && v.startsWith("/") && !v.startsWith("//")) valore = `${prefisso}${v}`;
-      else if (n === "set-cookie") valore = stradaCookie(v, prefisso);
+      else if (n === "set-cookie") valore = stradaCookie(v);
       try { h.append(n, valore); } catch { /* un valore che una Headers rifiuta non passa */ }
     }
     return h;
@@ -532,6 +625,12 @@ export function creaPonte(opts: PonteOpts) {
      */
     async servi(req: Request, percorso: string, prefisso: string): Promise<Response> {
       if (!METODI.has(req.method)) return dillo(405, "This method is not carried over the relay.");
+
+      // Quale installazione è questa, letta dal prefisso da cui si è entrati
+      // (`/i/<installazione>`): è lo stesso valore che il Worker ha usato per
+      // scegliere questo Durable Object, quindi non c'è una seconda verità da
+      // tenere d'accordo.
+      const installazione = prefisso.startsWith("/i/") ? prefisso.slice(3) : "";
 
       // Già andato quando la richiesta arriva fin qui: non si compone niente.
       // Mandare una domanda e la sua rinuncia nello stesso respiro costa due
@@ -556,8 +655,21 @@ export function creaPonte(opts: PonteOpts) {
       // Le intestazioni si girano com'erano: chi decide cosa questa richiesta
       // può vedere è la macchina, con le stesse regole della rete locale, e le
       // toglie lei quelle che non le spettano (`intestazioniRichiesta`).
+      //
+      // UNA eccezione, e sta qui perché è l'unica cosa che la macchina non può
+      // decidere da sola: i cookie di un'ALTRA installazione. Di là non si
+      // distinguono dai propri (stesso nome, stessa origine), e girarglieli
+      // significherebbe mostrare a una macchina il gettone di sessione di
+      // un'altra. Vedi `soloCookieNostri`.
       const intestazioni: Intestazioni = [];
-      for (const [n, v] of req.headers) intestazioni.push([n, v]);
+      for (const [n, v] of req.headers) {
+        if (n === "cookie") {
+          const nostri = soloCookieNostri(v, installazione);
+          if (nostri !== null) intestazioni.push([n, nostri]);
+          continue;
+        }
+        intestazioni.push([n, v]);
+      }
 
       // L'indirizzo VERO di chi ha bussato. Qui e' l'unico posto che lo sa: la
       // macchina vede solo il proprio salto locale, e le intestazioni di

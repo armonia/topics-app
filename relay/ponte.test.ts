@@ -244,37 +244,72 @@ describe("ponte · una richiesta del browser attraversa il tubo", () => {
     });
     const r = await s.chiedi("/i/inst-1/api/entra");
     expect(r.headers.getSetCookie?.() ?? []).toEqual([
-      "a=1; Path=/i/inst-1/; HttpOnly",
-      "b=2; Path=/i/inst-1/; HttpOnly",
+      "a=1; Path=/; HttpOnly",
+      "b=2; Path=/; HttpOnly",
     ]);
   });
 
   it("il cookie di una installazione non finisce addosso alle altre", async () => {
-    // Il difetto che questo tiene chiuso: la macchina emette la sessione con
-    // `Path=/` — e di là è giusto — ma qui TUTTE le installazioni stanno sulla
-    // stessa origine, separate solo dal tratto `/i/<id>`. Girato com'era, il
-    // browser lo rimanderebbe anche a `/i/<un'altra>/…`, cioè consegnerebbe il
-    // token della vittima alla macchina di chiunque altro sia collegato a
-    // questo relay. `SameSite=Lax` non ferma una navigazione in cima.
+    // L'OBIETTIVO non è cambiato: il gettone di sessione di una installazione
+    // non deve finire in mano a un'altra collegata allo stesso relay. È
+    // cambiato il MECCANISMO, e questo test ora prova l'obiettivo invece della
+    // sua vecchia implementazione.
+    //
+    // Prima si confinava il cookie a `Path=/i/<id>/`, ed era giusto finché
+    // l'app viveva là sotto. Da `7cf2b9686` il prefisso è solo un ingresso:
+    // deposita `topics_inst` e rimanda a `/`, dove l'app resta. Un cookie
+    // confinato al prefisso non tornava più, quindi un telefono appena
+    // approvato restava «non appaiato» per sempre — visto sul relay vero il
+    // 21/08/2026.
+    //
+    // Ora la sessione vive su `/`, e a tenere separate le installazioni è la
+    // porta d'INGRESSO: il ponte non consegna a questa macchina i cookie di
+    // chi sta guardando un'altra.
     const s = scena({
       servi: () => {
         const h = new Headers();
-        h.append("set-cookie", "topics_session=t0k; HttpOnly; SameSite=Lax; Path=/; Max-Age=60");
-        // …e il verso opposto, che si rompe in silenzio: senza `Path` il
-        // browser userebbe la CARTELLA della richiesta (`/i/inst-1/api`), e il
-        // cookie non tornerebbe più su `/i/inst-1/altro`.
+        h.append("set-cookie", "topics_device=t0k; HttpOnly; SameSite=Lax; Path=/; Max-Age=60");
+        // Il verso che si rompe in silenzio: senza `Path` il browser userebbe
+        // la CARTELLA della richiesta (`/i/inst-1/api`), e il cookie non
+        // tornerebbe più su `/`, dove sta l'app.
         h.append("set-cookie", "senza=1; HttpOnly");
-        // Una strada già sua resta sua, solo traslata.
+        // Anche una strada più stretta della radice non torna dove serve.
         h.append("set-cookie", "stretto=2; Path=/api/media");
         return new Response("ok", { headers: h });
       },
     });
     const r = await s.chiedi("/i/inst-1/api/entra");
     expect(r.headers.getSetCookie?.() ?? []).toEqual([
-      "topics_session=t0k; HttpOnly; SameSite=Lax; Path=/i/inst-1/; Max-Age=60",
-      "senza=1; HttpOnly; Path=/i/inst-1/",
-      "stretto=2; Path=/i/inst-1/api/media",
+      "topics_device=t0k; HttpOnly; SameSite=Lax; Path=/; Max-Age=60",
+      "senza=1; HttpOnly; Path=/",
+      "stretto=2; Path=/",
     ]);
+  });
+
+  it("i cookie di un'ALTRA installazione non arrivano a questa macchina", async () => {
+    // Il difetto vero, ora chiuso dal lato giusto. Con la sessione su `/` il
+    // browser la manda a ogni percorso dell'origine, quindi anche a
+    // `/i/<un'altra>/…`: consegnarla vorrebbe dire mostrare a una macchina il
+    // gettone di un'altra, che può rigiocarlo verso la vittima.
+    const s = scena({ servi: () => new Response("ok") });
+
+    // Il browser dichiara di star guardando inst-2, e bussa a inst-1.
+    await s.chiedi("/i/inst-1/api/x", {
+      headers: { cookie: "topics_inst=inst-2; topics_device=segreto-di-inst-2" },
+    });
+    const visto = s.arrivate[0]!.intestazioni["cookie"] ?? "";
+    expect(visto).not.toContain("segreto-di-inst-2");
+    // La dichiarazione di CHI sta guardando passa: non è un segreto, la scrive
+    // il relay, ed è ciò che permette di sapere di chi sono gli altri.
+    expect(visto).toContain("topics_inst=inst-2");
+
+    // …e quando il browser guarda proprio questa, i suoi cookie passano interi:
+    // senza questa direzione, «non passa niente» supererebbe il test qui sopra
+    // e romperebbe ogni sessione.
+    await s.chiedi("/i/inst-1/api/x", {
+      headers: { cookie: "topics_inst=inst-1; topics_device=mio" },
+    });
+    expect(s.arrivate[1]!.intestazioni["cookie"] ?? "").toContain("topics_device=mio");
   });
 
   it("un rimando relativo resta dentro il ponte; uno assoluto non si tocca", async () => {

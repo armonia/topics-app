@@ -16,9 +16,9 @@
  * Pure functions of their input, no React: the component keeps the effect, the
  * judgement is here where a test can ask about it directly.
  */
-// Relativo e non `@/`: questo modulo lo legge anche `bun test`, che non ha la
-// mappa degli alias di Vite. Un import che compila e non si esegue è un test
-// che non esiste.
+// Relative and not `@/`: this module is also read by `bun test`, which has no
+// map of Vite's aliases. An import that compiles but does not run is a test
+// that does not exist.
 import { chiaveErroreAuth } from '../../lib/authErrors';
 
 /**
@@ -44,10 +44,10 @@ export const ATTESA_BASE_MS = 2_000;
 export const ATTESA_MAX_MS = 30_000;
 
 /**
- * How long to wait before asking again, after `tentativi` consecutive failures.
+ * How long to wait before asking again, given the number of failures so far.
  *
- * Doubling from `ATTESA_BASE_MS`, capped at `ATTESA_MAX_MS`. `tentativi` counts
- * failures, so the first one waits the base delay.
+ * The delay doubles from the base and stops at the maximum. The argument
+ * counts failures, so the first one waits the base delay.
  */
 export function attesaRiprova(tentativi: number): number {
   if (tentativi <= 1) return ATTESA_BASE_MS;
