@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.172 — 2026-08-21
+
+### Sotto il cofano
+- Il gate della storia guardava i contenuti e non i messaggi
+- Il feed della board portava dodici colonne nuove, sei senza nessun lettore
+- Allinea la baseline di bloat al file vero: 5465 era calcolata su una copia piu' corta
+
 ## 2.2.171 — 2026-08-21
 
 ### Sotto il cofano
@@ -847,7 +854,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La potatura dei worktree esce da server.ts: 4.600 -> 4.349
 - fluido e' tarato e in CI: il budget sta fra due misure, non fra due opinioni
 - I test del cancello leggono il budget, non lo ricopiano
-- Il microfono della board taceva ancora: c326076c aveva fatto parlare solo la chat
+- Il microfono della board taceva ancora: 521e3b91 aveva fatto parlare solo la chat
 - La nota vocale vuota si registra da sola, invece di sparire in un toast
 - Il guscio non chiedeva il microfono: macOS lo negava senza dirlo
 - La dettatura muta aveva due rami ancora, e uno nascondeva una chiave scaduta
@@ -859,7 +866,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - ink era rosso su un gesto che non stava misurando, e non lo eseguiva nessuno
 - La mappa delle prestazioni registra anche l'avvio: 967 topic archiviati su 977, e 150 KB di systemPrompt che leggono in due
 - Gli stati senza corpo escono dalla compressione: un 304 non deve dichiarare byte che non ha
-- I 7 rossi dello shard 1/4 erano gia' su main: verificato su una worktree pulita a 567fee9e
+- I 7 rossi dello shard 1/4 erano gia' su main: verificato su una worktree pulita a 5474f4e7
 - I commenti di questo giro passano all'inglese, e il costante FINESTRA_MS prende il nome che ha nel resto del file
 - Il codice di questo giro parla inglese: commenti, nomi e dati di fixture
 - Il WebSocket non comprimeva niente: 36,5 KB di bootstrap diventano 2,6 verso la LAN

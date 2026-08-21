@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.172",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il gate della storia guardava i contenuti e non i messaggi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il feed della board portava dodici colonne nuove, sei senza nessun lettore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea la baseline di bloat al file vero: 5465 era calcolata su una copia piu' corta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.171",
     "date": "2026-08-21",
     "sections": {
@@ -3836,7 +3862,7 @@
           "scope": null
         },
         {
-          "it": "Il microfono della board taceva ancora: c326076c aveva fatto parlare solo la chat",
+          "it": "Il microfono della board taceva ancora: 521e3b91 aveva fatto parlare solo la chat",
           "en": "",
           "scope": null
         },
@@ -3897,7 +3923,7 @@
           "scope": null
         },
         {
-          "it": "I 7 rossi dello shard 1/4 erano gia' su main: verificato su una worktree pulita a 567fee9e",
+          "it": "I 7 rossi dello shard 1/4 erano gia' su main: verificato su una worktree pulita a 5474f4e7",
           "en": "",
           "scope": null
         },
