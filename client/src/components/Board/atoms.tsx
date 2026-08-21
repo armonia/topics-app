@@ -5,6 +5,7 @@ import type { TaskStatus, TaskLabel, QueueReason, QueueTone } from '../../lib/bo
 import type { ProjectCounts } from '../../lib/projectTaskCounts';
 import type { LabelSource } from '../../../../shared/task-labels';
 import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
+import { chipKey } from './chipKey';
 import { memorableId } from '../../lib/memorableId';
 
 /**
@@ -168,8 +169,10 @@ export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: Task
 /** Dispatch-state chip: state label + (optional) icon. DRYs the card + drawer
  *  render sites so both stay in lockstep. 'delivered' carries a PackageCheck
  *  glyph so "consegnato" reads at a glance, not just as colored text. */
-export function DispatchChip({ state, error }: { state: string; error?: string | null }) {
+export function DispatchChip({ state, error, deliveredBy }: { state: string; error?: string | null; deliveredBy?: string | null }) {
   const tr = useT();
+  // The state alone is not the whole truth for `delivered`: see `chipKey`.
+  state = chipKey(state, deliveredBy);
   const chip = DISPATCH_CHIP[state];
   if (!chip) return null;
   const Icon = chip.Icon;

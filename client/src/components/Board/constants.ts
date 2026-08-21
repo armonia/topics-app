@@ -107,6 +107,17 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // hand-off, the agent believes it's done (approve/reject).
   needs_input: { text: 'serve te', cls: 'bg-rose-500/15 text-rose-300' },
   delivered: { text: 'consegnato', cls: 'bg-emerald-500/15 text-emerald-300', title: "L'agent ha consegnato: aspetta la tua review", Icon: PackageCheck },
+  // Same state as `delivered`, opposite meaning: the reaper pushed the card into
+  // review after every attempt was spent, so nobody handed anything over. Green
+  // "consegnato" on that card is a promise the thread does not keep — the human
+  // opens it expecting work to judge and finds a run that died. Amber, and the
+  // word says who moved it.
+  delivered_by_system: {
+    text: 'corsa finita',
+    cls: 'bg-amber-500/15 text-amber-300',
+    title: "L'ho portato io in review: l'agent non l'ha consegnato. Guarda il thread prima di valutare",
+    Icon: PackageCheck,
+  },
   // Parked in backlog after a dispatch ended badly. 'failed' = the agent genuinely
   // failed (timeout without review after the cap / repeated setup errors) — a red,
   // ringed chip so it never reads as a neutral manual "fermato". 'blocked' = a

@@ -1841,7 +1841,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             {task.queueReason ? (
               <QueueReasonChip reason={task.queueReason} />
             ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
-              <DispatchChip state={task.dispatchState} error={task.dispatchError} />
+              <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
             ) : (!task.dispatchState && task.dispatchError) ? (
               <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
             ) : null}
