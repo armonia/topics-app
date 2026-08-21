@@ -16,6 +16,11 @@
           "it": "La bolla riusata non diventa un gemello a schermo",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il controllo sui commit fantasma scambiava un id di card per uno sha",
+          "en": "",
+          "scope": null
         }
       ]
     }
