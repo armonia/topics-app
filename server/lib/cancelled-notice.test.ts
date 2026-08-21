@@ -33,7 +33,7 @@
  * sul provider vero in `native/abort-cause.test.ts`.
  */
 import { test, expect, describe } from "bun:test";
-import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione } from "./cancelled-notice";
+import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione, CAUSE_NOSTRE } from "./cancelled-notice";
 import type { TurnEndInfo } from "../providers/stop-reason";
 
 describe("cancelledNotice — chi merita una spiegazione in chat", () => {
@@ -82,7 +82,7 @@ describe("cancelledNotice — chi merita una spiegazione in chat", () => {
     // database carry OLDER wordings and a derived list would stop matching them.
     // THIS is what keeps it honest: reword a notice without adding the entry and
     // this goes red, instead of turns silently never restarting.
-    for (const cause of ["server-shutdown", "watchdog", "wall-clock"] as const) {
+    for (const cause of CAUSE_NOSTRE) {
       const testo = cancelledNotice({ end: "cancelled", cause });
       expect(testo).not.toBeNull();
       expect(eCartelloDiInterruzione(testo)).toBe(true);
