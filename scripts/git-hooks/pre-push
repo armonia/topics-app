@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Auto-installed by scripts/install-graphify-hooks.sh.
+# Refuse to publish commits carrying the names removed from the history.
+# The real logic is in scripts/check-push-clean.ts (tracked, and testable).
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+guard="$root/scripts/check-push-clean.ts"
+[ -f "$guard" ] || exit 0
+command -v bun >/dev/null 2>&1 || exit 0
+exec bun run "$guard" "${1:-origin}"

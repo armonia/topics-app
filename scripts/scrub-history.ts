@@ -46,21 +46,25 @@
  */
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { personalTerms } from "./personal-terms.ts";
 
-const RADICE = new URL("..", import.meta.url).pathname;
-
-/** I termini vengono da `.personal-terms`, che NON è tracciato di proposito:
- *  l'elenco delle cose da nascondere non deve essere esso stesso la fuga. */
-function termini(): string[] {
-  const f = join(RADICE, ".personal-terms");
-  if (!existsSync(f)) return [];
-  return readFileSync(f, "utf8")
-    .split("\n")
-    .map((r) => r.split("#")[0]!.trim())
-    .filter(Boolean);
+/** The repo this is run FROM, not the one the file lives in: in a worktree they
+ *  are different trees, and resolving from cwd is what lets the tests point the
+ *  gate at a throwaway repo, which is the only way to watch it turn red. */
+function radice(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+  } catch {
+    return new URL("..", import.meta.url).pathname;
+  }
 }
+
+const RADICE = radice();
+
+/** Terms come from `.personal-terms`, deliberately untracked: a list of what
+ *  must be hidden cannot itself live in the repo it is hidden from. */
+const termini = () => personalTerms(RADICE);
 
 function git(...args: string[]): string {
   try {
@@ -86,36 +90,90 @@ function git(...args: string[]): string {
  * The cure is also downstream: the rewrite wants `--replace-message` next to
  * `--replace-text`, and the instructions printed below now say so.
  */
-function commitCon(termine: string): number {
-  const contenuti = git("log", "--format=%H", "-S", termine, "--all");
-  const messaggi = git("log", "--format=%H", "--grep", termine, "--all");
+function commitCon(termine: string, ambito: string[]): number {
+  // No scope means no refs to look at. Without this, git would fall back to
+  // HEAD and the "published" measure would silently become "the branch I happen
+  // to have checked out", which is a different question with a similar answer.
+  if (ambito.length === 0) return 0;
+  const contenuti = git("log", "--format=%H", "-S", termine, ...ambito);
+  const messaggi = git("log", "--format=%H", "--grep", termine, ...ambito);
   const insieme = new Set(
     [...contenuti.split("\n"), ...messaggi.split("\n")].filter(Boolean),
   );
   return insieme.size;
 }
 
+/**
+ * WHICH REFS THE GATE JUDGES, and why `--all` was the wrong answer.
+ *
+ * The question worth failing on is "are the names published", and published
+ * means reachable from a remote ref. `--all` asks something else: "does any ref
+ * on this laptop still carry them". After the 21/08 rewrite that came out red
+ * and stays red, because 223 local branches and 57 worktrees still descend from
+ * the old commits and rebasing all of them is not something a gate can do. A
+ * gate that is structurally red on the only machine that can run it (in CI
+ * `.personal-terms` does not exist, so it never looks) is a gate people learn to
+ * step over.
+ *
+ * So the failure is measured on `--remotes`, and the local dirt is reported as a
+ * COUNT, not a red: the thing that actually protects it is `pre-push`, which
+ * refuses to publish a dirty ancestry (`scripts/check-push-clean.ts`, and its
+ * test watches it turn red in both directions).
+ */
+/**
+ * `--remotes` is not "what is published": it is every remote-tracking ref this
+ * clone happens to still have. Measured while writing this: `selfcheck/main`,
+ * left over from a remote that was removed after the rewrite was verified,
+ * carried 9 commits with the names and made the gate report a PUBLIC leak on a
+ * remote that does not exist. So the scope is built from the remotes that are
+ * actually configured; a ref pointing at a remote nobody can reach publishes
+ * nothing.
+ */
+function remotiVeri(): string[] {
+  return git("remote").split("\n").map((r) => r.trim()).filter(Boolean);
+}
+const PUBBLICO = remotiVeri().map((r) => `--remotes=${r}/*`);
+const LOCALE = ["--all", "--not", ...PUBBLICO];
+
 const soloMisura = process.argv.includes("--check");
 
+const ambito = soloMisura ? PUBBLICO : ["--all"];
 const righe: Array<{ termine: string; commit: number }> = [];
 for (const t of termini()) {
-  righe.push({ termine: t, commit: commitCon(t) });
+  righe.push({ termine: t, commit: commitCon(t, ambito) });
 }
 const sporchi = righe.filter((r) => r.commit > 0);
 
-console.log("[scrub] termini nella STORIA (non nell'albero di oggi):");
+console.log(
+  soloMisura
+    ? "[scrub] termini nella storia PUBBLICATA (i ref remoti):"
+    : "[scrub] termini nella STORIA (non nell'albero di oggi):",
+);
 for (const r of righe) {
   console.log(`  ${r.commit === 0 ? "pulito" : `${r.commit} commit`.padEnd(10)}  ${r.termine}`);
+}
+
+if (soloMisura) {
+  const locali = termini().reduce((n, t) => n + commitCon(t, LOCALE), 0);
+  if (locali > 0) {
+    console.log(
+      `\n[scrub] ${locali} commit SOLO locali li contengono ancora: e' la storia di prima` +
+        "\n        della riscrittura, che vive nei rami vecchi e nelle worktree." +
+        "\n        Non e' pubblicata, e il hook pre-push (scripts/check-push-clean.ts)" +
+        "\n        rifiuta di pubblicarla. Per toglierla da un ramo: rebase --onto origin/main.",
+    );
+  }
+  if (sporchi.length > 0) {
+    console.log(`\n[scrub] ${sporchi.length} termini sono PUBBLICI: vanno tolti dalla storia remota.`);
+    process.exit(1);
+  }
+  console.log("\n[scrub] niente di pubblicato contiene i nomi.");
+  process.exit(0);
 }
 
 if (sporchi.length === 0) {
   console.log("\n[scrub] la storia è pulita: niente da riscrivere.");
   process.exit(0);
-}
-
-if (soloMisura) {
-  console.log(`\n[scrub] ${sporchi.length} termini ancora nella storia.`);
-  process.exit(1);
 }
 
 // La mappa per `--replace-text`. Il formato è `cercato==>sostituto`: si
