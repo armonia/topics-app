@@ -52,6 +52,14 @@ function lastChangePlugin(): Plugin {
 // — the ONLY reliable freshness signal: the semver only changes on release
 // bumps, so locally-delivered builds all share it. Shown in the version popover.
 const __buildSha = (() => {
+  // OUT-OF-TREE BUILDS HAVE NO GIT, and the catch below turns that into an empty
+  // string: the one signal that tells you which commit a bundle came from goes
+  // silent exactly where it is needed most. `scripts/e2e-isolated-bundle.sh`
+  // builds from a `git archive` export, which has no .git at all, so the E2E
+  // suite was running against a bundle nobody could identify afterwards. The
+  // caller knows the sha; let it say so.
+  const declared = (process.env.TOPICS_BUILD_SHA ?? '').trim();
+  if (declared) return declared;
   try {
     const sha = execSync('git rev-parse --short HEAD', { cwd: __dirname }).toString().trim();
     const dirty = execSync('git status --porcelain --untracked-files=no', { cwd: __dirname }).toString().trim() ? '*' : '';
