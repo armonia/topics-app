@@ -1,0 +1,250 @@
+#!/usr/bin/env bun
+/**
+ * scripts/check-identifier-language.ts — fail the build when a NEW identifier
+ * is not an English word.
+ *
+ * WHY IT EXISTS, and why `check:comment-language` could never have done it.
+ * That gate reads COMMENTS, by construction: it says so on its first line, and
+ * an identifier is invisible to it. On 2026-08-21 four new names went in over
+ * one evening — `sostituisce`, `annunciaRipresa`, `NOTA_SESSIONE_MORTA`,
+ * `PREFISSO_NOTA_ANTEPRIMA` — through every gate, green all the way.
+ *
+ * The obvious repair would have been the worst outcome available. That gate
+ * recognises Italian by matching a list of 85 stopwords, and six of the eight
+ * tokens in those four names are not on it. Extended as-is to identifiers, it
+ * would have passed all four and gone on reporting success: a blind gate, which
+ * this repo has already paid for once (a `-S`-only history check that read
+ * clean while fifteen commit messages carried the names in the open).
+ *
+ * SO THE QUESTION IS INVERTED. Not "is this word Italian?", which needs a
+ * dictionary we do not have and a list that rots, but "is this word ENGLISH?",
+ * which is a 235,976-entry file already on the machine. `replaces` is in it,
+ * `sostituisce` is not, and nothing has to be kept up to date for that to stay
+ * true.
+ *
+ * A RATCHET, born green. The codebase already carries plenty of Italian names
+ * (`motivoDaRisposta`, `chiaveErroreAuth`, `verdetto-turno-interrotto.ts`) and
+ * rewriting them today is not this gate's job: `identifier-language-baseline.json`
+ * records the count per file, and the count may only go DOWN. Adding the 86th
+ * fails; removing one and rerunning `--update-baseline` locks in the gain.
+ *
+ * WHERE IT IS BLIND, said out loud rather than discovered later:
+ *   - No dictionary on the machine (Linux CI often has none) ⇒ it cannot judge,
+ *     so it says that and exits 0. It guards the machine where names are born,
+ *     which is a developer's, not the runner that only replays them.
+ *   - It reads DECLARATIONS, not every occurrence: a name is introduced once and
+ *     that is the moment worth catching.
+ *   - Invented English (`dedupe`, `stringify`) is not in a dictionary either.
+ *     That is what `PROJECT_WORDS` is for, and adding to it is a deliberate act
+ *     with a diff, not a silent pass.
+ *
+ *   bun run scripts/check-identifier-language.ts
+ *   bun run scripts/check-identifier-language.ts --update-baseline
+ */
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const ROOT = join(import.meta.dir, "..");
+const BASELINE = join(ROOT, "scripts", "identifier-language-baseline.json");
+const DICTS = ["/usr/share/dict/words", "/usr/dict/words", "/usr/share/dict/american-english"];
+
+const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
+
+/**
+ * Words this project uses that no dictionary carries: coinages, abbreviations,
+ * product nouns, and the vocabulary of the tools it is built on. Every entry is
+ * a decision someone made in a diff, which is the point: the gate never widens
+ * itself.
+ */
+export const PROJECT_WORDS = new Set([
+  // the product and its parts
+  "topics", "topic", "openclaw", "armonia", "tauri", "kanban", "pane", "panes",
+  "worktree", "worktrees", "dispatcher", "dispatch", "board", "boards", "drawer",
+  // tech and tooling
+  "ts", "tsx", "js", "jsx", "api", "apis", "url", "urls", "uri", "uuid", "id", "ids",
+  "http", "https", "ws", "wss", "sql", "sqlite", "db", "json", "jsonl", "yaml", "css",
+  "html", "dom", "ui", "ux", "cli", "cwd", "env", "pid", "cpu", "ram", "os", "io",
+  "utf", "ascii", "regex", "regexp", "async", "await", "iife", "impl", "init",
+  "config", "configs", "params", "param", "args", "arg", "ctx", "msg", "msgs",
+  "req", "res", "err", "src", "dest", "dir", "dirs", "tmp", "temp", "num", "str",
+  "bool", "int", "idx", "len", "min", "max", "avg", "prev", "curr", "cur", "el",
+  "ref", "refs", "props", "prop", "attr", "attrs", "elem", "btn", "nav", "auth",
+  "admin", "repo", "repos", "sha", "diff", "diffs", "commit", "commits", "git",
+  "npm", "bun", "vite", "react", "playwright", "sse", "mcp", "pty", "ptys",
+  // words the language of software invented
+  "dedupe", "dedup", "stringify", "serializable", "nullable", "iterable",
+  "truthy", "falsy", "boolean", "enum", "enums", "middleware", "callback",
+  "callbacks", "timestamp", "timestamps", "throttle", "debounce", "memoize",
+  "hydrate", "rehydrate", "unmount", "remount", "prefetch", "refetch", "rerender",
+  "teardown", "backoff", "changeset", "workspace", "workspaces", "toolbar",
+  "tooltip", "dropdown", "popover", "checkbox", "placeholder", "viewport",
+  "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",
+  "jpg", "webm", "gif", "pdf", "blob", "cors", "csrf", "xhr", "oauth", "jwt",
+  "utc", "iso", "ms", "sec", "px", "rem",
+]);
+
+function trackedFiles(): string[] {
+  const out = execFileSync("git", ["ls-files", "-z", "--", ...ROOTS], {
+    cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
+  });
+  return out.split("\0").filter(Boolean)
+    .filter((f) => /\.(ts|tsx)$/.test(f))
+    .filter((f) => !f.endsWith(".d.ts"));
+}
+
+/**
+ * The identifiers a file DECLARES.
+ *
+ * Declarations only, and deliberately: a name is chosen once, and that is the
+ * edit worth judging. Counting every mention would make one bad name look like
+ * forty and turn the baseline into noise.
+ */
+export function declaredNames(src: string): { line: number; name: string }[] {
+  const out: { line: number; name: string }[] = [];
+  const decl = /\b(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g;
+  const lines = src.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i]!;
+    // A declaration inside a comment is not a declaration. Cheap and good
+    // enough: a full scanner buys precision the baseline already absorbs.
+    if (/^\s*(\/\/|\*|\/\*)/.test(text)) continue;
+    for (const m of text.matchAll(decl)) out.push({ line: i + 1, name: m[1]! });
+  }
+  return out;
+}
+
+/** camelCase, PascalCase, snake_case and SCREAMING_SNAKE into lowercase words. */
+export function words(identifier: string): string[] {
+  return identifier
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z]+/)
+    .map((w) => w.toLowerCase())
+    .filter((w) => w.length >= 3);
+}
+
+function loadDictionary(): Set<string> | null {
+  for (const p of DICTS) {
+    if (!existsSync(p)) continue;
+    const set = new Set<string>();
+    for (const w of readFileSync(p, "utf8").split("\n")) {
+      const t = w.trim().toLowerCase();
+      if (t) set.add(t);
+    }
+    if (set.size > 1000) return set;
+  }
+  return null;
+}
+
+/** A word is fine when English knows it, when the project declared it, or when
+ *  it is the plural or the third person of something either of them knows. */
+export function isKnown(word: string, dict: Set<string>): boolean {
+  if (PROJECT_WORDS.has(word) || dict.has(word)) return true;
+  for (const suffix of ["s", "es", "ed", "ing", "d", "r"]) {
+    if (word.endsWith(suffix)) {
+      const stem = word.slice(0, -suffix.length);
+      if (stem.length >= 3 && (dict.has(stem) || PROJECT_WORDS.has(stem))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The baseline records the NAMES, not how many there are.
+ *
+ * A count answers "did the debt grow" and nothing else. Two things follow, and
+ * both were visible the first time this gate went red: it could not say WHICH
+ * name was new, so it listed the file's oldest offenders and sent you to
+ * `MAX_FANOUT` when you had just written something else; and renaming one bad
+ * name while adding another kept the total identical, which is a green on a
+ * change that fixed nothing. Names cost a bigger file and buy an exact answer.
+ */
+type Baseline = { $schema: string; generated: string; files: Record<string, string[]> };
+
+function readBaseline(): Record<string, string[]> {
+  if (!existsSync(BASELINE)) return {};
+  try { return (JSON.parse(readFileSync(BASELINE, "utf8")) as Baseline).files ?? {}; }
+  catch { return {}; }
+}
+
+/**
+ * The scan runs only when this file IS the command.
+ *
+ * Without the guard, importing it to test `declaredNames` executed the whole
+ * gate — and on the day the gate is red its `process.exit(1)` would kill the
+ * test run that proves it works. A check whose own tests cannot run while it is
+ * failing is a check you cannot fix.
+ */
+if (import.meta.main) {
+  const dict = loadDictionary();
+  if (!dict) {
+    // Silence would read as approval. This machine cannot answer the question, so
+    // it says which one it could not answer.
+    console.log("[identifier-language] nessun dizionario inglese sul sistema (/usr/share/dict/words): non posso giudicare i nomi, salto.");
+    process.exit(0);
+  }
+
+  const perFile = new Map<string, string[]>();
+  const hits: { file: string; line: number; name: string; bad: string[] }[] = [];
+  for (const file of trackedFiles()) {
+    const nomi: string[] = [];
+    for (const d of declaredNames(readFileSync(join(ROOT, file), "utf8"))) {
+      const bad = words(d.name).filter((w) => !isKnown(w, dict));
+      if (bad.length === 0) continue;
+      nomi.push(d.name);
+      hits.push({ file, line: d.line, name: d.name, bad });
+    }
+    if (nomi.length > 0) perFile.set(file, [...new Set(nomi)].sort());
+  }
+
+  if (process.argv.includes("--update-baseline")) {
+    const files: Record<string, string[]> = {};
+    for (const f of [...perFile.keys()].sort()) files[f] = perFile.get(f)!;
+    const payload: Baseline = {
+      $schema: "identifier-language-baseline-v1",
+      generated: new Date().toISOString().slice(0, 10),
+      files,
+    };
+    writeFileSync(BASELINE, `${JSON.stringify(payload, null, 2)}\n`);
+    console.log(`[identifier-language] baseline scritta: ${Object.keys(files).length} file, ${[...perFile.values()].reduce((a, b) => a + b.length, 0)} nomi.`);
+    process.exit(0);
+  }
+
+  const baseline = readBaseline();
+  const nuovi: { file: string; nomi: string[] }[] = [];
+  for (const [file, nomi] of perFile) {
+    const noti = new Set(baseline[file] ?? []);
+    const freschi = nomi.filter((n) => !noti.has(n));
+    if (freschi.length > 0) nuovi.push({ file, nomi: freschi });
+  }
+  const spariti: string[] = [];
+  for (const [file, nomi] of Object.entries(baseline)) {
+    const ora = new Set(perFile.get(file) ?? []);
+    const tolti = nomi.filter((n) => !ora.has(n));
+    if (tolti.length > 0) spariti.push(`    ${file}: ${tolti.length} in meno (${tolti.slice(0, 4).join(", ")}${tolti.length > 4 ? ", …" : ""})`);
+  }
+
+  if (nuovi.length > 0) {
+    console.error("[identifier-language] nomi nuovi che l'inglese non conosce:\n");
+    for (const { file, nomi } of nuovi) {
+      for (const nome of nomi) {
+        const h = hits.find((x) => x.file === file && x.name === nome);
+        console.error(`  ${file}:${h?.line ?? "?"}  ${nome}  (${h?.bad.join(", ") ?? ""})`);
+      }
+    }
+    console.error("\nLo standard e' l'inglese, nomi compresi. Rinomina, oppure aggiungi la");
+    console.error("parola a PROJECT_WORDS in scripts/check-identifier-language.ts se e' un");
+    console.error("termine di questo progetto. Non riscrivere la baseline per farlo tacere.");
+    process.exit(1);
+  }
+
+  if (spariti.length > 0) {
+    console.log("[identifier-language] debito sceso, rilancia con --update-baseline per fissarlo:");
+    for (const r of spariti) console.log(r);
+    process.exit(1);
+  }
+
+  console.log(`[identifier-language] OK - ${[...perFile.values()].reduce((a, b) => a + b.length, 0)} nomi non inglesi, tutti gia' nella baseline.`);
+
+}

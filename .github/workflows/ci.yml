@@ -197,6 +197,14 @@ jobs:
           # l unico modo perche un cancello del genere sopravviva a una
           # settimana. Scappatoia per riga: `allow-italian: <perche>`.
           bun run check:comment-language
+          # E lo stesso standard applicato ai NOMI, che i due cancelli sopra non
+          # vedono nemmeno: quattro identificatori italiani sono passati in una
+          # sera attraverso tutto. Chiede se una parola e INGLESE (dizionario di
+          # sistema, 235.976 voci) invece di indovinare se e italiana, perche la
+          # lista di 85 stopword del cancello dei commenti ne riconosceva due su
+          # otto. Baseline a NOMI, non a conteggi: dice quale nome e nuovo.
+          # Salta da se dove il dizionario non c e, e lo dice.
+          bun run check:identifier-language
           bun run check:sleeps
 
       # `check:sleeps` è l'ultimo di questa fila e conta una cosa sola:
