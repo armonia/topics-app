@@ -64,6 +64,7 @@ import { computeDispatchCapacity, dispatchResourceBlock } from "./server/service
 import { fleetLoadSync, procFootprintKB } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
+import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
@@ -1539,6 +1540,16 @@ previewManager = createPreviewManager({
   realPath: async (p) => { try { return realpathSync(p); } catch { return null; } },
   // Cancello sul CONTENUTO: la pagina si LEGGE prima di fotografarla, così un
   // 503 «Bundle not built yet» non finisce sulla card come evidenza del lavoro.
+  // Una foto riuscita puo' essere una pagina bianca: si guarda la densita' del
+  // file, che per un PNG dice se e' stato disegnato qualcosa. Il pavimento e'
+  // misurato, non scelto (vedi image-shape.ts).
+  blankShot: (path) => {
+    try {
+      const forma = imageShape(path);
+      if (!forma) return false;
+      return isBlankLikeImage({ bytes: statSync(path).size, width: forma.width, height: forma.height });
+    } catch { return false; }
+  },
   fetchPage: async (url) => {
     try {
       const ctrl = new AbortController();

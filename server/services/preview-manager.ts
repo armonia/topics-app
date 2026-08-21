@@ -137,12 +137,15 @@ export interface PreviewManagerDeps {
    * null se irraggiungibile. Assente ⇒ cancello disattivato (si fotografa).
    */
   fetchPage?(url: string): Promise<{ status: number; body: string } | null>;
+  /** True when the captured file is too uniform to be showing anything.
+   *  Injected so the tests never touch the filesystem. */
+  blankShot?(path: string): boolean;
   /** Render a PNG of `url` at `width` px to `outPath`. Best-effort → boolean. */
   screenshot(url: string, outPath: string, opts: { width: number }): Promise<boolean>;
   /** The task's current output_url (to detect a prod URL we must not keep). */
   currentOutputUrl(taskId: string): string | null;
   setOutputUrl(taskId: string, url: string | null): void;
-  /** Path assoluto dell'anteprima; stringa vuota = AZZERA (evidenza ritirata). */
+  /** Path assoluto dell'anteprima; stringa blank = AZZERA (evidenza ritirata). */
   setPreviewImage(taskId: string, absPath: string): void;
   /**
    * Toglie l'anteprima e scrive sulla CARD perché — lo stato che la nota nel
@@ -287,7 +290,7 @@ const PLACEHOLDER_PATTERNS: RegExp[] = [
 /** True se il corpo della pagina è un placeholder/errore — niente da mostrare. */
 export function isPlaceholderPage(body: string): boolean {
   const text = body.trim();
-  if (!text) return true; // pagina vuota: una card bianca non prova nulla
+  if (!text) return true; // pagina blank: una card bianca non prova nulla
   return PLACEHOLDER_PATTERNS.some((re) => re.test(text));
 }
 
@@ -603,6 +606,24 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         deps.ensureMediaDir();
         shot = await deps.screenshot(url, outPath, { width: 1440 });
       } catch (err) { log(`[preview] screenshot failed for ${taskId}`, err); }
+
+      // A SUCCESSFUL SHOT IS NOT EVIDENCE. The content gate reads the HTML the
+      // server sends, but this app is a SPA: what the server sends is the
+      // shell, what the camera captures is what React drew afterwards. Between
+      // the two there is room for a blank page, and there was one: 4257 bytes
+      // over 1280x720, attached to a card in review as its delivery. Here we
+      // look at the image itself.
+      const blank = shot && deps.blankShot ? deps.blankShot(outPath) : false;
+      if (blank) {
+        log(`[preview] screenshot vuoto per ${taskId}: non lo allego`);
+        try { deps.setPreviewImage(taskId, ""); } catch { /* best-effort */ }
+        deps.addReviewNote(taskId, {
+          kind: "service",
+          replaces: PREVIEW_NOTE_SLOT,
+          content: `${PREVIEW_NOTE_PREFIX} ritirata. ${url} ha risposto e la foto e' venuta, ma e' una pagina bianca: un'evidenza falsa e' peggio di nessuna evidenza.`,
+        });
+        return;
+      }
 
       if (shot) {
         try { deps.setPreviewImage(taskId, outPath); } catch (err) { log(`[preview] setPreviewImage failed for ${taskId}`, err); }

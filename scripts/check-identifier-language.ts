@@ -66,7 +66,7 @@ export const PROJECT_WORDS = new Set([
   "http", "https", "ws", "wss", "sql", "sqlite", "db", "json", "jsonl", "yaml", "css",
   "html", "dom", "ui", "ux", "cli", "cwd", "env", "pid", "cpu", "ram", "os", "io",
   "utf", "ascii", "regex", "regexp", "async", "await", "iife", "impl", "init",
-  "dict", "dicts", "payload", "payloads", "baseline", "baselines", "ratchet", "camelcase", "snake",
+  "dict", "dicts", "payload", "payloads", "pixel", "pixels", "png", "jpeg", "baseline", "baselines", "ratchet", "camelcase", "snake",
   "decl", "decls", "has", "was", "were", "does", "did", "seen", "known", "unknown",
   "config", "configs", "params", "param", "args", "arg", "ctx", "msg", "msgs",
   "req", "res", "err", "src", "dest", "dir", "dirs", "tmp", "temp", "num", "str",

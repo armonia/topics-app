@@ -563,3 +563,45 @@ describe("sweepOrphans", () => {
     expect(await pm.sweepOrphans()).toEqual([3400, 3401]);
   });
 });
+
+describe("uno scatto BIANCO non si allega", () => {
+  /**
+   * The content gate reads the HTML the server sends; this app is a SPA, so
+   * that is the shell, while the camera captures what React drew afterwards.
+   * A blank render passes the first and fails only here. It happened: 4257
+   * bytes over 1280x720, attached to a card in review as its delivery.
+   */
+  it("foto riuscita ma vuota ⇒ nessuna anteprima, e la nota dice perché", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => true,
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).toBe("");
+    expect(h.reviewNotes.at(-1)!.content).toContain("pagina bianca");
+  });
+
+  it("foto riuscita e piena ⇒ si allega, come sempre", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).not.toBe("");
+    expect(h.reviewNotes.at(-1)!.media?.length).toBe(1);
+  });
+
+  it("senza la dipendenza il comportamento e quello di prima", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).not.toBe("");
+  });
+});

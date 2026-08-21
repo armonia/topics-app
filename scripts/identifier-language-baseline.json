@@ -2447,7 +2447,6 @@
     ],
     "client/src/lib/iconTint.test.ts": [
       "RGB",
-      "pixels",
       "rgb"
     ],
     "client/src/lib/iconTint.ts": [
@@ -7037,7 +7036,6 @@
       "HEAD_BYTES",
       "buf",
       "isSOF",
-      "jpeg",
       "webp"
     ],
     "server/services/known-project-dirs.test.ts": [
@@ -10154,7 +10152,6 @@
       "sezione"
     ],
     "tests/e2e/refresh-durability.spec.ts": [
-      "PIXEL",
       "chiavi",
       "dopo",
       "esistenti"

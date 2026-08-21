@@ -138,3 +138,38 @@ export function imageShape(path: string): ImageShape | null {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
   return { width, height, ratio: height / width };
 }
+
+/**
+ * An image so uniform it cannot be showing anything.
+ *
+ * WHY BYTES AND NOT PIXELS. Reading pixelCount needs a decoder, and a decoder is a
+ * native package inside a path that must stay best-effort (the reason this file
+ * only ever reads headers). PNG compresses flat colour to almost nothing, so
+ * the ratio between file size and pixel count IS a density measure: a blank
+ * page collapses, a rendered interface does not.
+ *
+ * THE FLOOR IS MEASURED, not chosen. Every PNG preview on this machine,
+ * 2026-08-21:
+ *
+ *     0.0046 byte/px   be0bb86f.png          ← blank, photographed anyway
+ *     0.0229 byte/px   e90e1a6b.png          ← the densest of the real ones
+ *     0.0234 - 0.0683  everything else
+ *
+ * One outlier five times below the next value, and a gap with nothing in it.
+ * The floor sits at 0.01: twice the blank one, and less than half the lightest
+ * real screenshot. It is not a judgement about quality, only about whether
+ * anything was drawn.
+ *
+ * WHAT IT DOES NOT CATCH, said out loud: a page that renders the app's own
+ * empty state ("Welcome to Topics") is dense and passes here. That one cannot
+ * be caught from the HTML either, because the server sends a SPA shell and the
+ * screenshot captures what React drew afterwards: two different things. It
+ * needs a check on the rendered DOM, which is a different seam.
+ */
+export const BLANK_DENSITY_FLOOR = 0.01;
+
+export function isBlankLikeImage(i: { bytes: number; width: number; height: number }): boolean {
+  const pixelCount = i.width * i.height;
+  if (pixelCount <= 0 || i.bytes <= 0) return false; // nothing to judge, not a verdict
+  return i.bytes / pixelCount < BLANK_DENSITY_FLOOR;
+}
