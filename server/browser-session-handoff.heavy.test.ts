@@ -27,6 +27,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/* DATA_DIR E' AMBIENTE CONDIVISO, e questo file lo scrive.
+ *
+ * `server/db.ts:17` risolve la cartella dati come `process.env.DATA_DIR ||
+ * join(dataRoot, "data")`: l'ambiente vince sull'argomento esplicito. Bun
+ * carica piu' file di test nello STESSO processo, quindi una scrittura non
+ * restituita decide dove finisce il database di tutti i file caricati dopo.
+ * Misurato il 21/08: due file lanciati insieme aprivano quattro volte lo
+ * stesso db temporaneo di uno dei due, mentre da soli ne creavano di propri.
+ * Qui la variabile serve davvero (non si passa da `initDatabase`), quindi si
+ * RESTITUISCE invece di toglierla. */
+const DATA_DIR_PRIMA = process.env.DATA_DIR;
+
+
 const HEAVY = process.env.TOPICS_HEAVY_TESTS === "1";
 const describeHeavy = HEAVY ? describe : describe.skip;
 
@@ -178,4 +191,9 @@ describeHeavy("passaggio di sessione nativa → condivisa (browser vero)", () =>
       await svc.destroyContext(ctx).catch(() => {});
     }
   }, 60_000);
+});
+
+afterAll(() => {
+  if (DATA_DIR_PRIMA === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = DATA_DIR_PRIMA;
 });

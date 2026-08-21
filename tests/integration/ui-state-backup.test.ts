@@ -3,10 +3,23 @@
  * Verifies the snapshot+retention contract that protects pane-store-v2
  * from being wiped by buggy client PUTs.
  */
-import { describe, expect, test, beforeAll, afterEach } from "bun:test";
+import { describe, expect, test, beforeAll, afterEach, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { PROJECT_ROOT, testTmpDir } from "./helpers";
+
+/* DATA_DIR E' AMBIENTE CONDIVISO, e questo file lo scrive.
+ *
+ * `server/db.ts:17` risolve la cartella dati come `process.env.DATA_DIR ||
+ * join(dataRoot, "data")`: l'ambiente vince sull'argomento esplicito. Bun
+ * carica piu' file di test nello STESSO processo, quindi una scrittura non
+ * restituita decide dove finisce il database di tutti i file caricati dopo.
+ * Misurato il 21/08: due file lanciati insieme aprivano quattro volte lo
+ * stesso db temporaneo di uno dei due, mentre da soli ne creavano di propri.
+ * Qui la variabile serve davvero (non si passa da `initDatabase`), quindi si
+ * RESTITUISCE invece di toglierla. */
+const DATA_DIR_PRIMA = process.env.DATA_DIR;
+
 
 const TEST_HOME = testTmpDir("ui-backup-home");
 const TEST_DATA = testTmpDir("ui-backup-data");
@@ -108,4 +121,9 @@ describe("ui-state-backup", () => {
     const { closeDatabase } = await import("../../server/db");
     closeDatabase();
   });
+});
+
+afterAll(() => {
+  if (DATA_DIR_PRIMA === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = DATA_DIR_PRIMA;
 });
