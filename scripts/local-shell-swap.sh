@@ -91,8 +91,24 @@ EOF
   exit 1
 fi
 
-echo "▸ 1/5  bundle del client → public/ (finisce dentro il binario)"
-(cd "$REPO_ROOT/client" && ./node_modules/.bin/vite build >/dev/null)
+# SKIP_CLIENT_BUILD=1 when this repo is NOT yours alone. `vite build` reads the
+# working tree, so on a machine where another session has client files in flight
+# it bakes their half-finished work into the app you are about to install, and
+# the shell fix you came for arrives wearing somebody else's UI. Skipping leaves
+# public/ exactly as it is, which is also what a shell-only fix needs.
+if [ "${SKIP_CLIENT_BUILD:-0}" = "1" ]; then
+  echo "▸ 1/5  bundle del client: SALTATO (SKIP_CLIENT_BUILD=1), public/ resta com'e'"
+else
+  echo "▸ 1/5  bundle del client → public/ (finisce dentro il binario)"
+  (cd "$REPO_ROOT/client" && ./node_modules/.bin/vite build >/dev/null)
+fi
+
+# Snapshot the bundle name BEFORE building. The guard below asks "did cargo
+# embed the public/ that existed when I started", and re-reading index.html after
+# the build answers a different question: another session rebuilding client
+# assets during the two minutes of `cargo build` would fail the check on a binary
+# that is perfectly correct.
+ASSET="$(grep -o '/assets/index-[A-Za-z0-9_-]*\.js' "$REPO_ROOT/public/index.html" | head -1 || true)"
 
 echo "▸ 2/5  cargo build --release"
 # `touch build.rs` NON è scaramanzia. `tauri.conf.json` punta `frontendDist` a
@@ -121,7 +137,7 @@ BIN="$REPO_ROOT/desktop-tauri/src-tauri/target/release/app"
 # Il bundle appena costruito dev'essere DAVVERO dentro il binario: senza questo
 # controllo si può scambiare un Mach-O che embedda una `public/` vecchia, e il
 # sintomo (UI stantia) sembra un problema di cache.
-ASSET="$(grep -o '/assets/index-[A-Za-z0-9_-]*\.js' "$REPO_ROOT/public/index.html" | head -1 || true)"
+# ASSET was captured before the build, see above.
 # L'esito si CATTURA invece di usarlo come condizione di un pipeline.
 #
 # Con `set -o pipefail` (riga 33) la forma naturale — `strings … | grep -q X` —

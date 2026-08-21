@@ -32,7 +32,6 @@ import { useT } from '../hooks/useT';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
 import { getUpdaterApi, shouldShowUpdaterToast, type UpdaterStatus } from '@/lib/updater';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
-import { useSystemStatus } from '@/hooks/useSystemStatus';
 
 export function UpdaterToast() {
   const tr = useT();
@@ -45,12 +44,6 @@ export function UpdaterToast() {
   // change re-un-dismisses the toast, including the ones the popover's own
   // buttons cause. Suppress the toast while the popover reports itself open.
   const [versionPopoverOpen, setVersionPopoverOpen] = useState(false);
-  // «Automatico» vuol dire che non devi fare niente: vedi
-  // `shouldShowUpdaterToast`. Stessa fonte della barra e del pannello della
-  // versione - tre letture dello stesso fatto un giorno divergono, e sarebbero
-  // tre superfici che dicono tre cose sullo stesso aggiornamento.
-  const { status: sistema } = useSystemStatus(true, 60000);
-  const autoUpdate = !!sistema?.server?.devReload;
   useEffect(() => {
     const onPopover = (e: Event) => {
       setVersionPopoverOpen(!!(e as CustomEvent<{ open?: boolean }>).detail?.open);
@@ -103,7 +96,7 @@ export function UpdaterToast() {
   // della sidebar: la larghezza gliela dà il layout, e non c'è nessuna
   // geometria da rileggere a mano.)
 
-  if (!shouldShowUpdaterToast(status, { dismissed, versionPopoverOpen, autoUpdate })) return null;
+  if (!shouldShowUpdaterToast(status, { dismissed, versionPopoverOpen })) return null;
 
   const isReady = status.state === 'ready';
   const isError = status.state === 'error';
