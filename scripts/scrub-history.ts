@@ -70,10 +70,29 @@ function git(...args: string[]): string {
   }
 }
 
-/** Quanti commit contengono il termine, in tutta la storia. */
+/**
+ * Quanti commit portano il termine, in tutta la storia.
+ *
+ * DUE DOMANDE, NON UNA, e per mesi qui se ne faceva una sola. `-S` guarda i
+ * CONTENUTI, cioe' cosa e' entrato e uscito dai file. Un nome scritto nel
+ * MESSAGGIO di un commit non tocca nessun blob, quindi `-S` non lo vede mai.
+ *
+ * Misurato il 2026-08-21, durante la riscrittura vera: dopo un
+ * `git filter-repo --replace-text` i contenuti erano a zero e questo controllo
+ * usciva pulito, mentre 15 messaggi di commit portavano ancora i nomi in chiaro
+ * su un repo pubblico. Il gate diceva «fatto» a meta' lavoro, che e' peggio di
+ * un gate che non c'e': uno assente lo sai, uno cieco ti convince.
+ *
+ * La cura sta anche a valle: la riscrittura vuole `--replace-message` accanto a
+ * `--replace-text`, e le istruzioni stampate qui sotto ora lo dicono.
+ */
 function commitCon(termine: string): number {
-  const out = git("log", "--oneline", "-S", termine, "--all");
-  return out.split("\n").filter(Boolean).length;
+  const contenuti = git("log", "--format=%H", "-S", termine, "--all");
+  const messaggi = git("log", "--format=%H", "--grep", termine, "--all");
+  const insieme = new Set(
+    [...contenuti.split("\n"), ...messaggi.split("\n")].filter(Boolean),
+  );
+  return insieme.size;
 }
 
 const soloMisura = process.argv.includes("--check");
@@ -115,7 +134,10 @@ console.log("       git clone --mirror . ../topics-app-backup.git");
 console.log("  2. avvisare chi ha cloni o lavoro in corso: i loro SHA moriranno");
 console.log("  3. accettare che gli SHA citati nei commenti e nelle card non risolveranno più\n");
 console.log("Poi:");
-console.log("       git filter-repo --replace-text .scrub-map.txt --force");
+console.log("       git filter-repo --replace-text .scrub-map.txt \\");
+console.log("                        --replace-message .scrub-map.txt --force");
+console.log("       # --replace-message NON e' facoltativo: --replace-text da solo");
+console.log("       # lascia i nomi nei MESSAGGI dei commit (misurato: 15 rimasti)");
 console.log("       git remote add origin <url>   # filter-repo lo rimuove apposta");
 console.log("       git push --force origin main\n");
 console.log("Dopo, per verificare che sia servito:");
