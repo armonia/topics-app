@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { refreshSession, type SessionState } from '@/lib/auth/session';
-import { attesaRiprova, chiaveFrase, motivoDaRisposta, type MotivoPairing } from './pairingErrore';
+import { attesaRiprova, chiaveFrase, chiaveStato, motivoDaRisposta, type MotivoPairing } from './pairingErrore';
 import { MODAL_LAYER } from '@/lib/modalStyles';
 import { useT } from '@/hooks/useT';
+
+/** The bundle version, baked in by Vite (`client/vite.config.ts`). */
+declare const __APP_VERSION__: string;
+const VERSIONE = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
 
 /**
  * La schermata che vede un dispositivo NON appaiato.
@@ -67,7 +71,14 @@ export function PairingGate({ session }: { session: SessionState }) {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     async function avvia() {
-      setError(null);
+      // The error is NOT cleared here, and that is not an oversight.
+      //
+      // Clearing it made the screen FLASH on every retry: the notice vanished
+      // as the attempt began and came back an instant later, and against a
+      // machine that is off, where attempts follow each other for minutes, it
+      // was a steady blink. Seen on the phone, and the reason for this line.
+      // The error state is REPLACED when a new outcome arrives, so what is on
+      // screen stays still while the retry happens.
       setDenied(false);
       try {
         const r = await fetch('/api/auth/pair/request', { method: 'POST', credentials: 'same-origin' });
@@ -84,6 +95,9 @@ export function PairingGate({ session }: { session: SessionState }) {
         }
         const body = await r.json() as { requestId: string; code: string; claim?: string };
         if (!vivo) return;
+        // Success: the error goes now, because something replaces it on screen
+        // (the code). It is the only moment where clearing leaves no hole.
+        setError(null);
         tentativiRef.current = 0;
         requestIdRef.current = body.requestId;
         // Il segreto di ritiro: torna solo qui, e da qui non esce più. Senza,
@@ -156,6 +170,25 @@ export function PairingGate({ session }: { session: SessionState }) {
     // monta accanto e vince un pareggio per ordine nel DOM.
     <div className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-app-bg px-6`}>
       <div className="w-full max-w-sm text-center">
+        {/* WHO you are, before what you must do.
+
+            This screen is the FIRST thing a person sees of Topics from the
+            phone, and for months it was a heading in the middle of black:
+            no mark, no version, no way to tell whether the thing was alive.
+            An app that does not introduce itself looks like a fault. Same
+            lesson as the heading that said "Device not authorised" to someone
+            arriving for the first time. */}
+        <img
+          src="/icons/icon-192.png"
+          alt=""
+          width={52}
+          height={52}
+          className="mx-auto mb-4 rounded-[12px] border border-app-border"
+        />
+        <div className="mb-5 text-[11px] font-medium uppercase tracking-[0.08em] text-app-text-muted">
+          Topics{VERSIONE ? ` · ${VERSIONE}` : ''}
+        </div>
+
         <h1 className="text-[19px] font-semibold text-app-text">{titolo}</h1>
         <p className="mt-2 text-[13px] leading-relaxed text-app-text-secondary">{spiegazione}</p>
 
@@ -212,6 +245,17 @@ export function PairingGate({ session }: { session: SessionState }) {
         {!code && !error && !denied && (
           <div className="mt-8 text-[13px] text-app-text-muted">{t('pair.preparing')}</div>
         )}
+
+        {/* THE STATE, always, at the bottom. A dot telling whether the machine
+            is answering separates "I am waiting" from "it is broken" without
+            asking anyone to read: green while the loop works, amber while it
+            retries. It is what the screen already knew and never showed. */}
+        <div className="mt-10 flex items-center justify-center gap-2 text-[11px] text-app-text-muted">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${error ? 'animate-pulse bg-amber-500' : 'bg-emerald-500'}`}
+          />
+          {t(chiaveStato(error))}
+        </div>
       </div>
     </div>
   );

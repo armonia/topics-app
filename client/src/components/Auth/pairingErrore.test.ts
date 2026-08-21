@@ -23,7 +23,7 @@ import { describe, test, expect } from 'bun:test';
 
 import {
   attesaRiprova, chiaveFrase, motivoDaRisposta,
-  ATTESA_BASE_MS, ATTESA_MAX_MS,
+  ATTESA_BASE_MS, ATTESA_MAX_MS, chiaveStato,
 } from './pairingErrore';
 import { CODICI_AUTH } from '../../lib/authErrors';
 // The catalogue KEYS, not the dictionary: `i18n.ts` deliberately does not
@@ -94,5 +94,22 @@ describe('pairing · la schermata riprova da sola', () => {
 
   test('nessuna attesa è zero: una riprova immediata è un ciclo di richieste', () => {
     for (let n = 1; n <= 20; n++) expect(attesaRiprova(n)).toBeGreaterThan(0);
+  });
+});
+
+describe('pairing · lo stato si vede, e non lampeggia', () => {
+  test('senza errore dice collegato, con errore dice che sta riprovando', () => {
+    expect(chiaveStato(null)).toBe('pair.state.connected');
+    expect(chiaveStato('unreachable')).toBe('pair.state.retrying');
+    expect(chiaveStato(motivoDaRisposta({ error: 'too_many_requests' }))).toBe('pair.state.retrying');
+  });
+
+  test('ha una frase in entrambe le lingue, come tutto ciò che si legge', () => {
+    const italiane = new Set(chiaviDelCatalogo());
+    const inglesi = EN as Record<string, string>;
+    for (const chiave of [chiaveStato(null), chiaveStato('unreachable')]) {
+      expect(italiane.has(chiave)).toBe(true);
+      expect(typeof inglesi[chiave]).toBe('string');
+    }
   });
 });

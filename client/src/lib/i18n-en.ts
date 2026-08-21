@@ -950,6 +950,8 @@ const EN = {
   'pair.blurb.revoked': 'This device was removed from Topics. You can ask for access again.',
   'pair.unreachable': 'I can’t reach Topics. Is the computer switched on?',
   'pair.retrying': 'Trying again on my own in a few seconds.',
+  'pair.state.connected': 'Connected to the computer',
+  'pair.state.retrying': 'No answer, trying again',
   'pair.denied': 'The computer turned the request down.',
   'pair.retry': 'Ask again',
   'pair.codeHint': 'A request with this code will appear on the computer.',

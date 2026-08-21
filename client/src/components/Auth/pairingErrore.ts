@@ -75,3 +75,14 @@ export function motivoDaRisposta(corpo: { error?: string } | null | undefined): 
 export function chiaveFrase(motivo: MotivoPairing): string {
   return motivo === 'unreachable' ? 'pair.unreachable' : motivo.codice;
 }
+
+/**
+ * What the status line at the bottom says.
+ *
+ * The screen already knew whether the loop was working and never showed it, so
+ * "waiting" and "broken" looked identical from the phone. One dot and one line
+ * separate them without asking anyone to read an error.
+ */
+export function chiaveStato(motivo: MotivoPairing | null): string {
+  return motivo === null ? 'pair.state.connected' : 'pair.state.retrying';
+}

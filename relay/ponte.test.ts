@@ -695,4 +695,38 @@ describe("ponte · l'instradamento di prima non si muove", () => {
     expect((await s.chiedi("/i/inst-1")).status).toBe(200);
     expect(s.arrivate[0]!.percorso).toBe("/");
   });
+
+  it("la radice senza biscotto dà a una NAVIGAZIONE una pagina, non un 404 muto", async () => {
+    // Il vicolo cieco: la PWA installata ha `start_url: "/"`, quindi ogni
+    // avvio bussa alla radice, e a dire quale macchina cerchi è solo il
+    // biscotto. Quando quel biscotto non c'è più — scaduto, buttato dal
+    // telefono, PWA reinstallata — qui arrivava `404 not found` in testo
+    // semplice: nessuna app servita, quindi nessun gesto dentro l'app in grado
+    // di rimediare. Visto sul telefono il 21/08/2026.
+    const s = scena();
+    const r = await s.chiedi("/", { headers: { accept: "text/html" } });
+    // Resta un 404 — non c'è nessuna risorsa — ma è LEGGIBILE e ha un'uscita.
+    expect(r.status).toBe(404);
+    expect(r.headers.get("content-type")).toContain("text/html");
+    const html = await r.text();
+    expect(html).toContain("<form");
+    // E non nomina nessuna installazione: il relay resta cieco.
+    expect(html).not.toContain("inst-1");
+  });
+
+  it("…e a chi non sta navigando resta il 404 di prima", async () => {
+    // L'altra direzione, e serve: servire la pagina a tutto vorrebbe dire
+    // rispondere qualcosa a chi fruga, che è ciò che il 404 secco esiste per
+    // non fare. Vale anche per le chiamate dell'app: una `fetch` che riceve
+    // HTML al posto di JSON è un guasto più difficile da leggere.
+    const s = scena();
+    for (const opts of [{}, { method: "POST" }, { headers: { accept: "application/json" } }]) {
+      const r = await s.chiedi("/api/auth/session", opts as RequestInit);
+      // Non HTML, ed è la parte che conta: chi non naviga non deve ricevere
+      // una pagina al posto della propria risposta.
+      expect(`${r.status}/${(r.headers.get("content-type") ?? "").includes("text/html")}`)
+        .toBe("404/false");
+      expect(await r.text()).toBe("not found");
+    }
+  });
 });

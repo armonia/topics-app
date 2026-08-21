@@ -51,6 +51,7 @@
  */
 export { SessioneRelay } from "./relay-do";
 import { PAGINA_OSPITE } from "./pagina-ospite";
+import { PAGINA_SENZA_CASA } from "./pagina-senza-casa";
 import { PERCORSO_PONTE } from "./ponte";
 import { INTESTAZIONE_SEGRETO, segretoCorrisponde } from "../../shared/relay-identita";
 
@@ -183,6 +184,41 @@ export default {
     const m = url.pathname.match(/^\/(agent|s|d)\/([A-Za-z0-9_-]{1,128})$/);
 
     if (!m) {
+      // ── IL VICOLO CIECO CHE STAVA QUI ──────────────────────────────────────
+      //
+      // Si arriva a questa riga anche quando a bussare è l'APP, e succede tutte
+      // le volte che il biscotto non c'è: la PWA installata ha `start_url: "/"`
+      // (`manifest.json`), quindi ogni avvio parte dalla radice. Finché il
+      // biscotto è in vita il ramo sopra la manda a casa sua; quando scade,
+      // quando il telefono lo butta per spazio o per privacy, o quando la PWA
+      // viene reinstallata, resta questo — `404 not found`, in testo semplice,
+      // per SEMPRE. Non c'è nessun gesto dentro l'app che possa rimediare,
+      // perché l'app non è nemmeno stata servita.
+      //
+      // Misurato il 21/08/2026: `GET /` senza cookie → 404, e la schermata sul
+      // telefono restava a «riprovo da solo fra qualche secondo» ritentando un
+      // 404 che non sarebbe mai cambiato.
+      //
+      // Un 404 di testo è la risposta giusta per chi fruga, ed è la risposta
+      // sbagliata per chi sta aprendo la propria app. Le due si distinguono da
+      // ciò che il browser dichiara di volere: una NAVIGAZIONE riceve una
+      // pagina che spiega e offre l'uscita, tutto il resto continua a ricevere
+      // il 404 di prima. Il relay resta cieco: quella pagina non sa niente di
+      // nessuno, non nomina nessuna installazione, e non ne cerca nessuna.
+      const navigazione = req.method === "GET"
+        && (req.headers.get("sec-fetch-dest") === "document"
+          || (req.headers.get("accept") ?? "").includes("text/html"));
+      if (navigazione) {
+        return new Response(PAGINA_SENZA_CASA, {
+          status: 404,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+            "x-robots-tag": "noindex, nofollow",
+            "referrer-policy": "no-referrer",
+          },
+        });
+      }
       // Nessuna pagina, nessun indice: un relay che risponde qualcosa a una
       // richiesta qualunque è un relay che invita a frugare.
       return new Response("not found", { status: 404 });
