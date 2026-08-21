@@ -4,10 +4,9 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, Sparkles, Square, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, Sparkles, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
-import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
 import { MorphText } from '../Shared/MorphText';
 import { ShareControl } from '../Share/ShareControl';
@@ -44,14 +43,15 @@ import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
-import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
+import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { bucketSessionMsgs, EMPTY_SESSION_BUCKETS, type SessionBuckets, type SessionMsg } from './sessionBuckets';
+import { SessionPane, SessionLiveRow } from './SessionPane';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
-import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
+import { useTaskBrowserGroupLayout, sessionPaneId, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
@@ -723,10 +723,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // cambiano con lo stato della card e devono restare uguali a quelle che il
   // de-duplicatore delle risposte rapide sottrae.
   const landWord = taskActionWord('land', tr);
-  // The drawer has its own «Ferma» too, next to the working agent's dots: same
-  // action as the card's context menu and the choice row, therefore the same
-  // word and the same tooltip (which names Backlog, where the task ends up).
-  const stopWord = taskActionWord('stop', tr);
   // Le tab del task, lette QUI e non dalla `browser` più in basso: il manifesto
   // serve a callback definiti molto prima di quel hook.
   const taskTabsState = useTaskBrowserTabs(taskId);
@@ -1633,12 +1629,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   /**
    * The session cut at the comment boundaries, ONE pass per poll.
    *
-   * Every thread row needs the slice above it, and asking for it row by row was
-   * a filter over the whole history per row (200 x N, every 3s) that also
-   * handed each `SessionSlice` a new array even when nothing had moved. The
-   * split now happens once and unchanged buckets keep their array, so a slice
-   * that did not change is reference-equal between polls. `bucketsRef` carries
-   * the previous result in: the memo cannot read its own output.
+   * The cut no longer decides WHERE the steps are drawn (the session pane draws
+   * them whole); it decides where the pane puts a "replied here" mark, which is
+   * the one thing the old interleaved slices carried that a flat transcript
+   * would lose. Unchanged buckets keep their array, so a session that did not
+   * move between two polls hands the pane the same rows and it skips its
+   * render. `bucketsRef` carries the previous result in: the memo cannot read
+   * its own output.
    */
   const bucketsRef = useRef<SessionBuckets>(EMPTY_SESSION_BUCKETS);
   const sessionBuckets = useMemo(
@@ -1646,54 +1643,36 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [sessionMsgs, threadComments],
   );
   useEffect(() => { bucketsRef.current = sessionBuckets; }, [sessionBuckets]);
-  const sliceFor = useCallback(
-    (commentId: string): SessionMsg[] => sessionBuckets.byComment.get(commentId) ?? EMPTY_SESSION_BUCKETS.tail,
-    [sessionBuckets],
-  );
-
-  /**
-   * A run of dispatcher bookkeeping is CUT wherever the agent spoke in the gap
-   * before a row. Session steps render between comments (`SessionSlice`), and a
-   * fold that swallowed those would hide the very speech the fold exists to
-   * surface, so the wall breaks there and the words stay outside it.
-   */
-  const threadBreaksRun = useCallback((c: TaskComment) => (
-    sliceFor(c.id).some((m) => m.role !== 'user')
-  ), [sliceFor]);
+  /** The thread's comment ids in order: the boundaries the session pane draws
+   *  its "replied here" marks against. */
+  const boundaryIds = useMemo(() => threadComments.map((c) => c.id), [threadComments]);
 
   // ── Drawer body = ONE task-scoped GroupLayout ─────────────────────────────
   // Thread, live browser tabs, Piano and each media attachment are all PANES of
   // the app's REAL PaneTabBar (a single tab bar; native split/resize/drag). The
-  // hook owns identity + tiling; the derived (thread/plan/media) pane bodies
-  // render through `renderSurface`. Defined here (after the thread deps:
-  // sliceFor/agentBusy/streamPreview…) so every dep array is in scope.
+  // hook owns identity + tiling; the derived (thread/session/plan/media) pane
+  // bodies render through `renderSurface`. Defined here (after the thread deps:
+  // sessionBuckets/agentBusy/streamPreview…) so every dep array is in scope.
   const browserRef = useRef<TaskBrowserGroupLayout | null>(null);
   const renderThread = useCallback((): React.ReactNode => {
     if (!task) return null;
-    // One row. Its slice is keyed by the comment's OWN id (the bucketing did
-    // the walk), so the row no longer needs its index in `threadComments`.
+    // ONE row = one comment. The agent's steps used to be interleaved above
+    // every row as a collapsed slice; they live in the Session pane now, whole
+    // and open, so the thread is the conversation and nothing else. Nothing is
+    // drawn in the gap above a row any more, which is also why the wall of
+    // bookkeeping no longer needs a cut rule (`breaksRun`).
     const row = (c: TaskComment) => (
-      <div key={c.id} className="space-y-2">
-        {task.assignedTopicId && (
-          <SessionSlice msgs={sliceFor(c.id)} />
-        )}
-        <CommentBubble
-          comment={c}
-          ownerName={ownerName}
-          resolvedParked={isResolvedParkedQuestion(c, children)}
-          onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)}
-        />
-      </div>
+      <CommentBubble
+        key={c.id}
+        comment={c}
+        ownerName={ownerName}
+        resolvedParked={isResolvedParkedQuestion(c, children)}
+        onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)}
+      />
     );
-    // I passaggi di stato adiacenti sono UNA striscia di chip. La fetta di
-    // sessione che sta nel buco sopra il primo resta dov'è: il taglio della
-    // striscia usa lo stesso `breaksRun` del muro di servizio, quindi una
-    // striscia non scavalca mai una parola dell'agent.
+    // Adjacent status transitions are ONE chip strip.
     const statusRun = (cs: TaskComment[]) => (
-      <div className="space-y-2">
-        {task.assignedTopicId && <SessionSlice msgs={sliceFor(cs[0]!.id)} />}
-        <StatusTrail comments={cs} ownerName={ownerName} />
-      </div>
+      <StatusTrail comments={cs} ownerName={ownerName} />
     );
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
@@ -1708,43 +1687,57 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             {tr(emptyThreadKey(task.status))}
           </p>
         )}
-        <ThreadRuns comments={threadComments} breaksRun={threadBreaksRun} renderRow={row} renderStatusRun={statusRun} />
-        {task.assignedTopicId && (
-          <SessionSlice
-            msgs={sessionBuckets.tail}
-            label={agentBusy ? tr('board.task.sessionWorking') : undefined}
-            preview={streamPreview}
-          />
-        )}
+        <ThreadRuns comments={threadComments} renderRow={row} renderStatusRun={statusRun} />
+        {/* THE LIVE ROW STAYS HERE even though the steps left. "How is it
+            going" is asked where you write, and a composer with no sign of life
+            above it reads as an agent that stopped. The preview is one line,
+            not the steps: pressing it brings the Session tab forward, which is
+            where the steps went. */}
         {agentBusy && (
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-2">
-                {[0, 150, 300].map((d) => (
-                  <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
-                ))}
-                <span className="ml-1.5 text-[11px] text-app-text-secondary">
-                  {task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
-                  {task.inProgressAt && task.dispatchState === 'working' && (
-                    <span className="text-app-text-muted"> <Ticker since={task.inProgressAt} /></span>
-                  )}
-                </span>
-              </div>
-              <button
-                disabled={busy} onClick={stopAgent}
-                title={stopWord.title}
-                className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
-              >{busy ? <Spinner size="sm" tone="current" /> : <Square className="h-3 w-3 fill-current" />} {stopWord.label}</button>
-            </div>
-          </div>
+          <SessionLiveRow
+            phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
+            since={task.dispatchState === 'working' ? task.inProgressAt : null}
+            stopping={busy}
+            preview={streamPreview}
+            onStop={() => { void stopAgent(); }}
+            onOpenPane={() => { browserRef.current?.focusPane(sessionPaneId(taskId)); }}
+          />
         )}
         <div ref={bottomRef} />
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
-  }, [task, threadComments, threadBreaksRun, sliceFor, sessionBuckets.tail, agentBusy, streamPreview, busy, tr, ownerName, stopWord.label, stopWord.title]);
+  }, [task, threadComments, agentBusy, streamPreview, busy, tr, ownerName, taskId]);
+
+  /**
+   * The agent session, WHOLE, as the leftmost tab of the task's workspace.
+   *
+   * The live row is repeated here rather than shared with the thread by a ref:
+   * both surfaces can be on screen at once (two columns), and a Stop button
+   * that exists in only one of them is a Stop button you cannot reach from
+   * where you happen to be looking.
+   */
+  const renderSessionPane = useCallback((): React.ReactNode => (
+    <SessionPane
+      buckets={sessionBuckets}
+      boundaryIds={boundaryIds}
+      live={agentBusy && task ? (
+        <SessionLiveRow
+          phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
+          since={task.dispatchState === 'working' ? task.inProgressAt : null}
+          stopping={busy}
+          preview={streamPreview}
+          onStop={() => { void stopAgent(); }}
+        />
+      ) : null}
+    />
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent is stable enough; the meaningful inputs are listed
+  ), [sessionBuckets, boundaryIds, agentBusy, task, tr, busy, streamPreview]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
+    // Session first: it is the task's main surface, and the prefixes are
+    // disjoint, so the order is the statement rather than the routing.
+    if (pane.id.startsWith('session:')) return renderSessionPane();
     if (pane.id.startsWith('thread:')) return renderThread();
     if (pane.id.startsWith('plan:') && planComment)
       return <SurfaceContent surface={{ id: pane.id, kind: 'plan', label: 'Piano', content: planComment.content }} taskId={taskId} />;
@@ -1753,20 +1746,32 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       return <SurfaceContent surface={{ id: pane.id, kind: 'media', label: pane.title || 'Allegato', url: getMediaUrl(p), path: p }} taskId={taskId} />;
     }
     return null;
-  }, [renderThread, planComment, taskId]);
+  }, [renderSessionPane, renderThread, planComment, taskId]);
 
   // The single GroupLayout that IS the drawer body's tab system.
-  // `threadInline` NON è più il modo due colonne: la sessione esce dal gruppo di
-  // tab SEMPRE. Finché era una pane come le altre, aprire l'output del task
-  // (una tab del browser, il piano, un allegato) NASCONDEVA il thread, e
-  // tornare al thread nascondeva l'output: due cose che si leggono insieme si
-  // scambiavano lo stesso rettangolo. Ora la sessione ha la sua sezione — a
-  // sinistra in due colonne, sopra lo Spazio di lavoro in colonna sola — e il
-  // gruppo tiene solo quello che si GUARDA.
-  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface, threadInline: true, openPaneInProject });
-  // Quante pane ha il gruppo, ORA che la sessione non è più una di loro: zero
-  // vuol dire un task senza niente da guardare, e le due colonne e la colonna
-  // sola lo raccontano in due modi diversi (stato vuoto a destra, riga sola).
+  //
+  // `threadInline` stays on: the THREAD (the conversation, with the composer
+  // under it) keeps its own column and never goes back into the tab group.
+  // What the agent DID is a different thing from what you say to it, and it is
+  // the half you look at: `sessionActive` gives it a tab of its own, next to
+  // the browser tabs, the plan and the attachments.
+  //
+  // No topic, no session, no tab: a task that was never dispatched has nothing
+  // to show, and an empty "Sessione" tab would be a surface repeating what the
+  // empty thread already says.
+  const browser = useTaskBrowserGroupLayout(taskId, {
+    planActive: !!planComment,
+    sessionActive: !!task?.assignedTopicId,
+    sessionTitle: tr('board.task.sessionLabel'),
+    mediaPaths,
+    renderSurface,
+    threadInline: true,
+    openPaneInProject,
+  });
+  // How many panes the group has. Zero means a task with nothing to look at,
+  // and the two layouts say so in two different ways (empty state on the right,
+  // a single disabled row in one column). A dispatched task is never zero any
+  // more: the session alone fills it.
   const workspacePaneCount = browser.groupLayoutProps.panes.length;
   const hasWorkspacePanes = workspacePaneCount > 0;
   // Apertura mirata. Va riprovata: al primo render i commenti (e quindi i media,
@@ -2706,18 +2711,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {hasCodeQuestion(task) && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
         </div>
         {/* ── fine del solo scroll verticale ─────────────────────────────── */}
-          {/* "Spazio di lavoro" — il gruppo di tab del task (browser, Piano,
-              allegati: la vera PaneTabBar dell'app). In colonna sola sta QUI,
-              fra il brief e la sessione; in due colonne è la colonna di destra,
-              a piena altezza (sotto).
+          {/* "Spazio di lavoro" — the task's tab group (the agent Session, the
+              browser tabs, the Plan, the attachments: the app's real
+              PaneTabBar). In one column it sits HERE, between the brief and the
+              thread; in two columns it is the right-hand column at full height
+              (below).
 
-              L'ORDINE È IL PUNTO: l'output sopra, la sessione sotto, attaccata
-              al composer. Si legge il thread dove lo si scrive, e quel che si
-              guarda gli sta sopra invece che al posto suo.
+              THE ORDER IS THE POINT: what you look at on top, the thread under
+              it, glued to the composer. You read the conversation where you
+              write it, and what it is about sits above rather than in its place.
 
-              Senza pane il gruppo non è una sezione vuota da guardare: resta la
-              riga con la porta per aprirne una — quanto basta a dire che lo
-              spazio c'è, senza rubare altezza alla sessione. */}
+              WHAT THIS HANDLE CAN NOW HIDE. With the session inside the group,
+              closing this section closes the session too. That is accepted, not
+              overlooked: the thread keeps the live row (phase, ticker, Stop and
+              a one-line preview that reopens the tab), so closing the workspace
+              never hides whether the agent is alive — only its steps.
+
+              With no panes the group is not an empty section to stare at: the
+              row stays, with the door to open one, which is all it takes to say
+              the space exists without stealing height from the thread. */}
           {!twoCol && (
           <div className={`flex min-w-0 flex-col ${workspaceOpen && hasWorkspacePanes ? 'min-h-0 flex-1' : 'shrink-0'}`}>
             <div className="flex w-full shrink-0 items-center gap-1 border-y border-app-border pl-3 pr-1.5">
@@ -2746,18 +2758,22 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
           )}
-          {/* LA SESSIONE — sezione sua, montata SEMPRE, in tutti e due i modi:
-              in due colonne sta a sinistra col task, in colonna sola sotto lo
-              Spazio di lavoro e sopra il composer. Il suo scroll è il suo,
-              fratello del brief: nessuno dei due è dentro l'altro. */}
+          {/* THE THREAD — its own section, mounted ALWAYS, in both layouts: on
+              the left with the task in two columns, under the workspace and
+              above the composer in one. Its scroll is its own, sibling to the
+              brief's: neither is inside the other. */}
           <div className="flex min-h-0 flex-1 flex-col border-t border-app-border" data-testid="task-session-column">
-            {/* L'etichetta esiste perché accanto ce n'è un'altra: senza, «Spazio
-                di lavoro» sembrava il titolo di tutto quel che gli sta intorno.
-                Non è una maniglia — la sessione non si chiude, è la sola cosa
-                del drawer che deve esserci sempre — quindi niente chevron: la
-                forma dice già che non si preme. */}
+            {/* "Discussione", not "Sessione": the word "Sessione" now names the
+                TAB holding what the agent did, and two neighbouring surfaces
+                with the same name tell the reader nothing about which one they
+                are looking at. This is the conversation — what you say and what
+                comes back.
+
+                It is not a handle. The thread never closes: it is the one zone
+                the drawer must always have, because the composer hangs off it.
+                No chevron, so the shape says it is not pressable. */}
             <div className="flex shrink-0 items-center gap-1 border-b border-app-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
-              {tr('board.task.sessionLabel')}
+              {tr('board.task.threadLabel')}
             </div>
             {renderThread()}
           </div>
@@ -3243,82 +3259,6 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
       <span className="shrink-0 text-[11px] text-app-text-faint">
         {new Date(last.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
       </span>
-    </div>
-  );
-}
-
-/** Live "ci sta mettendo" ticker for the current run (anchored server-side). */
-export function Ticker({ since }: { since: string }) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  // eslint-disable-next-line react-hooks/purity -- live ticker: force-re-renders every 1s (interval above) and reads the clock each render on purpose
-  const ms = Date.now() - Date.parse(since);
-  return <>{Number.isFinite(ms) && ms > 0 ? fmtLive(ms) : '0s'}</>;
-}
-
-/**
- * The slice of agent session between two thread comments — the "reasoning"
- * that produced the reply below it. Collapsed to a thin toggle by default
- * (chat-style thinking block); expands inline, read-only, same markdown
- * renderer as the chat. Renders nothing when the interval holds no messages.
- */
-export function SessionSlice({ msgs, label, preview }: {
-  msgs: SessionMsg[];
-  label?: string;
-  /** Live tail of what's streaming NOW — shown on the collapsed block so the
-   *  session strip itself answers "come sta andando" at a glance. */
-  preview?: string | null;
-}) {
-  const tr = useT();
-  const [open, setOpen] = useState(false);
-  // Only the AGENT's turns are "passaggi". Human/dispatcher turns injected into
-  // the session (your steering, the kickoff envelope) are noise here: your side
-  // already shows as comment bubbles in the thread — showing it again as a step
-  // is pure duplication. Hide it.
-  const steps = msgs.filter((m) => m.role !== 'user');
-  if (steps.length === 0 && !preview) return null;
-  return (
-    <div className="rounded-md border border-app-border-subtle bg-white/[0.02]">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        title={open ? tr('board.task.collapse') : tr('board.task.showSteps')}
-        className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-app-text-muted hover:text-app-text-heading"
-      >
-        <Footprints className="h-3 w-3 shrink-0" />
-        <span>{label ?? tr('board.task.steps')}{steps.length > 0 && <span className="text-app-text-faint"> · {steps.length}</span>}</span>
-        <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {!open && preview && (
-        <p
-          data-testid="task-stream-preview"
-          title={tr('board.task.streamPreviewTitle')}
-          className="line-clamp-2 border-t border-app-border-subtle px-2.5 py-1.5 text-[11px] italic leading-snug text-app-text-muted"
-        >…{preview}</p>
-      )}
-      {open && (
-        <div className="max-h-72 space-y-2 overflow-y-auto border-t border-app-border-subtle bg-black/20 px-2.5 py-2">
-          {steps.map((m, i) => (
-            <div key={i} className="space-y-1">
-              {/* Coherent with the real chat: assistant thinking renders through
-                  the SAME ReasoningRow the topic chat uses, then the prose. */}
-              {m.thinking?.trim() && (
-                <ReasoningRow content={m.thinking} />
-              )}
-              {m.content.trim() && (
-                <div className="flex gap-1.5 text-xs leading-relaxed">
-                  <span className="shrink-0 font-semibold text-app-text-muted">⏺</span>
-                  <div className={`min-w-0 flex-1 text-app-text-heading ${COMPACT_MD_CLS}`}>
-                    <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

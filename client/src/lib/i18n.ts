@@ -574,7 +574,6 @@ const IT: Dict = {
   'board.task.addSubtaskPlaceholder': '+ sottotask…',
   'board.task.removeAttachmentTitle': 'Rimuovi allegato',
   'board.task.attachFileTitle': "Allega file (o incolla un'immagine nel campo)",
-  'board.task.sessionWorking': 'Sta lavorando',
   'board.task.land': 'Land',
   'board.task.landQueued': 'in coda',
   'board.task.landQueuedRestOne': ': 1 fusione davanti su questa board (toccano tutte main nello stesso checkout).',
@@ -622,9 +621,6 @@ const IT: Dict = {
   'chat.queue.clear': 'Svuota',
   'chat.queue.clearTitle': 'Butta tutti i messaggi ancora da inviare',
   'board.task.pdfPreviewTitle': 'anteprima PDF',
-  'board.task.collapse': 'Comprimi',
-  'board.task.showSteps': 'Mostra i passaggi che la sessione ha fatto qui',
-  'board.task.steps': 'Passaggi',
   'board.task.serviceNotes': 'righe di servizio',
   'board.task.serviceNotesTitle': 'Contabilità del dispatcher (riavvii, attese in coda, tentativi). Apri per leggerle tutte, in ordine.',
   'board.task.streamPreviewTitle': 'Anteprima live di ciò che sta streammando ora',
@@ -660,9 +656,15 @@ const IT: Dict = {
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
-  // La sessione ha un'etichetta perché ora è una sezione, non una tab: si legge
-  // insieme a quel che le sta sopra invece che al posto suo.
+  // Two surfaces, two names. `sessionLabel` is the TAB holding what the agent
+  // did; `threadLabel` is the column where you read and write to it. They used
+  // to share the word "Sessione", and side by side that told the reader nothing
+  // about which of the two they were looking at.
   'board.task.sessionLabel': 'Sessione',
+  'board.task.threadLabel': 'Discussione',
+  'board.task.sessionReplied': 'qui ha risposto',
+  'board.task.sessionEmpty': 'Ancora nessun passaggio in questa sessione.',
+  'board.task.openSessionPane': 'Apri la sessione nello spazio di lavoro',
   // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
   // brief per cui il drawer si apre (e che ora si chiude da sé).
   'board.task.deliveryLabel': 'Consegna',

@@ -87,3 +87,55 @@ export function bucketSessionMsgs(
   }
   return { byComment, tail: keepStable(placed.slice(p), prev?.tail) };
 }
+
+/**
+ * One block of the session pane: a stretch of agent steps, or the hairline
+ * marking where a thread reply landed between two stretches.
+ */
+export type SessionPaneRow =
+  | { kind: 'steps'; id: string; msgs: SessionMsg[] }
+  | { kind: 'mark'; id: string };
+
+/** Id of the block holding everything after the last comment. */
+export const SESSION_TAIL_ID = 'tail';
+
+/**
+ * The session laid out as ONE continuous read, with the comment boundaries kept
+ * as marks instead of as cuts.
+ *
+ * The drawer used to interleave a collapsed slice above every thread row, so
+ * "where did the agent say this, relative to the replies" was carried by the
+ * layout itself. Reading the session whole is worth more than that placement,
+ * but losing it entirely would flatten a conversation into a transcript, so the
+ * boundary survives as a line the reader can skim past.
+ *
+ * A mark only earns a line BETWEEN two stretches of steps: it is held back
+ * until the next stretch appears, so a run of replies with nothing said in
+ * between collapses to one line, a mark with nothing above it is never opened,
+ * and a mark with nothing after it is never emitted. Without that rule a card
+ * with 28 comments and two agent turns would draw 28 dividers around them.
+ *
+ * Only the agent's turns are steps. Human/dispatcher turns injected into the
+ * session (steering, the kickoff envelope) are the same words the thread shows
+ * as comment bubbles; drawing them again here is pure duplication.
+ */
+export function sessionPaneRows(
+  buckets: SessionBuckets,
+  boundaryIds: readonly string[],
+): SessionPaneRow[] {
+  const rows: SessionPaneRow[] = [];
+  let pendingMark: string | null = null;
+  const addSteps = (id: string, msgs: readonly SessionMsg[]): void => {
+    const steps = msgs.filter((m) => m.role !== 'user');
+    if (steps.length === 0) return;
+    if (pendingMark !== null) rows.push({ kind: 'mark', id: pendingMark });
+    pendingMark = null;
+    rows.push({ kind: 'steps', id, msgs: steps });
+  };
+  for (const id of boundaryIds) {
+    addSteps(id, buckets.byComment.get(id) ?? []);
+    if (rows.length > 0) pendingMark = id;
+  }
+  addSteps(SESSION_TAIL_ID, buckets.tail);
+  return rows;
+}

@@ -66,9 +66,11 @@ export function ServiceFold({ count, children }: { count: number; children: Reac
  * list, which is what the caller needs to find the session steps belonging in the
  * gap above it.
  *
- * `breaksRun` forces a cut before a row even when both sides are bookkeeping.
- * The drawer renders the agent's session steps between comments, and a fold that
- * swallowed those would hide the very speech this exists to surface.
+ * `breaksRun` forces a cut before a row even when both sides are bookkeeping:
+ * the caller passes "something of mine is drawn in the gap above this row", and
+ * a fold that swallowed that gap would hide it. The drawer no longer needs it
+ * (the agent's steps moved into their own pane); it stays because it is the
+ * contract of `groupServiceRuns`, which the server shares.
  */
 export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, renderRow, renderStatusRun }: {
   comments: readonly T[];
@@ -99,8 +101,8 @@ export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, rende
    * A run's children. Without `renderStatusRun` this is the row-per-comment it
    * has always been; with it, adjacent transitions hand themselves to the strip
    * renderer as a group. The cut rule is the SAME `breaksRun` the outer split
-   * uses, so a gap that holds the agent's session steps splits the strip too —
-   * the alternative is a chip strip that quietly spans over speech.
+   * uses, so a gap the caller marked splits the strip too — the alternative is
+   * a chip strip that quietly spans over whatever sits in that gap.
    */
   const bodyOf = (run: { comments: T[]; start: number }): ReactNode[] => {
     if (!renderStatusRun) return run.comments.map((c, k) => renderRow(c, run.start + k));

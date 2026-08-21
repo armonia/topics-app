@@ -112,9 +112,8 @@ describe('the thread folds the bookkeeping and keeps every row', () => {
 
   test('a wall BREAKS where the agent spoke in the gap, so the session steps stay outside', () => {
     const rows = [service('a1'), service('a2'), service('a3'), service('a4')];
-    // "The agent said something in the gap before a3" - in the drawer this is a
-    // SessionSlice, which renders between comments and would otherwise be
-    // swallowed whole by the fold above it.
+    // "The caller draws something of its own in the gap before a3" - whatever
+    // it is, it would otherwise be swallowed whole by the fold above it.
     const html = draw(rows, (_c, i) => i === 2);
     const blocks = folds(html);
     expect(blocks).toHaveLength(2);

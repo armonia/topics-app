@@ -216,9 +216,9 @@ export interface StatusRun<T> {
  * everything else. Same contract as `groupServiceRuns`: order preserved,
  * nothing dropped, concatenating the stretches gives back the input.
  *
- * `breaksRun` cuts BEFORE a row for the same reason it does there — the drawer
- * draws the agent's session steps in the gap above a comment, and a chip strip
- * that swallowed a gap would hide them.
+ * `breaksRun` cuts BEFORE a row for the same reason it does there: the caller
+ * marks a gap that holds something of its own, and a chip strip that swallowed
+ * the gap would hide it.
  */
 export function groupStatusRuns<T extends ThreadComment>(
   comments: readonly T[],
@@ -242,10 +242,9 @@ export function groupStatusRuns<T extends ThreadComment>(
  * note into one pile at the end) is what keeps the fold in its place in the
  * conversation, so the agent's words stay where they happened.
  *
- * `breaksRun` forces a cut BEFORE a row even when both sides are service. The
- * thread interleaves agent session steps between comments, and a fold that
- * swallowed those would hide the very speech this exists to surface: the caller
- * passes "the agent spoke just before this row" and the wall splits there.
+ * `breaksRun` forces a cut BEFORE a row even when both sides are service: the
+ * caller passes "something of mine sits in the gap just before this row", and
+ * the wall splits there instead of swallowing it.
  */
 export function groupServiceRuns<T extends ThreadComment>(
   comments: readonly T[],

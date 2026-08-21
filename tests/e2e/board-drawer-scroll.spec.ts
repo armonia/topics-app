@@ -91,6 +91,7 @@ function tallPng(width: number, height: number): Buffer {
 }
 
 let projectTopicId: string | null = null;
+let sessionTopicId: string | null = null;
 const createdTasks: string[] = [];
 
 async function api(request: import("@playwright/test").APIRequestContext, method: "post" | "patch", path: string, data: unknown) {
@@ -128,6 +129,28 @@ async function seedWorstCaseTask(request: import("@playwright/test").APIRequestC
   // In review PER ULTIMO: è lo stato che fa comparire Approva/Rimanda indietro, cioè i
   // bottoni che questo file esiste per tenere dentro lo schermo.
   await api(request, "patch", `/api/boards/${PROJECT_ID}/tasks/${task.id}`, { status: "review" });
+  return { id: task.id, text };
+}
+
+/**
+ * A LIGHT task in review, bound to a topic that already holds agent steps: the
+ * case the Session tab exists to show.
+ *
+ * Status FIRST, binding second: a PATCH on the task goes through the path that
+ * clears `assigned_topic_id`, so binding first would measure a task that lost
+ * its agent on the way.
+ */
+async function seedDispatchedTask(request: import("@playwright/test").APIRequestContext, topicId: string, step: string) {
+  const text = `Drawer sessione ${Date.now()}`;
+  const task = (await api(request, "post", `/api/boards/${PROJECT_ID}/tasks`, { text })) as { id: string };
+  createdTasks.push(`${PROJECT_ID}:${task.id}`);
+  await api(request, "patch", `/api/boards/${PROJECT_ID}/tasks/${task.id}`, { status: "review" });
+  const bind = await request.post(`${BASE}/api/test/tasks/${task.id}/bind-topic`, { data: { topicId } });
+  expect(bind.ok(), `bind-topic → ${bind.status()}`).toBe(true);
+  // One agent step in the topic's session (`role: assistant`): it is what the
+  // pane has to show, and without it the tab would only prove it exists.
+  const msg = await request.post(`${BASE}/api/topics/${topicId}/system-message`, { data: { content: step } });
+  expect(msg.ok(), `system-message → ${msg.status()}`).toBe(true);
   return { id: task.id, text };
 }
 
@@ -232,6 +255,7 @@ test.describe("Drawer del task — un solo scroll", () => {
       await deleteTask(request, pid, tid);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
+    if (sessionTopicId) await deleteTopic(request, sessionTopicId);
     rmSync(PROJECT_PATH, { recursive: true, force: true });
     if (previewPath) rmSync(previewPath, { force: true });
   });
@@ -445,14 +469,61 @@ test.describe("Drawer del task — un solo scroll", () => {
     // Sorelle e non annidate: la sessione comincia dove finisce l'output, ed è
     // lei quella attaccata al composer.
     expect(sessionBox.y).toBeGreaterThanOrEqual(bodyBox.y + bodyBox.height - 2);
-    // La sessione ha lasciato le tab: dentro il gruppo non c'è più.
+    // The THREAD left the tabs: the column with the composer is not a pane.
     expect(await body.getByTestId("task-session-column").count()).toBe(0);
+    // And a task that was NEVER dispatched has no Session tab: the tab does not
+    // exist empty, because a surface saying "nothing here" repeats what the
+    // empty thread already says.
+    await expect(drawer.getByTestId(`pane-tab-session:${task.id}`)).toHaveCount(0);
 
-    // Chiuso lo Spazio di lavoro la sessione RESTA: è la sola zona del drawer
-    // che non si chiude, ed è il punto di tutta la riorganizzazione.
+    // With the workspace closed the THREAD stays: it is the one zone of the
+    // drawer that does not close, and it is the point of the whole layout. What
+    // the handle CAN now hide is the Session tab (the agent's steps), never the
+    // conversation nor the composer, and the live row (phase, ticker, Stop)
+    // lives on this side.
     await drawer.getByTestId("task-workspace-toggle").click();
     await expect(body).toHaveCount(0);
     await expect(session).toBeVisible();
     expect((await session.boundingBox())!.height).toBeGreaterThan(80);
+  });
+
+  /**
+   * DRAWER-04 — the agent's session IS a tab of the workspace.
+   *
+   * It used to exist only in slivers: a collapsed toggle above every thread
+   * row, re-shut on every 3s poll. The session was in the drawer and unreadable
+   * all the same. This measures the thing that was not there before: a tab in
+   * the bar with the steps inside it, not a screenshot of the drawer.
+   */
+  test("DRAWER-04: la sessione dell'agente e' una tab, con dentro i passaggi", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const topic = await createTopic(page.request, `E2E-Drawer-Session-${Date.now()}`);
+    sessionTopicId = topic.id;
+    const step = `Passaggio dell'agente ${Date.now()}`;
+    const task = await seedDispatchedTask(page.request, topic.id, step);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    await openTaskDrawer(page, task.text);
+
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expandEverySection(page);
+
+    // The tab is there, and it is THIS task's: the id is the persistence key,
+    // so a change of scheme would leave every saved layout pointing at a pane
+    // that no longer exists.
+    const tab = drawer.getByTestId(`pane-tab-session:${task.id}`);
+    await expect(tab).toBeVisible({ timeout: 10000 });
+    await tab.click();
+
+    // …and the session is inside it, not an empty state.
+    const pane = drawer.getByTestId("task-session-pane");
+    await expect(pane).toBeVisible();
+    await expect(pane.getByTestId("task-session-empty")).toHaveCount(0);
+    await expect(pane.getByText(step)).toBeVisible({ timeout: 10000 });
+
+    // The thread stays the place you write: the column is still there, and it
+    // is not the same thing as the tab.
+    await expect(drawer.getByTestId("task-session-column")).toBeVisible();
   });
 });

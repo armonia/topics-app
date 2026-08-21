@@ -20,6 +20,7 @@ import {
   forgetTaskLayout,
   getTaskLayout,
   taskBrowserLayout,
+  canAutoActivateTaskPane,
   type GenId,
   type TaskLayoutState,
 } from './taskBrowserLayout';
@@ -181,21 +182,53 @@ describe('reconcilePanesIntoGroups / syncRowsWithGroups (units)', () => {
     const s = build([P('a')]);                       // group active = browser:a
     const activeBefore = s.groups[0].activePaneId;
     const r = reconcilePanesIntoGroups(
-      s.groups, [P('a'), 'thread:t'], s.focusedGroupId, mkGen(),
-      (id) => id.startsWith('browser:'),
+      s.groups, [P('a'), 'plan:t'], s.focusedGroupId, mkGen(),
+      canAutoActivateTaskPane,
     );
     expect(r.changed).toBe(true);
-    const g = r.groups.find((x) => x.paneIds.includes('thread:t'))!;
-    expect(g.activePaneId).toBe(activeBefore);        // still browser:a, not thread:t
+    const g = r.groups.find((x) => x.paneIds.includes('plan:t'))!;
+    expect(g.activePaneId).toBe(activeBefore);        // still browser:a, not plan:t
   });
   test('shouldActivateOrphan: a browser orphan still activates', () => {
     const s = build([P('a')]);
     const r = reconcilePanesIntoGroups(
       s.groups, [P('a'), P('b')], s.focusedGroupId, mkGen(),
-      (id) => id.startsWith('browser:'),
+      canAutoActivateTaskPane,
     );
     const g = r.groups.find((x) => x.paneIds.includes(P('b')))!;
     expect(g.activePaneId).toBe(P('b'));
+  });
+});
+
+/**
+ * The predicate the drawer actually passes. The tests above used to hand
+ * `reconcilePanesIntoGroups` a copy of the rule written by hand, which proved
+ * the reconcile right and the rule nothing: this exercises the real one.
+ */
+describe('canAutoActivateTaskPane', () => {
+  test('the task conversation and the browser tabs may come forward', () => {
+    expect(canAutoActivateTaskPane('browser:ctx')).toBe(true);
+    expect(canAutoActivateTaskPane('thread:t1')).toBe(true);
+    expect(canAutoActivateTaskPane('session:t1')).toBe(true);
+  });
+  test('a plan or an attachment appearing mid-read may NOT', () => {
+    expect(canAutoActivateTaskPane('plan:t1')).toBe(false);
+    expect(canAutoActivateTaskPane('media:/a/b.png')).toBe(false);
+  });
+  test('a just-dispatched task opens ON the session, not on the plan', () => {
+    // Nothing placed yet: the empty layout mints a group and the LAST orphan
+    // that qualifies wins the active slot. The session is composed before the
+    // plan, so a task delivering both must still land on the session.
+    const s = reconcileTaskLayout(
+      EMPTY_TASK_LAYOUT, ['session:t1', 'plan:t1'], mkGen(), canAutoActivateTaskPane,
+    );
+    expect(s.groups[0].activePaneId).toBe('session:t1');
+  });
+  test('a browser tab born in the same pass still outranks the session', () => {
+    const s = reconcileTaskLayout(
+      EMPTY_TASK_LAYOUT, ['session:t1', P('a')], mkGen(), canAutoActivateTaskPane,
+    );
+    expect(s.groups[0].activePaneId).toBe(P('a'));
   });
   test('syncRowsWithGroups appends an orphan group to a row', () => {
     const groups = [

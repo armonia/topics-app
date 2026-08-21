@@ -48,6 +48,25 @@ export interface TaskLayoutState {
 
 export const EMPTY_TASK_LAYOUT: TaskLayoutState = { groups: [], rows: [], rowHeights: [], focusedGroupId: null };
 
+/**
+ * Which freshly-appeared pane of a task drawer may claim its group's active
+ * slot when reconcile places it.
+ *
+ * A browser tab (agent-opened, or seeded from the delivered output_url) should
+ * surface, and so should the two panes that ARE the task's own conversation —
+ * the thread and the agent session: on a task that was just dispatched they are
+ * the reason the drawer is open. A plan or an attachment arriving mid-read must
+ * NOT yank the reader off what they are looking at.
+ *
+ * It lives here, next to the reconcile that obeys it, because it is the part
+ * that can be wrong in silence: the hook that passes it is a component tree no
+ * unit test can mount, so a copy of the rule written inside a test would prove
+ * only that the copy is right.
+ */
+export function canAutoActivateTaskPane(paneId: string): boolean {
+  return paneId.startsWith('browser:') || paneId.startsWith('thread:') || paneId.startsWith('session:');
+}
+
 /** Injected group-id generator (default = the app's real one); overridable so
  *  the pure reducers are deterministic under test. */
 export type GenId = () => string;

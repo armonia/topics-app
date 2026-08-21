@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { bucketSessionMsgs, type SessionBoundary, type SessionMsg } from './sessionBuckets';
+import { bucketSessionMsgs, sessionPaneRows, type SessionBoundary, type SessionMsg } from './sessionBuckets';
 
 const msg = (timestamp: string, role = 'assistant', content = timestamp): SessionMsg => ({ role, content, timestamp });
 const at = (id: string, createdAt: string): SessionBoundary => ({ id, createdAt });
@@ -87,5 +87,58 @@ describe('bucketSessionMsgs', () => {
     const boundaries = Array.from({ length: 28 }, (_, i) => at(`c${i}`, `2026-01-01T10:${String(i * 2).padStart(2, '0')}:00.000Z`));
     bucketSessionMsgs(msgs, boundaries);
     expect(reads).toBeLessThan(8 * (msgs.length + boundaries.length));
+  });
+});
+
+describe('sessionPaneRows', () => {
+  const buckets = (msgs: SessionMsg[], bs: SessionBoundary[]) => bucketSessionMsgs(msgs, bs);
+
+  it('draws the session whole when the thread has no comments', () => {
+    const rows = sessionPaneRows(buckets([msg('2026-01-01T10:00:00.000Z'), msg('2026-01-01T10:05:00.000Z')], []), []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.kind).toBe('steps');
+    expect(rows[0]!.kind === 'steps' && rows[0]!.msgs).toHaveLength(2);
+  });
+
+  it('marks the boundary BETWEEN two stretches of steps', () => {
+    const bs = [at('c1', '2026-01-01T10:05:00.000Z')];
+    const rows = sessionPaneRows(
+      buckets([msg('2026-01-01T10:00:00.000Z'), msg('2026-01-01T10:20:00.000Z')], bs),
+      ['c1'],
+    );
+    expect(rows.map((r) => r.kind)).toEqual(['steps', 'mark', 'steps']);
+    expect(rows[1]!.id).toBe('c1');
+  });
+
+  // A card with 28 comments and two agent turns must not draw 28 dividers: a
+  // mark is a separator, and a separator with nothing on one side separates
+  // nothing.
+  it('never opens or closes on a mark, and collapses a run of them', () => {
+    const bs = [
+      at('c1', '2026-01-01T09:00:00.000Z'),   // before anything was said
+      at('c2', '2026-01-01T10:10:00.000Z'),
+      at('c3', '2026-01-01T10:11:00.000Z'),   // adjacent replies, nothing between
+      at('c4', '2026-01-01T11:00:00.000Z'),   // after the last word
+    ];
+    const rows = sessionPaneRows(
+      buckets([msg('2026-01-01T10:00:00.000Z'), msg('2026-01-01T10:30:00.000Z')], bs),
+      ['c1', 'c2', 'c3', 'c4'],
+    );
+    expect(rows.map((r) => r.kind)).toEqual(['steps', 'mark', 'steps']);
+    // The LAST boundary crossed before the agent spoke again is the one drawn.
+    expect(rows[1]!.id).toBe('c3');
+  });
+
+  it('drops the human turns injected into the session: the thread already shows them', () => {
+    const rows = sessionPaneRows(
+      buckets([msg('2026-01-01T10:00:00.000Z', 'user'), msg('2026-01-01T10:05:00.000Z')], []),
+      [],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.kind === 'steps' && rows[0]!.msgs.map((m) => m.role)).toEqual(['assistant']);
+  });
+
+  it('is empty when the agent has said nothing yet', () => {
+    expect(sessionPaneRows(bucketSessionMsgs(null, [at('c1', '2026-01-01T10:00:00.000Z')]), ['c1'])).toEqual([]);
   });
 });
