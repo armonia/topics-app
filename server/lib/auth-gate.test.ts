@@ -532,3 +532,25 @@ describe("nome di rete a un'etichetta sola", () => {
     expect(isAllowedHost("topics.attacker.com:3333")).toBe(false);
   });
 });
+
+describe("FQDN col punto finale", () => {
+  /**
+   * Bonjour e i resolver di iOS producono la forma con il punto in coda. Senza
+   * normalizzarla il proprio nome di rete non veniva riconosciuto: e' lo stesso
+   * 403 che questo gate esiste per NON dare.
+   */
+  it("riconosce i nostri nomi anche pienamente qualificati", () => {
+    expect(isAllowedHost("macbook-pro-di-attilio.local.")).toBe(true);
+    expect(isAllowedHost("macbook-pro-di-attilio.local.:3333")).toBe(true);
+    expect(isAllowedHost("mac.tail1234.ts.net.")).toBe(true);
+  });
+
+  it("non regala niente a un nome forestiero", () => {
+    expect(isAllowedHost("evil.com.")).toBe(false);
+    expect(isAllowedHost("macbook.local.evil.com.")).toBe(false);
+  });
+
+  it("un'origine dichiarata vale anche col punto", () => {
+    expect(isAllowedHost("topics.esempio.io.", ["https://topics.esempio.io"])).toBe(true);
+  });
+});

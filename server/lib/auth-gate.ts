@@ -164,6 +164,16 @@ export function canonHost(raw: string | null | undefined): string | null {
   // sempre un buco: qui si chiude prima di tutto il resto.
   if (h === LOCAL_CLASS) return null;
 
+  // IL PUNTO FINALE E' LA STESSA CASA.
+  //
+  // `macbook-pro-di-attilio.local.` e `macbook-pro-di-attilio.local` sono lo
+  // stesso nome: il punto in coda e' la forma pienamente qualificata, e Bonjour
+  // e i resolver di iOS la producono da soli. Senza toglierlo, `endsWith(".local")`
+  // non riconosce la propria macchina e il telefono si prende un 403 sul nome
+  // che la rete gli ha appena dato. Non allarga niente: `evil.com.` normalizza
+  // in `evil.com`, che resta fuori.
+  if (h.endsWith(".") && h.length > 1) h = h.slice(0, -1);
+
   // I nomi `127.…` collassano in `#local` SOLO se sono davvero un letterale
   // d'indirizzo. Senza questa condizione bastava un nome DNS che COMINCIA per
   // `127.` — `127.0.0.1.nip.io`, `127.pwn.evil.com`, entrambi registrabili e
