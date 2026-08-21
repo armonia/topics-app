@@ -1114,6 +1114,8 @@ const EN = {
   'plan.checkoutErr.upstream_error': 'The payment service answered badly. Try again shortly.',
   'plan.checkoutErr.unreachable': 'We cannot reach the payment service. Nothing changes here.',
   'auth.err.generic': 'That did not work. Try again.',
+  'auth.err.host_not_allowed':
+    'This address is not allowed. Open Topics using the Mac network name (topics.local, for example) or its IP address.',
   'auth.err.db_unavailable': 'This installation does not have the tables this action needs yet.',
   'auth.err.unknown_device': 'That device no longer exists, or it was revoked.',
   'auth.err.device_not_guest': 'That device already sees everything: it is yours, not a guest’s.',

@@ -62,8 +62,17 @@ export function attesaRiprova(tentativi: number): number {
  * `/api/auth/**` follows (`shared/auth-codes.ts`). An unknown or missing code
  * falls back to the generic phrase rather than to silence.
  */
-export function motivoDaRisposta(corpo: { error?: string } | null | undefined): MotivoPairing {
-  return { codice: chiaveErroreAuth(corpo?.error) };
+export function motivoDaRisposta(
+  corpo: { error?: string; code?: string } | null | undefined,
+): MotivoPairing {
+  // `code` BEFORE `error`, and this is the defect that made the screen say
+  // "that did not work" on a refusal the server could explain. The contract
+  // above says "the server states the reason as a CODE": the code is in `code`,
+  // while `error` carries the prose. Reading `error`, no gate refusal ever
+  // found its phrase, because "host not allowed" is not a code. `error` stays
+  // as the fallback for the API points that still put the code there, and for
+  // a server older than this interface.
+  return { codice: chiaveErroreAuth(corpo?.code ?? corpo?.error) };
 }
 
 /**

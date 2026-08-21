@@ -164,14 +164,14 @@ export function canonHost(raw: string | null | undefined): string | null {
   // sempre un buco: qui si chiude prima di tutto il resto.
   if (h === LOCAL_CLASS) return null;
 
-  // IL PUNTO FINALE E' LA STESSA CASA.
+  // A TRAILING DOT IS THE SAME HOUSE.
   //
-  // `macbook-pro-di-attilio.local.` e `macbook-pro-di-attilio.local` sono lo
-  // stesso nome: il punto in coda e' la forma pienamente qualificata, e Bonjour
-  // e i resolver di iOS la producono da soli. Senza toglierlo, `endsWith(".local")`
-  // non riconosce la propria macchina e il telefono si prende un 403 sul nome
-  // che la rete gli ha appena dato. Non allarga niente: `evil.com.` normalizza
-  // in `evil.com`, che resta fuori.
+  // `macbook-pro-di-attilio.local.` and `macbook-pro-di-attilio.local` are one
+  // name: the trailing dot is the fully qualified form, and Bonjour and the iOS
+  // resolvers produce it on their own. Without stripping it `endsWith(".local")`
+  // does not recognise our own machine, and the phone gets a 403 on the very
+  // name the network just handed it. It widens nothing: `evil.com.` normalises
+  // to `evil.com`, which stays out.
   if (h.endsWith(".") && h.length > 1) h = h.slice(0, -1);
 
   // I nomi `127.…` collassano in `#local` SOLO se sono davvero un letterale
@@ -305,17 +305,17 @@ export function isAllowedHost(host: string | null | undefined, allowedOrigins: r
   if (h === LOCAL_CLASS) return true;
   if (isIpLiteral(h)) return true;
   if (h.endsWith(".local") || h.endsWith(".ts.net")) return true;
-  // NOME A UN'ETICHETTA SOLA (`topics:3333`, `macbook-pro-di-attilio:3333`).
+  // A SINGLE-LABEL NAME (`topics:3333`, `macbook-pro-di-attilio:3333`).
   //
-  // Il rebinding ha bisogno di un nome che l'attaccante possa registrare nel DNS
-  // PUBBLICO e ri-puntare su 127.0.0.1: un nome pubblico ha sempre un punto.
-  // Un'etichetta sola non e' registrabile la' fuori — risolve solo perche' la
-  // risolve la rete di chi chiede: MagicDNS di Tailscale, il DNS del router, un
-  // suffisso di ricerca, /etc/hosts. E' la stessa fiducia che diamo gia' a
-  // `.local`, e senza questa riga il 403 colpiva il nome di rete della propria
-  // macchina: misurato il 21/08 su un telefono in LAN e su Tailscale, con
-  // `POST /api/auth/pair/request` respinto e la PWA che diceva soltanto «non ci
-  // e' riuscito», cioe' il caso che il commento qui sopra dice di voler evitare.
+  // Rebinding needs a name the attacker can register in PUBLIC DNS and re-point
+  // at 127.0.0.1, and a public name always has a dot. A single label cannot be
+  // registered out there: it resolves only because the caller's own network
+  // resolves it — Tailscale MagicDNS, the router's DNS, a search suffix,
+  // /etc/hosts. Same trust we already grant `.local`. Without this line the 403
+  // hit the machine's own network name: measured on 2026-08-21 from a phone on
+  // LAN and on Tailscale, `POST /api/auth/pair/request` refused and the PWA
+  // saying only "that did not work" — the exact case the comment above says
+  // this rule exists to avoid.
   if (!h.includes(".")) return true;
   for (const o of allowedOrigins) {
     // Si accetta sia l'origine intera (`https://tunnel.example`, la forma

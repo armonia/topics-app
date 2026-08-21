@@ -43,6 +43,16 @@ export const CODICI_AUTH = [
   // il fatto no: questa installazione non ha ancora la tabella.
   'db_unavailable',
 
+  // ── The address you are calling from is not one of the allowed ones.
+  //
+  // The anti-rebinding gate looks at `Host`, and the refusal arrived as
+  // `code: "forbidden"` with the prose in `error`. The phone read the prose,
+  // did not find it in this list and fell back to the generic phrase: on
+  // 2026-08-21 a pairing from the PWA said only "that did not work" while the
+  // server knew exactly why. Its own code, so the phrase can say what to do
+  // instead of suggesting another try.
+  'host_not_allowed',
+
   // ── I SOGGETTI di una condivisione.
   'unknown_device',
   /** Non è un ospite: vede già tutto, e «condividere» con lui non limita niente. */

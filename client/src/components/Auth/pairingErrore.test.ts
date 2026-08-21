@@ -140,3 +140,27 @@ describe('pairing · ogni provenienza ha una frase, in entrambe le lingue', () =
     expect(new Set(chiaviDelCatalogo()).has('pair.origin.ignota')).toBe(false);
   });
 });
+
+describe('il motivo viene dal CODICE, non dalla prosa', () => {
+  /**
+   * The anti-rebinding gate replies `{error:"host not allowed",
+   * code:"host_not_allowed"}`. Reading `error`, the screen fell back to the
+   * generic phrase — "that did not work" — on a refusal the server could
+   * explain: exactly what the phone showed on 2026-08-21 for the whole time
+   * pairing was stuck.
+   */
+  test('legge `code` quando ci sono entrambi', () => {
+    expect(motivoDaRisposta({ error: 'host not allowed', code: 'host_not_allowed' }))
+      .toEqual({ codice: 'auth.err.host_not_allowed' });
+  });
+
+  test('senza `code` ripiega su `error`, per un server più vecchio', () => {
+    expect(motivoDaRisposta({ error: 'unknown_device' }))
+      .toEqual({ codice: 'auth.err.unknown_device' });
+  });
+
+  test('la prosa da sola resta generica: non è un codice', () => {
+    expect(motivoDaRisposta({ error: 'host not allowed' }))
+      .toEqual({ codice: 'auth.err.generic' });
+  });
+});

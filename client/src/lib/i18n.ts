@@ -1349,6 +1349,8 @@ const IT: Dict = {
   // titolo inglese. `client/src/lib/authErrors.test.ts` fa rosso se un
   // codice arriva senza la sua frase in ENTRAMBE le lingue.
   'auth.err.generic': 'Non è riuscito. Riprova.',
+  'auth.err.host_not_allowed':
+    "Questo indirizzo non è ammesso. Apri Topics con il nome di rete del Mac (per esempio topics.local) o con il suo indirizzo IP, non con un nome inventato dal browser.",
   'auth.err.db_unavailable': 'Questa installazione non ha ancora le tabelle che servono a questo gesto.',
   'auth.err.unknown_device': 'Quel dispositivo non esiste più, o è stato revocato.',
   'auth.err.device_not_guest': 'Quel dispositivo vede già tutto: è tuo, non di un ospite.',

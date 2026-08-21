@@ -2696,10 +2696,10 @@ const opzioniServer = {
         identity,
       });
       if (!decision.allow) {
-        // Il valore RIFIUTATO, non solo l'asse. «host not allowed» senza dire
-        // QUALE host manda a leggere il codice per indovinarlo: successo il
-        // 21/08 su un pairing dal telefono, con l'allowlist che dal log
-        // sembrava giusta e il telefono che mandava un nome che non c'era.
+        // The REFUSED value, not just the axis. "host not allowed" without
+        // saying WHICH host sends you to read the code and guess: it happened
+        // on 2026-08-21 on a pairing from the phone, with an allowlist that
+        // looked right in the log and a phone sending a name that was not in it.
         if (isApiRequest) {
           const dettaglio = decision.reason === "host not allowed"
             ? ` (host="${req.headers.get("host") ?? ""}")`
@@ -2713,7 +2713,13 @@ const opzioniServer = {
         // quello che il client decide se aprire la schermata di appaiamento o
         // limitarsi a segnalare. Un 401 muto era il difetto per cui il pairing
         // precedente non e' mai servito a nessuno.
-        return new Response(JSON.stringify({ error: decision.reason, code: decision.code ?? "forbidden" }), {
+        // The host axis gets its OWN code. With `forbidden` the phrase the
+        // phone shows is the generic one, and the reason — the address it is
+        // calling from — stays in the prose of `error`, which the interface
+        // does not translate. See `shared/auth-codes.ts`.
+        const codiceRifiuto = decision.code
+          ?? (decision.reason === "host not allowed" ? "host_not_allowed" : "forbidden");
+        return new Response(JSON.stringify({ error: decision.reason, code: codiceRifiuto }), {
           status: decision.status,
           headers: { "content-type": "application/json", ...(o ? { "Access-Control-Allow-Origin": o, Vary: "Origin" } : {}) },
         });

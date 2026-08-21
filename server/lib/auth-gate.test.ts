@@ -209,10 +209,10 @@ describe("auth-gate · isAllowedHost", () => {
       "topics.esempio.io",                       // non dichiarato ⇒ non nostro
       "macbook.local.evil.com", "mac.ts.net.evil.com",
       "ts.net",                                  // il suffisso NUDO non è un nostro nome
-      // `local` non sta piu' qui: da quando un'etichetta sola passa (nome di
-      // rete della propria macchina, MagicDNS, /etc/hosts) `local` e' un nome
-      // come `topics`, e per la stessa ragione — nel DNS pubblico non esiste.
-      // `ts.net` invece il punto ce l'ha, quindi resta registrabile e resta no.
+      // `local` is no longer here: since a single label passes (own network
+      // name, MagicDNS, /etc/hosts), `local` is a name like `topics`, and for
+      // the same reason — it does not exist in public DNS. `ts.net` does have a
+      // dot, so it stays registrable and stays out.
       "999.1.1.1",                               // sembra un IP, non lo è
     ]) {
       expect(`${h}→${isAllowedHost(h)}`).toBe(`${h}→false`);
@@ -516,9 +516,9 @@ describe("origine · l'asse che da curl non si vede", () => {
 
 describe("nome di rete a un'etichetta sola", () => {
   /**
-   * Il 403 sul proprio nome di rete e' il guasto che questa regola esiste per
-   * evitare, e ci cadeva: da un telefono in LAN o su Tailscale il Host e' il
-   * nome corto della macchina, senza punti, e non era nell'allowlist.
+   * A 403 on your own network name is the fault this rule exists to prevent,
+   * and it was happening: from a phone on LAN or on Tailscale the Host is the
+   * machine's short name, dot-free, and it was not in the allowlist.
    */
   it("accetta un nome senza punti, con e senza porta", () => {
     expect(isAllowedHost("macbook-pro-di-attilio")).toBe(true);
@@ -535,9 +535,9 @@ describe("nome di rete a un'etichetta sola", () => {
 
 describe("FQDN col punto finale", () => {
   /**
-   * Bonjour e i resolver di iOS producono la forma con il punto in coda. Senza
-   * normalizzarla il proprio nome di rete non veniva riconosciuto: e' lo stesso
-   * 403 che questo gate esiste per NON dare.
+   * Bonjour and the iOS resolvers produce the trailing-dot form. Without
+   * normalising it our own network name was not recognised: the same 403 this
+   * gate exists NOT to give.
    */
   it("riconosce i nostri nomi anche pienamente qualificati", () => {
     expect(isAllowedHost("macbook-pro-di-attilio.local.")).toBe(true);
