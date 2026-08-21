@@ -141,7 +141,10 @@ export function PairingApproval() {
             </button>
           </div>
 
-          {altrui?.id === r.id ? (
+          {/* The exact twin of the defect in `DevicesSection`: with the state
+              at null and a missing `r.id` the comparison is true and the line
+              below dereferences it. Check the object first, then the id. */}
+          {altrui && altrui.id === r.id ? (
             <div className="mt-2 flex gap-1.5">
               <input
                 autoFocus
