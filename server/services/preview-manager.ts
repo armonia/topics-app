@@ -34,6 +34,20 @@
 import { join } from "path";
 import net from "net";
 
+/**
+ * Every note about the preview opens with this, and that is what makes them ONE
+ * slot instead of a pile.
+ *
+ * The manager runs again on every review transition and on every comment with
+ * attachments, and each run appended a new note. Worse, the screenshot always
+ * writes the same file (`<taskId8>.png`), so the OLD notes ended up showing the
+ * NEW image: the thread did not just grow, it lied about what the card looked
+ * like at the time. One shared prefix lets the store replace the previous note
+ * instead of stacking another, which is why all four messages start with it,
+ * the failures included.
+ */
+export const PREFISSO_NOTA_ANTEPRIMA = "Anteprima:";
+
 /** The task's branch worktree — the cwd the preview server runs in. */
 export interface PreviewWorktree {
   id: string;
@@ -118,7 +132,9 @@ export interface PreviewManagerDeps {
    * comportamento di prima.
    */
   retirePreview?(taskId: string, reason: string): void;
-  /** Add a `review-note` comment (does NOT wake the agent). */
+  /** Add a `review-note` comment (does NOT wake the agent).
+   *  `sostituisce`: a content prefix whose previous notes (same author, same
+   *  kind) are removed before writing, so a state note is ONE slot, not a pile. */
   /**
    * Una riga nel thread della card.
    *
@@ -128,7 +144,7 @@ export interface PreviewManagerDeps {
    * frase può essere una scoperta o una condizione strutturale — vedi
    * `prepareForReview`.
    */
-  addReviewNote(taskId: string, args: { content: string; media?: string[]; kind?: "review-note" | "service" }): void;
+  addReviewNote(taskId: string, args: { content: string; media?: string[]; kind?: "review-note" | "service"; sostituisce?: string }): void;
   /** Surface the preview in the Processes panel (Stop button + logs). Optional. */
   registerProcess?(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void;
   unregisterProcess?(taskId: string): void;
@@ -552,9 +568,10 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         // adesso non risponde, quella è una notizia e resta in evidenza.
         deps.addReviewNote(taskId, {
           kind: nostro ? "service" : "review-note",
+          sostituisce: PREFISSO_NOTA_ANTEPRIMA,
           content: nostro
-            ? `Anteprima non allegata: ${url} ${why}. Il worktree probabilmente non ha un bundle costruito (\`cd client && bun run build\`).`
-            : `⚠️ Nessuna anteprima allegata: ${url} ${why}. ` +
+            ? `${PREFISSO_NOTA_ANTEPRIMA} non allegata. ${url} ${why}. Il worktree probabilmente non ha un bundle costruito (\`cd client && bun run build\`).`
+            : `${PREFISSO_NOTA_ANTEPRIMA} ⚠️ nessuna evidenza allegata. ${url} ${why}. ` +
               "Un'evidenza falsa è peggio di nessuna evidenza. Se il worktree serve un bundle, costruiscilo (`cd client && bun run build`) e allega tu l'anteprima.",
         });
         return;
@@ -570,9 +587,16 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
 
       if (shot) {
         try { deps.setPreviewImage(taskId, outPath); } catch (err) { log(`[preview] setPreviewImage failed for ${taskId}`, err); }
-        deps.addReviewNote(taskId, { content: `Anteprima viva pronta: ${url}`, media: [outPath] });
+        deps.addReviewNote(taskId, {
+          content: `${PREFISSO_NOTA_ANTEPRIMA} viva e pronta su ${url}`,
+          media: [outPath],
+          sostituisce: PREFISSO_NOTA_ANTEPRIMA,
+        });
       } else {
-        deps.addReviewNote(taskId, { content: `Anteprima viva su ${url} (screenshot non catturato).` });
+        deps.addReviewNote(taskId, {
+          content: `${PREFISSO_NOTA_ANTEPRIMA} viva su ${url}, screenshot non catturato.`,
+          sostituisce: PREFISSO_NOTA_ANTEPRIMA,
+        });
       }
     } catch (err) {
       log(`[preview] prepareForReview failed for ${taskId}`, err);

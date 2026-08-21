@@ -1590,10 +1590,10 @@ previewManager = createPreviewManager({
       ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
     } catch (err) { console.error("[preview] setPreviewImage", err); }
   },
-  addReviewNote: (taskId, { content, media, kind }) => {
+  addReviewNote: (taskId, { content, media, kind, sostituisce }) => {
     const projectId = dispatcherSvc.get(taskId)?.task.projectId;
     try {
-      dispatcherSvc.addComment({ taskId, author: "verifier", content, media, projectId, kind: kind ?? "review-note" });
+      dispatcherSvc.addComment({ taskId, author: "verifier", content, media, projectId, kind: kind ?? "review-note", sostituisce });
       const t = dispatcherSvc.get(taskId)?.task;
       if (t) ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
     } catch (err) { console.error("[preview] addReviewNote", err); }
