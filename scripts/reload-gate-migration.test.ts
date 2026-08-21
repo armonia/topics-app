@@ -17,7 +17,7 @@
  * Il cancello NON tocca il DB vivo: tutte le prove usano una copia.
  */
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync } from "fs";
+import { readdirSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { Database } from "bun:sqlite";
@@ -168,21 +168,37 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     });
     daPulire.push(dir);
 
-    // Creiamo una dir fake-bin con uno stub sqlite3 che NON ESISTE,
-    // e un bun reale ri-esportato. In cima al PATH ci mette solo questa dir +
-    // la dir di bun, escludendo /usr/bin dove sqlite3 e' installato.
+    /* IL PATH VERO, MENO `sqlite3`. Uno specchio, non una lista scritta a mano.
+     *
+     * Due versioni precedenti hanno sbagliato lo stesso bersaglio in due modi, e
+     * il test passava comunque:
+     *  1. togliere `/usr/bin` e tenere `/bin`. Su macOS nasconde `sqlite3`; su
+     *     Ubuntu no, perche' con usrmerge `/bin` E' `/usr/bin`. Verde qui, rosso
+     *     solo su Linux, ed e' il rosso che questo commit chiude.
+     *  2. elencare i comandi che il cancello usa. La lista dimenticava `cp`, e
+     *     il cancello moriva su «impossibile copiare il DB» PRIMA di arrivare a
+     *     `sqlite3`: usciva 0 per il motivo sbagliato, cioe' il test verde non
+     *     provava piu' niente.
+     *
+     * Specchiare tutto il PATH e togliere una sola cosa non ha nessuna delle due
+     * debolezze: non si puo' dimenticare un comando, e non dipende da come una
+     * distribuzione dispone le sue cartelle. */
     const fakeBin = mkdtempSync(join(tmpdir(), "fake-bin-"));
     daPulire.push(fakeBin);
-    // nessun sqlite3 in fake-bin: lo omettiamo deliberatamente
-
-    // Copia il bun reale in fake-bin cosi' e' disponibile senza /usr/bin.
-    const bunReal = Bun.which("bun") ?? "";
-    if (bunReal) {
-      try { symlinkSync(bunReal, join(fakeBin, "bun")); } catch {}
+    for (const d of (process.env.PATH ?? "").split(":").filter(Boolean)) {
+      let voci: string[];
+      try { voci = readdirSync(d); } catch { continue; }
+      for (const nome of voci) {
+        if (nome === "sqlite3") continue;
+        try { symlinkSync(join(d, nome), join(fakeBin, nome)); } catch { /* prima occorrenza vince, come il PATH */ }
+      }
     }
+    // La precondizione E' il test: senza, un `sqlite3` sfuggito lo renderebbe
+    // verde senza provare nulla, che e' gia' successo due volte.
+    expect(Bun.which("sqlite3", { PATH: fakeBin })).toBeNull();
+    expect(Bun.which("cp", { PATH: fakeBin })).not.toBeNull();
 
-    // PATH: solo fake-bin + /bin (shell comandi base), NO /usr/bin → no sqlite3.
-    const fakePath = [fakeBin, "/bin"].join(":");
+    const fakePath = fakeBin;
 
     const { code } = eseguiCancello(dir, { PATH: fakePath });
     // Il cancello non può verificare: non blocca (exit 0)
