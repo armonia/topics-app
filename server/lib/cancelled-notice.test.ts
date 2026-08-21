@@ -77,9 +77,11 @@ describe("cancelledNotice — chi merita una spiegazione in chat", () => {
     expect(wd).not.toBe(wc);
   });
 
-  test("il riconoscitore segue i cartelli anche quando cambiano parola", () => {
-    // The guarantee the derivation buys: none of our three causes can stop
-    // being recognised because someone reworded the text.
+  test("ogni cartello che scriviamo OGGI e' riconosciuto: la lista non resta indietro", () => {
+    // The list of recognised openings is explicit, because rows already in the
+    // database carry OLDER wordings and a derived list would stop matching them.
+    // THIS is what keeps it honest: reword a notice without adding the entry and
+    // this goes red, instead of turns silently never restarting.
     for (const cause of ["server-shutdown", "watchdog", "wall-clock"] as const) {
       const testo = cancelledNotice({ end: "cancelled", cause });
       expect(testo).not.toBeNull();

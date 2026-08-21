@@ -161,24 +161,31 @@ export function eCartelloDiInterruzione(testo: string | null | undefined): boole
  * with no declared cause) stays OUT, for the same reason
  * `meritaRipresaAutomatica` excludes it: you do not guess who cancelled.
  */
-const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as const;
+export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as const;
 
 /**
- * The recognised openings, DERIVED from the real notices instead of copied.
+ * The recognised openings. An EXPLICIT list, and it has to be.
  *
- * These were three hand-written strings sitting next to the three
- * `cancelledNotice` produces. Two copies of the same sentence in two places
- * drift, and drifting here means auto-resume STOPS RECOGNISING a turn it should
- * resume: no error, no red, just turns that never restart. It happened on
- * 2026-08-21 while rewording the cap's notice (which had stopped being true);
- * the test caught it, but only because the test existed.
+ * Deriving it from `cancelledNotice` looks cleaner and is wrong: rows already in
+ * the database carry OLDER wordings of the same notice, and a list derived from
+ * today's text stops recognising yesterday's. Auto-resume would quietly skip
+ * every turn interrupted before the last rewrite. So history stays written here,
+ * and entries are only ever ADDED.
  *
- * Deriving them means a wording change in `cancelledNotice` updates the
- * recogniser too. The 48-character cut is a prefix: it keeps the sentence
- * recognisable without tying it to the trailing punctuation, which is the part
- * that changes most often.
+ * What keeps this list honest is not the list, it is the test next to it: it
+ * asserts that every notice `cancelledNotice` produces today is recognised. That
+ * is the check that caught the 2026-08-21 rewording, when the cap stopped
+ * counting elapsed time and its sentence had to change. Without that test the
+ * only symptom would have been turns that silently never restart.
+ *
+ * Prefixes stop at the stable part of each sentence, before the tail that gets
+ * reworded.
  */
-const CARTELLI_RIPRENDIBILI: readonly string[] = CAUSE_NOSTRE.map((cause) => {
-  const testo = cancelledNotice({ end: "cancelled", cause } as TurnEndInfo) ?? "";
-  return testo.trim().replace(/^⚠️\s*/, "").slice(0, 48);
-});
+const CARTELLI_RIPRENDIBILI = [
+  "Turno interrotto: il server si è riavviato",
+  "Turno interrotto: il processo dell'agente non dava più segni di vita",
+  // Wording up to 2026-08-21, when the cap counted elapsed time.
+  "Turno interrotto: ha superato il limite di tempo",
+  // From 2026-08-21: the cap counts silence, so the sentence had to say so.
+  "Turno interrotto: era fermo da troppo",
+] as const;
