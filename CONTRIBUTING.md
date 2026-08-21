@@ -481,6 +481,38 @@ non si pone.
 - Use existing patterns in the codebase
 - No unused variables (prefix with `_` if intentionally unused)
 
+### Language: the code is English, comments included
+
+Identifiers, strings and **comments** are written in English. Two gates enforce
+it, and both are ratchets rather than absolute bars, because the tree carries a
+large debt from before the rule:
+
+| Gate | What it guards | Baseline |
+|---|---|---|
+| `bun run check:ui-language` | Hard-coded Italian in text a person reads (JSX, `title`/`aria-label`/`placeholder`/`alt`, server error payloads) | `scripts/ui-language-baseline.json` |
+| `bun run check:comment-language` | Italian in code comments | `scripts/comment-language-baseline.json` |
+
+A file that is not listed in a baseline must have **zero** hits; a file that is
+listed must not gain more. Curing a file never fails the gate: rerun with
+`--update-baseline` to record the lower number, and it can never go back up.
+
+There is no deadline and no bulk translation. Comments get rewritten in English
+when the code around them is touched anyway, which is also when the person
+editing understands what the comment was protecting.
+
+When the Italian **is** the subject (a quoted error message, a term of art with
+no English equivalent, someone's exact words) end the line with
+`allow-italian: <reason>`.
+
+To read a file's debt instead of just its count:
+
+```bash
+bun run scripts/check-comment-language.ts --list server/services/tasks.ts
+```
+
+The Italian that stays is `client/src/lib/i18n.ts`: there it is DATA, keyed and
+switchable, which is the whole point of the translation layer.
+
 ## Reporting Issues
 
 Open an issue with:

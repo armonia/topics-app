@@ -2,7 +2,7 @@ import type { Page, BrowserContext, Browser } from "playwright-core";
 import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 import { join } from "path";
-import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry, type BrowserStorageState } from "./browser-state-store";
+import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry, shouldForgetLastUrl, clearLastUrl, type BrowserStorageState } from "./browser-state-store";
 import { seedSharedFromNative } from "./browser-session-handoff";
 import { toServableUrl } from "./browser-local-file-url";
 import {
@@ -1222,7 +1222,16 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
             entry.url = lastUrl;
             console.log(`[BrowserService] Restored last url for ${id} -> ${lastUrl}`);
           } catch (err: any) {
-            console.warn(`[BrowserService] last-url restore failed for ${id}: ${err.message}`);
+            const msg = String(err?.message ?? err);
+            if (shouldForgetLastUrl(lastUrl, msg)) {
+              // A dead loopback port never comes back. Keeping it costs an 8s
+              // timeout on every context creation, forever, and leaves
+              // `entry.url` claiming a page the pane is not on.
+              clearLastUrl(id);
+              console.warn(`[BrowserService] last-url ${lastUrl} is a dead private host, forgotten for ${id}: ${msg}`);
+            } else {
+              console.warn(`[BrowserService] last-url restore failed for ${id}: ${msg}`);
+            }
           }
         }
 

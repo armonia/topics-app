@@ -29,6 +29,23 @@ scrivere all'umano nella lingua del TESTO DEL TASK. Prima quella lingua era
 implicita — l'agente imitava l'italiano dell'envelope — e una traduzione senza
 quella riga avrebbe cambiato in silenzio la lingua di tutta la board.
 
+**Il CODICE e' un'altra cosa dalla board (deciso il 21/08/2026).** La riga di
+lingua parla di come l'agente scrive ALL'UMANO: la board resta nella lingua del
+task. Il codice no: identificatori, stringhe e COMMENTI sono sempre in inglese.
+La regola sta scritta in `CODE_GATES_RULE` come sesto cancello, ed e' applicata
+da `bun run check:comment-language` (`scripts/check-comment-language.ts`).
+
+E' un ratchet, come `check:bloat` e `check:sleeps`, e per lo stesso motivo: il
+giorno in cui e' nato l'albero aveva ~95.000 righe di commento in italiano in
+1.974 file, e un cancello che nasce rosso viene spento entro una settimana
+invece che rispettato. `scripts/comment-language-baseline.json` congela quel
+numero per file: un file non elencato deve stare a ZERO, uno elencato non puo'
+guadagnarne. Guarire non fallisce mai, e si registra con `--update-baseline`.
+Quando l'italiano E' l'oggetto (un messaggio citato, un termine tecnico senza
+equivalente, le parole esatte di qualcuno) la riga finisce con
+`allow-italian: <perche>`. Per leggere il debito di un file:
+`bun run scripts/check-comment-language.ts --list <path>`.
+
 Standard di consegna per gli agenti dispatchati sul board Kanban (worktree isolato
 per task, un agente = un task, fino allo stato `review`). Vale sia per chi lavora
 un task sia per chi tocca il codice del dispatcher/envelope: il testo dell'envelope

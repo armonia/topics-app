@@ -1,5 +1,93 @@
 [
   {
+    "version": "2.2.159",
+    "date": "2026-08-19",
+    "sections": {
+      "new": [
+        {
+          "text": "CI e nightly usano il piano di sharding per durata",
+          "scope": "e2e"
+        },
+        {
+          "text": "aggiungi logo SVG Armonia (file mancante)",
+          "scope": null
+        }
+      ],
+      "fixes": [
+        {
+          "text": "il commit dal pannello Git non muore dove manca ~/.gitconfig",
+          "scope": "git"
+        },
+        {
+          "text": "subprocess proof, landing-queue usa makeSerialQueue, svg anteprima",
+          "scope": null
+        },
+        {
+          "text": "diffstat e checks cadono col rifiuto (DELIVERY_SNAPSHOT_COLUMNS)",
+          "scope": null
+        },
+        {
+          "text": "timeout test muto 10s→20s (il retry × 3 prendeva ~2.3s, margine troppo stretto)",
+          "scope": null
+        },
+        {
+          "text": "estrai processLine+consumeGateway in gateway-sse-consumer.ts: edit.ts recupera tool_calls/tool_result",
+          "scope": null
+        },
+        {
+          "text": "freno del dispatch conta anche le corse dei check pre-review",
+          "scope": null
+        },
+        {
+          "text": "delivery_commit NULL e verdetto «unlanded» su lavoro gia' su main",
+          "scope": null
+        },
+        {
+          "text": "cancello review_needs_commit non si salta dopo il release del dispatcher",
+          "scope": null
+        },
+        {
+          "text": "board_land riporta l'esito reale del land (landed/unlanded) invece di «accodato»",
+          "scope": null
+        },
+        {
+          "text": "PATCH rifiuta preview_image se il file non esiste sul disco",
+          "scope": "preview"
+        },
+        {
+          "text": "output_url dead-link: sonda server-side + badge client + 3 stati",
+          "scope": null
+        },
+        {
+          "text": "fileExistsSync iniettabile nel contesto: 3 test pre-esistenti ora verdi",
+          "scope": null
+        },
+        {
+          "text": "acceptPreview usa fileExistsSync da ctx, stub nei test",
+          "scope": "test"
+        },
+        {
+          "text": "escludi /.topics/ dal selettore progetti (NON_PROJECT_DOTDIR)",
+          "scope": null
+        },
+        {
+          "text": "persistenza modello nuova chat + split in progetto + drag overlay",
+          "scope": null
+        },
+        {
+          "text": "ordine migration embedded e aggiornamento baseline bloat",
+          "scope": null
+        }
+      ],
+      "perf": [
+        {
+          "text": "cache-first paint istantaneo: floor sipario 0ms se cache presente",
+          "scope": "chat"
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.158",
     "date": "2026-08-16",
     "sections": {

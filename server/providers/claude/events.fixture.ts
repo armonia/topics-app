@@ -29,10 +29,23 @@ export const COMPACT_BOUNDARY = {
   compact_metadata: { trigger: "auto", pre_tokens: 187_432 },
 };
 
-/** Rumore a sé: non è un `system`, ma si scarta uguale. */
+/* Noise of its own: not a `system`, discarded all the same.
+ *
+ * THE KEY IS `rate_limit_info`, and it was `rate_limit` here until 2026-08-21.
+ * Read out of the CLI binary (2.1.238), which emits
+ * `type:"rate_limit_event",rate_limit_info:n,uuid:…,session_id:…`. A fixture
+ * that invents a field is worse than no fixture: it is the shape everyone who
+ * builds on this event will code against, and it looks measured. The test only
+ * asserted `kind`, so the wrong name could never have failed anything - the
+ * assertion on the field name below is the other half of the fix. */
 export const RATE_LIMIT = {
   type: "rate_limit_event",
-  rate_limit: { status: "allowed_warning", resetsAt: 1_754_600_000 },
+  rate_limit_info: {
+    status: "allowed_warning",
+    resetsAt: 1_754_600_000,
+    rateLimitType: "five_hour",
+    isUsingOverage: false,
+  },
 };
 
 /** Uno snapshot cumulativo con testo e usage. */

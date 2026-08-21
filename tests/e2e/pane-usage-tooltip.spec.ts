@@ -29,10 +29,21 @@ test.describe("consumo per scheda nel tooltip", () => {
     await goToApp(page);
     await openTestChat(page);
 
-    const label = page.locator('[title*="Consumo:"]').first();
+    /* DUE RAMI, NON UNO. `riepilogoConsumo` (client/src/lib/paneUsage.ts:255-271)
+     * risponde in tre modi: «In memoria: N messaggi / Nessun processo proprio…»
+     * quando la chat ha messaggi, «Consumo: questa scheda non ha un processo
+     * proprio» quando non ne ha, e «Consumo: N MB · CPU x% · k processi» per una
+     * pane misurabile. Il primo ramo e' arrivato il 20/08 con 703eefc88, che ha
+     * tolto una frase giudicata inutile e ci ha messo il conto dei messaggi.
+     * Questa spec e' del 4 agosto e cercava solo «Consumo:»: da quel giorno
+     * moriva in 15 secondi su un tooltip che c'era, con il testo giusto.
+     * Si aggancia a ENTRAMBE le aperture, perche' quale esca dipende da quanti
+     * messaggi ha la chat del banco, che non e' il soggetto di questo caso. */
+    const label = page.locator('[title*="Consumo:"], [title*="In memoria:"]').first();
     await expect(label).toBeVisible({ timeout: 15000 });
     const title = await label.getAttribute("title");
-    expect(title).toContain("non ha un processo proprio");
+    // Il PUNTO del caso: che lo DICA. Le due frasi lo dicono entrambe.
+    expect(title).toMatch(/non ha un processo proprio|Nessun processo proprio/);
     // I due modi in cui questo si romperebbe restando "verde a metà".
     expect(title).not.toContain("0 MB");
     expect(title).not.toMatch(/CPU 0%/);
@@ -48,7 +59,7 @@ test.describe("consumo per scheda nel tooltip", () => {
     await goToApp(page);
     await openTestChat(page);
 
-    const label = page.locator('[title*="Consumo:"]').first();
+    const label = page.locator('[title*="Consumo:"], [title*="In memoria:"]').first();
     await expect(label).toBeVisible({ timeout: 15000 });
 
     // Chi porta il title deve essere il nodo del NOME: nessun ruolo di tab, e il
@@ -67,6 +78,8 @@ test.describe("consumo per scheda nel tooltip", () => {
     expect(info.hasAriaLabel).toBe(false);
     expect(info.antenatoConTitle).toBe(false);
     expect(info.title.startsWith(info.testo)).toBe(true);
-    expect(info.title).toContain("\nConsumo:");
+    // Il soggetto di questo caso e' DOVE sta il title, non quale delle due
+    // aperture esce: bastano entrambe a provare che il riepilogo c'e'.
+    expect(info.title).toMatch(/\n(Consumo|In memoria):/);
   });
 });
