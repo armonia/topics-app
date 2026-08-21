@@ -1661,14 +1661,8 @@ const IT: Dict = {
   // gli amici. Ogni riga mostra un dato E porta alla pagina che lo governa,
   // quindi ogni riga ha due testi: cosa dice, e dove porta il clic.
   'statusBar.me.openProfile': 'Apri il tuo profilo',
-  'statusBar.orgs.open': 'Apri la gestione delle organizzazioni',
   'statusBar.orgs.presence': '{n} di {tot} online adesso',
-  'statusBar.orgs.nobody': 'Nessuno online adesso',
-  'statusBar.friends.open': 'Apri gli amici',
   'statusBar.friends.online': '{n} online adesso',
-  // «Visto negli ultimi cinque minuti» e' la soglia vera (`PRESENZA_MS`), e
-  // dirla evita che «nessuno online» venga letto come «nessuno esiste».
-  'statusBar.friends.nobody': 'Nessuno online negli ultimi cinque minuti',
   'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
   // I PANNELLI che i tre chip aprono. Il chip dice la risposta corta, il
   // pannello la mostra per esteso e porta le azioni: sono gli unici testi che
@@ -1678,13 +1672,12 @@ const IT: Dict = {
   'statusBar.me.devicesRow': 'Dispositivi autorizzati',
   'statusBar.me.devicesCount': '{n} connessi di {tot}',
   'statusBar.me.workRow': 'Adesso',
-  'statusBar.orgs.panelTitle': 'Organizzazioni',
-  'statusBar.orgs.manage': 'Gestisci le organizzazioni',
+  'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.alone': 'Sei l’unico membro',
   'statusBar.friends.title': 'Amici',
   'statusBar.friends.none': 'Non conosci ancora nessuno',
   'statusBar.friends.noneHint': 'Le persone delle tue organizzazioni compaiono qui.',
-  'statusBar.friends.openAll': 'Apri gli amici',
+  'statusBar.friends.manage': 'Gestisci gli amici',
   'statusBar.friends.count': '{n} di {tot} online',
   // Il gruppo degli assenti nell'elenco aperto: non e' un errore che ci siano,
   // e' il motivo per cui l'elenco si apre.
