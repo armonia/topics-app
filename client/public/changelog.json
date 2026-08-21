@@ -1,5 +1,81 @@
 [
   {
+    "version": "2.2.163",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il chip dell'organizzazione perde il nome e tiene le facce; gli amici non dicono piu' «nessuno online»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dodici file portano i commenti in inglese e la baseline del gate scende da 94790 a 94601",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Anche il blocco identita' e la sua spec parlano inglese nei commenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ratchet dei commenti registra i tre file gia' migliorati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il deep link del profilo non si perde piu' fra i due montaggi della pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello rosso non nasconde piu' le quindici misure che vengono dopo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto del turno conta il silenzio, non l'orologio: un agente che lavora non si taglia piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa riconosce anche i cartelli vecchi, e un test lo tiene vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una consegna che cita un commit inesistente non passa piu' in silenzio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le tre cause nostre hanno una sorgente sola, e il test la usa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una frase scritta su una card in review non fonde piu' il ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un confronto vero per sbaglio poteva portarsi via l'app intera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La scheda Dispositivi non e' raggiungibile dal pannello, e il test lo diceva male",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.162",
     "date": "2026-08-21",
     "sections": {
@@ -84,7 +160,17 @@
           "scope": null
         },
         {
+          "it": "Riallinea i gate dopo il rientro di main nel ramo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il tooltip di sistema non compare piu': uno solo, quello dell'app, ovunque",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fascia identita' immersa: niente separatori, chip che vanno a capo, un pannello per soggetto",
           "en": "",
           "scope": null
         },
@@ -455,6 +541,11 @@
         },
         {
           "it": "Il tooltip di consumo ha due aperture, la spec ne conosceva una sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test sulla forma dei cartelli salta anche col DB vuoto, non solo assente",
           "en": "",
           "scope": null
         },
@@ -1016,6 +1107,11 @@
         },
         {
           "it": "Lingua, quarto giro: 162 -> 116, nove superfici curate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre righe in fondo alla sidebar: io, le organizzazioni, gli amici, ognuna con la sua porta",
           "en": "",
           "scope": null
         },
