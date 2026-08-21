@@ -235,7 +235,14 @@ async function waitForFreshBundle(publicDir: string): Promise<void> {
       `Ultimo file toccato: ${newest.path}\n\n` +
       `La suite girerebbe sul codice di PRIMA (o su una pagina bianca) e il rosso ` +
       `accuserebbe il componente sbagliato.\n` +
-      `Probabile: \`bun run dev:client\` non è su, oppure il build è fallito. Lancia:\n\n` +
+      `Probabile: \`bun run dev:client\` non è su, oppure il build è fallito.\n\n` +
+      `SE \`public/\` NON È TUA (un worktree, una sessione parallela, la app viva):\n` +
+      `NON ricostruirla: \`build:client\` la RISCRIVE, e chi ci sta sopra si ritrova\n` +
+      `il bundle di un'altra persona (o il proprio lavoro non committato inglobato).\n` +
+      `Costruisci altrove e punta la suite lì:\n\n` +
+      `    git archive HEAD | tar -x -C /tmp/e2e-src && (cd /tmp/e2e-src/client && bun install && bun run build)\n` +
+      `    TOPICS_E2E_BUNDLE_DIR=/tmp/e2e-src/public bun run test:e2e\n\n` +
+      `Se \`public/\` è tua e nessun altro ci lavora:\n\n` +
       `    bun run build:client\n\n` +
       `(Se il file è appena stato creato e non lo importa ancora nessuno, il watcher ` +
       `non ha nulla da ricostruire: importalo o fai un build a mano.)`,
