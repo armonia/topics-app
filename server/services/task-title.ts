@@ -39,6 +39,7 @@
  */
 
 import type { AIProvider } from "../providers";
+import { isProviderError } from "../lib/commit-message";
 
 /** Sotto questa lunghezza la prima riga È il titolo, e non si tocca. */
 export const TITOLO_GIA_BUONO = 60;
@@ -127,6 +128,19 @@ export function ripulisci(raw: string): string | null {
   // stamparlo sulla card mostrerebbe l'accento grave come fosse testo.
   s = s.replace(/`/g, "").trim();
   if (!s) return null;
+  // A PROVIDER ERROR IS NOT A TITLE, and this is the hole it came through.
+  // `claude-code.complete()` does not throw on a non-zero exit: it RESOLVES with
+  // `content: "Error: CLI exited with code N"`, so the catch in `titoloMigliore`
+  // never runs and that string lands here as if it were an answer. It clears
+  // every filter above (one line, 28 characters, no JSON, no markdown, no
+  // internal full stop) and ends up on the card IN PLACE OF the title a person
+  // wrote.
+  //
+  // Measured on 2026-08-21: a card seeded with
+  // "/opt/agents/.topics/worktrees/.../KanbanBoardPane.tsx" was sitting on the
+  // board calling itself "Error: CLI exited with code 1". The old title does not
+  // come back. It is overwritten.
+  if (isProviderError(s)) return null;
   // Troppo lungo = non ha capito la consegna; troppo corto = non dice niente.
   if (s.length < 8 || s.length > 90) return null;
   // Una frase intera con un verbo coniugato e la punteggiatura è una risposta,

@@ -194,10 +194,22 @@ export function rulesFallback(entries: { path: string; status: string }[]): stri
  * `content: "Error: CLI exited with code N"`. Senza questo controllo il ✨
  * incollerebbe quella stringa nella casella del commit.
  */
+/**
+ * Did the provider answer with an ERROR instead of a result?
+ *
+ * It lives on its own because it has two callers and the rule must not drift:
+ * this file (the commit message box) and `services/task-title.ts` (the title the
+ * board derives for a card). The failure is the same on both sides: an answer the
+ * code treats as good content and then writes over something a person wrote.
+ */
+export function isProviderError(content: string | undefined | null): boolean {
+  return /^Error:/i.test((content ?? "").trim());
+}
+
 export function usableMessage(content: string | undefined | null): string | null {
   const t = (content ?? "").trim();
   if (!t) return null;
-  if (/^Error:/i.test(t)) return null;
+  if (isProviderError(t)) return null;
   // Il modello a volte incornicia la risposta in un blocco di codice.
   const blocco = t.match(/^```(?:\w+)?\n([\s\S]*?)\n```$/);
   return (blocco ? blocco[1] : t).trim() || null;

@@ -23,6 +23,40 @@ const DETTATO = {
   description: "Potremmo fare una roba molto figa per poter assicurarci che il nostro browser ide sia perfetto.\n- Omologare la cronologia delle tab di navigazione con quella normale.\n- Metterlo come menu nella sidebar.",
 };
 
+describe("una CLI morta non rinomina la card", () => {
+  // THE FAILURE THIS PINS. `claude-code.complete()` does not throw on a non-zero
+  // exit: it RESOLVES with `content: "Error: CLI exited with code N"`, so the
+  // catch in titoloMigliore never runs and the string arrives as if it were an
+  // answer. It clears every other filter (one line, 28 chars, no JSON, no
+  // markdown, no internal full stop) and would be written over a title a person
+  // wrote. Found on 2026-08-21 through an E2E fixture: a card seeded with a long
+  // absolute path was on the board calling itself "Error: CLI exited with code 1",
+  // and the seeded title was gone for good.
+  test("«Error: CLI exited with code 1» non e' un titolo", () => {
+    expect(ripulisci("Error: CLI exited with code 1")).toBeNull();
+  });
+
+  test("qualunque risposta che comincia con Error: si scarta", () => {
+    expect(ripulisci("Error: ENOENT spawn claude")).toBeNull();
+    expect(ripulisci("error: model unavailable")).toBeNull();
+    // Even dressed as markdown: the bold strip runs first, so the check still sees it.
+    expect(ripulisci("**Error: CLI exited with code 1**")).toBeNull();
+  });
+
+  test("il titolo vero non cambia: la card resta com'era", async () => {
+    // titoloMigliore returns null, and null means the caller keeps the existing
+    // title. That is the whole point: a dead CLI must cost nothing.
+    const out = await titoloMigliore(finto("Error: CLI exited with code 1"), DETTATO);
+    expect(out).toBeNull();
+  });
+
+  test("una parola che comincia per «error» resta un titolo valido", () => {
+    // The guard keys on the "Error:" prefix with its colon, not on the word, so a
+    // real title about error handling survives.
+    expect(ripulisci("Errori di rete gestiti nel composer")).toBe("Errori di rete gestiti nel composer");
+  });
+});
+
 describe("quando la board interviene", () => {
   test("IL CASO 235afe11: titolo tagliato + descrizione → si riscrive", async () => {
     const out = await titoloMigliore(finto("Cronologia tab unificata e menu in sidebar"), DETTATO);
