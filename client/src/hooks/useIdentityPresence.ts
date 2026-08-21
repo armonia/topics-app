@@ -1,23 +1,23 @@
 /**
- * CHI SEI, CON CHI STAI, CHI C'E' ADESSO — una fonte sola per le tre righe.
+ * WHO YOU ARE, WHO YOU ARE WITH, WHO IS HERE NOW: one source for three rows.
  *
- * Le tre righe in fondo alla sidebar fanno domande diverse ma leggono gli
- * STESSI dati: le organizzazioni, i loro membri con l'ultimo accesso, la
- * rubrica con le facce. Tre componenti che se li andassero a prendere per conto
- * proprio sarebbero tre giri di rete per lo stesso giro di rete, e tre istanti
- * diversi: la riga delle org direbbe «2 online» mentre quella degli amici ne
- * mostra tre, e nessuna delle due sarebbe sbagliata.
+ * The three rows at the bottom of the sidebar ask different questions but read
+ * the SAME data: the organisations, their members with the last access, the
+ * address book with the faces. Three components fetching all of that on their
+ * own would be three network round trips for one network round trip, and three
+ * different instants: the org row would say "2 online" while the friends row
+ * shows three, and neither of the two would be wrong.
  *
- * QUANTO SPESSO. Un minuto, come faceva la riga dell'identita' prima di questo
- * hook: la soglia dell'online e' cinque minuti (`PRESENZA_MS`), quindi
- * ricontare piu' spesso non cambierebbe una faccia e costerebbe una fetch per
- * organizzazione. La finestra nascosta non chiede niente, ed e' la stessa
- * regola di `usePresenceSummary` e `useSystemStatus`.
+ * HOW OFTEN. One minute, exactly as the identity row did before this hook: the
+ * online threshold is five minutes (`PRESENZA_MS`), so recounting more often
+ * would not change a single face and would cost one fetch per organisation. A
+ * hidden window asks for nothing, which is the same rule `usePresenceSummary`
+ * and `useSystemStatus` already follow.
  *
- * QUANDO IL SERVIZIO DEGLI ACCOUNT NON C'E'. Su un'installazione senza
- * organizzazioni queste rotte non rispondono: si resta senza righe invece di
- * mostrare degli zeri. «Non lo so» si dice tacendo, non con un numero inventato
- * — e' la stessa scelta gia' scritta in `orgPresence.ts`.
+ * WHEN THE ACCOUNTS SERVICE IS NOT THERE. On an installation with no
+ * organisations these routes do not answer: we end up with no rows rather than
+ * showing zeros. "I do not know" is said by keeping quiet, not with an invented
+ * number: it is the same choice already written down in `orgPresence.ts`.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type PersonaConProfilo } from '@/lib/api';
@@ -26,35 +26,35 @@ import {
   type FacciaPresenza, type MembroPresenza, type RigaPresenza,
 } from '@/components/Sidebar/orgPresence';
 
-/** Un'organizzazione, con dentro chi c'e' adesso. */
+/** One organisation, with whoever is present inside it right now. */
 export interface OrgConPresenza {
   id: string;
   nome: string;
   logoUrl: string | null;
-  /** L'organizzazione di QUESTA installazione: e' quella che si mostra per prima. */
+  /** The organisation of THIS installation: the one shown first. */
   installazione: boolean;
-  /** Quanti ALTRI membri sono online adesso. */
+  /** How many OTHER members are online right now. */
   online: number;
-  /** Quanti membri ha in tutto (te compreso): il denominatore di «2 di 7». */
+  /** How many members it has in total (you included): the "2 of 7" denominator. */
   membri: number;
-  /** Le facce di chi e' online, gia' ordinate. */
+  /** The faces of whoever is online, already sorted. */
   facce: FacciaPresenza[];
-  /** TUTTI i membri, presenti per primi: e' l'elenco che apre il dropdown. */
+  /** EVERY member, present ones first: the list the dropdown opens onto. */
   gente: RigaPresenza[];
 }
 
 export interface PresenzaIdentita {
-  /** Le organizzazioni, quella dell'installazione per prima. */
+  /** The organisations, the installation's own one first. */
   orgs: OrgConPresenza[];
-  /** Chi e' online adesso, in tutte le tue organizzazioni, senza ripetizioni. */
+  /** Who is online now, across all your organisations, with no repeats. */
   amiciOnline: FacciaPresenza[];
-  /** Quante persone conosci in tutto, te esclusa. Il denominatore degli amici. */
+  /** How many people you know in total, you excluded: the friends denominator. */
   amiciTotali: number;
-  /** Tutti quelli che conosci, presenti per primi: l'elenco del dropdown amici. */
+  /** Everyone you know, present first: the list behind the friends dropdown. */
   amiciTutti: RigaPresenza[];
-  /** Io, dalla rubrica: la faccia e il nome della prima riga. */
+  /** Me, from the address book: the face and the name on the first row. */
   io: PersonaConProfilo | null;
-  /** `false` finche' il primo giro non e' tornato: le righe non lampeggiano. */
+  /** `false` until the first round trip is back, so the rows do not flicker. */
   pronto: boolean;
 }
 
@@ -62,8 +62,8 @@ const VUOTO: PresenzaIdentita = {
   orgs: [], amiciOnline: [], amiciTotali: 0, amiciTutti: [], io: null, pronto: false,
 };
 
-/** Ogni minuto: la soglia dell'online e' cinque, ricontare piu' spesso non
- *  cambia niente e costa una fetch per organizzazione. */
+/** Every minute: the online threshold is five, so recounting more often
+ *  changes nothing and costs one fetch per organisation. */
 const INTERVALLO_MS = 60_000;
 
 interface OrgApi {
@@ -73,8 +73,8 @@ interface OrgApi {
   installation?: boolean;
 }
 
-/** Quante organizzazioni si interrogano davvero. Oltre, la riga non le
- *  mostrerebbe comunque tutte e ogni org e' una fetch in piu'. */
+/** How many organisations actually get queried. Past this the row could not
+ *  show them all anyway, and every extra org is one more fetch. */
 const MAX_ORG = 8;
 
 export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS): PresenzaIdentita {
@@ -82,8 +82,9 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
 
   const leggi = useCallback(async () => {
     if (document.hidden) return;
-    // La rubrica e le organizzazioni in parallelo: sono indipendenti, e in
-    // serie la riga degli amici aspetterebbe la riga delle org per niente.
+    // The address book and the organisations in parallel: they are
+    // independent, and in series the friends row would wait on the org row for
+    // no reason at all.
     const [rubricaRes, orgsRes] = await Promise.allSettled([
       peopleApi.list(),
       fetch('/api/auth/orgs', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)),
@@ -95,9 +96,9 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
       ? ((orgsRes.value as { orgs?: OrgApi[] }).orgs ?? [])
       : [];
 
-    // L'organizzazione dell'installazione per prima, il resto in ordine
-    // alfabetico: la tua e' quella che guardi, non quella che il database
-    // restituisce per prima.
+    // The installation's organisation first, the rest alphabetically: yours is
+    // the one you actually look at, not the one the database happens to return
+    // first.
     const ordinate = [...orgsRaw]
       .sort((a, b) => Number(!!b.installation) - Number(!!a.installation) || a.name.localeCompare(b.name))
       .slice(0, MAX_ORG);
@@ -109,7 +110,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
       try {
         const r = await fetch(`/api/auth/orgs/${encodeURIComponent(o.id)}/members`, { credentials: 'same-origin' });
         if (r.ok) membri = ((await r.json()) as { members?: MembroPresenza[] }).members ?? [];
-      } catch { /* org senza risposta: resta senza presenza, non sparisce */ }
+      } catch { /* an org that does not answer keeps no presence, it does not vanish */ }
       return {
         id: o.id,
         nome: o.name,
@@ -125,9 +126,9 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
     setStato({
       orgs: conMembri,
       amiciOnline: unisciFacce(conMembri.map((o) => o.facce)),
-      // La rubrica E' l'elenco degli amici (le persone delle tue
-      // organizzazioni): e' la stessa lista che apre la pagina «Amici», quindi
-      // il numero qui e le righe la' non possono divergere.
+      // The address book IS the friends list (the people in your
+      // organisations): it is the very same list the "Friends" page opens, so
+      // the number here and the rows over there cannot diverge.
       amiciTotali: rubrica.filter((p) => !p.isMe).length,
       amiciTutti: unisciGente(conMembri.map((o) => o.gente)),
       io,
@@ -139,16 +140,16 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
     if (!enabled) return;
     let vivo = true;
     const giro = () => { if (vivo) void leggi(); };
-    // Dopo il primo paint, non durante: in fondo alla sidebar nessuno di questi
-    // numeri serve nel primo frame, e una scrittura di stato sincrona in
-    // montaggio e' cio' che `set-state-in-effect` marca.
+    // After the first paint, not during it: at the bottom of the sidebar none
+    // of these numbers is needed in the first frame, and a synchronous state
+    // write on mount is exactly what `set-state-in-effect` flags.
     const primo = setTimeout(giro, 0);
     const ogni = setInterval(giro, intervalMs);
     const alRitorno = () => { if (!document.hidden) giro(); };
     document.addEventListener('visibilitychange', alRitorno);
-    // Un dispositivo appena appaiato cambia CHI SEI: aspettare il minuto
-    // successivo vorrebbe dire mostrare l'identita' vecchia proprio nell'istante
-    // in cui si guarda per verificare che l'appaiamento sia andato.
+    // A device that has just been paired changes WHO YOU ARE: waiting for the
+    // next minute would mean showing the old identity at the very instant
+    // somebody is looking to check that the pairing went through.
     window.addEventListener('topics:auth-pair-resolved', giro);
     window.addEventListener('topics:auth-device-revoked', giro);
     return () => {

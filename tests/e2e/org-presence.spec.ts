@@ -1,36 +1,37 @@
 /**
- * La presence dell'organizzazione, VISTA.
+ * Organisation presence, SEEN.
  *
- * Il lavoro originale (05455772) aveva sei test sulla funzione pura e uno di
- * integrazione sulla rotta, e li ha passati tutti. Nessuno dei sette guardava
- * lo schermo: la funzione sapeva contare, la rotta sapeva rispondere, e se il
- * numero non fosse mai arrivato agli occhi di nessuno sarebbero rimasti verdi
- * lo stesso. È il modo più comune in cui una feature risulta «fatta» e non c'è.
+ * The original work (05455772) had six tests on the pure function and one
+ * integration test on the route, and it passed all of them. None of the seven
+ * looked at the screen: the function could count, the route could answer, and
+ * had the number never reached anybody's eyes they would have stayed green all
+ * the same. That is the commonest way a feature comes out "done" and is not
+ * there.
  *
- * Qui si guarda il pixel: la riga esiste, mostra il numero giusto, e sparisce
- * quando non c'è nessuno.
+ * Here we look at the pixel: the row exists, it shows the right people, and it
+ * says nothing when there is nobody.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
 
-// Il confine fra questo file e il precedente: senza, questa spec eredita
-// cio' che i test prima di lei hanno lasciato nel DB condiviso.
+// The border between this file and the previous one: without it, this spec
+// inherits whatever the tests before it left in the shared DB.
 hermetic(test);
 
 const SHOTS = "test-results/presence";
 
-/** Un membro come lo manda la rotta: millisecondi grezzi, non un booleano. */
+/** A member as the route sends it: raw milliseconds, not a boolean. */
 function membro(id: string, name: string, lastSeenAt: number | null) {
   return { id, name, email: `${id}@example.test`, role: "member", lastSeenAt };
 }
 
 /**
- * L'anagrafica minima perché la riga si disegni.
+ * The minimum identity data needed for the row to be drawn at all.
  *
- * `/api/auth/session` deve dire `paired`: la riga intera è dietro
- * `session.status !== 'paired' → return null`, quindi su un'installazione senza
- * accoppiamento la presence non c'è a prescindere dai membri.
+ * `/api/auth/session` has to say `paired`: the whole row sits behind
+ * `session.status !== 'paired'`, which returns null, so on an installation with
+ * no pairing there is no presence regardless of the members.
  */
 async function stubIdentita(
   page: Page,
@@ -38,10 +39,10 @@ async function stubIdentita(
   ioId = "io",
   rubrica: Array<{ id: string; displayName: string; isMe: boolean }> = [{ id: "io", displayName: "Io", isMe: true }],
 ) {
-  // La forma e' quella VERA della rotta (`refreshSession` in lib/auth/session.ts):
-  // `paired` + `as` + `name`, non uno `status` gia' masticato. Uno stub inventato
-  // avrebbe lasciato la riga smontata e il rosso avrebbe accusato la presence
-  // invece del finto server.
+  // The shape is the REAL one of the route (`refreshSession` in
+  // lib/auth/session.ts): `paired` plus `as` plus `name`, not an already chewed
+  // `status`. An invented stub would have left the row unmounted and the red
+  // would have blamed the presence instead of the fake server.
   await page.route("**/api/auth/session", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ paired: true, as: "loopback", name: "Questo computer",
@@ -51,41 +52,58 @@ async function stubIdentita(
       body: JSON.stringify({ devices: [{ connected: true, revokedAt: null }] }) }));
   await page.route("**/api/auth/orgs", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ orgs: [{ id: "org1", name: "Org", installation: true }] }) }));
-  // La rubrica: e' da QUI che il client sa chi sei (`useIdentityPresence`), non
-  // dalla sessione. Sono due fetch diverse, ed e' precisamente la ragione per
-  // cui `presentiOra` deve saper tacere quando l'identita' non c'e' ancora.
+      body: JSON.stringify({ orgs: [{ id: "org1", name: "Acme Group", installation: true }] }) }));
+  // The address book: this is where the client learns who you are
+  // (`useIdentityPresence`), not the session. They are two different fetches,
+  // and that is exactly why `presentiOra` has to keep quiet while the identity
+  // is not there yet.
+  // The WHOLE shape of a person, `stats` included. A half stub is not a smaller
+  // stub, it is a different server: the friends page reads `stats.prompts`, and
+  // a person without stats took the pane down to its error screen while the
+  // test was blaming the deep link.
   await page.route("**/api/people", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ people: rubrica.map((p) => (p.isMe ? { ...p, id: ioId } : p)) }) }));
+      body: JSON.stringify({
+        people: rubrica.map((p) => ({
+          email: null,
+          githubLogin: null,
+          github: null,
+          stats: { prompts: 0, inputTokens: 0, outputTokens: 0, costCents: 0, ultimoPrompt: null },
+          ...p,
+          ...(p.isMe ? { id: ioId } : {}),
+        })),
+      }) }));
   await page.route("**/api/auth/orgs/*/members", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ members: membri }) }));
 }
 
 test.describe("presence dell'organizzazione, a schermo", () => {
-  test("PRESENCE-01: due colleghi visti ora diventano il numero 2 sul chip dell'org", async ({ page }) => {
+  test("PRESENCE-01: due colleghi visti ora diventano due facce sul chip dell'org", async ({ page }) => {
     const ora = Date.now();
     await stubIdentita(page, [
-      membro("io", "Io", ora),          // te stesso non conti
+      membro("io", "Io", ora),          // you do not count yourself
       membro("a", "Anna", ora - 30_000),
       membro("b", "Bruno", ora - 60_000),
-      membro("c", "Carla", ora - 3_600_000), // un'ora fa: oltre la soglia
+      membro("c", "Carla", ora - 3_600_000), // an hour ago: past the threshold
     ]);
     await page.goto("/");
 
     const chip = page.getByTestId("org-chip");
     await expect(chip).toBeVisible({ timeout: 20000 });
-    // La presenza sta DENTRO il chip del gruppo: con due organizzazioni un
-    // conteggio unico non direbbe di quale gruppo sono.
-    await expect(page.getByTestId("org-chip-online")).toHaveText("2");
+    // Presence lives INSIDE the group chip: with two organisations a single
+    // count would not say which group those people belong to.
+    await expect(chip.getByTestId("presence-face")).toHaveCount(2);
+    // And the group name is NOT on screen: the chip holds the logo and the
+    // faces, the full name lives in the panel the chip opens.
+    await expect(chip).not.toContainText("Acme Group");
     await page.screenshot({ path: join(SHOTS, "presence-due.png") });
   });
 
-  test("PRESENCE-02: da solo, il chip resta ma il conteggio non c'è", async ({ page }) => {
-    // «0 online» è rumore che si impara a saltare: al posto dello zero c'è un
-    // pallino spento, che si vede senza leggerlo. Il chip invece resta, perché
-    // è anche la porta della gestione delle organizzazioni.
+  test("PRESENCE-02: da solo, il chip resta ed è il solo logo", async ({ page }) => {
+    // "0 online" is noise you learn to skip: with nobody around the chip is
+    // just the logo, and the emptiness is already the answer. The chip stays,
+    // though, because it is also the door to managing THAT organisation.
     await stubIdentita(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
     await expect(page.getByTestId("identity-row-me")).toBeVisible({ timeout: 20000 });
@@ -94,10 +112,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   test("PRESENCE-03: un membro senza dispositivi vivi vale null, non il 1970", async ({ page }) => {
-    // `lastSeenAt: null` è «non si sa», e ordinando per ultimo-visto uno zero
-    // finirebbe in fondo insieme a chi c'è stato davvero. Se il client leggesse
-    // null come 0 il conteggio non cambierebbe, ma un `null` trattato come data
-    // sì: qui si verifica che non entri nel conto.
+    // `lastSeenAt: null` means "unknown", and when sorting by last seen a zero
+    // would end up at the bottom together with people who really were here. A
+    // null read as 0 would not change the count, but a `null` treated as a date
+    // would: this checks it never enters the count.
     await stubIdentita(page, [
       membro("io", "Io", Date.now()),
       membro("a", "Anna", null),
@@ -108,9 +126,9 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   test("PRESENCE-04: il chip dell'org apre il pannello, e il pannello la gestione", async ({ page }) => {
-    // Il chip non salta più a una pagina: apre il suo pannello, che risponde
-    // sul posto a «chi c'è in questo gruppo». La porta della gestione resta,
-    // in fondo al pannello, per quando la domanda è davvero grossa.
+    // The chip no longer jumps to a page: it opens its panel, which answers
+    // "who is in this group" on the spot. The door to management survives, at
+    // the bottom of the panel, for when the question really is a big one.
     await stubIdentita(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
     const chip = page.getByTestId("org-chip");
@@ -123,13 +141,14 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   test("PRESENCE-06: il pannello dell'org elenca ANCHE chi non è online", async ({ page }) => {
-    // È metà del motivo per cui il pannello si apre: cercare qualcuno che in
-    // questo momento non c'è. Il chip chiuso mostra i presenti, l'elenco no.
+    // It is half the reason the panel gets opened: looking for somebody who is
+    // not here right now. The closed chip shows the present, the list does not
+    // stop there.
     const ora = Date.now();
     await stubIdentita(page, [
       membro("io", "Io", ora),
       membro("a", "Anna", ora - 30_000),
-      membro("c", "Carla", ora - 3_600_000), // oltre la soglia: c'è, ma spenta
+      membro("c", "Carla", ora - 3_600_000), // past the threshold: there, but dark
     ], "io", [
       { id: "io", displayName: "Io", isMe: true },
       { id: "a", displayName: "Anna Rossi", isMe: false },
@@ -166,10 +185,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.screenshot({ path: join(SHOTS, "amici-online.png") });
   });
 
-  test("PRESENCE-07: senza nessuno la riga amici resta e dice zero", async ({ page }) => {
-    // Prima spariva. Una riga che esiste solo quando ha buone notizie lascia
-    // senza risposta «ma gli amici dove stanno?» proprio a chi non ha ancora
-    // nessuno, cioè l'unico che deve poterci entrare per cominciare.
+  test("PRESENCE-07: senza nessuno la riga amici resta, dice «Amici» e zero", async ({ page }) => {
+    // It used to disappear. A row that exists only when it has good news
+    // leaves "but where are the friends?" unanswered for the very person who
+    // has nobody yet, the only one who needs to get in to begin.
     await stubIdentita(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
     ]);
@@ -177,7 +196,11 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     const amici = page.getByTestId("identity-row-friends");
     await expect(amici).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
-    // E il pannello spiega da dove arrivano le persone, invece di essere vuoto.
+    // But it does not say so with bad news: at zero the row carries its own
+    // name, not "nobody online".
+    await expect(amici).toContainText("Amici");
+    await expect(amici).not.toContainText("Nessuno online");
+    // And the panel explains where the people come from, instead of being empty.
     await page.getByTestId("identity-friends-chip").click();
     await expect(page.getByTestId("friends-panel")).toContainText("organizzazioni");
   });

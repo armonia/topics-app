@@ -1,16 +1,16 @@
 /**
- * I DUE MODI DI SBAGLIARE UNA RIGA DI PRESENZA, e il test che li tiene fermi.
+ * THE TWO WAYS A PRESENCE ROW CAN LIE, and the test that pins them down.
  *
- *  1. CONTARE TE STESSO. La riga risponde a «chi ALTRO c'e'»: chi lavora da
- *     solo con due macchine deve leggere «nessuno», non «1 online». Vale per il
- *     numero e vale per le facce, che sono la stessa domanda disegnata.
- *  2. LA STESSA PERSONA DUE VOLTE. Chi sta in due organizzazioni con te e' una
- *     persona sola: la riga degli amici unisce i gruppi, e senza la dedup la
- *     stessa faccia comparirebbe due volte accanto a se stessa.
+ *  1. COUNTING YOURSELF. The row answers "who ELSE is here": somebody working
+ *     alone on two machines must read "nobody", not "1 online". It holds for
+ *     the number and it holds for the faces, which are the same question drawn.
+ *  2. THE SAME PERSON TWICE. Somebody who shares two organisations with you is
+ *     one single person: the friends row merges the groups, and without the
+ *     dedup the same face would turn up twice, right next to itself.
  *
- * L'ordine e' parte del contratto: chi si e' fatto vivo per ultimo per primo.
- * Un elenco che si riordina a ogni giro di rete e' un elenco in cui non si
- * riconosce piu' nessuno.
+ * The order is part of the contract: whoever showed up last comes first. A list
+ * that reshuffles on every network round trip is a list in which nobody is
+ * recognisable any more.
  */
 import { describe, it, expect } from 'bun:test';
 import { presentiOra, facceOnline, unisciFacce, gentePresenza, unisciGente, PRESENZA_MS } from './orgPresence';
@@ -78,16 +78,16 @@ describe('unisciFacce', () => {
 });
 
 /**
- * L'ELENCO APERTO ha un contratto DIVERSO dalla riga chiusa, ed e' il punto in
- * cui e' facile sbagliare: la riga mostra chi c'e', il pannello mostra TUTTI.
- * Chi e' offline non e' un caso da filtrare via, e' meta' della ragione per cui
- * il pannello si apre — cercare qualcuno che in questo momento non c'e'.
+ * THE OPEN LIST has a contract DIFFERENT from the closed row, and that is where
+ * it is easy to go wrong: the row shows who is here, the panel shows EVERYONE.
+ * Whoever is offline is not a case to filter away, they are half the reason the
+ * panel gets opened at all: looking somebody up who is not here right now.
  */
 describe('gentePresenza', () => {
   it('tiene anche gli assenti, ma i presenti stanno in cima', () => {
     const righe = gentePresenza(membri, rubrica, 'io', ADESSO);
-    // Presenti per ultimo-visto (b piu' recente di a), poi gli assenti: `c` si
-    // e' visto un tempo fa, `d` non si sa (null), che va in fondo.
+    // The present ones by last seen (b more recent than a), then the absent:
+    // `c` was seen a while back, `d` is unknown (null), which sinks to the end.
     expect(righe.map((r) => r.id)).toEqual(['b', 'a', 'c', 'd']);
     expect(righe.map((r) => r.presente)).toEqual([true, true, false, false]);
   });
@@ -103,8 +103,8 @@ describe('gentePresenza', () => {
 
 describe('unisciGente', () => {
   it('la stessa persona online in un gruppo e spenta nell' + '\u2019' + 'altro conta come presente', () => {
-    // Dire «offline» di chi sta scrivendo e' l'errore peggiore dei due: e'
-    // quello che fa smettere di scrivergli.
+    // Saying "offline" about somebody who is typing is the worse of the two
+    // mistakes: it is the one that makes people stop writing to them.
     const spenta = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: false, vistoA: tanto };
     const accesa = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: true, vistoA: poco };
     expect(unisciGente([[spenta], [accesa]]).map((r) => r.presente)).toEqual([true]);

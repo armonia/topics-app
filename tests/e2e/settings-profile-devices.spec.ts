@@ -1,39 +1,41 @@
 /**
- * «Chi sei» e «che ferri hai» sono due voci, e i due ingressi ci arrivano.
+ * "Who you are" and "what machines you have" are two entries, and both doors
+ * actually lead there.
  *
- * Il lavoro originale (6134a25e) separava una voce sola — `SectionId` diceva
- * `devices`, l'etichetta diceva «Profile» — in due. È stato verificato
- * guardando la colonna a occhio, e basta: nessun test lo teneva. È lo stesso
- * schema che ha lasciato passare il bug della presence (e290c513), dove sette
- * test verdi non guardavano mai lo schermo.
+ * The original work (6134a25e) split one single entry in two: `SectionId` said
+ * `devices` while the label said "Profile". It was verified by looking at the
+ * column by eye, and nothing more: no test held it in place. It is the same
+ * pattern that let the presence bug (e290c513) through, where seven green tests
+ * never once looked at the screen.
  *
- * Qui si difendono le tre cose che una regressione romperebbe per prime: le due
- * voci esistono, mostrano contenuti DIVERSI, e i due deep-link portano ciascuno
- * al suo — che è precisamente ciò che prima era rotto, con `onOpenDevices` e
- * `onOpenProfile` che puntavano entrambi a `devices`.
+ * What is defended here are the three things a regression would break first:
+ * the two entries exist, they show DIFFERENT content, and the two deep links
+ * each land on their own one. That last part is precisely what used to be
+ * broken, with `onOpenDevices` and `onOpenProfile` both pointing at `devices`.
  *
- * La voce attiva si legge da `aria-current="page"`, che il pannello già mette:
- * un `data-testid` aggiunto apposta per il test misurerebbe il test.
+ * The active entry is read from `aria-current="page"`, which the panel already
+ * sets: a `data-testid` added on purpose for the test would measure the test.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
 
-// Il confine fra questo file e il precedente: senza, questa spec eredita
-// cio' che i test prima di lei hanno lasciato nel DB condiviso.
+// The boundary between this file and the previous one: without it this spec
+// inherits whatever the tests before it left behind in the shared DB.
 hermetic(test);
 
 const SHOTS = "test-results/settings";
 
 /**
- * ⌘, apre le Preferenze: la stessa porta che usa `escape-modal-guard`.
+ * Cmd+comma opens Preferences: the same door `escape-modal-guard` uses.
  *
- * L'ATTESA PRIMA DEL TASTO non e' cerimonia. La scorciatoia la ascolta un
- * effetto dell'app montata, quindi una pressione mandata a documento appena
- * caricato si perde nel vuoto e il test diventa flaky (visto: primo tentativo
- * rosso, ritentativo verde). Si aspetta un pezzo di app VIVO, non un tempo
- * fisso, e il tasto si ripete finche' il pannello non c'e': cosi' la prova
- * dipende dall'app pronta e non da quanto e' carica la macchina.
+ * THE WAIT BEFORE THE KEYSTROKE is not ceremony. The shortcut is listened for
+ * by an effect of the mounted app, so a keypress sent to a freshly loaded
+ * document falls into the void and the test turns flaky (observed: first
+ * attempt red, retry green). What we wait for is a LIVE piece of the app and
+ * not a fixed delay, and the key is pressed again until the panel is there:
+ * that way the proof depends on the app being ready and not on how loaded the
+ * machine happens to be.
  */
 async function apriImpostazioni(page: Page) {
   await expect(page.getByTestId("identity-row-me")).toBeVisible({ timeout: 20000 });
@@ -55,8 +57,8 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   });
 
   test("SETTINGS-02: le due voci mostrano contenuti diversi", async ({ page }) => {
-    // Due etichette sopra lo STESSO pannello sarebbero il difetto di prima con
-    // un nome in più: la prova che sono separate è ciò che c'è dentro.
+    // Two labels over the SAME panel would be the earlier flaw with one extra
+    // name on it: the proof they are separate is what sits inside them.
     await page.goto("/");
     const pannello = await apriImpostazioni(page);
 
@@ -70,15 +72,15 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   });
 
   test("SETTINGS-03: il chip dei dispositivi apre i DISPOSITIVI, non il profilo", async ({ page }) => {
-    // È IL bug originale: `onOpenDevices` (riga d'identità in fondo alla
-    // sidebar) e `onOpenProfile` (menu Topics) puntavano ENTRAMBI a `devices`.
-    // Due porte diverse che aprivano la stessa stanza.
+    // THIS is the original bug: `onOpenDevices` (the identity row at the
+    // bottom of the sidebar) and `onOpenProfile` (the Topics menu) BOTH pointed
+    // at `devices`. Two different doors opening onto the same room.
     //
-    // AGGIORNAMENTO: adesso la riga dell'identità ha DUE porte, perché aveva due
-    // soggetti. Il nome e la faccia aprono il tuo PROFILO (è la riga che parla
-    // di te), il chip col conteggio dei ferri apre i DISPOSITIVI. La cosa da
-    // difendere resta la stessa: i dispositivi hanno una porta propria e non
-    // vengono inghiottiti dal profilo.
+    // UPDATE: the identity row now has TWO doors, because it had two subjects.
+    // The name and the face open your PROFILE (it is the row that talks about
+    // you), the chip with the machine count opens the DEVICES. What has to be
+    // defended is unchanged: the devices keep a door of their own and are not
+    // swallowed by the profile.
     await page.route("**/api/auth/session", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ paired: true, as: "loopback", name: "Questo computer",
@@ -88,9 +90,10 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
         body: JSON.stringify({ devices: [{ connected: true, revokedAt: null }] }) }));
     await page.goto("/");
 
-    // I dispositivi sono scesi DENTRO il pannello dell'identità: sulla riga
-    // erano un «1/1» accanto a un'icona, cioè il pezzo che ogni volta andava
-    // spiegato. La porta però è la stessa, e resta separata dal profilo.
+    // The devices have moved INSIDE the identity panel: on the row they were a
+    // "1/1" next to an icon, which is to say the bit that had to be explained
+    // every single time. The door is the same one though, and it stays separate
+    // from the profile.
     await page.getByTestId("identity-me-profile").click();
     const ferri = page.getByTestId("identity-me-devices");
     await expect(ferri).toBeVisible({ timeout: 20000 });
@@ -110,9 +113,9 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   });
 
   test("SETTINGS-04: il nome nella riga d'identità apre il pane Profilo", async ({ page }) => {
-    // L'altra metà della stessa decisione: la riga parla di te, quindi il suo
-    // bersaglio grande porta dove si guarda chi sei. Prima non ci portava
-    // niente, e il profilo si trovava solo dal menu «Topics».
+    // The other half of the same decision: the row talks about you, so its big
+    // target leads where you go to look at who you are. Before, nothing led
+    // there at all, and the profile could only be found from the "Topics" menu.
     await page.route("**/api/auth/session", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ paired: true, as: "loopback", name: "Questo computer",
