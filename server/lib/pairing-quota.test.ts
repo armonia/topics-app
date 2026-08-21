@@ -22,9 +22,37 @@ function inonda(ip: string, n: number, da = 0): PendingLike[] {
 }
 
 describe("quota · il limite su CHI chiede", () => {
-  it("tre per indirizzo passano, la quarta no", () => {
+  it("al tetto la quarta ENTRA, e a uscire è la mia più vecchia", () => {
+    // This used to be a refusal, and that is the defect that broke the
+    // product: behind the relay "this address" is the household uplink, not a
+    // device. Three requests for the whole home, and the OWNER's fourth
+    // attempt got a 429, with the phone reading "I can't reach Topics" in
+    // front of a computer that was on.
     const c = inonda("10.0.0.9", MAX_PENDING_PER_IP);
-    expect(valutaQuota(c, "10.0.0.9")).toEqual({ ok: false, motivo: "troppe da questo indirizzo" });
+    expect(valutaQuota(c, "10.0.0.9")).toEqual({ ok: true, sfratta: "10.0.0.9#0" });
+  });
+
+  it("il tetto però continua a valere: la coda di un indirizzo non cresce", () => {
+    // Evicting is not raising the limit. At most MAX_PENDING_PER_IP requests
+    // stay live per address: every new one removes one of its own.
+    let c = inonda("10.0.0.9", MAX_PENDING_PER_IP);
+    for (let i = 0; i < 5; i++) {
+      const esito = valutaQuota(c, "10.0.0.9");
+      expect(esito.ok).toBe(true);
+      const vittima = esito.ok ? esito.sfratta : null;
+      expect(vittima).not.toBeNull();
+      c = c.filter((p) => p.id !== vittima);
+      c.push({ id: `nuova#${i}`, ip: "10.0.0.9", createdAt: 1000 + i });
+      expect(c.filter((p) => p.ip === "10.0.0.9").length).toBe(MAX_PENDING_PER_IP);
+    }
+  });
+
+  it("chi arriva al tetto non tocca le richieste di un ALTRO indirizzo", () => {
+    // The per-address eviction only looks at its own, otherwise the cap would
+    // become a way to make someone else's request disappear.
+    const c = [...inonda("10.0.0.9", MAX_PENDING_PER_IP), ...coda([["tua", "10.0.0.10", 0]])];
+    const esito = valutaQuota(c, "10.0.0.9");
+    expect(esito.ok && esito.sfratta).toBe("10.0.0.9#0");
   });
 
   it("un altro indirizzo non è toccato dal limite del primo", () => {

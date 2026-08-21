@@ -949,6 +949,7 @@ const EN = {
   'pair.blurb.new': 'A request will appear on the computer where Topics is already open: confirm it and this device is in.',
   'pair.blurb.revoked': 'This device was removed from Topics. You can ask for access again.',
   'pair.unreachable': 'I can’t reach Topics. Is the computer switched on?',
+  'pair.retrying': 'Trying again on my own in a few seconds.',
   'pair.denied': 'The computer turned the request down.',
   'pair.retry': 'Ask again',
   'pair.codeHint': 'A request with this code will appear on the computer.',

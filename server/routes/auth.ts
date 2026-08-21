@@ -379,7 +379,20 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // ma impedisce a te di far entrare qualcuno.
       const esito = valutaQuota([...pending.values()], ip);
       if (!esito.ok) return json({ error: "too_many_requests" }, 429);
-      if (esito.sfratta) pending.delete(esito.sfratta);
+      if (esito.sfratta) {
+        // Evicting is not just dropping a map entry. The evicted request has
+        // already raised a card on the owner's machine (`auth:pair-requested`)
+        // and owns a live timer that would later announce the expiry of an id
+        // that no longer exists.
+        //
+        // Without these two lines the card stays on screen forever and whoever
+        // clicks it gets `pairing_expired` for a request the server forgot:
+        // exactly the defect `sweep` exists to prevent, reopened through the
+        // other door. That door now opens on every request past the cap.
+        pending.delete(esito.sfratta);
+        scordaScadenza(esito.sfratta);
+        ctx.broadcast?.({ type: "auth:pair-resolved", requestId: esito.sfratta, approved: false });
+      }
       const name = deviceNameFromUserAgent(req.headers.get("user-agent"));
       const id = crypto.randomUUID();
       const entry: PendingPairing = {

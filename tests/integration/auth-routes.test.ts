@@ -188,18 +188,49 @@ describe("rotte auth · appaiamento", () => {
     expect(db.query("SELECT COUNT(*) c FROM devices").get()).toEqual({ c: 0 });
   });
 
-  test("i due tetti fermano l'inondazione della coda", async () => {
+  test("dallo stesso indirizzo si può SEMPRE chiedere: la vecchia lascia il posto", async () => {
     const db = dbFresco();
-    const router = createAuthRouter(creaCtx(db).ctx);
-    // Tre dallo stesso indirizzo passano, la quarta no: il verso
-    // dell'appaiamento toglie il brute-force del codice, non l'allagamento del
-    // cartello sul computer.
-    for (let i = 0; i < 3; i++) {
+    const { ctx } = creaCtx(db);
+    const router = createAuthRouter(ctx);
+    // THE CASE, stated in full: behind the relay "this address" is the
+    // household uplink, not a device. With the cap applied as a refusal three
+    // requests were enough (two reloads of the pairing screen) for the OWNER's
+    // fourth attempt to get a 429, with the phone reading "I can't reach
+    // Topics" in front of a computer that was perfectly on. Measured through
+    // the live relay on 2026-08-21: one 200, then 429 over and over.
+    for (let i = 0; i < 8; i++) {
       const r = await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
       expect(r?.status).toBe(200);
     }
-    const quarta = await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
-    expect(quarta?.status).toBe(429);
+
+    // And the cap did not vanish: that address's queue does not grow.
+    const inCoda = await (await chiama(router, "/api/auth/pair/pending", "GET"))!.json() as
+      { requests: Array<{ ip: string | null }> };
+    expect(inCoda.requests.filter((r) => r.ip === "10.0.0.9").length).toBe(3);
+  });
+
+  test("la richiesta sfrattata viene ANNUNCIATA, o il cartello resta per sempre", async () => {
+    const db = dbFresco();
+    const { ctx, inviati } = creaCtx(db);
+    const router = createAuthRouter(ctx);
+    // The approval card appears through a broadcast and lives in the client's
+    // memory: without the opposite announcement it would sit on the owner's
+    // screen forever, and clicking it would return `pairing_expired` for a
+    // request the server threw away. Same defect `sweep` exists to prevent,
+    // reopened through the eviction door, which now opens on every request
+    // past the cap.
+    const primi: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await (await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" }))!
+        .json() as { requestId: string };
+      primi.push(r.requestId);
+    }
+    await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
+
+    const risolti = inviati
+      .filter((f) => (f as { type?: string }).type === "auth:pair-resolved")
+      .map((f) => (f as { requestId: string }).requestId);
+    expect(risolti).toContain(primi[0]);
   });
 });
 
@@ -560,9 +591,16 @@ describe("rotte auth · inondare la coda non chiude fuori nessuno", () => {
     expect(b.code).toMatch(/^[A-Z0-9]{3}-[A-Z0-9]{3}$/);
   });
 
-  test("ma il limite su UN indirizzo resta un rifiuto", async () => {
-    // È un limite su di te, non sulla coda: sfrattare le tue richieste per far
-    // posto ad altre tue non vorrebbe dire niente.
+  test("e nemmeno il limite su UN indirizzo chiude fuori: fa POSTO", async () => {
+    // This said the opposite ("stays a refusal: it is a limit on you, not on
+    // the queue") and that reasoning hid a premise: that an address is a
+    // device. Behind the relay it is a HOUSEHOLD uplink, and the defect shows
+    // at once: the pairing screen opens a request per mount, two reloads burn
+    // the cap, and from there the owner's phone never gets in.
+    //
+    // The limit still exists (that address's queue stays at three, proven
+    // above) but applies by evicting YOUR oldest: the one from a tab you have
+    // already closed, whose code nobody is looking at.
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
     for (let k = 0; k < 3; k++) {
@@ -570,7 +608,11 @@ describe("rotte auth · inondare la coda non chiude fuori nessuno", () => {
       expect(r?.status).toBe(200);
     }
     const quarta = await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
-    expect(quarta?.status).toBe(429);
+    expect(quarta?.status).toBe(200);
+    // And the returned code is USABLE: it is what the person reads on the
+    // phone to compare against the card.
+    const b = await quarta!.json() as { code: string };
+    expect(b.code).toMatch(/^[A-Z0-9]{3}-[A-Z0-9]{3}$/);
   });
 });
 

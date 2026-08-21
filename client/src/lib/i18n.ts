@@ -1169,6 +1169,7 @@ const IT: Dict = {
   'pair.blurb.new': 'Sul computer dove Topics è già aperto comparirà una richiesta: confermala e questo dispositivo entra.',
   'pair.blurb.revoked': 'Questo dispositivo è stato rimosso da Topics. Puoi chiedere di nuovo accesso.',
   'pair.unreachable': 'Non riesco a contattare Topics. Il computer è acceso?',
+  'pair.retrying': 'Riprovo da solo fra qualche secondo.',
   'pair.denied': 'Richiesta rifiutata dal computer.',
   'pair.retry': 'Chiedi di nuovo',
   'pair.codeHint': 'Sul computer comparirà una richiesta con questo codice.',

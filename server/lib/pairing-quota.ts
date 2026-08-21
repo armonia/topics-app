@@ -21,9 +21,31 @@
  * posti prima di poter togliere il posto a qualcun altro, e chi bussa una volta
  * sola entra sempre.
  *
- * Il tetto per-indirizzo resta un rifiuto, ed è giusto così: è un limite su di
- * TE, non sulla coda, e sfrattare le tue richieste per farne entrare altre tue
- * non vorrebbe dire niente.
+ * ── THE PER-ADDRESS CAP EVICTS TOO ──────────────────────────────────────────
+ * This used to say the opposite: the per-address cap "stays a refusal, it is a
+ * limit on YOU, and evicting your own requests to admit other requests of
+ * yours would mean nothing". That holds while addresses are plentiful, which
+ * is the home network, where every phone has one of its own.
+ *
+ * Behind the relay it is false, and that is what broke the product: every
+ * request carries the PUBLIC address of the household's uplink. Phone, laptop
+ * and everyone else on that line are ONE address. Three requests total, and
+ * the fourth gets a 429.
+ *
+ * Those three do not even buy three devices: the pairing screen opens one
+ * request per mount, so two reloads burn the cap. Measured through the live
+ * relay on 2026-08-21: first POST 200, every one after it 429, with the phone
+ * left showing "I can't reach Topics" in front of a computer that was up.
+ *
+ * So this cap evicts as well, and it evicts YOUR oldest. That is the right
+ * victim: the old request belongs to a tab you already closed or reloaded, and
+ * nobody is reading its code. The one in your hand is the newest. The cap
+ * still does its job (no address accumulates more than MAX_PENDING_PER_IP live
+ * requests) but stops being a way to lock yourself out.
+ *
+ * A refusal survives only where there is nothing to evict, which cannot
+ * happen: to be at the cap you must hold at least one live request, and that
+ * one is the candidate.
  */
 
 export interface PendingLike {
@@ -46,7 +68,12 @@ export const MAX_PENDING_TOTAL = 200;
 export type EsitoQuota =
   /** Si accetta. `sfratta` è l'id da togliere per far posto, se serve. */
   | { ok: true; sfratta: string | null }
-  /** Si rifiuta, e il motivo è un limite su CHI chiede, non sulla coda. */
+  /**
+   * Refused. Only reachable by an address at its cap holding nothing to evict,
+   * which cannot happen: being at the cap means holding a live request, and
+   * that one is the candidate. The branch stays because the type must not lie
+   * about what this function can answer.
+   */
   | { ok: false; motivo: "troppe da questo indirizzo" };
 
 /**
@@ -61,9 +88,19 @@ export function valutaQuota(
   // Il limite su chi chiede. Un indirizzo assente (non lo sappiamo) NON viene
   // raggruppato con gli altri sconosciuti: sommarli darebbe a un ignoto la
   // capacità di consumare la quota di un altro ignoto.
+  //
+  // At the cap we EVICT our own oldest instead of refusing. Behind the relay
+  // "this address" is the household uplink, not a device: refusing here locks
+  // out the OWNER's fourth attempt, which is the defect this branch was
+  // rewritten for.
   if (ip) {
-    const suoi = pending.filter((p) => p.ip === ip).length;
-    if (suoi >= MAX_PENDING_PER_IP) return { ok: false, motivo: "troppe da questo indirizzo" };
+    const suoi = pending.filter((p) => p.ip === ip);
+    if (suoi.length >= MAX_PENDING_PER_IP) {
+      // The oldest is the tab already closed or reloaded: nobody is reading
+      // its code any more. The one in your hand is the newest.
+      const vittima = suoi.reduce((a, b) => (a.createdAt <= b.createdAt ? a : b));
+      return { ok: true, sfratta: vittima.id };
+    }
   }
 
   if (pending.length < MAX_PENDING_TOTAL) return { ok: true, sfratta: null };
