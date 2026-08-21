@@ -939,11 +939,40 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
  *  secondo su un relay giù è rumore, e la macchina intanto lavora lo stesso. */
 const ATTESE = [1_000, 2_000, 5_000, 15_000, 60_000];
 
+/**
+ * How long we wait for `ready` before treating a newly opened thread as dead.
+ *
+ * Generous next to the real round trip (the relay answers in tens of
+ * milliseconds): this is not a performance limit, it is the net that separates
+ * "attached" from "connected to nobody". Whoever has not confirmed by then
+ * never will, because `ready` is the FIRST thing the meeting point says.
+ */
+const ATTESA_CONFERMA_MS = 10_000;
+
 export function creaRelayClient(deps: RelayDeps) {
   const now = deps.now ?? (() => Date.now());
   const log = deps.log ?? (() => {});
   let ws: WebSocket | null = null;
   let tentativo = 0;
+  /**
+   * The meeting point has CONFIRMED that it took us in.
+   *
+   * Not the same thing as "the socket is open", and that difference kept
+   * remote access down for minutes on 2026-08-21: the TCP thread to Cloudflare
+   * was alive, `readyState === 1`, and the log announced a healthy connection
+   * on every line.
+   * But on the far side the Durable Object had been recreated and that thread
+   * belonged to nobody: every request from the phone got `host-offline`, and
+   * this side had no way to notice, because `onclose` never arrives for a
+   * thread nobody closes.
+   *
+   * The confirmation is the `ready` the relay sends right after attaching. It
+   * was already in the protocol (`shared/relay-protocol.ts`), already sent,
+   * and nobody looked at it. From here on IT is what says we are attached.
+   */
+  let confermato = false;
+  /** The confirmation wait for the current thread, cleared when it ends. */
+  let timerConferma: ReturnType<typeof setTimeout> | null = null;
   let fermato = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -987,6 +1016,19 @@ export function creaRelayClient(deps: RelayDeps) {
   });
 
   async function gestisci(m: MessaggioRelay): Promise<void> {
+    // ── THE CONFIRMATION, and why it is the first line of this handler.
+    //
+    // `onopen` says the THREAD is open; this says somebody on the far side
+    // took us in. The log used to announce success on the first of the two,
+    // which is why a thread hanging off a meeting point that no longer existed
+    // kept looking healthy.
+    if (m.t === "ready") {
+      if (!confermato) {
+        confermato = true;
+        log(`[relay] collegato a ${deps.baseUrl}`);
+      }
+      return;
+    }
     // Un capo si è agganciato. Il relay lo dice PRIMA di girare qualunque suo
     // frame — è la stessa socket, quindi l'ordine è garantito — e questa è la
     // sola occasione in cui si sa da quale porta è entrato.
@@ -1039,7 +1081,21 @@ export function creaRelayClient(deps: RelayDeps) {
 
     s.onopen = () => {
       tentativo = 0;
-      log(`[relay] collegato a ${deps.baseUrl}`);
+      confermato = false;
+      // The thread is open, but we do not yet know whether anyone is on the
+      // far side. If `ready` never comes, this closes it: `onclose` restarts
+      // the loop and the reconnection re-attaches to the live meeting point.
+      // Without it the thread sits there forever, looking healthy.
+      //
+      // `unref` because waiting for a confirmation must not keep the process
+      // alive: at shutdown there is nothing left to confirm.
+      const attesaConferma = setTimeout(() => {
+        if (confermato || ws !== s) return;
+        log(`[relay] nessuna conferma dal punto d'incontro: rifaccio il filo`);
+        try { s.close(); } catch { /* already closed: `onclose` handles it */ }
+      }, ATTESA_CONFERMA_MS);
+      (attesaConferma as unknown as { unref?: () => void }).unref?.();
+      timerConferma = attesaConferma;
       // Un ANNUNCIO, non una credenziale: a questo punto il relay ha già
       // deciso, guardando l'intestazione, che siamo noi. `token` resta nel
       // protocollo perché è la forma del messaggio, ma non concede niente e
@@ -1059,6 +1115,10 @@ export function creaRelayClient(deps: RelayDeps) {
 
     const riprova = () => {
       ws = null;
+      // The thread is over: its confirmation wait has nothing left to watch,
+      // and leaving it armed would close the NEXT thread when it fires.
+      if (timerConferma) { clearTimeout(timerConferma); timerConferma = null; }
+      confermato = false;
       // Le sessioni ospiti vivevano su QUESTO filo: alla riconnessione il relay
       // ne assegna di nuove, e tenere le vecchie vorrebbe dire leggere corpi
       // per destinatari che non esistono più.
@@ -1078,11 +1138,20 @@ export function creaRelayClient(deps: RelayDeps) {
     ferma() {
       fermato = true;
       if (timer) clearTimeout(timer);
+      if (timerConferma) { clearTimeout(timerConferma); timerConferma = null; }
       proxy.chiudiTutto();
       try { ws?.close(); } catch { /* già chiusa */ }
       ws = null;
     },
-    collegato: () => ws?.readyState === 1,
+    /**
+     * Attached FOR REAL, not "the thread is open".
+     *
+     * The two diverge, and when they do it is exactly the bad case: a live
+     * thread to a meeting point that no longer knows us answers `host-offline`
+     * to every request while this side looks fine. What is needed is the
+     * relay's confirmation, not the socket's state.
+     */
+    collegato: () => ws?.readyState === 1 && confermato,
     /** Test-only: serve una richiesta senza passare dal filo. */
     __servi: servi,
     /** Test-only: le sessioni ospiti vive su questo filo. */

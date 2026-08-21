@@ -134,3 +134,132 @@ describe("relay client · spento non toglie niente", () => {
     c.ferma();
   });
 });
+
+/**
+ * ── ATTACHED IS NOT "THE THREAD IS OPEN" ────────────────────────────────────
+ *
+ * On 2026-08-21 remote access stayed down for minutes while the log announced
+ * a healthy relay connection on every line. The thread to Cloudflare was alive
+ * (`readyState === 1`), but the Durable Object on the far side had been
+ * recreated and that thread belonged to nobody: every request from the phone
+ * got `host-offline`, and this side could not notice, because `onclose` never
+ * arrives for a thread nobody closes.
+ *
+ * The confirmation was already in the protocol, the `ready` the relay sends
+ * right after attaching, and nobody was looking at it.
+ */
+class SocketFintaRelay {
+  static aperte: SocketFintaRelay[] = [];
+  readyState = 1;
+  inviati: string[] = [];
+  chiusa = false;
+  onopen: (() => void) | null = null;
+  onmessage: ((e: { data: string }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor() { SocketFintaRelay.aperte.push(this); }
+  send(d: string): void { this.inviati.push(d); }
+  close(): void { this.chiusa = true; this.readyState = 3; this.onclose?.(); }
+  /** The meeting point takes us in. */
+  confermaReady(): void { this.onmessage?.({ data: JSON.stringify({ t: "ready", v: 1 }) }); }
+}
+
+function clientCollegato() {
+  SocketFintaRelay.aperte = [];
+  const righe: string[] = [];
+  const c = creaRelayClient({
+    baseUrl: "https://relay.esempio.test", relayId: "i1", segreto: SEGRETO_FINTO,
+    trovaLink: () => null,
+    serviRisorsa: async () => ({ status: 200, body: {} }),
+    segnaApertura: () => {},
+    now: () => ORA,
+    log: (m: string) => { righe.push(m); },
+    apriSocket: (() => new SocketFintaRelay()) as never,
+  });
+  return { c, righe };
+}
+
+describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CARICO", () => {
+  it("un filo aperto ma non confermato NON conta come collegato", () => {
+    const { c, righe } = clientCollegato();
+    c.avvia();
+    const s = SocketFintaRelay.aperte[0]!;
+    s.onopen?.();
+    // The thread is open, and that is not enough: it is exactly the state in
+    // which the log lied while the phone was getting `host-offline`.
+    expect(c.collegato()).toBe(false);
+    expect(righe.some((r) => r.includes("collegato"))).toBe(false);
+    c.ferma();
+  });
+
+  it("…e con la conferma sì, e solo allora lo si annuncia", () => {
+    const { c, righe } = clientCollegato();
+    c.avvia();
+    const s = SocketFintaRelay.aperte[0]!;
+    s.onopen?.();
+    s.confermaReady();
+    expect(c.collegato()).toBe(true);
+    expect(righe.filter((r) => r.includes("collegato"))).toHaveLength(1);
+    c.ferma();
+  });
+
+  it("senza conferma il filo si CHIUDE, invece di restare a sembrare sano", async () => {
+    // THE case: the thread stays open towards a meeting point that no longer
+    // knows us. If nobody closes it, `onclose` never arrives and the
+    // reconnection never starts, so remote access stays down until someone
+    // restarts the server by hand.
+    //
+    // The real timer is ten seconds, and this test does not sleep on it: time
+    // is moved instead of awaited.
+    const veroSetTimeout = globalThis.setTimeout;
+    const armati: Array<() => void> = [];
+    (globalThis as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number) => {
+      // Only the CONFIRMATION wait is captured: everything else (the retry,
+      // and anyone else's timers) must keep behaving as usual.
+      if (ms === 10_000) { armati.push(fn); return { unref() {} }; }
+      return veroSetTimeout(fn, ms);
+    }) as typeof setTimeout;
+
+    try {
+      const { c } = clientCollegato();
+      c.avvia();
+      const s = SocketFintaRelay.aperte[0]!;
+      s.onopen?.();
+      expect(s.chiusa).toBe(false);
+      expect(armati).toHaveLength(1);
+
+      // Ten seconds later, with no `ready` having arrived.
+      armati[0]!();
+      expect(s.chiusa).toBe(true);
+      expect(c.collegato()).toBe(false);
+      c.ferma();
+    } finally {
+      (globalThis as { setTimeout: unknown }).setTimeout = veroSetTimeout;
+    }
+  });
+
+  it("…e un filo CONFERMATO non viene chiuso da quell'attesa", async () => {
+    // The other direction, and without it "always close after ten seconds"
+    // would pass the test above and take the relay down every ten seconds.
+    const veroSetTimeout = globalThis.setTimeout;
+    const armati: Array<() => void> = [];
+    (globalThis as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number) => {
+      if (ms === 10_000) { armati.push(fn); return { unref() {} }; }
+      return veroSetTimeout(fn, ms);
+    }) as typeof setTimeout;
+
+    try {
+      const { c } = clientCollegato();
+      c.avvia();
+      const s = SocketFintaRelay.aperte[0]!;
+      s.onopen?.();
+      s.confermaReady();
+      armati[0]!();
+      expect(s.chiusa).toBe(false);
+      expect(c.collegato()).toBe(true);
+      c.ferma();
+    } finally {
+      (globalThis as { setTimeout: unknown }).setTimeout = veroSetTimeout;
+    }
+  });
+});
