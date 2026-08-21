@@ -1,211 +1,107 @@
 #!/usr/bin/env bash
-# e2e-shards.sh — la suite E2E in N processi paralleli, sulla stessa macchina.
+# e2e-shards.sh — run the E2E suite as N shards side by side on this machine.
 #
-# Playwright gira con `workers: 1` e `fullyParallel: false` (playwright.config.ts)
-# perché i test condividono UN server e UN SQLite: dentro un singolo processo la
-# serialità è l'unica cosa che li tiene onesti. La suite intera è ~500 test, e
-# in serie sono ~35 minuti di attesa.
+# WHY IT EXISTS. `playwright.config.ts` pins `workers: 1`, and the reason is
+# sound: the workers of one run share a server and a database, so a second worker
+# races the first. Sharding is a different axis and the repo already supports it
+# fully. `E2E_PORT` gives each shard its own port, its own `DATA_DIR`, its own
+# frozen bundle and its own tunnel port (`helpers/test-server.ts`), which is
+# exactly how CI runs four of them. Locally nobody did, so the whole suite ran
+# end to end on one shard and took as long as it takes.
 #
-# Il parallelismo giusto quindi non è "più worker", è PIÙ SUITE: N processi
-# Playwright, ognuno con il SUO server, il SUO database e i SUOI socket. È
-# esattamente ciò che fa il nightly su CI (`--shard=i/4`), dove ogni shard ha un
-# runner tutto suo; in locale mancava solo che porta e percorsi smettessero di
-# essere cablati — ora arrivano da E2E_PORT (tests/e2e/helpers/test-server.ts).
+# PORTS. `tunnelPortFor()` is `port + 1000`, and the main ports occupy 13334 plus
+# the worktree band 13500-13899. Shards start at 13910 so neither the ports nor
+# their tunnels (14910 and up) can land on somebody else's main port. Override
+# with E2E_SHARD_BASE_PORT if you are running two of these at once, which you
+# probably should not.
 #
-# Uso:
-#   ./scripts/e2e-shards.sh                    # 4 shard, tutta la suite
-#   SHARDS=2 ./scripts/e2e-shards.sh           # 2 shard
-#   ./scripts/e2e-shards.sh --grep @smoke      # gli argomenti passano a playwright
-#   E2E_TIER=pr ./scripts/e2e-shards.sh        # solo il gate PR
-#   STAGGER=0 ./scripts/e2e-shards.sh          # avvii simultanei (vedi sotto)
+# LOAD, and the default is 2 because of a measurement, not a hunch. Every shard
+# is a headless Chrome AND a Bun server. CI runs four, but CI gives each shard its
+# own runner; here they share one laptop that is already carrying the production
+# server and the app.
 #
-# Gli avvii sono SFASATI di STAGGER secondi. Partendo tutti insieme, N shard
-# fanno insieme anche la parte più costosa del boot — 69 migrazioni su un SQLite
-# nuovo, il BrowserService, il PTY-bridge — e su una macchina sola si fanno la
-# fila a vicenda: il 30/07, con 4 shard, uno ha sforato il timeout di avvio del
-# server e un altro ha perso una corsa sulla cache di trasformazione dei moduli
-# (`Cannot read properties of undefined (reading 'Symbol(testType)')`). Nessuno
-# dei due era un bug del codice: ripetuti da soli, verdi. Sfasare costa qualche
-# secondo su un run di minuti ed è la differenza fra una suite che si può
-# credere e una che va ricontrollata a mano ogni volta.
+#   2026-08-21, same 47 specs (119 tests), this machine:
+#     1 shard   246s   all green
+#     2 shards  149s   all green      load 7.1 -> 15.7
+#     4 shards   84s   TWO SHARDS DEAD: one test server never answered within
+#                      30s, another died mid-run and took 8 tests with it
 #
-# Ogni shard scrive log e risultati sotto test-results/shard-<i>/; alla fine
-# stampa UN riepilogo con tutti i falliti di tutti gli shard. Uno shard che non
-# arriva a eseguire test è un FALLIMENTO del riepilogo, non una nota a piè di
-# pagina: vedi scripts/e2e-shards-summary.ts.
+# The four-shard run is not faster, it is broken: the wall clock is short because
+# a third of the suite never ran. Raise it only on a machine you know is idle, and
+# read the load line this script prints before believing a red.
 #
-# ── Il bilanciamento ────────────────────────────────────────────────────────
-# `--shard=i/N` di Playwright riparte i file per NUMERO DI TEST: non conosce le
-# durate, quindi non sa che un file da 22 test può costare quanto quaranta file
-# da uno. Misurato il 30/07 con 4 shard: 193s, 326s, 186s, 209s. Il wall-clock
-# di una suite parallela è il suo shard più lento, quindi si aspettavano 326
-# secondi con tre quarti della macchina fermi.
-#
-# Qui il piano lo fa `e2e-plan-shards.ts`, che pacchetta i file per DURATA
-# misurata (`e2e-durations.json`) e passa a ogni shard il suo elenco esplicito.
-# Sugli stessi dati: 228s a 4 shard, 114s a 8 — l'ideale teorico in entrambi i
-# casi. Se il piano non si può fare (durate assenti, `--list` fallito, o l'utente
-# ha passato un filtro suo) si torna a `--shard=i/N` e la suite gira lo stesso:
-# questo meccanismo accorcia la corsa, non la rende più corretta.
-#
-# Le durate si aggiornano dopo una passata:
-#   bun run scripts/e2e-record-durations.ts test-results/shard-*/results.json
-
+# Usage:
+#   scripts/e2e-shards.sh                                  # 2 shards, whole suite
+#   scripts/e2e-shards.sh 4 tests/e2e/board-*.spec.ts      # 4 shards, a subset
+#   TOPICS_E2E_BUNDLE_DIR=... scripts/e2e-shards.sh        # against a built bundle
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BASE_PORT="${E2E_SHARD_BASE_PORT:-13910}"
+OUT_DIR="${TMPDIR:-/tmp}/topics-e2e-shards"
+
+SHARDS=2
+case "${1:-}" in
+  ''|*[!0-9]*) : ;;             # first argument is not a number: keep the default
+  *) SHARDS="$1"; shift ;;
+esac
+[ "$SHARDS" -ge 1 ] 2>/dev/null || { echo "✗ numero di shard non valido: $SHARDS" >&2; exit 1; }
+
+rm -rf "$OUT_DIR"; mkdir -p "$OUT_DIR"
 cd "$REPO_ROOT"
 
-SHARDS="${SHARDS:-4}"
-# La porta di partenza segue la stessa regola del default di `E2E_PORT`
-# (tests/e2e/helpers/worktree-port.ts): 13334 dal checkout principale, una porta
-# derivata dal path se questo è un worktree di dispatch. Cablare 13334 qui
-# significherebbe che lo shard 0 di un agente si riprende esattamente la porta
-# che il resto del fix tiene libera — e il suo global-setup ammazzerebbe il
-# server della run vera.
-BASE_PORT="${E2E_BASE_PORT:-$(bun -e 'import {defaultE2EPort} from "./tests/e2e/helpers/worktree-port"; import {homedir} from "os"; console.log(defaultE2EPort(process.cwd(), homedir()))' 2>/dev/null)}"
-STAGGER="${STAGGER:-5}"
-
-if ! [[ "$SHARDS" =~ ^[0-9]+$ ]] || [ "$SHARDS" -lt 1 ]; then
-  echo "SHARDS deve essere un intero >= 1 (ricevuto: $SHARDS)" >&2
-  exit 2
+LOAD_BEFORE="$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{print $1}')"
+NCPU="$(sysctl -n hw.ncpu 2>/dev/null || echo 8)"
+echo "▸ $SHARDS shard, porte $BASE_PORT-$((BASE_PORT + SHARDS - 1)), log in $OUT_DIR"
+echo "  carico prima: $LOAD_BEFORE su $NCPU core"
+# A shard that dies looks exactly like a shard that found a bug, and the only way
+# to tell them apart afterwards is knowing what the machine was doing.
+if awk -v l="$LOAD_BEFORE" -v n="$NCPU" 'BEGIN{exit !(l > n/2)}' 2>/dev/null; then
+  echo "  ⚠ la macchina e' gia' carica: un server di test che non parte qui NON e' un test rotto" >&2
 fi
-# Una derivazione fallita non deve degradare in silenzio su una porta a caso (o
-# vuota): meglio fermarsi e dirlo.
-if ! [[ "$BASE_PORT" =~ ^[0-9]+$ ]] || [ "$BASE_PORT" -lt 1024 ]; then
-  echo "BASE_PORT non valida (ricevuto: '${BASE_PORT}'). Passa E2E_BASE_PORT=<porta> a mano." >&2
-  exit 2
-fi
-if ! [[ "$STAGGER" =~ ^[0-9]+$ ]]; then
-  echo "STAGGER deve essere un intero >= 0 (ricevuto: $STAGGER)" >&2
-  exit 2
-fi
+[ -n "${TOPICS_E2E_BUNDLE_DIR:-}" ] && echo "  bundle: $TOPICS_E2E_BUNDLE_DIR"
+echo
 
-# Il tetto d'attesa per l'apertura della porta del server di test. Il ciclo esce
-# appena la porta risponde, quindi un tetto alto non costa nulla quando il server
-# è pronto in fretta: costa solo quanto si aspetta prima di sapere che è morto.
-# I 30s di default bastavano a uno shard solo e non a quattro.
-export E2E_SERVER_START_TIMEOUT_MS="${E2E_SERVER_START_TIMEOUT_MS:-90000}"
-
-pids=()
-ports=()
-
-cleanup() {
-  echo ""
-  echo "[e2e-shards] interrotto — chiudo gli shard…"
-  for pid in "${pids[@]:-}"; do
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-  done
-  # I server di test muoiono col globalTeardown di ciascuno shard; se lo shard
-  # è stato ucciso prima, la porta resta occupata — liberala qui.
-  # -sTCP:LISTEN: solo chi ASCOLTA. Senza, lsof elenca anche i socket dei
-  # CLIENT di quella porta (i Chromium degli altri shard ancora vivi) e questo
-  # kill li porterebbe via insieme al server dello shard interrotto.
-  for port in "${ports[@]:-}"; do
-    lsof -ti ":$port" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
-  done
-  exit 130
-}
-trap cleanup INT TERM
-
-# Il piano per durata si usa solo se l'utente NON ha passato un filtro suo di
-# file: sommare due elenchi di file darebbe una selezione che non è né la sua né
-# la nostra. I flag (--grep, --repeat-each, …) invece compongono senza problemi
-# e non disattivano il piano.
-USER_FILE_FILTER=0
-for arg in "$@"; do
-  case "$arg" in
-    -*) ;;
-    *) USER_FILE_FILTER=1 ;;
-  esac
-done
-
-# Via TUTTE le cartelle shard-*, non solo le N di questa run: una passata a 8
-# shard seguita da una a 4 lascerebbe shard-5..8 con i risultati VECCHI, e il
-# glob `test-results/shard-*/results.json` — quello che si passa a
-# `e2e-record-durations.ts` — li rimescolerebbe con i nuovi. Misure di due run
-# diverse nello stesso file di durate distorcono il pacchettamento in silenzio.
-rm -rf test-results/shard-[0-9]*
-
-PLAN_DIR="test-results/shard-plan"
-rm -rf "$PLAN_DIR"
-PLAN_OK=0
-if [ "$USER_FILE_FILTER" -eq 0 ]; then
-  # UNA sola pianificazione per tutta la run: elencare le spec costa ~10s
-  # (Playwright deve caricarle e transpilarle tutte), e farlo una volta per shard
-  # costerebbe più di quanto il bilanciamento faccia risparmiare.
-  if PLAN_SUMMARY="$(bun run "$REPO_ROOT/scripts/e2e-plan-shards.ts" "$SHARDS" --out "$PLAN_DIR" 2>&1)"; then
-    PLAN_OK=1
-    echo "$PLAN_SUMMARY" | sed 's/^/[e2e-shards] /'
-  else
-    echo "[e2e-shards] piano per durata non disponibile, uso --shard=i/N:"
-    echo "$PLAN_SUMMARY" | sed 's/^/[e2e-shards]   /' | head -3
-  fi
-fi
-
-echo "[e2e-shards] $SHARDS shard paralleli, porte $BASE_PORT..$((BASE_PORT + SHARDS - 1)) (avvii sfasati di ${STAGGER}s)"
-
+STARTED=$(date +%s)
+pids=""
 for i in $(seq 1 "$SHARDS"); do
   port=$((BASE_PORT + i - 1))
-  out="test-results/shard-$i"
-  rm -rf "$out"
-  mkdir -p "$out"
-
-  # Selezione dei test: elenco esplicito di file (piano per durata) oppure la
-  # ripartizione nativa di Playwright.
-  shard_files=()
-  if [ "$PLAN_OK" -eq 1 ] && [ -f "$PLAN_DIR/shard-$i.txt" ]; then
-    while IFS= read -r f; do
-      [ -n "$f" ] && shard_files+=("$f")
-    done < "$PLAN_DIR/shard-$i.txt"
-  fi
-  if [ "${#shard_files[@]}" -gt 0 ]; then
-    selection=("${shard_files[@]}")
-  else
-    selection=("--shard=$i/$SHARDS")
-  fi
-
-  # --reporter da CLI SOSTITUISCE quelli del config: niente html (gli shard si
-  # sovrascriverebbero a vicenda la stessa cartella), un JSON per shard che il
-  # riepilogo finale rilegge.
-  E2E_PORT="$port" \
-  PLAYWRIGHT_JSON_OUTPUT_NAME="$out/results.json" \
-    npx playwright test \
-      "${selection[@]}" \
-      --reporter=line,json \
-      --output="$out/artifacts" \
-      "$@" >"$out/log.txt" 2>&1 &
-
-  pids+=("$!")
-  ports+=("$port")
-  echo "[e2e-shards]   shard $i/$SHARDS → :$port  (pid $!, log $out/log.txt)"
-
-  # Sfasa il prossimo avvio: è il boot del server (migrazioni + BrowserService)
-  # a fare la fila, non i test.
-  if [ "$i" -lt "$SHARDS" ] && [ "$STAGGER" -gt 0 ]; then
-    sleep "$STAGGER"
-  fi
+  E2E_PORT="$port" npx playwright test --shard="$i/$SHARDS" --reporter=line "$@" \
+    > "$OUT_DIR/shard-$i.log" 2>&1 &
+  pids="$pids $!"
+  echo "  shard $i/$SHARDS  porta $port  pid $!"
 done
 
-failed_shards=0
-for idx in "${!pids[@]}"; do
-  if ! wait "${pids[$idx]}"; then
-    failed_shards=$((failed_shards + 1))
-  fi
-  echo "[e2e-shards] shard $((idx + 1)) finito"
+# `wait` per pid, so one shard failing does not hide the others: we want every
+# exit code, not the first bad one.
+rc_total=0
+i=0
+for pid in $pids; do
+  i=$((i + 1))
+  wait "$pid"; rc=$?
+  [ "$rc" -ne 0 ] && rc_total=1
+  eval "rc_$i=$rc"
+done
+ELAPSED=$(( $(date +%s) - STARTED ))
+
+echo
+echo "▸ esito dopo ${ELAPSED}s (carico: $LOAD_BEFORE → $(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{print $1}'))"
+for i in $(seq 1 "$SHARDS"); do
+  eval "rc=\$rc_$i"
+  # The line reporter repaints with cursor escapes, and they survive into the log:
+  # without stripping them the summary reads as "[1A[2K  32 passed".
+  line="$(grep -E '[0-9]+ (passed|failed)' "$OUT_DIR/shard-$i.log" | tail -1 \
+          | LC_ALL=C sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' | sed -E 's/^ +//')"
+  [ -z "$line" ] && line="(nessun riepilogo: guarda $OUT_DIR/shard-$i.log)"
+  if [ "$rc" -eq 0 ]; then printf "  ✓ shard %d/%d  %s\n" "$i" "$SHARDS" "$line"
+  else printf "  ✗ shard %d/%d  %s\n" "$i" "$SHARDS" "$line"; fi
 done
 
-echo ""
-bun run "$REPO_ROOT/scripts/e2e-shards-summary.ts" "$SHARDS"
-summary_status=$?
-
-# L'esito è quello dei test, non dei processi: uno shard può uscire non-zero
-# anche solo per il teardown, e i falliti veri li conta il riepilogo.
-if [ "$summary_status" -ne 0 ]; then
-  exit "$summary_status"
+if [ "$rc_total" -ne 0 ]; then
+  echo
+  echo "I test caduti, per shard:"
+  for i in $(seq 1 "$SHARDS"); do
+    grep -E '^\s+[0-9]+\) ' "$OUT_DIR/shard-$i.log" | sed "s/^/  [shard $i] /" || true
+  done
 fi
-if [ "$failed_shards" -ne 0 ]; then
-  echo "[e2e-shards] nessun test fallito, ma $failed_shards shard sono usciti non-zero: controlla i log."
-  exit 1
-fi
-exit 0
+exit "$rc_total"
