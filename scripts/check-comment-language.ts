@@ -30,6 +30,14 @@
  * and template literals are stripped before the scan, so an Italian string is
  * this gate's business only through `check:ui-language`.
  *
+ * A RENAME LOOKS LIKE A REGRESSION, and that is the intended behaviour. Moving
+ * a file with Italian comments makes the new path unlisted, so the gate fails
+ * until you rerun `--update-baseline`, which re-records the same debt under the
+ * new name (and locks in every other file's improvements at the same time,
+ * which only ever lowers the total). `check:bloat` and `check:sleeps` behave
+ * identically; the alternative is a gate that silently forgets debt whenever
+ * someone reorganises a directory.
+ *
  * ESCAPE HATCH. `allow-italian: <why>` on the comment line, the same marker
  * `check:ui-language` already honours. It exists for the case where the Italian
  * IS the subject - a quoted error message, a term of art with no English
