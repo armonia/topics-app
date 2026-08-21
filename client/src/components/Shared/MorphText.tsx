@@ -38,6 +38,24 @@ interface Volo {
   seq: number;
 }
 
+/**
+ * La scaletta, calcolata PRIMA di disegnare invece che mentre si disegna.
+ *
+ * Restituisce, per ogni chunk, l'indice che la scaletta ha raggiunto appena
+ * prima di quel chunk: la lettera k del chunk ci entra a `partenza + 1 + k`.
+ * Gli spazi avanzano l'indice come le lettere (il ritmo resta quello della
+ * frase) pur non essendo animati.
+ */
+function partenzeChunk(chunks: string[]): number[] {
+  const out: number[] = [];
+  let indice = -1;
+  for (const chunk of chunks) {
+    out.push(indice);
+    indice += Array.from(chunk).length;
+  }
+  return out;
+}
+
 export function MorphText({ text }: { text: string }) {
   const precedente = useRef(text);
   const seq = useRef(0);
@@ -64,28 +82,28 @@ export function MorphText({ text }: { text: string }) {
   }
 
   const { prefix, changed, suffix, stepMs } = volo.plan;
-  let indice = -1;
+  const chunks = morphWordChunks(changed);
+  const partenze = partenzeChunk(chunks);
   return (
     <span key={volo.seq}>
       {prefix}
-      {morphWordChunks(changed).map((chunk, ci) => {
+      {chunks.map((chunk, ci) => {
         if (/^\s+$/u.test(chunk)) {
           // Uno spazio consuma il suo posto nella scaletta (il ritmo resta
           // quello della frase) ma non e' una lettera da far entrare.
-          // eslint-disable-next-line react-hooks/immutability -- contatore di RITMO: `map` gira in modo sincrono dentro questo stesso render e nessuna closure gli sopravvive, quindi la riassegnazione non puo' essere letta "dopo il render". Serve una scaletta CONTINUA fra chunk diversi, che un indice per-chunk non puo' dare.
-          indice += Array.from(chunk).length;
           return <span key={`s${ci}`}>{chunk}</span>;
         }
         return (
           <span key={`w${ci}`} className="morph-word">
-            {Array.from(chunk).map((ch, k) => {
-              indice += 1;
-              return (
-                <span key={k} className="morph-char" style={{ animationDelay: `${Math.round(indice * stepMs)}ms` }}>
-                  {ch}
-                </span>
-              );
-            })}
+            {Array.from(chunk).map((ch, k) => (
+              <span
+                key={k}
+                className="morph-char"
+                style={{ animationDelay: `${Math.round((partenze[ci] + 1 + k) * stepMs)}ms` }}
+              >
+                {ch}
+              </span>
+            ))}
           </span>
         );
       })}

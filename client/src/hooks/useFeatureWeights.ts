@@ -14,30 +14,29 @@
  * mezzo.
  */
 
-import { useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { collectFeatureWeights, ordinaVoci, voceVuota, type VocePeso } from '@/lib/featureWeight';
 import { vociMisurate, type IngressiMisurati } from '@/lib/featureUsage';
 
 export function useFeatureWeights(attivo: boolean, misurati: IngressiMisurati, sampleKey?: string): VocePeso[] {
-  /* GLI INGRESSI IN UN REF, e non fra le dipendenze.
+  /* GLI INGRESSI FUORI DALLE DIPENDENZE, e non dentro un ref.
    *
    * `misurati` e' un oggetto letterale ricostruito a ogni render dal
    * chiamante: metterlo nelle dipendenze rifarebbe il conto a ogni render del
-   * padre — cioe' molte volte al secondo mentre una chat streamma — che e'
-   * esattamente cio' che questo hook esiste per evitare. Il ref porta sempre
-   * l'ULTIMO valore, quindi il ricalcolo, quando avviene, non usa mai un dato
-   * vecchio. */
-  const ref = useRef(misurati);
-  // eslint-disable-next-line react-hooks/refs -- deliberate latest-value ref: `misurati` is a literal rebuilt every render, so it cannot be a dependency without defeating the hook; the write is idempotent and never drives rendering
-  ref.current = misurati;
-
+   * padre, cioe' molte volte al secondo mentre una chat streamma. Ed e'
+   * esattamente cio' che questo hook esiste per evitare.
+   *
+   * Prima il valore passava da un ref scritto durante il render: la stessa
+   * cosa, ma per una via che React considera scorretta (un ref letto mentre
+   * si disegna non fa aggiornare chi lo legge). Il memo legge ora `misurati`
+   * direttamente: quando si ricalcola ha comunque l'ULTIMO valore, perche' il
+   * ricalcolo avviene durante un render e quel render porta l'ingresso fresco. */
   return useMemo(() => {
     if (!attivo) return [];
     // Le due nature entrano nello stesso elenco e vengono ordinate una volta
     // sola: `ordinaVoci` tiene il misurato davanti e non mescola mai i criteri
     // di peso fra nature diverse.
-    // eslint-disable-next-line react-hooks/refs -- same latest-value ref: read only when the memo actually recomputes, which is what keeps the inventory off the render path
-    return ordinaVoci([...vociMisurate(ref.current), ...collectFeatureWeights()])
+    return ordinaVoci([...vociMisurate(misurati), ...collectFeatureWeights()])
       .filter(v => !voceVuota(v));
     /* LE DUE DIPENDENZE, e perche' servono ENTRAMBE.
      *
@@ -49,5 +48,6 @@ export function useFeatureWeights(attivo: boolean, misurati: IngressiMisurati, s
      * ricampiona ogni 60 secondi, quindi con il solo `sampleKey` chi passa il
      * mouse subito dopo un campione leggerebbe un tooltip vuoto fino al giro
      * dopo — un minuto di attesa per una riga di testo. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- il campione, non l'oggetto ricostruito a ogni render
   }, [attivo, sampleKey]);
 }

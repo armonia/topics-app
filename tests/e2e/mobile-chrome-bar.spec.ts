@@ -338,7 +338,7 @@ test.describe.serial("La chrome del telefono", () => {
 
     // La fascia «Questo computer» non c'è più sotto i 768px.
     await expect(page.locator('[data-testid="sidebar-status-bar"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="device-identity"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="identity-row-me"]')).toHaveCount(0);
 
     // Quel che resta vive nel menu, che sul telefono è un foglio dal basso.
     await page.locator('[data-testid="sidebar-topics-menu"]').tap();
