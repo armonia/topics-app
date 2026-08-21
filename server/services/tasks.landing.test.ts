@@ -159,6 +159,52 @@ describe("settleLanded / verdetto testimoniato", () => {
     expect(atterraggio(id).w).toBe(1);
   });
 
+  /**
+   * A BRANCH IS A DELIVERY TOO, and the audit was blind to it.
+   *
+   * `debtVerdict` asks the branch FIRST (`classifyBranchLanding`) and only
+   * falls back to the commit once the branch is gone — so the verdict logic
+   * could always answer for a card carrying just a branch. The candidate query
+   * never asked it: it wanted a commit.
+   *
+   * Measured on this board on 2026-08-21: 27 done cards with a branch and no
+   * commit, invisible to the audit for their whole life. By the time anyone
+   * looked, none of the first twelve branches was still alive and exactly one
+   * merge could be found on main — the evidence had evaporated. What this test
+   * defends is not those cards; it is that the next one gets asked WHILE its
+   * branch exists.
+   */
+  test("una consegna col SOLO ramo entra fra i candidati", () => {
+    const id = nuovo();
+    svc.recordDelivery({ taskId: id, branch: "topics/solo-ramo", commit: null });
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
+
+    const riga = db.prepare("SELECT delivery_branch AS b, delivery_commit AS c FROM tasks WHERE id = ?").get(id) as { b: string | null; c: string | null };
+    // If this one falls, the red is about the SETUP: with no branch and no
+    // commit the card is not the case this test measures.
+    expect(riga.b).toBe("topics/solo-ramo");
+    expect(riga.c ?? null).toBeNull();
+
+    const c = svc.listLandingAuditCandidates().find((x) => x.id === id);
+    expect(c).toBeTruthy();
+    // And the branch reaches whoever has to ask it: without that the candidate
+    // would arrive mute and the pass would fall back to a commit that is not
+    // there.
+    expect(c!.deliveryBranch).toBe("topics/solo-ramo");
+  });
+
+  test("senza NESSUNA consegna la card resta fuori: non c'e' niente da chiedere", () => {
+    const id = nuovo();
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
+    expect(svc.listLandingAuditCandidates().map((x) => x.id)).not.toContain(id);
+  });
+
+  test("un ramo VUOTO non e' una consegna", () => {
+    const id = nuovo();
+    db.prepare("UPDATE tasks SET status = 'done', delivery_branch = '' WHERE id = ?").run(id);
+    expect(svc.listLandingAuditCandidates().map((x) => x.id)).not.toContain(id);
+  });
+
   test("una CONSEGNA nuova fa cadere la testimonianza: era su un'altra consegna", () => {
     const id = nuovo();
     svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "a".repeat(40) });

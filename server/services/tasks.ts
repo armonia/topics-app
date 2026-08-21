@@ -5201,7 +5201,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         `SELECT id, project_id, delivery_branch, delivery_commit
            FROM tasks
           WHERE archived = 0
-            AND (delivery_commit IS NOT NULL OR landing_state = 'unlanded')
+            -- A BRANCH IS A DELIVERY, no less than a commit is. debtVerdict
+            -- asks the branch first (classifyBranchLanding) and only falls back
+            -- to the commit once the branch is gone: the verdict logic already
+            -- knew how to answer for a card carrying only a branch, and it was
+            -- this line that never asked it.
+            --
+            -- What that cost, measured on this board on 2026-08-21: 27 done
+            -- cards with a branch and no commit, invisible to the audit for
+            -- their whole life. Looked at afterwards, of the first twelve
+            -- branches none was still alive and exactly one merge could be
+            -- found on main: the evidence had already evaporated. The value is
+            -- not in recovering those. It is that from now on such a card gets
+            -- asked WHILE its branch exists, the only moment the question has
+            -- an answer.
+            --
+            -- NULL and unverifiable are not the same state: the first says
+            -- nobody ever asked, the second says we asked and the evidence is
+            -- gone. The second is a measurement; the first is a hole.
+            AND (
+              delivery_commit IS NOT NULL
+              OR (delivery_branch IS NOT NULL AND delivery_branch <> '')
+              OR landing_state = 'unlanded'
+            )
             AND status IN ('review', 'done')
             -- Una DECISIONE non si rimisura: superseded dice «non e' su main,
             -- e va bene cosi'». L'audit chiede al repo, e il repo risponderebbe
