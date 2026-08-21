@@ -47,8 +47,19 @@ export const PAGINA_SENZA_CASA = `<!doctype html>
   :root { color-scheme: light dark; --b:#e5e5e5; --m:#6b7280; --s:#fafafa; --t:#111; }
   @media (prefers-color-scheme: dark) { :root { --b:#2a2a2a; --m:#9ca3af; --s:#141414; --t:#f5f5f5; } }
   * { box-sizing: border-box; }
+  /* \`dvh\` e non \`vh\`: su un telefono le barre del browser compaiono SOPRA il
+     contenuto e la finestra si accorcia da sola, ma \`vh\` continua a contare
+     l'altezza piena — cosi' il fondo pagina finisce sotto la barra degli
+     strumenti. \`dvh\` e' l'altezza dinamica, quella vera. Il \`vh\` resta come
+     ripiego per i browser che non conoscono \`dvh\`.
+
+     E si CENTRA solo quando lo spazio avanza: su uno schermo corto la
+     centratura taglia in modo simmetrico, cioe' nasconde anche il titolo in
+     cima. Da 480px in giu' si parte dall'alto e, se non ci sta, si scorre. */
   body { margin:0; font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-         display:flex; min-height:100vh; align-items:center; justify-content:center; padding:24px 16px; color:var(--t); }
+         display:flex; min-height:100vh; min-height:100dvh; align-items:flex-start;
+         justify-content:center; padding:24px 16px; color:var(--t); }
+  @media (min-height: 480px) { body { align-items:center; } }
   main { width:100%; max-width:420px; text-align:center; }
   .logo { width:44px; height:44px; margin:0 auto 18px; border-radius:11px; border:1px solid var(--b);
           background:var(--s); display:flex; align-items:center; justify-content:center;

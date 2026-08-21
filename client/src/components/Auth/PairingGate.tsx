@@ -168,93 +168,118 @@ export function PairingGate({ session }: { session: SessionState }) {
     // proprio questo che rende il numero a mano insidioso, il giorno in cui
     // qualcosa (un toast, un overlay di sviluppo, un portal condiviso) si
     // monta accanto e vince un pareggio per ordine nel DOM.
-    <div className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-app-bg px-6`}>
-      <div className="w-full max-w-sm text-center">
-        {/* WHO you are, before what you must do.
+    // ── WHY IT SCROLLS, AND WHY THE EDGE IS NOT THE SCREEN'S ────────────────
+    //
+    // `fixed inset-0` plus vertical centring is a trap on a phone: when the
+    // content is taller than the window, whatever falls outside cannot be
+    // reached at all, because a `fixed` element does not lengthen the
+    // document. And the window shrinks on its own: the browser bars appear
+    // OVER the content and eat dozens of points.
+    //
+    // Measured with WebKit at 320x420 (a small iPhone with the URL bar open):
+    // the status line ended at 453px out of 420 visible, and `scrollHeight`
+    // equalled `innerHeight`, so it was both invisible and unreachable.
+    //
+    // Three things close it, together:
+    //  · `overflow-y-auto`: if it does not fit, it scrolls. This is the safety
+    //    net that makes any mistake about height harmless.
+    //  · `items-start` with `sm:items-center`: centring is right when space is
+    //    left over, but on a short screen centring is what clips SYMMETRICALLY,
+    //    hiding the heading at the top as well.
+    //  · `min-h-dvh` on the content plus `py-10`: `dvh` is the DYNAMIC height,
+    //    the one that accounts for the bars as they appear and go, while `vh`
+    //    does not, which is why the bottom of a page ends up under the toolbar.
+    //    The vertical padding keeps the first and last rows off the edges when
+    //    scrolling.
+    <div className={`fixed inset-0 ${MODAL_LAYER} overflow-y-auto overscroll-contain bg-app-bg`}>
+      <div className="flex min-h-dvh items-start justify-center px-6 py-10 sm:items-center">
+        <div className="w-full max-w-sm text-center">
+          {/* WHO you are, before what you must do.
 
-            This screen is the FIRST thing a person sees of Topics from the
-            phone, and for months it was a heading in the middle of black:
-            no mark, no version, no way to tell whether the thing was alive.
-            An app that does not introduce itself looks like a fault. Same
-            lesson as the heading that said "Device not authorised" to someone
-            arriving for the first time. */}
-        <img
-          src="/icons/icon-192.png"
-          alt=""
-          width={52}
-          height={52}
-          className="mx-auto mb-4 rounded-[12px] border border-app-border"
-        />
-        <div className="mb-5 text-[11px] font-medium uppercase tracking-[0.08em] text-app-text-muted">
-          Topics{VERSIONE ? ` · ${VERSIONE}` : ''}
-        </div>
-
-        <h1 className="text-[19px] font-semibold text-app-text">{titolo}</h1>
-        <p className="mt-2 text-[13px] leading-relaxed text-app-text-secondary">{spiegazione}</p>
-
-        {error && !denied && (
-          <div className="mt-6 rounded-lg border border-app-border bg-surface px-4 py-3">
-            <p className="text-[13px] text-app-text-secondary">
-              {t(chiaveFrase(error))}
-            </p>
-            {/* The retry is already running: saying so makes the wait a wait
-                instead of a block. The button is for whoever does not want to
-                wait for the next round, not the only way out. */}
-            <p className="mt-1 text-[12px] text-app-text-muted">{t('pair.retrying')}</p>
-            <button
-              onClick={() => { tentativiRef.current = 0; setOraRiprova((n) => n + 1); }}
-              className="mt-3 rounded-lg border border-app-border px-4 py-2 text-[13px] text-app-text hover:bg-surface"
-            >
-              {t('pair.retry')}
-            </button>
-          </div>
-        )}
-
-        {denied && (
-          <div className="mt-6">
-            <p className="text-[13px] text-app-text-secondary">{t('pair.denied')}</p>
-            <button
-              onClick={() => { setDenied(false); setCode(null); void refreshSession(); }}
-              className="mt-3 rounded-lg border border-app-border px-4 py-2 text-[13px] text-app-text hover:bg-surface"
-            >
-              {t('pair.retry')}
-            </button>
-          </div>
-        )}
-
-        {code && !denied && (
-          <>
-            <div
-              className="mt-8 select-all font-mono text-[34px] font-semibold tracking-[0.12em] text-app-text"
-              aria-label={t('pair.code.aria', { code: code.split('').join(' ') })}
-            >
-              {code}
-            </div>
-            <p className="mt-4 text-[13px] leading-relaxed text-app-text-secondary">
-              {t('pair.codeHint')}
-              <br />
-              {t('pair.checkThenTap')} <span className="text-app-text">{t('pair.approve')}</span>.
-            </p>
-            <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-app-text-muted">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-              {t('pair.waiting')}
-            </div>
-          </>
-        )}
-
-        {!code && !error && !denied && (
-          <div className="mt-8 text-[13px] text-app-text-muted">{t('pair.preparing')}</div>
-        )}
-
-        {/* THE STATE, always, at the bottom. A dot telling whether the machine
-            is answering separates "I am waiting" from "it is broken" without
-            asking anyone to read: green while the loop works, amber while it
-            retries. It is what the screen already knew and never showed. */}
-        <div className="mt-10 flex items-center justify-center gap-2 text-[11px] text-app-text-muted">
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${error ? 'animate-pulse bg-amber-500' : 'bg-emerald-500'}`}
+              This screen is the FIRST thing a person sees of Topics from the
+              phone, and for months it was a heading in the middle of black:
+              no mark, no version, no way to tell whether the thing was alive.
+              An app that does not introduce itself looks like a fault. Same
+              lesson as the heading that said "Device not authorised" to someone
+              arriving for the first time. */}
+          <img
+            src="/icons/icon-192.png"
+            alt=""
+            width={52}
+            height={52}
+            className="mx-auto mb-4 rounded-[12px] border border-app-border"
           />
-          {t(chiaveStato(error))}
+          <div className="mb-5 text-[11px] font-medium uppercase tracking-[0.08em] text-app-text-muted">
+            Topics{VERSIONE ? ` · ${VERSIONE}` : ''}
+          </div>
+
+          <h1 className="text-[19px] font-semibold text-app-text">{titolo}</h1>
+          <p className="mt-2 text-[13px] leading-relaxed text-app-text-secondary">{spiegazione}</p>
+
+          {error && !denied && (
+            <div className="mt-6 rounded-lg border border-app-border bg-surface px-4 py-3">
+              <p className="text-[13px] text-app-text-secondary">
+                {t(chiaveFrase(error))}
+              </p>
+              {/* The retry is already running: saying so makes the wait a wait
+                  instead of a block. The button is for whoever does not want to
+                  wait for the next round, not the only way out. */}
+              <p className="mt-1 text-[12px] text-app-text-muted">{t('pair.retrying')}</p>
+              <button
+                onClick={() => { tentativiRef.current = 0; setOraRiprova((n) => n + 1); }}
+                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-[13px] text-app-text hover:bg-surface"
+              >
+                {t('pair.retry')}
+              </button>
+            </div>
+          )}
+
+          {denied && (
+            <div className="mt-6">
+              <p className="text-[13px] text-app-text-secondary">{t('pair.denied')}</p>
+              <button
+                onClick={() => { setDenied(false); setCode(null); void refreshSession(); }}
+                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-[13px] text-app-text hover:bg-surface"
+              >
+                {t('pair.retry')}
+              </button>
+            </div>
+          )}
+
+          {code && !denied && (
+            <>
+              <div
+                className="mt-8 select-all font-mono text-[34px] font-semibold tracking-[0.12em] text-app-text"
+                aria-label={t('pair.code.aria', { code: code.split('').join(' ') })}
+              >
+                {code}
+              </div>
+              <p className="mt-4 text-[13px] leading-relaxed text-app-text-secondary">
+                {t('pair.codeHint')}
+                <br />
+                {t('pair.checkThenTap')} <span className="text-app-text">{t('pair.approve')}</span>.
+              </p>
+              <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-app-text-muted">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                {t('pair.waiting')}
+              </div>
+            </>
+          )}
+
+          {!code && !error && !denied && (
+            <div className="mt-8 text-[13px] text-app-text-muted">{t('pair.preparing')}</div>
+          )}
+
+          {/* THE STATE, always, at the bottom. A dot telling whether the machine
+              is answering separates "I am waiting" from "it is broken" without
+              asking anyone to read: green while the loop works, amber while it
+              retries. It is what the screen already knew and never showed. */}
+          <div className="mt-10 flex items-center justify-center gap-2 text-[11px] text-app-text-muted">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${error ? 'animate-pulse bg-amber-500' : 'bg-emerald-500'}`}
+            />
+            {t(chiaveStato(error))}
+          </div>
         </div>
       </div>
     </div>
