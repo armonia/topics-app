@@ -163,12 +163,27 @@ _rollback() {
 trap _rollback ERR EXIT INT TERM
 
 if pgrep -f "$APP/Contents/MacOS/app" >/dev/null; then
-  pkill -f "$APP/Contents/MacOS/app" || true
-  for _ in $(seq 1 20); do
+  # ASK FIRST, then insist. `pkill` sends SIGTERM and the shell has no handler
+  # for it, so the process dies without passing through RunEvent::ExitRequested,
+  # which is where it writes the window geometry on the way out. Killing an app
+  # somebody is using and reopening it somewhere else is what "Topics
+  # disappeared" looked like from the outside. A quit Apple Event is the same
+  # thing the user's Cmd+Q does: the app saves and exits on its own terms.
+  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+  for _ in $(seq 1 12); do
     pgrep -f "$APP/Contents/MacOS/app" >/dev/null || break
     sleep 0.5
   done
-  pgrep -f "$APP/Contents/MacOS/app" >/dev/null && pkill -9 -f "$APP/Contents/MacOS/app" || true
+  # It did not go quietly (hung, or a modal is up). Now the signals.
+  if pgrep -f "$APP/Contents/MacOS/app" >/dev/null; then
+    echo "  la app non e' uscita da sola, passo ai segnali" >&2
+    pkill -f "$APP/Contents/MacOS/app" || true
+    for _ in $(seq 1 20); do
+      pgrep -f "$APP/Contents/MacOS/app" >/dev/null || break
+      sleep 0.5
+    done
+    pgrep -f "$APP/Contents/MacOS/app" >/dev/null && pkill -9 -f "$APP/Contents/MacOS/app" || true
+  fi
 fi
 
 # Scrivi accanto e poi `mv`: uno swap a metà lascerebbe un .app che non parte.

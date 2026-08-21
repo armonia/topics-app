@@ -7664,11 +7664,59 @@ fn window_logical_geometry(win: &tauri::Window) -> Option<((i32, i32), (u32, u32
     ))
 }
 
+/// How long two throttled geometry writes stay apart.
+const GEOMETRY_SAVE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// What a throttled geometry save should do about the event that just arrived.
+///
+/// A leading edge on its own drops the LAST event of a gesture: the user lets go
+/// of the window, nothing further arrives, and the file on disk keeps whatever
+/// position the window had 500ms into the drag. That is harmless only while a
+/// final write is guaranteed on the way out, and it is not. `ExitRequested` fires
+/// on a graceful quit, but a plain SIGTERM never reaches it, and
+/// `scripts/local-shell-swap.sh` ends the app with `pkill` before swapping the
+/// binary. The window then reopens where the user left it minutes earlier, often
+/// on a display they are not looking at, which reads as the app having vanished.
+///
+/// The trailing write closes that hole: the final geometry reaches disk within
+/// one interval of the last movement, so SIGTERM, SIGKILL and a crash all keep it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveTiming {
+    /// The interval has elapsed: write immediately.
+    Now,
+    /// Too soon, and nothing is queued: write once after this delay.
+    After(std::time::Duration),
+    /// Too soon, and a trailing write is already queued: that one carries this event.
+    Queued,
+}
+
+fn save_timing(
+    since_last: std::time::Duration,
+    interval: std::time::Duration,
+    trailing_queued: bool,
+) -> SaveTiming {
+    if since_last >= interval {
+        SaveTiming::Now
+    } else if trailing_queued {
+        SaveTiming::Queued
+    } else {
+        SaveTiming::After(interval - since_last)
+    }
+}
+
+/// Read the window geometry and persist it. Belongs on the main thread:
+/// `window_logical_geometry` asks AppKit for the frame.
+fn write_geometry_now(path: Option<&std::path::PathBuf>, win: &tauri::Window) {
+    if let (Some(p), Some(((lx, ly), (lw, lh)))) = (path, window_logical_geometry(win)) {
+        save_win_size_logical(p, lw as f64, lh as f64, Some((lx, ly)));
+    }
+}
+
 /// Persist the main window's LOGICAL geometry right now (size + position).
-/// Called on RunEvent::ExitRequested so the FINAL spot always survives a quit,
-/// the status-bar relaunch and the updater restart — the throttled Moved/Resized
-/// saves alone could drop the last move of a gesture (leading-edge throttle) and
-/// nothing else runs on the way out (CloseRequested hides to tray instead).
+/// Called on RunEvent::ExitRequested so the FINAL spot survives a quit, the
+/// status-bar relaunch and the updater restart. This is the belt: the braces are
+/// the trailing write in save_timing, which is what covers the paths that never
+/// reach ExitRequested at all (SIGTERM from a shell swap, SIGKILL, a crash).
 fn save_main_window_geometry(app: &tauri::AppHandle) {
     use tauri::Manager;
     // `get_window("main")` e la geometria letta in linea, per la stessa ragione
@@ -9287,6 +9335,47 @@ fn notify_app_shell_bundle_stale(app: &tauri::AppHandle) {
     }
 }
 
+/// Whether the dev auto-updater may swap the binary and restart on its own.
+///
+/// The claim this replaces was that the check "lands right after a fresh start
+/// rather than mid-session", and the timing said otherwise: on 2026-08-21 the
+/// shell started at 14:14:11, the updater finished installing at 14:14:16 and
+/// restarted the app five seconds into a session the owner of the machine was
+/// already looking at. He reported it as the app having disappeared. Eight of
+/// those restarts are in one week of hot-reload.log.
+///
+/// Elapsed time cannot answer this and I tried it first: the decision is taken
+/// when the check returns, the disruption happens after a download that takes
+/// seconds, so any grace generous enough to be useful is already spent by the
+/// time the window comes down. The question is not how young the process is. It
+/// is whether there is anything on screen to interrupt, and the window itself
+/// knows: hidden means parked in the tray or not shown yet, and nobody loses
+/// anything. Unknown counts as visible, because the failure this exists to
+/// prevent is restarting an app somebody is using.
+///
+/// The rest of this file already settled the principle: the public watcher tells
+/// the webviews the bundle went stale and pointedly does not reload them itself.
+/// An update is the same shape of event and gets the same manners, so a visible
+/// window means handing off to the toast the "Check for Updates" menu item
+/// drives, and the moment is the user's.
+fn may_relaunch_unattended(main_window_visible: Option<bool>) -> bool {
+    !main_window_visible.unwrap_or(true)
+}
+
+/// Ask the app-shell webviews to run their normal update check, which ends in the
+/// opt-in toast. Same fan-out rules as `notify_app_shell_bundle_stale`: browser
+/// panes are not the app shell, and `webview_windows()` would drop any window that
+/// hosts one.
+fn notify_app_shell_update_available(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    for (label, wv) in app.webviews() {
+        if label.starts_with("browserpane-") {
+            continue;
+        }
+        let _ = wv.eval("window.dispatchEvent(new CustomEvent('topics:check-for-updates'))");
+    }
+}
+
 /// Dep-free polling watcher (the `notify` crate was dropped when assets went
 /// embed-only; a 1s recursive mtime scan is plenty for a manual dogfood loop and
 /// adds no dependency). Blocks off-thread; on a signature change it waits for the
@@ -9821,15 +9910,16 @@ pub fn run() {
             }
 
             // Local-dev auto-update (opt-in, per-machine): when this shell runs on a
-            // dev machine that opted in (see `dev_auto_update_enabled`), silently pull
-            // + install the newest signed release "da sotto" and relaunch — instead of
-            // the client's manual opt-in toast. Gated on the dev marker so it NEVER
-            // fires for prod installs. Runs once per launch, off-thread; the network
-            // check itself defers the swap a beat past first paint, so the relaunch (if
-            // any) lands right after a fresh start rather than mid-session.
+            // dev machine that opted in (see `dev_auto_update_enabled`), pull the newest
+            // signed release. Gated on the dev marker so it NEVER fires for prod
+            // installs. Runs once per launch, off-thread. Whether it may install and
+            // relaunch on its own, or has to hand the update to the opt-in toast, is
+            // may_relaunch_unattended: with a window on screen, a restart is somebody's
+            // app vanishing, so the update gets offered instead of taken.
             if dev_auto_update_enabled() {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    use tauri::Manager;
                     use tauri_plugin_updater::UpdaterExt;
                     let updater = match handle.updater() {
                         Ok(u) => u,
@@ -9841,6 +9931,20 @@ pub fn run() {
                     match updater.check().await {
                         Ok(Some(update)) => {
                             let v = update.version.clone();
+                            // get_window, not get_webview_window: the latter filters out
+                            // any window hosting a browser pane and would answer None
+                            // exactly when the user has one open.
+                            let visible = handle
+                                .get_window("main")
+                                .and_then(|w| w.is_visible().ok());
+                            if !may_relaunch_unattended(visible) {
+                                // Somebody is looking at this window. Offer, do not take.
+                                log_hot_reload_decision(&format!(
+                                    "auto-update: {v} offered to the toast (window already up)"
+                                ));
+                                notify_app_shell_update_available(&handle);
+                                return;
+                            }
                             log_hot_reload_decision(&format!("auto-update: installing {v}"));
                             if let Err(e) =
                                 update.download_and_install(|_, _| {}, || {}).await
@@ -10369,21 +10473,50 @@ pub fn run() {
                     let save_gate = std::sync::Arc::new(std::sync::Mutex::new(
                         std::time::Instant::now() - std::time::Duration::from_secs(2),
                     ));
+                    let trailing_queued =
+                        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                     let size_file = win_size_file(app.handle());
+                    // Persist SIZE + POSITION in LOGICAL points (see the win_size_file
+                    // note: tao-physical is per-monitor-scaled, wrong across mixed-DPI
+                    // displays). The leading edge writes at once; the trailing write is
+                    // the one that survives a kill. See save_timing for why.
                     let save_state_throttled = move |w: &tauri::Window| {
-                        let mut g = match save_gate.lock() { Ok(g) => g, Err(_) => return };
-                        if g.elapsed() >= std::time::Duration::from_millis(500) {
-                            *g = std::time::Instant::now();
-                            if let (Some(p), Some(((lx, ly), (lw, lh)))) =
-                                (size_file.as_ref(), window_logical_geometry(w))
-                            {
-                                // Persist SIZE + POSITION in LOGICAL points (see the
-                                // win_size_file note: tao-physical is per-monitor-scaled,
-                                // wrong across mixed-DPI displays). This throttle is
-                                // leading-edge (the last move of a gesture can be
-                                // dropped) — the ExitRequested save is the guaranteed
-                                // final write on quit/relaunch/update.
-                                save_win_size_logical(p, lw as f64, lh as f64, Some((lx, ly)));
+                        let timing = {
+                            let g = match save_gate.lock() { Ok(g) => g, Err(_) => return };
+                            save_timing(
+                                g.elapsed(),
+                                GEOMETRY_SAVE_INTERVAL,
+                                trailing_queued.load(Ordering::Relaxed),
+                            )
+                        };
+                        match timing {
+                            SaveTiming::Queued => {}
+                            SaveTiming::Now => {
+                                if let Ok(mut g) = save_gate.lock() {
+                                    *g = std::time::Instant::now();
+                                }
+                                write_geometry_now(size_file.as_ref(), w);
+                            }
+                            SaveTiming::After(delay) => {
+                                trailing_queued.store(true, Ordering::Relaxed);
+                                let win = w.clone();
+                                let gate = save_gate.clone();
+                                let queued = trailing_queued.clone();
+                                let path = size_file.clone();
+                                std::thread::spawn(move || {
+                                    std::thread::sleep(delay);
+                                    queued.store(false, Ordering::Relaxed);
+                                    if let Ok(mut g) = gate.lock() {
+                                        *g = std::time::Instant::now();
+                                    }
+                                    let inner = win.clone();
+                                    let _ = win.run_on_main_thread(move || {
+                                        let _ = no_abort("trailing-geometry-save", || {
+                                            write_geometry_now(path.as_ref(), &inner);
+                                            Ok(())
+                                        });
+                                    });
+                                });
                             }
                         }
                     };
@@ -11662,5 +11795,96 @@ mod browser_claim_tests {
             run(&live, &c, &s).is_empty(),
             "il reclamo vale da qualsiasi finestra, non solo dall'ospite"
         );
+    }
+}
+#[cfg(test)]
+mod geometry_throttle_tests {
+    use super::{save_timing, SaveTiming};
+    use std::time::Duration;
+
+    const IV: Duration = Duration::from_millis(500);
+
+    #[test]
+    fn past_the_interval_writes_immediately() {
+        assert_eq!(save_timing(Duration::from_secs(2), IV, false), SaveTiming::Now);
+        // Exactly on the boundary counts as elapsed, so a steady stream of events
+        // keeps writing at one per interval instead of stalling.
+        assert_eq!(save_timing(IV, IV, false), SaveTiming::Now);
+    }
+
+    #[test]
+    fn inside_the_interval_queues_only_the_remainder() {
+        assert_eq!(
+            save_timing(Duration::from_millis(120), IV, false),
+            SaveTiming::After(Duration::from_millis(380))
+        );
+    }
+
+    #[test]
+    fn a_queued_write_is_not_queued_twice() {
+        assert_eq!(save_timing(Duration::from_millis(120), IV, true), SaveTiming::Queued);
+        assert_eq!(save_timing(Duration::from_millis(499), IV, true), SaveTiming::Queued);
+    }
+
+    /// The regression this whole thing exists for. A drag that ends between two
+    /// ticks: events at 0, 120, 240, 360ms and then the user lets go. With a
+    /// leading edge alone the write at t=0 is the last one, so the file keeps the
+    /// position the window had at the START of the drag, and the next launch puts
+    /// the window back there. That is what "the app disappeared" looked like: a
+    /// SIGTERM from scripts/local-shell-swap.sh skips ExitRequested, so the stale
+    /// value was the only one on disk.
+    #[test]
+    fn a_gesture_that_stops_between_ticks_still_reaches_disk() {
+        let mut writes = 0;
+        let mut queued = false;
+
+        // t=0, nothing written for two seconds: the leading write fires.
+        match save_timing(Duration::from_secs(2), IV, queued) {
+            SaveTiming::Now => writes += 1,
+            other => panic!("expected an immediate write, got {other:?}"),
+        }
+        // t=120, 240, 360: inside the interval. The first queues a trailing write,
+        // the rest ride on it.
+        for since in [120u64, 240, 360] {
+            match save_timing(Duration::from_millis(since), IV, queued) {
+                SaveTiming::After(_) => queued = true,
+                SaveTiming::Queued => {}
+                SaveTiming::Now => panic!("{since}ms is inside the interval"),
+            }
+        }
+        assert!(queued, "the gesture must leave a trailing write queued");
+
+        // The queued write fires and carries the geometry as of t=360, which is
+        // where the user actually left the window.
+        writes += 1;
+        assert_eq!(writes, 2, "one leading write and one trailing write");
+    }
+}
+
+#[cfg(test)]
+mod unattended_relaunch_tests {
+    use super::may_relaunch_unattended;
+
+    /// Nothing on screen: parked in the tray, or the update landed before the
+    /// window was ever shown. Restarting costs the user nothing.
+    #[test]
+    fn a_hidden_window_may_be_restarted() {
+        assert!(may_relaunch_unattended(Some(false)));
+    }
+
+    /// The measured case. hot-reload.log, 2026-08-21: the shell started at
+    /// 14:14:11, the install finished at 14:14:16 and the app restarted itself
+    /// with the window up. The report came three minutes later.
+    /// allow-italian: "topics non lo vedo", verbatim, is the evidence.
+    #[test]
+    fn a_visible_window_is_never_restarted_from_under_the_user() {
+        assert!(!may_relaunch_unattended(Some(true)));
+    }
+
+    /// is_visible() failed, or the window is gone from the map. The safe answer is
+    /// the one that does not make an app disappear, so unknown behaves as visible.
+    #[test]
+    fn unknown_counts_as_visible() {
+        assert!(!may_relaunch_unattended(None));
     }
 }
