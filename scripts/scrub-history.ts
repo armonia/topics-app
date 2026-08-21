@@ -71,20 +71,20 @@ function git(...args: string[]): string {
 }
 
 /**
- * Quanti commit portano il termine, in tutta la storia.
+ * How many commits carry the term, across the whole history.
  *
- * DUE DOMANDE, NON UNA, e per mesi qui se ne faceva una sola. `-S` guarda i
- * CONTENUTI, cioe' cosa e' entrato e uscito dai file. Un nome scritto nel
- * MESSAGGIO di un commit non tocca nessun blob, quindi `-S` non lo vede mai.
+ * TWO QUESTIONS, NOT ONE, and for months this asked only the first. `-S` looks
+ * at CONTENT: what entered and left the files. A name written in a commit
+ * MESSAGE touches no blob, so `-S` never sees it.
  *
- * Misurato il 2026-08-21, durante la riscrittura vera: dopo un
- * `git filter-repo --replace-text` i contenuti erano a zero e questo controllo
- * usciva pulito, mentre 15 messaggi di commit portavano ancora i nomi in chiaro
- * su un repo pubblico. Il gate diceva «fatto» a meta' lavoro, che e' peggio di
- * un gate che non c'e': uno assente lo sai, uno cieco ti convince.
+ * Measured on 2026-08-21 during the real rewrite: after a
+ * `git filter-repo --replace-text` the contents were at zero and this check came
+ * out clean, while 15 commit messages still carried the names in the open on a
+ * public repo. The gate said "done" at half the job, which is worse than no gate
+ * at all: a missing one you know about, a blind one convinces you.
  *
- * La cura sta anche a valle: la riscrittura vuole `--replace-message` accanto a
- * `--replace-text`, e le istruzioni stampate qui sotto ora lo dicono.
+ * The cure is also downstream: the rewrite wants `--replace-message` next to
+ * `--replace-text`, and the instructions printed below now say so.
  */
 function commitCon(termine: string): number {
   const contenuti = git("log", "--format=%H", "-S", termine, "--all");
