@@ -18,6 +18,8 @@ export type SessionState =
       name: string;
       deviceId?: string;
       role: 'owner' | 'guest';
+      /** WHICH Topics: see `installationName` on `unpaired`. */
+      installationName?: string | null;
       /** La persona a cui il dispositivo appartiene, quando il server la
        *  conosce. È ciò che un giorno prenderà il posto del nome del ferro:
        *  «Attilio» dice più di «iPhone», e con due telefoni dice l'unica cosa
@@ -25,7 +27,23 @@ export type SessionState =
       personId?: string | null;
     }
   /** Fuori, e si può rimediare: `reason` decide cosa dice la schermata. */
-  | { status: 'unpaired'; reason: 'not_paired' | 'revoked' | 'expired' };
+  | {
+      status: 'unpaired';
+      reason: 'not_paired' | 'revoked' | 'expired';
+      /**
+       * WHICH Topics is asking to be authorised.
+       *
+       * It lives mostly HERE, on the state of whoever is not yet anybody: the
+       * pairing screen is the one asking for an act of trust, and it was the
+       * only one unable to say on whose behalf. With a single installation the
+       * gap is invisible; with two, "Authorise this device" becomes a question
+       * with no subject.
+       *
+       * Optional because a server older than this client does not send it, and
+       * then the screen must stay quiet instead of painting a blank.
+       */
+      installationName?: string | null;
+    };
 
 let state: SessionState = { status: 'loading' };
 const listeners = new Set<(s: SessionState) => void>();
@@ -50,9 +68,16 @@ function stessoStato(a: SessionState, b: SessionState): boolean {
   if (a.status !== b.status) return false;
   if (a.status === 'paired' && b.status === 'paired') {
     return a.name === b.name && a.role === b.role && a.as === b.as
-      && a.deviceId === b.deviceId && a.personId === b.personId;
+      && a.deviceId === b.deviceId && a.personId === b.personId
+      && a.installationName === b.installationName;
   }
-  if (a.status === 'unpaired' && b.status === 'unpaired') return a.reason === b.reason;
+  // The NAME too, not just the reason: it is what the pairing screen paints,
+  // so a new name at the same reason must reach whoever is looking. An
+  // equality that ignores a field somebody displays is an update that never
+  // arrives.
+  if (a.status === 'unpaired' && b.status === 'unpaired') {
+    return a.reason === b.reason && a.installationName === b.installationName;
+  }
   return true;
 }
 
@@ -75,10 +100,18 @@ export function subscribeSession(fn: (s: SessionState) => void): () => void {
 /** Chiamato da `api.ts` quando il server rifiuta per IDENTITÀ. Il codice
  *  distingue i tre modi di essere fuori, e la schermata li dice diversamente:
  *  «mai entrato» non è «ti hanno tolto l'accesso». */
-export function markUnpaired(code: string | undefined): void {
+export function markUnpaired(code: string | undefined, installationName?: string | null): void {
   const reason =
     code === 'device_revoked' ? 'revoked' : code === 'session_expired' ? 'expired' : 'not_paired';
-  emit({ status: 'unpaired', reason });
+  // The name is kept when the new answer does not carry it: `api.ts` calls
+  // this from the refusal of ANY request, which has no name in it. Clearing it
+  // there would wipe the heading off the screen on the first 401, exactly when
+  // it is needed.
+  const precedente = state.status === 'unpaired' ? state.installationName : undefined;
+  emit({
+    status: 'unpaired', reason,
+    installationName: installationName !== undefined ? installationName : precedente,
+  });
 }
 
 /** Interroga il server su chi siamo. Esente dall'identità lato server: è la
@@ -90,11 +123,13 @@ export async function refreshSession(): Promise<SessionState> {
     const body = await r.json() as {
       paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
       deviceId?: string; code?: string; role?: 'owner' | 'guest'; personId?: string | null;
+      installationName?: string | null;
     };
     if (body.paired && body.as && body.name) {
       emit({
         status: 'paired', as: body.as, name: body.name, deviceId: body.deviceId,
         personId: body.personId ?? null,
+        installationName: body.installationName ?? null,
         // Default prudente: se il server non lo dice, si assume il ruolo con
         // MENO poteri. Il contrario — assumere `owner` — mostrerebbe l'app
         // intera a chi non deve vederla, e la schermata sbagliata sarebbe l'unico
@@ -102,7 +137,11 @@ export async function refreshSession(): Promise<SessionState> {
         role: body.role === 'guest' ? 'guest' : body.role === 'owner' ? 'owner' : 'guest',
       });
     } else {
-      markUnpaired(body.code);
+      // The name arrives FROM HERE, the only call that carries it: this route
+      // is identity-exempt on purpose, it is the question asked before being
+      // anybody. `?? null` and not `undefined`: a server that omits it states
+      // "I do not know", which differs from "I did not speak".
+      markUnpaired(body.code, body.installationName ?? null);
     }
   } catch {
     // Rete giù: non è «non appaiato». Dirlo sarebbe mandare l'utente a

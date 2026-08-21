@@ -156,3 +156,55 @@ describe('sessione · la persona viaggia con lo stato', () => {
     expect(s.status === 'paired' && s.personId).toBeNull();
   });
 });
+
+/**
+ * ── WHICH Topics is asking to be authorised ─────────────────────────────────
+ *
+ * The installation name matters most to whoever is NOT yet anybody: the
+ * pairing screen is the one asking for an act of trust, and it was the only
+ * one unable to say on whose behalf. With a single installation the gap is
+ * invisible; with two, "Authorise this device" is a question with no subject.
+ */
+describe('sessione · il nome dell’installazione arriva a chi deve mostrarlo', () => {
+  beforeEach(() => { __resetSessionForTests(); });
+
+  it('viaggia sullo stato di chi NON è appaiato, che è dove serve', async () => {
+    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Attilio' });
+    await refreshSession();
+    const s = getSession();
+    expect(s.status === 'unpaired' && s.installationName).toBe('MacBook di Attilio');
+  });
+
+  it('un nome NUOVO a parità di motivo risveglia i sottoscrittori', async () => {
+    // Same family of defect as role and person: if the comparison ignored the
+    // name, the screen would keep showing the previous one. An equality that
+    // ignores a field somebody paints is an update that never arrives.
+    rispondi({ paired: false, as: null, name: null, installationName: 'Fisso in studio' });
+    await refreshSession();
+    const { visti, stop } = raccogli();
+    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Attilio' });
+    await refreshSession();
+    expect(visti).toHaveLength(2);
+    stop();
+  });
+
+  it('un rifiuto qualunque non CANCELLA il nome già noto', async () => {
+    // `api.ts` calls `markUnpaired` from the refusal of any request, which has
+    // no name in it: clearing it there would wipe the heading off the screen on
+    // the first 401, exactly when it is needed.
+    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Attilio' });
+    await refreshSession();
+    markUnpaired('device_revoked');
+    const s = getSession();
+    expect(s.status === 'unpaired' && s.reason).toBe('revoked');
+    expect(s.status === 'unpaired' && s.installationName).toBe('MacBook di Attilio');
+  });
+
+  it('un server più vecchio che non lo manda non fa esplodere niente', async () => {
+    // The screen stays quiet instead of painting a blank under the mark.
+    rispondi({ paired: false, as: null, name: null });
+    await refreshSession();
+    const s = getSession();
+    expect(s.status === 'unpaired' && s.installationName).toBeNull();
+  });
+});

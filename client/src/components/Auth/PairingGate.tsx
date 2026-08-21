@@ -62,6 +62,10 @@ export function PairingGate({ session }: { session: SessionState }) {
   const scaduto = session.status === 'unpaired' && session.reason === 'expired';
   const titolo = t(revocato ? 'pair.title.revoked' : scaduto ? 'pair.title.expired' : 'pair.title.new');
   const spiegazione = t(revocato ? 'pair.blurb.revoked' : 'pair.blurb.new');
+  // WHICH Topics is asking for the gesture. When the server does not say (one
+  // older than this client) the line does not appear: an empty label under the
+  // mark is worse than no label.
+  const installazione = session.status === 'unpaired' ? session.installationName : null;
 
   // Chiede un codice e poi aspetta. Il polling è a 2s: il gesto umano dall'altra
   // parte dura secondi, non millisecondi, e una connessione persistente qui
@@ -214,6 +218,15 @@ export function PairingGate({ session }: { session: SessionState }) {
           </div>
 
           <h1 className="text-[19px] font-semibold text-app-text">{titolo}</h1>
+          {/* THE SUBJECT of the request, right under the heading.
+
+              "Authorise this device" does not say to WHOM. With one
+              installation nobody notices; with two it becomes an act of trust
+              towards something unnamed. Here the name is there, and it is the
+              one a person would use saying it out loud. */}
+          {installazione && (
+            <p className="mt-1 text-[13px] font-medium text-app-text">{installazione}</p>
+          )}
           <p className="mt-2 text-[13px] leading-relaxed text-app-text-secondary">{spiegazione}</p>
 
           {error && !denied && (

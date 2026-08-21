@@ -20,6 +20,7 @@ import {
   actingPersonId, isOrgRole, orgAlive, type OrgRole,
 } from "../lib/orgs";
 import { consentito } from "../lib/licenza";
+import { nomeInstallazione } from "../lib/nome-installazione";
 import { subjectRejection, canReceive, livePersonMemberships } from "../lib/recipients";
 
 /**
@@ -370,16 +371,30 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // ha continuato a rispondere «sei la macchina» sulla porta del tunnel,
       // perché la sua copia non era stata aggiornata insieme alle altre.
       const io = resolveIdentity(db as never, req.headers.get("cookie"), loopback);
+      // WHICH Topics is answering. It rides on every reply and not only on the
+      // one for whoever is already in: the pairing screen (that is, whoever is
+      // NOT yet anybody) needs it most, because that is the screen asking to
+      // authorise something. Without it "Authorise this device" is a request
+      // with no subject: the phone cannot tell who it is asking, and with two
+      // installations around it cannot find out either.
+      const installazione = nomeInstallazione();
       if (io.locale) {
-        return json({ paired: true, as: "loopback", name: "Questo computer", role: "owner" });
+        return json({
+          paired: true, as: "loopback", name: "Questo computer", role: "owner",
+          installationName: installazione,
+        });
       }
-      if (!io.device) return json({ paired: false, as: null, name: null });
+      if (!io.device) return json({ paired: false, as: null, name: null, installationName: installazione });
       if (io.device.revokedAt !== null) {
-        return json({ paired: false, as: null, name: null, code: "device_revoked" });
+        return json({
+          paired: false, as: null, name: null, code: "device_revoked",
+          installationName: installazione,
+        });
       }
       return json({
         paired: true, as: "device", name: io.device.name, deviceId: io.device.id,
         role: io.confined ? "guest" : "owner",
+        installationName: installazione,
         // La persona, quando c'è: è ciò che il client mostrerà al posto del nome
         // del ferro appena l'interfaccia saprà parlarne.
         personId: io.personId,
