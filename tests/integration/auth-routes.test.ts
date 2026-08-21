@@ -28,7 +28,7 @@ import { join } from "node:path";
 
 import {
   createAuthRouter, __resetLiveSocketsForTests, __resetPendingForTests,
-  __invecchiaPendingPerTests,
+  __invecchiaPendingPerTests, __scadenzeArmatePerTests,
 } from "../../server/routes/auth";
 import { PAIRING_CODE_TTL_MS } from "../../server/lib/device-auth";
 import { hashToken, readSessionCookie } from "../../server/lib/device-auth";
@@ -231,6 +231,36 @@ describe("rotte auth · appaiamento", () => {
       .filter((f) => (f as { type?: string }).type === "auth:pair-resolved")
       .map((f) => (f as { requestId: string }).requestId);
     expect(risolti).toContain(primi[0]);
+  });
+
+  test("…e il suo TIMER si spegne, invece di restare armato per sempre", async () => {
+    // THE OTHER HALF of the eviction, and nothing covered it: the call that
+    // cancels the timer could be deleted and the suite stayed green.
+    //
+    // What does NOT go wrong, because claiming it would be a lie: the timer
+    // checks the pending queue before it speaks, so no ghost announcement ever
+    // reaches the approval card. What is left is a LEAK: one live timer per
+    // evicted request, and a map that grows for as long as the process lives.
+    // On a route exposed to the internet that is a queue someone can grow on
+    // purpose, one round at a time.
+    //
+    // So the only thing that tells the story is counted, how many expiries are
+    // still armed, instead of waiting three real minutes for an event that
+    // never comes.
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+
+    for (let i = 0; i < 3; i++) {
+      await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
+    }
+    expect(__scadenzeArmatePerTests()).toBe(3);
+
+    // Five more requests: each evicts one of its own. The number of armed
+    // timers must not move, because every eviction puts one out.
+    for (let i = 0; i < 5; i++) {
+      await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
+      expect(__scadenzeArmatePerTests()).toBe(3);
+    }
   });
 });
 

@@ -114,6 +114,24 @@ export function __resetPendingForTests(): void {
   scadenze.clear();
 }
 
+/**
+ * How many expiries are still ARMED. Test-only.
+ *
+ * It exists because without it half of the eviction was observable nowhere:
+ * the call that cancels the timer could be deleted and the suite stayed green.
+ * No ghost broadcast arrives (the timer checks the pending queue before it
+ * speaks), so what is left is a silent LEAK: one live timer per evicted
+ * request, and a map that grows for as long as the process lives. On a route
+ * exposed to the internet that is a queue someone can grow on purpose, one
+ * round at a time.
+ *
+ * A defect invisible by construction has to be made visible to whoever guards
+ * it, or "covered" only ever means "nobody looked".
+ */
+export function __scadenzeArmatePerTests(): number {
+  return scadenze.size;
+}
+
 /** Invecchia una richiesta in attesa, per provare la scadenza senza aspettare
  *  tre minuti veri. Tocca `createdAt` e basta: il tempo lo legge `sweep`, e un
  *  test che spostasse l'orologio proverebbe un mondo diverso da quello vero. */
