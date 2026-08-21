@@ -57,9 +57,22 @@ async function stubIdentita(
   // (`useIdentityPresence`), not the session. They are two different fetches,
   // and that is exactly why `presentiOra` has to keep quiet while the identity
   // is not there yet.
+  // The WHOLE shape of a person, `stats` included. A half stub is not a smaller
+  // stub, it is a different server: the friends page reads `stats.prompts`, and
+  // a person without stats took the pane down to its error screen while the
+  // test was blaming the deep link.
   await page.route("**/api/people", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ people: rubrica.map((p) => (p.isMe ? { ...p, id: ioId } : p)) }) }));
+      body: JSON.stringify({
+        people: rubrica.map((p) => ({
+          email: null,
+          githubLogin: null,
+          github: null,
+          stats: { prompts: 0, inputTokens: 0, outputTokens: 0, costCents: 0, ultimoPrompt: null },
+          ...p,
+          ...(p.isMe ? { id: ioId } : {}),
+        })),
+      }) }));
   await page.route("**/api/auth/orgs/*/members", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ members: membri }) }));
