@@ -195,10 +195,37 @@ function isLocalHostname(host: string): boolean {
   return false;
 }
 
-export function normalizeUrl(input: string): string {
+/**
+ * A reference to something this server holds, resolved against this origin.
+ *
+ * THE BUG THIS CLOSES. `browser-bridge.ts` deliberately persists a task's local
+ * file as a RELATIVE reference, `/api/media?path=%2FUsers%2F...`, so the tab
+ * survives a change of host. Nothing here knew that shape: the "looks like a
+ * domain" test below sees a dot in `preview.png` and no space, so it produced
+ * `https://` + `/api/media?...` = `https:///api/media?...`. WebKit collapses
+ * the three slashes and **`api` becomes the hostname**. Measured: the pane
+ * hangs on a DNS lookup for a host that does not exist and stays blank, while
+ * the same path served properly answers 200.
+ *
+ * An absolute path is never a domain and never a search: it is this origin.
+ */
+function sameOriginPath(s: string, origin: string): string | null {
+  if (!s.startsWith('/') || s.startsWith('//')) return null;
+  // Without an origin (a worker, a test) the path is returned UNCHANGED. A
+  // relative URL still navigates; inventing a host does not, and inventing one
+  // is the whole defect.
+  return origin ? `${origin}${s}` : s;
+}
+
+export function normalizeUrl(
+  input: string,
+  origin = typeof location === 'undefined' ? '' : location.origin,
+): string {
   const s = input.trim();
   if (!s) return 'about:blank';
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return httpsFirstUrl(s);
+  const local = sameOriginPath(s, origin);
+  if (local !== null) return local;
   // looks like a domain (has a dot, no spaces) → https://
   if (/^[^\s]+\.[^\s]+$/.test(s) && !s.includes(' ')) return `https://${s}`;
   return `https://www.google.com/search?q=${encodeURIComponent(s)}`;

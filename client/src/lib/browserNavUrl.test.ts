@@ -223,3 +223,36 @@ describe('httpsFirstUrl', () => {
     expect(normalizeUrl('http://127.0.0.1:5173/app')).toBe('http://127.0.0.1:5173/app');
   });
 });
+
+describe('un riferimento a un file di questo server', () => {
+  /**
+   * `browser-bridge.ts` persists a task's local file as `/api/media?path=…` so
+   * the tab survives a change of host. `normalizeUrl` had no branch for it: the
+   * "looks like a domain" test saw the dot in `preview.png`, produced
+   * `https:///api/media?…`, and WebKit turned `api` into the HOSTNAME. The pane
+   * hung on a DNS lookup for a host that does not exist.
+   */
+  const MEDIA = '/api/media?path=%2FUsers%2Fzorahrel%2F.topics%2Fmedia%2Fpreview.png';
+
+  it('non diventa un dominio inventato', () => {
+    const out = normalizeUrl(MEDIA, '');
+    expect(out.startsWith('https://api/')).toBe(false);
+    expect(out).not.toContain('https:///');
+    expect(out).toBe(MEDIA);
+  });
+
+  it('con un origine, ci resta sopra: path e query intatti', () => {
+    const u = new URL(normalizeUrl(MEDIA, 'https://127.0.0.1:3333'));
+    expect(u.origin).toBe('https://127.0.0.1:3333');
+    expect(u.pathname).toBe('/api/media');
+    expect(u.searchParams.get('path')).toBe('/Users/zorahrel/.topics/media/preview.png');
+  });
+
+  it('un vero dominio continua a essere un dominio', () => {
+    expect(normalizeUrl('example.com')).toBe('https://example.com');
+  });
+
+  it('`//host` non e un path locale: e protocol-relative', () => {
+    expect(normalizeUrl('//example.com/x', 'https://127.0.0.1:3333')).not.toContain('127.0.0.1');
+  });
+});
