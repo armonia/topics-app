@@ -2,6 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.163 — 2026-08-21
+
+### Sotto il cofano
+- Il chip dell'organizzazione perde il nome e tiene le facce; gli amici non dicono piu' «nessuno online»
+- Dodici file portano i commenti in inglese e la baseline del gate scende da 94790 a 94601
+- Anche il blocco identita' e la sua spec parlano inglese nei commenti
+- Il ratchet dei commenti registra i tre file gia' migliorati
+- Il deep link del profilo non si perde piu' fra i due montaggi della pane
+- Un cancello rosso non nasconde piu' le quindici misure che vengono dopo
+- Il tetto del turno conta il silenzio, non l'orologio: un agente che lavora non si taglia piu'
+- La ripresa riconosce anche i cartelli vecchi, e un test lo tiene vero
+- Una consegna che cita un commit inesistente non passa piu' in silenzio
+- Le tre cause nostre hanno una sorgente sola, e il test la usa
+- Una frase scritta su una card in review non fonde piu' il ramo
+- Un confronto vero per sbaglio poteva portarsi via l'app intera
+- La scheda Dispositivi non e' raggiungibile dal pannello, e il test lo diceva male
+
 ## 2.2.162 — 2026-08-21
 
 ### Sotto il cofano
@@ -22,7 +39,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - I cricchetti contano anche l'attesa, e i due 'any' in piu' non servivano
 - Il ramo potato non e' una prova che il lavoro manchi: la terza domanda al land
 - Il land diceva di fare la stessa domanda del dispatch, e ne faceva una su tre
+- Riallinea i gate dopo il rientro di main nel ramo
 - Il tooltip di sistema non compare piu': uno solo, quello dell'app, ovunque
+- Fascia identita' immersa: niente separatori, chip che vanno a capo, un pannello per soggetto
 - Una cosa sola a schermo, e /compact che finisce davvero
 - Le due prove che al commit di prima mancavano
 - L'anteprima diventa un carosello: piu' evidenze, rotella e lightbox
@@ -97,6 +116,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Gli ultimi otto test restituiscono il DATA_DIR che prendono in prestito
 - LANDING-00 inseguiva un testid rinominato, non un difetto
 - Il tooltip di consumo ha due aperture, la spec ne conosceva una sola
+- Il test sulla forma dei cartelli salta anche col DB vuoto, non solo assente
 - Il titolo spariva sotto il mouse: due test cercavano un attributo che l'app toglie
 - Le righe di git si cercano per il loro path, non per un titolo che il mouse toglie
 - Lo standard di lingua arriva ai commenti: un cricchetto che nasce verde su 94.795 righe
@@ -211,6 +231,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La chat spostata in un progetto ci restava solo finche' non finiva la risposta
 - Lingua, terzo giro: 223 -> 162, sette superfici curate e una tenuta a 1 apposta
 - Lingua, quarto giro: 162 -> 116, nove superfici curate
+- Tre righe in fondo alla sidebar: io, le organizzazioni, gli amici, ognuna con la sua porta
 - La card che cambia colonna ci arriva viaggiando, e il titolo riscritto si riscrive
 - La lingua nel client e' finita: 116 -> 1, e quell'1 non e' debito
 - I token scorrono mentre il turno gira, e il primo tratto dice che sta inquadrando
