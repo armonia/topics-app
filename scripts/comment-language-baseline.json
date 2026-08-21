@@ -1141,7 +1141,7 @@
     "server/providers/claude/call-billing.test.ts": 23,
     "server/providers/claude/cli-compat.test.ts": 20,
     "server/providers/claude/cli-compat.ts": 54,
-    "server/providers/claude/events.fixture.ts": 21,
+    "server/providers/claude/events.fixture.ts": 20,
     "server/providers/claude/events.test.ts": 18,
     "server/providers/claude/events.ts": 93,
     "server/providers/claude/tool-detail.test.ts": 3,
