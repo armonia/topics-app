@@ -119,5 +119,5 @@ interface DbLike {
   // vorrebbe dire copiare il driver dentro una regola. Le due righe che li
   // usano, sotto, dicono la forma vera.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  prepare(sql: string): any;
+  prepare(sql: string): any; // allow-any: il driver tipizza `prepare` con generici che obbligherebbero questa regola a dichiarare la forma di ogni riga
 }

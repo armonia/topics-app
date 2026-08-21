@@ -197,6 +197,14 @@
         // dentro un WebKit vero. Il riferimento è un path in stringa dentro un
         // comando, non un import: knip non può vederlo.
         "scripts/occlusion-probe-entry.ts!",
+        // `bun run scripts/retitle-review-cards.ts [--apply]` riscrive i titoli
+        // delle card vecchie, quelle nate col preambolo della richiesta al
+        // posto del titolo («Potremmo fare una roba molto figa…»). Le nuove il
+        // titolo se lo generano alla nascita; questo serve solo per la
+        // cronologia gia' scritta, si lancia a mano, e in secco stampa cosa
+        // cambierebbe senza toccare niente. Nessuno lo importa, e non deve:
+        // e' un gesto una tantum su un DB vero.
+        "scripts/retitle-review-cards.ts!",
         "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —

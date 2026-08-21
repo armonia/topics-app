@@ -44,8 +44,6 @@ export const MOTION = {
   slow: 400,
 } as const;
 
-export type MotionSpeed = keyof typeof MOTION;
-
 /** Le tre curve. Stringhe pronte per `animation-timing-function` e per WAAPI. */
 export const EASE = {
   /** Arriva: parte subito, si posa con pendenza zero. */
@@ -55,8 +53,6 @@ export const EASE = {
   /** Scorre: coda lunga, la stessa del dock del composer. */
   spring: 'cubic-bezier(0.32, 0.72, 0, 1)',
 } as const;
-
-export type MotionEase = keyof typeof EASE;
 
 /**
  * Anima un elemento, oppure NON lo anima e basta.
