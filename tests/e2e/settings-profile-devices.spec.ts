@@ -85,9 +85,20 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ paired: true, as: "loopback", name: "Questo computer",
                                role: "owner", personId: "io" }) }));
+    // THE SHAPE IS THE ROUTE'S REAL ONE. This stub used to send a device with
+    // no `id` and no `name`: the devices section takes both for granted (the
+    // type says `id: string`), so opening it crashed the WHOLE app — a white
+    // screen, outside every error boundary — and the red accused the devices
+    // door of not opening. The comparison defect behind the crash is closed in
+    // the component; here we remove the cause, which is a fake server poorer
+    // than the real one. Same lesson as the person stub above.
     await page.route("**/api/auth/devices", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ devices: [{ connected: true, revokedAt: null }] }) }));
+        body: JSON.stringify({ devices: [{
+          id: "dev-1", name: "Questo computer", createdAt: 1, lastSeenAt: 2,
+          firstIp: null, revokedAt: null, connected: true, current: true,
+          role: "owner", person: null,
+        }] }) }));
     await page.goto("/");
 
     // The devices have moved INSIDE the identity panel: on the row they were a
@@ -112,10 +123,17 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     await page.screenshot({ path: join(SHOTS, "settings-deeplink-devices.png") });
   });
 
-  test("SETTINGS-04: il nome nella riga d'identità apre il pane Profilo", async ({ page }) => {
-    // The other half of the same decision: the row talks about you, so its big
-    // target leads where you go to look at who you are. Before, nothing led
-    // there at all, and the profile could only be found from the "Topics" menu.
+  test("SETTINGS-04: dalla riga d'identità si arriva al pane Profilo", async ({ page }) => {
+    // The other half of the same decision: the row talks about you, so it leads
+    // where you go to look at who you are. Before, nothing led there at all,
+    // and the profile could only be found from the "Topics" menu.
+    //
+    // THE PATH IS ONE CLICK LONGER THAN IT WAS, on purpose. The row used to
+    // jump straight to the pane; now it opens its own panel, which answers the
+    // small questions on the spot and keeps the door to the page at its foot
+    // (the rule is written in the identity block: every chip opens its panel).
+    // This test follows the door where it went — it does not ask the row to go
+    // back to being a shortcut.
     await page.route("**/api/auth/session", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ paired: true, as: "loopback", name: "Questo computer",
@@ -126,7 +144,13 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     await expect(io).toBeVisible({ timeout: 20000 });
     await io.click();
 
+    const porta = page.getByTestId("identity-me-open-profile");
+    await expect(porta).toBeVisible({ timeout: 20000 });
+    await porta.click();
+
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
+    // AND on the right page: the pane has three, and a door that opens it on
+    // somebody else's tab is a door that lands next to where you asked.
     await expect(page.getByTestId("settings-page-profile")).toBeVisible();
   });
 });

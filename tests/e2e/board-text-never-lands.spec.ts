@@ -125,7 +125,7 @@ test.describe("Una frase scritta su una card in review non fonde il ramo", () =>
     if (!wt || wt.status !== "ready") throw new Error(`worktree non pronto: ${wt?.status}`);
     worktreePath = wt.absPath;
 
-    // The agent's "work", committed on its own branch. `scheda.txt` says
+    // The agent's "work", committed on its own branch. The fixture file says
     // something main does not say: that difference is what a merge would carry
     // over, so it is also the sharpest way to detect one.
     writeFileSync(`${wt.absPath}/scheda.txt`, "dopo\n");
@@ -194,8 +194,8 @@ test.describe("Una frase scritta su una card in review non fonde il ramo", () =>
       .toHaveCount(0);
 
     // (4) AND THE PROOF THAT DOES NOT COME FROM THE UI. Main is untouched: same
-    //     single commit, same file content. If Enter had landed, `scheda.txt`
-    //     would read "dopo" and main would have two commits plus a merge.
+    //     single commit, same file content. Had Enter landed, the file would
+    //     carry the branch's line and main would have two commits plus a merge.
     expect(git(REPO, ["rev-list", "--count", "main"]).trim()).toBe("1");
     expect(readFileSync(`${REPO}/scheda.txt`, "utf8")).toBe("prima\n");
     expect(git(REPO, ["rev-list", "--count", `main..${branch}`]).trim()).toBe("1");
