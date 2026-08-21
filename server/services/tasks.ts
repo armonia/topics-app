@@ -718,7 +718,7 @@ export interface TaskService {
    * ⇒ si scrive la prima volta e basta.
    */
   /**
-   * `sostituisce` — ONE SLOT, not a pile.
+   * `replaces` — ONE SLOT, not a pile.
    *
    * A machine note describing the STATE of something (a card's preview, say) is
    * not an event to append: it is a current value. Written through plain
@@ -730,7 +730,7 @@ export interface TaskService {
    * problem (the identical text repeated); here the text changes on every run,
    * which is exactly why they piled up.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service"; once?: boolean; sostituisce?: string }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service"; once?: boolean; replaces?: string }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -3608,7 +3608,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, sostituisce }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces }): TaskComment {
       // The kind is whitelisted, never passed through: an unknown value reads
       // as a plain comment, so a typo at a call site costs a visible row rather
       // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
@@ -3665,10 +3665,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // The slot is emptied BEFORE it is filled, and only for the same author
       // and the same `kind`: a human comment that happens to start with the
       // same words is not the machine's note and must not be touched.
-      if (sostituisce && sostituisce.trim()) {
+      if (replaces && replaces.trim()) {
         db.prepare(
           "DELETE FROM task_comments WHERE task_id = ? AND author = ? AND kind = ? AND content LIKE ?",
-        ).run(taskId, author, commentKind, `${sostituisce}%`);
+        ).run(taskId, author, commentKind, `${replaces}%`);
       }
 
       const id = uuid();

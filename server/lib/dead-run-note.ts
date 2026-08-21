@@ -25,7 +25,7 @@
  * codebase keeps giving: a rule buried inside a function that owns timers and a
  * process probe is a rule no test can reach.
  */
-export function annunciaRipresa(status: string | null | undefined): boolean {
+export function shouldAnnounceResume(status: string | null | undefined): boolean {
   return status === "in_progress";
 }
 
@@ -36,7 +36,7 @@ export function annunciaRipresa(status: string | null | undefined): boolean {
  * A process can die more than once on the same card, and each death used to add
  * another identical paragraph: three copies on `a035f945`. The sentence
  * describes a CONDITION, not an event worth counting, so it belongs in one slot.
- * The store matches on this prefix (`sostituisce`), which is why it must come
+ * The store matches on this prefix (`replaces`), which is why it must come
  * from here and never be retyped at the call site.
  */
-export const NOTA_SESSIONE_MORTA = "La sessione dell'agent è morta";
+export const DEAD_SESSION_NOTE = "La sessione dell'agent è morta";

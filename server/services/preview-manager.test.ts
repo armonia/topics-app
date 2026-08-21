@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createPreviewManager, isLocalUrl, isEvidencePage, isPlaceholderPage, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree, PREFISSO_NOTA_ANTEPRIMA } from "./preview-manager";
+import { createPreviewManager, isLocalUrl, isEvidencePage, isPlaceholderPage, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree, PREVIEW_NOTE_PREFIX } from "./preview-manager";
 
 // ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -13,7 +13,7 @@ interface Harness {
   deps: PreviewManagerDeps;
   outputUrl: { v: string | null };
   previewImage: string | null;
-  reviewNotes: { content: string; media?: string[]; kind?: "review-note" | "service"; sostituisce?: string }[];
+  reviewNotes: { content: string; media?: string[]; kind?: "review-note" | "service"; replaces?: string }[];
   registered: any[];
   unregistered: string[];
   spawned: { cmd: string[]; cwd: string; env: Record<string, string> }[];
@@ -382,8 +382,8 @@ describe("content gate in prepareForReview", () => {
     expect(h.previewImage).toBe("");                       // evidenza ritirata
     // The prefix comes from the constant, never copied: it is the same one the
     // store uses to empty the slot, and two copies drift apart.
-    expect(h.reviewNotes[0].content).toContain(`${PREFISSO_NOTA_ANTEPRIMA} non allegata`);
-    expect(h.reviewNotes[0].sostituisce).toBe(PREFISSO_NOTA_ANTEPRIMA);
+    expect(h.reviewNotes[0].content).toContain(`${PREVIEW_NOTE_PREFIX} non allegata`);
+    expect(h.reviewNotes[0]!.replaces).toBe(PREVIEW_NOTE_PREFIX);
     expect(h.reviewNotes[0].media).toBeUndefined();
   });
 

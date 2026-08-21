@@ -9,7 +9,7 @@
  * image. The thread did not merely repeat itself, it misdescribed what the card
  * looked like when each line was written.
  *
- * `sostituisce` empties the slot before filling it, keyed on the shared prefix
+ * `replaces` empties the slot before filling it, keyed on the shared prefix
  * plus author plus kind. These tests hold the three edges that make that safe:
  * the text CHANGES between writes (so `once`, which dedupes identical text,
  * could never have caught it), a different author is not the same slot, and a
@@ -19,7 +19,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { freshDb } from "./tasks-test-db";
-import { PREFISSO_NOTA_ANTEPRIMA as SLOT } from "./preview-manager";
+import { PREVIEW_NOTE_PREFIX as SLOT } from "./preview-manager";
 
 const PID = "topics-app-abc123";
 
@@ -38,7 +38,7 @@ describe("commento a slot", () => {
   test("tre giri di anteprima lasciano UNA riga, l'ultima", () => {
     for (const porta of [3400, 3401, 3402]) {
       s.addComment({
-        taskId, author: "verifier", kind: "review-note", sostituisce: SLOT,
+        taskId, author: "verifier", kind: "review-note", replaces: SLOT,
         content: `${SLOT} viva e pronta su http://localhost:${porta}/`,
       });
     }
@@ -47,7 +47,7 @@ describe("commento a slot", () => {
     expect(righe[0]!.content).toContain("3402");
   });
 
-  test("senza `sostituisce` si accumulano: e' il comportamento di prima", () => {
+  test("senza `replaces` si accumulano: e' il comportamento di prima", () => {
     for (const porta of [3400, 3401, 3402]) {
       s.addComment({
         taskId, author: "verifier", kind: "review-note",
@@ -60,7 +60,7 @@ describe("commento a slot", () => {
   test("un commento umano che comincia con le stesse parole resta dov'e'", () => {
     s.addComment({ taskId, author: "user", content: `${SLOT} questa non la tocca nessuno` });
     s.addComment({
-      taskId, author: "verifier", kind: "review-note", sostituisce: SLOT,
+      taskId, author: "verifier", kind: "review-note", replaces: SLOT,
       content: `${SLOT} viva e pronta su http://localhost:3400/`,
     });
     const righe = note();
@@ -69,8 +69,8 @@ describe("commento a slot", () => {
   });
 
   test("un altro `kind` e' un altro slot", () => {
-    s.addComment({ taskId, author: "verifier", kind: "service", sostituisce: SLOT, content: `${SLOT} non allegata.` });
-    s.addComment({ taskId, author: "verifier", kind: "review-note", sostituisce: SLOT, content: `${SLOT} viva su 3400.` });
+    s.addComment({ taskId, author: "verifier", kind: "service", replaces: SLOT, content: `${SLOT} non allegata.` });
+    s.addComment({ taskId, author: "verifier", kind: "review-note", replaces: SLOT, content: `${SLOT} viva su 3400.` });
     expect(note()).toHaveLength(2);
   });
 

@@ -20,8 +20,8 @@ describe('chip di una consegna', () => {
   });
 
   test('la chiave nuova esiste davvero nella tabella, o la card resta MUTA', () => {
-    // DispatchChip torna null su una chiave che non c'e': senza questa riga il
-    // refactor si vedrebbe solo come un chip sparito, non come un errore.
+    // DispatchChip returns null for a key that is not there: without this line
+    // the refactor would show up as a missing chip, not as an error.
     expect(DISPATCH_CHIP.delivered_by_system).toBeDefined();
     expect(DISPATCH_CHIP.delivered_by_system!.text).not.toBe(DISPATCH_CHIP.delivered!.text);
   });

@@ -27,7 +27,7 @@ import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { annunciaRipresa, NOTA_SESSIONE_MORTA } from "../lib/dead-run-note";
+import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
@@ -3618,13 +3618,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // A late-dying process wrote "I am resuming the task" onto a card that had
     // already reached review, a prediction that is wrong exactly while a human
     // is reading it. The rest of the burial is not conditioned on this.
-    if (annunciaRipresa(deps.svc.get(taskId)?.task.status)) {
+    if (shouldAnnounceResume(deps.svc.get(taskId)?.task.status)) {
       try {
         deps.svc.addComment({
           taskId, author: "system", kind: "service",
-          sostituisce: NOTA_SESSIONE_MORTA,
+          replaces: DEAD_SESSION_NOTE,
           content:
-            NOTA_SESSIONE_MORTA +
+            DEAD_SESSION_NOTE +
             " mentre il turno era ancora aperto (il processo non c'è più): " +
             "riprendo il task invece di lasciarlo fermo su 'lavora'.",
         });

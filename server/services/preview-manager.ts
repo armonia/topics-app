@@ -46,7 +46,7 @@ import net from "net";
  * instead of stacking another, which is why all four messages start with it,
  * the failures included.
  */
-export const PREFISSO_NOTA_ANTEPRIMA = "Anteprima:";
+export const PREVIEW_NOTE_PREFIX = "Anteprima:";
 
 /** The task's branch worktree — the cwd the preview server runs in. */
 export interface PreviewWorktree {
@@ -133,7 +133,7 @@ export interface PreviewManagerDeps {
    */
   retirePreview?(taskId: string, reason: string): void;
   /** Add a `review-note` comment (does NOT wake the agent).
-   *  `sostituisce`: a content prefix whose previous notes (same author, same
+   *  `replaces`: a content prefix whose previous notes (same author, same
    *  kind) are removed before writing, so a state note is ONE slot, not a pile. */
   /**
    * Una riga nel thread della card.
@@ -144,7 +144,7 @@ export interface PreviewManagerDeps {
    * frase può essere una scoperta o una condizione strutturale — vedi
    * `prepareForReview`.
    */
-  addReviewNote(taskId: string, args: { content: string; media?: string[]; kind?: "review-note" | "service"; sostituisce?: string }): void;
+  addReviewNote(taskId: string, args: { content: string; media?: string[]; kind?: "review-note" | "service"; replaces?: string }): void;
   /** Surface the preview in the Processes panel (Stop button + logs). Optional. */
   registerProcess?(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void;
   unregisterProcess?(taskId: string): void;
@@ -568,10 +568,10 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         // adesso non risponde, quella è una notizia e resta in evidenza.
         deps.addReviewNote(taskId, {
           kind: nostro ? "service" : "review-note",
-          sostituisce: PREFISSO_NOTA_ANTEPRIMA,
+          replaces: PREVIEW_NOTE_PREFIX,
           content: nostro
-            ? `${PREFISSO_NOTA_ANTEPRIMA} non allegata. ${url} ${why}. Il worktree probabilmente non ha un bundle costruito (\`cd client && bun run build\`).`
-            : `${PREFISSO_NOTA_ANTEPRIMA} ⚠️ nessuna evidenza allegata. ${url} ${why}. ` +
+            ? `${PREVIEW_NOTE_PREFIX} non allegata. ${url} ${why}. Il worktree probabilmente non ha un bundle costruito (\`cd client && bun run build\`).`
+            : `${PREVIEW_NOTE_PREFIX} ⚠️ nessuna evidenza allegata. ${url} ${why}. ` +
               "Un'evidenza falsa è peggio di nessuna evidenza. Se il worktree serve un bundle, costruiscilo (`cd client && bun run build`) e allega tu l'anteprima.",
         });
         return;
@@ -588,14 +588,14 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       if (shot) {
         try { deps.setPreviewImage(taskId, outPath); } catch (err) { log(`[preview] setPreviewImage failed for ${taskId}`, err); }
         deps.addReviewNote(taskId, {
-          content: `${PREFISSO_NOTA_ANTEPRIMA} viva e pronta su ${url}`,
+          content: `${PREVIEW_NOTE_PREFIX} viva e pronta su ${url}`,
           media: [outPath],
-          sostituisce: PREFISSO_NOTA_ANTEPRIMA,
+          replaces: PREVIEW_NOTE_PREFIX,
         });
       } else {
         deps.addReviewNote(taskId, {
-          content: `${PREFISSO_NOTA_ANTEPRIMA} viva su ${url}, screenshot non catturato.`,
-          sostituisce: PREFISSO_NOTA_ANTEPRIMA,
+          content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato.`,
+          replaces: PREVIEW_NOTE_PREFIX,
         });
       }
     } catch (err) {
