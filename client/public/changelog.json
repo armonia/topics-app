@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.171",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il guscio si puo' iterare in 20 secondi invece che in 149",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli shard E2E in locale, con il numero giusto invece di quello di CI",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.170",
     "date": "2026-08-21",
     "sections": {

@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.171 — 2026-08-21
+
+### Sotto il cofano
+- Il guscio si puo' iterare in 20 secondi invece che in 149
+- Gli shard E2E in locale, con il numero giusto invece di quello di CI
+
 ## 2.2.170 — 2026-08-21
 
 ### Sotto il cofano
