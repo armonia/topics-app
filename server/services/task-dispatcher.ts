@@ -1491,7 +1491,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const directive = languageDirective(lang);
     return [
       directive
-        || "- Write to the human in the LANGUAGE OF THE TASK TEXT above (title, description, thread). These instructions are in English; your comments and your delivery are not required to be.",
+        || "- Write to the human in the LANGUAGE OF THE TASK TEXT above (title, description, thread). These instructions are in English; your board comments and your delivery are not required to be. THE CODE IS ANOTHER MATTER: identifiers, strings and code comments are always English, whatever language you are speaking here.",
     ];
   }
 

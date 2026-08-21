@@ -50,6 +50,7 @@
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
     "check:ui-language": "bun run scripts/check-ui-language.ts",
+    "check:comment-language": "bun run scripts/check-comment-language.ts",
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:sleeps": "bun run scripts/check-e2e-sleeps.ts",

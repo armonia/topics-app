@@ -169,6 +169,12 @@ jobs:
           bun run check:emdash
           bun run check:bloat
           bun run check:ui-language
+          # Lo stesso standard, applicato ai commenti (deciso il 21/08).
+          # Ratchet su `scripts/comment-language-baseline.json`: nasce
+          # verde su ~95k righe di debito e le lascia solo scendere, che e
+          # l unico modo perche un cancello del genere sopravviva a una
+          # settimana. Scappatoia per riga: `allow-italian: <perche>`.
+          bun run check:comment-language
           bun run check:sleeps
 
       # `check:sleeps` è l'ultimo di questa fila e conta una cosa sola:
