@@ -51,7 +51,7 @@ async function stubIdentita(
       body: JSON.stringify({ devices: [{ connected: true, revokedAt: null }] }) }));
   await page.route("**/api/auth/orgs", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ orgs: [{ id: "org1", name: "Org", installation: true }] }) }));
+      body: JSON.stringify({ orgs: [{ id: "org1", name: "Acme Group", installation: true }] }) }));
   // La rubrica: e' da QUI che il client sa chi sei (`useIdentityPresence`), non
   // dalla sessione. Sono due fetch diverse, ed e' precisamente la ragione per
   // cui `presentiOra` deve saper tacere quando l'identita' non c'e' ancora.
@@ -64,7 +64,7 @@ async function stubIdentita(
 }
 
 test.describe("presence dell'organizzazione, a schermo", () => {
-  test("PRESENCE-01: due colleghi visti ora diventano il numero 2 sul chip dell'org", async ({ page }) => {
+  test("PRESENCE-01: due colleghi visti ora diventano due facce sul chip dell'org", async ({ page }) => {
     const ora = Date.now();
     await stubIdentita(page, [
       membro("io", "Io", ora),          // te stesso non conti
@@ -78,14 +78,17 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(chip).toBeVisible({ timeout: 20000 });
     // La presenza sta DENTRO il chip del gruppo: con due organizzazioni un
     // conteggio unico non direbbe di quale gruppo sono.
-    await expect(page.getByTestId("org-chip-online")).toHaveText("2");
+    await expect(chip.getByTestId("presence-face")).toHaveCount(2);
+    // E il nome del gruppo NON si vede: nel chip ci sono il logo e le facce,
+    // il nome per esteso sta nel pannello che il chip apre.
+    await expect(chip).not.toContainText("Acme Group");
     await page.screenshot({ path: join(SHOTS, "presence-due.png") });
   });
 
-  test("PRESENCE-02: da solo, il chip resta ma il conteggio non c'è", async ({ page }) => {
-    // «0 online» è rumore che si impara a saltare: al posto dello zero c'è un
-    // pallino spento, che si vede senza leggerlo. Il chip invece resta, perché
-    // è anche la porta della gestione delle organizzazioni.
+  test("PRESENCE-02: da solo, il chip resta ed è il solo logo", async ({ page }) => {
+    // «0 online» è rumore che si impara a saltare: quando non c'è nessuno il
+    // chip è solo il logo, e il vuoto è già la risposta. Il chip però resta,
+    // perché è anche la porta della gestione di QUELLA organizzazione.
     await stubIdentita(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
     await expect(page.getByTestId("identity-row-me")).toBeVisible({ timeout: 20000 });
@@ -166,7 +169,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.screenshot({ path: join(SHOTS, "amici-online.png") });
   });
 
-  test("PRESENCE-07: senza nessuno la riga amici resta e dice zero", async ({ page }) => {
+  test("PRESENCE-07: senza nessuno la riga amici resta, dice «Amici» e zero", async ({ page }) => {
     // Prima spariva. Una riga che esiste solo quando ha buone notizie lascia
     // senza risposta «ma gli amici dove stanno?» proprio a chi non ha ancora
     // nessuno, cioè l'unico che deve poterci entrare per cominciare.
@@ -177,6 +180,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     const amici = page.getByTestId("identity-row-friends");
     await expect(amici).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
+    // Ma non lo dice con una brutta notizia: a zero la riga porta il proprio
+    // nome, non «nessuno online».
+    await expect(amici).toContainText("Amici");
+    await expect(amici).not.toContainText("Nessuno online");
     // E il pannello spiega da dove arrivano le persone, invece di essere vuoto.
     await page.getByTestId("identity-friends-chip").click();
     await expect(page.getByTestId("friends-panel")).toContainText("organizzazioni");

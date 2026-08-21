@@ -70,6 +70,10 @@ const CHIP = `flex min-w-0 items-center gap-1 rounded px-1 py-0.5 ${SIDEBAR_HOVE
  *  puntini indistinguibili larghi quanto la parola che li conterebbe. */
 const MAX_FACCE = 4;
 
+/** In the org chip the name is gone, so the room it took goes to the faces:
+ *  six fit on the line the name used to fill by itself. */
+const MAX_FACCE_ORG = 6;
+
 export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void }) {
   const presenza = useIdentityPresence();
   return (
@@ -229,12 +233,18 @@ function RigaIo({ presenza, onOpenDevices }: {
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * UN CHIP PER GRUPPO, e dentro ogni chip chi c'e'.
+ * ONE CHIP PER GROUP, and inside each chip the people who are there.
  *
- * La presenza sta DENTRO il chip e non in un conteggio unico in fondo alla
- * riga: con due organizzazioni «3 online» non dice di quale gruppo sono, ed e'
- * la prima cosa che si vuole sapere. Le facce prima del numero, perche' «chi»
- * batte «quanti» e la faccia si riconosce senza leggere.
+ * Presence lives INSIDE the chip and not in a single count at the end of the
+ * row: with two organizations "3 online" does not say which group they belong
+ * to, and that is the first thing anyone wants to know.
+ *
+ * NO NAME IN THE CHIP. The name was the widest part of a chip that says
+ * something else: two names filled a 240px column and left the faces, which are
+ * the news, fighting for the leftovers. The logo already identifies the group
+ * without spelling it, the tooltip and the panel header carry the full name,
+ * and what is left on the row is exactly the answer to "who is around": the
+ * faces, wrapping inside the chip when they are many.
  */
 function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
   const [apertaId, setApertaId] = useState<string | null>(null);
@@ -273,23 +283,20 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
         onClick={onToggle}
         aria-haspopup="dialog"
         aria-expanded={aperta}
-        className={`${CHIP} flex-shrink-0 text-app-text-secondary`}
-        title={`${org.nome}\n${org.online > 0
-          ? tr('statusBar.orgs.presence', { n: org.online, tot: org.membri })
-          : tr('statusBar.orgs.nobody')}`}
+        className={`${CHIP} flex-wrap text-app-text-secondary`}
+        title={org.online > 0
+          ? `${org.nome}\n${tr('statusBar.orgs.presence', { n: org.online, tot: org.membri })}`
+          : org.nome}
       >
         <Logo org={org} size={3.5} />
-        <span className="max-w-[92px] truncate">{org.nome}</span>
-        {org.online > 0
-          ? (
-            <span data-testid="org-chip-online" className={`flex flex-shrink-0 items-center gap-1 ${SEGNALE_OK}`}>
-              <Facce facce={org.facce} />
-              <span className="tabular-nums">{org.online}</span>
-            </span>
-          )
-          // Nessuno online: un pallino spento, non uno zero. Lo zero e' un
-          // numero da leggere; il pallino spento si vede senza leggerlo.
-          : <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-app-text-muted/40" />}
+        {/* Only the faces, and only when there are any. Nobody online is said
+            by the chip being just a logo: an empty chip is already the answer,
+            and it costs no word to read. */}
+        {org.online > 0 && (
+          <span data-testid="org-chip-online" className={`flex flex-wrap items-center gap-y-0.5 ${SEGNALE_OK}`}>
+            <Facce facce={org.facce} max={MAX_FACCE_ORG} totale={org.online} />
+          </span>
+        )}
       </button>
 
       {aperta && (
@@ -311,9 +318,13 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
             gente={org.gente}
             vuoto={tr('statusBar.orgs.alone')}
           />
+          {/* The door to management hangs on THE organization, not on the row:
+              the row holds several groups, and "manage organizations" reached
+              from nowhere in particular is a link you have to guess the target
+              of. Here it is opened from the group whose people you are reading. */}
           <div className="border-t border-app-border py-1">
             <Azione onClick={() => { onClose(); apriProfilo('organization'); }} testId="org-open-manage">
-              {tr('statusBar.orgs.manage')}
+              {tr('statusBar.orgs.manageOne')}
             </Azione>
           </div>
         </PresencePopover>
@@ -341,8 +352,16 @@ function Logo({ org, size }: { org: OrgConPresenza; size: 3.5 | 5 }) {
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * CHI C'E' ADESSO, con la faccia — e la fila resta anche quando non c'e'
- * nessuno, perche' «nessuno online» e' la risposta alla domanda che la fila fa.
+ * WHO IS AROUND RIGHT NOW, with their face. The row stays even when nobody is,
+ * because a row that shows up only with good news is a row nobody learns the
+ * place of.
+ *
+ * WHAT IT DOES NOT SAY IS "NOBODY ONLINE". An empty row spending a whole line
+ * to report an absence is a line you read once and then learn to skip, and it
+ * pushed the only thing worth clicking (the way in to your friends) behind a
+ * piece of bad news. With nobody around the row says its own name instead, so
+ * the glyph, the label and the count stay a door: one click opens the panel,
+ * which is where friends are actually managed.
  */
 function RigaAmici({ online, tutti, totali }: {
   online: FacciaPresenza[];
@@ -362,12 +381,12 @@ function RigaAmici({ online, tutti, totali }: {
         aria-haspopup="dialog"
         aria-expanded={aperto}
         className={`${CHIP} -mx-1 flex-1 text-left`}
-        title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.nobody')}
+        title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title')}
       >
         <Users size={10} className={`flex-shrink-0 ${ci_sono ? SEGNALE_OK : 'text-app-text-muted'}`} />
-        {ci_sono && <Facce facce={online} />}
+        {ci_sono && <Facce facce={online} totale={online.length} />}
         <span className={`truncate ${ci_sono ? 'text-app-text-secondary' : 'text-app-text-muted'}`}>
-          {ci_sono ? tr('statusBar.friends.online', { n: online.length }) : tr('statusBar.friends.nobody')}
+          {ci_sono ? tr('statusBar.friends.online', { n: online.length }) : tr('statusBar.friends.title')}
         </span>
         {/* Il totale a destra e' il denominatore: «2 online» su quante persone.
             A zero resta e dice zero: e' il numero che spiega perche' la fila
@@ -395,7 +414,7 @@ function RigaAmici({ online, tutti, totali }: {
           <Elenco gente={tutti} vuoto={tr('statusBar.friends.none')} suggerimento={tr('statusBar.friends.noneHint')} />
           <div className="border-t border-app-border py-1">
             <Azione onClick={() => { setAperto(false); apriProfilo('friends'); }} testId="friends-open-all">
-              {tr('statusBar.friends.openAll')}
+              {tr('statusBar.friends.manage')}
             </Azione>
           </div>
         </PresencePopover>
@@ -502,20 +521,28 @@ function Azione({ onClick, children, testId }: {
 }
 
 /**
- * Le facce, sovrapposte come in una lista di partecipanti.
+ * The faces, overlapped the way a participant list does it.
  *
- * Le prime quattro e basta: oltre, sono dischi da dodici pixel indistinguibili
- * larghi quanto il numero che li conterebbe, e il numero c'e' gia' accanto.
+ * ONLY THE FIRST FEW, then a number. Past the cap they are twelve-pixel discs
+ * nobody can tell apart, each as wide as the digit that would count them; the
+ * `+N` says the same thing in less room and stays readable.
  */
-function Facce({ facce }: { facce: FacciaPresenza[] }) {
+function Facce({ facce, max = MAX_FACCE, totale }: {
+  facce: FacciaPresenza[];
+  max?: number;
+  /** How many are online in total: the `+N` counts the ones with no face too. */
+  totale?: number;
+}) {
   if (facce.length === 0) return null;
+  const oltre = (totale ?? facce.length) - Math.min(facce.length, max);
   return (
     <span className="flex flex-shrink-0 items-center">
-      {facce.slice(0, MAX_FACCE).map((f, i) => (
+      {facce.slice(0, max).map((f, i) => (
         <span
           key={f.id}
-          // Il bordo del colore del chrome e' cio' che separa due facce
-          // sovrapposte: senza, a dodici pixel si leggono come una macchia sola.
+          data-testid="presence-face"
+          // The chrome-coloured ring is what keeps two overlapping faces apart:
+          // without it, at twelve pixels they read as a single smudge.
           className={`flex h-3.5 w-3.5 items-center justify-center overflow-hidden rounded-full ring-1 ring-app-chrome ${i > 0 ? '-ml-1' : ''}`}
           title={f.nome}
         >
@@ -526,6 +553,9 @@ function Facce({ facce }: { facce: FacciaPresenza[] }) {
               </span>}
         </span>
       ))}
+      {oltre > 0 && (
+        <span data-testid="presence-faces-more" className="ml-0.5 tabular-nums">+{oltre}</span>
+      )}
     </span>
   );
 }
