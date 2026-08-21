@@ -235,6 +235,66 @@ describe("message field-ownership on updateMessage", () => {
   });
 });
 
+describe("reuseHeadstoneOrCreate — il turno spontaneo riprende il cartello che lo precede", () => {
+  const CARTELLO = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
+
+  /** The row as the failure leaves it: closed, wearing the notice, no body. */
+  function seminaLapide(sk: string) {
+    const riga = ctx.createPartialMessage(sk, "assistant");
+    ctx.updateLastMessage(sk, {
+      content: CARTELLO,
+      partial: false,
+      blocks: [{ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." }],
+    });
+    return riga;
+  }
+
+  test("la lapide si riusa: stessa bolla, corpo pulito, turno vivo", () => {
+    const sk = "topic:lapide01";
+    const lapide = seminaLapide(sk);
+
+    const ripresa = ctx.reuseHeadstoneOrCreate(sk);
+
+    // The SAME row: it is the only way the bubble that said «no answer» can
+    // become the answer under the reader's eyes — there is no «message
+    // deleted» event.
+    expect(ripresa.id).toBe(lapide.id);
+    const dopo = ctx.getMessageById(lapide.id)!;
+    expect(dopo.content).toBe("");
+    expect(dopo.partial).toBeTruthy();
+    expect(dopo.blocks ?? []).toEqual([]);
+  });
+
+  test("una risposta vera non si tocca: nasce una riga NUOVA", () => {
+    const sk = "topic:lapide02";
+    const vera = ctx.createPartialMessage(sk, "assistant");
+    ctx.updateLastMessage(sk, { content: "Ecco il montaggio.", partial: false });
+
+    const nuova = ctx.reuseHeadstoneOrCreate(sk);
+
+    expect(nuova.id).not.toBe(vera.id);
+    expect(ctx.getMessageById(vera.id)!.content).toBe("Ecco il montaggio.");
+  });
+
+  test("un turno che aveva prodotto dei tool non e' una lapide", () => {
+    const sk = "topic:lapide03";
+    const conTool = ctx.createPartialMessage(sk, "assistant");
+    ctx.addToolCallToLastMessage(sk, tool("lap1"));
+    ctx.updateLastMessage(sk, { content: CARTELLO, partial: false });
+
+    const nuova = ctx.reuseHeadstoneOrCreate(sk);
+
+    expect(nuova.id).not.toBe(conTool.id);
+    expect(ctx.getMessageById(conTool.id)!.toolCalls?.[0]?.id).toBe("lap1");
+  });
+
+  test("su una sessione vuota crea e basta", () => {
+    const creata = ctx.reuseHeadstoneOrCreate("topic:lapide04");
+    expect(creata.id).toBeTruthy();
+    expect(creata.partial).toBeTruthy();
+  });
+});
+
 describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn, no ghost)", () => {
   test("reuses the surviving partial row IN PLACE, keeps its body, rebuilds cleanly", () => {
     const sk = "topic:reatt01";
