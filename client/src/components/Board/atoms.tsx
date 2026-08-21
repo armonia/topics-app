@@ -169,10 +169,10 @@ export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: Task
 /** Dispatch-state chip: state label + (optional) icon. DRYs the card + drawer
  *  render sites so both stay in lockstep. 'delivered' carries a PackageCheck
  *  glyph so "consegnato" reads at a glance, not just as colored text. */
-export function DispatchChip({ state, error, deliveredBy }: { state: string; error?: string | null; deliveredBy?: string | null }) {
+export function DispatchChip({ state, error, deliveredBy, hasWork = true }: { state: string; error?: string | null; deliveredBy?: string | null; hasWork?: boolean }) {
   const tr = useT();
   // The state alone is not the whole truth for `delivered`: see `chipKey`.
-  state = chipKey(state, deliveredBy);
+  state = chipKey(state, deliveredBy, hasWork);
   const chip = DISPATCH_CHIP[state];
   if (!chip) return null;
   const Icon = chip.Icon;

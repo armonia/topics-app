@@ -16,6 +16,18 @@
  * Pure and separate from the component for the usual reason: a rule inside a
  * render body is a rule that can only be checked by rendering.
  */
-export function chipKey(state: string, deliveredBy?: string | null): string {
-  return state === 'delivered' && deliveredBy === 'system' ? 'delivered_by_system' : state;
+export function chipKey(state: string, deliveredBy?: string | null, hasWork = true): string {
+  if (state !== 'delivered') return state;
+  // Nothing produced beats who moved it. A card with no branch, no commit and
+  // no changed file has nothing to open, and that is true whether the agent
+  // handed it over or the reaper pushed it: measured on the live board, 17 of
+  // 24 cards in review had none of the three, and 15 of them wore the green
+  // "consegnato". Green there is a promise the card cannot keep.
+  if (!hasWork) return 'delivered_empty';
+  return deliveredBy === 'system' ? 'delivered_by_system' : 'delivered';
+}
+
+/** The three columns that say a run left something behind. */
+export function taskHasWork(t: { deliveryBranch?: string | null; deliveryCommit?: string | null; deliveryFilesChanged?: number | null }): boolean {
+  return Boolean(t.deliveryBranch || t.deliveryCommit || (t.deliveryFilesChanged ?? 0) > 0);
 }

@@ -32,6 +32,7 @@ import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
+import { taskHasWork } from './chipKey';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
@@ -755,7 +756,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             // sola e uguale per sei motivi diversi.
             <QueueReasonChip reason={task.queueReason} />
           ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
-            <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
+            <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
           ) : (!task.dispatchState && task.dispatchError) ? (
             <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
           ) : null}

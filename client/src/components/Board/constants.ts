@@ -118,6 +118,15 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
     title: "L'ho portato io in review: l'agent non l'ha consegnato. Guarda il thread prima di valutare",
     Icon: PackageCheck,
   },
+  // In review with nothing behind it: no branch, no commit, no changed file.
+  // Neither "consegnato" nor "corsa finita" fits, because the question is not
+  // who moved the card but whether anything exists to look at. Neutral, not
+  // red: it is not a failure, it is an empty hand.
+  delivered_empty: {
+    text: 'niente da vedere',
+    cls: 'bg-white/10 text-app-text-secondary',
+    title: 'Nessun ramo, nessun commit, nessun file toccato: non c\'e\' un diff da guardare',
+  },
   // Parked in backlog after a dispatch ended badly. 'failed' = the agent genuinely
   // failed (timeout without review after the cap / repeated setup errors) — a red,
   // ringed chip so it never reads as a neutral manual "fermato". 'blocked' = a
