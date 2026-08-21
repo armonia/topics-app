@@ -17,6 +17,9 @@ import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "..
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
 import { classifyFrame, countsAsActivity, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
+// The same verdict the AI bridge already reached for the same question: a late
+// pong is not a dead daemon if bytes are still arriving. See `startBridgeWatchdog`.
+import { bridgeWatchdogStep } from "../lib/bridge-watchdog";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
 import { listSessionCliPids } from "../providers/session-pids";
@@ -721,6 +724,9 @@ function tryConnect(): Promise<boolean> {
 function setupSocketReader(socket: net.Socket) {
   const rl = createInterface({ input: socket });
   rl.on("line", (line: string) => {
+    // Any line at all is proof of life, even one we cannot parse. The watchdog
+    // reads this, not just the pong.
+    lastByteAt = Date.now();
     try {
       handleBridgeMessage(JSON.parse(line));
     } catch {}
@@ -753,6 +759,28 @@ function setupSocketReader(socket: net.Socket) {
     bridgeReady = false;
     bridgeSocket = null;
   });
+}
+
+/**
+ * One line per session per silent window, not one per keystroke.
+ *
+ * Typing during a reconnect produces a burst: the same message repeated dozens
+ * of times says nothing the first one did not, and buries the reconnect lines
+ * that explain it. The counter is reported when the burst ends.
+ */
+const droppedInput = new Map<string, { n: number; since: number }>();
+function noteDroppedInput(sessionId: string, err: unknown): void {
+  const now = Date.now();
+  const prev = droppedInput.get(sessionId);
+  if (prev && now - prev.since < 10_000) {
+    prev.n++;
+    return;
+  }
+  if (prev) {
+    console.warn(`[Terminal] ${prev.n} keystroke(s) dropped for ${sessionId} while the bridge was down`);
+  }
+  droppedInput.set(sessionId, { n: 1, since: now });
+  console.warn(`[Terminal] keystroke dropped for ${sessionId}: ${String((err as Error)?.message ?? err)}`);
 }
 
 function sendToBridge(msg: any) {
@@ -1004,16 +1032,47 @@ function handleBridgeMessage(msg: any) {
     }
     case "pong": {
       lastPongAt = Date.now();
+      // A real pong is the only thing that disarms the escalation: a reconnect
+      // must not, or a daemon that accepts connections and answers nothing
+      // would loop through soft resets forever and never be SIGTERMed.
+      recycleArmedAt = 0;
       break;
     }
   }
 }
 
 // --- Bridge liveness watchdog ---
-// Ping every 30 s. If the bridge doesn't pong within 5 s for two
-// consecutive intervals, we assume the connection is wedged
-// (one-way socket break, daemon hang) and recycle.
+/*
+ * Ping every 30s. A bridge that is genuinely wedged (one-way socket break,
+ * hung daemon) has to be recycled, because nothing else will unstick it.
+ *
+ * A LATE PONG IS NOT A DEAD BRIDGE, and treating it as one is expensive here in
+ * a way it is not elsewhere: `recycleBridge` SIGTERMs the daemon, whose
+ * `shutdown()` walks every session and calls `s.pty.kill()`. Every terminal on
+ * the machine dies, including the ones that were mid-turn. Measured in
+ * `topics-server.log` on 2026-08-21: 31 recycles, 31 of them for `no pong in
+ * 60s`, and two of those are sandwiched between the OTHER bridge's watchdog
+ * lines, i.e. it was the SERVER that was stalled, not the daemon. The loss is
+ * on the record: one recycle is followed by ten `Failed to recreate session
+ * <uuid>: Bridge not connected`.
+ *
+ * So the verdict is the one `ai-bridge-client.ts` already reached for the same
+ * question: `shouldRecycleSocket` is only true when the pong is late AND no
+ * BYTES have arrived either. A pong rides the same queue as everything else and
+ * can sit behind tens of MB of replay; a byte in that window proves the daemon
+ * is alive and talking.
+ *
+ * And when it is true, it escalates in two steps instead of one. First a plain
+ * socket reset, which costs nothing (the `close` handler reconnects and
+ * reconciles) and cures the one-way break. The SIGTERM, which is the one that
+ * kills PTYs, only fires if the bridge is STILL mute after that, so the case
+ * the watchdog was born for is still covered.
+ */
 let lastPongAt = Date.now();
+/** Last byte received from the daemon, whoever it was for. See `setupSocketReader`. */
+let lastByteAt = Date.now();
+/** When the soft stage fired. Cleared by a real pong, never by a reconnect. */
+let recycleArmedAt = 0;
 let watchdogStarted = false;
 function startBridgeWatchdog() {
   if (watchdogStarted) return;
@@ -1023,9 +1082,21 @@ function startBridgeWatchdog() {
     try { bridgeSocket.write(JSON.stringify({ type: 'ping' }) + '\n'); }
     catch { recycleBridge('ping write failed'); return; }
     setTimeout(() => {
-      if (Date.now() - lastPongAt > 60_000) {
-        recycleBridge('no pong in 60s');
+      const now = Date.now();
+      const action = bridgeWatchdogStep(now, lastPongAt, lastByteAt, recycleArmedAt);
+      if (action === 'ok') return;
+      if (action === 'soft-reset') {
+        recycleArmedAt = now;
+        console.warn('[Terminal] Bridge mute for 60s (no pong, no bytes): resetting the socket, PTYs untouched');
+        if (bridgeSocket && !bridgeSocket.destroyed) {
+          try { bridgeSocket.destroy(); } catch {}
+        }
+        bridgeSocket = null;
+        bridgeReady = false;
+        return;
       }
+      recycleArmedAt = 0;
+      recycleBridge('still mute 30s after a socket reset');
     }, 5_000);
   }, 30_000).unref();
 }
@@ -2904,7 +2975,25 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
     message(data: string | Buffer | ArrayBuffer) {
       const input = typeof data === "string" ? data : new TextDecoder().decode(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
       noteTerminalInput(sessionId);
-      sendToBridge({ type: "write", id: sessionId, data: input });
+      /* A KEYSTROKE MUST NOT THROW OUT OF A SOCKET HANDLER.
+       *
+       * `sendToBridge` throws `Bridge not connected`, and this is the keyboard
+       * path: the exception escapes into the WS handler while the bridge is
+       * reconnecting. Measured on 2026-08-21: 432 `Bridge not connected` lines
+       * in `topics-server.log`, 213 with a `sendToBridge` stack, around 51 of
+       * them on this path.
+       *
+       * The key is dropped, and that is the correct outcome: it is NOT buffered
+       * across the reconnect. The PTY on the other side is not the same one any
+       * more, it is a freshly `--resume`d process, and replaying a `2\r` that
+       * answered a prompt which no longer exists injects input into a program
+       * in a different state. Better a lost keystroke than a wrong one.
+       */
+      try {
+        sendToBridge({ type: "write", id: sessionId, data: input });
+      } catch (err) {
+        noteDroppedInput(sessionId, err);
+      }
     },
     close() {
       const s = sessionSockets.get(sessionId);
