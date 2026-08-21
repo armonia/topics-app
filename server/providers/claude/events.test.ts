@@ -26,6 +26,12 @@ describe("classifyStreamLine", () => {
     expect(classifyStreamLine(F.COMPACT_BOUNDARY).kind).toBe("compaction");
     expect(classifyStreamLine(F.SYSTEM_INIT).kind).toBe("noise");
     expect(classifyStreamLine(F.RATE_LIMIT).kind).toBe("noise");
+    // THE FIELD NAME, not just the verdict. `classifyStreamLine` reads only
+    // `type`, so a fixture with an invented payload key stays green forever and
+    // becomes the shape the next feature is written against. The CLI (2.1.238)
+    // emits `rate_limit_info`; it said `rate_limit` here until 2026-08-21.
+    expect(F.RATE_LIMIT).toHaveProperty("rate_limit_info.status");
+    expect(F.RATE_LIMIT).not.toHaveProperty("rate_limit");
     expect(classifyStreamLine(F.PARTIAL_BLOCK_START).kind).toBe("partial");
     expect(classifyStreamLine(F.RESULT_OK).kind).toBe("result");
     expect(classifyStreamLine(F.ASSISTANT_TEXT).kind).toBe("content");
