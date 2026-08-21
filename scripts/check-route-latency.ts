@@ -476,6 +476,14 @@ async function seed(base: string): Promise<{ topicId: string }> {
         method: "POST",
         body: JSON.stringify({
           text: `Task del banco numero ${i}`,
+          // KNOWN BLIND SPOT (2026-08-21): ~156 chars, BELOW both the old
+          // preview cut (240) and the new one (800), so this bench does not
+          // exercise `PREVIEW_SQL_CHARS` at all. That day the constant went
+          // 240 -> 800 and the measurement never noticed, in either direction.
+          // Lengthening it is one line, but it moves all four routes, so it must
+          // land together with a baseline re-record and ONLY on an idle machine;
+          // the declared `corpus` needs the length too, or the gate compares two
+          // measurements that are not about the same thing.
           description: `Descrizione del task ${i}. `.repeat(6),
         }),
       })),
