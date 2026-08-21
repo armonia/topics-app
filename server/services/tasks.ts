@@ -1792,6 +1792,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `*`: una risposta grassa è meglio di una rotta.
    */
   const listColumnsCache = new Map<string, string>();
+  /**
+   * Columns that ride in every board feed and that NOBODY reads off a Task.
+   *
+   * `listColumns` projects whatever `PRAGMA table_info(tasks)` returns, so every
+   * migration that adds a column makes the hottest feed heavier and nothing says
+   * so. Measured 2026-08-21 (route bench, 150 samples, passes agreeing):
+   * `/api/all-boards/tasks` had gone 1.37 ms (2026-08-15) -> 3.03 ms after twelve
+   * new columns; dropping all twelve gave 1.96 ms. These six have zero readers in
+   * client/src AND zero reads off a Task in server/: removing them gave 2.86 ms.
+   * The other six are read, so they stay. Add a column here, add a reader with it.
+   *
+   * Not unit-tested on purpose: asserting the fields are absent from a listed
+   * Task passes with the filter removed too, because `rowsToTasks` decides what a
+   * Task carries. The measurement is the evidence.
+   */
+  const COLUMNS_WITH_NO_READER = [
+    "interrupted_at",
+    "interrupted_by",
+    "interrupted_notified_at",
+    "nudge_claimed_at",
+    "nudge_fingerprint",
+    "nudge_repeats",
+  ];
+
   function listColumns(withDescription: boolean): string {
     const key = withDescription ? "full" : "lean";
     const hit = listColumnsCache.get(key);
@@ -1800,7 +1824,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     try {
       const cols = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>)
         .map((c) => c.name)
-        .filter((n) => n !== "checks_json" && (withDescription || n !== "description"));
+        .filter((n) => n !== "checks_json" && (withDescription || n !== "description"))
+        .filter((n) => !COLUMNS_WITH_NO_READER.includes(n));
       if (!cols.length) throw new Error("no columns");
       sql = `${cols.join(", ")}, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
     } catch {
