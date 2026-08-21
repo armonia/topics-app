@@ -141,6 +141,64 @@ export function readLastUrlEntry(topicId: string): { url: string; updatedAt: num
   }
 }
 
+/**
+ * Is this last-url worth keeping after a failed restore?
+ *
+ * A restore that fails is not by itself proof the url is dead: the machine can
+ * be offline, DNS can be down, a site can be having a bad minute. Forgetting on
+ * the first failure would throw away a good page for a transient reason.
+ *
+ * One case IS permanent, and it is the one that fills the log. A url on
+ * loopback or a private LAN address is a dev server or a task preview: when the
+ * process that served it ends, that port does not come back, and nothing else
+ * on the machine will ever answer for it. Measured on 2026-08-21 in
+ * `topics-server.log`: 5,665 `last-url restore failed`, 5,305 of them
+ * ERR_CONNECTION_REFUSED, with 1,380 attempts on a single dead preview port.
+ * Every context creation paid an 8s timeout for a page that was never coming
+ * back, and `entry.url` kept claiming the pane was on it.
+ *
+ * So the rule is narrow on purpose, and it needs BOTH halves: a private host
+ * AND an error that says nothing is listening. A public site that refuses a
+ * connection is still remembered.
+ */
+export function shouldForgetLastUrl(url: string, errorMessage: string): boolean {
+  if (!isPrivateHostUrl(url)) return false;
+  return /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_ADDRESS_UNREACHABLE|ERR_NAME_NOT_RESOLVED|ECONNREFUSED|EHOSTUNREACH|ENOTFOUND/i.test(
+    errorMessage,
+  );
+}
+
+/**
+ * A host only this machine (or this LAN) can answer for. Deliberately the same
+ * list the client already refuses to seed (`isSeedableUrl` in
+ * `RemoteBrowserPanel.tsx`): the two ends have to agree on what "not publicly
+ * reachable" means, or the server forgets a url the client puts straight back.
+ */
+function isPrivateHostUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  if (!host) return false;
+  const lower = host.toLowerCase();
+  if (lower === "localhost" || lower === "0.0.0.0" || lower === "::1") return true;
+  if (lower.endsWith(".local") || lower.endsWith(".localhost")) return true;
+  if (!host.includes(":") && !host.includes(".")) return true; // bare hostname
+  if (/^127\./.test(host)) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  return false;
+}
+
+/** Forget the persisted last URL for a context (no-op when there is none). */
+export function clearLastUrl(topicId: string): void {
+  try { unlinkSync(lastUrlFile(topicId)); } catch {}
+}
+
 export async function deleteStorageState(topicId: string): Promise<void> {
   // The last-url rides the same lifecycle as storage.json: an explicitly
   // deleted state must not resurrect the old page on a future same-id context.
