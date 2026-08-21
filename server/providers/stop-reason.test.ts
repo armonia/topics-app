@@ -169,7 +169,7 @@ describe("politica del dispatcher", () => {
 
 describe("describeTurnEnd — la riga che sostituisce «probabile timeout»", () => {
   it("dice la causa, non una supposizione", () => {
-    expect(describeTurnEnd(cancelled("wall-clock"))).toBe("Turno tagliato dal limite di tempo");
+    expect(describeTurnEnd(cancelled("wall-clock"))).toBe("Turno fermo: nessun segno di vita fino allo scadere");
     expect(describeTurnEnd(cancelled("user"))).toBe("Turno fermato a mano");
     expect(describeTurnEnd({ end: "max_tokens" })).toContain("Contesto pieno");
     expect(describeTurnEnd({ end: "refusal" })).toContain("rifiutato");

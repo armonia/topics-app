@@ -84,6 +84,7 @@ function input(over: Partial<DoctorInput> = {}): DoctorInput {
     costBaseline: {},
     probes: {},
     documentedParams: [],
+    claimedShaResolves: {},
     missingProtocolDocs: [],
     ...over,
   };
@@ -686,7 +687,14 @@ function everythingWrong(): DoctorInput {
         id: "h", status: "review", description: null, deliveryBranch: "topics/h",
         lastAgentComment: { at: ago(H), content: "Consegna senza riassunto: il turno e' finito prima." },
       }),
+      // the card CLAIMING A COMMIT THAT IS NOT THERE: the shape five deliveries
+      // closed in on 2026-08-21, three of them with a verification stamp.
+      task({
+        id: "i", status: "review",
+        lastAgentComment: { at: ago(H), content: "Fatto (commit eac6a699). Verificato da triage, worktree pulito." },
+      }),
     ],
+    claimedShaResolves: { eac6a699: false },
     branches: [
       { taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, foreignHead: "f00d", ownShas: ["own1"], deliveryInHistory: null, otherBranches: ["topics/y"] },
       { taskId: "g", branch: "topics/g", defaultBranch: "main", headSha: "ggg", aheadTotal: 3, ownCount: 0, foreignHead: "alt1", ownShas: [], deliveryInHistory: false, otherBranches: ["topics/y"] },
@@ -698,6 +706,61 @@ function everythingWrong(): DoctorInput {
     probes: { d: deadProbes() },
   });
 }
+
+describe("claimed-commit-missing — la consegna cita un commit che non esiste", () => {
+  const check = CHECKS.find((c) => c.id === "claimed-commit-missing")!;
+
+  it("parla quando il repo dice `missing`", () => {
+    const f = check.run(input({
+      tasks: [task({ id: "t1", lastAgentComment: { at: ago(H), content: "Fatto (commit eac6a699). Verificato." } })],
+      claimedShaResolves: { eac6a699: false },
+    }));
+    expect(f).toHaveLength(1);
+    expect(f[0]!.what).toContain("eac6a699");
+    expect(f[0]!.proof).toContain("cat-file -t eac6a699");
+  });
+
+  it("TACE su un commit che esiste: e' il caso normale", () => {
+    const f = check.run(input({
+      tasks: [task({ id: "t1", lastAgentComment: { at: ago(H), content: "Fatto (commit 8b97e432)." } })],
+      claimedShaResolves: { "8b97e432": true },
+    }));
+    expect(f).toEqual([]);
+  });
+
+  it("TACE su uno sha che non abbiamo interrogato: silenzio per ignoranza, non accusa", () => {
+    const f = check.run(input({
+      tasks: [task({ id: "t1", lastAgentComment: { at: ago(H), content: "Fatto (commit deadbee)." } })],
+      claimedShaResolves: {},
+    }));
+    expect(f).toEqual([]);
+  });
+
+  it("non scambia per sha un id di task o una parola qualunque", () => {
+    // `SHA_IN_TESTO` wants boundaries and git's own lengths: a 19-hex token is
+    // not a shape git ever prints, so it is not a claim.
+    const f = check.run(input({
+      tasks: [task({ id: "t1", lastAgentComment: { at: ago(H), content: "vedi task b673a253-1ca8-42ee e il file deadbeefcafe0123456.txt" } })],
+      claimedShaResolves: { b673a253: false, deadbeefcafe0123456: false },
+    }));
+    // `b673a253` followed by `-` IS a boundary, so it is picked up, and that is
+    // correct: it is exactly how a commit gets cited. The long token inside a
+    // filename is not.
+    expect(f.flatMap((x) => x.what.match(/deadbeef/g) ?? [])).toEqual([]);
+  });
+
+  it("elenca tutti i commit mancanti di una stessa consegna, una volta sola", () => {
+    const f = check.run(input({
+      tasks: [task({ id: "t1", lastAgentComment: { at: ago(H), content: "commit 60a4f445 + cffc7a13, e ancora 60a4f445" } })],
+      claimedShaResolves: { "60a4f445": false, cffc7a13: false },
+    }));
+    expect(f).toHaveLength(1);
+    expect(f[0]!.what).toContain("60a4f445");
+    expect(f[0]!.what).toContain("cffc7a13");
+    // Once in the SENTENCE: the proof repeats the command per sha, as it should.
+    expect(f[0]!.what.match(/60a4f445/g)).toHaveLength(1);
+  });
+});
 
 describe("disciplina", () => {
   it("una board sana produce SILENZIO, non un rapporto di controlli passati", () => {

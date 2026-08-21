@@ -33,7 +33,7 @@
  * sul provider vero in `native/abort-cause.test.ts`.
  */
 import { test, expect, describe } from "bun:test";
-import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione } from "./cancelled-notice";
+import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione, CAUSE_NOSTRE } from "./cancelled-notice";
 import type { TurnEndInfo } from "../providers/stop-reason";
 
 describe("cancelledNotice — chi merita una spiegazione in chat", () => {
@@ -62,14 +62,33 @@ describe("cancelledNotice — chi merita una spiegazione in chat", () => {
     expect(cancelledNotice({ end: "cancelled", cause: "user" })).toBeNull();
   });
 
-  test("watchdog e limite di tempo: due cartelli, due ragioni diverse", () => {
+  test("watchdog e tetto di inattivita': due cartelli, due ragioni diverse", () => {
+    // This asserts the CONTRACT, not the sentence: two distinct causes must
+    // produce two distinct, non-empty notices. This used to be
+    // `toContain("limite di tempo")`, and that line blocked a legitimate fix on
+    // 2026-08-21 (the cap had stopped counting time, so the sentence had become
+    // false). A test that pins wording turns every honest rewrite into a red.
     const wd = cancelledNotice({ end: "cancelled", cause: "watchdog" });
     const wc = cancelledNotice({ end: "cancelled", cause: "wall-clock" });
-    expect(wd).not.toBeNull();
-    expect(wc).not.toBeNull();
+    for (const c of [wd, wc]) {
+      expect(c).not.toBeNull();
+      expect((c ?? "").length).toBeGreaterThan(20);
+    }
     expect(wd).not.toBe(wc);
-    expect(wd).toContain("segni di vita");
-    expect(wc).toContain("limite di tempo");
+  });
+
+  test("ogni cartello che scriviamo OGGI e' riconosciuto: la lista non resta indietro", () => {
+    // The list of recognised openings is explicit, because rows already in the
+    // database carry OLDER wordings and a derived list would stop matching them.
+    // THIS is what keeps it honest: reword a notice without adding the entry and
+    // this goes red, instead of turns silently never restarting.
+    for (const cause of CAUSE_NOSTRE) {
+      const testo = cancelledNotice({ end: "cancelled", cause });
+      expect(testo).not.toBeNull();
+      expect(eCartelloDiInterruzione(testo)).toBe(true);
+    }
+    // And a cause that is NOT ours stays out: you do not guess who cancelled.
+    expect(eCartelloDiInterruzione("⚠️ Turno annullato.")).toBe(false);
   });
 
   /**

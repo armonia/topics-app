@@ -288,7 +288,12 @@ export function describeTurnEnd(info: TurnEndInfo): string {
       switch (info.cause) {
         case "user": return "Turno fermato a mano";
         case "watchdog": return "Turno fermato dal watchdog (nessun segno di vita dallo stream)";
-        case "wall-clock": return "Turno tagliato dal limite di tempo";
+        // No longer "it took too long": since 2026-08-21 the cap counts
+        // SILENCE (see server/lib/turn-deadline.ts). The id stays `wall-clock`
+        // because that value is already written across thousands of history rows
+        // and recognised by `ripresa-automatica`; it was the SENTENCE that had
+        // become false, and the sentence is what a person reads.
+        case "wall-clock": return "Turno fermo: nessun segno di vita fino allo scadere";
         case "server-shutdown": return "Il server si è riavviato mentre il turno era in corso";
         case "session-reset": return "Sessione persa e riavviata: stesso turno, processo nuovo";
         case "turn-in-flight": return "La sessione stava già rispondendo: turno non avviato";

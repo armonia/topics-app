@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.162 — 2026-08-21
+
+### Sotto il cofano
+- Tredici any spariti restano spariti: il tetto scende da 360 a 347
+
 ## 2.2.161 — 2026-08-21
 
 ### Sotto il cofano
