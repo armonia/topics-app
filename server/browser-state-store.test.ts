@@ -8,16 +8,22 @@ import {
   debouncedSaver,
   saveLastUrl,
   loadLastUrl,
+  browserStateBaseDir,
   type BrowserStorageState,
 } from "./browser-state-store";
 
 const TEST_TOPIC = "test-topic-30-01";
-// Resolve BASE_DIR the same way browser-state-store does — honors DATA_DIR
-// env var so unit tests pass whether or not DATA_DIR is set by the harness.
-const BASE_DIR = process.env.DATA_DIR
-  ? join(process.env.DATA_DIR, "browser-state")
-  : join(process.cwd(), "data", "browser-state");
-const TEST_DIR = join(BASE_DIR, TEST_TOPIC);
+/* ASK THE MODULE where it writes; do not recompute it here.
+ *
+ * This used to be a second copy of the store's own ternary, and the two copies
+ * drifted in the only way that matters: they were evaluated at different
+ * moments, against a `DATA_DIR` that another test file had changed in between.
+ * The store then wrote to one directory while this file cleaned and inspected
+ * another, so `saveStorageState` "did not write" and `loadStorageState`
+ * returned a fixture from a previous run. Six cases red in CI on 2026-08-21,
+ * all of them green here, because the divergence needs the full suite to show
+ * up. One source of truth cannot drift. */
+const TEST_DIR = () => join(browserStateBaseDir(), TEST_TOPIC);
 
 const FIXTURE_STATE: BrowserStorageState = {
   cookies: [
@@ -31,16 +37,16 @@ const FIXTURE_STATE: BrowserStorageState = {
 
 beforeEach(() => {
   // Clean any leftover test data.
-  if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true, force: true });
+  if (existsSync(TEST_DIR())) rmSync(TEST_DIR(), { recursive: true, force: true });
 });
 
 afterEach(() => {
-  if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true, force: true });
+  if (existsSync(TEST_DIR())) rmSync(TEST_DIR(), { recursive: true, force: true });
 });
 
 test("saveStorageState writes JSON atomically", async () => {
   await saveStorageState(TEST_TOPIC, FIXTURE_STATE);
-  const file = join(TEST_DIR, "storage.json");
+  const file = join(TEST_DIR(), "storage.json");
   expect(existsSync(file)).toBe(true);
   const parsed = JSON.parse(readFileSync(file, "utf-8"));
   expect(parsed.cookies[0].name).toBe("session");
@@ -79,22 +85,22 @@ test("round-trips session cookie with expires=-1", async () => {
 
 test("deleteStorageState removes file and empty parent dir", async () => {
   await saveStorageState(TEST_TOPIC, FIXTURE_STATE);
-  expect(existsSync(TEST_DIR)).toBe(true);
+  expect(existsSync(TEST_DIR())).toBe(true);
   await deleteStorageState(TEST_TOPIC);
-  expect(existsSync(TEST_DIR)).toBe(false);
+  expect(existsSync(TEST_DIR())).toBe(false);
 });
 
 test("deleteStorageState is idempotent on missing topic", async () => {
   await deleteStorageState(TEST_TOPIC);
   await deleteStorageState(TEST_TOPIC);  // second call must not throw
-  expect(existsSync(TEST_DIR)).toBe(false);
+  expect(existsSync(TEST_DIR())).toBe(false);
 });
 
 test("topicId with unsafe chars is sanitized", async () => {
   const unsafe = "../../etc/passwd";
   await saveStorageState(unsafe, FIXTURE_STATE);
-  // Sanitized to "______etc_passwd" — file lands inside <BASE_DIR>/, NOT /etc/.
-  const sanitizedDir = join(BASE_DIR, "______etc_passwd");
+  // Sanitized to "______etc_passwd": the file lands inside the base dir, NOT /etc/.
+  const sanitizedDir = join(browserStateBaseDir(), "______etc_passwd");
   expect(existsSync(join(sanitizedDir, "storage.json"))).toBe(true);
   if (existsSync(sanitizedDir)) rmSync(sanitizedDir, { recursive: true, force: true });
 });
@@ -156,7 +162,7 @@ test("loadLastUrl returns null when nothing persisted or file corrupt", () => {
   expect(loadLastUrl(TEST_TOPIC)).toBeNull();
   saveLastUrl(TEST_TOPIC, "https://example.com");
   const { writeFileSync } = require("fs");
-  writeFileSync(join(TEST_DIR, "last-url.json"), "not-json");
+  writeFileSync(join(TEST_DIR(), "last-url.json"), "not-json");
   expect(loadLastUrl(TEST_TOPIC)).toBeNull();
 });
 
@@ -175,6 +181,6 @@ test("storage.json non è leggibile dagli altri account della macchina", async (
   // umask, cioè leggibile da chiunque abbia un account su questa macchina.
   const { statSync } = await import("fs");
   await saveStorageState(TEST_TOPIC, FIXTURE_STATE);
-  const mode = statSync(join(TEST_DIR, "storage.json")).mode & 0o777;
+  const mode = statSync(join(TEST_DIR(), "storage.json")).mode & 0o777;
   expect(mode).toBe(0o600);
 });
