@@ -156,7 +156,8 @@
     "relay/src/ponte.ts": 821,
     "tests/e2e/global-setup.ts": 814,
     "scripts/check-route-latency.ts": 806,
-    "server/providers/acp.ts": 803
+    "server/providers/acp.ts": 803,
+    "relay/ponte.test.ts": 801
   },
   "duplicated_lines": 413,
   "clone_groups": 16
