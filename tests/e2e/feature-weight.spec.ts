@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { tooltipText } from './helpers/tooltip';
 import { hermetic } from './fixtures/hermetic';
 import { createTopic } from './helpers/api-fixtures';
 
@@ -203,10 +204,10 @@ test.describe('inventario del peso per funzionalita', () => {
     // campione con la flotta e' arrivato. Si aspetta quella, non «un
     // inventario qualsiasi»: senza, il test leggerebbe le sole voci trattenute
     // e sarebbe rosso per una corsa invece che per un difetto.
-    await expect.poll(async () => (await totale.getAttribute('title')) ?? '', { timeout: 15_000 })
+    await expect.poll(() => tooltipText(totale), { timeout: 15_000 })
       .toContain('Terminali e sessioni');
 
-    const titolo = (await totale.getAttribute('title'))!;
+    const titolo = await tooltipText(totale);
     expect(titolo).toContain('Cosa tiene questo numero');
     // Il numero del totale resta PRIMA dell'inventario: chi passa il mouse
     // cerca quello, e il dettaglio e' la domanda dopo.
@@ -292,9 +293,9 @@ test.describe('il consumo sulla TAB', () => {
     await tab.click(); // aprirla e' cio' che ne carica la cronologia
     await tab.hover();
 
-    await expect.poll(async () => (await tab.getAttribute('title')) ?? '', { timeout: 20_000 })
+    await expect.poll(() => tooltipText(tab), { timeout: 20_000 })
       .toContain('In memoria');
-    const titolo = (await tab.getAttribute('title'))!;
+    const titolo = await tooltipText(tab);
     expect(titolo).toContain('7 messaggi');
     // E NON MISURA in MB: quelli non si attribuiscono a un componente dentro
     // un renderer condiviso. La frase che lo SPIEGA contiene «MB» di proposito.
