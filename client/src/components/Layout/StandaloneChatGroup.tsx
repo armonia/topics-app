@@ -49,7 +49,14 @@ const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').the
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
-const ProfilePane = lazy(() => import('../Profile/ProfilePane').then(m => ({ default: m.ProfilePane })));
+// The destructured `await` form, and not `import().then(m => ...)`: with the
+// `.then` shape knip cannot see through the module, every export inside it
+// counts as used, and a dead export in there stops being reported. Same lazy
+// chunk, same behaviour, one less blind spot (`check:deadcode-blindspots`).
+const ProfilePane = lazy(async () => {
+  const { ProfilePane } = await import('../Profile/ProfilePane');
+  return { default: ProfilePane };
+});
 
 
 interface StandaloneChatGroupProps {
