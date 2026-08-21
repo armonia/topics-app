@@ -40,3 +40,36 @@ export function clearPartialForReattach(messages: ChatMessage[]): ChatMessage[] 
   delete cleared.blocks;
   return [...messages.slice(0, -1), cleared];
 }
+
+/**
+ * THE BUBBLE THAT WAS ALREADY CLOSED AND IS ALIVE AGAIN.
+ *
+ * The server can hand a NEW turn the id of a row that already exists and is
+ * finished: it happens when a spontaneous turn picks up the «no answer»
+ * headstone the CLI's own task-notification turn left behind (see
+ * `server/lib/empty-turn-headstone.ts`). On the wire that is a `stream:start`
+ * whose `messageId` names a bubble this window already has, and finished.
+ *
+ * Without this the fallback below would append a SECOND bubble with the very
+ * same id: two React children on one key, the false notice still on screen,
+ * and the answer written underneath it — that is, the bug the reuse existed to
+ * remove, moved one floor up.
+ *
+ * The bubble is emptied and reopened WHERE IT IS, keeping its position in the
+ * thread: it is the same turn answering the same message.
+ *
+ * Returns the IDENTICAL array when there is nothing to revive, so a caller
+ * passing it to `setState` does not repaint half a chat for nothing.
+ */
+export function reviveClosedBubble(messages: ChatMessage[], id: string): ChatMessage[] {
+  if (!id) return messages;
+  const i = messages.findIndex((m) => m.id === id);
+  if (i < 0) return messages;
+  const found = messages[i];
+  if (found.role !== 'assistant' || found.partial) return messages;
+  const revived: ChatMessage = { ...found, content: '', partial: true };
+  delete revived.thinking;
+  delete revived.toolCalls;
+  delete revived.blocks;
+  return [...messages.slice(0, i), revived, ...messages.slice(i + 1)];
+}

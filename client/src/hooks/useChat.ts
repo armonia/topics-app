@@ -7,7 +7,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 // vorrebbero dire bolla via da una parte e ancora lì dall'altra.
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
-import { clearPartialForReattach } from './streamReattachReset';
+import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
 import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
@@ -1241,6 +1241,15 @@ export function useChat() {
             }
             // Already have a partial assistant message — skip duplicate
             return prev;
+          }
+          // The server can hand this turn the id of a bubble we ALREADY have,
+          // finished: a spontaneous turn picking up the «no answer» headstone
+          // left by a task-notification turn. Reopen that bubble where it is,
+          // or the fallback below would append a twin with the same id — the
+          // false notice still on screen with the answer under it.
+          if (event.messageId) {
+            const revived = reviveClosedBubble(sessionMessages, event.messageId);
+            if (revived !== sessionMessages) return { ...prev, [sessionKey]: revived };
           }
           // No partial assistant msg — this is from another window, create placeholder
           //
