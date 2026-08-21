@@ -1,17 +1,16 @@
 /**
- * L'INVENTARIO PRONTO DA MOSTRARE, unito dalle due sorgenti.
+ * THE INVENTORY READY TO BE SHOWN, joined from the two sources.
  *
- * ON DEMAND, MAI A INTERVALLI. `attivo` e' true solo quando qualcuno sta
- * guardando: il mouse sul totale, o il dropdown aperto. Un inventario che si
- * ricalcolasse ogni cinque secondi con la finestra ferma pagherebbe una
- * serializzazione di tutto lo stato per un numero che nessuno legge — ed e'
- * esattamente il tipo di lavoro a riposo che questa app ha appena finito di
- * togliersi di dosso (le 27 scritture ogni 30 secondi, chiuse il 2026-08-20).
+ * ON DEMAND, NEVER ON A TIMER. `attivo` is true only while somebody is
+ * actually looking: the mouse over the total, or the dropdown open. An
+ * inventory recomputing every five seconds with the window sitting still would
+ * pay for a serialisation of the whole state to produce a number nobody reads,
+ * and that is exactly the kind of work at rest this app has just finished
+ * shedding (the 27 writes every 30 seconds, closed on 2026-08-20).
  *
- * Il ricalcolo e' legato a `sampleKey`: due superfici aperte insieme sullo
- * stesso campione mostrano lo stesso inventario, invece di due fotografie prese
- * a un secondo di distanza che si contraddicono per un messaggio arrivato in
- * mezzo.
+ * The recompute is tied to `sampleKey`: two surfaces open at once on the same
+ * sample show the same inventory, instead of two photographs taken a second
+ * apart that contradict each other over a message that landed in between.
  */
 
 import { useMemo } from 'react';
@@ -19,35 +18,35 @@ import { collectFeatureWeights, ordinaVoci, voceVuota, type VocePeso } from '@/l
 import { vociMisurate, type IngressiMisurati } from '@/lib/featureUsage';
 
 export function useFeatureWeights(attivo: boolean, misurati: IngressiMisurati, sampleKey?: string): VocePeso[] {
-  /* GLI INGRESSI FUORI DALLE DIPENDENZE, e non dentro un ref.
+  /* THE INPUTS STAY OUT OF THE DEPENDENCIES, and not inside a ref either.
    *
-   * `misurati` e' un oggetto letterale ricostruito a ogni render dal
-   * chiamante: metterlo nelle dipendenze rifarebbe il conto a ogni render del
-   * padre, cioe' molte volte al secondo mentre una chat streamma. Ed e'
-   * esattamente cio' che questo hook esiste per evitare.
+   * `misurati` is an object literal the caller rebuilds on every render:
+   * putting it in the dependency list would redo the count on every render of
+   * the parent, which means many times a second while a chat is streaming. And
+   * that is precisely what this hook exists to avoid.
    *
-   * Prima il valore passava da un ref scritto durante il render: la stessa
-   * cosa, ma per una via che React considera scorretta (un ref letto mentre
-   * si disegna non fa aggiornare chi lo legge). Il memo legge ora `misurati`
-   * direttamente: quando si ricalcola ha comunque l'ULTIMO valore, perche' il
-   * ricalcolo avviene durante un render e quel render porta l'ingresso fresco. */
+   * The value used to travel through a ref written during render: the same
+   * thing, but by a route React considers incorrect (a ref read while drawing
+   * does not make its reader update). The memo now reads `misurati` directly:
+   * when it does recompute it still holds the LATEST value, because the
+   * recompute happens during a render and that render carries the fresh input. */
   return useMemo(() => {
     if (!attivo) return [];
-    // Le due nature entrano nello stesso elenco e vengono ordinate una volta
-    // sola: `ordinaVoci` tiene il misurato davanti e non mescola mai i criteri
-    // di peso fra nature diverse.
+    // The two kinds go into the same list and get sorted once: `ordinaVoci`
+    // keeps the measured ones in front and never mixes the weighting criteria
+    // of one kind with those of another.
     return ordinaVoci([...vociMisurate(misurati), ...collectFeatureWeights()])
       .filter(v => !voceVuota(v));
-    /* LE DUE DIPENDENZE, e perche' servono ENTRAMBE.
+    /* THE TWO DEPENDENCIES, and why BOTH are needed.
      *
-     * `sampleKey` identifica il campione: due superfici aperte insieme sullo
-     * stesso campione mostrano lo stesso inventario, invece di due fotografie
-     * prese a un secondo di distanza che si contraddicono.
+     * `sampleKey` identifies the sample: two surfaces open at once on the same
+     * sample show the same inventory, instead of two photographs taken a second
+     * apart that contradict each other.
      *
-     * `attivo` fa da innesco all'ACCENSIONE, e non e' ridondante: la barra
-     * ricampiona ogni 60 secondi, quindi con il solo `sampleKey` chi passa il
-     * mouse subito dopo un campione leggerebbe un tooltip vuoto fino al giro
-     * dopo — un minuto di attesa per una riga di testo. */
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- il campione, non l'oggetto ricostruito a ogni render
+     * `attivo` is the trigger for the SWITCH-ON, and it is not redundant: the
+     * bar resamples every 60 seconds, so with `sampleKey` alone anybody moving
+     * the mouse over it just after a sample would read an empty tooltip until
+     * the next round: a minute of waiting for one line of text. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the sample, not the object rebuilt on every render
   }, [attivo, sampleKey]);
 }

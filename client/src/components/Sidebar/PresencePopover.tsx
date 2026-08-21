@@ -1,21 +1,21 @@
 /**
- * IL PANNELLO DEI CHIP DELL'IDENTITA' — un guscio solo per i tre dropdown.
+ * THE IDENTITY CHIP PANEL: one single shell for the three dropdowns.
  *
- * I chip in fondo alla colonna (io, ogni organizzazione, gli amici) aprono la
- * STESSA superficie: intestazione, elenco di persone, azioni in fondo. Scriverla
- * tre volte avrebbe voluto dire tre larghezze, tre modi di chiudersi e tre
- * risposte diverse alla domanda «cosa succede quando l'elenco e' lungo» —  che
- * e' esattamente come nascono i menu che sembrano di app diverse.
+ * The chips at the bottom of the column (me, each organisation, friends) all
+ * open the SAME surface: a heading, a list of people, actions at the bottom.
+ * Writing it three times would have meant three widths, three ways of closing
+ * and three different answers to "what happens when the list gets long", which
+ * is exactly how menus that look like they come from different apps are born.
  *
- * SI APRE VERSO L'ALTO, ma non perche' lo decide questo file: `computeMenuPosition`
- * prova sotto e ribalta sopra quando sotto non ci sta. Questi chip stanno
- * appoggiati al bordo inferiore della finestra, quindi il ribaltamento e' la
- * regola e non l'eccezione; se un giorno il blocco si spostasse in cima, il
- * pannello scenderebbe da solo senza toccare niente qui.
+ * IT OPENS UPWARDS, but not because this file decides so: `computeMenuPosition`
+ * tries below first and flips above when there is no room below. These chips
+ * sit against the bottom edge of the window, so flipping is the rule and not
+ * the exception; if one day the block moved to the top, the panel would drop
+ * downwards on its own without a single change here.
  *
- * LA CHIUSURA NON E' SCRITTA QUI. `useDismissable` porta il click fuori, Escape,
- * il ritorno del fuoco al chip e la regola «uno alla volta», che e' quella che
- * impedisce di ritrovarsi il pannello di due organizzazioni aperti insieme.
+ * CLOSING IS NOT WRITTEN HERE. `useDismissable` brings the outside click, the
+ * Escape key, focus returning to the chip, and the "one at a time" rule, which
+ * is the one that stops two organisation panels from being open together.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -23,9 +23,9 @@ import { useDismissable } from '@/hooks/useDismissable';
 import { computeMenuPosition } from '@/lib/popoverPosition';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 
-/** La larghezza del pannello. Uguale per i tre, e piu' larga della colonna:
- *  l'elenco delle persone porta nomi interi, che nella sidebar sarebbero
- *  troncati — un pannello che tronca come la riga che lo apre non serve. */
+/** The width of the panel. The same for all three, and wider than the column:
+ *  the list of people carries whole names, which the sidebar would truncate.
+ *  A panel that truncates exactly like the row that opened it is no help. */
 const LARGHEZZA = 244;
 
 export function PresencePopover({
@@ -37,7 +37,7 @@ export function PresencePopover({
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
-  /** L'intestazione: di chi o di cosa parla questo pannello. */
+  /** The heading: who or what this panel is talking about. */
   titolo: React.ReactNode;
   children: React.ReactNode;
   testId?: string;
@@ -46,15 +46,15 @@ export function PresencePopover({
   const ancora = useRef<HTMLElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
-  // L'ancora e' un elemento grezzo: si rispecchia in un ref (in un effetto, non
-  // in render) perche' `useDismissable` conta come «dentro» solo dei ref, ed e'
-  // anche il bersaglio a cui torna il fuoco alla chiusura.
+  // The anchor arrives as a raw element: it is mirrored into a ref (inside an
+  // effect, not during render) because `useDismissable` only counts refs as
+  // "inside", and that ref is also where focus goes back on close.
   useEffect(() => { ancora.current = anchorEl; }, [anchorEl]);
 
   useDismissable({ open: anchorEl !== null, onClose, refs: [ancora, pannello] });
 
-  // Misurare PRIMA del paint: con `useEffect` il pannello si vedrebbe per un
-  // frame in alto a sinistra e poi saltare al suo posto.
+  // Measure BEFORE the paint: with `useEffect` the panel would show up in the
+  // top left corner for one frame and then jump into place.
   useLayoutEffect(() => {
     if (!anchorEl || !pannello.current) return;
     const a = anchorEl.getBoundingClientRect();
@@ -79,8 +79,8 @@ export function PresencePopover({
         zIndex: Z_POPOVER,
         top: pos?.top ?? 0,
         left: pos?.left ?? 0,
-        // Finche' non e' misurato resta invisibile invece di lampeggiare
-        // nell'angolo: un frame nel posto sbagliato si vede, e si ricorda.
+        // Until it has been measured it stays invisible rather than blinking
+        // in the corner: one frame in the wrong place is seen, and remembered.
         visibility: pos ? 'visible' : 'hidden',
       }}
     >

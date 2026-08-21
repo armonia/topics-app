@@ -395,8 +395,8 @@ const IT: Dict = {
   'tab.menu.pin': 'Fissa',
   'tab.menu.unpin': 'Rimuovi dai Fissati',
   'board.task.movedToReviewBySystem': 'Portato in review dal sistema.',
-  // La sonda sull'output_url ha detto «morto»: il link non si apre da solo e la
-  // riga rossa dice perche', col nome dell'indirizzo dentro.
+  // The probe on output_url said "dead": the link does not open on its own and
+  // the red row says why, with the name of the address inside it.
   'board.task.previewUnreachable': 'Anteprima non raggiungibile.',
   'board.task.previewUnreachableDetail': "Il server su {url} non risponde: il link non viene aperto automaticamente. Se il server di sviluppo e' spento, usa lo screenshot come evidenza.",
   // ── SCHEDA contro SESSIONE. Sono due superfici diverse e da qui in poi si
@@ -605,11 +605,11 @@ const IT: Dict = {
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
-  // La coda del turno, vista dove succede: le bolle «da inviare» nel trascritto
-  // (`components/Chat/QueuedTurns`). Una volta era disegnata anche da un badge
-  // sopra il composer, con queste stesse parole: due copie della stessa coda a
-  // due centimetri l'una dall'altra. È rimasta quella nel posto in cui il
-  // messaggio finirà quando partirà, e con lei tutte le azioni.
+  // The turn queue, seen where it happens: the "to send" bubbles in the
+  // transcript (`components/Chat/QueuedTurns`). It used to be drawn by a badge
+  // above the composer as well, with these very words: two copies of the same
+  // queue two centimetres apart. The one that stayed is the one sitting where
+  // the message will end up once it leaves, and every action went with it.
   'chat.queue.waiting': 'da inviare',
   'chat.queue.waitingTitle': 'Non è ancora partito. Parte quando il turno finisce.',
   'chat.queue.sendNow': 'Invia subito',
@@ -752,11 +752,11 @@ const IT: Dict = {
   'settings.page.organization.blurb': 'Il gruppo con cui condividi: nome, persone, ruoli e i progetti che gli appartengono.',
   'settings.page.friends.title': 'Amici',
   'settings.page.friends.blurb': 'Le facce e i numeri di chi lavora con te: profilo GitHub, prompt scritti, token consumati.',
-  // ── I PROGETTI DELL'ORGANIZZAZIONE (Impostazioni › Organizzazione). Erano
-  //    scritti a mano dentro il componente, quindi un utente in inglese leggeva
-  //    italiano e nessun traduttore poteva vederli. Le sei descrizioni sono
-  //    chiavi anche loro: sono la riga che spiega a cosa serve uno spazio, cioe'
-  //    l'unica cosa che si legge davvero di una proposta.
+  // -- THE ORGANISATION'S PROJECTS (Settings > Organisation). They were written
+  //    by hand inside the component, so an English speaking user read Italian
+  //    and no translator could ever see them. The six descriptions are keys too:
+  //    they are the line that explains what a space is for, which is the only
+  //    part of a suggestion anybody actually reads.
   'settings.org.projects.title': "Progetti dell'organizzazione",
   'settings.org.projects.empty': 'Nessun progetto ancora associato.',
   'settings.org.projects.suggestedTitle': 'Spazi consigliati per Armonia',
@@ -1109,8 +1109,8 @@ const IT: Dict = {
   'project.sidebar.processesFailed.one': '1 processo uscito con errore',
   'project.sidebar.processesFailed.many': '{n} processi usciti con errore',
   'processes.openFailedLog': 'Apri il log di questa uscita fallita',
-  // La spia dell'attesa: un agente ha chiesto di essere svegliato alla fine di
-  // questo processo, e finche' aspetta la riga lo dice.
+  // The waiting light: an agent asked to be woken when this process ends, and
+  // for as long as it waits the row says so.
   'processes.awaited.one': 'Un agente sta aspettando la fine di questo processo',
   'processes.awaited.many': '{n} agenti stanno aspettando la fine di questo processo',
   'processes.awaited.chip': 'atteso',
@@ -1526,9 +1526,9 @@ const IT: Dict = {
   'perf.q2': 'Quanto costa',
   'perf.fpsAvg': 'media {n}',
   'perf.procCount': '{n} processi',
-  // L'inventario del peso per funzionalita'. «Trattenuto» e non «in memoria»:
-  // quei numeri sono CONTEGGI, non megabyte, e la sezione esiste proprio per
-  // dire che non si sommano a quelli sopra.
+  // The weight inventory broken down by feature. "Held" and not "in memory":
+  // those numbers are COUNTS, not megabytes, and the section exists precisely
+  // to say that they do not add up with the ones above.
   'perf.inventory.heldHeading': 'Trattenuto (conteggi, non MB)',
   'perf.inventory.unmeasured': 'non misurato',
   // La percentuale in anteprima: e' il TOTALE (app + agenti e servizi), sulla
@@ -1572,8 +1572,9 @@ const IT: Dict = {
   'perf.topCpuScope': 'sistema · per core',
   'perf.verdict.noAccel': 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.',
   'perf.verdict.compressed': '{gb} GB compressi o in swap. Chiudi qualche pannello browser.',
-  // Non e' un allarme: e' il contrario. Dice che il numero grande esagera —
-  // il grosso e' gia' tornato al sistema, e la RAM davvero occupata e' quella.
+  // This is not an alarm, it is the opposite. It says the big number is
+  // overstating things: most of it has already gone back to the system, and the
+  // RAM genuinely occupied is the smaller figure.
   'perf.verdict.mostlySwapped': 'Il {pct}% e\' gia\' compresso o in swap: in RAM adesso {mb} MB.',
   'perf.verdict.loaded': 'Processo Topics sotto carico',
   // ── Scheda vuota del browser (NewTabPage).
@@ -1582,10 +1583,10 @@ const IT: Dict = {
   'browser.newTab.topSites': 'I tuoi siti',
   'browser.newTab.empty': 'I siti che apri più spesso compaiono qui.',
   'browser.newTab.forget': 'Togli {host} dai tuoi siti',
-  // ── Barra di sviluppo della pane browser: zoom, dispositivo e la tendina
-  //    della console. Le etichette dei chip per livello stanno in
-  //    `Browser/consoleLogModel.ts` insieme alla regola che filtrano, e restano
-  //    li'.
+  // -- Development bar of the browser pane: zoom, device and the console
+  //    dropdown. The per level chip labels live in
+  //    `Browser/consoleLogModel.ts` next to the rule they filter by, and that
+  //    is where they stay.
   'browser.dev.zoomOut': 'Riduci zoom',
   'browser.dev.zoomReset': 'Reimposta zoom (100%)',
   'browser.dev.zoomIn': 'Aumenta zoom',
@@ -1634,10 +1635,10 @@ const IT: Dict = {
   //    tiene il valore IT alla lettera: `turn-awaiting-input.spec.ts` ancora
   //    «in attesa di una tua risposta» nel `title`.
   'statusBar.perfTitle': 'Performance e stato sistema · apri per FPS live',
-  // Il numero in barra e' il footprint (colonna «Memoria» di Monitoraggio
-  // Attivita'): include cio' che il sistema ha gia' compresso o mandato in
-  // swap. Questa riga dice quanto ne e' occupato DAVVERO, sul numero che si
-  // legge per primo invece che due clic piu' in la'.
+  // The number in the bar is the footprint (the "Memory" column of Activity
+  // Monitor): it includes whatever the system has already compressed or pushed
+  // into swap. This row says how much of it is REALLY taken, right on the
+  // number people read first instead of two clicks further along.
   'statusBar.residenteInline': 'di cui in RAM adesso: {mb} MB (il resto e\' gia\' compresso o in swap)',
   'statusBar.agents.heading': 'Agenti Claude Code',
   'statusBar.agents.working': '· {n} al lavoro',
@@ -1657,16 +1658,17 @@ const IT: Dict = {
   'statusBar.restartApp': "Riavvia l'app",
   'statusBar.updateAvailable': 'Aggiornamento disponibile',
   'statusBar.reload': 'Ricarica',
-  // LE TRE RIGHE DELL'IDENTITA' in fondo alla colonna: io, le organizzazioni,
-  // gli amici. Ogni riga mostra un dato E porta alla pagina che lo governa,
-  // quindi ogni riga ha due testi: cosa dice, e dove porta il clic.
+  // THE THREE IDENTITY ROWS at the bottom of the column: me, the
+  // organisations, the friends. Every row shows a fact AND leads to the page
+  // that governs it, so every row carries two texts: what it says, and where
+  // the click takes you.
   'statusBar.me.openProfile': 'Apri il tuo profilo',
   'statusBar.orgs.presence': '{n} di {tot} online adesso',
   'statusBar.friends.online': '{n} online adesso',
   'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
-  // I PANNELLI che i tre chip aprono. Il chip dice la risposta corta, il
-  // pannello la mostra per esteso e porta le azioni: sono gli unici testi che
-  // possono permettersi una frase intera, perche' li' lo spazio c'e'.
+  // THE PANELS the three chips open. The chip gives the short answer, the
+  // panel shows it in full and carries the actions: these are the only texts
+  // that can afford a whole sentence, because in there the space exists.
   'statusBar.me.panel': 'Il tuo profilo',
   'statusBar.me.machine': 'Da questo dispositivo',
   'statusBar.me.devicesRow': 'Dispositivi autorizzati',
@@ -1679,8 +1681,8 @@ const IT: Dict = {
   'statusBar.friends.noneHint': 'Le persone delle tue organizzazioni compaiono qui.',
   'statusBar.friends.manage': 'Gestisci gli amici',
   'statusBar.friends.count': '{n} di {tot} online',
-  // Il gruppo degli assenti nell'elenco aperto: non e' un errore che ci siano,
-  // e' il motivo per cui l'elenco si apre.
+  // The group of absent people in the open list: their being there is not a
+  // mistake, it is the reason the list gets opened at all.
   'statusBar.presence.offlineGroup': 'Non online',
   // ── Popover della versione e aggiornamenti.
   // «Quanto tempo fa» accanto alla data: una data assoluta dice QUANDO, il
@@ -1872,11 +1874,11 @@ export function t(key: string, locale: Locale, vars?: Record<string, string | nu
  * non è ancora arrivata», e sono due difetti diversi.
  */
 /**
- * Tutte le chiavi del catalogo, per chi deve controllarle una per una.
+ * Every key in the catalogue, for whoever has to check them one by one.
  *
- * Esiste al posto di esportare `IT`: il dizionario intero, pubblico, invita a
- * leggerne un valore direttamente invece di passare da `t()`, e quella e' la
- * strada per cui una stringa smette di seguire la lingua scelta.
+ * It exists instead of exporting `IT`: the whole dictionary, made public,
+ * invites reading a value straight out of it rather than going through `t()`,
+ * and that is the road by which a string stops following the chosen language.
  */
 export function chiaviDelCatalogo(): string[] {
   return Object.keys(IT);

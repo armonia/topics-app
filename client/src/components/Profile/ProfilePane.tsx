@@ -5,29 +5,30 @@ import { IDENTITY_SECTIONS, SETTINGS_SECTIONS, type SectionId } from '../Setting
 import { consumaPaginaProfilo, EVENTO_PAGINA_PROFILO, type PaginaProfilo } from '@/state/profileTarget';
 
 /**
- * Pane «Profilo» — la tab dedicata a chi sei, con chi stai e chi hai intorno.
+ * The "Profile" pane: the tab about who you are, who you are with, and who you
+ * have around you.
  *
- * ── PERCHÉ UN PANE E NON SOLO UNA SCHEDA DELLE IMPOSTAZIONI ─────────────────
- * Le statistiche personali stavano solo dentro un modale: per vederle bisogna
- * aprire le preferenze, trovare la scheda e scorrere. Una cosa che si guarda
- * spesso merita una tab come Dashboard, non tre gesti dentro una finestra che
- * copre l'app.
+ * -- WHY A PANE AND NOT JUST A SETTINGS TAB -----------------------------------
+ * The personal statistics only lived inside a modal: seeing them meant opening
+ * preferences, finding the tab and scrolling. Something you look at often
+ * deserves a tab of its own like Dashboard, not three gestures inside a window
+ * that covers the app.
  *
- * ── PERCHÉ TRE SOTTO-PAGINE E NON UNA COLONNA UNICA ─────────────────────────
- * Prima questo pane impilava quattro riquadri di fila — statistiche, Discord,
- * organizzazioni, amici — e chi cercava l'organizzazione doveva sapere che era
- * il terzo scorrendo. È lo stesso difetto che aveva il pannello Impostazioni, e
- * la cura è la stessa: tre pagine con un nome ciascuna. Le pagine sono
- * LETTERALMENTE quelle delle impostazioni (`Settings/IdentityPages`), così le
- * due superfici non possono divergere: quando lì è comparso l'account, qui
- * mancava, e nessuno se n'era accorto.
+ * -- WHY THREE SUB-PAGES AND NOT ONE SINGLE COLUMN ----------------------------
+ * This pane used to stack four boxes in a row (statistics, Discord,
+ * organisations, friends) and anybody after the organisation had to know it was
+ * the third one down. It is the same flaw the Settings panel had, and the cure
+ * is the same: three pages with one name each. The pages are LITERALLY the
+ * settings ones (`Settings/IdentityPages`), so the two surfaces cannot diverge:
+ * when the account showed up over there, it was missing here, and nobody had
+ * noticed.
  */
 export function ProfilePane() {
   const t = useT();
-  // La pagina chiesta da chi ha aperto il pane, se qualcuno l'ha chiesta. Si
-  // legge in montaggio (il pane e' `lazy()`: quando parte la richiesta questo
-  // componente puo' non esistere ancora) e si ascolta l'evento per il caso
-  // opposto, il pane gia' aperto che deve cambiare scheda sotto il clic.
+  // The page asked for by whoever opened the pane, if anybody asked at all. It
+  // is read on mount (the pane is `lazy()`: when the request is made this
+  // component may not exist yet) and the event covers the opposite case, a pane
+  // already open that has to change tab under the click.
   const [pagina, setPagina] = useState<SectionId>(() => consumaPaginaProfilo() ?? 'profile');
 
   useEffect(() => {
@@ -41,8 +42,8 @@ export function ProfilePane() {
 
   return (
     <div data-testid="profile-pane" className="flex flex-1 flex-col min-h-0 overflow-hidden">
-      {/* Le tre voci SONO l'intestazione: non c'è un titolo di pane sopra che
-          ripeta la parola «Profilo» mentre sei su «Amici». */}
+      {/* The three entries ARE the heading: there is no pane title above them
+          repeating the word "Profile" while you are looking at "Friends". */}
       <div
         className="flex flex-shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-app-border px-3 py-2"
         role="tablist"

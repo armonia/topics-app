@@ -1,32 +1,32 @@
 /**
- * MorphText — una frase che viene RISCRITTA, invece di essere sostituita.
+ * MorphText: a sentence that gets REWRITTEN instead of being replaced.
  *
- * Il piano (cosa e' cambiato, quanto dura) lo calcola `lib/textMorph`; qui c'e'
- * solo il modo di disegnarlo, e le tre scelte che lo rendono usabile su una
- * board con cinquanta card.
+ * The plan (what changed, how long it takes) is worked out by `lib/textMorph`;
+ * all that lives here is how to draw it, plus the three choices that make it
+ * usable on a board holding fifty cards.
  *
- * 1. A RIPOSO NON ESISTE. Finche' il testo non cambia questo componente rende
- *    una stringa e basta: zero nodi in piu', zero classi, niente da confrontare
- *    per React. Le lettere in `span` compaiono solo per i ~300ms
- *    dell'animazione e poi il DOM torna a essere quello di prima. Una card ha
- *    gia' venti nodi; venticinque titoli spezzati in lettere e tenuti cosi'
- *    sarebbero migliaia di nodi vivi per un effetto che dura un attimo.
+ * 1. AT REST IT DOES NOT EXIST. As long as the text does not change this
+ *    component renders a plain string and nothing else: zero extra nodes, zero
+ *    classes, nothing for React to diff. The per letter `span`s only appear for
+ *    the ~300ms of the animation, and then the DOM goes back to what it was. A
+ *    card already carries twenty nodes; twenty-five titles broken into letters
+ *    and kept that way would be thousands of live nodes for an effect that
+ *    lasts an instant.
  *
- * 2. LE PAROLE NON SI SPEZZANO. Ogni lettera e' un `inline-block`, e fra due
- *    `inline-block` il browser puo' andare a capo: senza precauzioni una card
- *    stretta avrebbe mandato a capo mezza parola per la durata dell'animazione,
- *    spostando tutto il resto del corpo. Le lettere di una parola stanno dentro
- *    un `.morph-word` (`white-space: nowrap`), quindi i punti dove la frase va a
- *    capo restano gli spazi, come sempre.
+ * 2. WORDS DO NOT BREAK. Every letter is an `inline-block`, and a browser is
+ *    free to wrap between two `inline-block`s: with no precaution a narrow card
+ *    would have wrapped half a word for the length of the animation, pushing
+ *    the whole body around it. The letters of a word sit inside a `.morph-word`
+ *    (`white-space: nowrap`), so the points where the sentence wraps stay the
+ *    spaces, as they always were.
  *
- * 3. CHI HA CHIESTO MENO MOVIMENTO NON NE VEDE. Il piano non viene nemmeno
- *    calcolato: il testo nuovo appare, che e' esattamente il comportamento di
- *    prima.
+ * 3. WHOEVER ASKED FOR LESS MOTION SEES NONE. The plan is not even computed:
+ *    the new text simply appears, which is exactly the earlier behaviour.
  *
- * La chiave `seq` sull'involucro non e' decorazione: una seconda riscrittura
- * mentre la prima e' ancora in volo deve RIPARTIRE, e un'animazione CSS riparte
- * solo se il nodo e' nuovo. Senza chiave nuova React riuserebbe gli stessi span
- * e la seconda modifica sarebbe muta.
+ * The `seq` key on the wrapper is not decoration: a second rewrite while the
+ * first is still in flight has to START OVER, and a CSS animation only restarts
+ * when the node is new. Without a fresh key React would reuse the same spans
+ * and the second change would be mute.
  */
 import { useEffect, useRef, useState } from 'react';
 
@@ -39,12 +39,12 @@ interface Volo {
 }
 
 /**
- * La scaletta, calcolata PRIMA di disegnare invece che mentre si disegna.
+ * The running order, computed BEFORE drawing rather than while drawing.
  *
- * Restituisce, per ogni chunk, l'indice che la scaletta ha raggiunto appena
- * prima di quel chunk: la lettera k del chunk ci entra a `partenza + 1 + k`.
- * Gli spazi avanzano l'indice come le lettere (il ritmo resta quello della
- * frase) pur non essendo animati.
+ * For every chunk it returns the index the running order had reached just
+ * before that chunk: letter k of the chunk comes in at `start + 1 + k`. Spaces
+ * advance the index just like letters (so the rhythm stays the rhythm of the
+ * sentence) even though they are never animated.
  */
 function partenzeChunk(chunks: string[]): number[] {
   const out: number[] = [];
@@ -68,9 +68,9 @@ export function MorphText({ text }: { text: string }) {
     if (!plan) return;
     seq.current += 1;
     setVolo({ plan, seq: seq.current });
-    // +60ms: il timer non deve arrivare PRIMA dell'ultima lettera. L'ultima
-    // parte a `(n-1) * step` e dura `MOTION.base`, che e' gia' dentro
-    // `durationMs`; il margine copre il fotogramma in cui l'animazione si posa.
+    // +60ms: the timer must not land BEFORE the last letter. The last one
+    // starts at `(n-1) * step` and runs for `MOTION.base`, which is already
+    // inside `durationMs`; the margin covers the frame the animation settles in.
     const t = setTimeout(() => setVolo(null), plan.durationMs + 60);
     return () => clearTimeout(t);
   }, [text]);
@@ -89,8 +89,8 @@ export function MorphText({ text }: { text: string }) {
       {prefix}
       {chunks.map((chunk, ci) => {
         if (/^\s+$/u.test(chunk)) {
-          // Uno spazio consuma il suo posto nella scaletta (il ritmo resta
-          // quello della frase) ma non e' una lettera da far entrare.
+          // A space takes up its slot in the running order (the rhythm stays
+          // that of the sentence) but it is not a letter to bring in.
           return <span key={`s${ci}`}>{chunk}</span>;
         }
         return (
