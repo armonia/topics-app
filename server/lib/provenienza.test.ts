@@ -33,8 +33,8 @@ describe("provenienza · la rete di casa non si confonde con Internet", () => {
   });
 
   test("`172.16/12` si legge sul secondo ottetto, non come prefisso di testo", () => {
-    // IL caso che un `startsWith("172.1")` sbaglierebbe in ENTRAMBE le
-    // direzioni: `172.16` è privato, `172.1` e `172.199` non lo sono.
+    // THE case a `startsWith("172.1")` would get wrong in BOTH directions:
+    // `172.16` is private, `172.1` and `172.199` are not.
     expect(provenienzaDi("172.16.0.1")).toBe("lan");
     expect(provenienzaDi("172.31.0.1")).toBe("lan");
     expect(provenienzaDi("172.15.0.1")).toBe("internet");
@@ -49,15 +49,15 @@ describe("provenienza · la rete di casa non si confonde con Internet", () => {
   });
 
   test("il rivestimento `::ffff:` non cambia la risposta", () => {
-    // È come arriva un indirizzo IPv4 su una socket IPv6: se non lo si
-    // togliesse, ogni dispositivo della rete di casa risulterebbe «Internet».
+    // This is how an IPv4 address arrives on an IPv6 socket. Without stripping
+    // it, every device on the home network would read as coming from the internet.
     expect(provenienzaDi("::ffff:192.168.1.7")).toBe("lan");
     expect(provenienzaDi("::ffff:95.253.69.40")).toBe("internet");
   });
 
   test("ciò che non sappiamo resta IGNOTO, e non diventa «Internet»", () => {
-    // La direzione prudente, ed è quella che conta: un fatto che non abbiamo
-    // non si racconta, men che meno nella versione che allarma.
+    // The cautious direction, and it is the one that matters: a fact we do not
+    // have is not told at all, least of all in the version that alarms.
     for (const v of [null, undefined, "", "   ", "non-un-indirizzo", "chi.sono.io"]) {
       expect(`${JSON.stringify(v)} → ${provenienzaDi(v)}`).toBe(`${JSON.stringify(v)} → ignota`);
     }
