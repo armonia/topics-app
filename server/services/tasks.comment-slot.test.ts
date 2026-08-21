@@ -75,9 +75,9 @@ describe("commento a slot", () => {
   });
 
   test("il testo CAMBIA a ogni giro: `once` non poteva bastare", () => {
-    // `once` deduplica testo identico. Qui l'url cambia sempre, quindi ogni
-    // riga era nuova per lui: e' il motivo per cui il difetto e' sopravvissuto
-    // a un meccanismo che sembrava coprirlo. allow-italian: descrive il perche'
+    // `once` dedupes identical text. Here the url changes every time, so
+    // every line was new to it: that is why the defect survived a mechanism
+    // that looked like it covered the case.
     s.addComment({ taskId, author: "verifier", kind: "review-note", once: true, content: `${SLOT} su 3400` });
     s.addComment({ taskId, author: "verifier", kind: "review-note", once: true, content: `${SLOT} su 3401` });
     expect(note()).toHaveLength(2);
