@@ -337,7 +337,6 @@
     "client/src/hooks/stopSessionPolicy.ts": 11,
     "client/src/hooks/streamCatchupMerge.test.ts": 13,
     "client/src/hooks/streamCatchupMerge.ts": 27,
-    "client/src/hooks/streamReattachReset.test.ts": 2,
     "client/src/hooks/streamReattachReset.ts": 22,
     "client/src/hooks/terminalRosterFetch.test.ts": 27,
     "client/src/hooks/useAnchoredPopover.ts": 15,

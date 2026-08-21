@@ -7,8 +7,8 @@
  * If a human send has just started at that moment, that turn's `result` —
  * empty, because a notification on its own does not deserve an answer —
  * reaches the send's handler, which takes it for the end of ITS OWN turn and
- * writes «Nessuna risposta: il turno si e' chiuso senza produrre niente» over
- * the row. The real prompt starts right after, but by then nobody is
+ * stamps the failure notice onto the row — «Nessuna risposta: il turno si e' chiuso senza produrre niente». allow-italian: quotes the notice the route writes
+ * The real prompt starts right after, but by then nobody is
  * listening: it gets adopted as a spontaneous turn and the answer lands in a
  * NEW row.
  *
