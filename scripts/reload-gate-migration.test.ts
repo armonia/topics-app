@@ -168,21 +168,20 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     });
     daPulire.push(dir);
 
-    /* IL PATH VERO, MENO `sqlite3`. Uno specchio, non una lista scritta a mano.
+    /* THE REAL PATH, MINUS `sqlite3`. A mirror, not a hand-written list.
      *
-     * Due versioni precedenti hanno sbagliato lo stesso bersaglio in due modi, e
-     * il test passava comunque:
-     *  1. togliere `/usr/bin` e tenere `/bin`. Su macOS nasconde `sqlite3`; su
-     *     Ubuntu no, perche' con usrmerge `/bin` E' `/usr/bin`. Verde qui, rosso
-     *     solo su Linux, ed e' il rosso che questo commit chiude.
-     *  2. elencare i comandi che il cancello usa. La lista dimenticava `cp`, e
-     *     il cancello moriva su «impossibile copiare il DB» PRIMA di arrivare a
-     *     `sqlite3`: usciva 0 per il motivo sbagliato, cioe' il test verde non
-     *     provava piu' niente.
+     * Two earlier versions missed the same target in two different ways, and the
+     * test stayed green through both:
+     *  1. drop `/usr/bin`, keep `/bin`. That hides `sqlite3` on macOS but not on
+     *     Ubuntu, where usrmerge makes `/bin` BE `/usr/bin`. Green here, red only
+     *     on Linux, which is the failure this commit closes.
+     *  2. list the commands the gate uses. The list forgot `cp`, so the gate died
+     *     on "impossibile copiare il DB" BEFORE it ever looked for `sqlite3`: it
+     *     exited 0 for the wrong reason, and a green test proved nothing.
      *
-     * Specchiare tutto il PATH e togliere una sola cosa non ha nessuna delle due
-     * debolezze: non si puo' dimenticare un comando, e non dipende da come una
-     * distribuzione dispone le sue cartelle. */
+     * Mirroring the whole PATH and removing exactly one entry has neither
+     * weakness: no command can be forgotten, and it does not care how a
+     * distribution lays out its directories. */
     const fakeBin = mkdtempSync(join(tmpdir(), "fake-bin-"));
     daPulire.push(fakeBin);
     for (const d of (process.env.PATH ?? "").split(":").filter(Boolean)) {
@@ -190,11 +189,11 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
       try { voci = readdirSync(d); } catch { continue; }
       for (const nome of voci) {
         if (nome === "sqlite3") continue;
-        try { symlinkSync(join(d, nome), join(fakeBin, nome)); } catch { /* prima occorrenza vince, come il PATH */ }
+        try { symlinkSync(join(d, nome), join(fakeBin, nome)); } catch { /* first one wins, same as PATH */ }
       }
     }
-    // La precondizione E' il test: senza, un `sqlite3` sfuggito lo renderebbe
-    // verde senza provare nulla, che e' gia' successo due volte.
+    // THE PRECONDITION IS THE TEST: without it, one `sqlite3` slipping through
+    // makes this green while proving nothing, which has already happened twice.
     expect(Bun.which("sqlite3", { PATH: fakeBin })).toBeNull();
     expect(Bun.which("cp", { PATH: fakeBin })).not.toBeNull();
 
