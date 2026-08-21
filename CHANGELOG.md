@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.164 — 2026-08-21
+
+### Sotto il cofano
+- Il falso «Nessuna risposta» sopra la risposta che era arrivata
+- La bolla riusata non diventa un gemello a schermo
+
 ## 2.2.163 — 2026-08-21
 
 ### Sotto il cofano
