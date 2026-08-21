@@ -333,7 +333,24 @@ jobs:
       # e un 2 qui non ferma la pipeline.
       - name: Route latency budget
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: bun run check:route-latency || test $? -eq 2
+        # L'USCITA 2 NON FERMA LA PIPELINE, MA NON DEVE PIU' SEMBRARE UN VERDE.
+        # Il 21/08/2026 questo step e' passato mentre `all_boards_tasks` stava a
+        # 3,41 ms contro un tetto di 2,25: il banco si era astenuto («il tubo e'
+        # fuori scala») e l'astensione, tollerata in silenzio, era indistinguibile
+        # da una misura andata bene. Una regressione vera puo' vivere dietro quella
+        # spunta finche' i runner restano rumorosi. Ora l'astensione lascia un
+        # warning annotato sulla run: la pipeline prosegue, ma nessuno puo' leggere
+        # quel verde come «le latenze sono a posto».
+        run: |
+          set +e
+          bun run check:route-latency
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=Latenze non misurate::Il banco si e' astenuto su questo runner (tubo fuori scala). Questo verde NON dice niente sulle latenze: rimisura a macchina ferma."
+            exit 0
+          fi
+          exit "$rc"
 
       # LA BASELINE DEL RUNNER, quando non c'e' ancora.
       #
