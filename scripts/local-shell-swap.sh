@@ -228,9 +228,27 @@ if pgrep -f "$APP/Contents/MacOS/app" >/dev/null; then
   fi
 fi
 
+PRIMA_VERSIONE="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist" 2>/dev/null || echo "?")"
+
 # Scrivi accanto e poi `mv`: uno swap a metà lascerebbe un .app che non parte.
 cp "$BIN" "$APP/Contents/MacOS/app.new"
 mv -f "$APP/Contents/MacOS/app.new" "$APP/Contents/MacOS/app"
+
+# LA VERSIONE SEGUE IL CODICE, altrimenti la app mente su se stessa.
+# Fino al 21/08 questo scambiava il Mach-O e lasciava l'Info.plist com'era: il
+# guscio girava il codice della 2.2.172 e continuava a dichiararsi 2.2.163.
+# Due conseguenze vere, entrambe misurate: «vedo la .162 rilasciata ma in
+# locale vedo 161», e l'updater che offre in eterno una release piu' vecchia
+# del codice che sta girando. Va scritta PRIMA della firma: toccare l'Info.plist
+# dopo `codesign` invalida la firma appena fatta.
+VERSIONE="$(node -p "require('$REPO_ROOT/desktop-tauri/src-tauri/tauri.conf.json').version" 2>/dev/null || true)"
+if [ -n "$VERSIONE" ]; then
+  /usr/bin/plutil -replace CFBundleShortVersionString -string "$VERSIONE" "$APP/Contents/Info.plist"
+  /usr/bin/plutil -replace CFBundleVersion -string "$VERSIONE" "$APP/Contents/Info.plist"
+  echo "  versione dichiarata: $VERSIONE (era $PRIMA_VERSIONE)"
+else
+  echo "  ⚠ versione non letta da tauri.conf.json: l'Info.plist resta com'era" >&2
+fi
 
 echo "▸ 4/5  firma con «${SIGN_IDENTITY}»"
 codesign --remove-signature "$APP" 2>/dev/null || true
@@ -255,5 +273,5 @@ _swap_done=1                      # da qui il trap non deve più ripristinare
 trap - ERR EXIT INT TERM
 echo "  ✓ viva (pid $PID)"
 echo
-echo "Fatto. La versione del bundle resta quella del .app installato finché non"
-echo "arriva una release vera: questo scambia solo il codice, non il numero."
+echo "Fatto. Il numero di versione ora segue il codice: l'updater smette di"
+echo "offrire una release piu' vecchia di quella che stai gia' eseguendo."
