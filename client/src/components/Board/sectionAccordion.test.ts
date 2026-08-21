@@ -33,13 +33,13 @@ describe('aperto salvo prova contraria', () => {
   test('solo il valore "0" la tiene chiusa', () => {
     expect(readSectionOpen('Desc', fakeStore({ 'board:taskDescOpen': '0' }))).toBe(false);
     expect(readSectionOpen('Desc', fakeStore({ 'board:taskDescOpen': '1' }))).toBe(true);
-    // Un build piu' vecchio, o un valore scritto a mano: aperta, non bloccata.
+    // An older build, or a hand-written value: open, not stuck shut.
     expect(readSectionOpen('Desc', fakeStore({ 'board:taskDescOpen': 'true' }))).toBe(true);
   });
 
   test('storage che esplode (finestra privata): aperta lo stesso', () => {
-    const rotto = { getItem: () => { throw new Error('SecurityError'); } };
-    expect(readSectionOpen('Desc', rotto)).toBe(true);
+    const broken = { getItem: () => { throw new Error('SecurityError'); } };
+    expect(readSectionOpen('Desc', broken)).toBe(true);
   });
 });
 
@@ -54,7 +54,7 @@ describe('scrivere', () => {
   });
 
   test('uno storage che rifiuta non rompe la sezione', () => {
-    const rotto = { setItem: () => { throw new Error('QuotaExceeded'); } };
-    expect(() => writeSectionOpen('Desc', false, rotto)).not.toThrow();
+    const broken = { setItem: () => { throw new Error('QuotaExceeded'); } };
+    expect(() => writeSectionOpen('Desc', false, broken)).not.toThrow();
   });
 });

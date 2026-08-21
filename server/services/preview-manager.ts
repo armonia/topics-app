@@ -48,6 +48,25 @@ import net from "net";
  */
 export const PREVIEW_NOTE_PREFIX = "Anteprima:";
 
+/**
+ * The openings this slot used BEFORE it was a slot.
+ *
+ * A card already carrying a note written by yesterday's code did not recognise
+ * today's wording as the same thing, so the two sat one under the other: the
+ * exact duplicate the slot exists to remove, reintroduced by the rewording that
+ * created the slot. Measured on a035f945 and b673a253 within an hour of
+ * shipping it. These stay listed until no card carries one.
+ */
+export const LEGACY_PREVIEW_PREFIXES = [
+  "Anteprima viva",
+  "Anteprima non allegata",
+  "⚠️ Nessuna anteprima allegata",
+  "⚠️ output_url rimosso",
+];
+
+/** Every opening this slot answers to. */
+export const PREVIEW_NOTE_SLOT = [PREVIEW_NOTE_PREFIX, ...LEGACY_PREVIEW_PREFIXES];
+
 /** The task's branch worktree — the cwd the preview server runs in. */
 export interface PreviewWorktree {
   id: string;
@@ -144,7 +163,7 @@ export interface PreviewManagerDeps {
    * frase può essere una scoperta o una condizione strutturale — vedi
    * `prepareForReview`.
    */
-  addReviewNote(taskId: string, args: { content: string; media?: string[]; kind?: "review-note" | "service"; replaces?: string }): void;
+  addReviewNote(taskId: string, args: { content: string; media?: string[]; kind?: "review-note" | "service"; replaces?: string | string[] }): void;
   /** Surface the preview in the Processes panel (Stop button + logs). Optional. */
   registerProcess?(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void;
   unregisterProcess?(taskId: string): void;
@@ -568,7 +587,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         // adesso non risponde, quella è una notizia e resta in evidenza.
         deps.addReviewNote(taskId, {
           kind: nostro ? "service" : "review-note",
-          replaces: PREVIEW_NOTE_PREFIX,
+          replaces: PREVIEW_NOTE_SLOT,
           content: nostro
             ? `${PREVIEW_NOTE_PREFIX} non allegata. ${url} ${why}. Il worktree probabilmente non ha un bundle costruito (\`cd client && bun run build\`).`
             : `${PREVIEW_NOTE_PREFIX} ⚠️ nessuna evidenza allegata. ${url} ${why}. ` +
@@ -590,12 +609,12 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         deps.addReviewNote(taskId, {
           content: `${PREVIEW_NOTE_PREFIX} viva e pronta su ${url}`,
           media: [outPath],
-          replaces: PREVIEW_NOTE_PREFIX,
+          replaces: PREVIEW_NOTE_SLOT,
         });
       } else {
         deps.addReviewNote(taskId, {
           content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato.`,
-          replaces: PREVIEW_NOTE_PREFIX,
+          replaces: PREVIEW_NOTE_SLOT,
         });
       }
     } catch (err) {

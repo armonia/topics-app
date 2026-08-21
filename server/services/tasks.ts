@@ -730,7 +730,7 @@ export interface TaskService {
    * problem (the identical text repeated); here the text changes on every run,
    * which is exactly why they piled up.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service"; once?: boolean; replaces?: string }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service"; once?: boolean; replaces?: string | string[] }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -2455,7 +2455,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * progress AND the human interaction count (user 'comment' messages).
    *
    * Entrambe le aggregazioni sono LEGATE AGLI ID IN MANO. Erano due scansioni
-   * intere e senza filtro, su ogni lista e su ogni apertura di task: quella su
+   * intere e senza filtro, su ogni lista e su ogni opening di task: quella su
    * `task_comments` (11.994 righe il 15/08, la tabella che cresce più in fretta)
    * non aveva nemmeno un indice utilizzabile — `idx_task_comments_task` è su
    * `task_id` soltanto, quindi il filtro su autore e tipo era comunque una
@@ -3665,10 +3665,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // The slot is emptied BEFORE it is filled, and only for the same author
       // and the same `kind`: a human comment that happens to start with the
       // same words is not the machine's note and must not be touched.
-      if (replaces && replaces.trim()) {
+      // MORE THAN ONE OPENING, because the notes of a slot change wording over
+      // time. With a single prefix the new note did not recognise the one written
+      // by yesterday's code: on a035f945 the old sentence and the new one ended
+      // up sitting one under the other, the very duplicate this field exists to
+      // remove, reintroduced by the rewording that created the slot. Old openings
+      // stay listed for as long as a card still carries one.
+      const openings = (Array.isArray(replaces) ? replaces : [replaces])
+        .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+      for (const opening of openings) {
         db.prepare(
           "DELETE FROM task_comments WHERE task_id = ? AND author = ? AND kind = ? AND content LIKE ?",
-        ).run(taskId, author, commentKind, `${replaces}%`);
+        ).run(taskId, author, commentKind, `${opening}%`);
       }
 
       const id = uuid();

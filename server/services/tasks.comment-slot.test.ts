@@ -83,3 +83,40 @@ describe("commento a slot", () => {
     expect(note()).toHaveLength(2);
   });
 });
+
+describe("uno slot con piu' aperture", () => {
+  let db2: Database; let s2: TaskService; let id2: string;
+  beforeEach(() => {
+    db2 = freshDb();
+    let n = 0;
+    s2 = createTaskService(db2, { now: () => "2026-08-21T09:00:00.000Z", uuid: () => `id2-${++n}` });
+    id2 = s2.create({ projectId: PID, text: "Card con una nota vecchia" }).id;
+  });
+
+  const rows = () =>
+    db2.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(id2) as Array<{ content: string }>;
+
+  test("la nota nuova riconosce l'apertura VECCHIA e la sostituisce", () => {
+    // The real state of a035f945: a note written by yesterday's code...
+    s2.addComment({ taskId: id2, author: "verifier", kind: "review-note", content: "Anteprima viva pronta: http://localhost:3400/" });
+    // ...and the same thing said in today's words.
+    s2.addComment({
+      taskId: id2, author: "verifier", kind: "review-note",
+      replaces: ["Anteprima:", "Anteprima viva"],
+      content: "Anteprima: viva e pronta su http://localhost:3401/",
+    });
+    const r = rows();
+    expect(r).toHaveLength(1);
+    expect(r[0]!.content).toContain("3401");
+  });
+
+  test("con una sola apertura le due convivono: e' il difetto di partenza", () => {
+    s2.addComment({ taskId: id2, author: "verifier", kind: "review-note", content: "Anteprima viva pronta: http://localhost:3400/" });
+    s2.addComment({
+      taskId: id2, author: "verifier", kind: "review-note",
+      replaces: "Anteprima:",
+      content: "Anteprima: viva e pronta su http://localhost:3401/",
+    });
+    expect(rows()).toHaveLength(2);
+  });
+});
