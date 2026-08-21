@@ -287,7 +287,7 @@ describe("claude-code provider · ask-user-tool flow", () => {
       awaitingSince: Date.now(),
     });
 
-    await provider.abort(sessionKey);
+    await provider.abort(sessionKey, undefined, "user");
 
     expect(pp.pendingInputs.size).toBe(0);
     await expect(

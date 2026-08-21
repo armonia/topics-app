@@ -4,25 +4,32 @@ import { ChevronDown, ChevronRight, Sparkles, Terminal } from 'lucide-react';
 import { slashCommandsApi } from '../../lib/api';
 
 /**
- * «Questo turno gira /recap» — e cosa c'è dentro /recap.
+ * «Hai lanciato /recap» — e cosa c'è dentro /recap. UNA volta sola.
  *
  * Quando lanci un comando, la CLI lo espande PRIMA del turno: sul filo non
  * torna nessun `tool_use` e nessun testo (verificato), quindi non c'è nessuna
  * riga di tool da mostrare. Prima il segnale c'era per sbaglio — il corpo del
  * comando colava dentro la risposta — e toglierlo aveva lasciato il turno muto.
  *
- * La riga NON finge una chiamata a un tool: non nasce da `tool_calls`, non si
- * salva, e il corpo non è «il risultato» di niente. È il FILE del comando,
- * letto dal disco su richiesta — la stessa cartella da cui Topics ricava
- * l'elenco dei comandi. È il file com'è ADESSO, non una fotografia di quando è
- * girato: su un comando lanciato un minuto fa è la stessa cosa, su una chat di
- * sei mesi fa può non esserlo — sta nel titolo del corpo, non come etichetta a
- * schermo, perché è una precisazione per chi se la chiede.
+ * Il rimedio di allora però ne disegnava DUE: il tuo messaggio si leggeva come
+ * un comando (il chip qui sotto) **e** la risposta apriva con una riga
+ * «questo turno gira /compact». Stesso nome, stessa icona, una sopra l'altra a
+ * un centimetro di distanza, e nessuna delle due diceva qualcosa che l'altra
+ * non dicesse. Chi guardava vedeva il proprio comando due volte e non capiva se
+ * fosse partito due volte.
  *
- * L'intestazione è il comando e basta — `/recap` — non «Skill (/recap)»: il
- * nome della categoria non aggiunge niente che il resto della riga non dica.
+ * Ne resta uno, ed è quello che sta nel posto giusto: il MESSAGGIO che hai
+ * scritto tu. È l'unico che sa la verità (il resto del turno non porta traccia
+ * del comando) e non finge una chiamata a un tool che non c'è stata. Il corpo
+ * del comando — che era la sola cosa in più della riga sparita — si apre da
+ * qui: è il FILE del comando, letto dal disco su richiesta, la stessa cartella
+ * da cui Topics ricava l'elenco dei comandi. È il file com'è ADESSO, non una
+ * fotografia di quando è girato: su un comando lanciato un minuto fa è la
+ * stessa cosa, su una chat di sei mesi fa può non esserlo — sta nel titolo del
+ * corpo, non come etichetta a schermo, perché è una precisazione per chi se la
+ * chiede.
  */
-export function InvokedCommandRow({ command, args }: { command: string; args?: string }) {
+export function SlashCommandChip({ command, args }: { command: string; args?: string }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'command' | 'skill' | null>(null);
@@ -53,43 +60,48 @@ export function InvokedCommandRow({ command, args }: { command: string; args?: s
   const Icon = kind === 'skill' ? Sparkles : Terminal;
 
   return (
-    <div data-testid="invoked-command-row" data-command={command} data-kind={kind ?? 'unknown'} className="text-[12px]">
+    <span
+      data-testid="user-slash-command"
+      data-command={command}
+      data-kind={kind ?? 'unknown'}
+      className="block"
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={tr('cmd.runs', { what: kind === 'skill' ? tr('cmd.kind.skill') : tr('cmd.kind.command'), name: command })}
-        className="w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
+        data-testid="user-slash-command-toggle"
+        title={tr('cmd.ran', { what: kind === 'skill' ? tr('cmd.kind.skill') : tr('cmd.kind.command'), name: command })}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 font-mono text-[0.92em] text-left"
       >
+        <Icon size={12} className="flex-shrink-0 opacity-70" />
+        <span className="font-medium">/{command}</span>
+        {args && <span className="opacity-80">{args}</span>}
         {open
-          ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" />
-          : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />}
-        <Icon size={13} className="flex-shrink-0 text-app-text-muted" />
-        <span className="flex-1 min-w-0 flex items-baseline gap-1 font-mono">
-          <span className="flex-shrink-0 font-medium text-app-text">/{command}</span>
-          {args && <span className="min-w-0 truncate text-[11px] text-app-text-secondary">{args}</span>}
-        </span>
+          ? <ChevronDown size={12} className="flex-shrink-0 opacity-60" />
+          : <ChevronRight size={12} className="flex-shrink-0 opacity-60" />}
       </button>
       {open && (
         // Niente etichetta sopra il corpo: l'intestazione dice già `/recap`, e
         // aperta la riga non può mostrare altro che il suo contenuto. La nota
         // che è il file com'è ADESSO — e non com'era quando è girato — sta nel
         // titolo, dove chi se lo chiede la trova e chi no non la legge.
-        <div className="ml-5 pb-1.5 space-y-1">
+        <span className="mt-1 block">
           {error ? (
-            <div className="text-[11px] text-amber-600 dark:text-amber-400">{error}</div>
+            <span className="block text-[11px] text-amber-600 dark:text-amber-400">{error}</span>
           ) : body === null ? (
-            <div className="text-[11px] italic text-app-text-muted">Leggo il file…</div>
+            <span className="block text-[11px] italic opacity-70">Leggo il file…</span>
           ) : (
             <pre
               data-testid="invoked-command-body"
               title={tr('cmd.currentFile', { name: command })}
-              className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
+              className="tool-card-code text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-black/10 dark:bg-black/20 rounded px-2 py-1.5"
             >
               {body}
             </pre>
           )}
-        </div>
+        </span>
       )}
-    </div>
+    </span>
   );
 }

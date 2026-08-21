@@ -259,4 +259,77 @@ describe('topicsAgentSystemPrompt', () => {
     expect(topicsAgentSystemPrompt('it').endsWith(languageDirective('it'))).toBe(true);
     expect(topicsAgentSystemPrompt('en').endsWith(languageDirective('en'))).toBe(true);
   });
+
+  /**
+   * COME SI ASPETTA, detto all'agente.
+   *
+   * Le due attese sono diverse per CHI GUARDA: `wait_for_process` tiene il
+   * turno (clessidra, e non puoi parlargli finché non torna), `Monitor` lo
+   * chiude e si fa risvegliare. Su un build da venti minuti la prima è una
+   * chat bloccata per venti minuti.
+   *
+   * Il consiglio si può dare solo da quando la risposta del Monitor arriva
+   * davvero in chat (`providers/claude/woken-turn.ts`): prima si sarebbe
+   * mandato l'agente a parlare nel vuoto.
+   */
+  test('dice COME aspettare: Monitor per le attese lunghe, wait_for_process per le corte', () => {
+    const p = topicsAgentSystemPrompt('auto');
+    expect(p).toContain('Monitor');
+    expect(p).toContain('mcp__topics__wait_for_process');
+    // E il divieto che rende il consiglio azionabile invece che teorico.
+    expect(p).toContain('Never sleep-and-poll');
+  });
+
+  test("il Monitor è offerto SE C'È, non promesso", () => {
+    // È dietro un flag lato CLI (`tengu_amber_sentinel`): su una macchina dove
+    // è spento quel tool NON esiste, e un prompt che lo desse per scontato
+    // manderebbe l'agente a cercare uno strumento assente. La via d'uscita
+    // dev'essere nominata nella stessa frase.
+    const p = topicsAgentSystemPrompt('auto');
+    expect(p).toContain('available to you');
+    const dopo = p.slice(p.indexOf('available to you'));
+    expect(dopo).toContain('mcp__topics__wait_for_process');
+  });
+});
+
+/**
+ * IL RISVEGLIO DA UNO SHELL IN BACKGROUND: vero, ma non garantito.
+ *
+ * Il 20/08, topic:205d1fbb. L'utente chiede «perché non ti metti in wait?»,
+ * l'agente risponde «Armata. Mi sveglia quando finisce» e lancia un `Bash` con
+ * `until … done` e `run_in_background: true` — non un `Monitor`.
+ *
+ * Sembrava una promessa vuota, e stavo per vietarla nel prompt. La misura dice
+ * il contrario: diciotto minuti dopo il batch è finito, la CLI ha riaperto la
+ * conversazione da sola (`[woken] … la CLI ha aperto un turno da sola`) e la
+ * risposta è arrivata in chat.
+ *
+ * Quindi la regola non è «non farlo»: è che quel risveglio dipende dal comando
+ * che TERMINA, e su un'attesa senza fine non arriva mai. Il prompt deve dire
+ * questo, non un divieto falso — un consiglio sbagliato costa quanto un bug.
+ */
+describe('shell in background: risveglio reale ma condizionato', () => {
+  test('il prompt non lo vieta, ma dice da cosa dipende', () => {
+    const p = topicsAgentSystemPrompt();
+    expect(p).toContain('can also end your turn and report back');
+    // Le DUE condizioni, che sono il vero contenuto informativo. La seconda è
+    // quella che è costata la serata del 20/08: l'attesa muore col CLI, e un
+    // riavvio del server la porta via senza svegliare nessuno.
+    expect(p).toContain('a command that never terminates never reports');
+    // La seconda condizione è quella che è costata la serata del 20/08:
+    // l'attesa muore col CLI, e un riavvio del server la porta via senza
+    // svegliare nessuno — nel file di output resta solo `[killed]`.
+    expect(p).toContain('it dies with the CLI');
+    expect(p).toContain('[killed]');
+    expect(p).toContain('it dies with the CLI');
+    expect(p).toContain('[killed]');
+    // E la via d'uscita quando il risveglio serve davvero.
+    expect(p).toContain('Prefer `Monitor` when the point IS being woken');
+  });
+
+  test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, dipende', () => {
+    const p = topicsAgentSystemPrompt();
+    expect(p).toMatch(/`Monitor`[\s\S]*ends your turn and wakes you/);
+    expect(p).toMatch(/`mcp__topics__wait_for_process`[\s\S]*blocks until it exits/);
+  });
 });

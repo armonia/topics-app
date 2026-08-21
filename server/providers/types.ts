@@ -29,6 +29,20 @@ import type { ProviderChatMessage as ChatMessage } from "../../shared/types";
 export type ToolArgs = Record<string, unknown>;
 
 /**
+ * CHI ha chiesto di annullare un turno.
+ *
+ * È un sottoinsieme di {@link StopCause} — le sole cause che un CHIAMANTE può
+ * dichiarare — e non un tipo a sé stante per caso: la causa dichiarata qui
+ * diventa la `StopCause` del `TurnEndInfo` che il provider deposita, e
+ * scriverla due volte in due vocabolari diversi è il modo in cui i due
+ * divergono. `"user"` resta il default per retro-compatibilità con chi non la
+ * passa, ma vale la regola opposta a quella dei valori di default: se la sai,
+ * la dici. Un annullamento etichettato `user` mette a tacere il cartello che
+ * spiega all'utente cos'è successo — vedi `stop-reason.ts`, `server-shutdown`.
+ */
+export type AbortReason = "user" | "watchdog" | "server-shutdown";
+
+/**
  * Token usage attached to a completed turn. Field names mirror what the
  * providers actually emit (Claude Code uses `inputTokens`/`outputTokens`/
  * cache fields; Codex uses `input_tokens`/`output_tokens` which the provider
@@ -421,8 +435,16 @@ export interface AIProvider {
    */
   registerStreamHandler?(sessionKey: string, runId: string | undefined, handler: StreamHandler): void;
 
-  /** Unregister a stream handler */
-  unregisterStreamHandler?(sessionKey: string): void;
+  /**
+   * Unregister a stream handler.
+   *
+   * `handler` è OPZIONALE ma va passato quando lo si ha: chi lo riceve deve
+   * spegnere solo SE è ancora il proprietario corrente. La route chiude i turni
+   * in ordine sparso — un `onDone` che finalizza mentre un secondo turno è già
+   * partito è la norma su una chat viva — e un azzeramento incondizionato
+   * spegnerebbe l'handler del turno NUOVO, lasciandolo muto.
+   */
+  unregisterStreamHandler?(sessionKey: string, handler?: StreamHandler): void;
 
   // --- HTTP Streaming (SSE fallback) ---
 
@@ -450,11 +472,38 @@ export interface AIProvider {
 
   /**
    * Cancel the in-flight turn for a session. `reason` distinguishes a human
-   * stop ("user", default) from the stream watchdog giving up ("watchdog") so
-   * the provider can label the resulting process exit honestly — a watchdog
-   * abort must NOT read as "user stop" in logs/UI.
+   * stop ("user") from the stream watchdog giving up ("watchdog") and from the
+   * server shutting down under a live turn ("server-shutdown"), so the provider
+   * can label the resulting turn end honestly — a watchdog or shutdown abort
+   * must NOT read as "user stop" in logs/UI.
+   *
+   * `reason` NON ha un default, di proposito. Un default qui è una risposta
+   * inventata a una domanda che il chiamante conosce già, e per mesi è stato
+   * `"user"`: il 20/08 (topic:9f9e9629) è così che uno spegnimento del server è
+   * diventato «l'utente ha premuto stop» — e siccome a chi preme stop non si
+   * spiega cos'ha premuto, il turno è morto senza una parola in chat. Ora una
+   * strada nuova che si dimentica di dichiararsi la ferma il compilatore,
+   * invece di lasciarle raccontare una bugia plausibile.
    */
-  abort?(sessionKey: string, runId?: string, reason?: "user" | "watchdog"): Promise<void>;
+  abort?(sessionKey: string, runId: string | undefined, reason: AbortReason): Promise<void>;
+
+  /**
+   * Riadotta il turno che era in volo per questa sessione, dopo un riavvio del
+   * server.
+   *
+   * DICHIARARLO QUI È IL PUNTO. Averlo o non averlo separa i provider in due
+   * specie, e la differenza non è un dettaglio implementativo: chi ce l'ha
+   * esegue il turno in un processo FIGLIO — che il SIGTERM non tocca, che il
+   * broker ritrova, e che questo metodo riprende — mentre chi non ce l'ha lo
+   * esegue DENTRO il server, e quando il server muore il turno muore con lui.
+   *
+   * Da quella differenza dipende quanto un riavvio pianificato deve aspettare
+   * (`lib/quiescence.ts`): un turno che nessuno riprenderà merita l'attesa
+   * lunga di una card. Finché il metodo esisteva solo sulla classe concreta,
+   * la domanda si poteva porre solo con un cast — cioè fuori dal controllo del
+   * compilatore, che è dove i contratti taciti vanno a marcire.
+   */
+  reattach?(sessionKey: string, handler: StreamHandler): Promise<"completed" | "live" | "awaiting-input" | "dead">;
 
   /**
    * True when the provider's child process for this session is currently

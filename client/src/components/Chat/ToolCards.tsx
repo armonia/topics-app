@@ -481,24 +481,47 @@ function ResultPre({ text }: { text: string }) {
 
 // ── Monitor (long-lived event watcher) ──────────────────────────────────────
 //
-// Resta statica, e non per dimenticanza: un `Monitor` non passa dal registro
-// delle shell — non ha un id con cui ritrovarlo, il CLI ne annuncia solo la
-// descrizione e la sorgente. Agganciarlo vorrebbe dire un registro suo, che
-// oggi non esiste: qui una card viva la si può dare solo a chi un id ce l'ha.
+// UN MONITOR ARMATO NON E' UNA COSA FINITA, ed e' l'unica card in cui questo si
+// deve vedere. Il tool torna SUBITO («Monitor started, task <id>») e il turno
+// chiude un istante dopo: la riga diventa una tool call verde, uguale a un
+// `Read` andato bene. Ma li' non e' finito niente — c'e' qualcosa che sorveglia
+// un build, e la risposta arrivera' fra minuti come messaggio nuovo (il
+// risveglio: vedi `claude/woken-turn.ts` lato server). Senza dirlo, l'attesa e'
+// indistinguibile da una chat che ha smesso di parlare.
+//
+// Resta STATICA nei numeri, e non per dimenticanza: un Monitor non passa dal
+// registro delle shell — il CLI ne annuncia descrizione e sorgente, non un id
+// con cui ritrovarlo vivo. Niente cronometro, quindi, come ha `WaitCard`: qui
+// si puo' dire CHE si sta aspettando e COSA, non DA QUANTO.
 
-export function MonitorCard({ description, command, wsUrl, persistent, result }: {
+export function MonitorCard({ description, command, wsUrl, persistent, result, isRunning }: {
   description: string; command?: string; wsUrl?: string; persistent?: boolean; result?: string;
+  /** Il turno e' ancora in volo. Assente = la riga si sta rileggendo da ferma. */
+  isRunning?: boolean;
 }) {
+  const tr = useT();
+  // «Armato» e basta: la risposta del tool e' la ricevuta dell'armamento
+  // (`Monitor started (task …)`), non l'esito dell'attesa. L'esito arriva come
+  // messaggio a se' stante, quindi finche' non c'e' altro la card dice quello
+  // che sa — sta sorvegliando.
+  const armato = !result;
   return (
     <div className="space-y-1">
       {description && <div className="text-[12px] text-app-text">{description}</div>}
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+        {armato && (
+          <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ${isRunning ? 'animate-pulse' : ''}`} />
+            {tr('monitor.armed')}
+          </span>
+        )}
         {persistent && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">persistent</span>}
         {wsUrl && <span className="font-mono text-blue-500 break-all">{wsUrl}</span>}
       </div>
       {command && (
         <HighlightedPre code={command} lang="bash" className="text-[11px] font-mono text-app-text whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5" prefix={<span className="text-app-text-muted select-none">$ </span>} />
       )}
+      {armato && <div className="text-[11px] text-app-text-muted">{tr('monitor.armed.blurb')}</div>}
       {result && <ResultPre text={result} />}
     </div>
   );
@@ -701,7 +724,7 @@ export function ToolCardBody({ detail, isError, isRunning, sessionKey }: {
     case 'mcp':
       return <McpCard server={detail.server} tool={detail.tool} args={detail.args} result={detail.result} />;
     case 'monitor':
-      return <MonitorCard description={detail.description} command={detail.command} wsUrl={detail.wsUrl} persistent={detail.persistent} result={detail.result} />;
+      return <MonitorCard description={detail.description} command={detail.command} wsUrl={detail.wsUrl} persistent={detail.persistent} result={detail.result} isRunning={isRunning} />;
     case 'wait':
       return <WaitCard processId={detail.processId} until={detail.until} timeoutMs={detail.timeoutMs} result={detail.result} sessionKey={sessionKey} />;
     case 'bash_output':

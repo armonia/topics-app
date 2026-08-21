@@ -30,6 +30,7 @@ import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topic
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
+import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
@@ -105,6 +106,14 @@ export interface AgentTurnOptions {
    * programmare: è il caso di `complete` e dei test, non quello di una chat.
    */
   topics?: TopicsToolContext;
+  /**
+   * Il segnale che annulla il turno.
+   *
+   * Porta con sé anche la RAGIONE: chi annulla passa una {@link StopCause} a
+   * `abort(reason)`, e il ciclo la rilegge da `signal.reason` quando serve.
+   * Niente callback e niente campo parallelo — il segnale e il perché sono la
+   * stessa cosa, e tenerli in due posti è tenere due verità.
+   */
   signal?: AbortSignal;
   /**
    * L'uso di OGNI GIRO, appena il giro finisce.
@@ -403,7 +412,23 @@ export async function runAgentTurn(
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
-      return { turnEnd: { end: "cancelled", cause: "user" }, text: finalText, usage: total };
+      // ANCHE QUESTA USCITA PARLA.
+      //
+      // Prima faceva `return` e basta: nessun `onDone`, nessun `onError`,
+      // nessun `onAborted`. Chi ascolta — `routes/chat.ts` — finalizza il turno
+      // SOLO da uno di quei tre, quindi su questo ramo lo stream SSE restava
+      // aperto su un turno già morto, e a chiuderlo arrivava minuti dopo un
+      // watchdog, con la sua spiegazione sbagliata («il provider non risponde»).
+      // Un'uscita muta da un ciclo è una promessa non mantenuta a chi aspetta.
+      //
+      // La causa si legge dal segnale. Se chi ha annullato non l'ha dichiarata
+      // NON si inventa: il turno resta `cancelled` senza causa, e a valle
+      // `cancelledNotice` su quel ramo scrive comunque un cartello. Indovinare
+      // «user» è precisamente ciò che ha fatto sparire la spiegazione.
+      const causa = stopCauseFromSignal(opts.signal);
+      const end: TurnEndInfo = causa ? { end: "cancelled", cause: causa } : { end: "cancelled" };
+      handler.onAborted?.({ result: finalText, turnEnd: end });
+      return { turnEnd: end, text: finalText, usage: total };
     }
 
     // Si compatta PRIMA di chiedere, non dopo aver ricevuto un 400: a quel
@@ -443,6 +468,20 @@ export async function runAgentTurn(
     // protocollo, e invertirlo fa rifiutare la richiesta successiva.
     opts.history.push({ role: "assistant", content: forApi(round.blocks) });
 
+    // LA PROSA DI QUESTO GIRO SI TIENE, non solo quella dell'ultimo.
+    //
+    // `finalText` si popolava SOLO sul ramo che chiude il turno, quindi un
+    // turno interrotto a metà tornava al chiamante con testo VUOTO — anche
+    // quando il modello aveva già scritto delle frasi nei giri precedenti. In
+    // un turno agentico è la norma: si spiega cosa si sta per fare, si chiama
+    // un tool, si continua. Su un'uscita anticipata (abort, tetto dei giri)
+    // quel testo era l'unica cosa da mostrare sotto il cartello, e si perdeva.
+    //
+    // Si TIENE solo se questo giro ha prodotto prosa: un giro di soli tool non
+    // deve cancellare quello che era stato detto prima.
+    const prosaDelGiro = currentText(round.blocks);
+    if (prosaDelGiro.trim()) finalText = prosaDelGiro;
+
     const toolUses = round.blocks.filter((b) => b.type === "tool_use");
     if (round.stopReason !== "tool_use" || toolUses.length === 0) {
       finalText = currentText(round.blocks);
@@ -478,6 +517,24 @@ export async function runAgentTurn(
         content: out.content,
         ...(out.isError ? { is_error: true } : {}),
       });
+      // IL TURNO PUÒ ESSERE MORTO MENTRE QUESTO TOOL GIRAVA.
+      //
+      // Il controllo in cima al `for` esterno non basta: un turno sta quasi
+      // sempre fermo qui dentro, e riprendere il giro vorrebbe dire spendere
+      // una chiamata al modello — e i secondi che lo spegnimento non ha — per
+      // una risposta che nessuno leggerà. Peggio: senza uscire di qui non si
+      // chiama `onAborted`, e senza `onAborted` la route non finalizza, quindi
+      // la chat resta con la risposta troncata e nessuna spiegazione. È
+      // esattamente il 20/08 su topic:9f9e9629.
+      //
+      // Si esce SUBITO, con la prosa già scritta e la causa che viaggia nel
+      // segnale: il cartello lo compone `cancelledNotice` a valle.
+      if (opts.signal?.aborted) {
+        const causa = stopCauseFromSignal(opts.signal);
+        const end: TurnEndInfo = causa ? { end: "cancelled", cause: causa } : { end: "cancelled" };
+        handler.onAborted?.({ result: finalText, turnEnd: end });
+        return { turnEnd: end, text: finalText, usage: total };
+      }
     }
     opts.history.push({ role: "user", content: results });
   }

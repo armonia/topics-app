@@ -33,6 +33,7 @@ import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
 import { getTopicWorkspaceForSession, topicsAppBaseUrl } from "../claude-code";
 import type {
+  AbortReason,
   AIProvider,
   ChatMessage,
   CompletionResult,
@@ -42,6 +43,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
+import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
 /**
  * Il modello di partenza quando nessuno ne chiede uno.
@@ -158,6 +160,13 @@ interface NativeSession {
   history: AgentMessage[];
   /** `null` = questa topic non ha un progetto: niente tool di file. */
   workspace: string | null;
+  /**
+   * Il turno in volo. La RAGIONE di un eventuale annullamento non sta qui
+   * accanto: viaggia dentro il segnale (`abort(reason)` → `signal.reason`),
+   * che è il posto che la piattaforma prevede. Un campo parallelo sarebbe una
+   * seconda verità da tenere allineata a mano, cioè un posto in cui le due
+   * possono divergere — ed è da una divergenza così che nasce tutto questo.
+   */
   abort?: AbortController;
   model?: string;
   /** Quando questa sessione è stata toccata l'ultima volta. Serve allo sfratto. */
@@ -224,7 +233,16 @@ export class NativeProvider implements AIProvider {
     this.stopped = true;
     if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
     for (const s of this.sessions.values()) {
-      try { s.abort?.abort(); } catch { /* già finito */ }
+      // LA RAGIONE VIAGGIA DENTRO IL SEGNALE, anche qui.
+      //
+      // Un turno nativo vive DENTRO questo processo: quando il server si
+      // spegne non resta nessun figlio nel broker da riadottare, quindi
+      // questo `abort()` è la fine definitiva di quel turno, non una pausa.
+      // Senza la causa, `sendChat` scriveva `cancelled/user` e a valle tutto
+      // — registro della fine, `activity_log`, il cartello in chat — dava la
+      // colpa a un utente che non aveva toccato niente. Misurato il 20/08 su
+      // topic:9f9e9629: risposta troncata a metà frase, zero spiegazioni.
+      try { s.abort?.abort("server-shutdown" satisfies StopCause); } catch { /* già finito */ }
     }
     this.sessions.clear();
   }
@@ -407,7 +425,10 @@ export class NativeProvider implements AIProvider {
             : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),
           history: session.history,
           tools,
-          toolContext: { workspace: workspace ?? "" },
+          // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in
+          // cima al giro, ma un turno sta quasi sempre fermo dentro un tool, e
+          // da lì quel controllo non si raggiunge. Vedi `ToolContext.signal`.
+          toolContext: { workspace: workspace ?? "", signal: abort.signal },
           topics: topics ?? undefined,
           // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
           // sulla sessione: chi lo cambia in chat si aspetta che valga dal
@@ -438,9 +459,16 @@ export class NativeProvider implements AIProvider {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       // Un abort chiesto da noi non è un guasto: è la risposta a uno stop.
+      // CHI l'ha chiesto viaggia dentro il segnale. Se non c'è (un `abort()`
+      // senza argomenti, da una strada che non si è dichiarata) NON si
+      // indovina: resta `cancelled` senza causa, e `cancelledNotice` su quel
+      // ramo scrive comunque un cartello. Qui prima c'era `"user"` fisso, ed è
+      // esattamente la bugia che ha fatto sparire la spiegazione dalla chat.
       if (abort.signal.aborted) {
-        recordTurnEnd(sessionKey, { end: "cancelled", cause: "user" });
-        handler.onAborted?.({ result: "" });
+        const causa = stopCauseFromSignal(abort.signal);
+        const end: TurnEndInfo = causa ? cancelled(causa) : { end: "cancelled" };
+        recordTurnEnd(sessionKey, end);
+        handler.onAborted?.({ result: "", turnEnd: end });
         return {};
       }
       handler.onError(detail);
@@ -451,11 +479,27 @@ export class NativeProvider implements AIProvider {
     }
   }
 
-  async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {
+  /**
+   * `reason` è OBBLIGATORIO, e non ha un default.
+   *
+   * Un default qui sarebbe una risposta inventata a una domanda che il
+   * chiamante sa già: tutti e tre i chiamanti veri (`/api/chat/abort` →
+   * "user", i due watchdog di `routes/chat.ts` → "watchdog") la passano. Ed
+   * era proprio un default — `= "user"` — a trasformare uno spegnimento del
+   * server in «l'utente ha premuto stop», che è il difetto del 20/08. Se un
+   * domani nasce una quarta strada, il compilatore la ferma qui invece di
+   * lasciarle raccontare una bugia plausibile.
+   */
+  async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
     const s = this.sessions.get(sessionKey);
     if (!s?.abort) return;
-    void reason;
-    s.abort.abort();
+    // La ragione entra NEL segnale: `signal.reason` è dove la piattaforma la
+    // mette, ed è l'unico posto che non può divergere dal segnale stesso.
+    // Nessuna traduzione: `AbortReason` è per costruzione un sottoinsieme di
+    // `StopCause`, ed è per questo che è definito come tale — due vocabolari
+    // per la stessa cosa avrebbero avuto bisogno di una tabella, e una tabella
+    // è un posto in cui divergere.
+    s.abort.abort(reason satisfies StopCause);
   }
 
   /**

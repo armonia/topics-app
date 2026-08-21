@@ -197,6 +197,14 @@ export interface Task {
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
+  /** LE ALTRE evidenze allegate nel thread, per il carosello della card.
+   *
+   *  ASSENTE, non vuoto, quando non ce ne sono. Il cancello sul peso della
+   *  lista (`proiezione magra`, 1750 byte per task) mi ha preso: due campi
+   *  sempre presenti costano 7 byte a task su OGNI risposta, per un caso che
+   *  riguarda una card su dieci. `[]` e `undefined` si leggono uguale a valle
+   *  — il client fa `?? []` — ma solo uno dei due viaggia. */
+  previewImages?: string[];
   /**
    * L'anteprima è stata RITIRATA perché non era evidenza (duplicata, un
    * placeholder, un errore). È uno stato della card, non un messaggio nel
@@ -296,6 +304,11 @@ export interface Task {
    * tale. 'running' mentre il server li esegue.
    */
   checksState: "running" | "pass" | "fail" | "unknown" | null;
+  /** A che punto e' la corsa dei controlli, mentre `checksState` e' `running`.
+   *  ASSENTE quando non e' in corso o quando il progresso non e' noto: uno
+   *  zero qui direbbe «nessun comando fatto», che e' un'altra affermazione, e
+   *  un `null` esplicito costerebbe byte su ogni task per un caso raro. */
+  checksProgress?: { done: number; total: number } | null;
   checksAt: string | null;
   /** Il commit su cui sono girati: se il branch è avanzato, un 'pass' è scaduto. */
   checksCommit: string | null;
@@ -514,11 +527,43 @@ export type UpdateBoardSettingsPatch = BoardSettingsPatch;
  * un JSON storto (riga scritta a mano, formato di una versione precedente) vale
  * "nessuna evidenza", non un'eccezione che fa esplodere OGNI lettura del task.
  */
-function parseChecksJson(raw: unknown): CheckRun[] | null {
+export function parseChecksJson(raw: unknown): CheckRun[] | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length ? (parsed as CheckRun[]) : null;
+    if (Array.isArray(parsed)) return parsed.length ? (parsed as CheckRun[]) : null;
+    // FORMA NUOVA: `{ progress, runs }`, scritta mentre la corsa e' in volo.
+    // I `runs` parziali sono comunque risultati veri (i comandi gia' finiti),
+    // e chi legge questa funzione li vuole uguale.
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as { runs?: unknown }).runs)) {
+      const runs = (parsed as { runs: CheckRun[] }).runs;
+      return runs.length ? runs : null;
+    }
+    return null;
+  } catch { return null; }
+}
+
+/**
+ * A che punto e' la corsa dei controlli: `{ done, total }`, o `null`.
+ *
+ * Vive in `checks_json` accanto ai run parziali (vedi `recordChecks`). Esiste
+ * perche' la card diceva «check in corso» e basta — segnalato: «se c'e'
+ * qualcosa in corso, dovrebbe esserci un progress».
+ */
+export function parseChecksProgress(raw: unknown): { done: number; total: number } | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) || !parsed || typeof parsed !== "object") return null;
+    const p = (parsed as { progress?: unknown }).progress;
+    if (!p || typeof p !== "object") return null;
+    const { done, total } = p as { done?: unknown; total?: unknown };
+    // Numeri veri e coerenti, o niente: un «3 su 0» a schermo e' peggio del
+    // silenzio, e un NaN attraversa tutto fino alla card.
+    if (typeof done !== "number" || typeof total !== "number") return null;
+    if (!Number.isFinite(done) || !Number.isFinite(total)) return null;
+    if (total <= 0 || done < 0 || done > total) return null;
+    return { done, total };
   } catch { return null; }
 }
 
@@ -1087,6 +1132,10 @@ export interface TaskService {
     state: "running" | "pass" | "fail" | "unknown" | null;
     commit?: string | null;
     runs?: CheckRun[] | null;
+    /** A che punto e' la corsa: quanti comandi FINITI su quanti dichiarati.
+     *  Serve alla card, che diceva «check in corso» senza dire quanto manca —
+     *  segnalato: «se c'e' qualcosa in corso, dovrebbe esserci un progress». */
+    progress?: { done: number; total: number } | null;
   }): Task;
   /**
    * Spegne le spie «running» rimaste accese, e si chiama UNA VOLTA all'avvio.
@@ -1159,6 +1208,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const fileExists = opts.fileExists ?? existsSync;
   const writeDeliverySheet = opts.writeDeliverySheet;
 
+  /**
+   * L'ultima parola VERA del thread di una card, o `null`.
+   *
+   * «Vera» come sulla card: si saltano `status` (cronologia delle transizioni)
+   * e `service` (contabilita' del dispatcher), perche' non sono parole di
+   * nessuno — e' lo stesso taglio di `isThreadSpeech`, che il client applica
+   * prima di decidere cosa mostrare. Se le due divergessero, la scheda
+   * scriverebbe una riga che la card non mostra.
+   */
+  function ultimaParolaDelThread(taskId: string): string | null {
+    try {
+      const r = db.prepare(
+        `SELECT content FROM task_comments
+          WHERE task_id = ? AND COALESCE(kind, 'comment') NOT IN ('status', 'service')
+          ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      ).get(taskId) as { content?: string } | undefined;
+      const t = (r?.content ?? "").trim();
+      return t || null;
+    } catch { return null; }
+  }
+
+
   // ── Review-evidence promotion ──
   // The delivery protocol asks agents for update_task(previewImage=…), but in
   // practice they attach the evidence to the delivery COMMENT and the board
@@ -1177,6 +1248,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // nasceva morto: l'agente allegava il diagramma al commento di consegna e la
   // promozione lo saltava, lasciando la card cieca.
   const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|svg|webm|mp4|mov)$/i;
+  /** Quante evidenze al massimo finiscono nel carosello della card. Oltre, non
+   *  e' piu' un carosello ma un archivio, e quello e' il thread nel drawer. */
+  const PREVIEW_SLIDES_MAX = 8;
   const VIDEO_MEDIA = /\.(webm|mp4|mov)$/i;
 
   /**
@@ -1249,6 +1323,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         subtasksTotal: figli.length,
         subtasksDone: figli.filter((f) => f.status === "done").length,
         labels,
+        // COSA E' STATO FATTO, quando non ci sono numeri da mostrare.
+        //
+        // La stessa riga che la card disegna sopra il titolo: l'ultima parola
+        // vera del thread, saltando cronologia e contabilita' (`status` e
+        // `service` non sono parole di nessuno). Senza, il ramo senza codice
+        // scriveva «Nessun codice consegnato» — un'assenza al posto di
+        // un'informazione, sul 60% della larghezza della scheda.
+        summary: ultimaParolaDelThread(taskId),
       });
       const path = writeDeliverySheet(taskId, svg);
       if (!path) return;
@@ -1520,21 +1602,73 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     "     ELSE 1 END";
 
   /**
+   * «Questa riga l'ho scritta IO», in SQL.
+   *
+   * Serve alla finestra, e per una ragione misurata: `CARD_COMMENTS_DEPTH` ne
+   * porta tre, e su una card viva le note della macchina si accumulano DOPO
+   * l'ultima cosa che ho detto. Su `a41af39a` (20/08) fra il mio messaggio e la
+   * cima c'erano 26 righe, su `235afe11` 17, su `b673a253` 16: il mio messaggio
+   * stava in posizione SETTE e alla card non arrivava mai — non perche' il
+   * client lo scartasse, ma perche' il server non glielo mandava.
+   *
+   * Chiesto cosi': «da review dovrei SEMPRE vedere l'ultimo suo e mio
+   * messaggio». Senza questa riga il «sempre» valeva solo per i thread corti.
+   *
+   * Il gemello di `isHumanComment` (client) tenuto stretto come quello: solo
+   * `kind = 'comment'`, perche' il server firma `user` anche la propria
+   * narrazione quando una leva l'ha tirata una persona (Stop, archiviazione),
+   * e quelle non sono parole mie.
+   */
+  const SQL_MIA =
+    "CASE WHEN c.author = 'user' AND COALESCE(c.kind, 'comment') = 'comment' THEN 1 ELSE 0 END";
+
+  /**
    * Quanto testo di un commento viaggia sulla card, e sono DUE misure perché la
    * card ne disegna due in modo diverso.
    *
    * L'ULTIMA parola del thread la card la stampa intera, formattata, senza
    * clamp: quella tiene 1.200 caratteri (misurato il 15/08 sul DB di questa
    * macchina: 1.538 commenti idonei, 544 KB, il più lungo 4.020 caratteri —
-   * sopra il tetto ci finisce il 6% di loro). Quelle PRIMA di lei possono
-   * comparire solo come riga di contesto, che è una riga sola tagliata con
-   * `truncate`: lì 200 caratteri sono già più di quanto entri nel riquadro.
+   * sopra il tetto ci finisce il 6% di loro). Quelle PRIMA di lei compaiono
+   * come riga di contesto, sotto la risposta che stanno spiegando.
+   *
+   * ── PERCHÉ IL CONTESTO NON È PIÙ 200 ──────────────────────────────────────
+   * Erano 200 quando quella riga era «una riga sola tagliata con `truncate`»,
+   * e allora bastavano. Non lo è più da un pezzo: il client la ripiega su tre
+   * righe con un «mostra di più» che scatta a 190 caratteri
+   * (`RICHIESTA_PIEGA_CHARS`), e la sua doc promette «il testo c'è tutto,
+   * basta un click».
+   *
+   * Quella promessa era falsa, e di molto. Misurati i messaggi umani su questa
+   * macchina: 1.215 righe, mediana 520 caratteri, p90 1.776 — il 76% sopra i
+   * 200. Il bottone «mostra di più» apriva su un testo che il SERVER aveva già
+   * buttato: tre righe e poi il vuoto, senza che niente lo dicesse.
+   *
+   * Ora il contesto tiene 620, che è `COMMENTO_PIEGA_CHARS` del client: la
+   * soglia oltre la quale la card offre «mostra di più». Sotto quel numero il
+   * testo c'è davvero tutto e il bottone non compare; sopra, il bottone apre su
+   * qualcosa invece che sul vuoto.
+   *
+   * IL NUMERO NON È SCELTO, È IL PIÙ ALTO CHE STA NEL BUDGET. C'è un cancello
+   * sul peso del payload della board (`tests/integration/board-payload-weight`),
+   * e il suo commento nomina proprio questo errore fra i modi di sfondarlo:
+   * «togliendo il taglio del testo». Misurato per gradi sulla sua fixture:
+   * 200/400/620 passano, 800 sfonda (2.701 byte per task contro un tetto di
+   * 2.600), e 1.200 sfonda di brutto (2.968). Alzare il tetto per far entrare
+   * la mia scelta sarebbe stato spegnere il cancello invece di rispettarlo.
+   *
+   * Cosa compra: i messaggi umani interi passano dal 24% al 54% (1.215 righe su
+   * questa macchina). Il resto arriva tagliato ma con il pieghevole che ha
+   * qualcosa da aprire, che è il contratto che il client dichiara.
+   *
+   * Il costo in righe è misurato e trascurabile (vedi `cardCommentsFor`: 84
+   * righe in più su 1.980, query invariata a 57 ms su 18.579 commenti).
    *
    * Il dettaglio del task porta il thread intero: qui basta ciò che si legge su
    * una scheda.
    */
   const CARD_COMMENT_CHARS = 1200;
-  const CARD_CONTEXT_CHARS = 200;
+  const CARD_CONTEXT_CHARS = 620;
 
   /**
    * Il taglio del testo di un commento, CHE NON PUÒ SPEZZARE UNA ```question.
@@ -1575,6 +1709,62 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const DESCRIPTION_PREVIEW_CHARS = 240;
 
   /**
+   * Quanto testo SQL porta su, prima che si scelga da dove far partire
+   * l'anteprima.
+   *
+   * Piu' di 240 perche' l'inizio si SCARTA quando e' un preambolo (vedi
+   * `anteprimaUtile`): tagliando gia' in SQL a 240, il materiale per saltarlo
+   * non arriverebbe mai. Il taglio finale resta 240 — quello che cambia e' da
+   * dove si contano.
+   *
+   * 800 e non 5.000: il tetto esiste perche' la lista non trasporti le
+   * descrizioni intere (misurate p90 2.131 caratteri, massimo 5.186, su 1.147
+   * righe), che e' la ragione per cui `substr` sta in SQL. Copre un cappello
+   * lungo piu' l'elenco che segue, senza riaprire la porta che quel taglio
+   * chiudeva.
+   */
+  const PREVIEW_SQL_CHARS = 800;
+
+  /**
+   * L'anteprima parte da dove comincia la SOSTANZA, non dal preambolo.
+   *
+   * Segnalato guardando una card: «anche la descrizione non ha senso». Su
+   * `235afe11` i 240 caratteri dell'anteprima erano cosi':
+   *
+   *     «Potremmo fare una roba molto figa per poter assicurarci che il nostro
+   *      browser ide sia effettivamente perfetto e interessante.
+   *      - Omologare la cronologia delle tab di navigazione con la cronologia
+   *        delle tab normali.
+   *      - Metterlo anche come menu»
+   *
+   * Meta' dello spazio bruciata da una frase che non dice niente, e il secondo
+   * punto elenco tagliato a meta'. La sostanza — cosa c'e' da fare — comincia
+   * al primo trattino.
+   *
+   * Quindi: se il testo ha un ELENCO, l'anteprima parte da li'. E' un taglio
+   * strutturale, non un giudizio sul contenuto: non si decide che una frase e'
+   * inutile, si osserva che chi ha scritto ha messo i punti sotto un cappello,
+   * e che i punti sono la parte che si legge.
+   *
+   * Il preambolo non si perde: il drawer mostra la descrizione INTERA. Qui si
+   * sceglie solo da dove far partire i 240 caratteri che stanno sulla card.
+   */
+  function anteprimaUtile(testo: string): string {
+    const t = testo.trimStart();
+    // Il primo punto elenco, se comincia una RIGA (non un trattino in mezzo a
+    // una frase) e se ha del testo sopra: senza cappello non c'e' niente da
+    // saltare, e partire dal secondo punto perderebbe il primo.
+    const m = t.match(/\n\s*(?:[-*•]\s+|\d+[.)]\s+)/);
+    if (!m || m.index === undefined) return t;
+    const cappello = t.slice(0, m.index).trim();
+    // Un cappello CORTO e' gia' il punto, non un preambolo: «Tre cose da fare:»
+    // vale piu' del primo elenco. Si salta solo cio' che e' lungo abbastanza da
+    // mangiarsi l'anteprima.
+    if (cappello.length < 80) return t;
+    return t.slice(m.index).trimStart();
+  }
+
+  /**
    * Il taglio dell'anteprima sui percorsi a riga singola, CON LA STESSA UNITÀ
    * dell'altro.
    *
@@ -1585,7 +1775,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `Array.from` itera per punti di codice, che è l'unità di `substr`.
    */
   const previewOf = (s: string): string =>
-    Array.from(s).slice(0, DESCRIPTION_PREVIEW_CHARS).join("");
+    Array.from(anteprimaUtile(s)).slice(0, DESCRIPTION_PREVIEW_CHARS).join("");
 
   /**
    * LA PROIEZIONE DELLA LISTA: tutte le colonne meno le due grasse.
@@ -1612,9 +1802,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         .map((c) => c.name)
         .filter((n) => n !== "checks_json" && (withDescription || n !== "description"));
       if (!cols.length) throw new Error("no columns");
-      sql = `${cols.join(", ")}, substr(description, 1, ${DESCRIPTION_PREVIEW_CHARS}) AS description_preview`;
+      sql = `${cols.join(", ")}, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
     } catch {
-      sql = `*, substr(description, 1, ${DESCRIPTION_PREVIEW_CHARS}) AS description_preview`;
+      sql = `*, substr(description, 1, ${PREVIEW_SQL_CHARS}) AS description_preview`;
     }
     listColumnsCache.set(key, sql);
     return sql;
@@ -1702,6 +1892,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     retryCap: Map<string, number>;
     openChildren: Map<string, number>;
     comments: Map<string, CardComment[]>;
+    /** Le altre evidenze del thread, per il carosello della card. */
+    previewImages: Map<string, string[]>;
     queue: QueueRank | null;
     autoDispatch: boolean;
     heavy: boolean;
@@ -1809,11 +2001,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
                   row_number() OVER (
                     PARTITION BY c.task_id, ${SQL_PAROLA}
                     ORDER BY c.created_at DESC, c.rowid DESC) AS rn_parola,
+                  -- L'ULTIMA COSA CHE HO DETTO IO viaggia sempre, per quanto
+                  -- indietro sia finita sotto le note della macchina.
+                  row_number() OVER (
+                    PARTITION BY c.task_id, ${SQL_MIA}
+                    ORDER BY c.created_at DESC, c.rowid DESC) AS rn_mia,
+                  ${SQL_MIA} AS mia,
                   ${SQL_PAROLA} AS parola
              FROM task_comments c
             WHERE c.task_id IN (SELECT value FROM json_each(?))
               AND COALESCE(c.kind, 'comment') NOT IN ('status', 'service')
-         ) WHERE rn <= ${CARD_COMMENTS_DEPTH} OR (parola = 1 AND rn_parola = 1)
+         ) WHERE rn <= ${CARD_COMMENTS_DEPTH}
+              OR (parola = 1 AND rn_parola = 1)
+              OR (mia = 1 AND rn_mia = 1)
          ORDER BY task_id ASC, rn DESC`,
       ).all(idParam(ids)) as any[];
     } catch { return out; }
@@ -1881,6 +2081,54 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return out;
   }
 
+  /**
+   * LE ALTRE EVIDENZE di ogni card: i media allegati nel thread.
+   *
+   * A COSA SERVE. `preview_image` e' UNA sola — la copertina che il server ha
+   * scelto — e finora il resto restava sepolto nel thread. Ma un agente che
+   * consegna un lavoro visivo allega spesso piu' scatti (prima/dopo, tre
+   * schermate di un flusso), e chi guarda la board li vedeva solo aprendo il
+   * task e scorrendo i commenti. Segnalato: «assicuriamoci che la preview possa
+   * avere anche piu' slide navigabili».
+   *
+   * UNA QUERY PER PAGINA, non una per card: stesso motivo per cui i commenti
+   * passano da `cardCommentsFor`. Il tetto per card esiste perche' un thread
+   * lungo puo' avere decine di allegati, e un carosello da trenta slide non e'
+   * un carosello: e' un archivio, e quello sta nel drawer.
+   */
+  function previewImagesFor(ids: readonly string[]): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    if (ids.length === 0) return out;
+    /* Il tipo della riga e' DICHIARATO, non `any`: sono due colonne, si
+     * scrivono. Il cricchetto sugli `any` (`check:any-budget`) mi ha preso
+     * proprio qui, e aveva ragione — `r.media` su un `any` non avrebbe detto
+     * niente se un domani la colonna cambiasse nome. */
+    let rows: Array<{ task_id: string; media: string | null }>;
+    try {
+      rows = db.query(
+        `SELECT task_id, media FROM task_comments
+          WHERE task_id IN (SELECT value FROM json_each(?)) AND media IS NOT NULL
+          ORDER BY created_at ASC`,
+      ).all(JSON.stringify(ids)) as Array<{ task_id: string; media: string | null }>;
+    } catch { return out; }
+    for (const r of rows) {
+      if (!r.media) continue;
+      let files: unknown;
+      try { files = JSON.parse(r.media); } catch { continue; }
+      if (!Array.isArray(files)) continue;
+      for (const f of files) {
+        // Le stesse regole della promozione: path assoluto, estensione che
+        // qualcuno sa disegnare. Un `.pdf` fra le slide sarebbe un buco.
+        if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
+        const list = out.get(r.task_id);
+        if (!list) { out.set(r.task_id, [f]); continue; }
+        if (list.length >= PREVIEW_SLIDES_MAX) continue;
+        if (!list.includes(f)) list.push(f);
+      }
+    }
+    return out;
+  }
+
   function buildBatch(rows: readonly any[]): TaskBatch {
     const ids = rows.map((r) => r.id as string);
     const b: TaskBatch = {
@@ -1893,6 +2141,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       retryCap: new Map(),
       openChildren: new Map(),
       comments: cardCommentsFor(rows.filter(drawsCardComments).map((r) => r.id as string)),
+      previewImages: previewImagesFor(ids),
       queue: null,
       autoDispatch: false,
       heavy: false,
@@ -2046,8 +2295,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // a riga singola, che leggono `SELECT *`, si taglia qui. Una sola forma per
     // il client, due modi di arrivarci.
     const description: string | null = r.description ?? null;
+    // UNA SOLA REGOLA PER I DUE PERCORSI. `description_preview` arriva da SQL
+    // con piu' materiale del necessario (`PREVIEW_SQL_CHARS`) proprio perche'
+    // la scelta di DOVE cominciare si fa qui, in un posto solo: se il taglio
+    // finale vivesse in due punti, la card mostrerebbe cose diverse a seconda
+    // che la riga venga da una lista o da una scrittura ribaltata sul WS.
     const preview: string | null = r.description_preview !== undefined
-      ? (r.description_preview ?? null)
+      ? (r.description_preview === null ? null : previewOf(r.description_preview))
       : description === null ? null : previewOf(description);
     return {
       id: r.id,
@@ -2079,6 +2333,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
       urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
+      // I due campi RARI si aggiungono solo quando hanno un contenuto: vedi le
+      // note sui tipi. Su una lista di 600 task sono ~4 KB risparmiati.
+      ...(() => {
+        const slides = b.previewImages.get(r.id as string);
+        return slides && slides.length ? { previewImages: slides } : {};
+      })(),
+      ...(r.checks_state === "running"
+        ? (() => {
+            const p = parseChecksProgress(r.checks_json);
+            return p ? { checksProgress: p } : {};
+          })()
+        : {}),
+
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
       planFirst: !!r.plan_first,
@@ -2113,6 +2380,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       landingState: r.landing_state ?? null,
       landingCheckedAt: r.landing_checked_at ?? null,
       checksState: r.checks_state ?? null,
+
       checksAt: r.checks_at ?? null,
       checksCommit: r.checks_commit ?? null,
       // `checks_json` non è nella proiezione della LISTA (217 KB sui 1,4 MB del
@@ -4131,19 +4399,37 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Dentro `update()` il predicato BLOCCA (l'agente puo' riprovare). Qui
       // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
-      // subito che l'agente non ha dichiarato nulla. `kind='service'`:
-      // contabilita', non conversazione.
-      if (!hasFreshAgentComment(taskId)) {
-        try {
-          this.addComment({
-            taskId, author: "system", kind: "service",
-            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
-          });
-        } catch { /* best-effort */ }
-      }
+      // subito che l'agente non ha dichiarato nulla. Come, e in che ordine,
+      // sta scritto sul blocco stesso piu' sotto.
       if (reason && reason.trim()) {
         const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
         try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
+      }
+      // QUESTA NOTA VA SCRITTA PER ULTIMA, ed è il motivo per cui sta sotto
+      // `reason` e non sopra.
+      //
+      // La card mostra l'ULTIMA parola del thread. Nata prima della chiusura
+      // del fan-out, questa riga le finiva sotto — e siccome le due hanno lo
+      // stesso timestamp al secondo, a decidere l'ordine era il rowid. A
+      // schermo restava «Fan-out chiuso: 3 tentativi, 1 con modifiche», che è
+      // contabilità, mentre l'unica riga che spiega PERCHÉ la card è in review
+      // senza una parola dell'agente stava nascosta sotto (visto il 20/08 su
+      // 235afe11).
+      //
+      // Ed è `kind: 'comment'`, non più `'service'`: come service la card la
+      // scartava (`isThreadSpeech`), quindi era scritta in un thread che
+      // nessuno apre. Il primo rimedio che avevo tentato era un cartello
+      // generico sulla card — una fascia ambra che diceva «sotto c'è solo
+      // cronaca» sopra la cronaca stessa, senza il perché: più rumore di quanto
+      // ne togliesse. Meglio far arrivare la frase VERA, che il perché ce l'ha
+      // dentro.
+      if (!hasFreshAgentComment(taskId)) {
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "comment",
+            content: "Consegna senza riassunto: il turno e' finito prima che l'agente commentasse.",
+          });
+        } catch { /* best-effort */ }
       }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).
@@ -4272,6 +4558,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // non puo' — il turno e' finito — ma il fatto si ANNOTA: chi rivede sa
       // subito che l'agente non ha dichiarato nulla. `kind='service'`:
       // contabilita', non conversazione.
+      //
+      // QUI resta 'service' anche dopo che l'altro punto e' passato a
+      // 'comment', e la differenza e' cio' che viene dopo: li' la nota e'
+      // l'ultima cosa che il thread ha da dire, qui subito sotto arriva una
+      // DOMANDA con i suoi bottoni. Promuoverla le ruberebbe la cima della
+      // card — cioe' l'unica cosa che tiene ferma la review.
       if (!hasFreshAgentComment(taskId)) {
         try {
           this.addComment({
@@ -4701,9 +4993,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    recordChecks({ taskId, state, commit, runs }): Task {
+    recordChecks({ taskId, state, commit, runs, progress }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      /* IL PROGRESSO VIAGGIA DENTRO `checks_json`, non in una colonna nuova.
+       *
+       * Serve solo mentre lo stato e' `running` — un attimo, non un dato
+       * storico — e una migration per un valore che vive trenta secondi
+       * sarebbe sproporzionata. La forma resta leggibile da chi c'era prima:
+       * `runs` e' un array, questo e' un oggetto, e il client distingue i due
+       * casi guardando `Array.isArray`. */
+      const json = progress
+        ? JSON.stringify({ progress, runs: runs ?? [] })
+        : (runs && runs.length ? JSON.stringify(runs) : null);
       db.prepare(
         "UPDATE tasks SET checks_state = ?, checks_at = ?, checks_commit = ?, checks_json = ?, updated_at = ? WHERE id = ?",
       ).run(
@@ -4712,7 +5014,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // falsa alla riga "verdi alle 14:32".
         state === "running" ? null : now(),
         commit ?? null,
-        runs && runs.length ? JSON.stringify(runs) : null,
+        json,
         now(),
         taskId,
       );

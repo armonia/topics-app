@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Cpu, FileDiff, GitBranch, Hand, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -18,6 +18,8 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
+import { DeliveryFiles } from './DeliveryFiles';
+import { isDeliverySheetPath } from '../../../../shared/media-kind';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskChoices, usableQuestionOptions } from './taskChoices';
@@ -808,9 +810,32 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           reso come thumbnail sopra il titolo — la review parte guardando la
           cosa. Il click passa alla card (apre il drawer). object-top: di un
           full-page si vede la testata, non un centro anonimo. */}
-      {task.previewImage && (
+      {/* LA SCHEDA DI CONSEGNA NON VA SULLA CARD, e non e' un ripensamento:
+          e' la misura di cosa e' diventata. Era il rimedio a «9 card su 16 con
+          il riquadro vuoto», e il ragionamento era buono — un silenzio vale
+          come segnale solo se e' raro. Misurato oggi: **4 card su 10 in review
+          mostrano una scheda**, cioe' il rimedio e' diventato la norma, e
+          quello che si vede aprendo la board non e' piu' l'evidenza del
+          lavoro ma un disegno che ripete la card.
+
+          E ripete davvero: titolo, file toccati, righe aggiunte e tolte, ramo.
+          Sono gli stessi quattro fatti che la card ha gia' scritti sopra, nel
+          titolo e nel chip della consegna. Tre delle quattro non hanno nemmeno
+          i numeri (delivery_files_changed vuoto) e dicono «Nessun codice
+          consegnato»: il 60% della larghezza della card per ripetere il
+          titolo e dichiarare un'assenza.
+
+          Resta nel DRAWER, dove lo spazio non e' conteso e dove il riassunto
+          della consegna e' cio' che si sta cercando. Sulla card torna il
+          riquadro vuoto — che qui e' l'informazione giusta: «questa consegna
+          non ha ancora un'evidenza da guardare». */}
+      {task.previewImage && !isDeliverySheetPath(task.previewImage) && (
         <PreviewMedia
           path={task.previewImage}
+          // Le ALTRE evidenze del thread: il carosello si naviga con la
+          // rotella e il click apre il lightbox. Vuoto = una slide sola, e il
+          // componente si comporta come prima.
+          paths={task.previewImages}
           variant="card"
           // Il click nudo sulla card apre il drawer sul Thread; questo apre lo
           // stesso task con l'anteprima GIÀ in primo piano come tab.
@@ -1083,7 +1108,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
-            ><Hand className="h-3 w-3 shrink-0" /> {tr('board.card.movedByHand')}</span>
+            >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
+                  «la vedo sgranata», e misurata lo e' davvero. A 12px il
+                  viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'
+                  DENSA dell'intero set della card: 45,7px di linea da stipare
+                  in un lato di 12 (contro i 27 di questa, i 12,6 di un
+                  `user-round`, i 2 comandi di `circle-slash`). Nessun tratto
+                  piu' spesso lo ripara: il problema non e' lo spessore — 1px
+                  CSS su dpr 2 fa 2px fisici, cioe' nitido — ma il DETTAGLIO
+                  che non ci sta, cinque dita in dodici pixel.
+                  Le due frecce dicono anche meglio cosa e' successo: la card
+                  e' stata SPOSTATA, e chi l'ha spostata e' scritto accanto. */}
+              <ArrowRightLeft className="h-3 w-3 shrink-0" /> {tr('board.card.movedByHand')}</span>
           )}
           {checksGreen && (
             <span
@@ -1095,9 +1131,47 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {checksRunning && (
             <span
               data-testid="card-checks-running"
-              title={tr('board.card.checksRunningTitle')}
+              title={task.checksProgress
+                ? tr('board.card.checksRunningProgressTitle', {
+                    done: task.checksProgress.done, total: task.checksProgress.total,
+                  })
+                : tr('board.card.checksRunningTitle')}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-muted"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksRunning')}</span>
+            >
+              <Hourglass className="h-3 w-3 shrink-0" />
+              {/* A CHE PUNTO E', non solo «in corso». Segnalato: «vedo che c'e'
+                  qualcosa in corso, ma se c'e' qualcosa in corso dovrebbe
+                  esserci un progress». Il dato c'era gia' — `runReviewChecks`
+                  espone `onProgress` e i comandi girano uno per uno — e non lo
+                  leggeva nessuno.
+                  Quando il progresso non e' noto (una corsa partita prima di
+                  questo codice) si torna alla parola di prima, invece di
+                  mostrare uno «0/0» che sembra una misura. */}
+              {task.checksProgress
+                ? tr('board.card.checksRunningProgress', {
+                    done: task.checksProgress.done, total: task.checksProgress.total,
+                  })
+                : tr('board.card.checksRunning')}
+              {task.checksProgress && (
+                // La barra: due numeri si leggono, una barra si coglie senza
+                // leggere. Larghezza fissa perche' in una riga di chip un
+                // elemento che cresce col contenuto fa ballare i vicini.
+                <span className="ml-0.5 h-1 w-6 overflow-hidden rounded-full bg-white/15" aria-hidden>
+                  <span
+                    /* NON `card-…`: quel prefisso e' riservato ai CHIP della
+                     * fascia, e un cancello (`card-meta-row-completeness`)
+                     * pretende che ognuno abbia una riga in `hasMetaRow` —
+                     * giustamente, perche' un chip fuori da quella condizione
+                     * non monta mai. Questa non e' un chip: e' il riempimento
+                     * DENTRO il chip dei check, e la sua condizione e' gia'
+                     * quella del chip che la contiene. */
+                    data-testid="checks-progress-bar"
+                    className="block h-full rounded-full bg-app-text-muted transition-all"
+                    style={{ width: `${Math.round((task.checksProgress.done / task.checksProgress.total) * 100)}%` }}
+                  />
+                </span>
+              )}
+            </span>
           )}
           {/* NON MISURATI, e si deve leggere diverso da rosso. Ambra e non rosa:
               rosso dice «il codice e' rotto, non approvare», questo dice «non lo
@@ -1138,39 +1212,33 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.conductorCloses')}</span>
           )}
-          {/* I FILE MODIFICATI CHIUDONO LA RIGA, e non e' una questione di
-              gusto. Stavano in mezzo — dopo l'eta' della review, prima dei
-              checks — quindi «3 file +120 -8» si leggeva come un chip di stato
-              qualunque, in fila con «in attesa da 2h» e «checks verdi».
-              Segnalato: «per i file modificati li potremmo mettere in fondo,
-              invece che mischiarli con le altre chip». In fondo e per ultimo:
-              e' l'unico chip che misura la CONSEGNA invece di descrivere la
-              card, e a fine riga (o su una riga sua, quando la riga va a capo)
-              si stacca da sola dagli altri.
-              Solo in review: nelle altre colonne non c'è ancora una consegna da
-              pesare. `null` (non misurato) non disegna niente, perché uno zero
-              direbbe «non ha prodotto niente», che è un'altra affermazione. */}
-          {deliveryStat !== null && (
-            <span
-              data-testid="card-delivery-stat"
-              title={tr('board.card.deliveryStatTitle', {
-                files: deliveryStat,
-                add: task.deliveryInsertions ?? 0,
-                del: task.deliveryDeletions ?? 0,
-                commit: task.deliveryCommit?.slice(0, 8) ?? '?',
-              })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
-            >
-              <FileDiff className="h-3 w-3 shrink-0" />
-              {tr('board.card.deliveryFiles', { n: deliveryStat })}
-              {/* I due numeri con i loro colori: il verde e il rosso qui non
-                  sono uno stato ma un VERSO, ed è l'unica cosa che distingue
-                  una consegna che aggiunge da una che cancella. */}
-              <span className="text-emerald-400">+{task.deliveryInsertions ?? 0}</span>
-              <span className="text-rose-400">-{task.deliveryDeletions ?? 0}</span>
-            </span>
-          )}
+          {/* I FILE MODIFICATI NON SONO PIU' UN CHIP QUI.
+              Stavano in fondo a questa riga, e la posizione era gia' il
+              risultato di una correzione — «per i file modificati li potremmo
+              mettere in fondo, invece che mischiarli con le altre chip». Ma
+              restavano un CONTEGGIO: dicevano quanto e mai cosa, e davanti a
+              una consegna da rivedere «quali file ha toccato» e' la prima
+              domanda. Adesso sono un elenco che si apre, in fondo alla card e
+              prima dell'input: vedi `DeliveryFiles.tsx`. */}
         </div>
+      )}
+      {/* I FILE DELLA CONSEGNA, in fondo e PRIMA dell'input.
+          Chiuso e' il conteggio di sempre; aperto, i percorsi con le loro
+          righe. Sta qui e non fra i chip perche' e' l'unica cosa della card
+          che si puo' APRIRE: in mezzo a una riga di etichette un elemento
+          interattivo non si distingue da quelli che non lo sono.
+          Solo in review: nelle altre colonne non c'e' ancora una consegna da
+          pesare. `null` (non misurato) non disegna niente, perche' uno zero
+          direbbe «non ha prodotto niente», che e' un'altra affermazione. */}
+      {deliveryStat !== null && (
+        <DeliveryFiles
+          projectId={task.projectId}
+          taskId={task.id}
+          files={deliveryStat}
+          insertions={task.deliveryInsertions ?? 0}
+          deletions={task.deliveryDeletions ?? 0}
+          commit={task.deliveryCommit ?? null}
+        />
       )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
           message is buffered and handed to the agent at the next turn. */}
@@ -1314,6 +1382,29 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   `selectCardComments`), quindi il segno serve proprio nel caso in
                   cui non c'e' nient'altro con cui confrontarla. Anche il colore
                   scende a `muted`: e' contorno, non la parola della consegna. */}
+              {/* IL CARTELLO «nessun riassunto» E' STATO TOLTO, e la ragione
+                  e' la stessa per cui e' uscita la scheda di consegna: ripeteva
+                  qualcosa che c'era gia'.
+
+                  Visto a schermo (20/08, card 235afe11): una fascia ambra
+                  MAIUSCOLA larga quanto la card che diceva «NESSUN RIASSUNTO
+                  DELLA CONSEGNA: SOTTO C'E' SOLO LA CRONACA DELLA MACCHINA», e
+                  subito sotto la cronaca stessa. Due righe per dire «quello che
+                  segue non vale molto» prima di mostrarlo: piu' rumore di
+                  quanto ne togliesse, su una card che ha gia' un titolo, un
+                  chip di consegna e due bottoni.
+
+                  L'informazione vera non manca — il dispatcher la scrive gia'
+                  nel thread («Consegna senza riassunto: il turno e' finito
+                  prima che l'agente commentasse»), con dentro anche il PERCHE',
+                  che un cartello generico non ha. Quella nota e' `kind:
+                  'service'`, quindi oggi la card la scarta: farla arrivare e'
+                  il modo giusto di risolvere questo, e vale piu' di
+                  un'etichetta che ripete il titolo di se' stessa.
+
+                  Resta `latestIsPlumbing` in `cardComments.ts`: la decisione e'
+                  giusta e provata, e serve a chi vorra' disegnarla meglio. Qui
+                  si toglie solo il modo in cui la disegnavo io. */}
               {noteDiMacchina && (
                 <span
                   data-testid="card-comment-system-tag"

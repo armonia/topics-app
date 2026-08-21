@@ -65,6 +65,53 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   'When you need the OUTCOME of something long, do not poll: `mcp__topics__wait_for_process`',
   'blocks until it exits (or until a line matches `until`) and returns only the new output,',
   'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
+  // ── ASPETTARE SENZA RESTARE FERMI ──
+  // Le due attese sono diverse e la differenza è per chi legge: `wait_for_process`
+  // TIENE il turno (l'utente vede la clessidra e non può parlarti finché non
+  // torni), `Monitor` lo CHIUDE e ti risveglia quando succede. Su un build da
+  // venti minuti la prima è una chat bloccata per venti minuti.
+  //
+  // Questa riga esiste perché la risposta del Monitor, fino al 20/08/2026, si
+  // perdeva: la CLI la consegnava aprendo un turno nuovo e Topics non lo
+  // ascoltava. Adesso quel turno viene adottato e compare in chat come una
+  // risposta qualsiasi — quindi il consiglio si può dare senza mandare l'agente
+  // a parlare nel vuoto.
+  //
+  // «se ce l'hai» non è prudenza generica: `Monitor` è dietro un flag lato CLI
+  // (`tengu_amber_sentinel`, letto da GrowthBook a ogni avvio) e su una macchina
+  // dove è spento il tool NON esiste. Prometterlo come se ci fosse sempre
+  // manderebbe l'agente a cercare uno strumento assente, e la risposta a quel
+  // buco è la stessa di sempre: `wait_for_process`, che è nostro e c'è per
+  // definizione.
+  'If the wait would be LONG (a full build, a test suite, a deploy) and you have nothing',
+  'else to do meanwhile, and a `Monitor` tool is available to you, prefer it with an',
+  'until-loop: it ends your turn and wakes you when the event lands, so the user keeps a',
+  'live chat instead of a frozen one, and its answer arrives as a normal message in the',
+  'conversation. Otherwise, or for short waits, or when you need the outcome to keep',
+  'working right now, use `mcp__topics__wait_for_process`.',
+  'Never sleep-and-poll in a shell loop: it burns a turn per check and tells the user nothing.',
+  // ── LO SHELL IN BACKGROUND: SVEGLIA, MA NON SEMPRE ──
+  //
+  // Il 20/08, su topic:205d1fbb, alla domanda «perché non ti metti in wait?»
+  // l'agente ha risposto «Armata. Mi sveglia quando finisce» — e aveva lanciato
+  // un `Bash` con `until … done` e `run_in_background: true`, non un `Monitor`.
+  //
+  // Ho creduto fosse una promessa vuota e stavo per vietarla. MISURATO invece:
+  // il turno si è chiuso, il batch è finito diciotto minuti dopo, e la CLI ha
+  // aperto un turno da sola con l'esito — `[woken] topic:205d1fbb: la CLI ha
+  // aperto un turno da sola`. La risposta è arrivata in chat come una normale.
+  //
+  // Quindi il consiglio giusto non è «non farlo», è «sappi da cosa dipende»:
+  // quel risveglio lo decide la CLI, non noi, e su un comando che non termina
+  // (o che nessuno chiude) non arriva mai. `Monitor` invece è fatto per questo.
+  'A background shell can also end your turn and report back when it finishes: the CLI',
+  'reopens the conversation with its output. But that is its behaviour, not a guarantee',
+  'you control: a command that never terminates never reports, AND it dies with the CLI.',
+  'A server restart kills the wait, its output file just says `[killed]`, and nobody is',
+  'ever woken. Prefer `Monitor` when the point IS being woken. If you promise the user a',
+  'wake-up, make sure the command can actually end, and say what you will do if it does',
+  'not arrive. You can always come back and read it yourself with',
+  '`mcp__topics__read_process_output`.',
   'Only fall back to a bare shell command when no matching package.json script exists',
   'or the command is a short one-off.',
 ].join(' ');

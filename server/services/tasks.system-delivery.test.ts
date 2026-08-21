@@ -79,11 +79,27 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
     const commenti = db.prepare(
       "SELECT content, kind FROM task_comments WHERE task_id = ? ORDER BY created_at",
     ).all(taskId) as Array<{ content: string; kind: string }>;
-    // Deve esserci una nota di servizio che annota la consegna muta.
-    const notaMuta = commenti.find(
-      (c) => c.kind === "service" && c.content.includes("senza riassunto"),
-    );
+    // Deve esserci la nota che annota la consegna muta.
+    const notaMuta = commenti.find((c) => c.content.includes("senza riassunto"));
     expect(notaMuta, "nota 'senza riassunto' deve comparire nel thread").toBeTruthy();
+
+    // E DEVE ARRIVARE FINO ALLA CARD, che e' il punto: come `kind: 'service'`
+    // la card la scartava (`isThreadSpeech`) e restava scritta in un thread che
+    // nessuno apre. A schermo si vedeva la sola contabilita' del fan-out, e chi
+    // rivedeva doveva indovinare perche' non ci fosse un riassunto (20/08,
+    // card 235afe11).
+    expect(notaMuta!.kind).toBe("comment");
+
+    // ED E' L'ULTIMA PAROLA, non una riga sepolta. La card mostra l'ultima del
+    // thread: nata prima della chiusura del fan-out questa le finiva sotto, e
+    // con lo stesso timestamp al secondo a decidere era il rowid.
+    //
+    // «Ultima» si misura su cio' che la card GUARDA: le righe `status` e
+    // `service` sono cronologia e contabilita', e `isThreadSpeech` le scarta
+    // prima di decidere. Misurarla su tutte le righe farebbe fallire questo
+    // test per un `in_progress→review` che a schermo non arriva mai.
+    const parlate = commenti.filter((c) => c.kind !== "status" && c.kind !== "service");
+    expect(parlate[parlate.length - 1]!.content).toContain("senza riassunto");
   });
 
   test("(b) turno con commento: nessuna nota di consegna muta", () => {

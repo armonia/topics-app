@@ -25,6 +25,7 @@
  */
 
 import type { TaskFile } from "../../shared/task-labels";
+import { RESIDUE_SUBJECT } from "./worktree-residue";
 
 export interface GitRunResult {
   code: number;
@@ -159,10 +160,36 @@ export async function otherLocalBranches(
   return lines(res.stdout).filter((r) => !excluded.has(r));
 }
 
-/** Argomenti del `rev-list` che isola i commit propri, `--not` incluso solo se serve. */
+/**
+ * Argomenti del `rev-list` che isola i commit propri, `--not` incluso solo se serve.
+ *
+ * IL COMMIT DI RESIDUO NON E' UNA CONSEGNA, e va tolto qui.
+ *
+ * Quando la potatura trova un worktree sporco non butta le modifiche: le
+ * committa da sola con `RESIDUE_SUBJECT`, per non perderle. Quel commit e'
+ * pero' indistinguibile da un commit dell'agente per chi conta i commit propri,
+ * e da li' in poi la card dichiara un debito che non ha. Misurato il 21/08 su
+ * tre card (`86931f04`, `f0613e3b`, `5bfd7356`): la pastiglia rossa «non e' su
+ * main» accusava un lavoro che su main c'era gia', e il loro `delivery_commit`
+ * era esattamente il commit di salvataggio. I timestamp lo dicono: residui alle
+ * 16:31 del 19/08, card aggiornate alle 16:33. In repo ce ne sono 96, e il
+ * numero cresce a ogni potatura di un worktree sporco.
+ *
+ * Il filtro sta QUI e non in chi chiama perche' `rangeArgs` e' l'unico passaggio
+ * comune a `listOwnCommits` e `countOwnCommits`, cioe' a tutti e sette i
+ * consumatori — fra cui `landing-verdict.ts`, che e' proprio chi scrive
+ * `unlanded`. Metterlo a valle vorrebbe dire scriverlo sette volte e
+ * dimenticarlo all'ottavo.
+ *
+ * `--fixed-strings` perche' il soggetto e' testo, non una regex: senza, un
+ * metacarattere nel soggetto cambierebbe in silenzio cosa viene filtrato.
+ */
 function rangeArgs(branch: string, mainRef: string, others: readonly string[]): string[] {
   const range = `${refName(mainRef)}..${refName(branch)}`;
-  return others.length ? [range, "--not", ...others.map(refName)] : [range];
+  const senzaResidui = ["--fixed-strings", `--grep=${RESIDUE_SUBJECT}`, "--invert-grep"];
+  return others.length
+    ? [...senzaResidui, range, "--not", ...others.map(refName)]
+    : [...senzaResidui, range];
 }
 
 /** Gli altri branch: quelli passati da chi chiama, o enumerati adesso. */

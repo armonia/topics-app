@@ -35,7 +35,8 @@
  * Le regole che questo modulo rende l'unica strada:
  *
  *   - **una coda sola**, per `sessionKey` (non per topic: la sessione è ciò che
- *     streamma), durevole, condivisa da tutte le finestre e visibile nel badge;
+ *     streamma), durevole, condivisa da tutte le finestre e visibile in UN posto
+ *     solo — le bolle «da inviare» nel trascritto (`components/Chat/QueuedTurns`);
  *   - **chi drena è uno solo**: la testa si estrae con `claimBatch`, che prende
  *     una prenotazione a scadenza — due finestre non spediscono lo stesso
  *     messaggio due volte;
@@ -371,8 +372,9 @@ export function releaseClaim(sessionKey: string, clientId: string): void {
 /**
  * «Ferma» vuol dire fermo. Alza una bandiera DUREVOLE (quindi la vedono anche
  * le altre finestre, che dello stop si accorgerebbero solo come «lo streaming è
- * finito» e ripartirebbero a spedire). La coda resta dov'è, visibile nel badge:
- * la si può correggere, buttare, o far ripartire scrivendo il messaggio dopo.
+ * finito» e ripartirebbero a spedire). La coda resta dov'è, in chiaro nel
+ * trascritto: la si può correggere sul posto, buttare, far ripartire subito
+ * («invia subito») o scrivendo il messaggio dopo.
  */
 export function holdQueue(sessionKey: string): void {
   storage.setItem(HOLD_PREFIX + sessionKey, String(Date.now()));

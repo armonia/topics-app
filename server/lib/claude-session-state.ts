@@ -148,6 +148,31 @@ export function isKnownHookEvent(name: string): name is HookEventName {
  */
 const HUMAN_INPUT_TOOLS = new Set<string>(['AskUserQuestion', 'ExitPlanMode']);
 
+/**
+ * I tool che ARMANO UN'ATTESA: partono e non finiscono con la loro chiamata.
+ *
+ * `Monitor` torna subito — la sua risposta è la ricevuta dell'armamento
+ * («Monitor started, task …») — e poi il turno chiude. Ma la sessione non è
+ * inattiva: c'è qualcosa che sorveglia un build, e la risposta arriverà come
+ * turno NUOVO (il risveglio, `providers/claude/woken-turn.ts`). Senza saperlo,
+ * lo `Stop` che segue la spegne ad `awaiting-user` e la chat che sta aspettando
+ * si legge uguale a una chat che ha smesso di rispondere.
+ *
+ * PERCHÉ DA QUI E NON DAGLI HOOK. La fase `watching` esisteva già, accesa da
+ * due eventi `MonitorArmed`/`MonitorClosed` che Claude Code NON EMETTE PIÙ:
+ * verificato sul binario 2.1.237, la sua lista di eventi hook ne conta 31 e
+ * nessuno dei due c'è. Erano quindi una spia cablata a un interruttore staccato,
+ * e la fase non si accendeva mai. I due eventi restano riconosciuti (un CLI più
+ * vecchio potrebbe mandarli, e ignorarli sarebbe una regressione gratuita), ma
+ * il segnale VIVO è il `PreToolUse` di `Monitor`, che arriva sempre.
+ */
+const WATCH_ARMING_TOOLS = new Set<string>(['Monitor']);
+
+/** Questo tool, partendo, lascia un'attesa aperta dietro di sé? */
+export function armsBackgroundWatch(toolName: string | undefined): boolean {
+  return !!toolName && WATCH_ARMING_TOOLS.has(toolName);
+}
+
 export function isHumanInputTool(toolName: string | undefined): boolean {
   return !!toolName && HUMAN_INPUT_TOOLS.has(toolName);
 }
@@ -250,6 +275,18 @@ export function applyHook(
       return transition(base, {
         phase: 'tool-running',
         lastTool: tool,
+        // Un `Monitor` che parte lascia un'ATTESA dietro di sé: si segna qui,
+        // perché è l'unico segnale che la CLI manda davvero (vedi
+        // `armsBackgroundWatch`). Non tocca la fase — il tool sta partendo, ed è
+        // `tool-running` come ogni altro — ma sopravvive fino allo `Stop` di
+        // fine turno, che senza questo flag spegnerebbe la sessione ad
+        // `awaiting-user` mentre qualcosa sorveglia ancora.
+        //
+        // Non si SPEGNE mai qui: un secondo tool nello stesso turno non
+        // disarma il monitor del primo. Lo spengono `SessionStart`/`SessionEnd`
+        // (una sessione nuova non eredita attese) e `MonitorClosed`, quando un
+        // CLI abbastanza vecchio da mandarlo lo manda.
+        ...(armsBackgroundWatch(hook.tool_name) ? { monitorArmed: true } : {}),
         // Clear any lingering approval: if we were parked at awaiting-approval
         // (a permission was DENIED and Claude moved straight on to a different
         // tool, so no PostToolUse cleared it) the old pendingApproval would

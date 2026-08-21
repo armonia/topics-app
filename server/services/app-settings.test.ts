@@ -43,8 +43,7 @@ beforeAll(() => {
     if (!f.endsWith(".sql")) continue;
     writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
   }
-  process.env.DATA_DIR = join(tmpRoot, "data");
-  initDatabase(tmpRoot);
+    initDatabase(tmpRoot);
   for (const k of ENV_KEYS) saved[k] = process.env[k];
 });
 

@@ -4,6 +4,7 @@ import { adaptEnvelope, assembleTopicContext } from "../context";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
 import { regenerationPromptBlock, type EvidenceToolCall } from "./regenerate-evidence";
+import { providerSurvivesRestart } from "../lib/quiescence";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -153,7 +154,8 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
 
       // Create partial assistant message as child of the new user message
       const partialMsg = createBranchPartialMessage(sessionKey, newUserMsgId);
-      startStream(sessionKey, partialMsg.id, abortController);
+      // Il provider di questa topic regge un riavvio? Vedi `ActiveStream`.
+      startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
       broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
       const originalBody = resp.body!;

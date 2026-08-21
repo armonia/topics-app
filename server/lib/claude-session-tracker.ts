@@ -166,6 +166,13 @@ export interface ClaudeSessionTracker {
    */
   notePtyActivity(claudeSessionId: string, now?: number): boolean;
   /**
+   * L'attesa aperta da un `Monitor` è finita: la sua risposta è arrivata.
+   * Spegne `monitorArmed` per quella chat, così lo `Stop` del turno risvegliato
+   * la riporta a riposo invece di lasciarla in `watching` per sempre.
+   * Torna `false` se non c'era nessuna attesa armata (idempotente).
+   */
+  noteWatchDelivered(sessionKey: string, now?: number): boolean;
+  /**
    * Register a topic-less terminal claude session so its hooks resolve. These
    * have no `claude_code_sessions` row (the table's PK is a topic session_key
    * with an FK to topics), so their phase lives in-memory keyed by
@@ -259,6 +266,32 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   const isSessionLocallyDriven = opts.isSessionLocallyDriven ?? (() => false);
   const forkStaleMs = opts.forkStaleMs ?? 8_000;
   const forkScanCooldownMs = opts.forkScanCooldownMs ?? 10_000;
+
+  /**
+   * LE ATTESE ARMATE, che il DB non sa tenere.
+   *
+   * `monitorArmed` è deliberatamente SENZA COLONNA (vedi il campo in
+   * `shared/types.ts`): conta solo per una sessione viva, e dopo un riavvio del
+   * server la fase `watching` si ricarica da sola dalla colonna `phase`.
+   *
+   * Ma «senza colonna» qui significava «perso al primo giro»: ogni transizione
+   * passa da `repo.update()` e poi rilegge la riga, e `rowToState` quel campo
+   * non lo conosce. Il flag moriva quindi FRA UN HOOK E IL SUCCESSIVO, non al
+   * riavvio — cioè non arrivava mai allo `Stop` che doveva guardarlo, che è
+   * l'unica cosa per cui esiste. Verificato: `PreToolUse(Monitor)` + `Stop` su
+   * una sessione DB-backed dava `awaiting-user`, come se nessuno stesse
+   * sorvegliando niente.
+   *
+   * Questo Set è la memoria che mancava: sta accanto al DB, non dentro, e vive
+   * quanto il processo — esattamente la durata dichiarata per quel campo.
+   */
+  const attesArmate = new Set<string>();
+
+  /** Rimette il flag sullo stato appena riletto dal DB, che lo ha perso. */
+  function conAttesa(s: ClaudeSessionState): ClaudeSessionState {
+    if (!s.sessionKey) return s;
+    return attesArmate.has(s.sessionKey) ? { ...s, monitorArmed: true } : s;
+  }
 
   // Dedup map: claudeSessionId|event → DedupEntry
   const dedupMap = new Map<string, DedupEntry>();
@@ -396,7 +429,14 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     // Topic sessions live in the DB; topic-less terminal sessions in-memory.
     const dbPrev = repo.loadByClaudeSessionId(sid);
     if (dbPrev) {
-      const next = snapOffsetIfPathChanged(dbPrev, applyHook(dbPrev, payload, t));
+      // Il flag dell'attesa si rimette PRIMA di applicare l'hook (il DB l'ha
+      // perso) e si rilegge DOPO (l'hook può averlo acceso o spento). Vedi
+      // `attesArmate`.
+      const next = snapOffsetIfPathChanged(dbPrev, applyHook(conAttesa(dbPrev), payload, t));
+      if (next.sessionKey) {
+        if (next.monitorArmed) attesArmate.add(next.sessionKey);
+        else attesArmate.delete(next.sessionKey);
+      }
       const res = commit(dbPrev, next);
       return { kind: 'ok', state: res.state, changed: res.changed };
     }
@@ -434,6 +474,29 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const memPrev = terminalStates.get(claudeSessionId);
     if (memPrev) return commitTerminal(memPrev, reviveOnPtyActivity(memPrev, t)).changed;
     return false;
+  }
+
+  /**
+   * L'ATTESA È FINITA: il Monitor ha consegnato.
+   *
+   * Si chiama per `sessionKey` e non per `claudeSessionId` perché chi lo sa è il
+   * server, che adotta il turno risvegliato conoscendo la chiave della chat
+   * (vedi `adottaTurniRisvegliati` in server.ts). È l'equivalente vivo del vecchio
+   * hook `MonitorClosed`, che questa CLI non manda più.
+   *
+   * Fa una cosa sola: spegne `monitorArmed`. La FASE non la tocca, ed è
+   * deliberato — quando questo scatta il turno risvegliato sta già partendo, e i
+   * suoi hook (`PreToolUse`, `Stop`) la muovono da soli. Toccarla qui sarebbe
+   * una seconda mano sullo stesso volante. Ciò che conta è che lo `Stop` di
+   * QUEL turno non trovi il flag ancora acceso, o la sessione resterebbe in
+   * `watching` con nessuno che guarda più niente.
+   */
+  function noteWatchDelivered(sessionKey: string, overrideNow?: number): boolean {
+    const t = overrideNow ?? now();
+    if (!attesArmate.delete(sessionKey)) return false; // nessuna attesa: no-op
+    const prev = repo.loadBySessionKey(sessionKey);
+    if (!prev) return false;
+    return commit(prev, { ...prev, monitorArmed: false, updatedAt: t, rev: prev.rev + 1 }).changed;
   }
 
   function registerTerminalSession(claudeSessionId: string, regOpts?: { cwd?: string; now?: number }): void {
@@ -560,11 +623,17 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   }
 
   function getSession(claudeSessionId: string): ClaudeSessionState | null {
-    return repo.loadByClaudeSessionId(claudeSessionId) ?? terminalStates.get(claudeSessionId) ?? null;
+    const s = repo.loadByClaudeSessionId(claudeSessionId);
+    // `conAttesa` anche qui: chi legge lo stato deve vedere l'attesa armata,
+    // non solo chi applica un hook. Le sessioni in memoria il flag ce l'hanno
+    // già dentro — non passano dal DB, quindi non lo perdono.
+    if (s) return conAttesa(s);
+    return terminalStates.get(claudeSessionId) ?? null;
   }
 
   function getSessionByKey(sessionKey: string): ClaudeSessionState | null {
-    return repo.loadBySessionKey(sessionKey);
+    const s = repo.loadBySessionKey(sessionKey);
+    return s ? conAttesa(s) : null;
   }
 
   /**
@@ -875,6 +944,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     notePtyCrash,
     noteDormant,
     notePtyActivity,
+    noteWatchDelivered,
     registerTerminalSession,
     dropTerminalSession,
     reapOnce,

@@ -293,33 +293,26 @@ export class ContextPage {
   // Use data-testid when available (worktree build), fall back to
   // content/structural selectors for the production build.
 
-  /** The inspector panel root: the inner flex-col div with "Context Inspector" header */
+  /** The inspector panel root. Il testid e' il contratto: il titolo e' passato
+   *  da "Context Inspector" a "Contesto"/"Context" e vive nell'i18n. */
   get inspector() {
     return this.page
       .locator('[data-testid="context-inspector"]')
       .or(
         this.page.locator(
-          '.flex.flex-col.h-full.bg-surface.border-l:has(span:text-is("Context Inspector"))',
+          '.flex.flex-col.h-full.bg-surface.border-l:has([data-testid="context-budget-bar"])',
         ),
       );
   }
 
-  /** Budget bar: contains "Context Budget" text */
+  /** Budget bar: il blocco in cima col grafico. */
   get budgetBar() {
-    return this.page
-      .locator('[data-testid="context-budget-bar"]')
-      .or(
-        this.inspector.locator(':has(> div > span:text-is("Context Budget"))').first(),
-      );
+    return this.page.locator('[data-testid="context-budget-bar"]');
   }
 
-  /** Percentage text: tabular-nums span with "%" */
+  /** Percentage text */
   get budgetPercent() {
-    return this.page
-      .locator('[data-testid="budget-percent"]')
-      .or(
-        this.inspector.locator("span.tabular-nums").filter({ hasText: "%" }),
-      );
+    return this.page.locator('[data-testid="budget-percent"]');
   }
 
   /** Warnings section: contains "warning" text */

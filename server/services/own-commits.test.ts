@@ -10,6 +10,7 @@ import {
   type GitRunResult,
 } from "./own-commits";
 import { deriveKind } from "../../shared/task-labels";
+import { RESIDUE_SUBJECT } from "./worktree-residue";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -26,6 +27,14 @@ function commit(repo: string, file: string, body: string, msg: string): void {
 }
 
 const subject = (repo: string, sha: string) => git(repo, "log", "-1", "--format=%s", sha);
+
+/**
+ * I flag che `rangeArgs` antepone SEMPRE per togliere i commit di residuo della
+ * potatura. Stanno qui in una costante e non copiati in ogni attesa: cosi' i
+ * test che seguono continuano a parlare di cio' che verificano davvero, cioe'
+ * il `--not` e il numero di `rev-list`, invece di ripetere il filtro tre volte.
+ */
+const SENZA_RESIDUI = ["--fixed-strings", `--grep=${RESIDUE_SUBJECT}`, "--invert-grep"];
 
 /**
  * Un repo VERO, montato come si monta il difetto: una sessione umana che lavora
@@ -236,21 +245,21 @@ describe("own-commits — il runner iniettato", () => {
     const n = await countOwnCommits("/repo", "mio", { runGit: run, others: ["refs/heads/altro"] });
     expect(n).toBe(1);
     expect(calls.some((c) => c[0] === "for-each-ref")).toBe(false);
-    expect(calls[0]).toEqual(["rev-list", "--count", "refs/heads/main..refs/heads/mio", "--not", "refs/heads/altro"]);
+    expect(calls[0]).toEqual(["rev-list", "--count", ...SENZA_RESIDUI, "refs/heads/main..refs/heads/mio", "--not", "refs/heads/altro"]);
   });
 
   test("senza altri branch il `--not` non compare affatto", async () => {
     calls.length = 0;
     await listOwnCommits("/repo", "mio", { runGit: run, others: [] });
-    expect(calls[0]).toEqual(["rev-list", "refs/heads/main..refs/heads/mio"]);
+    expect(calls[0]).toEqual(["rev-list", ...SENZA_RESIDUI, "refs/heads/main..refs/heads/mio"]);
   });
 
   test("le due liste: `--not` solo se c'è da sottrarre, e una `rev-list` sola quando non c'è", async () => {
     calls.length = 0;
     const conAltri = await splitAheadCommits("/repo", "mio", { runGit: run, others: ["refs/heads/altro"] });
     expect(calls.map((c) => c.join(" "))).toEqual([
-      "rev-list refs/heads/main..refs/heads/mio",
-      "rev-list refs/heads/main..refs/heads/mio --not refs/heads/altro",
+      `rev-list ${SENZA_RESIDUI.join(" ")} refs/heads/main..refs/heads/mio`,
+      `rev-list ${SENZA_RESIDUI.join(" ")} refs/heads/main..refs/heads/mio --not refs/heads/altro`,
     ]);
     expect(conAltri!.others).toEqual(["refs/heads/altro"]);
 
@@ -420,5 +429,59 @@ describe("mergeNameStatus — il flag «nato qui», su git vero", () => {
     commit(repo, "client-src-nuovo.ts", "roba corretta\n", "fix");
     const fix = git(repo, "rev-parse", "HEAD");
     expect(deriveKind(mergeNameStatus([show(fix)]))).toBe("bugfix");
+  });
+});
+
+/**
+ * IL COMMIT DI RESIDUO NON CONTA COME CONSEGNA.
+ *
+ * Quando la potatura trova un worktree sporco committa le modifiche da sola,
+ * per non perderle. Quel commit finiva fra i «commit propri» del branch, e da
+ * lì la card dichiarava un debito che non aveva: tre card reali il 21/08
+ * mostravano la pastiglia «non è su main» con quel commit come consegna.
+ *
+ *   main      base
+ *   solo-res  base ← R          (SOLO un residuo: zero commit propri)
+ *   mista     base ← M ← R      (un commit vero più un residuo)
+ */
+describe("own-commits — il residuo della potatura non è un commit proprio", () => {
+  let repo: string;
+  let shaM: string;
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "own-residuo-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "T");
+    commit(repo, "base.txt", "base", "base");
+
+    git(repo, "checkout", "-q", "-b", "solo-res");
+    commit(repo, "sporco.txt", "wip", RESIDUE_SUBJECT);
+
+    git(repo, "checkout", "-q", "main");
+    git(repo, "checkout", "-q", "-b", "mista");
+    commit(repo, "vero.txt", "lavoro", "Il lavoro vero della card");
+    shaM = git(repo, "rev-parse", "HEAD");
+    commit(repo, "sporco2.txt", "wip", RESIDUE_SUBJECT);
+  });
+
+  afterAll(() => rmSync(repo, { recursive: true, force: true }));
+
+  test("un branch che porta SOLO un residuo non ha commit propri", async () => {
+    expect(await listOwnCommits(repo, "solo-res", { others: [] })).toEqual([]);
+    expect(await countOwnCommits(repo, "solo-res", { others: [] })).toBe(0);
+  });
+
+  test("su un branch misto resta il commit vero, e il puntatore di consegna è quello", async () => {
+    const own = await listOwnCommits(repo, "mista", { others: [] });
+    expect(own).toEqual([shaM]);
+    expect(subject(repo, own![0])).toBe("Il lavoro vero della card");
+    expect(await countOwnCommits(repo, "mista", { others: [] })).toBe(1);
+  });
+
+  test("il soggetto è filtrato come TESTO, non come regex", () => {
+    // Se un metacarattere del soggetto venisse interpretato, il filtro
+    // cambierebbe in silenzio ciò che toglie. `--fixed-strings` lo impedisce.
+    expect(RESIDUE_SUBJECT).toBe("Residuo non committato, messo al sicuro dalla potatura");
   });
 });

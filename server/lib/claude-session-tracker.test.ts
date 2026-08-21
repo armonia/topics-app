@@ -950,3 +950,65 @@ describe('ClaudeSessionTracker — seguire il FORK del transcript (sessione adot
     expect(row(db, 'topic-cooldown').jsonl_path).toContain('55555555');
   });
 });
+
+/**
+ * L'ATTESA SI SPEGNE QUANDO IL MONITOR CONSEGNA.
+ *
+ * `monitorArmed` è ciò che tiene una chat in `watching` attraverso lo `Stop` di
+ * fine turno: senza, una sessione che sorveglia un build si legge come una che
+ * ha smesso di rispondere. Ma una spia che non si spegne più è peggio di una
+ * che non si accende: quando il risveglio arriva (`adottaTurniRisvegliati` in
+ * server.ts) l'attesa è finita, e questo è il metodo che lo dice.
+ *
+ * Vive qui e non in `applyHook` perché non nasce da un hook: nasce dal server,
+ * che ha appena visto la CLI riaprire da sola. È il sostituto vivo del vecchio
+ * `MonitorClosed`, che questa CLI non manda più.
+ */
+describe('ClaudeSessionTracker — noteWatchDelivered', () => {
+  it('spegne l\'attesa armata, e allora lo Stop riporta la chat a riposo', () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    seedSession(db, 'topic-w', 'cli-w');
+    const tracker = makeTracker(db, rec);
+
+    // L'agente arma la sorveglianza e chiude il turno: la chat resta in ascolto.
+    tracker.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'cli-w', tool_name: 'Monitor' }, T0 + 10);
+    tracker.ingestHook({ hook_event_name: 'Stop', session_id: 'cli-w' }, T0 + 20);
+    expect(tracker.getSessionByKey('topic-w')?.phase).toBe('watching');
+
+    // Il Monitor consegna: l'attesa è chiusa.
+    expect(tracker.noteWatchDelivered('topic-w', T0 + 30)).toBe(true);
+    // `falsy` e non `false`: il flag non ha una colonna, quindi «spento» si
+    // legge come assente. Le due cose sono la stessa affermazione — non c'è
+    // nessuna attesa armata — e pretendere il booleano esatto legherebbe il
+    // test alla forma dello stato invece che al fatto.
+    expect(tracker.getSessionByKey('topic-w')?.monitorArmed).toBeFalsy();
+
+    // E adesso lo `Stop` del turno risvegliato riporta a riposo, invece di
+    // riaccendere `watching` su una sorveglianza che non c'è più.
+    // Oltre la finestra di dedup (100ms qui): due `Stop` ravvicinati sono per
+    // il tracker lo stesso evento ripetuto, e il secondo verrebbe scartato —
+    // il che renderebbe questo test verde per il motivo sbagliato.
+    tracker.ingestHook({ hook_event_name: 'Stop', session_id: 'cli-w' }, T0 + 500);
+    expect(tracker.getSessionByKey('topic-w')?.phase).toBe('awaiting-user');
+  });
+
+  it('senza attesa armata non fa niente, e non spende un rev', () => {
+    // Idempotente per costruzione: il server lo chiama a ogni risveglio senza
+    // sapere se c'era un Monitor dietro, e un rev speso a vuoto e' un broadcast
+    // a tutti i client per una cosa che non e' cambiata.
+    const db = freshDb();
+    const rec = makeRecorder();
+    seedSession(db, 'topic-x', 'cli-x');
+    const tracker = makeTracker(db, rec);
+    const prima = tracker.getSessionByKey('topic-x')?.rev;
+
+    expect(tracker.noteWatchDelivered('topic-x', T0 + 10)).toBe(false);
+    expect(tracker.getSessionByKey('topic-x')?.rev).toBe(prima!);
+  });
+
+  it('una chat che non esiste non e\' un errore', () => {
+    const tracker = makeTracker(freshDb(), makeRecorder());
+    expect(tracker.noteWatchDelivered('topic-mai-esistita', T0 + 10)).toBe(false);
+  });
+});

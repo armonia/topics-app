@@ -22,6 +22,7 @@ import type {
   ProviderDiagnostic,
   ProviderRequirement,
   StreamHandler,
+  AbortReason,
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
@@ -47,6 +48,7 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
+import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor } from "./claude/woken-turn";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -949,7 +951,7 @@ interface PersistentProcess {
   /** Who asked for the abort — "user" (default) or "watchdog" (stream
    *  timeout). Only affects the exit log label so a watchdog kill is never
    *  misread as the human pressing stop. */
-  abortReason?: "user" | "watchdog";
+  abortReason?: AbortReason;
   /** Set when a `--resume` failed because the session is gone (we've already
    *  forgotten it, next spawn is fresh). The turn can't finish, but it's a
    *  recoverable reset — onSessionClosed surfaces a clear "resend" note instead
@@ -957,6 +959,22 @@ interface PersistentProcess {
   recovering?: boolean;
   /** Current streaming handler (set during sendChat, null otherwise) */
   streamHandler: StreamHandler | null;
+  /**
+   * Gli eventi di un turno che la CLI ha aperto DA SOLA, tenuti da parte finché
+   * non arriva un handler che li possa ricevere.
+   *
+   * Serve perché fra «la CLI ricomincia a parlare» e «il server ha aperto una
+   * riga e registrato un handler» passano un giro di event loop e una INSERT, e
+   * in quel buco ci passano i primi eventi del turno. Buttarli per una questione
+   * di tempistica sarebbe lo stesso difetto di prima, più piccolo e più
+   * difficile da vedere.
+   *
+   * `null` = non aspettiamo nessuno; un array = c'è un'adozione in volo e questi
+   * eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
+   */
+  wokenBuffer?: unknown[] | null;
+  /** `description` dell'ultimo `Monitor`: il «COSA» del risveglio. */
+  ultimoMonitor?: string;
   /** Pending promise resolvers for sendChat */
   pendingResolve: ((result: { runId: string }) => void) | null;
   pendingReject: ((err: Error) => void) | null;
@@ -1166,6 +1184,105 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   private cliCompat: ClaudeCliCompat | null = null;
 
+  /**
+   * CHI VUOLE SAPERE CHE UN TURNO È NATO DA SOLO — e come si arma.
+   *
+   * Un `Monitor` consegna il suo evento aprendo un TURNO NUOVO, e dopo un
+   * `result` `pp.streamHandler` è null: quel turno cadeva blocco per blocco.
+   * Non si era perso il tool, si perdeva la sua RISPOSTA. La traccia misurata
+   * sta in testa a `claude-code-woken-turn.test.ts`.
+   *
+   * STATICO: al boot `claude-code` NON è ancora registrato — `initProvider`
+   * avvia il default e lancia `initProviders()` fire-and-forget, ed è quella a
+   * sondare il PATH. Una sveglia armata sull'istanza trovava `undefined` e
+   * usciva zitta: cablaggio perfetto, mai collegato. Vale anche a caldo, perché
+   * `registerProvider` SOSTITUISCE l'istanza a ogni cambio di modello.
+   */
+  static observeWokenTurns(fn: (sessionKey: string, label?: string) => void): void {
+    ClaudeCodeProvider.onWokenTurn = fn;
+  }
+  private static onWokenTurn: ((sessionKey: string, label?: string) => void) | null = null;
+
+  /**
+   * IL TURNO È STATO CHIESTO — anche se non è ancora partito.
+   *
+   * La route chiama questo PRIMA di `sendChat`; `claude-code` non lo
+   * implementava, e la chiamata (metodo opzionale) cadeva nel vuoto. L'handler
+   * arrivava solo dentro `sendChatInternal`, cioè DOPO la coda per sessione:
+   * una finestra lunga quanto il turno precedente, in cui la sessione era
+   * indistinguibile da una che parla senza che nessuno abbia chiesto niente —
+   * e il rilevamento del risveglio la adottava. Misurato sulla chat 205d1fbb
+   * il 20/08: TRE `[woken]` per UN Monitor, il primo dei quali era il turno
+   * appena chiesto dall'utente, la cui riga restava vuota.
+   */
+  registerStreamHandler(sessionKey: string, _runId: string | undefined, handler: StreamHandler): void {
+    const pp = this.processes.get(sessionKey);
+    // Nessun processo: lo spawn è dentro `sendChatInternal`, che installerà
+    // l'handler da sé. Crearlo qui spawnerebbe un figlio per una route che
+    // potrebbe rigettare un attimo dopo.
+    if (!pp) return;
+    pp.streamHandler = handler;
+    // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
+    this.drainWokenBuffer(pp);
+  }
+
+  /**
+   * Il turno è finito e nessuno guida più questa sessione. PRENDE L'HANDLER e
+   * lo confronta invece di azzerare alla cieca: la route chiude i turni in
+   * ordine sparso, e un `= null` incondizionato spegnerebbe quello NUOVO. NON
+   * tocca `wokenBuffer`: se la CLI apre un turno da sola, è l'unica copia.
+   */
+  unregisterStreamHandler(sessionKey: string, handler?: StreamHandler): void {
+    const pp = this.processes.get(sessionKey);
+    if (!pp) return;
+    if (handler && pp.streamHandler !== handler) return; // ha già preso qualcun altro
+    pp.streamHandler = null;
+  }
+
+  /**
+   * Adotta il turno che la CLI ha aperto da sola: registra l'handler e gli
+   * consegna, NELL'ORDINE, gli eventi arrivati mentre il server apriva la riga.
+   *
+   * È il gemello di `reattach` per il caso opposto. `reattach` adotta un turno
+   * partito PRIMA che noi esistessimo (riavvio del server) e per farlo rilegge
+   * lo store del broker; qui il turno è partito ADESSO e i suoi byte li abbiamo
+   * già: non c'è niente da rileggere, c'è da non buttare.
+   *
+   * `false` = niente da adottare: figlio morto, o qualcun altro sta già guidando
+   * — una persona che scrive mentre il Monitor consegna. Vince il turno vero e
+   * il risveglio si fonde con lui: gli eventi in buffer sono dello stesso figlio.
+   */
+  adoptWokenTurn(sessionKey: string, handler: StreamHandler): boolean {
+    const pp = this.processes.get(sessionKey);
+    if (!pp || !pp.alive) return false;
+    // «Occupata da sé stessa» non è occupata: la route registra l'handler PRIMA
+    // di guidare. Con `!== null` si rifiutava OGNI risveglio (dieci sveglie,
+    // zero risposte): si guarda CHI c'è, non SE.
+    if (pp.streamHandler && pp.streamHandler !== handler) {
+      // Guida davvero qualcun altro: quegli eventi appartengono al suo stream.
+      pp.wokenBuffer = null;
+      return false;
+    }
+    pp.streamHandler = handler;
+    this.drainWokenBuffer(pp);
+    return true;
+  }
+
+  /**
+   * Ripiega sull'handler appena registrato gli eventi tenuti da parte.
+   *
+   * L'ordine è quello di arrivo e non è un dettaglio: `assistant` cumulativi,
+   * `tool_use` e `tool_result` si deducono a vicenda, e consegnarli mescolati
+   * darebbe una riga di chat plausibile e sbagliata.
+   *
+   * Il buffer si azzera PRIMA di ripiegare: `handleStreamEvent` rientra qui
+   * dentro per ognuno di quegli eventi, e trovare ancora il buffer aperto lo
+   * farebbe rimettere in coda ciò che sta consumando.
+   */
+  private drainWokenBuffer(pp: PersistentProcess): void {
+    drainWoken(pp, (ev) => this.handleStreamEvent(pp, ev));
+  }
+
   constructor(config: ClaudeCodeProviderConfig) {
     this.config = config;
   }
@@ -1243,6 +1360,25 @@ export class ClaudeCodeProvider implements AIProvider {
         try { getAiBridgeClient().detach(key); } catch { /* daemon gone — nothing to detach */ }
       } else {
         console.log(`[claude-code] Shutdown: killing process for ${key}`);
+        // IL TURNO CHE STIAMO PER UCCIDERE DEVE SAPERLO — e con lui la chat.
+        //
+        // Senza broker il figlio muore QUI, e `killProcess` non avvisa nessuno:
+        // niente `onDone`, niente `onError`, niente `onAborted`. Ma la route
+        // finalizza il turno solo da uno di quei tre, quindi la risposta a
+        // schermo restava a metà frase, senza spiegazione e senza «Riprova» —
+        // lo stesso identico guasto del 20/08 sul runtime nativo
+        // (topic:9f9e9629), su un altro provider e su un ramo che questa
+        // macchina non percorre perché ha il broker acceso.
+        //
+        // Chi ha il broker passa dal ramo sopra e il suo turno sopravvive
+        // davvero: lì non c'è niente da annunciare. Qui invece la morte è
+        // certa, quindi si dice con la sua causa e il cartello arriva in chat.
+        if (pp.alive && pp.streamHandler) {
+          const h = pp.streamHandler;
+          pp.streamHandler = null;
+          try { h.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
+          catch (err) { console.warn(`[claude-code] avviso di spegnimento non consegnato per ${key}:`, err); }
+        }
         this.killProcess(pp);
       }
     }
@@ -1670,7 +1806,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Abort ---
 
-  async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {
+  async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
@@ -2784,10 +2920,28 @@ export class ClaudeCodeProvider implements AIProvider {
   // --- NDJSON Event Handling ---
 
   private handleStreamEvent(pp: PersistentProcess, event: any): void {
-    const handler = pp.streamHandler;
+    // `let` e non `const`: la sveglia del turno spontaneo qui sotto può
+    // installare un handler DENTRO questa stessa chiamata, e da lì in poi il
+    // resto della funzione deve vedere quello, non lo `null` di un attimo fa.
+    let handler = pp.streamHandler;
     // Che cosa è questa riga. La decodifica sta in `claude/events.ts`, puro:
     // qui restano solo le decisioni che hanno bisogno dello stato del processo.
     const line = classifyStreamLine(event);
+
+    // ── IL TURNO CHE NASCE DA SOLO ──
+    // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.
+    if (isWokenTurnLine({
+      hasHandler: !!handler,
+      replayMute: !!pp.replayMute,
+      replaySilent: !!pp.replaySilent,
+      kind: line.kind,
+    })) {
+      // Tenuto da parte finché qualcuno non adotta: `bufferWoken` apre il
+      // buffer, chiama la sveglia e dice se fermarsi qui.
+      if (bufferWoken(pp, event, ClaudeCodeProvider.onWokenTurn)) return;
+      // Adozione sincrona riuscita: da qui in giù vale il nuovo handler.
+      handler = pp.streamHandler;
+    }
 
     // Compaction boundary (CHAT-COMPACT-01): lift it out BEFORE the generic
     // `system` drop below. Skip during reattach replay (replayMute scan /
@@ -2866,8 +3020,35 @@ export class ClaudeCodeProvider implements AIProvider {
       // other error result.
       const errText = readResultErrorText(event);
       if (errText !== null && looksLikeMissingSessionError(errText)) this.markMissingSessionRecovery(pp);
-      const resultText = event.result ?? "";
-      if (!resultText || resultText === "waiting for message") return;
+
+      // UN `result` VUOTO CHIUDE IL TURNO LO STESSO — e non chiuderlo è quello
+      // che ha rotto `/compact`.
+      //
+      // La guardia qui sotto scartava OGNI result senza testo, non solo la
+      // sentinella d'attesa. Sembra innocuo finché non si guarda cosa emette la
+      // CLI quando compatta davvero (registrato il 20/08/2026, CLI 2.1.237):
+      //
+      //   {"type":"result","subtype":"success","is_error":false,
+      //    "num_turns":0,"stop_reason":null,"result":"","duration_ms":46756}
+      //
+      // Nessun testo, perché una compattazione non produce una risposta: il suo
+      // esito è il `compact_boundary` che è già passato. Ma è comunque LA fine
+      // del turno, l'unico frame che risolve `pendingResolve` e ferma il
+      // watchdog. Scartandolo, il turno restava aperto per sempre: la promessa
+      // non si risolveva, il turno seguente si accodava dietro di lei, e a
+      // trenta minuti il watchdog uccideva il figlio scrivendo in chat
+      // «Nessuna attività dal modello per 30 minuti. Turno terminato.» — sopra
+      // una compattazione perfettamente RIUSCITA. Verificato su topic:44d914ec:
+      // `/compact` alle 10:42, `compact_boundary` alle 10:45 (marker salvato,
+      // divider disegnato), turno ucciso alle 11:15 con 1.975.077 ms di latenza.
+      // Ed è anche il motivo per cui la coda non partiva: il drain è appeso alla
+      // fine di uno stream, e questo stream non finiva mai.
+      //
+      // Resta fuori SOLO la sentinella letterale `waiting for message`, che è
+      // l'unica riga che la CLI emette a vuoto senza che nessun turno sia in
+      // corso (vedi `RESULT_WAITING` nelle fixture).
+      const resultText = typeof event.result === "string" ? event.result : "";
+      if (resultText === "waiting for message") return;
 
       if (handler) {
         // PERCHÉ è finito: la CLI lo dice qui e finora lo buttavamo via. A valle
@@ -3072,6 +3253,7 @@ export class ClaudeCodeProvider implements AIProvider {
             const skillName = (block.input as Record<string, unknown> | undefined)?.skill;
             (pp.skillToolNames ??= new Map()).set(toolId, typeof skillName === "string" ? skillName : "");
           }
+          ricordaMonitor(pp, toolName, block.input); // il «COSA» del prossimo risveglio
           const input = block.input as Record<string, unknown> | undefined;
           if (pp.activeToolCalls.has(toolId)) {
             // Already announced EARLY by handlePartialStreamEvent (args were
