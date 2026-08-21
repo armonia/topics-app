@@ -20,6 +20,17 @@ interface Richiesta {
   code: string;
   name: string;
   ip: string | null;
+  /**
+   * Where it knocks from, said in words.
+   *
+   * The card used to show the address alone: `192.168.1.7` and `95.253.69.40`
+   * look the same, and telling them apart required knowing what `192.168.`
+   * means. Whoever approves should read a fact, not deduce one.
+   *
+   * Optional: an older server does not send it, and then the address is shown
+   * as it was.
+   */
+  from?: 'locale' | 'lan' | 'internet' | 'ignota';
 }
 
 export function PairingApproval() {
@@ -107,7 +118,24 @@ export function PairingApproval() {
             <Smartphone size={14} className="text-app-text-secondary" />
             <span className="text-[13px] font-medium text-app-text">{r.name} chiede accesso</span>
           </div>
-          {r.ip && <div className="mt-0.5 text-[11px] text-app-text-muted">{tr('pair.from', { ip: r.ip.replace(/^::ffff:/, '') })}</div>}
+          {/* WHERE FROM, in words, with the address behind it.
+
+              Something arriving from outside stands out at a glance: it is the
+              only case where this card genuinely asks for attention, and a
+              colour saying so spares the reading to whoever is about to
+              approve in a hurry. An older server sends no `from`, and then the
+              previous line remains. */}
+          {(r.from || r.ip) && (
+            <div
+              className={`mt-0.5 text-[11px] ${
+                r.from === 'internet' ? 'text-amber-600 dark:text-amber-500' : 'text-app-text-muted'
+              }`}
+            >
+              {r.from && r.from !== 'ignota' ? tr(`pair.origin.${r.from}`) : null}
+              {r.from && r.from !== 'ignota' && r.ip ? ' · ' : null}
+              {r.ip ? r.ip.replace(/^::ffff:/, '') : null}
+            </div>
+          )}
 
           <div className="mt-3 rounded-lg bg-app-bg py-2 text-center font-mono text-[22px] font-semibold tracking-[0.1em] text-app-text">
             {r.code}

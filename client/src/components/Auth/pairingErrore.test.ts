@@ -113,3 +113,30 @@ describe('pairing · lo stato si vede, e non lampeggia', () => {
     }
   });
 });
+
+/**
+ * ── WHERE THE KNOCK COMES FROM ──────────────────────────────────────────────
+ *
+ * The approval card composes its key from the value the server sends
+ * (`pair.origin.<from>`), which means a new origin added on the server side
+ * without a translation would paint the key itself on screen. There is no
+ * compiler between those two sides, so the check lives here.
+ */
+describe('pairing · ogni provenienza ha una frase, in entrambe le lingue', () => {
+  test('locale, lan e internet si leggono in italiano e in inglese', () => {
+    const italiane = new Set(chiaviDelCatalogo());
+    const inglesi = EN as Record<string, string>;
+    for (const from of ['locale', 'lan', 'internet'] as const) {
+      const chiave = `pair.origin.${from}`;
+      expect(`${chiave} in it: ${italiane.has(chiave)}`).toBe(`${chiave} in it: true`);
+      expect(`${chiave} in en: ${typeof inglesi[chiave] === 'string'}`).toBe(`${chiave} in en: true`);
+    }
+  });
+
+  test('«ignota» NON ha una frase, ed è deliberato', () => {
+    // When we do not know where it comes from, the card stays quiet instead
+    // of inventing a fact: showing "unknown origin" would alarm over data we
+    // do not have. The key must not exist, or somebody would use it.
+    expect(new Set(chiaviDelCatalogo()).has('pair.origin.ignota')).toBe(false);
+  });
+});

@@ -151,6 +151,9 @@ const IT: Dict = {
   'pair.preparing': 'Preparo la richiesta…',
 
   'pair.from': 'da {ip}',
+  'pair.origin.locale': 'Da questo computer',
+  'pair.origin.lan': 'Dalla tua rete',
+  'pair.origin.internet': 'Da fuori casa',
   'pair.verifyCode': 'Autorizza solo se questo codice è lo stesso mostrato su quel dispositivo.',
   'pair.mine': 'È mio',
   'pair.whose': 'Di chi è?',

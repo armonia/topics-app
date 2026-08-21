@@ -21,6 +21,7 @@ import {
 } from "../lib/orgs";
 import { consentito } from "../lib/licenza";
 import { nomeInstallazione } from "../lib/nome-installazione";
+import { provenienzaDi } from "../lib/provenienza";
 import { subjectRejection, canReceive, livePersonMemberships } from "../lib/recipients";
 
 /**
@@ -458,7 +459,15 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // Il frame porta il riferimento e il codice — servono al cartello di
       // approvazione — ma NON il `claim`, che è l'unica cosa capace di ritirare
       // il gettone. È la separazione che rende innocuo il resto.
-      ctx.broadcast?.({ type: "auth:pair-requested", requestId: id, code: entry.code, name, ip });
+      // `from` NEXT TO `ip`, not instead of it: the address stays for whoever
+      // wants to look, but the CHOICE the approver makes rests on a fact told
+      // in words. `192.168.1.7` and `95.253.69.40` read the same, and telling
+      // them apart must not be a skill required to decide whether to let
+      // somebody in.
+      ctx.broadcast?.({
+        type: "auth:pair-requested", requestId: id, code: entry.code, name, ip,
+        from: provenienzaDi(ip),
+      });
       return json({ requestId: id, code: entry.code, claim: entry.claim, name, expiresInMs: PAIRING_CODE_TTL_MS });
     }
 
@@ -494,7 +503,12 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       return json({
         requests: [...pending.values()]
           .filter((p) => p.state === "pending")
-          .map(({ id, code, name, ip: from, createdAt }) => ({ id, code, name, ip: from, createdAt })),
+          // The same shape as the frame, and that is the point: this route
+          // rebuilds the card when the window reopens, so what it shows must
+          // match what arrived live.
+          .map(({ id, code, name, ip: da, createdAt }) => ({
+            id, code, name, ip: da, createdAt, from: provenienzaDi(da),
+          })),
       });
     }
 

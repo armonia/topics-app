@@ -132,6 +132,9 @@ const EN = {
   'pair.preparing': 'Preparing the request…',
 
   'pair.from': 'from {ip}',
+  'pair.origin.locale': 'From this computer',
+  'pair.origin.lan': 'From your network',
+  'pair.origin.internet': 'From outside',
   'pair.verifyCode': 'Approve only if this code matches the one shown on that device.',
   'pair.mine': 'It is mine',
   'pair.whose': 'Whose is it?',
