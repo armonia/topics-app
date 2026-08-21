@@ -68,6 +68,11 @@ function scena(opts: { porta: number | null | undefined; maxFrame?: number; fetc
   daChiudere.push({ chiudi: () => c.ferma() });
   c.avvia();
   sock.onopen?.();
+  // The relay CONFIRMS it took us in: without this the client keeps a thread
+  // that nobody owns, and after ten seconds it closes it on purpose. The real
+  // meeting point sends `ready` the instant it attaches, so simulating the
+  // open without it was half a handshake.
+  sock.onmessage?.({ data: JSON.stringify({ t: "ready", v: 1 }) });
 
   const ospite = creaOspiteHttp({
     invia: (p) => sock.onmessage?.({ data: JSON.stringify({ t: "to-guest", to: SID, payload: p }) }),

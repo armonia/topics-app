@@ -13,7 +13,28 @@ import {
 
 const fetchVero = globalThis.fetch;
 
-/** Fa rispondere `/api/auth/session` con quello che diciamo noi. */
+// ONCE for the whole file, and not one `afterEach` per group: the rule holds
+// for every case that calls the stub below, and repeating it is exactly how
+// the group added tomorrow forgets it. It already happened: the fourth group
+// in this file did not have it, and eight tests of the relay proxy fell over
+// in a different package.
+afterEach(() => { globalThis.fetch = fetchVero; });
+
+/**
+ * Makes `/api/auth/session` answer with whatever we say.
+ *
+ * WHOEVER DIRTIES IT CLEANS IT, and the cost of forgetting is not paid here:
+ * `fetch` is global to the process, and `bun test` puts every file in the same
+ * one. A file that replaces it and does not put it back leaves every later
+ * test, even in another folder, even on the server, with a `fetch` that always
+ * answers the same JSON body.
+ *
+ * Measured on 2026-08-21: with the whole suite in one run,
+ * `server/services/relay-proxy.test.ts` received `{"paired":false,...}` from a
+ * `Bun.serve` that answered `ok`, and eight cases fell a long way from here.
+ * The restore is ONE, at the top of the file, and covers every case that calls
+ * this helper.
+ */
 function rispondi(corpo: Record<string, unknown>) {
   globalThis.fetch = (async () => new Response(JSON.stringify(corpo), {
     status: 200, headers: { 'content-type': 'application/json' },
@@ -78,7 +99,6 @@ describe('sessione · la notifica arriva quando cambia qualcosa che si guarda', 
 
 describe('sessione · il RUOLO cambia a parità di nome', () => {
   beforeEach(() => { __resetSessionForTests(); });
-  afterEach(() => { globalThis.fetch = fetchVero; });
 
   it('da proprietario a ospite si propaga, anche se il nome è lo stesso', async () => {
     // È il difetto per cui questo file esiste. La delibera di prima confrontava
@@ -127,7 +147,6 @@ describe('sessione · il RUOLO cambia a parità di nome', () => {
 
 describe('sessione · la persona viaggia con lo stato', () => {
   beforeEach(() => { __resetSessionForTests(); });
-  afterEach(() => { globalThis.fetch = fetchVero; });
 
   it('la persona arriva e si propaga', async () => {
     rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'owner', personId: 'p1' });
@@ -169,10 +188,10 @@ describe('sessione · il nome dell’installazione arriva a chi deve mostrarlo',
   beforeEach(() => { __resetSessionForTests(); });
 
   it('viaggia sullo stato di chi NON è appaiato, che è dove serve', async () => {
-    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Attilio' });
+    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Anna' });
     await refreshSession();
     const s = getSession();
-    expect(s.status === 'unpaired' && s.installationName).toBe('MacBook di Attilio');
+    expect(s.status === 'unpaired' && s.installationName).toBe('MacBook di Anna');
   });
 
   it('un nome NUOVO a parità di motivo risveglia i sottoscrittori', async () => {
@@ -182,7 +201,7 @@ describe('sessione · il nome dell’installazione arriva a chi deve mostrarlo',
     rispondi({ paired: false, as: null, name: null, installationName: 'Fisso in studio' });
     await refreshSession();
     const { visti, stop } = raccogli();
-    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Attilio' });
+    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Anna' });
     await refreshSession();
     expect(visti).toHaveLength(2);
     stop();
@@ -192,12 +211,12 @@ describe('sessione · il nome dell’installazione arriva a chi deve mostrarlo',
     // `api.ts` calls `markUnpaired` from the refusal of any request, which has
     // no name in it: clearing it there would wipe the heading off the screen on
     // the first 401, exactly when it is needed.
-    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Attilio' });
+    rispondi({ paired: false, as: null, name: null, installationName: 'MacBook di Anna' });
     await refreshSession();
     markUnpaired('device_revoked');
     const s = getSession();
     expect(s.status === 'unpaired' && s.reason).toBe('revoked');
-    expect(s.status === 'unpaired' && s.installationName).toBe('MacBook di Attilio');
+    expect(s.status === 'unpaired' && s.installationName).toBe('MacBook di Anna');
   });
 
   it('un server più vecchio che non lo manda non fa esplodere niente', async () => {

@@ -46,7 +46,7 @@ describe("nome dell'installazione", () => {
     // decision actually lives, and it is stated that today's machine does not
     // exercise that branch.
     expect((nomeInstallazione() ?? "").toLowerCase().endsWith(".local")).toBe(false);
-    expect(daHostname("MacBook-Pro-di-Attilio.local")).toBe("MacBook-Pro-di-Attilio");
+    expect(daHostname("MacBook-Pro-di-Anna.local")).toBe("MacBook-Pro-di-Anna");
     expect(daHostname("qualcosa.LOCAL")).toBe("qualcosa");
     // ...and a name without the suffix does not shorten itself.
     expect(daHostname("fisso-in-studio")).toBe("fisso-in-studio");
@@ -66,7 +66,7 @@ describe("nome dell'installazione", () => {
     expect(pulisciNome("x".repeat(200))).toHaveLength(64);
     // A normal name is left alone: without this direction, a `return ""`
     // would pass everything else.
-    expect(pulisciNome("MacBook Pro di Attilio")).toBe("MacBook Pro di Attilio");
+    expect(pulisciNome("MacBook Pro di Anna")).toBe("MacBook Pro di Anna");
   });
 
   test("la seconda chiamata non ripaga il sottoprocesso", () => {

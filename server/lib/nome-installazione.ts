@@ -15,12 +15,12 @@
  *
  * ── WHY THE COMPUTER'S NAME, AND NOT A NEW ONE ──────────────────────────────
  * Because it is already chosen, and it is already what a person would say out
- * loud: "Attilio's MacBook". Asking for another one at first launch would be
+ * loud: "Anna's MacBook". Asking for another one at first launch would be
  * one more question for a value the system already knows, and a field that
  * stays empty in nine cases out of ten.
  *
  * On macOS `ComputerName` is the name shown in Settings, spaces and accents
- * included; `hostname()` is its network form (`MacBook-Pro-di-Attilio.local`).
+ * included; `hostname()` is its network form (`MacBook-Pro-di-Anna.local`).
  * The first is preferred and the second is the fallback, cleaned up: a
  * technical name still beats silence.
  *
@@ -103,7 +103,7 @@ export function nomeInstallazione(): string | null {
   }
 
   try {
-    // `MacBook-Pro-di-Attilio.local` becomes `MacBook-Pro-di-Attilio`. The
+    // `MacBook-Pro-di-Anna.local` becomes `MacBook-Pro-di-Anna`. The
     // suffix is network plumbing and says nothing to whoever reads it.
     const v = daHostname(hostname());
     if (v.length > 0) { memoria = v; return memoria; }

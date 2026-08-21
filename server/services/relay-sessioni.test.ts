@@ -248,7 +248,14 @@ function macchina(opts: { avvia?: boolean } = {}): {
     apriSocketLocale,
     portaTunnel: 13999,
   });
-  if (opts.avvia !== false) { c.avvia(); filo.onopen?.(); }
+  if (opts.avvia !== false) {
+    c.avvia();
+    filo.onopen?.();
+    // The relay CONFIRMS it took us in. Without it the client holds a thread
+    // nobody owns and closes it after ten seconds: simulating the open alone
+    // was half a handshake, and the real meeting point sends `ready` at once.
+    filo.onmessage?.({ data: JSON.stringify({ t: "ready", v: 1 }) });
+  }
   const di = (m: unknown) => filo.onmessage?.({ data: JSON.stringify(m) });
   return { c, filo, di };
 }
