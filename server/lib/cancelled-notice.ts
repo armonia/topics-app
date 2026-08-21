@@ -69,7 +69,7 @@ export function cancelledNotice(info: TurnEndInfo): string | null {
       );
     case "wall-clock":
       return (
-        "⚠️ Turno interrotto: ha superato il limite di tempo concesso."
+        "⚠️ Turno interrotto: era fermo da troppo, senza un segno di vita dallo stream."
       );
     // Un annullamento senza causa dichiarata. NON si tace: il silenzio è
     // riservato ai casi che sappiamo innocui, e questo non è tra quelli — è
@@ -156,14 +156,29 @@ export function eCartelloDiInterruzione(testo: string | null | undefined): boole
 }
 
 /**
- * Gli incipit dei cartelli che nascono da un'interruzione NOSTRA — le stesse
- * tre cause che `CAUSE_DA_RIPRENDERE` ammette. Il caso `default` di
- * `cancelledNotice` (annullamento senza causa dichiarata) resta FUORI, per la
- * stessa ragione per cui `meritaRipresaAutomatica` lo esclude: non si indovina
- * chi ha annullato.
+ * The causes that come from an interruption of OURS, i.e. the same three
+ * `CAUSE_DA_RIPRENDERE` admits. `cancelledNotice`'s `default` branch (cancelled
+ * with no declared cause) stays OUT, for the same reason
+ * `meritaRipresaAutomatica` excludes it: you do not guess who cancelled.
  */
-const CARTELLI_RIPRENDIBILI = [
-  "Turno interrotto: il server si è riavviato",
-  "Turno interrotto: il processo dell'agente non dava più segni di vita",
-  "Turno interrotto: ha superato il limite di tempo",
-] as const;
+const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as const;
+
+/**
+ * The recognised openings, DERIVED from the real notices instead of copied.
+ *
+ * These were three hand-written strings sitting next to the three
+ * `cancelledNotice` produces. Two copies of the same sentence in two places
+ * drift, and drifting here means auto-resume STOPS RECOGNISING a turn it should
+ * resume: no error, no red, just turns that never restart. It happened on
+ * 2026-08-21 while rewording the cap's notice (which had stopped being true);
+ * the test caught it, but only because the test existed.
+ *
+ * Deriving them means a wording change in `cancelledNotice` updates the
+ * recogniser too. The 48-character cut is a prefix: it keeps the sentence
+ * recognisable without tying it to the trailing punctuation, which is the part
+ * that changes most often.
+ */
+const CARTELLI_RIPRENDIBILI: readonly string[] = CAUSE_NOSTRE.map((cause) => {
+  const testo = cancelledNotice({ end: "cancelled", cause } as TurnEndInfo) ?? "";
+  return testo.trim().replace(/^⚠️\s*/, "").slice(0, 48);
+});
