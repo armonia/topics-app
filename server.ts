@@ -790,14 +790,20 @@ async function runHeadlessTurn(
   const deadline = armTurnDeadline({
     ms: opts.timeoutMs,
     isWaitingForHuman: () => isHumanHold(sessionKey),
-    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
+    onRearm: () => console.log(`[turn] tetto di inattivita' riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
     onExpired: () => {
       timedOut = true;
       abortHeadlessTurn(sessionKey).catch(() => {});
       reader.cancel().catch(() => {});
     },
   });
-  try { while (true) { const { done } = await reader.read(); if (done) break; } }
+  /* EVERY CHUNK THAT ARRIVES IS A SIGN OF LIFE, and the cap has to know it.
+   *
+   * This drain existed only to learn WHEN the turn ends; it also says THAT it is
+   * still going, and nobody was looking. Without it the cap was a wall clock and
+   * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
+   * assignment per chunk. */
+  try { while (true) { const { done } = await reader.read(); if (done) break; deadline.noteActivity(); } }
   finally { deadline.clear(); try { reader.releaseLock(); } catch { /* already released */ } }
   // Il tetto a orologio è NOSTRO: vince su qualunque fine la route abbia
   // depositato nel frattempo (l'abort che manda arriva dopo).
@@ -849,14 +855,20 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   const deadline = armTurnDeadline({
     ms: opts.timeoutMs,
     isWaitingForHuman: () => isHumanHold(sessionKey),
-    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
+    onRearm: () => console.log(`[turn] tetto di inattivita' riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
     onExpired: () => {
       timedOut = true;
       abortHeadlessTurn(sessionKey).catch(() => {});
       reader.cancel().catch(() => {});
     },
   });
-  try { while (true) { const { done } = await reader.read(); if (done) break; } }
+  /* EVERY CHUNK THAT ARRIVES IS A SIGN OF LIFE, and the cap has to know it.
+   *
+   * This drain existed only to learn WHEN the turn ends; it also says THAT it is
+   * still going, and nobody was looking. Without it the cap was a wall clock and
+   * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
+   * assignment per chunk. */
+  try { while (true) { const { done } = await reader.read(); if (done) break; deadline.noteActivity(); } }
   finally { deadline.clear(); try { reader.releaseLock(); } catch { /* already released */ } }
   // Il tetto a orologio è NOSTRO e vince: prima lanciava un errore generico che
   // il dispatcher classificava come guasto del provider — era la stessa bugia.

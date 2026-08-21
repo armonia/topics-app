@@ -69,7 +69,7 @@ export function cancelledNotice(info: TurnEndInfo): string | null {
       );
     case "wall-clock":
       return (
-        "⚠️ Turno interrotto: ha superato il limite di tempo concesso."
+        "⚠️ Turno interrotto: era fermo da troppo, senza un segno di vita dallo stream."
       );
     // Un annullamento senza causa dichiarata. NON si tace: il silenzio è
     // riservato ai casi che sappiamo innocui, e questo non è tra quelli — è
@@ -156,14 +156,36 @@ export function eCartelloDiInterruzione(testo: string | null | undefined): boole
 }
 
 /**
- * Gli incipit dei cartelli che nascono da un'interruzione NOSTRA — le stesse
- * tre cause che `CAUSE_DA_RIPRENDERE` ammette. Il caso `default` di
- * `cancelledNotice` (annullamento senza causa dichiarata) resta FUORI, per la
- * stessa ragione per cui `meritaRipresaAutomatica` lo esclude: non si indovina
- * chi ha annullato.
+ * The causes that come from an interruption of OURS, i.e. the same three
+ * `CAUSE_DA_RIPRENDERE` admits. `cancelledNotice`'s `default` branch (cancelled
+ * with no declared cause) stays OUT, for the same reason
+ * `meritaRipresaAutomatica` excludes it: you do not guess who cancelled.
+ */
+export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as const;
+
+/**
+ * The recognised openings. An EXPLICIT list, and it has to be.
+ *
+ * Deriving it from `cancelledNotice` looks cleaner and is wrong: rows already in
+ * the database carry OLDER wordings of the same notice, and a list derived from
+ * today's text stops recognising yesterday's. Auto-resume would quietly skip
+ * every turn interrupted before the last rewrite. So history stays written here,
+ * and entries are only ever ADDED.
+ *
+ * What keeps this list honest is not the list, it is the test next to it: it
+ * asserts that every notice `cancelledNotice` produces today is recognised. That
+ * is the check that caught the 2026-08-21 rewording, when the cap stopped
+ * counting elapsed time and its sentence had to change. Without that test the
+ * only symptom would have been turns that silently never restart.
+ *
+ * Prefixes stop at the stable part of each sentence, before the tail that gets
+ * reworded.
  */
 const CARTELLI_RIPRENDIBILI = [
   "Turno interrotto: il server si è riavviato",
   "Turno interrotto: il processo dell'agente non dava più segni di vita",
+  // Wording up to 2026-08-21, when the cap counted elapsed time.
   "Turno interrotto: ha superato il limite di tempo",
+  // From 2026-08-21: the cap counts silence, so the sentence had to say so.
+  "Turno interrotto: era fermo da troppo",
 ] as const;
