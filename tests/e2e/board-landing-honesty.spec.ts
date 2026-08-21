@@ -229,7 +229,14 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
 
     const card = page.getByTestId("kanban-column-review").locator("[data-task-card]", { hasText: text });
     await expect(card).toBeVisible({ timeout: 10000 });
-    const chip = card.getByTestId("card-delivery-stat");
+    /* IL NOME E' CAMBIATO SOTTO IL TEST, e la funzione e' migliorata.
+     * `25427ba2f` (20/08) ha trasformato il chip in un elenco apribile dei
+     * file toccati, e nel farlo ha rinominato il testid da
+     * `card-delivery-stat` a `card-delivery-files`. La spec ha continuato a
+     * cercare il vecchio nome: rossa per un rename, con la misura giusta nel
+     * DB, nel feed e disegnata a schermo. Le tre asserzioni sotto non sono
+     * cambiate perche' il chip mostra ancora gli stessi tre numeri. */
+    const chip = card.getByTestId("card-delivery-files");
     // La colonna REVIEW e' l'ultima e sul banco resta mezza fuori: `toBeVisible`
     // guarda il viewport, quindi senza portarla sotto gli occhi il caso
     // fallirebbe su un chip che ESISTE. Costato due giri di debug, con il dato
