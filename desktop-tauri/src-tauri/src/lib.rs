@@ -7828,6 +7828,54 @@ fn clamp_position_to_monitors(
 /// LIVE monitor when the current rect is off every attached display (reusing the
 /// exact clamp as the restore path — a valid position on any connected display,
 /// including a second one, is honored verbatim), then focus.
+/// Which window a reveal should raise, given the labels the app still has.
+///
+/// "main" wins. Otherwise any other window will do, chosen in sorted order so two
+/// reveals in a row raise the same one: `windows()` hands back a HashMap, and
+/// picking whatever iterates first would make the app come back somewhere
+/// different each time.
+fn window_to_reveal(labels: &[String]) -> Option<String> {
+    if labels.iter().any(|l| l == "main") {
+        return Some("main".to_string());
+    }
+    let mut rest: Vec<&String> = labels.iter().collect();
+    rest.sort();
+    rest.first().map(|s| (*s).clone())
+}
+
+/// Bring the app back on screen, whatever window it still has.
+///
+/// The three ways back in (a second launch forwarding to this instance, the tray's
+/// "Mostra Topics", a dock click) were each `if let Some(w) = get_window("main")`
+/// with no else. If "main" were ever gone, all three were silent no-ops and the
+/// app had no way back at all. That exact shape has already cost this codebase
+/// once: an `if let` with no else in macos_notifications.rs is why clicking a
+/// notification did not open the task.
+///
+/// "main" is not supposed to disappear (CloseRequested hides to the tray instead
+/// of closing, and window_close_self only runs for detached windows), so this is a
+/// backstop and not a routine path. It deliberately does NOT rebuild a window from
+/// tauri.conf: a fresh one would miss every handler setup() wires onto main, from
+/// the traffic lights to the geometry saving to close-to-tray, and handing back a
+/// half-wired window is worse than handing back nothing. When there is nothing
+/// left to raise it says so out loud rather than returning quietly.
+fn reveal_a_window(app: &tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    let labels: Vec<String> = app.windows().keys().cloned().collect();
+    let Some(label) = window_to_reveal(&labels) else {
+        eprintln!("[reveal] no window left to show; the app is running with nothing on screen");
+        return false;
+    };
+    // get_window, never get_webview_window: the latter drops any window hosting a
+    // browser pane, which is exactly when the user needs this to work.
+    let Some(w) = app.get_window(&label) else {
+        eprintln!("[reveal] window {label} was listed but could not be resolved");
+        return false;
+    };
+    ensure_window_visible(&w);
+    true
+}
+
 fn ensure_window_visible(win: &tauri::Window) {
     let _ = win.show();
     let _ = win.unminimize();
@@ -9592,12 +9640,9 @@ pub fn run() {
         // Single-instance FIRST (plugin requirement): a duplicate launch focuses
         // the running window instead of spawning a process that can't bind :13333.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            use tauri::Manager;
-            if let Some(w) = app.get_window("main") {
-                // A second launch forwards here and exits; if this window can't be
-                // shown ON-SCREEN the user just sees "opens then closes, no window".
-                ensure_window_visible(&w);
-            }
+            // A second launch forwards here and exits; if no window can be shown
+            // ON-SCREEN the user just sees "opens then closes, no window".
+            reveal_a_window(app);
             // QUESTA è l'apertura istantanea. Un doppio click su un file mentre
             // Topics è già vivo lancia un secondo processo, che muore qui
             // consegnandoci i suoi argomenti: nessun avvio a freddo, nessun
@@ -10566,7 +10611,6 @@ pub fn run() {
             {
                 use tauri::menu::{MenuBuilder, MenuItem};
                 use tauri::tray::TrayIconBuilder;
-                use tauri::Manager;
                 let handle = app.handle();
                 let show = MenuItem::with_id(handle, "tray-show", "Mostra Topics", true, None::<&str>)?;
                 let quit = MenuItem::with_id(handle, "tray-quit", "Esci", true, None::<&str>)?;
@@ -10577,9 +10621,7 @@ pub fn run() {
                     .on_menu_event(|app, event| {
                         let id = event.id().0.as_str();
                         if id == "tray-show" {
-                            if let Some(w) = app.get_window("main") {
-                                ensure_window_visible(&w);
-                            }
+                            reveal_a_window(app);
                         } else if id == "tray-quit" {
                             QUITTING.store(true, Ordering::Relaxed);
                             app.exit(0);
@@ -10707,10 +10749,7 @@ pub fn run() {
             // (first cross-platform CI build caught it).
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
-                use tauri::Manager;
-                if let Some(w) = app_handle.get_window("main") {
-                    ensure_window_visible(&w);
-                }
+                reveal_a_window(app_handle);
             }
             // Finder «Apri con Topics» e trascinamento sull'icona: su macOS NON
             // passano da argv. Arrivano come Apple Event, e Tauri li rigira qui
@@ -11886,5 +11925,43 @@ mod unattended_relaunch_tests {
     #[test]
     fn unknown_counts_as_visible() {
         assert!(!may_relaunch_unattended(None));
+    }
+}
+
+#[cfg(test)]
+mod reveal_window_tests {
+    use super::window_to_reveal;
+
+    fn labels(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn main_wins_whenever_it_is_there() {
+        assert_eq!(window_to_reveal(&labels(&["space-a", "main"])), Some("main".into()));
+        assert_eq!(window_to_reveal(&labels(&["main"])), Some("main".into()));
+    }
+
+    /// The hole this closes. Without a fallback the dock icon, the tray entry and
+    /// a second launch were all silent no-ops the moment "main" was gone, and an
+    /// app that is running with no way to show itself is indistinguishable from
+    /// one that vanished.
+    #[test]
+    fn without_main_any_other_window_is_better_than_none() {
+        assert_eq!(window_to_reveal(&labels(&["space-b", "detach-1"])), Some("detach-1".into()));
+    }
+
+    /// windows() is a HashMap, so an unsorted pick would raise a different window
+    /// on each try and the app would seem to come back somewhere new every time.
+    #[test]
+    fn the_choice_is_stable_across_calls() {
+        let a = labels(&["space-b", "detach-1", "space-a"]);
+        let b = labels(&["space-a", "space-b", "detach-1"]);
+        assert_eq!(window_to_reveal(&a), window_to_reveal(&b));
+    }
+
+    #[test]
+    fn nothing_to_raise_is_reported_not_guessed() {
+        assert_eq!(window_to_reveal(&[]), None);
     }
 }
