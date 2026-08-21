@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { taskChoices, taskChoiceState, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
+import { choiceForText, taskChoices, taskChoiceState, usableQuestionOptions, VERDICT_CHOICES, type TaskChoiceId } from './taskChoices';
 import { acceptWord, drawerSurfaceLabels, landWord, redoWord, reviewDecisionButtons, sendBackWord, stopWord, taskActionWord, unblockWord } from './taskActionWords';
 import { LAND_ACTION_LABEL } from '../../lib/board';
 import { t as translate, ensureLocaleLoaded } from '../../lib/i18n';
@@ -617,5 +617,59 @@ describe('usableQuestionOptions, locale en', () => {
     // `normalizeActionLabel` is the server's own comparison, so the board
     // subtracts exactly what the route would treat as the reserved action.
     expect(usableQuestionOptions(consegnata, ['🚀 Landa su main!'], { t: en })).toEqual([]);
+  });
+});
+
+describe('una frase scritta non e\' mai un verdetto', () => {
+  // The real failure, not a textbook one: task b673a253, merge commit
+  // 8b97e432. Feedback typed in the card's field plus Enter merged the branch
+  // into main and closed the task, because Enter ran `scelte[0]` and on a
+  // delivery with a branch `scelte[0]` is «Landa su main».
+  const conRamo = task({ status: 'review', assignedTopicId: 'top-1', deliveryBranch: 'task/abc', deliveredBy: 'agent' });
+  const aMano = task({ status: 'review', assignedTopicId: null, deliveryBranch: null });
+  const mai = task({ status: 'review', assignedTopicId: 'top-1', deliveryBranch: 'task/abc', deliveredBy: 'system', deliveredReason: 'retries_exhausted' });
+
+  it('sulla consegna col ramo il testo va indietro all\'agente, non su main', () => {
+    expect(taskChoiceState(conRamo)).toBe('review-branch');
+    expect(taskChoices(conRamo)[0]?.id).toBe('land');
+    expect(choiceForText(taskChoices(conRamo))?.id).toBe('send-back');
+  });
+
+  it('sulla review a mano il testo non approva', () => {
+    expect(taskChoiceState(aMano)).toBe('review-plain');
+    expect(taskChoices(aMano)[0]?.id).toBe('accept');
+    // No entry carries text except `redo`, which only wants the focus in the
+    // field: so the text stays a note, and decides nothing.
+    const scelta = choiceForText(taskChoices(aMano));
+    expect(scelta?.id).toBe('redo');
+    expect(scelta?.needsText).toBe(true);
+  });
+
+  it('dove la prima voce era gia\' giusta non cambia niente', () => {
+    expect(taskChoiceState(mai)).toBe('review-unfinished');
+    expect(taskChoices(mai)[0]?.id).toBe('send-back');
+    expect(choiceForText(taskChoices(mai))?.id).toBe('send-back');
+  });
+
+  // The rule is not «drop land from review-branch»: it is «no verdict because
+  // of text». It holds on EVERY shape the card can draw, including the ones
+  // somebody adds after me.
+  it('nessuna forma di card offre un verdetto al testo', () => {
+    const forme: ChoiceInput[] = [
+      conRamo, aMano, mai,
+      task({ status: 'todo' }),
+      task({ status: 'in_progress', assignedTopicId: 't', dispatchState: 'working' }),
+      task({ status: 'in_progress', assignedTopicId: 't', dispatchState: 'queued' }),
+      task({ status: 'todo', blockedByTaskId: 'altro', blockedBy: { status: 'todo', archived: false } as ChoiceInput['blockedBy'] }),
+    ];
+    for (const f of forme) {
+      const scelta = choiceForText(taskChoices(f));
+      if (!scelta) continue;
+      expect(VERDICT_CHOICES).not.toContain(scelta.id);
+    }
+  });
+
+  it('senza scelte non inventa niente', () => {
+    expect(choiceForText([])).toBeNull();
   });
 });

@@ -278,3 +278,36 @@ export function usableQuestionOptions(
   ];
   return options.filter((o) => !labels.some((l) => sameLabel(o, l)));
 }
+
+/**
+ * WHICH CHOICE A TYPED SENTENCE BELONGS TO.
+ *
+ * Enter in the card's free field used to run the FIRST choice, whatever it
+ * happened to be. On a delivered card with a branch the first choice is
+ * «Landa su main»: writing a remark and pressing Enter merged the branch and
+ * closed the task. It happened for real — task b673a253, merge commit
+ * 8b97e432 — and the same shape approves a hand-filed review, where the first
+ * choice is `accept`.
+ *
+ * A verdict carries no words. `land` and `accept` take no comment, their
+ * buttons have no field, and their API calls have no place to put a sentence:
+ * running one because text exists throws the text away AND decides. The
+ * choices that DO carry text are `send-back` (which hands it to the agent) and
+ * `redo`. So a typed sentence goes to one of those when the card offers it,
+ * and otherwise stays a note — the verdicts keep their own buttons, which is
+ * where an irreversible gesture belongs.
+ *
+ * Pure and exported so the rule is testable on its own and cannot drift from
+ * the row of buttons it has to agree with.
+ */
+export const TEXT_CARRYING_CHOICES: readonly TaskChoiceId[] = ['send-back', 'redo'];
+/** Choices that decide instead of instructing: never reachable by typing. */
+export const VERDICT_CHOICES: readonly TaskChoiceId[] = ['land', 'accept'];
+
+export function choiceForText(choices: readonly TaskChoice[]): TaskChoice | null {
+  const carries = choices.find((c) => TEXT_CARRYING_CHOICES.includes(c.id));
+  if (carries) return carries;
+  const first = choices[0];
+  if (!first || VERDICT_CHOICES.includes(first.id)) return null;
+  return first;
+}
