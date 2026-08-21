@@ -16,9 +16,28 @@ export type BrowserStorageState = Awaited<ReturnType<BrowserContext["storageStat
 // per-topic storage stays under the isolated test data dir instead of
 // polluting the repo's `data/` folder. Falls back to `<cwd>/data/...` for
 // production where DATA_DIR isn't set. Aligns with `topics.db` path.
-const BASE_DIR = process.env.DATA_DIR
-  ? join(process.env.DATA_DIR, "browser-state")
-  : join(resolveStateDir(process.cwd()), "data", "browser-state");
+/* READ PER CALL, NOT FROZEN AT IMPORT.
+ *
+ * This was a module-level `const`, and a `const` here means the directory is
+ * decided by whatever `DATA_DIR` happened to be set when the FIRST importer
+ * loaded this module. Under `bun test` that is the first test file in the run
+ * that pulls it in, alphabetically, which is a different file depending on
+ * which tests you run: the module froze one path while a test that sets its own
+ * `DATA_DIR` in `beforeEach` computed another, and the two stopped agreeing.
+ *
+ * The symptom is the nastiest shape there is: `browser-state-store.test.ts`
+ * green on its own, red in the full suite, and red only in CI, because there
+ * the run includes the file that imports this one first. Measured 2026-08-21:
+ * adding `browser-last-url-expiry.test.ts` (which sorts BEFORE the store's own
+ * test) turned 6 of its cases red without touching a line of what they test.
+ *
+ * A function costs a `join` per call and cannot drift. See
+ * `tests/setup/bun-test-preload.ts` for the other half of this class of bug. */
+export function browserStateBaseDir(): string {
+  return process.env.DATA_DIR
+    ? join(process.env.DATA_DIR, "browser-state")
+    : join(resolveStateDir(process.cwd()), "data", "browser-state");
+}
 
 function sanitize(topicId: string): string {
   // Same pattern as server/browser-service.ts:330. Prevents path traversal.
@@ -26,7 +45,7 @@ function sanitize(topicId: string): string {
 }
 
 function topicDir(topicId: string): string {
-  return join(BASE_DIR, sanitize(topicId));
+  return join(browserStateBaseDir(), sanitize(topicId));
 }
 
 function topicFile(topicId: string): string {
@@ -139,6 +158,64 @@ export function readLastUrlEntry(topicId: string): { url: string; updatedAt: num
   } catch {
     return null;
   }
+}
+
+/**
+ * Is this last-url worth keeping after a failed restore?
+ *
+ * A restore that fails is not by itself proof the url is dead: the machine can
+ * be offline, DNS can be down, a site can be having a bad minute. Forgetting on
+ * the first failure would throw away a good page for a transient reason.
+ *
+ * One case IS permanent, and it is the one that fills the log. A url on
+ * loopback or a private LAN address is a dev server or a task preview: when the
+ * process that served it ends, that port does not come back, and nothing else
+ * on the machine will ever answer for it. Measured on 2026-08-21 in
+ * `topics-server.log`: 5,665 `last-url restore failed`, 5,305 of them
+ * ERR_CONNECTION_REFUSED, with 1,380 attempts on a single dead preview port.
+ * Every context creation paid an 8s timeout for a page that was never coming
+ * back, and `entry.url` kept claiming the pane was on it.
+ *
+ * So the rule is narrow on purpose, and it needs BOTH halves: a private host
+ * AND an error that says nothing is listening. A public site that refuses a
+ * connection is still remembered.
+ */
+export function shouldForgetLastUrl(url: string, errorMessage: string): boolean {
+  if (!isPrivateHostUrl(url)) return false;
+  return /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_ADDRESS_UNREACHABLE|ERR_NAME_NOT_RESOLVED|ECONNREFUSED|EHOSTUNREACH|ENOTFOUND/i.test(
+    errorMessage,
+  );
+}
+
+/**
+ * A host only this machine (or this LAN) can answer for. Deliberately the same
+ * list the client already refuses to seed (`isSeedableUrl` in
+ * `RemoteBrowserPanel.tsx`): the two ends have to agree on what "not publicly
+ * reachable" means, or the server forgets a url the client puts straight back.
+ */
+function isPrivateHostUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  if (!host) return false;
+  const lower = host.toLowerCase();
+  if (lower === "localhost" || lower === "0.0.0.0" || lower === "::1") return true;
+  if (lower.endsWith(".local") || lower.endsWith(".localhost")) return true;
+  if (!host.includes(":") && !host.includes(".")) return true; // bare hostname
+  if (/^127\./.test(host)) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  return false;
+}
+
+/** Forget the persisted last URL for a context (no-op when there is none). */
+export function clearLastUrl(topicId: string): void {
+  try { unlinkSync(lastUrlFile(topicId)); } catch {}
 }
 
 export async function deleteStorageState(topicId: string): Promise<void> {

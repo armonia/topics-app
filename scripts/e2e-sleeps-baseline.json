@@ -6,7 +6,7 @@
     "Non alzare un numero per far passare la CI. Un sonno in piu' e' una decisione, non un effetto",
     "collaterale: la convenzione sta in tests/e2e/CONVENTIONS.md."
   ],
-  "updated": "2026-08-15",
+  "updated": "2026-08-21",
   "files": {
     "tests/e2e/ask-user-question.spec.ts": 4,
     "tests/e2e/board-archive-restore.spec.ts": 1,
@@ -77,7 +77,7 @@
     "tests/e2e/reopen-closed-tab.spec.ts": 1,
     "tests/e2e/row-actions-overlay.spec.ts": 4,
     "tests/e2e/screenshot-evidence.spec.ts": 1,
-    "tests/e2e/search-shortcuts.spec.ts": 4,
+    "tests/e2e/search-shortcuts.spec.ts": 3,
     "tests/e2e/settings-mobile.spec.ts": 2,
     "tests/e2e/sidebar-pinned-tiles.spec.ts": 2,
     "tests/e2e/split-screen-sync.spec.ts": 3,
@@ -91,6 +91,6 @@
     "tests/e2e/turn-cost-multiplier.spec.ts": 1,
     "tests/e2e/unread-clearing.spec.ts": 1
   },
-  "total_calls": 176,
-  "total_ms": 150736
+  "total_calls": 175,
+  "total_ms": 149936
 }

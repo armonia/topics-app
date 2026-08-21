@@ -19,6 +19,19 @@ import { closeDatabase } from "./db";
 import { createAppContext } from "./utils";
 import type { AppContext, Topic } from "./types";
 
+/* DATA_DIR E' AMBIENTE CONDIVISO, e questo file lo scrive.
+ *
+ * `server/db.ts:17` risolve la cartella dati come `process.env.DATA_DIR ||
+ * join(dataRoot, "data")`: l'ambiente vince sull'argomento esplicito. Bun
+ * carica piu' file di test nello STESSO processo, quindi una scrittura non
+ * restituita decide dove finisce il database di tutti i file caricati dopo.
+ * Misurato il 21/08: due file lanciati insieme aprivano quattro volte lo
+ * stesso db temporaneo di uno dei due, mentre da soli ne creavano di propri.
+ * Qui la variabile serve davvero (non si passa da `initDatabase`), quindi si
+ * RESTITUISCE invece di toglierla. */
+const DATA_DIR_PRIMA = process.env.DATA_DIR;
+
+
 let tmpRoot: string;
 let ctx: AppContext;
 
@@ -230,4 +243,9 @@ describe("saveSingleTopic upsert (no REPLACE cascade)", () => {
       expect(ctx.getTopicById(plain.id)?.browserState).toBeUndefined();
     });
   });
+});
+
+afterAll(() => {
+  if (DATA_DIR_PRIMA === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = DATA_DIR_PRIMA;
 });

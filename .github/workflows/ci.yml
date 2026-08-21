@@ -169,6 +169,12 @@ jobs:
           bun run check:emdash
           bun run check:bloat
           bun run check:ui-language
+          # Lo stesso standard, applicato ai commenti (deciso il 21/08).
+          # Ratchet su `scripts/comment-language-baseline.json`: nasce
+          # verde su ~95k righe di debito e le lascia solo scendere, che e
+          # l unico modo perche un cancello del genere sopravviva a una
+          # settimana. Scappatoia per riga: `allow-italian: <perche>`.
+          bun run check:comment-language
           bun run check:sleeps
 
       # `check:sleeps` è l'ultimo di questa fila e conta una cosa sola:
@@ -550,8 +556,18 @@ jobs:
       - name: Build client
         run: bun run build:client
 
-      - name: Install Playwright browsers (Chromium)
-        run: npx playwright install --with-deps chromium
+      # DUE motori, non uno. `playwright.config.ts` dichiara un progetto
+      # `webkit` che gira `drag-preview.spec.ts` (l'anteprima del trascinamento
+      # va provata sullo STESSO asserto nei due motori, altrimenti una
+      # regressione di Chromium passerebbe inosservata). Finche' qui si
+      # installava il solo Chromium, quei test cadevano tutti con «Looks like
+      # Playwright was just installed or updated. Please run: npx playwright
+      # install» — un rosso di configurazione che accusava il prodotto, e che
+      # in locale non si vede mai perche' la macchina di sviluppo i browser li
+      # ha entrambi. Misurato sul run 32430381446: 4 shard su 4 rossi, e i
+      # falliti di webkit erano i 5 test di drag-preview.
+      - name: Install Playwright browsers (Chromium + WebKit)
+        run: npx playwright install --with-deps chromium webkit
 
       # global-setup.ts and server/browser-service.ts auto-discover a cached
       # Chromium only under macOS's `~/Library/Caches/ms-playwright` layout,

@@ -203,9 +203,19 @@ test.describe('anteprima a piu\' slide', () => {
     const verso: 1 | -1 = partenza === quante - 1 ? -1 : 1;
     await expect.poll(async () => {
       await rotella(verso);
-      await page.waitForTimeout(320);
       return attiva();
-    }, { timeout: 10_000 }).not.toBe(partenza);
+    }, {
+      timeout: 10_000,
+      /* IL RITMO DEL POLL E' L'ATTESA, e per questo qui dentro non c'e' un
+       * `waitForTimeout`. Il carosello impone 260ms fra due colpi di rotella
+       * (`ultimoScroll`, PreviewMedia.tsx:250): serve a rendere «un gesto = una
+       * slide», altrimenti un colpo di trackpad ne salterebbe cinque. Un poll
+       * piu' fitto di cosi' verrebbe mangiato dal raffreddamento e girerebbe a
+       * vuoto fino al timeout. Un colpo solo fuori dal poll non basta: il passo
+       * precedente di questa stessa spec ne ha gia' sparato uno, e se cade
+       * dentro i 260ms il nostro viene scartato in silenzio. */
+      intervals: [300],
+    }).not.toBe(partenza);
   });
 
   test('un puntino porta dritto alla sua slide', async ({ page }) => {

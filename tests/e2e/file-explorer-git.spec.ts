@@ -118,7 +118,7 @@ test.describe("File Explorer — Git", () => {
     }
 
     // Wait for file list to appear and look for README.md with D status
-    const readmeRow = gitChanges.locator('[title="README.md"]');
+    const readmeRow = gitChanges.locator('[data-git-file="README.md"]');
     await expect(readmeRow.first()).toBeVisible({ timeout: 10000 });
 
     // Verify D indicator for deleted file
@@ -147,7 +147,7 @@ test.describe("File Explorer — Git", () => {
     }
 
     // Verify that src/index.ts appears with M (modified) status
-    const indexFileRow = gitChanges.locator('[title="src/index.ts"]');
+    const indexFileRow = gitChanges.locator('[data-git-file="src/index.ts"]');
     await expect(indexFileRow.first()).toBeVisible({ timeout: 10000 });
 
     // Verify M indicator
@@ -172,19 +172,19 @@ test.describe("File Explorer — Git", () => {
     // `src/index.ts` ha una riga sostituita nel seed: una riga in piu' e una in
     // meno. I conteggi arrivano da `git diff --numstat`, che e' un comando a
     // parte da `git status`: se si scollega, la lista resta ma i numeri no.
-    const riga = gitChanges.locator('[title="src/index.ts"]').first();
+    const riga = gitChanges.locator('[data-git-file="src/index.ts"]').first();
     await expect(riga).toBeVisible({ timeout: 10000 });
     await expect(riga).toContainText("+1");
     await expect(riga).toContainText("-1");
 
     // Il file cancellato porta solo il numero delle righe tolte.
-    const cancellato = gitChanges.locator('[title="README.md"]').first();
+    const cancellato = gitChanges.locator('[data-git-file="README.md"]').first();
     await expect(cancellato).toContainText("-1");
     await expect(cancellato).not.toContainText("+");
 
     // Un file non tracciato non compare in nessun diff, quindi non c'e' numero
     // da dare. Uno zero direbbe «non e' cambiato niente» di un file nuovo.
-    const nuovo = gitChanges.locator('[title="newfile.txt"]').first();
+    const nuovo = gitChanges.locator('[data-git-file="newfile.txt"]').first();
     await expect(nuovo).toBeVisible();
     await expect(nuovo).not.toContainText(/[+-]\d/);
   });
@@ -294,7 +294,7 @@ test.describe("File Explorer — Git", () => {
     await expect(changesSection.first()).toBeVisible({ timeout: 10000 });
 
     // Find the file row for index.ts within git changes -- click the filename text
-    const indexFileRow = gitChanges.locator('[title="src/index.ts"]');
+    const indexFileRow = gitChanges.locator('[data-git-file="src/index.ts"]');
     await expect(indexFileRow.first()).toBeVisible({ timeout: 5000 });
     await indexFileRow.first().click();
 
@@ -346,7 +346,7 @@ test.describe("File Explorer — Git", () => {
     const changesSection = gitChanges.locator("text=Changes");
     await expect(changesSection.first()).toBeVisible({ timeout: 10000 });
 
-    const indexFileRow = gitChanges.locator('[title="src/index.ts"]');
+    const indexFileRow = gitChanges.locator('[data-git-file="src/index.ts"]');
     await expect(indexFileRow.first()).toBeVisible({ timeout: 5000 });
     await indexFileRow.first().click();
 
