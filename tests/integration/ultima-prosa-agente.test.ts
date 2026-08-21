@@ -121,10 +121,16 @@ describe("la forma dei cartelli, misurata sul database", () => {
     const r = db.query(`
       SELECT
         SUM(CASE WHEN TRIM(COALESCE(content,'')) = '' AND blocks LIKE '%"kind":"error"%' THEN 1 ELSE 0 END) AS vuoti,
-        SUM(CASE WHEN content LIKE ? THEN 1 ELSE 0 END) AS con_prefisso
+        SUM(CASE WHEN content LIKE ? THEN 1 ELSE 0 END) AS con_prefisso,
+        COUNT(*) AS turni
       FROM messages WHERE role = 'assistant' AND timestamp > '2026-08-18'
-    `).get(TURN_ERROR_PREFIX + "%") as { vuoti: number | null; con_prefisso: number | null };
+    `).get(TURN_ERROR_PREFIX + "%") as { vuoti: number | null; con_prefisso: number | null; turni: number };
     db.close();
+    // Stessa condizione della `catch` qui sopra, un passo piu' in la': un DB che
+    // ESISTE ma non ha ancora un solo turno d'agente non e' un DB sano, e' un DB
+    // vuoto. Succede in ogni worktree isolato, dove il file nasce all'avvio del
+    // server. Misurare zero righe non dice niente sulla forma dei cartelli.
+    if (r.turni === 0) return;
     // Se questo diventasse > 0, la guardia sul prefisso non basterebbe piu' e
     // andrebbe letto il blocco (a costo di caricare ~20 KB per messaggio).
     expect(r.vuoti ?? 0).toBe(0);
