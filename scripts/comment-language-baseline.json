@@ -834,7 +834,7 @@
     "scripts/probe-boot-memory.ts": 43,
     "scripts/prompt-ab.arms.ts": 10,
     "scripts/prompt-ab.ts": 37,
-    "scripts/reload-gate-migration.test.ts": 38,
+    "scripts/reload-gate-migration.test.ts": 34,
     "scripts/retitle-review-cards.ts": 11,
     "scripts/route-latency-baseline-pick.ts": 29,
     "scripts/scrub-history.ts": 37,
