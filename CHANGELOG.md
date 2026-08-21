@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.170 — 2026-08-21
+
+### Sotto il cofano
+- Un comando per il bundle E2E, e una sha che sopravvive fuori dal checkout
+
 ## 2.2.169 — 2026-08-21
 
 ### Sotto il cofano

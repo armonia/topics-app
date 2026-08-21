@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.170",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un comando per il bundle E2E, e una sha che sopravvive fuori dal checkout",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.169",
     "date": "2026-08-21",
     "sections": {
