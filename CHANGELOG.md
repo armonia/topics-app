@@ -2,6 +2,535 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.161 — 2026-08-21
+
+### Sotto il cofano
+- «1,8 GB» diceva quanto, non cosa: l'inventario del peso per funzionalita'
+- Il totale della barra perdeva 1,4 GB: i CLI degli agenti erano responsabili di se'
+- L'anteprima c'e' sempre: la scheda di consegna disegnata dal server
+- «12 voci, 40 elementi» e' vero e non dice niente: dodici COSA?
+- I conteggi dell'inventario devono essere ESATTI, ed erano l'unica parte non provata
+- I «5 rossi preesistenti» non erano preesistenti: era il PATH senza `node`
+- Anche il secondo file lanciava `node` a scatola chiusa: la ricerca in shared/
+- `shared/` finisce nel browser: un helper di test Node non ci appartiene
+- «Questa scheda non ha un processo proprio» risponde a una domanda che nessuno ha fatto
+- I cricchetti contano anche l'attesa, e i due 'any' in piu' non servivano
+- Il ramo potato non e' una prova che il lavoro manchi: la terza domanda al land
+- Il land diceva di fare la stessa domanda del dispatch, e ne faceva una su tre
+- Il tooltip di sistema non compare piu': uno solo, quello dell'app, ovunque
+- Una cosa sola a schermo, e /compact che finisce davvero
+- Le due prove che al commit di prima mancavano
+- L'anteprima diventa un carosello: piu' evidenze, rotella e lightbox
+- La rotella del carosello: il listener nativo, e l'indice che non diverge
+- «Invia subito» ora e' provato, e i commenti non mandano piu' a cercare un badge che non c'e'
+- Il carosello: due `any` tolti su richiesta del cricchetto, e il test ristretto
+- La scheda di consegna esce dalla card: ripeteva quello che c'era gia' scritto
+- L'avviso del contesto sta accanto al suo anello, non sopra la chat
+- La risposta del Monitor arrivava e la buttavamo via
+- La regola del risveglio esce dal provider, che era gia' al soffitto
+- «check in corso» non diceva a che punto: adesso e' «check 2/4», con la barra
+- Il turno che moriva zitto: adesso il riavvio del server lo dice
+- I file modificati diventano un elenco che si apre, in fondo alla card
+- La spia dell'attesa era cablata a un interruttore staccato
+- La barra del progress non e' un chip, e il suo testid non deve dirlo
+- Niente default inventati: la causa viaggia nel segnale, e si decide una volta
+- La sveglia del risveglio passa sulla classe, non sull'istanza
+- La prova che mancava: il provider nativo VERO, spento come lo spegne il server
+- `check-emdash` torna verde: due frasi al posto del trattino in `cmd.ran`
+- Lo stesso guasto viveva anche su claude-code, su un ramo che qui non gira
+- La prova dal vivo del risveglio, e adesso e' ripetibile
+- Due pezzi erano provati solo come funzioni pure: ora si guarda chi le chiama
+- Il pannello di diagnostica, da chiuso, scaricava lo stesso
+- check-bloat era rosso su main: recuperate 21 righe dal mio commento
+- I due skip sull'elenco dei file diventano due test veri
+- Il mio test si rompeva da solo: un selettore univoco a meta'
+- Due «verified» che non lo erano: un tooltip stantio e un prompt scoperto
+- Il cancello che non poteva scadere: tre volte lo stesso task, a 27 minuti esatti
+- Una card tagliata non viene «ripresa»: riparte da capo, e il log ora lo dice
+- Il confine server→client non lo attraversava nessuno
+- Il risveglio adottava il turno CHIESTO, e si portava dietro la riga di prima
+- Il difetto dominante non era il mio: si uccideva il server mentre nasceva
+- Questo script e' il supervisore di tutto: modificarlo vivo e' un rischio
+- La «prova sul campo» non provava il ramo che avevo corretto
+- La sessione era «occupata da se' stessa», e il risveglio si perdeva di nuovo
+- Da review si vede l'ultimo scambio, e la contabilita' non si spaccia per consegna
+- La risposta del risveglio arrivava senza dire da dove veniva
+- La prova viva pretende anche il cartello, e non lo legge troppo presto
+- La card in review, guardata a schermo e non solo nel modulo
+- Il mio messaggio non arrivava nemmeno al client: la finestra ne portava tre
+- Il pieghevole apriva sul vuoto: il server ne mandava 200, il client 620
+- Il test dell'allineamento guardava la costante sbagliata
+- Il turno moriva zitto anche dopo la cura: nessuno ascoltava dentro il tool
+- Mille turni morti senza una parola: la spiegazione arrivava solo ai muti
+- Il verdetto in coda ai blocchi si vede a schermo, non solo in database
+- Il cartello ripeteva se stesso: al suo posto la frase che dice il perche'
+- Il codice nuovo non bastava: le note gia' scritte restavano invisibili
+- Una migration modificata dopo essere girata non rigira: serve la seconda meta'
+- Il mirror rispecchiava il cartello al posto del lavoro dell'agente
+- Il turno ucciso dal riavvio ora riprende da solo, invece di chiedere aiuto
+- Il titolo della card se lo ricava la board, senza chiederlo a nessuno
+- La scheda diceva cosa NON c'era: ora dice cosa e' stato fatto
+- Una rotta per rigenerare il titolo delle card che ce l'hanno gia' mozzato
+- Le due card che avevano fatto nascere la segnalazione ora hanno un titolo
+- Il titolo lo cablavo su UNA rotta sola: i creatori di card sono due
+- «Anche la descrizione non ha senso»: l'anteprima era meta' preambolo
+- Il cartello del riavvio c'era, ma nasceva fuori dal filo: nessuno lo leggeva
+- La ripresa automatica rimandava anche i guasti che si ricomprano identici
+- Lo skip che ferma il cancello e' onesto: gira in locale, manca solo alla CI
+- «Riprendo da solo» non l'ha mai letto nessuno, e vale per UNA causa su tre
+- Il commit che salva il residuo non e' una consegna, e smette di contare
+- Tre pezzi verdi e la catena rotta in mezzo: ora il passaggio è provato
+- Nove test smettono di avvelenare il DATA_DIR di chi gira dopo di loro
+- «Armata, mi sveglia quando finisce»: era uno shell che non sveglia nessuno
+- Correggo me stesso: quello shell in background sveglia davvero
+- Due porte allo stesso merge, a mezzo centimetro l'una dall'altra
+- Il lint del client torna verde: tre pattern deliberati si dichiarano alla regola
+- L'attesa era stata uccisa, e il pannello la dava per «conclusa»
+- I sei cancelli della review tornano verdi tutti insieme
+- CI installava un motore solo, e ne servono due
+- Il sonno fisso del carosello diventa il ritmo del poll
+- Gli ultimi otto test restituiscono il DATA_DIR che prendono in prestito
+- LANDING-00 inseguiva un testid rinominato, non un difetto
+- Il tooltip di consumo ha due aperture, la spec ne conosceva una sola
+- Il titolo spariva sotto il mouse: due test cercavano un attributo che l'app toglie
+- Le righe di git si cercano per il loro path, non per un titolo che il mouse toglie
+- Lo standard di lingua arriva ai commenti: un cricchetto che nasce verde su 94.795 righe
+- Il recap in barra si legge dove il tooltip lo mette davvero
+- Una porta di sviluppo morta non torna: il browser smette di rinavigarci sopra
+- Il watchdog del ponte non uccide piu' i terminali per un pong in ritardo
+- La fixture del limite dichiarava un campo che la CLI non emette
+- Lo standard di lingua sta anche dove lo cerca una persona
+- Il messaggio del bundle non consiglia piu' per primo di riscrivere la cartella di un altro
+- Il cancello locale conosce lo stesso elenco di quello di CI
+- Dire nel cancello cosa succede quando un file cambia nome
+- Il debito sceso resta sceso
+- Lo store e il suo test chiedevano la stessa cartella a due calcoli diversi
+- Il caso «senza sqlite3» non toglieva sqlite3: verde qui, rosso su Linux, e non provava niente
+- Il commento nuovo rispetta lo standard che ho appena messo
+
+## 2.2.160 — 2026-08-20
+
+### Sotto il cofano
+- I layer del compositore si contano sulla finestra vera, non su una di prova
+- La mappa perf conosceva tre cancelli in piu' e una diagnosi diversa da quella attesa
+- Una finestra nuova NON perde: +2 MB in cinque minuti, e la sonda che diceva il contrario mentiva
+- La guardia di UPDATE_PANE difesa da tutte e due le parti, non solo da quella che ho scritto
+- Ritiro il gate anti-riscrittura: rompeva la chiusura delle schede, e non serviva
+- La mappa dice anche la meta' del rimedio che e' stata RITIRATA
+- Sotto il primo ciclo ce n'era un secondo: il cancello lo nomina invece di tacerlo
+- Un tempo senza il carico a cui e' stato preso non e' una misura
+- I 464 ms erano veri, e non sono un cricchetto: la tabella ora lo dice
+- Il dedupe del canale di progetto non aveva test: ora ne ha tre, e restringono la caccia
+- Il «secondo ciclo» non esisteva: era la coda del boot, e la mia finestra la includeva
+- Quattro giri a macchina scarica: 402-473 ms. Il miglioramento era vero, l'artefatto erano gli 8 secondi
+- «Nessuna risposta» su un agente che stava rispondendo: mancava il testimone che sopravvive al reload
+- Il caso del referto ora ha un E2E: turno vivo sul server, banner muto
+- Il mio E2E dormiva due secondi: adesso aspetta il fatto, non il tempo
+- «5 verdi» non voleva dire quello che avevo scritto: quei test non vedono la correzione
+- La finzione dell'E2E ora e' legata al contratto vero, e i bordi della decisione sono coperti
+- Il ciclo di scritture NON e' chiuso: quel che credevo la causa non lo era, e ora e' scritto dove si trova
+- La causa del ciclo e' trovata, il rimedio funziona, e resta fuori: rompeva la sincronizzazione
+- Il cancello dichiara di essere rosso e perche', invece di far credere a una svista
+- La tabella diceva «0 scritture a riposo»: era vero un'ora fa, adesso no
+- La guardia dice di chiudere UNA causa, non il fenomeno
+- La mia diagnosi «sono i pari» era sbagliata: la previsione che ne segue e' falsa
+- Erano i pari: la smentita veniva da una sonda che non vedeva il socket
+- Il ciclo ha bisogno di DUE finestre, ed e' per questo che si nascondeva
+- Il motore leggero c'e', ma non regge la superficie che l'umano guarda
+- Il numero da battere non era 166 MB: sull'app viva una pane ne costa 219
+- Non era un leak: 826 MB di pagine swappate che nessuno restituiva
+- 50 MB a sessione non e' un sogno: e' 37, e lo fa gia' il motore che usiamo
+- Il picco non era l'esercizio: era una riga di boot che si caricava 706 MB
+- Servo vede davvero, ma costa piu' di Chromium e le SPA gli crashano
+- Il cancello che sa dire di no: 353 MB verde, 801 MB rosso
+- Obscura non e' cieca: sbaglia due primitive canvas e ignora le filter
+- Il gc non sarebbe MAI partito: il predicato del riavvio non e' quello giusto
+- Il gc rendeva 720 MB e il log diceva zero: la lettura arrivava troppo presto
+- Il modello scelto su una chat nuova tornava al default da solo
+- Le due primitive canvas mancanti erano JavaScript vuoto: scritte, e ora il grafico c'e'
+- Due cancelli rossi che non erano miei, e uno che lo e' diventato
+- Il server NON perde closedStack: provato con un PUT diretto, la perdita e' nel client
+- Il client ha lo STESSO difetto del server: 24 MB residenti su 726 di footprint
+- Possiamo usarlo: Apache-2.0, nessun CLA, e mergiano le PR esterne in cinque ore
+- La leva client non esiste (chiesto a WebKit), e il premio e' 690 MB non 1,8 GB
+- Puntare a upstream e appoggiarci sopra le patch: la meccanica, non l'intenzione
+- «1,8 GB» erano 517 MB: il pannello ora lo dice, invece di lasciarlo intendere
+- Il DB e' 888 MB perche' 769 non sono mai passati dal compressore
+- innerText restituiva il sorgente degli script: ora cammina l'albero come un browser
+- Il mio cancello non era un cancello: il repo me l'ha detto, e aveva ragione
+- 1,6 GB in meno con tre pane aperte, e zero a riposo: il guadagno misurato
+- I 592 MB di WebKit non erano tutti nostri: 287 erano di un'altra app
+- Migrare la UI su Obscura: 36 MB invece di 353, ma 68% di CPU per 12 fps
+- Chiudere una chat cancellava il suo undo: la purge dell'archiviazione
+- Il 36 MB contro 353 era truccato, e Obscura non ha nemmeno una finestra
+- Il ciclo di scritture e' chiuso: 27 -> 0, e serviva chiudere prima un altro difetto
+- Servo come renderer dell'app vale 15 MB su 316: il 5%, e la domanda si chiude
+- La finestra costa 100 MB, e i 2507 righe di tauri-runtime-verso sono solo colla
+- Sei fixture non conoscevano localSeq: il typecheck dei test lo ha detto
+- L'E2E del pannello ora sa fallire: simulato il guscio, non il componente
+- A 1000 sessioni il renderer conta MENO, non di piu': e' l'unico che non cresce
+- Gli altri due rami del verdetto, sul percorso vero: pressione e misura parziale
+- Il pannello della memoria entra fra i cancelli, e la riga sul client non e' piu' un rammarico
+- «0 scritture» era vero una volta su undici: c'e' un SECONDO canale
+- Il testo tornava dopo il refresh e l'allegato no, e tre cancelli erano rossi da ieri
+- Le tre affermazioni ricontrollate: due reggono, una era incompleta
+- Il secondo ciclo: la pista e' il valore oscillante, e la prova sta nei numeri
+- «It will send when reconnected» era una promessa che l'app non manteneva
+- La colonna che avevi stretto tornava larga in ogni finestra nuova
+- Sei rossi mobili avevano sei cause, e nessuna era «serve piu' tempo»
+- Cinque ipotesi escluse sul secondo ciclo, e la sesta misura spiega perche'
+- Con l'app in inglese si leggeva ancora «naviga · apri · chiudi»
+- La latenza delle rotte e' leggibile solo a macchina ferma, e allora dice UNA rotta
+- Il DB di produzione e' compresso davvero: 849 -> 213 MB
+- Il mio stesso fix aveva una perdita silenziosa al bordo del tetto
+- L'app pesa 179 MB e 93 sono architetture che non gireranno mai
+- Il mio test aspettava il chip, non la scrittura: era una corsa, e sotto due shard la perdeva
+- L'entry ha assorbito 34 KB gz, non 13: il risparmio dell'EN pigro li nascondeva
+- Il rimedio parcheggiato non aveva chiamanti: ora ce l'ha, ed e' un test
+- Il numero di accettazione: 1768 MB dichiarati, 352 residenti, 5 GB di ollama accanto
+- Un commento e' un'affermazione con una data: quel rimedio era superato da 3 ore
+- I 93 MB sono aritmetica su binari veri, non un risultato end-to-end
+- Un sidecar single-arch serve richieste: 200 su /api/topics, il buco e' chiuso
+- Le tre superfici piu' viste parlano una lingua sola: 339 -> 292
+- Dopo una notte di uso vero i numeri reggono, ed e' la prova che ieri mancava
+- Il cancello delle rotte non puo' dare un verdetto qui, e QUELLA e' la scoperta
+- Una baseline per ambiente: il cancello delle rotte smette di misurare l'hardware
+- La scelta della baseline esce dal file che aveva gia' sfondato il tetto
+- Un altro server sulla nostra porta: nove ore di app lenta senza una riga di log
+- Un trattino lungo in una riga che l'utente legge: il cancello mi ha preso
+- La baseline locale non si registra: dieci misure in sette minuti, mai sotto 10
+- Aspettare la fine di un processo invece di sondarla, e vederlo da fuori
+- Il runner registra la propria baseline delle rotte, invece di uscire 2 per sempre
+- Il numero che si legge per primo e' quello in barra, e non diceva cosa contiene
+- Lingua, secondo giro: 292 -> 223, cinque superfici curate per intero
+- La chat spostata in un progetto ci restava solo finche' non finiva la risposta
+- Lingua, terzo giro: 223 -> 162, sette superfici curate e una tenuta a 1 apposta
+- Lingua, quarto giro: 162 -> 116, nove superfici curate
+- La card che cambia colonna ci arriva viaggiando, e il titolo riscritto si riscrive
+- La lingua nel client e' finita: 116 -> 1, e quell'1 non e' debito
+- I token scorrono mentre il turno gira, e il primo tratto dice che sta inquadrando
+- La lingua rendeva ogni componente non testabile senza una finta finestra
+- Il peso della lingua: +8,7 KB gz, ed e' il prezzo della traducibilita'
+- Il conto delle righe della lingua: +646 nei dizionari, +195 nei componenti
+- Il pannello del diff ha smesso di parlare italiano, e la spec lo diceva
+- Versione 2.2.160
+
+## 2.2.159 — 2026-08-19
+
+### Novità
+- **e2e** · CI e nightly usano il piano di sharding per durata
+- aggiungi logo SVG Armonia (file mancante)
+
+### Correzioni
+- **git** · il commit dal pannello Git non muore dove manca ~/.gitconfig
+- subprocess proof, landing-queue usa makeSerialQueue, svg anteprima
+- diffstat e checks cadono col rifiuto (DELIVERY_SNAPSHOT_COLUMNS)
+- timeout test muto 10s→20s (il retry × 3 prendeva ~2.3s, margine troppo stretto)
+- estrai processLine+consumeGateway in gateway-sse-consumer.ts — edit.ts recupera tool_calls/tool_result
+- freno del dispatch conta anche le corse dei check pre-review
+- delivery_commit NULL e verdetto «unlanded» su lavoro gia' su main
+- cancello review_needs_commit non si salta dopo il release del dispatcher
+- board_land riporta l'esito reale del land (landed/unlanded) invece di «accodato»
+- **preview** · PATCH rifiuta preview_image se il file non esiste sul disco
+- output_url dead-link — sonda server-side + badge client + 3 stati
+- fileExistsSync iniettabile nel contesto — 3 test pre-esistenti ora verdi
+- **test** · acceptPreview usa fileExistsSync da ctx, stub nei test
+- escludi /.topics/ dal selettore progetti (NON_PROJECT_DOTDIR)
+- persistenza modello nuova chat + split in progetto + drag overlay
+- ordine migration embedded e aggiornamento baseline bloat
+
+### Prestazioni
+- **chat** · cache-first paint istantaneo — floor sipario 0ms se cache presente
+
+### Sotto il cofano
+- 64 turni nativi insieme in 4,1s, e il costo per sessione non sale
+- Il README non diceva che gli agenti non sono piu' processi
+- Il README prometteva uno script riproducibile che aveva la porta cablata
+- Togli due nomi di clienti da un commento pubblico
+- Il comando che avevo messo nel README dava zero risposte su 104
+- Le istruzioni che ho scritto puntavano al file che quasi nessuno ha
+- Da solo, la presence contava te stesso
+- La mia tabella accostava 432 MB a N=3 con 0,9 MB a N=64
+- Profile e Devices: un test che le tiene separate
+- «L'80% e' compressa» era uno scatto solo: in regime e' il 22%
+- «Piatto da 8 a 64» era falso: il costo per sessione CALA
+- La chat vuota taceva sul modello che avrebbe usato
+- Il thread vuoto: un test che lo legge, invece di sapere che esiste
+- Avevo gia' corretto questa riga una volta, e non bastava
+- Tre volte lo stesso errore: pretendevo un valore da una banda
+- Anche il «67-68 fermo» del server valeva solo a processo anziano
+- La review non diceva cosa si stava approvando
+- Il verde dei check si dice, non si deduce dal silenzio
+- I tre cancelli che le colonne nuove hanno fatto scattare
+- Le tre colonne nuove stavano in mezzo, la produzione le ha in fondo
+- **nightly** · la nightly rossa apre una issue invece di tacere
+- Nemmeno l'uptime spiegava il server: oscilla e basta
+- La riga AI_PROVIDER era un tema di 700 caratteri dentro una cella
+- misurare che il pannello non sia RITAGLIATO, non solo che esista
+- 200 sessioni che rispondono, in 162 MB: lanciate, non estrapolate
+- In automatico non si chiede di aggiornare a mano
+- Leggere una chat spegne anche la sua campanella
+- Il numero in prima riga, e via la cronaca interna
+- Il chevron di una tessera fissata non sposta piu' il nome di sei pixel
+- La card in review dice da quanto aspetta
+- La root smette di fare cinque domande senza risposta
+- Il microfono c'e' anche nel thread di un task
+- Il microfono spariva per sempre a chi non era ancora appaiato
+- Il mio test della chat vuota misurava la macchina, non il prodotto
+- Tre test della nightly misuravano la macchina, non il prodotto
+- Il titolo della card torna al bordo quando va a capo
+- Il flake di add-menu: un Escape alla cieca, non un test rotto
+- Il secondo progetto: +889 MB su Cursor, +0,07 su Topics
+- Il bench AI non pianta piu' un rosso quando manca il modello
+- Una banda misurata e' un limite inferiore, non un confine
+- Le colonne nuove hanno rotto tre stub, e i tre cancelli le hanno prese
+- Mancava la riga piu' semplice: quanto pesa da vuota
+- Un progetto si puo' condividere, e i suoi task lo ereditano
+- Il progetto si condivide dal menu contestuale, e si vede
+- Il README parlava come un comunicato
+- Le destinazioni sono due, e adesso stanno scritte
+- «Nessuna telemetria» smette di essere vero il giorno che accendi il relay
+- Due cancelli hanno preso il pannello di condivisione del progetto
+- Lo strumento per togliere i nomi dei clienti dalla storia, pronto da lanciare
+- Il README aveva una tabella senza intestazione e nessuno screenshot
+- Un database nuovo deve nascere, e adesso qualcuno lo verifica
+- 188x veniva dagli arrotondamenti, e 91 MB non e' l'albero intero
+- Screenshot veri, da un'installazione che non e' la tua
+- Gli screenshot sembravano ritagli: ora hanno una cornice
+- Lo sfondo non si vedeva, e le funzioni erano cinque righe di elenco
+- L'avviso di versione usciva da una SECONDA superficie, e la riga di stato dimagrisce
+- L'immagine pubblicata non era quella che avevo verificato
+- Nei filtri usciva un UUID accorciato spacciato per nome di progetto
+- Un tooltip vero al posto di quello del sistema operativo, e la location nei filtri
+- Uno scatto nuovo non e' lo stesso scatto piu' bello
+- Tre «no telemetry» sopravvissuti, e stavano nei file scritti per le AI
+- Uno slot vuoto pesava dove il contenuto e' centrato: 10px fuori asse
+- TILE-32 leggeva la position del glifo, ma a uscire dal flusso e' lo slot
+- Il nome di un progetto senza favicon partiva 22px prima degli altri
+- Le impostazioni parlavano inglese, e le organizzazioni si chiamavano Persone
+- Il banner per GitHub si copia gia' scritto, invece di 'salvalo e mettilo nel README'
+- Il wrapper del tooltip aveva reso i chip larghi zero, e la barra li lasciava sporgere
+- Il Tooltip avverte chi misura i figli: display:contents li fa larghi zero
+- Una card in review non diceva se ci fosse qualcosa da rivedere
+- una card senza misura deve dire perche' non ce l'ha
+- Il guardiano dei chip aveva un buco: la mappa scritta a mano non copriva i nuovi
+- Il server mandava i commenti a 22 card su 22, la card li buttava tutti
+- La nota del sistema non e' la parola della consegna, e ora si vede che e' del sistema
+- il promemoria dell'anteprima non deve coprire il riassunto
+- Il chip era fuori asse di 1,125px, e due sonde misuravano l'elemento sbagliato
+- Baseline del bloat: cosa hanno comprato le righe di oggi
+- Il riassunto arrivava mozzato a 200 caratteri, e il testo intero andava alla nota di sistema
+- Il riassunto si ripiega se e' troppo, e un'anteprima troppo alta non entra piu'
+- il pieghevole del riassunto, aperto e chiuso nel browser vero
+- deadcode era rosso per un banco di prova che si lancia, non si importa
+- Il mio nome utente e i nomi dei clienti erano in tre file tracciati
+- Un any di troppo, mio: riuso il tipo delle righe invece di dichiararne uno
+- history-clean era definito e lanciato da nessuno
+- Le tessere fissate SENZA icona erano fuori centro di 4px, e il test non le guardava
+- TILE-CENTRO semina un progetto SENZA favicon: il caso che contiene il difetto
+- Il cricchetto degli any contava parole inglesi, ed era nato ROSSO
+- Due casi che provano l'ipotesi rimasta aperta: l'allineamento non dipende dal font
+- Il ramo della nightly che CHIUDE la segnalazione non e' mai stato eseguito
+- ui-language era rosso per tre stringhe italiane mie, e non l'avevo eseguito
+- Il lint aveva ragione sul mio Tooltip: setState sincrono dentro un effetto
+- Il ricontrollo aveva ragione: 18 rossi, e le mie traduzioni ne erano la causa
+- Profilo come pane autonoma (tab, non modale): statistiche e identita'
+- Le tessere fissate avevano TRE colonne per la stessa lista
+- Il bottone del banner copiava un link che funziona solo sul mio computer
+- I test del terminale avevano un tetto troppo stretto, non un difetto
+- Il mio nome in un test nuovo, e due file di misura finiti in un commit per sbaglio
+- La documentazione di firma diceva [azienda]: riscritta perche' si legga
+- La finestra da 1M sul runtime nativo: era un nome, doveva essere un header
+- Le NOTIFICHE del sistema rubavano il posto al riassunto: 3984 righe
+- Due card in review dicevano la riga sbagliata, e una sembrava darmi un ordine
+- Una domanda non e' codice: il recinto ```question dava scroll orizzontale
+- Una conversazione rotta non guarisce da sola: tre ore di turni morti sullo stesso punto
+- «Rimanda» accanto al campo era un doppione: stessa chiamata del bottone sopra
+- Capire una card senza aprirla: «Nota» via, e il vuoto smette di chiamarsi lavoro
+- Tre cancelli rossi su main, e nessuno dei tre parlava del codice che accusava
+- Un documento ignorato aveva smesso di far uscire il prodotto: 105 commit senza installer
+- Una git fallita non uccide piu' il server: serial-queue swallows the map tail
+- L'agente spuntava il primo passo della propria checklist e si tagliava il turno da solo
+- ignore svg diagram artifact
+- Lock inter-processo sul refresh OAuth: O_EXCL + double-check
+- Due porte, un contratto: reapAfterLand usa taskWorktreeDirtProbe
+- L'interruttore «pausa dispatch» del pannello non faceva niente, e altri tre con lui
+- La card diceva «non c'e' un diff da guardare» su un lavoro finito e committato
+- Un'anteprima che non parte lasciava vivo il dev server: il pool si consumava da solo
+- Il budget dei tentativi non ripartiva: la card moriva al primo turno dicendo di averne fatti quattro
+- Salvare un file di server/ tagliava i turni degli agenti: il watcher ora chiede, non taglia
+- Una risposta 500 poteva far sparire le pane terminale dal layout
+- Il pannello «Modifiche» mostrava il diff che tornava per secondo, non l'ultimo chiesto
+- Il «perche'» dentro il test appena landato era falso, e un perche' falso si eredita
+- Il GC azzerava commit/diffstat/landing_state sulle card non su main
+- Un tipo che mentiva teneva in vita il ramo che disegna la risposta due volte
+- Una migration .sql rotta manda l'app in crash-loop: cancello SQL + backoff
+- Un test da 11,4s le cui uniche asserzioni proprie non venivano mai eseguite
+- Via la migration rotta che avevo lasciato io falsificando il cancello
+- Cancello migration: percorso default corretto + test F senza DATA_DIR
+- Il piano degli shard passava i nomi come REGEX: cinque file giravano due volte
+- Un modello scritto male su una card fermava la card invece di costare un turno
+- Via la riga vuota che il land ha lasciato in fondo a .gitignore
+- La variabile che reindirizzava il refresh token accettava qualunque host
+- La barra dichiarava 70s e ne costa 322: un numero comodo che si impara a saltare
+- La suite E2E era rossa da prima che iniziassi: «Nota» era via dalla card e la spec no
+- Le durate degli shard coprivano il 43% ed erano ferme al 2 agosto: adesso sono 247 su 247
+- La memoria aveva un numero vecchio e nessun confronto: adesso ha tutti e due
+- aggiorna bloat-baseline al main corrente (acp.ts + delta miei)
+- Timer lenti: env-injectable per i test, da 152s a ~40s sulle sei suite
+- La barra di review era rossa per OGNI agente, e il rosso non era mai suo
+- Il banco della latenza AI di stanotte, e i numeri sono scesi tutti
+- Un'esenzione sopravvissuta alla sua ragione non protegge: nasconde
+- Il numero della barra e' sceso lo stesso giorno in cui l'ho scritto: 322s -> 261s
+- L'identita' della board era scritta in 49 posti, e tre soli erano sorvegliati
+- Un re-dispatch non porta piu' via il worktree in silenzio, ne' lascia sottotask che mentono
+- Il banco della latenza rigirato con la seconda passata E2E
+- bench-ai-latency: output in test-results/, bench/results/ solo con E2E_BENCH=1
+- La card mostrava «Non è su main» al posto del riassunto: la parola dell'agente non arrivava proprio
+- «⚠️ Land NON riuscito» su lavoro atterrato: la card veniva RIAPERTA a ogni chiusura
+- Il thread parlava alla macchina: 4,3 righe di contabilita' per ogni riga di chi ha fatto il lavoro
+- Nove «Ciao! Come posso aiutarti?» al posto della risposta: il riattacco mandava un messaggio vuoto
+- «La riga resta viva» era solo un non-fare: il flag lo aveva gia' spento qualcun altro
+- «Riavvio quando i turni finiscono» finiva i turni: il cancello contava solo le card, e lo script sparava a 15s
+- Il muro c'era gia' scritto: 871 note di macchina ripiegate anche nello storico
+- Il runtime leggero ricominciava da zero a ogni riavvio, e non lo diceva a nessuno
+- La card diceva «non consegnato» sopra «9 file +759 −21», e 294 card non avevano un numero
+- Rigenera non ha le mani, e nessuno gliel'aveva detto: recitava i comandi e ne inventava gli esiti
+- Il messaggio scritto durante un riavvio spariva: il client non poteva sapere se era arrivato, ora lo dice il server
+- Il 40% delle bocciature era falso: uno SCADUTO non e' un rosso, e la card lo diceva rosso
+- Il separatore dello snapshot era un byte grezzo: quel file era invisibile a grep
+- Pagina pubblica del profilo: /public/profile + URL relay in ProfileStatsSection
+- Pagina pubblica token-gated: Pubblica/Revoca, URL con token opaco
+- Ignora la cartella preview/ locale
+- Aggiorna bloat-baseline: acp.ts a 802 righe dopo il cherry-pick del modello-task
+- Sposta PREVIEW_RULE nell'envelope: rimuove paragrafo dal thread, aggiunge test e diagramma SVG
+- Il cancello di dimensione chiedeva una scelta, e la risposta non era alzare la soglia
+- Manifest delle migration fuori ordine: due rami landati hanno portato date anteriori alle mie
+- Il diagramma di consegna finiva nella radice del repo, e da li' BLOCCA il land
+- Test board_land honesty: sporco → unlanded, pulito → landed (+ SVG diagramma)
+- Coda messaggi: bolle in attesa nel trascritto + pulsante Invia subito
+- «Riprovo tra 60s» e ne passavano 10: era il POLL, e ogni giro pagava un 409
+- Strip tool detail text sul filo: -52% payload apertura topic
+- Il runtime nativo misurava i token e li buttava via: 43 card con turni e costo zero
+- Il build del client era rotto su main, e l'ho rotto io landando senza la sua barra
+- Nel pannello «Profilo» c'era una casella da 12px: al dito non si prende
+- **dictation** · opzione 3 — hermetic sempre + real-mic solo nightly
+- killProcessTree in lib/: un punto solo per uccidere un albero, tutti i siti aggiornati
+- GC ghost reap: killTree su script prima del remove, sweep nel detection cycle, skip slim se script vivi, test unit+integration
+- Un ramo senza un solo commit si leggeva «0 file +0 −0», con la forma di una misura buona
+- Lint ROSSO su 95 worktree su 103, e non era il codice: eslint non partiva proprio
+- Le dipendenze del client arrivano col worktree: costano 7 MB, non 409
+- Anche le dipendenze di RADICE: senza `bun-types` il typecheck accusa il ramo sbagliato
+- un solo calcolatore, appartenenza per responsible process
+- wiring registerFleetScriptSource in processes.ts (terzo asse scripts)
+- Codec blocks/tool_calls: decodeCol in ogni lettore, finalizeOrphanedRunningTools senza LIKE, test di integrazione
+- Escludi message-blob.ts dal tsconfig client: usa Bun/Buffer, non compatibile col target browser
+- fix memLabel ref + unit tests per topicsFootprint
+- Estrarre hasFreshAgentComment e annotare le porte di sistema
+- rimuovi html temporaneo dal repo
+- mem-report: referto memoria/disco + policy backup pre-migration
+- I due rossi della suite misuravano l'ambiente, non il prodotto
+- org Armonia: logo SVG, migration bootstrap, logo in sidebar e Settings, proposte progetti
+- Un rosso condiviso e' costato CINQUE volte lo stesso lavoro
+- Il valore di riposo di un cancello e' la cosa vera, non un si'
+- Una colonna nuova faceva SPARIRE l'organizzazione, e i test dicevano il sintomo
+- Il tentativo muore, la checklist no: i done si archiviano, gli aperti cambiano padrone
+- L'ultima parola del thread e' quella a cui si risponde
+- «Nessun file toccato» mentre il lavoro era sul disco
+- documenta DISCORD_CLIENT_ID in .env.example
+- decideCachePrune esce da useChat: il suo posto e' un modulo suo
+- Ripristina tasks.test.ts e acp-jcode test alla versione di main (file modificati per errore da agente precedente)
+- Il cancello di sicurezza c'era gia', in inglese: ho landato un doppione
+- Un debito che nessuno intende pagare non e' un debito
+- L'import mancante dopo il merge: la ghost-reap di main chiama la primitiva spostata
+- Velo semitrasparente sulla pane-chrome-bar: tinta = base, non chrome
+- La card chiedeva PIU' trasparenza e ha consegnato un velo
+- L'indirizzo di un estraneo, in un repo pubblico, scritto in ogni database nuovo
+- Il nome del proprietario fuori da un file nuovo: l'ha preso il suo cancello
+- Ogni card della board girava su Sonnet 4.6 mentre l'app scriveva Opus 5
+- Uno step fermo perche' il padre aspetta una persona ora lo dice sulla sua riga
+- Una matchMedia in un effetto senza dipendenze: +741 MediaQueryList a schermo fermo
+- Un riavvio uccideva la chat viva: SIGKILL a 15s, e la chat non lo diceva
+- Profilo, Organizzazione e Amici: tre pagine invece di sei riquadri in fila
+- Il ping senza nessuno che aspetti la risposta, e due passate che scrivono di nascosto
+- Il varco in cima alla chat ora ha un test che lo prova risalendo davvero
+- Il server smetteva di rispondere restando vivo: 256 descrittori sotto launchd
+- Le storie dei morti: il runtime nativo non liberava mai una sessione
+- Un turno tagliato da un riavvio diventa un fatto scritto, non una deduzione
+- La card in review si legge da sola: messaggio umano intero, chip file in fondo, icone sulle azioni
+- La prova dello sfratto e' il codice, non un RSS letto per 40 secondi
+- L'ultima riga di ogni card in review era un avviso che non era una scoperta
+- Il caso nuovo usava una dep che non esiste: l'url si imposta con currentOutputUrl
+- Un sito pubblico non viaggia in chiaro: HTTPS-First che risparmia i server locali
+- Il quadrato vuoto a sinistra dell'indirizzo, e la barra che saltava quando l'icona arrivava
+- Il contratto unico di cosa si vede mentre trascino, e il bersaglio che si dichiara
+- Il documento breve accanto al contratto: chi trascina cosa, e perche' non si fotografa un nodo fuori schermo
+- La copia che nessuno guarda si toglie anche in scrittura, non solo sul filo
+- Le superfici che trascinano mostrano la scheda intera, e il bersaglio si dichiara
+- Sonda permanente sui descrittori persi: la perdita non si riproduce piu', e ora si rimisura in un comando
+- In anteprima una cifra sola per la memoria e una per la percentuale
+- La console a tendina era un elenco senza ora, senza filtro e con cinquecento copie della stessa riga
+- Board, esplora file e la prova del contratto: l'adozione e' completa
+- Lo scheletro della chat stava sotto la barra e dietro al composer
+- La fila del telefono arriva al bordo del vetro: quattro tasti larghi uguale, e nessuno finge di essere premuto
+- Le due leggi nuove hanno una prova a schermo: primo e ultimo a filo, quattro larghezze uguali
+- Apri con Topics: un path dall'OS diventa una tab, dall'istanza gia' viva
+- Due cancelli si accusavano da soli, e tenevano rosso chiunque passasse
+- La stessa asserzione nei due motori: cosa ho in mano, e dove sta per cadere
+- Sonda temporanea: cosa disegna davvero la timeline della sidebar
+- DPREV-02 cercava la riga in un ramo che la scena non disegna
+- WebKit non conosce i permessi della clipboard: si azzerano nel suo progetto
+- Tentativo parallelo sul drawer del task: messo al sicuro in un commit invece che lasciato nell'albero
+- La sessione del task non e' piu' una tab: sta sempre sotto gli occhi, l'output le sta sopra
+- Con l'output aperto il brief cede il tetto: tre zone non stanno in mezza colonna
+- Il cricchetto delle ragioni di coda puniva chi spiegava la regola
+- Le tre colonne nuove entrano nella fixture: una che resta NULL non e' coperta
+- La chiave perf.cpuTotal esisteva solo in italiano
+- Il chip «in coda» si spegne uscendo da Todo: fine del giro muto in Backlog
+- La spec piu' lenta dell'E2E costava 191s di ATTESA, e adesso il piano lo sa
+- deadcode verde: axe-core e' iniettato per path, knip non puo' vederlo
+- Il chip «in coda» restava acceso su una card uscita da Todo
+- Il click su una notifica di chat apre la sua tab
+- La domanda compariva due volte perche' la sua bolla non aveva il nome vero
+- Il riepilogo della presence Discord si legge anche nella barra di stato
+- Sottotask fermi: la terza uscita e' promuoverli a task, e la board la suggerisce
+- Il worktree si aspetta finche' l'install finisce, non due minuti
+- Un riordino dentro Todo non e' un mandato nuovo: il badge «in coda» resta
+- L'icona dell'org era un disegno inventato, non il marchio di Armonia
+- Il caso che misurava il giro muto ora misura che non puo' tornare
+- Sei rossi della E2E completa: erano quattro test rimasti indietro al codice
+- Il fondo della cella browser lo decide il tipo di pane, non la forma del DOM
+- La spec del drag sa diventare rossa: tre mutazioni, due motori, referto in docs
+- La finestra d'attesa del riavvio si deriva, non si riscrive in due posti
+- La prova dell'anteprima di trascinamento si consegna come clip, non come racconto
+- Durate E2E rimisurate sul giro verde: 249 file su 249, nessuna stimata
+- la mappa dei buchi (Pippo vs Topics vs i browser veri)
+- board-doctor trova le card che arrivano in review MUTE
+- Una nota di servizio non e' l'ultima parola dell'agente
+- Il rosso condiviso di due card era una scadenza, non un guasto
+- La scheda vuota del browser non e' piu' un cartello: e' una pagina Nuovo Tab
+- Confronto browser Topics vs Arc/Chrome/Safari/Dia sulle aspettative utente
+- Mappa del browser, e due rossi che misuravano il carico invece del codice
+- Inventario del browser di Topics: pane, toolbar, nativo, tool dell'agente
+- Una mappa sola: la serie sul browser ne aveva prodotte due che si contraddicevano
+- Il cancello che non deve tagliare i turni stava sotto la durata di un turno
+- La riparazione della storia guardava se il tool_result esiste, non DOVE sta
+- Una interruzione, un sollecito: la chat del task smette di ripetersi
+- Due attese, perche' un turno di card e una chat non sono lo stesso danno
+- Le tre colonne del sollecito entrano nel cancello «niente resta a NULL»
+- Durate E2E dal giro verde finale (1039 passati, 0 falliti)
+- Le durate E2E si misurano a macchina scarica, non durante un altro giro
+- Il cancello nominava cio' che vieta: la ragione sociale fuori dal suo stesso commento
+- Cinque sonde per capire perche' la board tardava, invece di ridurle a un ricordo
+- La cartella era l'unica copia: adesso il residuo va sul ramo, e 137 worktree smettono di essere intoccabili
+- Una finestra ferma scriveva 75 KB al secondo, per sempre
+- Due potature insieme si contendevano index.lock: adesso chi arriva secondo aspetta la prima
+- Due misure che decidono, al posto di due numeri che oscillavano
+- La casa dei test era isolata, i loro worktree no: 55 cartelle e2e nella casa vera
+- Il residuo costa 26 righe sopra la soglia: baseline aggiornata nello stesso commit che l'ha fatta crescere
+- Tre sonde di un'altra sessione, raccolte da un add troppo largo: qui, con il loro nome
+- Versione 2.2.159
+
 ## 2.2.158 — 2026-08-16
 
 ### Correzioni
@@ -253,7 +782,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La potatura dei worktree esce da server.ts: 4.600 -> 4.349
 - fluido e' tarato e in CI: il budget sta fra due misure, non fra due opinioni
 - I test del cancello leggono il budget, non lo ricopiano
-- Il microfono della board taceva ancora: d8648ce5 aveva fatto parlare solo la chat
+- Il microfono della board taceva ancora: c326076c aveva fatto parlare solo la chat
 - La nota vocale vuota si registra da sola, invece di sparire in un toast
 - Il guscio non chiedeva il microfono: macOS lo negava senza dirlo
 - La dettatura muta aveva due rami ancora, e uno nascondeva una chiave scaduta
@@ -265,7 +794,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - ink era rosso su un gesto che non stava misurando, e non lo eseguiva nessuno
 - La mappa delle prestazioni registra anche l'avvio: 967 topic archiviati su 977, e 150 KB di systemPrompt che leggono in due
 - Gli stati senza corpo escono dalla compressione: un 304 non deve dichiarare byte che non ha
-- I 7 rossi dello shard 1/4 erano gia' su main: verificato su una worktree pulita a eb1f7a00
+- I 7 rossi dello shard 1/4 erano gia' su main: verificato su una worktree pulita a 567fee9e
 - I commenti di questo giro passano all'inglese, e il costante FINESTRA_MS prende il nome che ha nel resto del file
 - Il codice di questo giro parla inglese: commenti, nomi e dati di fixture
 - Il WebSocket non comprimeva niente: 36,5 KB di bootstrap diventano 2,6 verso la LAN
@@ -284,6 +813,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Click all'inchiostro: tre numeri al posto di sette aggettivi
 - Il nome vero era anche nel commento che vieta di scriverlo
 - ink dichiara perche' non sta nei guard rails
+- La sicurezza diventa un cancello invece di stare a memoria
 - Aggiunge il cancello di sicurezza del checkout
 - Il doctor accusava di furto le consegne ATTERRATE
 - L'agente ACP gemini partiva col flag deprecato e senza credenziali
@@ -834,7 +1364,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il box «Descrivi un task» non evapora se guardi altrove o apri un task
 - La prova che il composer resta: tre casi, e sul codice vecchio erano rossi
 - La tab della board non diceva niente: adesso dice quanti aspettano te
-- Due asserzioni del fan-out inseguono i messaggi accorciati in 38a7d699
+- Due asserzioni del fan-out inseguono i messaggi accorciati in f8ae7496
 - Le asserzioni del fan-out inseguono i messaggi accorciati
 - `done` deve voler dire ATTERRATO: chiudere una card ora landa il suo lavoro
 - «Sei in fondo» era vero a vuoto: la lista non si era ancora misurata
