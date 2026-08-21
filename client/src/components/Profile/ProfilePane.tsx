@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ProfilePage, OrganizationPage, FriendsPage } from '../Settings/IdentityPages';
 import { IDENTITY_SECTIONS, SETTINGS_SECTIONS, type SectionId } from '../Settings/sections';
-import { consumaPaginaProfilo, EVENTO_PAGINA_PROFILO, type PaginaProfilo } from '@/state/profileTarget';
+import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, paginaProfiloChiesta, type PaginaProfilo } from '@/state/profileTarget';
 
 /**
  * The "Profile" pane: the tab about who you are, who you are with, and who you
@@ -29,12 +29,12 @@ export function ProfilePane() {
   // is read on mount (the pane is `lazy()`: when the request is made this
   // component may not exist yet) and the event covers the opposite case, a pane
   // already open that has to change tab under the click.
-  const [pagina, setPagina] = useState<SectionId>(() => consumaPaginaProfilo() ?? 'profile');
+  const [pagina, setPagina] = useState<SectionId>(() => paginaProfiloChiesta() ?? 'profile');
 
   useEffect(() => {
     const vai = (e: Event) => {
       const chiesta = (e as CustomEvent<{ pagina?: PaginaProfilo }>).detail?.pagina;
-      if (chiesta) { consumaPaginaProfilo(); setPagina(chiesta); }
+      if (chiesta) { setPagina(chiesta); dimenticaPaginaProfilo(); }
     };
     window.addEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
     return () => window.removeEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
