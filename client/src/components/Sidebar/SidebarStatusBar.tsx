@@ -1,11 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Users, Activity } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
-import { subscribeSession, type SessionState } from '@/lib/auth/session';
-import { usePersonaCorrente } from '@/hooks/usePersonaCorrente';
-import { etichettaIdentita } from './identityLabel';
-import { presentiOra, type MembroPresenza } from './orgPresence';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
@@ -16,6 +12,8 @@ import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
 import { computeTopicsFootprint } from '@/lib/topicsFootprint';
 import { mostraResidenteInBarra } from './verdict';
+import { IdentityBlock } from './IdentityBlock';
+import { SEGNALE_OK, SEGNALE_ATTESA, SEGNALE_GUASTO, PALLINO_OK, PALLINO_ATTESA, PALLINO_GUASTO } from './chromeSignals';
 import { ensurePaneUsageFresh, webviewSnapshot } from '@/lib/paneUsage';
 import { useFeatureWeights } from '@/hooks/useFeatureWeights';
 import { bloccoTooltip } from '@/lib/featureWeightText';
@@ -29,7 +27,6 @@ import { useAgentActivityCounts } from '@/state/signals';
 import { useMobile } from '@/hooks/useMobile';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useT } from '@/hooks/useT';
-import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 
 declare const __BUILD_TIME__: string;
 declare const __BUILD_SHA__: string;
@@ -49,45 +46,9 @@ const BUILD_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION
 const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '';
 const BUILD_SHA = typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : '';
 
-/* I TRE SEGNALI DELLA BARRA, MISURATI SUL CHROME E NON SU UNA PANE.
- *
- * Questa riga vive sul chrome della sidebar (`--chrome-bg`: #eaecf0 in chiaro,
- * #080a0e in scuro), che in chiaro è più SCURO di una superficie di contenuto.
- * Le tinte qui erano scritte nude sulla scala 500 — `text-amber-500`,
- * `text-emerald-500`, `text-red-500` — cioè tarate per il fondo scuro e basta.
- * Misurato sulla palette vera (oklch → sRGB) sul chrome dei due temi:
- *
- *              chiaro   scuro
- *   amber-500    1,82    9,22   ← «2,1GB» in rosso-allarme che non si legge
- *   emerald-500  2,09    8,03
- *   red-500      3,24    5,18
- *
- * Le coppie qui sotto sono la soluzione, non una scelta di gusto: sul chrome
- * chiaro la scala 700 non basta per ambra e verde (4,28 e 4,19), quindi il
- * TESTO scende alla 800 e in scuro risale alla 400.
- *
- *   emerald-800 / emerald-400   6,42 / 10,24
- *   amber-800   / amber-400     6,04 / 11,52
- *   red-700     / red-400       5,44 /  6,84
- *
- * I PALLINI sono grafica, non testo: la soglia è 3:1 e non 4,5:1, e a sei pixel
- * una tinta troppo scura smette di leggersi come «verde» o «ambra» e diventa un
- * puntino sporco. Restano quindi due gradini più su, dove passano lo stesso.
- *
- *   emerald-600 / emerald-400   3,10 / 10,24
- *   amber-700   / amber-400     4,28 / 11,52
- *   red-500     / red-400       3,24 /  6,84
- *
- * (Il pannello dei file, che sta su `--bg-elevated` — più chiaro — ha la SUA
- * taratura in `lib/gitStatusColors.ts`, dove la scala 700 basta. Due superfici,
- * due misure: è la stessa ragione per cui il chrome si ritara terziario e bordi
- * in index.css.) */
-const SEGNALE_OK = 'text-emerald-800 dark:text-emerald-400';
-const SEGNALE_ATTESA = 'text-amber-800 dark:text-amber-400';
-const SEGNALE_GUASTO = 'text-red-700 dark:text-red-400';
-const PALLINO_OK = 'bg-emerald-600 dark:bg-emerald-400';
-const PALLINO_ATTESA = 'bg-amber-700 dark:bg-amber-400';
-const PALLINO_GUASTO = 'bg-red-500 dark:bg-red-400';
+// Le tinte dei tre segnali stanno in `chromeSignals.ts`: le legge anche il
+// blocco dell'identita' qui sopra la barra, e due copie tarate a mano sullo
+// stesso chrome sono due copie che divergono alla prima ritaratura.
 
 function formatBuildDate(iso: string): string {
   try {
@@ -539,21 +500,15 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
 
   return (
     <>
-      {/* CHI SEI, sopra la barra di stato.
-          Una riga sola, e solo quando c'e' qualcosa da dire. Un'autenticazione
-          che non si vede e' indistinguibile dalla sua assenza: e' il difetto per
-          cui il pairing precedente, che pure funzionava, non e' mai servito a
-          nessuno — dal telefono l'unico segnale era «Reconnecting…» per sempre.
-          Sul computer non compare: li' l'identita' e' il fatto di essere seduti
-          davanti alla macchina, e ripeterlo sarebbe rumore a ogni riga. */}
-      <DeviceIdentityRow onOpenDevices={onOpenDevices} />
-      {/* IL RIEPILOGO A PAROLE, subito sopra i numeri che lo riassumono in
-          glifi. Sta qui e non dentro la riga sotto perche' quella riga e' UNA
-          SOLA per costruzione (vedi il blocco piu' in basso: il suo unico
-          elemento elastico e' gia' conteso da memoria, CPU e fps su una colonna
-          da ~244px) — infilarci una frase avrebbe voluto dire troncarla al
-          terzo carattere, cioe' non mostrarla. */}
-      <PresenceSummaryRow />
+      {/* IL BLOCCO DELL'IDENTITA', sopra la barra di stato: tre soggetti - io,
+          i gruppi in cui sto, le persone che ho intorno. Il perche' di ciascuno
+          sta in `IdentityBlock.tsx`; qui conta che sia SENZA BORDI e che questa
+          barra abbia perso il suo `border-t`. Erano due fili grigi in trenta
+          pixel di altezza, e tagliavano il fondo della colonna in tre fette che
+          si leggevano come tre barre di applicazioni diverse: il fondo della
+          sidebar e' UNA fascia sola, e cio' che distingue le sue parti e' il
+          glifo con cui ciascuna comincia, non una linea. */}
+      <IdentityBlock onOpenDevices={onOpenDevices} />
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -597,7 +552,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           fonti per la stessa misura sono due fonti che divergono. */}
       <div
         data-testid="sidebar-status-bar"
-        className="flex items-center gap-2 flex-shrink-0 border-t border-app-border"
+        className="flex items-center gap-2 flex-shrink-0"
         style={{
           /**
            * PIÙ RIENTRO DOVE C'È L'ANGOLO TONDO.
@@ -935,271 +890,3 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     </>
   );
 }
-
-/**
- * IL RIEPILOGO, in fondo alla colonna: cosa sta succedendo, in una frase.
- *
- * ── PERCHE' UNA FRASE E NON ALTRI DUE GLIFI ─────────────────────────────────
- * La riga qui sotto dice l'attivita' con dei simboli e dei numeri (un robot, una
- * clessidra, «3»), che sono compatti e si imparano, ma vanno LETTI due volte:
- * la prima per ricordarsi cosa conta ciascun glifo. Il riepilogo del profilo
- * Discord la stessa cosa la dice a parole — «3 al lavoro · 12 aperte · 2 task
- * in corso» — e quella frase esisteva gia', solo che era visibile a chiunque su
- * Discord e non a chi ha l'app davanti. Adesso e' qui.
- *
- * ── E' LA STESSA FRASE, NON UNA CHE LE SOMIGLIA ────────────────────────────
- * Le parole vengono da `shared/presence-phrase.ts` e i numeri da
- * `/api/system/presence`, cioe' esattamente cio' che la presence pubblica. Una
- * copia scritta di qua sarebbe divergita al primo caso di bordo, e la copia
- * sbagliata sarebbe stata questa: quella che si guarda tutto il giorno.
- *
- * L'UNICA differenza voluta e' il nome del progetto, che sul profilo esce solo
- * al gradino `detailed` (li' il pubblico e' chiunque condivida un server con
- * te) e qui esce sempre: qui il pubblico e' chi ha l'app aperta.
- *
- * ── QUANDO NON C'E' NIENTE DA DIRE, NON DICE NIENTE ────────────────────────
- * Zero sessioni e zero task e' anche il caso in cui la presence si PULISCE
- * invece di lasciare appeso l'ultimo stato noto: la riga sparisce per la stessa
- * ragione, non per fare spazio.
- */
-function PresenceSummaryRow() {
-  const tr = useT();
-  const { counts, summary } = usePresenceSummary();
-  if (!summary) return null;
-  const attivo = (counts?.workingSessions ?? 0) > 0 || (counts?.activeTasks ?? 0) > 0;
-  return (
-    <div
-      data-testid="presence-summary"
-      // Stesse misure della riga dell'identita' qui sotto: stesso rientro,
-      // stesso filo sopra, stessa altezza col dito. Sono due righe della stessa
-      // fascia, e una che si impagina per conto suo si legge come un pezzo
-      // incollato.
-      className="flex w-full items-center gap-1.5 border-t border-app-border text-[11px] min-h-6 max-md:min-h-9"
-      style={{ paddingInline: ROW_INSET }}
-      // Il tooltip dice DA DOVE viene il numero: senza, «12 aperte» sembra un
-      // conteggio inventato dalla barra invece del contatore che finisce sul
-      // profilo.
-      title={`${summary}\n${tr('statusBar.presenceTitle')}`}
-    >
-      {/* Il glifo pulsa solo quando qualcosa lavora davvero: a fermo resta
-          spento, cosi' il movimento in fondo alla colonna significa una cosa
-          sola. */}
-      <Activity
-        size={10}
-        className={`flex-shrink-0 ${attivo ? `${SEGNALE_OK} animate-pulse` : 'text-app-text-muted'}`}
-      />
-      <span className="truncate text-app-text-secondary">{summary}</span>
-    </div>
-  );
-}
-
-/**
- * L'identita' della sessione, sopra la barra di stato.
- *
- * Mostrata SEMPRE, anche sul computer. Il primo taglio la rendeva muta in
- * loopback col ragionamento «li' l'identita' e' il presupposto, non
- * un'informazione» — sbagliato in pratica: chi ha appena appaiato un telefono
- * apre l'app sul Mac per controllare che sia andata, e non trova niente. Una
- * riga che compare solo altrove non e' minimalismo, e' un buco dove ci si
- * aspetta una conferma.
- *
- * IL SOGGETTO E' LA PERSONA, e prima era il ferro. La riga diceva «Questo
- * computer» perche' nasce come conferma di appaiamento, e per quella domanda il
- * ferro e' la risposta giusta. Ma chi guarda la propria sidebar non si chiede su
- * cosa sta: si chiede chi e', e «Questo computer» detto a chi il computer ce
- * l'ha in mano non aggiunge niente. Cambiato su richiesta di Attilio (card
- * b8ca85e8). Il ferro non sparisce: scende a seconda riga, perche' il caso «ho
- * appena appaiato il telefono, e' andata?» resta vero e questa e' l'unica riga
- * che lo conferma. La scelta di cosa mostrare sta in `etichettaIdentita`, che e'
- * anche quella del menu del telefono: erano due copie ed erano gia' divergenti.
- */
-function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
-  const tr = useT();
-  const [session, setSession] = useState<SessionState>({ status: 'loading' });
-  const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
-  /** Quanti ALTRI della tua organizzazione sono online adesso. Vedi `orgPresence.ts`. */
-  const [colleghi, setColleghi] = useState<number>(0);
-  /** Logo e nome dell'organizzazione di questa installazione. */
-  const [orgInfo, setOrgInfo] = useState<{ name: string; logo_url: string | null } | null>(null);
-  useEffect(() => subscribeSession(setSession), []);
-  const io = usePersonaCorrente();
-  const chi = etichettaIdentita(io, session);
-
-  // Quanti dispositivi ci sono, e quanti sono vivi adesso. È l'informazione che
-  // rende la riga una RISPOSTA e non un'etichetta: «Questo computer» da solo non
-  // dice niente che non si sappia già stando seduti davanti.
-  const caricaAltri = useCallback(async () => {
-    try {
-      // La guardia sta QUI e non nell'effetto: un effetto che decide se chiamare
-      // è un effetto che scrive stato in modo condizionale, ed è la forma che
-      // `set-state-in-effect` marca. Chiamare sempre, e non fare niente quando
-      // non serve, è la stessa cosa con una responsabilità in meno.
-      const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
-      if (!r.ok) return;
-      const b = await r.json() as { devices: Array<{ connected: boolean; revokedAt: number | null }> };
-      const vivi = (b.devices ?? []).filter((d) => d.revokedAt === null);
-      setAltri({ connessi: vivi.filter((d) => d.connected).length, totali: vivi.length });
-    } catch { /* transitorio: la riga resta senza conteggio invece di mentire */ }
-  }, []);
-
-  /**
-   * Chi altro c'e' della tua organizzazione. Due chiamate perche' i membri
-   * stanno per gruppo: prima quale gruppo, poi chi c'e' dentro.
-   *
-   * Best-effort come il conteggio dei dispositivi: su un'installazione senza
-   * servizio degli account queste rotte non rispondono, e la riga resta senza
-   * la parte dei colleghi invece di mostrare uno zero che non significa niente.
-   */
-  const caricaColleghi = useCallback(async () => {
-    try {
-      const ro = await fetch('/api/auth/orgs', { credentials: 'same-origin' });
-      if (!ro.ok) return;
-      const { orgs } = await ro.json() as { orgs: Array<{ id: string; name: string; logo_url: string | null; installation?: boolean }> };
-      const mia = orgs.find((o) => o.installation) ?? orgs[0];
-      if (!mia) return;
-      setOrgInfo({ name: mia.name, logo_url: mia.logo_url ?? null });
-      const rm = await fetch(`/api/auth/orgs/${encodeURIComponent(mia.id)}/members`, { credentials: 'same-origin' });
-      if (!rm.ok) return;
-      const { members } = await rm.json() as { members: MembroPresenza[] };
-      // DUE fonti per la stessa domanda «chi sono io», e serve la seconda: la
-      // rubrica (`/api/people`, dietro `usePersonaCorrente`) e' una fetch a
-      // parte che puo' non aver ancora risposto, o fallire in silenzio. La
-      // sessione porta gia' `personId` ed e' la stessa persona, risolta dal
-      // server da `devices.person_id`. Senza il ripiego, chi e' da solo si
-      // vedeva contare 1 - se stesso - nella riga che dice «chi ALTRO c'e'».
-      const mioId = io?.id ?? (session.status === 'paired' ? session.personId ?? null : null);
-      setColleghi(presentiOra(members ?? [], mioId, Date.now()));
-    } catch { /* idem: nessun numero e' meglio di un numero inventato */ }
-  }, [io?.id, session]);
-
-  // Il conteggio si prende DOPO il primo paint, non durante. Questa riga sta in
-  // fondo alla sidebar e il suo numero non serve a nessuno nel primo frame:
-  // farlo partire dentro l'effetto significherebbe una scrittura di stato
-  // sincrona in montaggio — che è ciò che `set-state-in-effect` marca, e ha
-  // ragione. Un rinvio a zero millisecondi lo toglie dal percorso critico
-  // davvero, non lo nasconde.
-  useEffect(() => {
-    const chiedi = () => { void caricaAltri(); };
-    const primo = setTimeout(chiedi, 0);
-    // I colleghi si ricontano ogni minuto: la soglia e' cinque, e un numero che
-    // si aggiorna solo al montaggio direbbe «c'e' Marco» mezz'ora dopo che se
-    // n'e' andato.
-    const colleghiOra = () => { void caricaColleghi(); };
-    const primoColleghi = setTimeout(colleghiOra, 0);
-    const ogniMinuto = setInterval(colleghiOra, 60_000);
-    window.addEventListener('topics:auth-pair-resolved', chiedi);
-    window.addEventListener('topics:auth-device-revoked', chiedi);
-    return () => {
-      clearTimeout(primo);
-      clearTimeout(primoColleghi);
-      clearInterval(ogniMinuto);
-      window.removeEventListener('topics:auth-pair-resolved', chiedi);
-      window.removeEventListener('topics:auth-device-revoked', chiedi);
-    };
-  }, [caricaAltri, caricaColleghi]);
-
-  if (session.status !== 'paired') return null;
-  const locale = session.as === 'loopback';
-
-  return (
-    <button
-      data-testid="device-identity"
-      onClick={onOpenDevices}
-      disabled={!onOpenDevices}
-      // Il filo sta dalla parte da cui la riga si stacca dal resto: sotto la
-      // barra quando la barra è in cima (o si sommerebbe a quello dell'header),
-      // sopra quando la barra è in fondo.
-      // NIENTE `bg-app-bg`, e l'hover è quello del chrome. Questa riga sta
-      // DENTRO la sidebar, che è chrome: dipingerci sopra il colore della
-      // PAGINA la faceva leggere come una superficie estranea incollata in
-      // fondo alla colonna, e sotto Tauri/mac quel colore è opaco mentre il
-      // chrome è vetro — una striscia solida in mezzo alla vibrancy.
-      // L'hover andava nello stesso verso sbagliato: `--bg-hover` è tarato per
-      // una pane di contenuto e in tema chiaro è più CHIARO del chrome, cioè la
-      // riga SCHIARIVA passandoci sopra mentre ogni altra riga della colonna
-      // scurisce (è il caso descritto per esteso su SIDEBAR_HOVER).
-      className={`flex w-full items-center gap-1.5 border-t border-app-border text-left text-[11px] text-app-text-secondary min-h-6 max-md:min-h-9 ${SIDEBAR_HOVER} disabled:hover:bg-transparent`}
-      style={{ paddingInline: ROW_INSET }}
-      // Il tooltip dice ENTRAMBE le cose, sempre: chi e su cosa. La riga puo'
-      // troncare il dettaglio quando la colonna e' stretta, il tooltip no.
-      title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}\n${tr('statusBar.devicesTitle')}`}
-    >
-      {/* LA FACCIA, e solo quando c'e' una persona. Senza, resta il glifo del
-          ferro esattamente com'era: un tondino con dentro l'iniziale di
-          \u00abQuesto computer\u00bb sarebbe un avatar finto. */}
-      {chi.personale
-        ? (chi.avatarUrl
-            ? <img src={chi.avatarUrl} alt="" className="h-4 w-4 flex-shrink-0 rounded-full object-cover" />
-            : <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-primary text-[8px] font-semibold leading-none text-white">{chi.iniziali}</span>)
-        : locale
-          ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
-          : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
-      <span className="truncate text-app-text">{chi.nome}</span>
-      {/* IL BADGE DELL'ORG, visibile sempre quando c'e' un'organizzazione.
-          Appare solo quando NON ci sono colleghi online (in quel caso il chip
-          presenza li porta gia' il logo). Mostra il logo o le iniziali. */}
-      {orgInfo && colleghi === 0 && (
-        <span
-          className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted"
-          title={orgInfo.name}
-        >
-          {orgInfo.logo_url ? (
-            <img
-              src={orgInfo.logo_url}
-              alt={orgInfo.name}
-              className="h-3.5 w-3.5 flex-shrink-0 rounded-full object-cover opacity-70"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-            />
-          ) : (
-            <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[7px] font-bold text-indigo-400">
-              {orgInfo.name.slice(0, 2).toUpperCase()}
-            </span>
-          )}
-        </span>
-      )}
-      {/* IL FERRO, sceso a dettaglio. Cede lo spazio per primo (`min-w-0` senza
-          `flex-shrink-0`): se la colonna e' stretta si tronca questo, mai il
-          nome della persona. */}
-      {chi.dettaglio && (
-        <span className="flex min-w-0 items-center gap-1 text-app-text-muted">
-          {locale
-            ? <Monitor size={10} className="flex-shrink-0" />
-            : <Smartphone size={10} className="flex-shrink-0" />}
-          <span className="truncate">{chi.dettaglio}</span>
-        </span>
-      )}
-      {/* CHI ALTRO C'E', della tua organizzazione. Compare solo quando c'e'
-          davvero qualcuno: «0 online» e' rumore che si impara a saltare, e una
-          riga che dice sempre qualcosa smette di essere guardata.
-          Prima del conteggio dei ferri perche' risponde a una domanda piu'
-          grande — «con chi sto lavorando» batte «quante macchine ho» — e con
-          `flex-shrink-0` perche' e' l'ultima cosa da troncare. */}
-      {colleghi > 0 && (
-        <span
-          data-testid="org-presence"
-          className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted"
-          title={orgInfo ? `${orgInfo.name} \u00b7 ${tr('statusBar.orgPresenceTitle')}` : tr('statusBar.orgPresenceTitle')}
-        >
-          {orgInfo?.logo_url ? (
-            <img
-              src={orgInfo.logo_url}
-              alt={orgInfo.name}
-              className="h-3 w-3 flex-shrink-0 rounded-full object-cover"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-            />
-          ) : (
-            <Users size={10} className="flex-shrink-0" />
-          )}
-          {colleghi}
-        </span>
-      )}
-      {altri && altri.totali > 0 && (
-        <span className={`${colleghi > 0 ? 'ml-1' : 'ml-auto'} flex flex-shrink-0 items-center gap-1 text-app-text-muted`}>
-          {altri.connessi > 0 && <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_OK}`} />}
-          {altri.connessi > 0 ? `${altri.connessi}/${altri.totali}` : `${altri.totali}`}
-        </span>
-      )}
-    </button>
-  );
-}
-
