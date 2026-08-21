@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.164",
+    "date": "2026-08-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il falso «Nessuna risposta» sopra la risposta che era arrivata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La bolla riusata non diventa un gemello a schermo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.163",
     "date": "2026-08-21",
     "sections": {
