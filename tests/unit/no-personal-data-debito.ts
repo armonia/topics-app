@@ -94,7 +94,6 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "server/db/migrations/089-retirements.sql",
   "server/db/migrations/100-task-labels.sql",
   "server/lib/account.test.ts",
-  "server/lib/auth-gate.test.ts",
   "server/lib/browser-orphan-sweep.test.ts",
   "server/lib/browser-orphan-sweep.ts",
   "server/lib/device-auth.test.ts",

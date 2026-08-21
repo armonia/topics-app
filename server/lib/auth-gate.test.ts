@@ -139,7 +139,7 @@ describe("auth-gate · canonHost", () => {
 describe("auth-gate · originHost", () => {
   it("reads the hostname out of every origin shape the app produces", () => {
     expect(originHost("https://192.168.1.12:3333")).toBe("192.168.1.12");
-    expect(originHost("https://macbook-pro-di-attilio.local:3333")).toBe("macbook-pro-di-attilio.local");
+    expect(originHost("https://macbook-di-casa.local:3333")).toBe("macbook-di-casa.local");
     // `new URL(...).hostname` restituisce l'IPv6 CON le parentesi: vanno tolte.
     expect(originHost("https://[::1]:3333")).toBe(canonHost("localhost"));
   });
@@ -185,7 +185,7 @@ describe("auth-gate · isAllowedHost", () => {
       "127.0.0.1:3334",                  // l'ascoltatore del tunnel / relay
       "192.168.1.12:3333", "10.0.0.3:3333", "172.16.4.9",  // la LAN, per IP
       "[fe80::1]:3333", "fe80::1234:5678",                  // la LAN, per IPv6
-      "macbook-pro-di-attilio.local:3333",                  // mDNS
+      "macbook-di-casa.local:3333",                  // mDNS
       "mac.tail1234.ts.net",                                // Tailscale MagicDNS
     ]) {
       expect(`${h}→${isAllowedHost(h)}`).toBe(`${h}→true`);
@@ -286,8 +286,8 @@ describe("auth-gate · evaluateAuth", () => {
   it("per nome mDNS, che è la strada consigliata (l'IP cambia col DHCP, il nome no)", () => {
     const r = evaluateAuth(input({
       method: "POST",
-      host: "macbook-pro-di-attilio.local:3333",
-      origin: "https://macbook-pro-di-attilio.local:3333",
+      host: "macbook-di-casa.local:3333",
+      origin: "https://macbook-di-casa.local:3333",
     }));
     expect(r.allow).toBe(true);
   });
@@ -389,7 +389,7 @@ describe("auth-gate · evaluateAuth", () => {
       method: "POST", host, origin: `https://${host}`, allowedOrigins, identity: { ok: true },
     })).allow;
     expect(passa("192.168.1.12:3333")).toBe(true);
-    expect(passa("macbook-pro-di-attilio.local:3333")).toBe(true);
+    expect(passa("macbook-di-casa.local:3333")).toBe(true);
     expect(passa("mac.tail1234.ts.net")).toBe(true);
     expect(passa("topics.esempio.io", ["https://topics.esempio.io"])).toBe(true);
     // Il guscio Tauri: `Origin` e `Host` vengono da due mondi diversi.
@@ -521,8 +521,8 @@ describe("nome di rete a un'etichetta sola", () => {
    * machine's short name, dot-free, and it was not in the allowlist.
    */
   it("accetta un nome senza punti, con e senza porta", () => {
-    expect(isAllowedHost("macbook-pro-di-attilio")).toBe(true);
-    expect(isAllowedHost("macbook-pro-di-attilio:3333")).toBe(true);
+    expect(isAllowedHost("macbook-di-casa")).toBe(true);
+    expect(isAllowedHost("macbook-di-casa:3333")).toBe(true);
     expect(isAllowedHost("topics:13333")).toBe(true);
   });
 
@@ -540,8 +540,8 @@ describe("FQDN col punto finale", () => {
    * gate exists NOT to give.
    */
   it("riconosce i nostri nomi anche pienamente qualificati", () => {
-    expect(isAllowedHost("macbook-pro-di-attilio.local.")).toBe(true);
-    expect(isAllowedHost("macbook-pro-di-attilio.local.:3333")).toBe(true);
+    expect(isAllowedHost("macbook-di-casa.local.")).toBe(true);
+    expect(isAllowedHost("macbook-di-casa.local.:3333")).toBe(true);
     expect(isAllowedHost("mac.tail1234.ts.net.")).toBe(true);
   });
 

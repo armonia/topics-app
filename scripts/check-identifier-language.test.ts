@@ -3,8 +3,8 @@
  * repair would not have.
  *
  * `check:comment-language` recognises Italian by matching 85 stopwords, and six
- * of the eight tokens in `sostituisce`, `annunciaRipresa`, `NOTA_SESSIONE_MORTA`
- * and `PREFISSO_NOTA_ANTEPRIMA` are not on that list. So the first test here is
+ * of the eight tokens in `sostituisce`, `annunciaRipresa`, `NOTA_SESSIONE_MORTA`  allow-italian: the Italian names ARE the subject
+ * and `PREFISSO_NOTA_ANTEPRIMA` are not on that list. So the first test here is  allow-italian: the Italian names ARE the subject
  * not decoration: it is the proof that asking "is this English?" answers a
  * question the other phrasing could not.
  */
@@ -51,15 +51,15 @@ describe("le dichiarazioni, non ogni occorrenza", () => {
 describe.if(hasDict)("il giudizio", () => {
   test("i quattro nomi di quella sera sarebbero stati rossi", () => {
     for (const nome of ["sostituisce", "annunciaRipresa", "NOTA_SESSIONE_MORTA", "PREFISSO_NOTA_ANTEPRIMA"]) {
-      const cattive = words(nome).filter((w) => !isKnown(w, dict));
-      expect(`${nome}→${cattive.length > 0}`).toBe(`${nome}→true`);
+      const unknownWords = words(nome).filter((w) => !isKnown(w, dict));
+      expect(`${nome}→${unknownWords.length > 0}`).toBe(`${nome}→true`);
     }
   });
 
   test("i nomi con cui li ho sostituiti sono verdi", () => {
     for (const nome of ["replaces", "shouldAnnounceResume", "DEAD_SESSION_NOTE", "PREVIEW_NOTE_PREFIX", "chipKey"]) {
-      const cattive = words(nome).filter((w) => !isKnown(w, dict));
-      expect(`${nome}→${cattive.join(",")}`).toBe(`${nome}→`);
+      const unknownWords = words(nome).filter((w) => !isKnown(w, dict));
+      expect(`${nome}→${unknownWords.join(",")}`).toBe(`${nome}→`);
     }
   });
 

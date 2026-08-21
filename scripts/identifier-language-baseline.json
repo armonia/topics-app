@@ -6,7 +6,6 @@
       "App",
       "BOOT_TAB_PERMALINK",
       "KeyboardShortcuts",
-      "activeSpaceHasTabs",
       "enqueueAndTick",
       "handleStandaloneAddPane",
       "onTabAck",
@@ -58,9 +57,6 @@
       "chiaveStato",
       "motivoDaRisposta"
     ],
-    "client/src/components/Board/Card.test.ts": [
-      "hasMetaRow"
-    ],
     "client/src/components/Board/Card.tsx": [
       "attesa",
       "checklist",
@@ -68,7 +64,6 @@
       "costo",
       "deliveryStat",
       "evidenza",
-      "hasMetaRow",
       "lavoroInPlace",
       "noteDiMacchina",
       "parti",
@@ -96,8 +91,6 @@
       "asgBtnRef",
       "cls",
       "compRect",
-      "has",
-      "hasProject",
       "lblBtnRef",
       "motivi",
       "oltreQuota",
@@ -134,8 +127,6 @@
       "descCard",
       "editCancelled",
       "escGuardRef",
-      "hasKids",
-      "hasWorkspacePanes",
       "imgs",
       "isImg",
       "mio",
@@ -286,8 +277,6 @@
       "vola"
     ],
     "client/src/components/Browser/BrowserDevControls.tsx": [
-      "hasErr",
-      "hasWarn",
       "pct"
     ],
     "client/src/components/Browser/BrowserFavicon.tsx": [
@@ -389,8 +378,6 @@
     ],
     "client/src/components/Browser/paneContextModel.ts": [
       "PANE_CONTEXT_TAKE_EXPR",
-      "href",
-      "sel",
       "seq"
     ],
     "client/src/components/ChangelogModal.tsx": [
@@ -405,9 +392,6 @@
       "builtin",
       "builtinNames",
       "cursorPos",
-      "hasAttachments",
-      "hasContent",
-      "hasContext",
       "onEsc",
       "sepAfter",
       "sepBefore"
@@ -439,7 +423,6 @@
       "EMOJI_REGEX",
       "dateSep",
       "emojiMsg",
-      "hasTurnMetrics",
       "isEmojiOnly",
       "trimmed"
     ],
@@ -450,7 +433,6 @@
       "fermi",
       "gesto",
       "guarda",
-      "hasWork",
       "inApertura",
       "indexRefrozenRef",
       "inizio",
@@ -487,9 +469,6 @@
     "client/src/components/Chat/TodoStrip.tsx": [
       "TodoStrip"
     ],
-    "client/src/components/Chat/ToolCallRow.tsx": [
-      "hasBody"
-    ],
     "client/src/components/Chat/ToolCards.tsx": [
       "ArgsPre",
       "ClampedPre",
@@ -502,11 +481,6 @@
     "client/src/components/Chat/ToolInputForm.tsx": [
       "rec",
       "showRec"
-    ],
-    "client/src/components/Chat/askDraft.ts": [
-      "hasOther",
-      "hasSelections",
-      "hasValues"
     ],
     "client/src/components/Chat/clampBody.ts": [
       "formatBytes"
@@ -527,8 +501,6 @@
       "CACHE_TTL_MS",
       "carrierEntries",
       "fondibile",
-      "hasBlocks",
-      "hasTools",
       "reusedEntries"
     ],
     "client/src/components/Chat/emptyStateContext.ts": [
@@ -546,10 +518,6 @@
       "deciso",
       "domandaQualunque",
       "planoInAttesa"
-    ],
-    "client/src/components/Chat/planDetection.ts": [
-      "hasNumberedSteps",
-      "hasPlanHeader"
     ],
     "client/src/components/Chat/scrollAuthority.test.ts": [
       "ancorato",
@@ -586,9 +554,6 @@
     ],
     "client/src/components/Chat/toolCardBody.test.ts": [
       "sempre"
-    ],
-    "client/src/components/Chat/toolCardBody.ts": [
-      "toolCardHasBody"
     ],
     "client/src/components/Chat/toolDetail.ts": [
       "TODO_ITEM_NAMES",
@@ -712,7 +677,6 @@
       "cardVar",
       "fgid",
       "guardata",
-      "hasMultipleColumns",
       "keyPos",
       "pos",
       "quanti",
@@ -721,8 +685,6 @@
     "client/src/components/Layout/PaneTabBar.tsx": [
       "dettaglioProgetto",
       "etichettaTab",
-      "hasDragSource",
-      "hasMenuItems",
       "isAppFocused",
       "riduciMovimento",
       "sottotitolo",
@@ -734,7 +696,6 @@
       "desc",
       "handleStandaloneUtilityChange",
       "handleUnsoloTopic",
-      "hasGridSplit",
       "isNativeApp",
       "isPrimaryOfMultiTab",
       "isStandaloneTabDrag",
@@ -764,7 +725,6 @@
       "box"
     ],
     "client/src/components/Layout/flattenLayout.ts": [
-      "hasStackMembers",
       "singleRowNeedsEqualise"
     ],
     "client/src/components/Layout/gridWidths.test.ts": [
@@ -791,8 +751,6 @@
     ],
     "client/src/components/Layout/hooks/usePaneOrdering.ts": [
       "STANDALONE_ACTIVE_KEY",
-      "hasProjectPaneRef",
-      "hasUtilityPanes",
       "readStandaloneActivePane",
       "unsub",
       "writeStandaloneActivePane"
@@ -835,9 +793,6 @@
     "client/src/components/Layout/spaceHelpers.ts": [
       "dissolveIfEmptied"
     ],
-    "client/src/components/Layout/splitDivider.ts": [
-      "gapHasDivider"
-    ],
     "client/src/components/Layout/splitRules.ts": [
       "standaloneSplitSurface"
     ],
@@ -848,7 +803,6 @@
     ],
     "client/src/components/Layout/usePanelGridPersistence.ts": [
       "hsum",
-      "payload",
       "wsum"
     ],
     "client/src/components/MessageContent.tsx": [
@@ -887,7 +841,6 @@
     ],
     "client/src/components/Modals/NewTopicModal.tsx": [
       "cancelled",
-      "hasReadyWorktrees",
       "trimmedInitial"
     ],
     "client/src/components/Modals/TopicSettingsModal.test.tsx": [
@@ -916,7 +869,6 @@
       "clipboardRef",
       "copyToClipboard",
       "dirEntries",
-      "dirHasChanges",
       "droppedDirNames",
       "isMultiSelect",
       "isMultiSelected",
@@ -941,8 +893,6 @@
       "handleBatchUnstage",
       "handleUnstage",
       "handleUnstageAll",
-      "hasData",
-      "hasUnstagedChanges",
       "hdrReveal",
       "isMultiKey",
       "isMultiSelected",
@@ -1212,9 +1162,6 @@
       "precedente",
       "seq"
     ],
-    "client/src/components/Shared/PaneAddMenu.tsx": [
-      "hasMenuItems"
-    ],
     "client/src/components/Shared/PendingActionProgressOverlay.tsx": [
       "raf1",
       "raf2"
@@ -1292,7 +1239,6 @@
       "NONE_UNVERIFIED_TTL_MS",
       "NONE_VERIFIED_TTL_MS",
       "endpointUrl",
-      "hasOnly",
       "img",
       "inflight",
       "presenti",
@@ -1372,7 +1318,6 @@
     ],
     "client/src/components/Sidebar/PinnedTile.tsx": [
       "LucideIcon",
-      "hasRealIcon",
       "rgb"
     ],
     "client/src/components/Sidebar/PinnedTiles.tsx": [
@@ -1432,10 +1377,6 @@
       "ditoVersoIFissati",
       "dopo",
       "fissati",
-      "hasAdd",
-      "hasAddItems",
-      "hasMenu",
-      "hasProjectActions",
       "pos",
       "projOnFill",
       "projTier",
@@ -1549,8 +1490,7 @@
     ],
     "client/src/components/Sidebar/useSpaceCards.ts": [
       "SEP",
-      "enc",
-      "hasDone"
+      "enc"
     ],
     "client/src/components/Sidebar/verdict.test.ts": [
       "quieto"
@@ -1573,7 +1513,6 @@
       "cancelled",
       "cmd",
       "fitAddon",
-      "hasLayoutRef",
       "info",
       "lastInfoRef",
       "obs",
@@ -1594,7 +1533,6 @@
     ],
     "client/src/components/Terminal/writeCoalescer.test.ts": [
       "bytes",
-      "hasLayout",
       "reentered"
     ],
     "client/src/components/Terminal/writeCoalescer.ts": [
@@ -1656,15 +1594,11 @@
       "adesso",
       "bytes",
       "gigante",
-      "payload",
       "primo",
       "sanaAdesso",
       "sanaPrima",
       "scritturaVecchia",
       "secondo"
-    ],
-    "client/src/hooks/messageCacheWrite.ts": [
-      "payload"
     ],
     "client/src/hooks/outboundQueue.test.ts": [
       "vecchio"
@@ -1698,9 +1632,6 @@
       "segnaposto",
       "txt",
       "vivo"
-    ],
-    "client/src/hooks/streamCatchupMerge.ts": [
-      "CatchupPayload"
     ],
     "client/src/hooks/streamReattachReset.test.ts": [
       "pieno",
@@ -1748,7 +1679,6 @@
       "idemKey",
       "liveDeltaRafRef",
       "passaAncheAlMittente",
-      "payload",
       "resetStreamTimeout",
       "resetStreamTimeoutRef",
       "riconciliato",
@@ -1876,7 +1806,6 @@
       "isTypingSurface"
     ],
     "client/src/hooks/useMobile.ts": [
-      "hasHover",
       "isIOS",
       "isStandalone"
     ],
@@ -2032,12 +1961,10 @@
       "playRaf"
     ],
     "client/src/hooks/useSidebarState.test.ts": [
-      "payload",
       "visti"
     ],
     "client/src/hooks/useSidebarState.ts": [
       "readServerSeq",
-      "sanitizeSidebarPayload",
       "seq",
       "serverSeqRef"
     ],
@@ -2092,7 +2019,6 @@
       "gateLoopback",
       "getNavEntries",
       "info",
-      "payload",
       "seq"
     ],
     "client/src/hooks/useTerminalLifecycle.ts": [
@@ -2101,7 +2027,6 @@
       "useTerminalLifecycle"
     ],
     "client/src/hooks/useTopics.ts": [
-      "hasCachedData",
       "isTimeout"
     ],
     "client/src/hooks/useWaitedProcess.test.ts": [
@@ -2181,7 +2106,6 @@
     "client/src/lib/board.ts": [
       "DiffFileStat",
       "enc",
-      "hasCodeQuestion",
       "isProjectlessId",
       "quando",
       "subtaskOpenable",
@@ -2235,9 +2159,6 @@
       "vecchio",
       "woken"
     ],
-    "client/src/lib/boardTasksStore.ts": [
-      "hasLoadedBoardTasks"
-    ],
     "client/src/lib/browserForgetSite.ts": [
       "rec"
     ],
@@ -2255,15 +2176,9 @@
     ],
     "client/src/lib/buildSidebarItems.ts": [
       "BrowserContextInfo",
-      "aHasUnread",
       "aNotif",
       "arr",
-      "bHasUnread",
       "bNotif",
-      "hasInternalTab",
-      "hasProjectTab",
-      "hasTab",
-      "hasTopLevelTab",
       "hostname",
       "projSubAgents",
       "readProjectPaneEntries",
@@ -2314,9 +2229,6 @@
       "rafTotal",
       "rafs",
       "testid"
-    ],
-    "client/src/lib/diffParser.ts": [
-      "hasDiffBlocks"
     ],
     "client/src/lib/dndTypes.test.ts": [
       "projA",
@@ -2516,8 +2428,7 @@
       "iosSwitchPulse"
     ],
     "client/src/lib/hoverReveal.test.ts": [
-      "cls",
-      "hasHover"
+      "cls"
     ],
     "client/src/lib/i18n-lazy.test.ts": [
       "woken"
@@ -2529,15 +2440,11 @@
       "nostre",
       "reso"
     ],
-    "client/src/lib/i18n-types.ts": [
-      "Dict"
-    ],
     "client/src/lib/i18n.test.ts": [
       "disallineate",
       "segnaposti"
     ],
     "client/src/lib/i18n.ts": [
-      "DICTS",
       "chiaviDelCatalogo"
     ],
     "client/src/lib/iconTint.test.ts": [
@@ -2585,9 +2492,6 @@
     ],
     "client/src/lib/missions.test.ts": [
       "PROJ"
-    ],
-    "client/src/lib/modalSurface.ts": [
-      "hasOpenModalSurface"
     ],
     "client/src/lib/motion.test.ts": [
       "chiamate",
@@ -2672,7 +2576,6 @@
       "spegni"
     ],
     "client/src/lib/paneUsage.ts": [
-      "FleetPayload",
       "ShellWebview",
       "TTL_MS",
       "byWebviewLabel",
@@ -2715,7 +2618,6 @@
       "LIB_RS",
       "ciclo",
       "corpo",
-      "decl",
       "lib"
     ],
     "client/src/lib/reloadSites.ts": [
@@ -2774,7 +2676,6 @@
       "riposo"
     ],
     "client/src/lib/settings.ts": [
-      "sanitizeSettingsPayload",
       "syncableSettings"
     ],
     "client/src/lib/shell/app.ts": [
@@ -2829,7 +2730,6 @@
       "cookies",
       "entries",
       "origUrl",
-      "payload",
       "setPaneCookies"
     ],
     "client/src/lib/sidebarStateGroups.test.ts": [
@@ -2962,8 +2862,7 @@
       "claimCenteredHandoff"
     ],
     "client/src/state/draftAttachments.ts": [
-      "DRAFT_ATTACHMENT_CAP_BYTES",
-      "payload"
+      "DRAFT_ATTACHMENT_CAP_BYTES"
     ],
     "client/src/state/globalDispatchCap.test.ts": [
       "unsubMenu",
@@ -3091,19 +2990,11 @@
       "ordine",
       "unsubscribe"
     ],
-    "client/src/state/pane/middleware/serverHydrated.ts": [
-      "hasReceivedServerHydrate"
-    ],
     "client/src/state/pane/middleware/syncCrossTab.test.ts": [
-      "foreignPayload",
-      "payload",
-      "selfPayload",
-      "stalePayload",
       "uninstallFakeWindow"
     ],
     "client/src/state/pane/middleware/syncCrossTab.ts": [
-      "incomingSeq",
-      "payloadSnapshot"
+      "incomingSeq"
     ],
     "client/src/state/pane/middleware/syncServer.test.ts": [
       "uninstallFakeWindow"
@@ -3128,7 +3019,6 @@
       "upd"
     ],
     "client/src/state/pane/reducers/multiClientResurrection.test.ts": [
-      "hasPane",
       "serverSeq"
     ],
     "client/src/state/pane/reducers/panes.test.ts": [
@@ -3152,7 +3042,6 @@
     ],
     "client/src/state/pane/reducers/pinnedChatResurrection.test.ts": [
       "closing",
-      "hasPane",
       "seq"
     ],
     "client/src/state/pane/reducers/sanitizeSnapshot.test.ts": [
@@ -3161,9 +3050,6 @@
     "client/src/state/pane/reducers/spaces.test.ts": [
       "localNewerRename",
       "remoteNewerRename"
-    ],
-    "client/src/state/pane/reducers/spacesTombstone.test.ts": [
-      "hasPane"
     ],
     "client/src/state/pane/reducers/staleTombstoneRetraction.test.ts": [
       "desktop",
@@ -3181,7 +3067,6 @@
       "held"
     ],
     "client/src/state/pane/selectors.ts": [
-      "hasVisiblePane",
       "selectSyncableSnapshot"
     ],
     "client/src/state/pane/store.test.ts": [
@@ -3226,7 +3111,6 @@
     "client/src/state/signals.ts": [
       "byCsid",
       "cancelled",
-      "hasDone",
       "rollupGlobalAttention",
       "rollupProjectAttention"
     ],
@@ -3280,9 +3164,6 @@
     "client/src/state/turnClock.test.ts": [
       "dopo"
     ],
-    "client/src/state/unread.ts": [
-      "hasUnread"
-    ],
     "client/src/state/useSignalsSync.ts": [
       "byCsid",
       "cancelled",
@@ -3298,7 +3179,6 @@
     ],
     "client/src/types/index.ts": [
       "AppSettings",
-      "ContextUpdatePayload",
       "GitLineStat",
       "TerminalSessionInfo",
       "WSTypingMessage",
@@ -3329,21 +3209,15 @@
       "cacheInfo",
       "med",
       "mss",
-      "openApp",
-      "payload"
+      "openApp"
     ],
     "scripts/bench/concurrency.ts": [
       "TIMEOUT_MS",
       "finiti",
       "tls"
     ],
-    "scripts/bench/latency.test.ts": [
-      "InkBaseline"
-    ],
     "scripts/bench/latency.ts": [
-      "InkBaseline",
-      "argv",
-      "readInkBaseline"
+      "argv"
     ],
     "scripts/bench/memory.test.ts": [
       "bytes"
@@ -3384,13 +3258,8 @@
     "scripts/bench/streaming-shape.ts": [
       "summarise"
     ],
-    "scripts/bench/streaming.test.ts": [
-      "QuietBaseline"
-    ],
     "scripts/bench/streaming.ts": [
-      "QuietBaseline",
       "argv",
-      "baselineShift",
       "fmt",
       "fmt4"
     ],
@@ -3414,15 +3283,12 @@
       "xhigh"
     ],
     "scripts/board-baseline.ts": [
-      "Baseline",
       "COST_STATS_MIN",
       "Stats",
       "argv",
-      "baseline",
       "bracketCostUsd",
       "buf",
       "classifyBy",
-      "collectBaseline",
       "costUsd",
       "cov",
       "fmtTok",
@@ -3463,26 +3329,19 @@
     ],
     "scripts/board-doctor.ts": [
       "CITES_SUBTASKS",
-      "ClassCostBaseline",
-      "CostBaseline",
       "DENIES_SUBTASKS",
       "DESC_MINIMA",
       "NOTA_SENZA_RIASSUNTO",
       "SHA_IN_TESTO",
       "SUBTASK_WORD",
       "argv",
-      "baselineFile",
       "checkBehaviourWithoutPreview",
       "citesSubtasks",
       "classify",
       "cls",
-      "costBaseline",
-      "costBaselineFromJson",
       "desc",
       "descParla",
       "elenco",
-      "has",
-      "hasZone",
       "idNoti",
       "mancanti",
       "riassunto",
@@ -3558,35 +3417,19 @@
       "scanned"
     ],
     "scripts/check-bloat.test.ts": [
-      "BASELINE",
       "abs"
     ],
     "scripts/check-bloat.ts": [
-      "Baseline",
-      "baseline",
-      "baselineArg",
-      "baselinePath",
-      "loadBaseline",
       "normalise",
       "pctFiles",
-      "pctLines",
-      "updateBaseline"
+      "pctLines"
     ],
     "scripts/check-bundle-size.ts": [
-      "BASELINE_PATH",
-      "Baseline",
-      "baseline",
       "buf",
       "fmt"
     ],
     "scripts/check-client-deps.ts": [
       "eslint"
-    ],
-    "scripts/check-comment-language.ts": [
-      "BASELINE",
-      "Baseline",
-      "readBaseline",
-      "writeBaseline"
     ],
     "scripts/check-deadcode-blindspots.ts": [
       "KnipJsonIssue",
@@ -3610,7 +3453,6 @@
       "dentroDavvero",
       "dentroPerContenuto",
       "esito",
-      "hasWitness",
       "indecisi",
       "indiceMain",
       "indici",
@@ -3623,24 +3465,13 @@
       "turniPagatiDopoUnLand",
       "verdetto"
     ],
-    "scripts/check-drag-frames.test.ts": [
-      "BASELINE",
-      "DragBaseline"
-    ],
     "scripts/check-drag-frames.ts": [
-      "BASELINE_PATH",
-      "DragBaseline",
       "argv",
-      "baseline",
       "committed"
     ],
     "scripts/check-e2e-sleeps.ts": [
-      "Baseline",
       "SOURCE_EXT",
-      "baseline",
-      "entries",
-      "readBaseline",
-      "writeBaseline"
+      "entries"
     ],
     "scripts/check-emdash.test.ts": [
       "proc"
@@ -3690,19 +3521,14 @@
       "proc"
     ],
     "scripts/check-route-latency.test.ts": [
-      "Baseline",
-      "baseline",
       "entrambe",
       "solaStorica",
       "sopra"
     ],
     "scripts/check-route-latency.ts": [
-      "Baseline",
       "RAPPORTO_MAX",
       "WARMUP",
       "acc",
-      "baseline",
-      "baselineMs",
       "rapporto"
     ],
     "scripts/check-script-naming.test.ts": [
@@ -3710,20 +3536,14 @@
       "pkg"
     ],
     "scripts/check-scroll-fluidity.test.ts": [
-      "BASELINE",
-      "Baseline",
       "droppedWith"
     ],
     "scripts/check-scroll-fluidity.ts": [
-      "BASELINE_PATH",
-      "Baseline",
       "argv",
-      "baseline",
       "rapporto"
     ],
     "scripts/check-security.test.ts": [
       "abs",
-      "baseline",
       "chiave",
       "conRagione",
       "copia",
@@ -3735,7 +3555,6 @@
       "pulito",
       "repoMinimo",
       "ripristina",
-      "saluto",
       "sporco",
       "temporanea",
       "temporanee",
@@ -3743,29 +3562,17 @@
       "withAdvisories"
     ],
     "scripts/check-security.ts": [
-      "BASELINE_REL",
-      "Baseline",
       "EXTENSIONLESS",
       "LOCKFILE_DIRS",
       "abs",
       "advisories",
-      "baseline",
-      "baselinePath",
       "checkDependencies",
       "freq"
     ],
-    "scripts/check-session-growth.test.ts": [
-      "BASELINE",
-      "GrowthBaseline"
-    ],
     "scripts/check-session-growth.ts": [
-      "BASELINE_PATH",
-      "GrowthBaseline",
-      "argv",
-      "baseline"
+      "argv"
     ],
     "scripts/check-test-skips.ts": [
-      "BASELINE",
       "SPEC_EXT",
       "trimmed"
     ],
@@ -3773,17 +3580,9 @@
       "proc"
     ],
     "scripts/check-ui-language.ts": [
-      "BASELINE_COMMENT",
-      "BASELINE_PATH",
-      "Baseline",
-      "PAYLOAD_KEYS",
       "abs",
       "acc",
-      "argv",
-      "baseline",
-      "readBaseline",
-      "scanPayloads",
-      "writeBaseline"
+      "argv"
     ],
     "scripts/compress-message-blobs.test.ts": [
       "SOGLIA",
@@ -3886,7 +3685,6 @@
       "REGEN",
       "classify",
       "entries",
-      "hasLiveProcess",
       "nodeModulesBytes",
       "proj",
       "regen"
@@ -4160,7 +3958,6 @@
       "compressa",
       "extTotal",
       "fmtMB",
-      "hasLogRotation",
       "info",
       "libc",
       "lsofCwdOut",
@@ -4223,12 +4020,6 @@
       "prov",
       "righe"
     ],
-    "scripts/route-latency-baseline-pick.ts": [
-      "baselineCandidates",
-      "baselineEnvKey",
-      "pickBaselinePath",
-      "resolveBaselinePaths"
-    ],
     "scripts/scrub-history.ts": [
       "PUBBLICO",
       "RADICE",
@@ -4260,7 +4051,6 @@
     ],
     "scripts/stalled-parents.ts": [
       "argv",
-      "has",
       "righe"
     ],
     "scripts/start-prod-backoff.test.ts": [
@@ -4285,7 +4075,6 @@
       "fakeTsc"
     ],
     "scripts/typecheck-server.ts": [
-      "BASELINE",
       "TSC"
     ],
     "scripts/ui-language-words.ts": [
@@ -4592,7 +4381,6 @@
       "nota",
       "nuovo",
       "nuovoStato",
-      "payload",
       "primo",
       "readmeNuovo",
       "secondo",
@@ -4619,14 +4407,9 @@
       "bytesDropped",
       "currentTopicInfo",
       "droppedHistoryTurns",
-      "entries",
-      "providerHasControlTools"
-    ],
-    "server/context/envelope.ts": [
-      "ProviderPayload"
+      "entries"
     ],
     "server/context/history-override.test.ts": [
-      "payload",
       "troncato"
     ],
     "server/context/inline-sent-state.test.ts": [
@@ -4646,10 +4429,7 @@
     "server/context/regression.test.ts": [
       "buildLegacyInlineSystem",
       "currentTopicInfo",
-      "entries",
-      "hasControlTools",
-      "payload",
-      "payloadHistory"
+      "entries"
     ],
     "server/context/snapshots.ts": [
       "arr"
@@ -4695,9 +4475,6 @@
     "server/db/notification-log.ts": [
       "oldest"
     ],
-    "server/db/terminal-session-types.test.ts": [
-      "nello"
-    ],
     "server/db/test-schema.test.ts": [
       "attese",
       "ddlColumns",
@@ -4716,10 +4493,7 @@
       "unwatchProjectFiles"
     ],
     "server/gateway-ws.ts": [
-      "AgentEventPayload",
-      "ChatEventPayload",
       "idempotencyKey",
-      "payload",
       "timeoutMs",
       "unregisterSessionHandler"
     ],
@@ -4845,7 +4619,6 @@
       "DEFAULT_BUFFER_TTL_MS",
       "DEFAULT_TIMEOUT_MS",
       "buf",
-      "hasPendingAsk",
       "timeoutMs",
       "ttl"
     ],
@@ -4916,12 +4689,10 @@
       "setImportOffsetStmt"
     ],
     "server/lib/claude-session-state.test.ts": [
-      "HookPayload",
       "primo",
       "secondo"
     ],
     "server/lib/claude-session-state.ts": [
-      "HookPayload",
       "normaliseApprovalKind",
       "obj",
       "trimmed"
@@ -4937,7 +4708,6 @@
       "trk"
     ],
     "server/lib/claude-session-tracker.ts": [
-      "HookPayload",
       "attesArmate",
       "buf",
       "conAttesa",
@@ -5084,12 +4854,7 @@
       "enc"
     ],
     "server/lib/gateway-sse-consumer.ts": [
-      "INACTIVITY_TIMEOUT_MS",
-      "errPayload",
-      "payload"
-    ],
-    "server/lib/ghost-script.ts": [
-      "hasRunningScriptsInWorktree"
+      "INACTIVITY_TIMEOUT_MS"
     ],
     "server/lib/git-hunks.test.ts": [
       "applica",
@@ -5199,7 +4964,6 @@
       "dentro",
       "dirette",
       "fuori",
-      "hasGrant",
       "lista",
       "negati",
       "perTipo",
@@ -5443,9 +5207,7 @@
       "DEFAULT_TIMEOUT_MS",
       "PERMISSION_TTL_MS",
       "buf",
-      "hasPendingPermission",
       "oldest",
-      "sessionHasPendingPermission",
       "timeoutMs",
       "ttl",
       "wasHeld"
@@ -5524,8 +5286,7 @@
       "entries",
       "extractIconHref",
       "href",
-      "inline",
-      "payload"
+      "inline"
     ],
     "server/lib/project-ref.test.ts": [
       "slugify"
@@ -5794,7 +5555,6 @@
       "TabResolverDeps",
       "app",
       "appPanes",
-      "hasWorkspace",
       "isAddressableProjectPath",
       "rec"
     ],
@@ -5805,9 +5565,6 @@
     "server/lib/terminal-idle-park.ts": [
       "perMotivo",
       "voci"
-    ],
-    "server/lib/terminal-restart-policy.test.ts": [
-      "hasTranscript"
     ],
     "server/lib/terminal-screen.test.ts": [
       "CSI",
@@ -5932,8 +5689,6 @@
       "dec",
       "endpoint",
       "loopbackTlsInit",
-      "payload",
-      "permissionPayload",
       "satisfies",
       "trimmed"
     ],
@@ -5980,9 +5735,6 @@
       "SET_OPTION_TIMEOUT_MS",
       "assaggio"
     ],
-    "server/providers/acp/fake-agent.fixture.ts": [
-      "configOptionsPayload"
-    ],
     "server/providers/acp/helpers.ts": [
       "withTimeout"
     ],
@@ -5992,8 +5744,7 @@
       "JsonRpcPeerOptions",
       "JsonRpcRemoteError",
       "RPC_INTERNAL_ERROR",
-      "RPC_METHOD_NOT_FOUND",
-      "hasId"
+      "RPC_METHOD_NOT_FOUND"
     ],
     "server/providers/acp/protocol-version.test.ts": [
       "AcpProviderConfig",
@@ -6051,9 +5802,6 @@
     "server/providers/claude-code-env.test.ts": [
       "timeout"
     ],
-    "server/providers/claude-code-injected-text.test.ts": [
-      "SKILL_PAYLOAD"
-    ],
     "server/providers/claude-code-reattach.test.ts": [
       "ProviderCtor",
       "prov",
@@ -6088,8 +5836,6 @@
       "certsDir",
       "cmd",
       "droppedForColdBoot",
-      "hasPriorMessagesInDB",
-      "hasSession",
       "messageTimeout",
       "oldest",
       "oneshotKey",
@@ -6104,7 +5850,6 @@
     ],
     "server/providers/claude-models.ts": [
       "buf",
-      "hasMinor",
       "inflight",
       "newestOfFamily"
     ],
@@ -6171,7 +5916,6 @@
       "ENV_ALLOWLIST",
       "MESSAGE_TIMEOUT_MS",
       "errObj",
-      "hasActiveSession",
       "info",
       "obj",
       "stderr",
@@ -6225,7 +5969,6 @@
     "server/providers/native/agent-loop.ts": [
       "buf",
       "causa",
-      "payload",
       "prosaDelGiro"
     ],
     "server/providers/native/auth-lock.test.ts": [
@@ -6237,7 +5980,6 @@
       "LOCK_TIMEOUT_MS",
       "acct",
       "creds",
-      "hasCredentials",
       "loopback"
     ],
     "server/providers/native/compaction.test.ts": [
@@ -6332,8 +6074,6 @@
       "turni"
     ],
     "server/providers/openai.ts": [
-      "hasKey",
-      "payload",
       "tcArr",
       "trimmed"
     ],
@@ -6389,14 +6129,7 @@
     "server/pty-bridge-orphan.test.ts": [
       "proc"
     ],
-    "server/push-service.ts": [
-      "OutgoingPushPayload"
-    ],
-    "server/push-triggers.test.ts": [
-      "PushPayload"
-    ],
     "server/push-triggers.ts": [
-      "PushPayload",
       "SilenceableTopic",
       "proj"
     ],
@@ -6577,8 +6310,7 @@
       "info"
     ],
     "server/routes/chat.front-door.test.ts": [
-      "deps",
-      "payload"
+      "deps"
     ],
     "server/routes/chat.ts": [
       "ChatDeps",
@@ -6609,14 +6341,12 @@
       "localhostScanCarry",
       "localhostScanWindow",
       "outTok",
-      "payload",
       "recoverFromSoftTimeout",
       "riprendeDaSolo",
       "rollbackInlineSent",
       "rowHasWorkDopoMerge",
       "scartata",
       "soloCompattazione",
-      "ssePayload",
       "storedCmdMsg",
       "tabDeps",
       "timeoutId",
@@ -6637,21 +6367,15 @@
       "getCheckpointsDir",
       "getGitInfo",
       "gitInfo",
-      "hasUncommittedChanges",
       "loadCheckpoints",
       "proc",
       "saveCheckpoints"
     ],
     "server/routes/claude-hooks.ts": [
-      "HookPayload",
-      "isLocalhost",
-      "payload"
+      "isLocalhost"
     ],
     "server/routes/context-preview.test.ts": [
       "pathnameParts"
-    ],
-    "server/routes/context-preview.ts": [
-      "payload"
     ],
     "server/routes/context.ts": [
       "CONTEXT_CACHE_TTL",
@@ -6675,17 +6399,13 @@
       "wipCount"
     ],
     "server/routes/e2e.ts": [
-      "baselinePath",
-      "loadBaseline",
       "maxSeq",
       "svc"
     ],
     "server/routes/edit.ts": [
       "EditDeps",
       "autore",
-      "payload",
       "regenParams",
-      "ssePayload",
       "timeoutId"
     ],
     "server/routes/files.git-commit-identity.test.ts": [
@@ -6712,7 +6432,6 @@
       "ext",
       "gitignorePath",
       "gitignorePatterns",
-      "hasDotDotSegment",
       "headProc",
       "indici",
       "leggi",
@@ -6739,8 +6458,6 @@
     ],
     "server/routes/history.ts": [
       "HistoryDeps",
-      "hasExplicitLimit",
-      "hasOrphanedMessage",
       "prov"
     ],
     "server/routes/license.test.ts": [
@@ -6832,7 +6549,6 @@
       "cmd",
       "dpid",
       "esitoShellMorta",
-      "outputPayload",
       "pcwd",
       "proc",
       "rilevati",
@@ -6983,10 +6699,6 @@
       "esito",
       "fresca",
       "giaScelto",
-      "hasAuto",
-      "hasBranch",
-      "hasCapAuto",
-      "hasCapMax",
       "idNelPath",
       "identita",
       "miePath",
@@ -7003,14 +6715,11 @@
     "server/routes/terminal.ts": [
       "ackPromise",
       "autoNameOpencodeSession",
-      "awaitingBaselineFrame",
-      "baseline",
       "buf",
       "bytes",
       "cbs",
       "cmd",
       "droppedInput",
-      "hasTranscript",
       "idemKey",
       "idempotencyCache",
       "lastByteAt",
@@ -7036,13 +6745,11 @@
       "stmt",
       "submittedAt",
       "taskSvc",
-      "topicPreviewsPayload",
       "txt",
       "viste"
     ],
     "server/routes/ui-state-settings-strip.test.ts": [
-      "arr",
-      "payload"
+      "arr"
     ],
     "server/routes/ui-state.ts": [
       "MAX_UI_STATE_BYTES",
@@ -7203,7 +6910,6 @@
       "entries",
       "fileMtimes",
       "mtime",
-      "payload",
       "projDir",
       "skipped",
       "upserted"
@@ -7213,8 +6919,7 @@
       "uptimeMsSince"
     ],
     "server/services/db-snapshot.test.ts": [
-      "bytes",
-      "seedBaseline"
+      "bytes"
     ],
     "server/services/db-snapshot.ts": [
       "stmt"
@@ -7241,7 +6946,6 @@
     ],
     "server/services/delivery-sheet.ts": [
       "escapeXml",
-      "hasCode",
       "ins",
       "larghezza",
       "passi",
@@ -7257,8 +6961,7 @@
     ],
     "server/services/discord-ipc.test.ts": [
       "IpcSocket",
-      "attivita",
-      "payload"
+      "attivita"
     ],
     "server/services/discord-ipc.ts": [
       "DiscordIpcError",
@@ -7272,7 +6975,6 @@
       "existingIpcCandidates",
       "ipcCandidates",
       "nonceSeq",
-      "payload",
       "timeoutMs"
     ],
     "server/services/discord-presence.test.ts": [
@@ -7355,8 +7057,7 @@
       "commitAtterrato",
       "commitFuori",
       "esito",
-      "piena",
-      "valoreDistintivoNumeroDavveroLungoPerIlTest$"
+      "piena"
     ],
     "server/services/landing-audit-pass.ts": [
       "gia",
@@ -7376,8 +7077,7 @@
       "commitProprio",
       "deps",
       "ptr",
-      "stat",
-      "valoreDistintivoNumeroDavveroLungoPerIlTest$"
+      "stat"
     ],
     "server/services/landing-audit.test.ts": [
       "LandingAuditDeps",
@@ -7395,7 +7095,6 @@
       "entries"
     ],
     "server/services/landing-verdict.test.ts": [
-      "alfaRiga0",
       "codice",
       "consegna",
       "creati",
@@ -7404,7 +7103,6 @@
       "nuovoRepo",
       "prosa",
       "repoSquashLandato",
-      "risultato",
       "scrivi"
     ],
     "server/services/landing-verdict.ts": [
@@ -7483,7 +7181,6 @@
     ],
     "server/services/own-commits.test.ts": [
       "SENZA_RESIDUI",
-      "backfillDeliveries",
       "codice",
       "conAltri",
       "corpo",
@@ -7633,7 +7330,6 @@
       "opzioni",
       "ospiteEntrato",
       "ospiteUscito",
-      "payload",
       "pendente",
       "richiesta",
       "rifiuta",
@@ -7869,7 +7565,6 @@
       "dopoRiavvio",
       "envelopeDiSollecito",
       "esterne",
-      "fatto",
       "finiti",
       "finoAllaConsegnaForzata",
       "grande",
@@ -7912,8 +7607,6 @@
       "fila",
       "gcap",
       "gia",
-      "hasFreshAgentComment",
-      "hasWork",
       "heavyHeldNoted",
       "heldForLoad",
       "heldForMs",
@@ -8199,10 +7892,6 @@
       "figli",
       "firma",
       "giaRimessi",
-      "hasActiveChildren",
-      "hasChildrenInFlight",
-      "hasFreshAgentComment",
-      "hasLiveTurn",
       "held",
       "ins",
       "lettura",
@@ -8228,8 +7917,6 @@
       "testo",
       "titolo",
       "tok",
-      "topicsHasEffort",
-      "topicsHasModel",
       "ultimaParolaDelThread",
       "withSubtaskCounts"
     ],
@@ -8241,8 +7928,7 @@
       "oldest"
     ],
     "server/services/ui-state-backup.ts": [
-      "filename",
-      "payload"
+      "filename"
     ],
     "server/services/ui-state-orphan-cleanup.ts": [
       "baseSeq",
@@ -8338,7 +8024,6 @@
     ],
     "server/services/worktree-residue.ts": [
       "IN_CORSO",
-      "hasConflict",
       "nuovo",
       "proc"
     ],
@@ -8447,7 +8132,6 @@
       "ext",
       "fresche",
       "osservatori",
-      "payload",
       "riusabile",
       "serializzati",
       "slugify",
@@ -8512,13 +8196,9 @@
       "SubtaskWork",
       "deriveSubtaskWork",
       "dietro",
-      "hasPlanApproveOption",
       "isRequeueParkedLabel",
       "isUnattributedSubtask",
       "sep"
-    ],
-    "shared/browser-keyboard-field.test.ts": [
-      "sconosciuto"
     ],
     "shared/browser-login-state.ts": [
       "StorageCookie",
@@ -8538,7 +8218,6 @@
     "shared/browser-ws-messages.ts": [
       "downloadMessageSchema",
       "frameMetadataSchema",
-      "inputPayloadSchema",
       "webrtcAnswerMessageSchema",
       "webrtcIceMessageSchema",
       "webrtcOfferMessageSchema"
@@ -8550,15 +8229,11 @@
     "shared/comment-author.ts": [
       "trimmed"
     ],
-    "shared/context-envelope.ts": [
-      "ProviderPayload"
-    ],
     "shared/context-thresholds.ts": [
       "abs"
     ],
     "shared/context-window.ts": [
-      "LONG_WINDOW_FAMILIES",
-      "hasLongWindowMarker"
+      "LONG_WINDOW_FAMILIES"
     ],
     "shared/element-describe.test.ts": [
       "desc"
@@ -8573,7 +8248,6 @@
       "SENTINELLE_VUOTE",
       "arr",
       "blocco",
-      "hasItems",
       "testo"
     ],
     "shared/lean-tool-call.test.ts": [
@@ -8629,15 +8303,11 @@
     ],
     "shared/presence-phrase.ts": [
       "PRESENCE_APP_NAME",
-      "dict",
       "pezzi"
     ],
     "shared/preview-retirement.test.ts": [
       "BONIFICA",
       "CANCELLO"
-    ],
-    "shared/preview-retirement.ts": [
-      "hasPreview"
     ],
     "shared/question-prose.test.ts": [
       "DOMANDA",
@@ -8973,7 +8643,6 @@
       "padded"
     ],
     "shared/task-attempt.ts": [
-      "attemptHasWork",
       "formatAttemptStat",
       "formatFanoutComment"
     ],
@@ -9058,21 +8727,17 @@
     ],
     "tests/e2e/bench-ai-latency.spec.ts": [
       "INK_TIMEOUT_MS",
-      "payload",
       "serialised",
       "warmup"
     ],
     "tests/e2e/bench-latency.spec.ts": [
       "PROBE_TIMEOUT_MS",
       "TODO_CARD",
-      "fcp",
-      "payload"
+      "fcp"
     ],
     "tests/e2e/bench-streaming.spec.ts": [
-      "QuietBaseline",
       "handoffMs",
       "handoffStart",
-      "payload",
       "scroller"
     ],
     "tests/e2e/board-archive-restore.spec.ts": [
@@ -9363,13 +9028,9 @@
     ],
     "tests/e2e/board-task-changes-panel.spec.ts": [
       "ALTRA",
-      "anche",
-      "mio",
       "modifiche",
-      "nonMio",
       "pannello",
-      "proj",
-      "uno"
+      "proj"
     ],
     "tests/e2e/board-task-id-chip.spec.ts": [
       "FACCE",
@@ -9508,7 +9169,6 @@
       "href"
     ],
     "tests/e2e/browser-tab-open.spec.ts": [
-      "hasAddPane",
       "oBox",
       "providerInfo"
     ],
@@ -9521,9 +9181,6 @@
       "origSend",
       "origWs",
       "screenshotImg"
-    ],
-    "tests/e2e/card-font-mobile.spec.ts": [
-      "hasSmall"
     ],
     "tests/e2e/changelog.spec.ts": [
       "Versione",
@@ -9699,7 +9356,6 @@
       "scorre"
     ],
     "tests/e2e/claude-code-provider.spec.ts": [
-      "app",
       "multiTopic",
       "multiTopicData",
       "multiTopicName",
@@ -9822,7 +9478,6 @@
     "tests/e2e/file-explorer-git.spec.ts": [
       "STDERR",
       "cancellato",
-      "hasMergeView",
       "modificati",
       "modifiedIndicator",
       "newfileItem",
@@ -9830,8 +9485,7 @@
       "nuovo",
       "readmeContainer",
       "readmeRow",
-      "riga",
-      "sectionHasContent"
+      "riga"
     ],
     "tests/e2e/file-explorer-panels.spec.ts": [
       "breadcrumb",
@@ -9862,8 +9516,6 @@
       "MOCK_TIMESERIES"
     ],
     "tests/e2e/fixtures/hermetic.ts": [
-      "resetToBaseline",
-      "resetToBaselineInner",
       "righe"
     ],
     "tests/e2e/fixtures/infra.fixture.ts": [
@@ -9941,7 +9593,6 @@
       "newest",
       "newestClientSource",
       "runLockHeld",
-      "seedBaselineData",
       "stato"
     ],
     "tests/e2e/global-teardown.ts": [
@@ -10143,9 +9794,6 @@
     "tests/e2e/infra-panels.spec.ts": [
       "confirmDialog"
     ],
-    "tests/e2e/ink-latency.spec.ts": [
-      "payload"
-    ],
     "tests/e2e/kanban-icone.spec.ts": [
       "apriBoard",
       "densitaIcone",
@@ -10164,22 +9812,15 @@
       "box0",
       "box1",
       "chiudiTab",
-      "hasReset",
-      "hasSplitDown",
-      "hasSplitRight",
-      "rightClickTabHasOption",
-      "topicHasSplit",
       "xterm"
     ],
     "tests/e2e/layout-navigation.spec.ts": [
-      "hasKnown",
       "textarea"
     ],
     "tests/e2e/long-session-growth.spec.ts": [
       "CDPSession",
       "CdpMetrics",
       "cdp",
-      "payload",
       "riga"
     ],
     "tests/e2e/message-queue.spec.ts": [
@@ -10250,7 +9891,6 @@
       "expectPulitaComeOggi",
       "fuoriADestra",
       "openAppAt",
-      "parolachiavecercabile",
       "perContenuto",
       "pulita",
       "rotta",
@@ -10280,7 +9920,6 @@
     "tests/e2e/pane-server-migration.spec.ts": [
       "MAX_BYTES",
       "bodies",
-      "payload",
       "seqs",
       "timeoutMs"
     ],
@@ -10374,7 +10013,6 @@
       "tabProgetto"
     ],
     "tests/e2e/project-commands.spec.ts": [
-      "hasOption",
       "infoMsg",
       "projectCmd",
       "textarea"
@@ -10467,7 +10105,6 @@
     ],
     "tests/e2e/real-tool-calls.spec.ts": [
       "TC_MULTI_IDS",
-      "app",
       "box1",
       "box2",
       "box3",
@@ -10802,7 +10439,6 @@
       "opacita",
       "ordine",
       "parti",
-      "payload",
       "peggio",
       "pezzi",
       "piu",
@@ -10943,7 +10579,6 @@
       "dialog",
       "endpoints",
       "hasDialog",
-      "hasModal",
       "textarea"
     ],
     "tests/e2e/tab-bar-command-air.spec.ts": [
@@ -11023,7 +10658,6 @@
       "GLIFO",
       "Inchiostro",
       "Riquadro",
-      "baseline",
       "box",
       "centro",
       "famiglia",
@@ -11057,11 +10691,7 @@
       "rinomina",
       "xtermAlreadyVisible"
     ],
-    "tests/e2e/terminal.spec.ts": [
-      "hasProjectPath"
-    ],
     "tests/e2e/text-clipping.spec.ts": [
-      "baseline",
       "cima",
       "conScheda",
       "fuori",
@@ -11076,9 +10706,6 @@
       "href",
       "lightbox",
       "textarea"
-    ],
-    "tests/e2e/tool-call-ui.spec.ts": [
-      "app"
     ],
     "tests/e2e/tool-card-legibility.spec.ts": [
       "cmd",
@@ -11261,8 +10888,7 @@
     ],
     "tests/integration/history-payload-weight.test.ts": [
       "det",
-      "fattedDet",
-      "historyPayload"
+      "fattedDet"
     ],
     "tests/integration/install-claude-hooks.test.ts": [
       "altrui",
@@ -11530,9 +11156,6 @@
     "tests/integration/served-file-headers.test.ts": [
       "vecchio"
     ],
-    "tests/integration/service-worker-actions.test.ts": [
-      "PAYLOAD"
-    ],
     "tests/integration/shared-inventory-principals.test.ts": [
       "DDL_TASKS",
       "MIGRAZIONI",
@@ -11576,9 +11199,7 @@
     ],
     "tests/integration/worktree-deps.test.ts": [
       "corpo",
-      "creazione",
-      "installDeps",
-      "materialiseOnDisk"
+      "creazione"
     ],
     "tests/setup/bun-test-preload.ts": [
       "DEFAULT_TEST_TIMEOUT_MS",
@@ -11623,10 +11244,8 @@
       "condizione",
       "condizioneRiga",
       "corpo",
-      "deliveryStat",
       "dopo",
       "governatoDa",
-      "hasMetaRow",
       "inizio",
       "mancanti",
       "occorrenze",
@@ -11685,9 +11304,7 @@
       "mancanti"
     ],
     "tests/unit/e2e-git-identity.test.ts": [
-      "IDENTITA",
       "Offence",
-      "decl",
       "offences"
     ],
     "tests/unit/e2e-run-lock.test.ts": [
@@ -11707,16 +11324,13 @@
       "UTILS",
       "apre",
       "colpevoli",
-      "contaSocket",
       "corpo",
       "gestore",
       "inizio",
       "innocua",
-      "inviaIniziale",
       "mandaATutti",
       "nomi",
       "nudi",
-      "payload",
       "profondita",
       "sembraUnaFanout"
     ],
@@ -11855,16 +11469,13 @@
       "RADICE",
       "ROTTE",
       "SEZIONE",
-      "aggiungi",
       "chiavi",
       "corpo",
       "dopoRifiuto",
       "testo"
     ],
     "tests/unit/no-shared-tmp-paths.test.ts": [
-      "DECL",
       "entries",
-      "parametro",
       "riga",
       "spiega"
     ],
@@ -11917,7 +11528,6 @@
       "pkg"
     ],
     "tests/unit/product-docs.test.ts": [
-      "decl",
       "linuxBundles",
       "readmeBlock",
       "readmePlatformClause"
@@ -11970,9 +11580,6 @@
       "CAPACE",
       "chiamate",
       "vero"
-    ],
-    "tests/unit/sw-push-delivery.test.ts": [
-      "PAYLOAD"
     ],
     "tests/unit/task-empty-thread.test.ts": [
       "RADICE",
@@ -12048,13 +11655,6 @@
     "tests/unit/ws-outbound-coverage.test.ts": [
       "emitted",
       "scanEmitted"
-    ],
-    "tests/unit/ws-outbound-payload-shape.test.ts": [
-      "REAL_PAYLOADS"
-    ],
-    "tests/unit/ws-outbound-schema.test.ts": [
-      "payload",
-      "validPayloads"
     ]
   }
 }

@@ -166,7 +166,7 @@ export function canonHost(raw: string | null | undefined): string | null {
 
   // A TRAILING DOT IS THE SAME HOUSE.
   //
-  // `macbook-pro-di-attilio.local.` and `macbook-pro-di-attilio.local` are one
+  // `macbook-di-casa.local.` and `macbook-di-casa.local` are one
   // name: the trailing dot is the fully qualified form, and Bonjour and the iOS
   // resolvers produce it on their own. Without stripping it `endsWith(".local")`
   // does not recognise our own machine, and the phone gets a 403 on the very
@@ -305,7 +305,7 @@ export function isAllowedHost(host: string | null | undefined, allowedOrigins: r
   if (h === LOCAL_CLASS) return true;
   if (isIpLiteral(h)) return true;
   if (h.endsWith(".local") || h.endsWith(".ts.net")) return true;
-  // A SINGLE-LABEL NAME (`topics:3333`, `macbook-pro-di-attilio:3333`).
+  // A SINGLE-LABEL NAME (`topics:3333`, `macbook-di-casa:3333`).
   //
   // Rebinding needs a name the attacker can register in PUBLIC DNS and re-point
   // at 127.0.0.1, and a public name always has a dot. A single label cannot be

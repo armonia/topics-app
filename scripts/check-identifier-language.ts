@@ -6,8 +6,8 @@
  * WHY IT EXISTS, and why `check:comment-language` could never have done it.
  * That gate reads COMMENTS, by construction: it says so on its first line, and
  * an identifier is invisible to it. On 2026-08-21 four new names went in over
- * one evening — `sostituisce`, `annunciaRipresa`, `NOTA_SESSIONE_MORTA`,
- * `PREFISSO_NOTA_ANTEPRIMA` — through every gate, green all the way.
+ * one evening — `sostituisce`, `annunciaRipresa`, `NOTA_SESSIONE_MORTA`,  allow-italian: the Italian names ARE the subject
+ * `PREFISSO_NOTA_ANTEPRIMA` — through every gate, green all the way.  allow-italian: the Italian names ARE the subject
  *
  * The obvious repair would have been the worst outcome available. That gate
  * recognises Italian by matching a list of 85 stopwords, and six of the eight
@@ -23,7 +23,7 @@
  * true.
  *
  * A RATCHET, born green. The codebase already carries plenty of Italian names
- * (`motivoDaRisposta`, `chiaveErroreAuth`, `verdetto-turno-interrotto.ts`) and
+ * (`motivoDaRisposta`, `chiaveErroreAuth`, `verdetto-turno-interrotto.ts`) and  allow-italian: the Italian names ARE the subject
  * rewriting them today is not this gate's job: `identifier-language-baseline.json`
  * records the count per file, and the count may only go DOWN. Adding the 86th
  * fails; removing one and rerunning `--update-baseline` locks in the gain.
@@ -66,6 +66,8 @@ export const PROJECT_WORDS = new Set([
   "http", "https", "ws", "wss", "sql", "sqlite", "db", "json", "jsonl", "yaml", "css",
   "html", "dom", "ui", "ux", "cli", "cwd", "env", "pid", "cpu", "ram", "os", "io",
   "utf", "ascii", "regex", "regexp", "async", "await", "iife", "impl", "init",
+  "dict", "dicts", "payload", "payloads", "baseline", "baselines", "ratchet", "camelcase", "snake",
+  "decl", "decls", "has", "was", "were", "does", "did", "seen", "known", "unknown",
   "config", "configs", "params", "param", "args", "arg", "ctx", "msg", "msgs",
   "req", "res", "err", "src", "dest", "dir", "dirs", "tmp", "temp", "num", "str",
   "bool", "int", "idx", "len", "min", "max", "avg", "prev", "curr", "cur", "el",
@@ -105,7 +107,10 @@ export function declaredNames(src: string): { line: number; name: string }[] {
   const decl = /\b(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g;
   const lines = src.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const text = lines[i]!;
+    // Strings are not code. Without this, a test that passes `"const foo = 1"`
+    // to this very function declares `foo`, and the gate reports a name that
+    // exists only as an example inside quotes.
+    const text = lines[i]!.replace(/(["'\`])(?:\\.|(?!\1)[^\\])*\1/g, '""');
     // A declaration inside a comment is not a declaration. Cheap and good
     // enough: a full scanner buys precision the baseline already absorbs.
     if (/^\s*(\/\/|\*|\/\*)/.test(text)) continue;
@@ -181,21 +186,21 @@ if (import.meta.main) {
   if (!dict) {
     // Silence would read as approval. This machine cannot answer the question, so
     // it says which one it could not answer.
-    console.log("[identifier-language] nessun dizionario inglese sul sistema (/usr/share/dict/words): non posso giudicare i nomi, salto.");
+    console.log("[identifier-language] no English dictionary on this system (/usr/share/dict/words): cannot judge names, skipping.");
     process.exit(0);
   }
 
   const perFile = new Map<string, string[]>();
   const hits: { file: string; line: number; name: string; bad: string[] }[] = [];
   for (const file of trackedFiles()) {
-    const nomi: string[] = [];
+    const names: string[] = [];
     for (const d of declaredNames(readFileSync(join(ROOT, file), "utf8"))) {
       const bad = words(d.name).filter((w) => !isKnown(w, dict));
       if (bad.length === 0) continue;
-      nomi.push(d.name);
+      names.push(d.name);
       hits.push({ file, line: d.line, name: d.name, bad });
     }
-    if (nomi.length > 0) perFile.set(file, [...new Set(nomi)].sort());
+    if (names.length > 0) perFile.set(file, [...new Set(names)].sort());
   }
 
   if (process.argv.includes("--update-baseline")) {
@@ -212,36 +217,36 @@ if (import.meta.main) {
   }
 
   const baseline = readBaseline();
-  const nuovi: { file: string; nomi: string[] }[] = [];
-  for (const [file, nomi] of perFile) {
-    const noti = new Set(baseline[file] ?? []);
-    const freschi = nomi.filter((n) => !noti.has(n));
-    if (freschi.length > 0) nuovi.push({ file, nomi: freschi });
+  const offenders: { file: string; names: string[] }[] = [];
+  for (const [file, names] of perFile) {
+    const known = new Set(baseline[file] ?? []);
+    const newNames = names.filter((n) => !known.has(n));
+    if (newNames.length > 0) offenders.push({ file, names: newNames });
   }
-  const spariti: string[] = [];
-  for (const [file, nomi] of Object.entries(baseline)) {
-    const ora = new Set(perFile.get(file) ?? []);
-    const tolti = nomi.filter((n) => !ora.has(n));
-    if (tolti.length > 0) spariti.push(`    ${file}: ${tolti.length} in meno (${tolti.slice(0, 4).join(", ")}${tolti.length > 4 ? ", …" : ""})`);
+  const gone: string[] = [];
+  for (const [file, names] of Object.entries(baseline)) {
+    const current = new Set(perFile.get(file) ?? []);
+    const removed = names.filter((n) => !current.has(n));
+    if (removed.length > 0) gone.push(`    ${file}: ${removed.length} in meno (${removed.slice(0, 4).join(", ")}${removed.length > 4 ? ", …" : ""})`);
   }
 
-  if (nuovi.length > 0) {
+  if (offenders.length > 0) {
     console.error("[identifier-language] nomi nuovi che l'inglese non conosce:\n");
-    for (const { file, nomi } of nuovi) {
-      for (const nome of nomi) {
+    for (const { file, names } of offenders) {
+      for (const nome of names) {
         const h = hits.find((x) => x.file === file && x.name === nome);
         console.error(`  ${file}:${h?.line ?? "?"}  ${nome}  (${h?.bad.join(", ") ?? ""})`);
       }
     }
-    console.error("\nLo standard e' l'inglese, nomi compresi. Rinomina, oppure aggiungi la");
+    console.error("\nLo standard e' l'inglese, names compresi. Rinomina, oppure aggiungi la");
     console.error("parola a PROJECT_WORDS in scripts/check-identifier-language.ts se e' un");
     console.error("termine di questo progetto. Non riscrivere la baseline per farlo tacere.");
     process.exit(1);
   }
 
-  if (spariti.length > 0) {
+  if (gone.length > 0) {
     console.log("[identifier-language] debito sceso, rilancia con --update-baseline per fissarlo:");
-    for (const r of spariti) console.log(r);
+    for (const r of gone) console.log(r);
     process.exit(1);
   }
 
