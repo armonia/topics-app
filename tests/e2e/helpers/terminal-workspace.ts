@@ -144,10 +144,24 @@ export async function openShellViaSidebar(
   terminalPage: TerminalPage,
   readyTimeout = 15_000,
 ): Promise<void> {
-  const projectHeader = page.locator(`button[title="${TERMINAL_PROJECT_PATH}"]`);
-  // Il "+" ha `opacity-0` finché non si passa sopra la riga.
+  /* THE `title` ATTRIBUTE IS NOT STABLE WHILE THE MOUSE IS OVER THE ROW.
+   *
+   * `TooltipDelegate` (ec40c0932) moves the value of `title` onto `data-tip`
+   * and removes the attribute on `mouseover`, so the native OS tooltip never
+   * fires; it puts it back on `mouseout`. Playwright leaves the pointer where
+   * it is after `hover()`, so from the SECOND call onwards this line was
+   * looking for an attribute the first pass had already stripped. That is why
+   * TERM-04 — the only case that opens two shells in a row — died where every
+   * other consumer passed: the first open worked, the second did not.
+   *
+   * Matching both forms is not a patch: `data-tip` IS where the title lives
+   * while the mouse is over the row, which is exactly the state this helper
+   * works in. */
+  const sel = (t: string) => `button[title="${t}"], button[data-tip="${t}"]`;
+  const projectHeader = page.locator(sel(TERMINAL_PROJECT_PATH)).first();
+  // The "+" is `opacity-0` until the row is hovered.
   await projectHeader.hover();
-  const addBtn = projectHeader.locator("..").locator('button[title="Add to project"]');
+  const addBtn = projectHeader.locator("..").locator(sel("Add to project")).first();
   await addBtn.waitFor({ state: "visible", timeout: 5000 });
   await addBtn.click();
 

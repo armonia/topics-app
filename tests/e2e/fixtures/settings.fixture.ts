@@ -9,7 +9,19 @@ export class SettingsPage {
    * Open settings via the sidebar Settings & Tools dropdown -> Settings menu item.
    */
   async openSettings() {
-    const topicsBtn = this.page.locator('button[title="Settings & Tools"]');
+    /* Anchored on the testid, NOT on `title="Settings & Tools"`.
+     *
+     * `TooltipDelegate` (ec40c0932) strips `title` on `mouseover` and only
+     * restores it on `mouseout`. `closeSettings()` dismisses the veil by
+     * clicking (10, 10) — the viewport's top-left, which is where this very
+     * button sits — so after the click, and across the `page.reload()` that
+     * follows (Playwright does not move the pointer), the trigger is under the
+     * mouse with no `title` at all. That is why SET-03 only ever died on its
+     * SECOND `openSettings`, never the first.
+     *
+     * `App.tsx` already documents this testid as the stable anchor, for the
+     * separate reason that the button's accessible name is "Topics". */
+    const topicsBtn = this.page.getByTestId("sidebar-topics-menu");
     await topicsBtn.click();
 
     const settingsBtn = this.page.locator(
