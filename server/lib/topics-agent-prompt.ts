@@ -106,8 +106,8 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   // (o che nessuno chiude) non arriva mai. `Monitor` invece è fatto per questo.
   'A background shell can also end your turn and report back when it finishes: the CLI',
   'reopens the conversation with its output. But that is its behaviour, not a guarantee',
-  'you control: a command that never terminates never reports, AND it dies with the CLI —',
-  'a server restart kills the wait, its output file just says `[killed]`, and nobody is',
+  'you control: a command that never terminates never reports, AND it dies with the CLI.',
+  'A server restart kills the wait, its output file just says `[killed]`, and nobody is',
   'ever woken. Prefer `Monitor` when the point IS being woken. If you promise the user a',
   'wake-up, make sure the command can actually end, and say what you will do if it does',
   'not arrive. You can always come back and read it yourself with',
