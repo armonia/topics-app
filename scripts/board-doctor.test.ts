@@ -32,6 +32,7 @@ import {
   isProvablyDead,
   isReadOnlyProof,
   missingProtocolDocs,
+  shaDaChiedere,
   parseDbTimestamp,
   pushProbe,
   runChecks,
@@ -1006,5 +1007,46 @@ describe("branchFacts — la stessa domanda del land, su git vero", () => {
     try {
       expect(await branchFacts(nonRepo, "t-1", "topics/card", "main")).toBeNull();
     } finally { rmSync(nonRepo, { recursive: true, force: true }); }
+  });
+});
+
+describe("shaDaChiedere — un id di card non e' la rivendicazione di un commit", () => {
+  // A task id is a UUID, and its first eight characters are hex: to the regex
+  // they read as an abbreviated sha. Agents cite other cards by id constantly —
+  // the board protocol asks them to — so without this filter a delivery saying
+  // «come da 1d17142d» was accused of citing a commit that does not exist.
+  //
+  // Measured on this board on 2026-08-21, before the filter: of the 89
+  // sha-shaped tokens git refuses in the delivery comments of cards closed in
+  // the last fortnight, 20 were task or topic ids. Better than one in five.
+  const idNoti = new Set(["1d17142dbeef4a5f8c1d2e3f40506070", "229fc09f11224455667788990011aabb"]);
+
+  it("l'id di un'altra card non si chiede a git", () => {
+    expect(shaDaChiedere("come da 1d17142d, gia' fatto", idNoti)).toEqual([]);
+    expect(shaDaChiedere("dipende da 229fc09f", idNoti)).toEqual([]);
+  });
+
+  it("uno sha vero si chiede", () => {
+    expect(shaDaChiedere("landato in eac6a699", idNoti)).toEqual(["eac6a699"]);
+  });
+
+  it("nella stessa frase, l'uno passa e l'altro no", () => {
+    expect(shaDaChiedere("chiude 1d17142d con il commit eac6a699", idNoti)).toEqual(["eac6a699"]);
+  });
+
+  it("lo stesso token due volte si chiede una volta sola", () => {
+    expect(shaDaChiedere("eac6a699 e ancora eac6a699", idNoti)).toEqual(["eac6a699"]);
+  });
+
+  it("senza id noti non filtra niente: il comportamento di prima", () => {
+    expect(shaDaChiedere("come da 1d17142d", new Set())).toEqual(["1d17142d"]);
+  });
+
+  it("un id citato per intero, coi trattini, non passa comunque", () => {
+    // The hyphens break the token, and the remaining blocks of seven or more
+    // are NOT at the head: here the last block is the id's tail. Looking for
+    // the token inside the id — and not only at its head — is what keeps it
+    // out.
+    expect(shaDaChiedere("vedi 1d17142d-beef-4a5f-8c1d-2e3f40506070", idNoti)).toEqual([]);
   });
 });

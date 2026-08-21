@@ -462,6 +462,47 @@ export interface DoctorCheck {
  */
 const SHA_IN_TESTO = /(?:^|[^0-9a-zA-Z])([0-9a-f]{7,12}|[0-9a-f]{40})(?![0-9a-zA-Z])/g;
 
+/**
+ * The sha-shaped tokens in a comment that are worth ASKING git about.
+ *
+ * A task id is a UUID, and its first eight characters are hex: `229fc09f`,
+ * `d9069abc`, `6cf958a3` all read as an abbreviated sha to the regex above.
+ * Agents reference other cards by id all the time — the board protocol asks
+ * them to — so a delivery that says «come da 1d17142d» was about to be accused
+ * of citing a commit the repo does not have.
+ *
+ * Measured on this very board (2026-08-21) before the filter existed: of the
+ * 89 sha-shaped tokens that git refuses to resolve in the delivery comments of
+ * the last fortnight's closed cards, 20 were task or topic ids — better than
+ * one in five. A watchdog that is wrong one time in five is a watchdog people
+ * switch off, and this file says so about itself two checks above.
+ *
+ * The filter belongs HERE and not inside the check: a token nobody asked about
+ * is simply absent from `claimedShaResolves`, and the check already reads
+ * absence as silence rather than as an accusation.
+ */
+export function shaDaChiedere(testo: string, idNoti: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  for (const m of testo.matchAll(SHA_IN_TESTO)) {
+    const tok = m[1]!;
+    if (out.includes(tok)) continue;
+    // The token is looked for INSIDE the id, not just at its head. A short
+    // citation carries the first eight characters, but an id written out in
+    // full with its hyphens breaks apart, and the remaining blocks of seven or
+    // more are not at the head: `1d17142d-beef-4a5f-8c1d-2e3f40506070` lets
+    // `2e3f40506070` through, which is the id's TAIL. A `startsWith` would have
+    // asked git about it, and git would have said missing.
+    //
+    // The error leans the right way: a real sha that happened to appear inside
+    // an id would not be asked about — silence, not an accusation. With seven
+    // hex digits and a few thousand cards the odds are under 0.03%.
+    let eUnId = false;
+    for (const id of idNoti) { if (id.includes(tok)) { eUnId = true; break; } }
+    if (!eUnId) out.push(tok);
+  }
+  return out;
+}
+
 const sq = (s: string) => s.replace(/'/g, "''");
 const shq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const short = (s: string, n = 60) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
@@ -1357,10 +1398,16 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
      * One `cat-file --batch-check` for all of them rather than a process per
      * sha: on a board with thousands of cards that is the difference between a
      * check that runs and one nobody leaves switched on. */
+    /** The ids living on this board, hyphens stripped: a citation of a card is
+     *  not the claim of a commit. See `shaDaChiedere`. */
+    const idNoti = new Set<string>();
+    for (const r of db.prepare("SELECT id FROM tasks").all() as { id: string }[]) idNoti.add(r.id.replace(/-/g, ""));
+    try {
+      for (const r of db.prepare("SELECT id FROM topics").all() as { id: string }[]) idNoti.add(r.id.replace(/-/g, ""));
+    } catch { /* a board with no topics: the task ids are enough */ }
     const shaRivendicati = new Set<string>();
     for (const t of tasks) {
-      const testo = t.lastAgentComment?.content ?? "";
-      for (const m of testo.matchAll(SHA_IN_TESTO)) shaRivendicati.add(m[1]!);
+      for (const sha of shaDaChiedere(t.lastAgentComment?.content ?? "", idNoti)) shaRivendicati.add(sha);
     }
     const claimedShaResolves: Record<string, boolean> = {};
     if (shaRivendicati.size) {
