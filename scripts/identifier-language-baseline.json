@@ -480,9 +480,6 @@
       "rec",
       "showRec"
     ],
-    "client/src/components/Chat/clampBody.ts": [
-      "formatBytes"
-    ],
     "client/src/components/Chat/coalesceToolRun.test.ts": [
       "MINUTO",
       "azione",
@@ -1507,14 +1504,12 @@
     "client/src/components/Terminal/SingleTerminalPane.tsx": [
       "RECONCILE_GRACE_RETRIES",
       "buf",
-      "bytes",
       "cancelled",
       "cmd",
       "fitAddon",
       "info",
       "lastInfoRef",
       "obs",
-      "outputBytesRef",
       "raf",
       "sessionInfo",
       "xterm"
@@ -1530,13 +1525,7 @@
       "trimmed"
     ],
     "client/src/components/Terminal/writeCoalescer.test.ts": [
-      "bytes",
       "reentered"
-    ],
-    "client/src/components/Terminal/writeCoalescer.ts": [
-      "MAX_PENDING_BYTES",
-      "byteLength",
-      "bytes"
     ],
     "client/src/contexts/PendingActionContext.tsx": [
       "committed",
@@ -1590,7 +1579,6 @@
     "client/src/hooks/messageCacheWrite.test.ts": [
       "FintoMessaggio",
       "adesso",
-      "bytes",
       "gigante",
       "primo",
       "sanaAdesso",
@@ -1661,7 +1649,6 @@
       "useBrowserDownloads"
     ],
     "client/src/hooks/useChat.ts": [
-      "CACHE_MAX_BYTES",
       "SEND_LOCK_TIMEOUT_MS",
       "SSE_FAILSAFE_MS",
       "STREAM_TIMEOUT_MS",
@@ -2337,7 +2324,6 @@
       "ordinaVoci",
       "pesoDaVoce",
       "proprietari",
-      "roughBytes",
       "voceVuota"
     ],
     "client/src/lib/featureWeightSources.test.ts": [
@@ -2738,7 +2724,6 @@
       "enqueueFit"
     ],
     "client/src/lib/stt.ts": [
-      "MIN_VOICE_BLOB_BYTES",
       "SttRequestError",
       "capabilitiesPromise",
       "extForMime",
@@ -2857,9 +2842,6 @@
     "client/src/state/composerHandoff.ts": [
       "HANDOFF_TTL_MS",
       "claimCenteredHandoff"
-    ],
-    "client/src/state/draftAttachments.ts": [
-      "DRAFT_ATTACHMENT_CAP_BYTES"
     ],
     "client/src/state/globalDispatchCap.test.ts": [
       "unsubMenu",
@@ -3193,10 +3175,8 @@
       "listLatencies",
       "listTimeouts",
       "resyncGap",
-      "seedBytes",
       "stat",
-      "synthStore",
-      "targetBytes"
+      "synthStore"
     ],
     "scripts/bench/ai-latency-shape.ts": [
       "summarise"
@@ -3216,23 +3196,12 @@
     "scripts/bench/latency.ts": [
       "argv"
     ],
-    "scripts/bench/memory.test.ts": [
-      "bytes"
-    ],
-    "scripts/bench/memory.ts": [
-      "bytes"
-    ],
     "scripts/bench/proc.ts": [
       "ProcRow",
       "buf",
-      "bytes",
-      "interceptBytes",
       "lib",
       "machFootprintBytes",
-      "meanBytes",
-      "memoryBytesOf",
-      "parseSmapsRollup",
-      "perUnitBytes"
+      "parseSmapsRollup"
     ],
     "scripts/bench/report.test.ts": [
       "linux",
@@ -3491,8 +3460,7 @@
     ],
     "scripts/check-nul-bytes.ts": [
       "abs",
-      "buf",
-      "scanForNulBytes"
+      "buf"
     ],
     "scripts/check-preview-evidence.ts": [
       "argv"
@@ -3682,7 +3650,6 @@
       "REGEN",
       "classify",
       "entries",
-      "nodeModulesBytes",
       "proj",
       "regen"
     ],
@@ -3929,8 +3896,7 @@
       "stampa"
     ],
     "scripts/measure-ui-state-init.ts": [
-      "dropped",
-      "frameBytes"
+      "dropped"
     ],
     "scripts/mem-growth.ts": [
       "Campione",
@@ -3977,7 +3943,6 @@
       "cmdStatus"
     ],
     "scripts/prefix-budget.ts": [
-      "BYTES_PER_TOKEN_SCHEMA",
       "agg",
       "bridgeCfg",
       "est",
@@ -4348,7 +4313,6 @@
     ],
     "server/browser-tool-dispatcher.ts": [
       "MIME_BY_EXT",
-      "UPLOAD_MAX_BYTES",
       "buf",
       "nativeScreenshotOp"
     ],
@@ -4708,7 +4672,6 @@
       "attesArmate",
       "buf",
       "conAttesa",
-      "consumedBytes",
       "fileMtimeMs",
       "forkScanCooldownMs",
       "mtime",
@@ -4772,8 +4735,6 @@
       "notModified"
     ],
     "server/lib/compress-json.ts": [
-      "Bytes",
-      "MIN_COMPRESS_BYTES",
       "gzip"
     ],
     "server/lib/detect-project-path.test.ts": [
@@ -4799,7 +4760,6 @@
       "SESSION_TTL_MS",
       "buildClearedSessionCookie",
       "buildSessionCookie",
-      "bytes",
       "readSessionCookie"
     ],
     "server/lib/empty-turn-headstone.test.ts": [
@@ -4820,7 +4780,6 @@
       "orig"
     ],
     "server/lib/external-claude-sessions.ts": [
-      "TAIL_BYTES",
       "buf",
       "entrypoint",
       "obj",
@@ -4838,7 +4797,6 @@
       "FLEET_TTL_MS",
       "arr",
       "buf",
-      "bytes",
       "lib",
       "proc",
       "procFootprintKB",
@@ -5278,7 +5236,6 @@
       "INLINE_MAX_BYTES",
       "NESTED_APP_DIRS",
       "appsDir",
-      "bytes",
       "decodeHtmlEntities",
       "entries",
       "extractIconHref",
@@ -5434,9 +5391,6 @@
     "server/lib/slash-command-source.test.ts": [
       "segreto"
     ],
-    "server/lib/slash-command-source.ts": [
-      "maxBytes"
-    ],
     "server/lib/stale-stream-sweep.ts": [
       "StaleStreamSweepDeps"
     ],
@@ -5529,7 +5483,6 @@
       "SubAgentExitInfo",
       "SubagentWatchDeps",
       "buf",
-      "byteOffset",
       "watchTimeoutMs"
     ],
     "server/lib/tab-resolver-deps.ts": [
@@ -5657,9 +5610,6 @@
       "verdetto",
       "verdettoDaApporre"
     ],
-    "server/lib/ws-compression.test.ts": [
-      "bytes"
-    ],
     "server/mcp/topics-mcp-server.e2e.test.ts": [
       "buf",
       "dec",
@@ -5774,7 +5724,6 @@
     "server/providers/claude-code-boot-replay.test.ts": [
       "ProviderCtor",
       "attacchi",
-      "byteDi",
       "driveDopo",
       "fase2Dopo",
       "hDopo",
@@ -6060,7 +6009,6 @@
     ],
     "server/providers/native/tools.ts": [
       "DEFAULT_BASH_TIMEOUT_MS",
-      "MAX_READ_BYTES",
       "MOTIVO_ANNULLATO",
       "abbatti",
       "abs",
@@ -6175,7 +6123,6 @@
       "AppSettings",
       "RUNTIMES",
       "appSettingsRouter",
-      "bytes",
       "createAppSettingsRouter"
     ],
     "server/routes/auth.ts": [
@@ -6410,7 +6357,6 @@
       "envSenzaIdentita"
     ],
     "server/routes/files.ts": [
-      "MAX_TOTAL_BACKUP_BYTES",
       "SEARCH_TIMEOUT_MS",
       "addProc",
       "applyProc",
@@ -6496,8 +6442,6 @@
       "guardie"
     ],
     "server/routes/memory.ts": [
-      "MAX_GLOBAL_MEMORY_BYTES",
-      "MAX_TOPIC_MEMORY_BYTES",
       "filepath"
     ],
     "server/routes/open.ts": [
@@ -6535,7 +6479,6 @@
       "multiCtx"
     ],
     "server/routes/processes.ts": [
-      "MAX_OUTPUT_BYTES",
       "PORT_CACHE_TTL",
       "SCRIPTS_CACHE_TTL",
       "TOP_PROCS_TTL",
@@ -6713,13 +6656,11 @@
       "ackPromise",
       "autoNameOpencodeSession",
       "buf",
-      "bytes",
       "cbs",
       "cmd",
       "droppedInput",
       "idemKey",
       "idempotencyCache",
-      "lastByteAt",
       "noteDroppedInput",
       "skipped",
       "sweepAutoNameOpencodeSessions"
@@ -6749,7 +6690,6 @@
       "arr"
     ],
     "server/routes/ui-state.ts": [
-      "MAX_UI_STATE_BYTES",
       "curSeq",
       "entries",
       "layoutObj",
@@ -6768,7 +6708,6 @@
       "LANG_RE",
       "MAX_TTS_CHARS",
       "SttDeps",
-      "bytes",
       "corpo",
       "langField",
       "testo"
@@ -6915,9 +6854,6 @@
       "obj",
       "uptimeMsSince"
     ],
-    "server/services/db-snapshot.test.ts": [
-      "bytes"
-    ],
     "server/services/db-snapshot.ts": [
       "stmt"
     ],
@@ -7033,10 +6969,8 @@
       "sof2"
     ],
     "server/services/image-shape.ts": [
-      "HEAD_BYTES",
       "buf",
-      "isSOF",
-      "webp"
+      "isSOF"
     ],
     "server/services/known-project-dirs.test.ts": [
       "prevApp",
@@ -7343,7 +7277,6 @@
       "timerConferma"
     ],
     "server/services/relay-config.ts": [
-      "bytes",
       "leggiInstallationId",
       "leggiRelayConfig",
       "leggiRelaySegreto",
@@ -7916,9 +7849,6 @@
       "ultimaParolaDelThread",
       "withSubtaskCounts"
     ],
-    "server/services/transcript-usage.test.ts": [
-      "bytes"
-    ],
     "server/services/transcript-usage.ts": [
       "buf",
       "oldest"
@@ -8006,7 +7936,6 @@
     ],
     "server/services/worktree-gc.ts": [
       "WorktreeGcDeps",
-      "bytes",
       "ttl"
     ],
     "server/services/worktree-manager.ts": [
@@ -8028,8 +7957,6 @@
     ],
     "server/services/worktree-slim.ts": [
       "abs",
-      "bytes",
-      "directorySizeBytes",
       "entries",
       "isSlimmableDirName",
       "proc",
@@ -8204,7 +8131,6 @@
     "shared/browser-snapshot-core.ts": [
       "acc",
       "accName",
-      "bytes",
       "desc",
       "editable",
       "emitted",
@@ -8255,7 +8181,6 @@
       "LeanableToolCall",
       "StrippableMessage",
       "StrippableToolCall",
-      "bytes",
       "det",
       "newDet",
       "rec"
@@ -8325,7 +8250,6 @@
     "shared/relay-crypto.ts": [
       "BUSTA_V",
       "CHIAVE_BIT",
-      "IV_BYTE",
       "apri",
       "chiaro",
       "chiave",
@@ -8462,7 +8386,6 @@
       "FORMA_RELAY_ID",
       "INTESTAZIONE_SEGRETO",
       "LUNGHEZZA_RELAY_ID",
-      "bytes",
       "dati",
       "derivaRelayId",
       "segretoCorrisponde"
@@ -8528,8 +8451,6 @@
       "arretratoMax",
       "avvisa",
       "binario",
-      "byte",
-      "byteInCoda",
       "canale",
       "chiuso",
       "completa",
@@ -8556,7 +8477,6 @@
       "leggiFramePayload",
       "leggiMessaggio",
       "massimoVisto",
-      "maxByte",
       "messaggio",
       "passoDiTaglio",
       "pezzi",
@@ -8635,7 +8555,6 @@
       "proj"
     ],
     "shared/tab-link.ts": [
-      "bytes",
       "padded"
     ],
     "shared/task-attempt.ts": [
@@ -8800,7 +8719,6 @@
     ],
     "tests/e2e/board-composer-dictation.spec.ts": [
       "SECONDA",
-      "audioBytes",
       "holdMic",
       "mic",
       "stubStt"
@@ -9392,8 +9310,6 @@
       "SPOKEN_WAV",
       "attendiFraseDetta",
       "buf",
-      "byteRate",
-      "dataBytes",
       "didascalia",
       "installMicProbe",
       "irraggiungibile",
@@ -9914,7 +9830,6 @@
       "trascina"
     ],
     "tests/e2e/pane-server-migration.spec.ts": [
-      "MAX_BYTES",
       "bodies",
       "seqs",
       "timeoutMs"
@@ -10813,8 +10728,7 @@
       "altre",
       "grasso",
       "ins",
-      "insC",
-      "primaBytes"
+      "insC"
     ],
     "tests/integration/card-comments-window.test.ts": [
       "SQL_MIA",
@@ -10963,8 +10877,6 @@
     ],
     "tests/integration/message-write-lean.test.ts": [
       "bloccoTool",
-      "bytes",
-      "bytesParsedDuring",
       "conCopia",
       "dopo",
       "grezzo",
@@ -11528,7 +11440,6 @@
       "readmePlatformClause"
     ],
     "tests/unit/product-metadata.test.ts": [
-      "bytes",
       "pkg",
       "undeclaredBackticks"
     ],

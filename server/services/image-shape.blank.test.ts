@@ -17,8 +17,8 @@ describe("un'immagine che non mostra niente", () => {
   });
 
   test("la piu' LEGGERA fra quelle vere resta evidenza", () => {
-    // 0.0229 byte/px: e' il caso piu' vicino al confine, quindi quello che
-    // rompe per primo se qualcuno alza il pavimento.
+    // 0.0229 byte/px is the case closest to the edge, so the first one to
+    // break if anybody raises the floor.
     expect(isBlankLikeImage({ bytes: Math.round(0.0229 * px(1440, 760)), width: 1440, height: 760 })).toBe(false);
   });
 
