@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.166 — 2026-08-21
+
+### Sotto il cofano
+- L'audit degli atterraggi non guardava le consegne fatte di solo ramo
+
 ## 2.2.164 — 2026-08-21
 
 ### Sotto il cofano
