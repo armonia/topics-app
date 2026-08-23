@@ -15,6 +15,7 @@ import { describe, expect, test } from "bun:test";
 import { createDiscordPresence, type DiscordPresenceSettings } from "./discord-presence";
 import { createFrameDecoder, encodeFrame, IPC_OP, type IpcSocket } from "./discord-ipc";
 import type { PresenceSnapshot } from "./discord-activity";
+import { presenceLines } from "../../shared/presence-phrase";
 
 const SNAPSHOT: PresenceSnapshot = {
   openSessions: 12,
@@ -111,7 +112,13 @@ describe("interruttore", () => {
     expect(discord.connections).toBe(1);
     expect(svc.status().connection).toBe("connected");
     expect(svc.status().user?.username).toBe("pippo");
-    expect(discord.activities.at(-1)).toMatchObject({ details: "3 al lavoro · 12 aperte" });
+    // L'etichetta e' quella di `presence-phrase` («chat aperte», non
+    // «aperte»): questo test verifica che il servizio PUBBLICHI la frase, non
+    // che la sappia riscrivere. Tenerne una copia a mano l'aveva gia' fatto
+    // divergere dal 647ccd7c, quando la parola cambio' di la' e non di qua.
+    expect(discord.activities.at(-1)).toMatchObject({
+      details: presenceLines({ workingSessions: 3, openSessions: 12, activeTasks: 2 }, "it").details,
+    });
   });
 
   test("spegnere PULISCE la presence invece di lasciarla appesa", async () => {
