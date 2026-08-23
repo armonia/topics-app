@@ -59,7 +59,8 @@ if [[ "$NAME" == "Jarvis" ]]; then
 fi
 
 [[ -f "$PLIST" ]] || { echo "LaunchAgent non trovato: $PLIST" >&2; exit 1; }
-cp "$PLIST" "$PLIST.bak.$(date +%Y%m%d-%H%M%S)"
+BACKUP="$PLIST.bak.$(date +%Y%m%d-%H%M%S)"
+cp "$PLIST" "$BACKUP"
 
 /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:DISCORD_CLIENT_ID string $ID" "$PLIST" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:DISCORD_CLIENT_ID $ID" "$PLIST"
@@ -76,22 +77,45 @@ for _ in $(seq 1 20); do
   OUT=$(curl -sk -m 5 "$API/api/profile/discord" 2>/dev/null || true)
   [[ -z "$OUT" ]] && continue
   CONN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["connection"])' <<<"$OUT" 2>/dev/null || echo "")
+  LAST_ERR=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"].get("lastError") or "")' <<<"$OUT" 2>/dev/null || echo "")
   if [[ "$CONN" == "connected" ]]; then
     echo
     echo "Fatto: la presence e' collegata come «${NAME}»."
-    python3 - <<'PY' <<<"$OUT"
-import json,sys
-s=json.load(sys.stdin)["status"]; a=s.get("activity") or {}
+    # Due redirezioni sullo stesso stdin si annullano: con `python3 - <<'PY'`
+    # SEGUITO da `<<<"$OUT"`, l'ultima vince e Python riceve il JSON al posto
+    # del proprio codice. Il JSON passa come argomento, non come stdin.
+    python3 -c 'import json,sys
+s=json.loads(sys.argv[1])["status"]; a=s.get("activity") or {}
 print("  mostra:", a.get("details"), "|", a.get("state"))
-print("  errore:", s.get("lastError") or "nessuno")
-PY
+print("  errore:", s.get("lastError") or "nessuno")' "$OUT"
     echo
     echo "Guarda il tuo profilo Discord: dovrebbe dire «${NAME}»."
     exit 0
   fi
 done
 
-echo "Il server e' ripartito ma la presence non risulta collegata." >&2
-echo "Stato: ${CONN:-sconosciuto} — controlla con:" >&2
-echo "  curl -sk $API/api/profile/discord | python3 -m json.tool" >&2
+# Qui il lavoro NON e' riuscito, e lasciare la configurazione nuova su un
+# server che non si collega significa consegnare un guasto. Si torna indietro:
+# meglio il nome vecchio di una presence morta.
+#
+# Il caso tipico, visto provando davvero: un Application ID che esiste ma NON
+# e' tuo. Discord accetta la connessione al socket e poi non manda mai READY,
+# perche' l'app appartiene a qualcun altro. Il messaggio lo dice, cosi' non si
+# cerca il guasto nel posto sbagliato.
+echo >&2
+echo "La presence non si e' collegata (stato: ${CONN:-sconosciuto})." >&2
+if [[ "${LAST_ERR:-}" == *"READY"* ]]; then
+  echo "Discord non ha risposto READY: quasi sempre significa che" >&2
+  echo "l'applicazione $ID non appartiene a questo account." >&2
+  echo "Creane una TUA su https://discord.com/developers/applications." >&2
+elif [[ -n "${LAST_ERR:-}" ]]; then
+  echo "Discord dice: $LAST_ERR" >&2
+fi
+echo >&2
+echo "Rimetto la configurazione precedente…" >&2
+cp "$BACKUP" "$PLIST"
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+sleep 2
+launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+echo "Ripristinato. Niente e' cambiato." >&2
 exit 1
