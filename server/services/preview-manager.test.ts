@@ -583,6 +583,26 @@ describe("uno scatto BIANCO non si allega", () => {
     expect(h.reviewNotes.at(-1)!.content).toContain("pagina bianca");
   });
 
+  // THE BLANK BRANCH MUST RETIRE, not blank out. It said "retired" in the
+  // thread and then called `setPreviewImage(taskId, "")`, which by contract
+  // turns no state on: the card was left with no reason written and no memory
+  // of what it rejected, so the startup sweep took the same shot back.
+  it("la pagina bianca RITIRA con un motivo, non azzera in silenzio", async () => {
+    const ritiri: Array<{ taskId: string; reason: string }> = [];
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => true,
+      retirePreview: (taskId, reason) => { ritiri.push({ taskId, reason }); },
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(ritiri).toHaveLength(1);
+    expect(ritiri[0]!.reason).toContain("pagina bianca");
+    // And NOT through the silent blanking, which leaves the card with no reason.
+    expect(h.previewImage).toBeNull();
+  });
+
   it("foto riuscita e piena ⇒ si allega, come sempre", async () => {
     const h = harness({
       fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),

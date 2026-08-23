@@ -498,6 +498,8 @@ export interface BoardTask {
    *  spegne da solo appena ne arriva una nuova. `null` = mai successo. */
   previewRetiredAt: string | null;
   previewRetiredReason: string | null;
+  /** Paths the retirement rejected: the server already drops them from `previewImages`. */
+  previewRejected?: string[];
   /** Dispatch contract: agent delivers a PLAN to review before implementing. */
   planFirst: boolean;
   /** IL commento che È il piano — scritto dal server quando il piano arriva

@@ -1601,6 +1601,20 @@ previewManager = createPreviewManager({
       ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
     } catch (err) { console.error("[preview] setPreviewImage", err); }
   },
+  // THE RETIREMENT WAS NEVER WIRED. `retirePreview` is optional in
+  // `PreviewManagerDeps` and was not passed: both content gates (placeholder or
+  // error, and blank page) fell through to `setPreviewImage(taskId, "")`, which
+  // by contract turns no state on. Measured on 2026-08-23: four cards in review
+  // carrying the "Anteprima: ritirata" note in the thread, all with
+  // `preview_retired_at` NULL and the rejected shot still on them.
+  retirePreview: (taskId, reason) => {
+    const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+    if (!projectId) return;
+    try {
+      const t = dispatcherSvc.retirePreview({ taskId, reason });
+      ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
+    } catch (err) { console.error("[preview] retirePreview", err); }
+  },
   addReviewNote: (taskId, { content, media, kind, replaces }) => {
     const projectId = dispatcherSvc.get(taskId)?.task.projectId;
     try {

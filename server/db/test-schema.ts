@@ -124,7 +124,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- cosa il task ricorda: quando, quale testo, quante riprese.
   nudge_claimed_at TEXT,
   nudge_fingerprint TEXT,
-  nudge_repeats INTEGER NOT NULL DEFAULT 0
+  nudge_repeats INTEGER NOT NULL DEFAULT 0,
+  -- 20260823210000: paths the retirement REJECTED, as a JSON array. Needed
+  -- because the retired image stays attached to the comment the card took it
+  -- from, and with no memory the startup sweep fished it straight back.
+  preview_rejected TEXT
 )`;
 
 /**

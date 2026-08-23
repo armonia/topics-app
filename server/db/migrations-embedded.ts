@@ -130,6 +130,7 @@ import m20260818234959_task_interrupted_at from "./migrations/20260818234959-tas
 import m20260819122701_task_nudge_claim from "./migrations/20260819122701-task-nudge-claim.sql" with { type: "text" };
 import m20260820235900_nota_senza_riassunto_visibile from "./migrations/20260820235900-nota-senza-riassunto-visibile.sql" with { type: "text" };
 import m20260821000500_nota_senza_riassunto_ordine from "./migrations/20260821000500-nota-senza-riassunto-ordine.sql" with { type: "text" };
+import m20260823210000_preview_rejected from "./migrations/20260823210000-preview-rejected.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -264,4 +265,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260819122701, name: "20260819122701-task-nudge-claim.sql", sql: m20260819122701_task_nudge_claim },
   { version: 20260820235900, name: "20260820235900-nota-senza-riassunto-visibile.sql", sql: m20260820235900_nota_senza_riassunto_visibile },
   { version: 20260821000500, name: "20260821000500-nota-senza-riassunto-ordine.sql", sql: m20260821000500_nota_senza_riassunto_ordine },
+  { version: 20260823210000, name: "20260823210000-preview-rejected.sql", sql: m20260823210000_preview_rejected },
 ];

@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
 import { freshDb, svc, PID } from "./tasks-test-db";
+import { isDeliverySheetPath } from "../../shared/media-kind";
 
 /**
  * 1.3 — in colonna Review una consegna dell'agente e un task che il sistema ha
@@ -451,6 +452,54 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
 
   // Azzerare a mano NON è un ritiro: chi toglie l'immagine senza dare un motivo
   // non sta dicendo «era falsa», e la card non deve inventarsi una spiegazione.
+  // THE RETIREMENT MUST SURVIVE A RESTART.
+  // Taking the image off the card does not take it out of the thread: it stays
+  // attached to the comment the card took it from, which is exactly where the
+  // startup sweep fishes. With no memory of what was rejected it put the
+  // just-rejected shot back and switched the retirement off while doing it.
+  test("il ritiro sopravvive alla spazzata d'avvio: la foto respinta non torna", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "consegna con foto falsa allegata" });
+    const falsa = png("falsa.png", 1440, 760);
+    // The shot is attached to the thread, as always: it is the verifier note.
+    s.addComment({ taskId: t.id, author: "verifier", content: "Anteprima viva pronta", media: [falsa] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(falsa);
+
+    s.retirePreview({ taskId: t.id, reason: "mostrava lo stato vuoto dell'app" });
+    expect(preview(t.id)).toBeNull();
+
+    // Server restart: the startup sweep goes over the cards in review again.
+    s.sweepReviewPreviews();
+    // No false shot, and the reason is still written. The card may carry a
+    // delivery SHEET (the fallback the server draws), which is not evidence and
+    // does not switch the retirement off.
+    const dopo = preview(t.id);
+    expect(dopo === null || isDeliverySheetPath(dopo)).toBe(true);
+    expect(dopo).not.toBe(falsa);
+    expect(retired(t.id).at).not.toBeNull();
+
+    // Nor does it sneak back via the carousel: same lie, one slide over.
+    expect(s.get(t.id)!.task.previewImages ?? []).not.toContain(falsa);
+  });
+
+  // REAL evidence arriving later must still win: the rejection memory is a
+  // list of paths, not a ban on the card.
+  test("dopo un ritiro una foto NUOVA viene promossa lo stesso", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "riconsegna dopo il ritiro" });
+    const falsa = png("vuota.png", 1440, 760);
+    s.addComment({ taskId: t.id, author: "verifier", content: "anteprima", media: [falsa] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.retirePreview({ taskId: t.id, reason: "pagina bianca" });
+
+    const buona = png("davvero.png", 1440, 760);
+    s.addComment({ taskId: t.id, author: "claude", content: "ecco il lavoro", media: [buona] });
+    s.sweepReviewPreviews();
+    expect(preview(t.id)).toBe(buona);
+    expect(retired(t.id).at).toBeNull();
+  });
+
   test("azzerare l'anteprima con una stringa vuota non accende nessuno stato", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "ripensamento" });

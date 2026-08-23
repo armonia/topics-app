@@ -616,7 +616,16 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       const blank = shot && deps.blankShot ? deps.blankShot(outPath) : false;
       if (blank) {
         log(`[preview] screenshot vuoto per ${taskId}: non lo allego`);
-        try { deps.setPreviewImage(taskId, ""); } catch { /* best-effort */ }
+        // RETIRE, do not blank. This branch said "retired" in the thread and
+        // then called `setPreviewImage(taskId, "")`, which by contract turns NO
+        // state on: the card was left with no reason written and, on restart,
+        // took the same shot back from the thread. The branch above
+        // (placeholder/error) has always retired for real: two branches, one
+        // sentence, two behaviours.
+        try {
+          if (deps.retirePreview) deps.retirePreview(taskId, "lo scatto e' una pagina bianca, non il lavoro della card");
+          else deps.setPreviewImage(taskId, "");
+        } catch (err) { log(`[preview] retirePreview (pagina bianca) failed for ${taskId}`, err); }
         deps.addReviewNote(taskId, {
           kind: "service",
           replaces: PREVIEW_NOTE_SLOT,

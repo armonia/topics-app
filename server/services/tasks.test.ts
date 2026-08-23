@@ -2056,6 +2056,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          reopened_at = ?, reopened_by = 'il-reviewer', reopened_actor = 'human',
          landing_witnessed = 1, wait_streak = 2, wait_reason = 'aspetto il gate',
          wait_since = ?, preview_retired_at = ?, preview_retired_reason = 'sostituita',
+         -- 20260823210000: paths the retirement rejected, so the automatic
+         -- promotion does not fish them back from the thread on restart.
+         preview_rejected = '["/tmp/falsa.png"]',
          interrupt_claimed_at = ?,
          -- L'entita' della consegna (migration 20260816174500). Il cancello
          -- sotto ha preso questa dimenticanza da solo, che e' il motivo per cui

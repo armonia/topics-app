@@ -213,6 +213,8 @@ export interface Task {
    */
   previewRetiredAt: string | null;
   previewRetiredReason: string | null;
+  /** Paths the retirement rejected: back neither as cover nor as a slide. */
+  previewRejected: string[];
   /** Dispatch contract: deliver a PLAN to review before implementing. */
   planFirst: boolean;
   /** IL commento che È il piano (la tab "Piano" rende questo, non l'ultimo
@@ -1261,6 +1263,31 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // nasceva morto: l'agente allegava il diagramma al commento di consegna e la
   // promozione lo saltava, lasciando la card cieca.
   const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|svg|webm|mp4|mov)$/i;
+
+  /**
+   * The paths this card's retirement has already REJECTED.
+   *
+   * It lives in a column and not in memory because the question comes back
+   * after a restart, and that is exactly where it did damage:
+   * `sweepReviewPreviews` fished the just-retired shot back out of the thread.
+   * The column is a JSON array; an unreadable row counts as "nothing
+   * rejected", which is the previous behaviour and never loses real evidence.
+   */
+  const pathRespinti = (raw: string | null | undefined): string[] => {
+    if (!raw) return [];
+    try {
+      const v = JSON.parse(raw);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    } catch { return []; }
+  };
+
+  /** The list including `path`, without duplicates and without empties. */
+  const conPathRespinto = (raw: string | null | undefined, path: string | null | undefined): string[] => {
+    const p = (path ?? "").trim();
+    const gia = pathRespinti(raw);
+    return p && !gia.includes(p) ? [...gia, p] : gia;
+  };
+
   /** Quante evidenze al massimo finiscono nel carosello della card. Oltre, non
    *  e' piu' un carosello ma un archivio, e quello e' il thread nel drawer. */
   const PREVIEW_SLIDES_MAX = 8;
@@ -1363,6 +1390,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // altra anteprima, invece, e' di qualcuno e non si tocca.
       const attuale = (row.preview_image ?? "").trim();
       if (attuale && !isDeliverySheetPath(attuale)) return;
+      // WHAT WAS REJECTED DOES NOT COME BACK. The retired image stays attached
+      // to the comment that carried it, which is precisely where we fish below:
+      // without this line the startup sweep put the just-rejected shot back on
+      // the card, and turned the retirement off while doing it.
+      const respinti = pathRespinti(row.preview_rejected);
       const rows = db.prepare(
         "SELECT media FROM task_comments WHERE task_id = ? AND media IS NOT NULL ORDER BY created_at DESC LIMIT 10",
       ).all(taskId) as Array<{ media: string }>;
@@ -1373,6 +1405,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (!Array.isArray(files)) continue;
         for (const f of files) {
           if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
+          if (respinti.includes(f)) continue;
           if (!fileExists(f)) continue;
           const tall = tooTallForCard(f);
           if (tall) { rejected.push({ path: f, shape: tall }); continue; }
@@ -2137,6 +2170,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   function previewImagesFor(ids: readonly string[]): Map<string, string[]> {
     const out = new Map<string, string[]>();
     if (ids.length === 0) return out;
+    /* REJECTED evidence stays out of the carousel. `retirePreview` removes the
+     * cover, but the slides are fished from those same attachments: without
+     * this read the retired shot stayed visible next to the good one, so the
+     * card kept showing exactly what the retirement had declared false. One
+     * query, like the media above. */
+    const respintiPerTask = new Map<string, string[]>();
+    try {
+      const rr = db.query(
+        `SELECT id, preview_rejected FROM tasks
+          WHERE id IN (SELECT value FROM json_each(?)) AND preview_rejected IS NOT NULL`,
+      ).all(JSON.stringify(ids)) as Array<{ id: string; preview_rejected: string | null }>;
+      for (const r of rr) respintiPerTask.set(r.id, pathRespinti(r.preview_rejected));
+    } catch { /* column missing (old db): nothing rejected, as before */ }
     /* Il tipo della riga e' DICHIARATO, non `any`: sono due colonne, si
      * scrivono. Il cricchetto sugli `any` (`check:any-budget`) mi ha preso
      * proprio qui, e aveva ragione — `r.media` su un `any` non avrebbe detto
@@ -2158,6 +2204,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Le stesse regole della promozione: path assoluto, estensione che
         // qualcuno sa disegnare. Un `.pdf` fra le slide sarebbe un buco.
         if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
+        if (respintiPerTask.get(r.task_id)?.includes(f)) continue;
         const list = out.get(r.task_id);
         if (!list) { out.set(r.task_id, [f]); continue; }
         if (list.length >= PREVIEW_SLIDES_MAX) continue;
@@ -2386,6 +2433,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
+      // The rejected paths reach the client because that is where what to draw
+      // gets decided: the card needs them so the carousel does not redraw the
+      // very image the retirement declared false.
+      previewRejected: pathRespinti(r.preview_rejected),
       planFirst: !!r.plan_first,
       planCommentId: r.plan_comment_id ?? null,
       inProgressAt: r.in_progress_at ?? null,
@@ -4995,6 +5046,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
      * dove non invecchia, non si corregge e non sa di essere stata superata.
      * Qui si spegne da solo appena qualcuno allega un'anteprima nuova (vedi
      * `update`/`promoteReviewPreview`).
+     *
+     * AND IT REMEMBERS WHAT IT REJECTED. Taking the image off the card does not
+     * take it out of the thread: it stays attached to the comment the card took
+     * it from, which is exactly where `promoteReviewPreview` fishes when it
+     * finds a card in review with no preview. With no memory the startup sweep
+     * put the just-rejected shot back and, since a new preview supersedes a
+     * retirement, switched the retirement off too: it did not survive a
+     * restart. Measured on 2026-08-23 across four cards in review, all with the
+     * note and none with the state.
      */
     retirePreview({ taskId, reason }): Task {
       const row = getTaskRow(taskId);
@@ -5006,8 +5066,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // (la nota di chi ritira), l'immagine resta.
       if (isDeliverySheetPath(row.preview_image)) return rowToTask(row);
       db.prepare(
-        "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
-      ).run(now(), reason.trim() || null, now(), taskId);
+        "UPDATE tasks SET preview_image = NULL, preview_rejected = ?, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
+      ).run(
+        JSON.stringify(conPathRespinto(row.preview_rejected, row.preview_image)),
+        now(), reason.trim() || null, now(), taskId,
+      );
       return rowToTask(getTaskRow(taskId));
     },
 
