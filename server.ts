@@ -2010,7 +2010,11 @@ startProcessDetection(ctx, getClaudeSessionsForDetection);
 const SERVER_STARTED_AT = Date.now();
 startDiscordPresence({
   getSnapshot: () => ({
-    ...computePresenceCounts(ctx.db, ctx.activeStreams.size + countBusyAgentTerminals()),
+    ...computePresenceCounts(
+      ctx.db,
+      ctx.activeStreams.size + countBusyAgentTerminals(),
+      ctx.externalSessionsCount?.() ?? 0,
+    ),
     since: SERVER_STARTED_AT,
   }),
   getSettings: () => {
@@ -2219,6 +2223,10 @@ const activityRouter = createActivityRouter(ctx);
 
 // External-session census: poll + broadcast so a `claude` started in iTerm
 // surfaces on the board within ~20s without any client polling.
+// Il conteggio delle sessioni aperte fuori da Topics, per la barra e per la
+// presence. `list()` legge la cache del censimento (TTL 10s): chiamarla a ogni
+// poll non costa una scansione.
+ctx.externalSessionsCount = () => externalSessions.list().length;
 const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
 externalSessions.start();
 

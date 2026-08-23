@@ -19,6 +19,33 @@ const BASE: PresenceCounts = {
   focusProject: "Armonia-CRM",
 };
 
+describe("le sessioni aperte fuori da Topics", () => {
+  test("si nominano a parte invece di sommarsi alle aperte", () => {
+    const c = { ...BASE, externalSessions: 2 };
+    // 12 topic e 2 processi esterni: il totale «14» non risponderebbe a
+    // nessuna domanda, perche' conta due cose diverse.
+    expect(presenceLines(c, "it").details).toBe("3 al lavoro · 12 aperte · 2 fuori da Topics");
+    expect(presenceLines(c, "en").details).toBe("3 working · 12 open · 2 outside Topics");
+  });
+
+  test("una sola sessione esterna si dice al singolare", () => {
+    const c = { ...BASE, externalSessions: 1 };
+    expect(presenceLines(c, "it").details).toContain("1 fuori da Topics");
+    expect(presenceLines(c, "en").details).toContain("1 outside Topics");
+  });
+
+  test("zero esterne non lascia un separatore appeso", () => {
+    expect(presenceLines({ ...BASE, externalSessions: 0 }, "it").details).toBe("3 al lavoro · 12 aperte");
+    // e un chiamante che non le conosce affatto si comporta uguale
+    expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 aperte");
+  });
+
+  test("anche a fermo le esterne restano visibili: e' l'unico lavoro in corso", () => {
+    const fermo = { ...BASE, workingSessions: 0, activeTasks: 0, externalSessions: 1 };
+    expect(presenceLines(fermo, "it").details).toBe("12 sessioni aperte · 1 fuori da Topics");
+  });
+});
+
 describe("le due righe", () => {
   test("con qualcuno al lavoro dicono chi lavora e su quante aperte", () => {
     expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 aperte");

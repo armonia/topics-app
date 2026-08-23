@@ -213,7 +213,11 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
      * non stima per conto suo ciò che la presence sa.
      */
     if (method === "GET" && pathname === "/api/system/presence") {
-      return json(computePresenceCounts(db, activeStreams.size + countBusyAgentTerminals()));
+      return json(computePresenceCounts(
+        db,
+        activeStreams.size + countBusyAgentTerminals(),
+        ctx.externalSessionsCount?.() ?? 0,
+      ));
     }
 
     if (method === "GET" && pathname === "/api/system/status") {

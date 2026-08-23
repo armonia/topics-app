@@ -34,6 +34,16 @@ export interface PresenceCounts {
   activeTasks: number;
   /** Il progetto su cui c'e' lavoro adesso. */
   focusProject: string | null;
+  /**
+   * Le sessioni Claude aperte FUORI da Topics: un terminale, un altro harness.
+   * NON si sommano a `openSessions` — quello conta topic, cioe' contenitori, e
+   * questo conta processi vivi. Un totale unico non sarebbe ne' l'uno ne'
+   * l'altro, per questo la frase le nomina a parte.
+   *
+   * Opzionale: un chiamante che non le conosce non deve inventare uno zero
+   * che sembra una misura.
+   */
+  externalSessions?: number;
 }
 
 /** Le due righe della card, nell'ordine in cui Discord le impagina. */
@@ -53,6 +63,7 @@ const IT = {
   working: (w: number, n: number) => `${w} al lavoro · ${n} apert${n === 1 ? "a" : "e"}`,
   tasks: (n: number) => (n === 1 ? "1 task in corso" : `${n} task in corso`),
   onProject: (p: string) => `su ${p}`,
+  external: (n: number) => (n === 1 ? "1 fuori da Topics" : `${n} fuori da Topics`),
   app: PRESENCE_APP_NAME,
   quiet: "Nessun agente al lavoro",
 };
@@ -62,6 +73,7 @@ const EN = {
   working: (w: number, n: number) => `${w} working · ${n} open`,
   tasks: (n: number) => (n === 1 ? "1 task running" : `${n} tasks running`),
   onProject: (p: string) => `on ${p}`,
+  external: (n: number) => (n === 1 ? "1 outside Topics" : `${n} outside Topics`),
   app: PRESENCE_APP_NAME,
   quiet: "No agent working",
 };
@@ -95,7 +107,12 @@ export function presenceLines(counts: PresenceCounts, lang: OutputLanguage = "au
   const d = dict(lang);
   const working = counts.workingSessions;
   return {
-    details: working > 0 ? d.working(working, counts.openSessions) : d.idle(counts.openSessions),
+    // Le sessioni fuori da Topics vanno DOPO, separate: sono un'altra unita' di
+    // misura e sommarle darebbe un numero che non risponde a nessuna domanda.
+    details: [
+      working > 0 ? d.working(working, counts.openSessions) : d.idle(counts.openSessions),
+      counts.externalSessions ? d.external(counts.externalSessions) : "",
+    ].filter(Boolean).join(" · "),
     state:
       counts.activeTasks > 0
         ? d.tasks(counts.activeTasks)

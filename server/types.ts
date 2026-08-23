@@ -354,6 +354,15 @@ export interface AppContext {
    * (`shared/relay-identita.ts`). Il SEGRETO non è qui, e non deve arrivarci —
    * questo oggetto viene servito da `/api/auth/relay`.
    */
+  /**
+   * Quante sessioni Claude sono aperte FUORI da Topics — un terminale, un altro
+   * harness. Il censimento le tiene gia' in cache (TTL 10s), quindi chiamarla a
+   * ogni poll della barra non costa una scansione.
+   *
+   * Assente in un contesto ridotto: chi la usa deve ripiegare su 0, non
+   * inventare un numero.
+   */
+  externalSessionsCount?: () => number;
   relayConfig?: () => { baseUrl: string | null; installationId: string; relayId: string };
   /** Il relay è collegato ADESSO. Diverso da «configurato»: serve a dire a chi
    *  crea un link se quel link funzionerà subito o solo quando torna la rete. */

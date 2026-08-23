@@ -225,7 +225,14 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
 export function computePresenceCounts(
   db: Database,
   liveTurns: number,
-): { openSessions: number; workingSessions: number; activeTasks: number; focusProject: string | null } {
+  externalSessions = 0,
+): {
+  openSessions: number;
+  workingSessions: number;
+  activeTasks: number;
+  focusProject: string | null;
+  externalSessions: number;
+} {
   const openSessions = scalar(db, "SELECT COUNT(*) AS v FROM topics WHERE archived = 0");
   const activeTasks = scalar(db, "SELECT COUNT(*) AS v FROM tasks WHERE dispatch_state = 'working'");
 
@@ -254,6 +261,13 @@ export function computePresenceCounts(
 
   return {
     openSessions,
+    // Le sessioni Claude aperte FUORI da Topics (un terminale, un altro
+    // harness): il censimento le conosce gia' e le tiene in cache, ma finora
+    // nessuna delle due superfici le nominava. Restano un numero A PARTE e non
+    // si sommano a `openSessions`: quello conta topic, cioe' contenitori, e
+    // questo conta processi. Sommarli darebbe un totale che non e' ne' l'uno
+    // ne' l'altro.
+    externalSessions,
     // Un turno vivo È una sessione al lavoro; i task della board hanno il loro
     // turno dentro `activeStreams`, quindi NON si risommano qui — sarebbe
     // contarli due volte, che è il modo in cui un contatore diventa vanteria.
