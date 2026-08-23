@@ -33,6 +33,7 @@
 
 import type { ExternalClaudeSession, ScanOptions } from "./external-claude-sessions";
 import { scanExternalClaudeSessions } from "./external-claude-sessions";
+import { scanCodexSessions } from "./external-codex-sessions";
 import { scanJcodeSessions } from "./external-jcode-sessions";
 
 /** Uno scanner: da opzioni comuni alle sessioni che quella CLI ha aperto. */
@@ -51,6 +52,18 @@ export const PROVIDERS: SessionProvider[] = [
         now: opts.nowMs,
         activeMs: opts.activeMs,
         windowMs: opts.windowMs,
+      }),
+  },
+  {
+    name: "codex",
+    scan: (opts) =>
+      scanCodexSessions({
+        now: opts.nowMs,
+        activeMs: opts.activeMs,
+        windowMs: opts.windowMs,
+        knownSessionIds: opts.knownSessionIds,
+        candidatePaths: opts.candidatePaths,
+        projectIdFor: opts.projectIdFor,
       }),
   },
 ];
