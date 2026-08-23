@@ -135,10 +135,13 @@ export function presenceLines(counts: PresenceCounts, lang: OutputLanguage = "au
             : d.external(counts.externalSessions))
         : "",
     ].filter(Boolean).join(" · "),
+    // «Nessun agente al lavoro» deve guardare ANCHE fuori: se la prima riga
+    // dice che una sessione esterna sta macinando, la seconda non puo'
+    // dichiarare il silenzio. Si contraddicevano.
     state:
       counts.activeTasks > 0
         ? d.tasks(counts.activeTasks)
-        : working > 0
+        : (working > 0 || (counts.externalWorking ?? 0) > 0)
           ? d.app
           : d.quiet,
   };

@@ -47,6 +47,20 @@ describe("le sessioni aperte fuori da Topics", () => {
 });
 
 describe("le esterne che stanno lavorando", () => {
+  test("se lavora solo una esterna, la seconda riga NON dichiara il silenzio", () => {
+    const c = { ...BASE, workingSessions: 0, activeTasks: 0, externalSessions: 4, externalWorking: 1 };
+    const r = presenceLines(c, "it");
+    // le due righe si contraddicevano: la prima diceva «1 al lavoro fuori»,
+    // la seconda «Nessun agente al lavoro».
+    expect(r.details).toContain("1 al lavoro fuori da Topics");
+    expect(r.state).not.toBe("Nessun agente al lavoro");
+  });
+
+  test("se non lavora nessuno, dentro ne fuori, il silenzio resta dichiarato", () => {
+    const c = { ...BASE, workingSessions: 0, activeTasks: 0, externalSessions: 4, externalWorking: 0 };
+    expect(presenceLines(c, "it").state).toBe("Nessun agente al lavoro");
+  });
+
   test("se una macina, la frase lo dice invece di darle per ferme", () => {
     const c = { ...BASE, externalSessions: 4, externalWorking: 1 };
     expect(presenceLines(c, "it").details).toBe("3 al lavoro · 12 chat aperte · 1 al lavoro fuori da Topics (su 4)");
