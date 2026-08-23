@@ -120,7 +120,14 @@ export interface DiscordPresenceDeps {
 
 /** Quanto si aspetta prima di ritentare, per tipo di fallimento. Discord chiuso
  *  è una condizione che cambia da sola in fretta (lo apri); un ID rifiutato
- *  NON cambia col tempo, quindi ritentarlo ogni 15s è solo rumore. */
+ *  NON cambia col tempo, quindi ritentarlo ogni 15s è solo rumore.
+ *
+ *  Effetto collaterale da conoscere, misurato su sei riavvii del server: se il
+ *  PRIMO tentativo riesce la presence è viva in ~3s, se fallisce (Discord non
+ *  ha ancora riaperto il socket) si aspetta il minuto pieno di `socket_error`
+ *  e la ripresa arriva a ~50-60s. In mezzo lo stato è `error`, che a guardarlo
+ *  sembra un guasto e invece è l'attesa che funziona: chi diagnostica dopo un
+ *  riavvio guardi due volte a un minuto di distanza prima di dire «rotta». */
 const RETRY_MS: Record<string, number> = {
   no_socket: 30_000,
   timeout: 60_000,
