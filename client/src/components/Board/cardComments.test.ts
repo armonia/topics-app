@@ -363,9 +363,26 @@ describe('cardDetailNeed: quando la card deve ancora chiedere', () => {
     expect(cardDetailNeed(row({ recentComments: [] }))).toBe('none');
   });
 
-  test('fuori dalla review non si chiede niente, qualunque cosa ci sia sulla riga', () => {
-    for (const status of ['backlog', 'todo', 'in_progress', 'done'] as const) {
-      expect(cardDetailNeed(row({ status, subtaskCount: 3, recentComments: undefined })), status).toBe('none');
+  // This test used to say the OPPOSITE: "outside review nothing is asked,
+  // whatever the row carries". That WAS the rule, and the rule is what changed:
+  // a card with steps changed shape crossing a column, and in three columns out
+  // of four the checklist became a mute `3/7`. A test that pins the old rule is
+  // rewritten with the code, not worked around.
+  test('i passi si chiedono in OGNI colonna: la card non cambia forma passando di la', () => {
+    // `recentComments: []` and not `undefined`: with a silent row the `thread`
+    // branch wins, which comes FIRST and answers a different question (a server
+    // older than the client). The subject here is the children, so the row is
+    // already complete.
+    for (const status of ['backlog', 'todo', 'in_progress', 'review', 'done'] as const) {
+      expect(cardDetailNeed(row({ status, subtaskCount: 3, recentComments: [] })), status).toBe('children');
+    }
+  });
+
+  test('e senza passi non si chiede niente, in nessuna colonna', () => {
+    // The real count: one request per card THAT HAS CHILDREN, not per card.
+    // This is the line that keeps the promise made next to the code.
+    for (const status of ['backlog', 'todo', 'in_progress', 'review', 'done'] as const) {
+      expect(cardDetailNeed(row({ status, subtaskCount: 0, recentComments: [] })), status).toBe('none');
     }
   });
 

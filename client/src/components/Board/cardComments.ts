@@ -362,7 +362,13 @@ export function showsCardThread(task: CardThreadRow): boolean {
  */
 export function cardDetailNeed(task: CardThreadRow): 'none' | 'children' | 'thread' {
   if (showsCardThread(task) && task.recentComments === undefined) return 'thread';
-  if (task.status === 'review' && task.subtaskCount > 0) return 'children';
+  // THE STEPS, IN EVERY COLUMN. The gate used to be `status === 'review'`, and
+  // what it bought was not a saved request: it was a card that changed shape as
+  // it crossed a column boundary, a checklist in review and a mute `3/7`
+  // anywhere else. The price is one GET per card THAT HAS CHILDREN, not per
+  // card: with no subtasks nothing is asked, and that is the request that had
+  // been multiplied by every card of the board.
+  if (task.subtaskCount > 0) return 'children';
   return 'none';
 }
 
