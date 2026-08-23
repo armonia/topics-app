@@ -3,7 +3,7 @@
  *
  * PERCHE' UN TERZO SCANNER
  * Il registro dei provider nasce il 23/08 per far entrare jcode. Codex era il
- * caso di prova di quella promessa: misurato sulla macchina di Attilio, tre
+ * caso di prova di quella promessa: misurato sulla macchina di chi usa l'app, tre
  * sessioni toccate nelle ultime 8 ore che nessuna superficie contava. Se
  * aggiungere un provider non fosse costato poco, il registro non sarebbe
  * servito a niente.
@@ -54,7 +54,7 @@ import {
  * La testa: deve contenere per intero la `session_meta`, che e' la prima riga.
  *
  * Non e' una riga corta: porta con se' le istruzioni di base della sessione e
- * sul disco di Attilio misura ~19KB. Con una testa da 16KB il JSON arrivava
+ * sul disco di quella macchina misura ~19KB. Con una testa da 16KB il JSON arrivava
  * troncato, non parsava, e OGNI sessione Codex spariva dal censimento senza
  * un errore: 64KB per stare larghi.
  */
