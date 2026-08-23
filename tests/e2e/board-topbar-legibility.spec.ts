@@ -465,6 +465,65 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.screenshot({ path: join(SHOTS, "barra-e-consegna.png"), clip: { x: 0, y: 0, width: 1440, height: 560 } });
   });
 
+  /**
+   * TOPBAR-10: la fila dei chip progetto e' UNA fila.
+   *
+   * Era due di tutto. Il chip che apre il menu era tagliato a `11rem` e i
+   * suggerimenti accanto a `13rem`: lo STESSO nome, sulla stessa riga, troncato
+   * in due punti diversi. E la scatola dell'icona: un progetto con la favicon su
+   * disco ne prendeva 12px, uno senza un puntino da 6, quindi i nomi dietro
+   * partivano da due rientri diversi. Nessuno dei due chip e' sbagliato da solo:
+   * si nota il risultato, cioe' una fila storta.
+   *
+   * Qui si misura sul DOM, con un progetto CHE HA l'icona e uno che non ce
+   * l'ha: e' quella la coppia che sfasava la fila, e senza entrambi il caso non
+   * si presenta.
+   */
+  test("TOPBAR-10: i chip progetto hanno una sola larghezza e un solo rientro", async ({ page }) => {
+    // L'icona a UN progetto solo. Il ripiego (nessuna icona) resta sugli altri
+    // tre: e' il confronto fra i due rami che il difetto rendeva visibile.
+    writeFileSync(`${dirOf(PROJECTS[0])}/favicon.svg`,
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#4f46e5"/></svg>');
+
+    await stubProbes(page, { running: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openGlobalBoard(page);
+
+    const primo = page.getByTestId(`project-filter-chip-${boardIdForPath(dirOf(PROJECTS[0]))}`);
+    await expect(primo).toBeVisible({ timeout: 15000 });
+
+    // Il RIENTRO del nome: dove comincia il testo dentro il chip, misurato dal
+    // bordo del chip. E' la distanza che cambiava fra un progetto con icona e
+    // uno senza, ed e' cio' che si legge come «fila storta».
+    const rientri = await page.evaluate(() => {
+      const out: Array<{ id: string; rientro: number; larghezzaMax: string }> = [];
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="project-filter-chip-"]'))) {
+        if (el.getBoundingClientRect().width === 0) continue;
+        const nome = el.querySelector("span.truncate") ?? el.querySelector("span");
+        if (!nome) continue;
+        out.push({
+          id: el.dataset.testid ?? "",
+          rientro: Math.round(nome.getBoundingClientRect().x - el.getBoundingClientRect().x),
+          larghezzaMax: getComputedStyle(el).maxWidth,
+        });
+      }
+      return out;
+    });
+
+    expect(rientri.length, "servono almeno due chip progetto in barra").toBeGreaterThan(1);
+    // UN SOLO RIENTRO, icona o no.
+    const soli = [...new Set(rientri.map((r) => r.rientro))];
+    expect(soli, `rientri diversi: ${JSON.stringify(rientri)}`).toHaveLength(1);
+    // E UNA SOLA LARGHEZZA MASSIMA, anche col chip che apre il menu, che e'
+    // l'altra meta' della coppia che divergeva (11rem contro 13rem).
+    const apre = await page.getByTestId("filter-project-chip").evaluate((el) => getComputedStyle(el).maxWidth);
+    const larghezze = [...new Set([...rientri.map((r) => r.larghezzaMax), apre])];
+    expect(larghezze, `larghezze massime diverse: ${larghezze.join(" vs ")}`).toHaveLength(1);
+
+    await page.screenshot({ path: join(SHOTS, "chip-fila-allineata.png"), clip: { x: 0, y: 0, width: 1440, height: 120 } });
+  });
+
   test("TOPBAR-09: le impostazioni della board sono sezioni con un titolo", async ({ page }) => {
     await stubProbes(page, { running: 1 });
     await page.setViewportSize({ width: 1440, height: 900 });

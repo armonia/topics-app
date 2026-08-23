@@ -59,6 +59,45 @@ import { useDevInstall } from '../../hooks/useDevInstall';
  *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
 const EMPTY_WRITES: ReadonlyMap<string, Partial<BoardTask>> = new Map();
 
+/**
+ * THE PROJECT CHIP: one width and one icon box, for every chip in the row.
+ *
+ * It was two of each. The chip opening the menu was capped at `11rem` and the
+ * suggestions next to it at `13rem`, so the SAME project name was truncated at
+ * two different points on the same line. And the icon: a project with a favicon
+ * on disk got 12px, one without got a 6px dot, so the names behind them did not
+ * line up either - the row looked crooked without any single chip being wrong.
+ *
+ * `12rem` sits between the two caps rather than picking a winner: neither of the
+ * two was measured, and the shorter one truncated names the longer one showed
+ * whole. The icon box is fixed and lives OUTSIDE the favicon, because
+ * `ProjectFavicon` draws its fallback bare, with no reserved width, and says so:
+ * reserving it here means the chip stops depending on which projects happen to
+ * have an icon.
+ */
+const CHIP_MAX = 'max-w-[12rem]';
+const CHIP_ICON_BOX = 12;
+
+/**
+ * The icon slot of a chip: always the same width, with or without a favicon.
+ *
+ * The empty case is not an empty box: it keeps the faint dot that used to be
+ * drawn bare, now centred inside the reserved slot. So "this project has no
+ * icon" is still said, and it is said without moving the name.
+ */
+function ChipIcon({ path }: { path?: string | null }) {
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center"
+      style={{ width: CHIP_ICON_BOX, height: CHIP_ICON_BOX }}
+    >
+      {path
+        ? <ProjectFavicon path={path} size={CHIP_ICON_BOX} />
+        : <span className="h-1.5 w-1.5 rounded-full border border-app-text-faint" />}
+    </span>
+  );
+}
+
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
   projectPath?: string;
@@ -812,9 +851,9 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
             ref={projBtnRef} onClick={() => setProjOpen(true)}
             data-testid="filter-project-chip"
             title={soleProject ? tr('board.filter.projectNamed', { name: soleProject.name }) : tr('board.filter.projectTitle')}
-            className={`${chip(filters.projectId.length > 0)} min-w-0 max-w-[11rem]`}
+            className={`${chip(filters.projectId.length > 0)} min-w-0 ${CHIP_MAX}`}
           >
-            {soleProject && <ProjectFavicon path={soleProject.path} size={12} />}
+            {soleProject && <ChipIcon path={soleProject.path} />}
             <span className="min-w-0 truncate">{soleProject ? soleProject.name : tr('common.project')}</span>
             {!soleProject && pickedProjects.length > 0 && (
               <span className="tabular-nums text-app-text-secondary">·{pickedProjects.length}</span>
@@ -888,9 +927,9 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
                   aria-hidden={!shown}
                   tabIndex={shown ? 0 : -1}
                   data-testid={`project-filter-chip-${p.projectId}`}
-                  className={`${chip(on)} max-w-[13rem] ${shown ? '' : 'invisible'}`}
+                  className={`${chip(on)} ${CHIP_MAX} ${shown ? '' : 'invisible'}`}
                 >
-                  {p.path ? <ProjectFavicon path={p.path} size={12} /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />}
+                  <ChipIcon path={p.path} />
                   <span className="min-w-0 truncate">{p.name}</span>
                   {projectCounts[p.projectId] && <ProjectTaskCounts counts={projectCounts[p.projectId]!} />}
                   {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
