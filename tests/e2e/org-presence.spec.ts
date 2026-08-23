@@ -185,6 +185,95 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.screenshot({ path: join(SHOTS, "amici-online.png") });
   });
 
+  /**
+   * THE BAND IS ONE BAND, MEASURED.
+   *
+   * What tells the three subjects apart is the first glyph of each, so the
+   * three glyphs have to start on the same vertical line. They did not: on the
+   * delivery screenshot of 2026-08-21 the three rows measured 16px, 8px and
+   * 11px tall with the left edge jumping between x=6 and x=10, and that shot
+   * was attached to the card as its evidence.
+   *
+   * It is measured on a populated app on purpose. That screenshot was taken on
+   * an EMPTY one — welcome screen, sidebar blank from y=122 to y=686 — so the
+   * band hung off nothing and the presence, which was the whole point, was not
+   * in the picture at all.
+   */
+  test("PRESENCE-08: i tre glifi della fascia partono dalla stessa riga verticale", async ({ page }) => {
+    const ora = Date.now();
+    await stubIdentita(page, [
+      membro("io", "Io", ora),
+      membro("a", "Anna", ora - 30_000),
+      membro("b", "Bruno", ora - 60_000),
+    ], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+      { id: "a", displayName: "Anna", isMe: false },
+      { id: "b", displayName: "Bruno", isMe: false },
+    ]);
+    await page.goto("/");
+
+    const fascia = page.getByTestId("identity-block");
+    await expect(fascia).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("org-chip")).toBeVisible({ timeout: 20000 });
+
+    // The first glyph of each subject: the face, the group mark, the people
+    // mark. Their BOX is what has to match, not the ink inside it.
+    const glifi = await fascia.evaluate((el) => {
+      // `identity-glyph` marks the BOX, not the ink: what has to match is the
+      // slot the glyph sits in, and a stroke mark drawn at 10 inside a 14px box
+      // is exactly the case a query for "the first svg" would get wrong.
+      const primo = (testId: string): { x: number; y: number; w: number; h: number } | null => {
+        const riga = el.querySelector(`[data-testid="${testId}"]`);
+        const g = riga?.querySelector('[data-testid="identity-glyph"]');
+        if (!g) return null;
+        const r = g.getBoundingClientRect();
+        return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+      };
+      return {
+        io: primo("identity-row-me"),
+        org: primo("identity-row-orgs"),
+        amici: primo("identity-row-friends"),
+      };
+    });
+
+    expect(glifi.io).not.toBeNull();
+    expect(glifi.org).not.toBeNull();
+    expect(glifi.amici).not.toBeNull();
+
+    // ONE box. Sub-pixel layout rounding is the only slack allowed: anything
+    // bigger is a second measurement, which is the fault this pins.
+    const scatole = [glifi.io!, glifi.org!, glifi.amici!];
+    for (const s of scatole) {
+      expect(s.w, `box width ${s.w}`).toBe(scatole[0]!.w);
+      expect(s.h, `box height ${s.h}`).toBe(scatole[0]!.h);
+    }
+
+    // ONE LEFT EDGE, for whoever OPENS a line.
+    //
+    // The band is a wrapping inline flow, not three stacked rows: with a wide
+    // enough sidebar the groups share the line with "me" and only start their
+    // own when they no longer fit. So the edge is a promise about who begins a
+    // line, and that is what is checked here — "me" and "friends" measured on
+    // different lines (y=728 and y=751), while the groups sit at x=203 on the
+    // first line because they are its continuation, not its start.
+    //
+    // It was broken for the subject you read first: the "me" chip carried a
+    // `-mx-1` that no other did, so it began at x=6 against x=10.
+    const perRiga = new Map<number, number[]>();
+    for (const s of scatole) perRiga.set(s.y, [...(perRiga.get(s.y) ?? []), s.x]);
+    const inizi = [...perRiga.values()].map((xs) => Math.min(...xs));
+    expect(inizi.length, "the band collapsed onto one line: nothing to compare").toBeGreaterThan(1);
+    expect(Math.max(...inizi) - Math.min(...inizi)).toBeLessThanOrEqual(1);
+
+    const box = await fascia.boundingBox();
+    if (box) {
+      await page.screenshot({
+        path: join(SHOTS, "fascia-allineata.png"),
+        clip: { x: 0, y: Math.max(0, box.y - 40), width: Math.round(box.width + 24), height: Math.round(box.height + 56) },
+      });
+    }
+  });
+
   test("PRESENCE-07: senza nessuno la riga amici resta, dice «Amici» e zero", async ({ page }) => {
     // It used to disappear. A row that exists only when it has good news
     // leaves "but where are the friends?" unanswered for the very person who

@@ -378,6 +378,30 @@ export const TAB_LABEL = `${TAB_LABEL_TYPE} text-app-text`;
  * the tab strip's left/right padding (PaneTabBar). Keep them all in step here.
  */
 export const ROW_INSET = 6;
+
+/**
+ * THE GLYPH BOX OF THE IDENTITY BAND, one measure for all three subjects.
+ *
+ * The band at the bottom of the sidebar answers three questions - me, my
+ * organisations, who is around - and what tells them apart is the FIRST GLYPH
+ * of each: the face, the group mark, the people mark. That only works if the
+ * three glyphs occupy the same box and start on the same vertical line, and
+ * they did not: the face was `h-4` (16px) while the other two were bare 10px
+ * marks, and two of the three rows carried a `-mx-1` that cancelled their own
+ * padding while the third did not. Measured on the delivery screenshot of
+ * 2026-08-21: rows 16, 8 and 11px tall, left edge jumping between x=6 and x=10.
+ *
+ * 14px (`h-3.5`) and not 16: it is the size the faces already use inside the
+ * chips (`Facce`, and the org mark), so the band lines up with what it
+ * CONTAINS instead of with what sits above it. The lucide marks are drawn at
+ * 10 INSIDE this box and centred: a stroke glyph and a filled disc do not read
+ * as the same weight at the same size, so what is shared is the BOX, not the
+ * ink. Same rule as {@link ROW_ACTION_BOX} - the box is fixed, the glyph
+ * breathes inside it - and `identityGlyph.test.ts` pins it.
+ */
+export const IDENTITY_GLYPH_BOX = 'h-3.5 w-3.5';
+/** The lucide mark drawn inside {@link IDENTITY_GLYPH_BOX}, in px. */
+export const IDENTITY_GLYPH_INK = 10;
 /**
  * IL PASSO DELLA COLONNA, uno solo: la distanza fra due card è la stessa che le
  * separa dal bordo.

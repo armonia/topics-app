@@ -50,7 +50,7 @@ import { useIdentityPresence, type OrgConPresenza } from '@/hooks/useIdentityPre
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { apriProfilo } from '@/state/profileTarget';
 import type { FacciaPresenza, RigaPresenza } from './orgPresence';
-import { ROW_INSET, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { PALLINO_OK, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
@@ -152,16 +152,25 @@ function RigaIo({ presenza, onOpenDevices }: {
         onClick={() => setAperto((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={aperto}
-        className={`${CHIP} -mx-1 flex-1 text-left`}
+        // NO negative margin. `-mx-1` cancelled the chip's own `px-1`, so this
+        // subject started four pixels to the LEFT of the groups, whose glyph
+        // sits outside any chip. The hover surface it widened is worth less
+        // than the one edge the three opening glyphs share.
+        className={`${CHIP} flex-1 text-left`}
         title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}`}
       >
         {/* THE FACE, and only when there is a person: a disc holding the
-            initial of "This computer" would be a fake avatar. */}
-        {chi.personale
-          ? (chi.avatarUrl
-              ? <img src={chi.avatarUrl} alt="" className="h-4 w-4 flex-shrink-0 rounded-full object-cover" />
-              : <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-primary text-[8px] font-semibold leading-none text-white">{chi.iniziali}</span>)
-          : <Ferro size={10} className="flex-shrink-0 text-app-text-secondary" />}
+            initial of "This computer" would be a fake avatar.
+            THE SAME BOX AS THE OTHER TWO SUBJECTS: it was `h-4` against their
+            10px marks, which is three left edges instead of one. The box is
+            shared, the ink inside it is not. */}
+        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center`}>
+          {chi.personale
+            ? (chi.avatarUrl
+                ? <img src={chi.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
+                : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary text-[7px] font-semibold leading-none text-white">{chi.iniziali}</span>)
+            : <Ferro size={IDENTITY_GLYPH_INK} className="text-app-text-secondary" />}
+        </span>
         <span className="truncate text-app-text">{chi.nome}</span>
         {/* THE WORK IN PROGRESS, in the same words Topics publishes on the
             presence: "3 working, 12 open". */}
@@ -252,8 +261,16 @@ function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
   return (
     <div data-testid="identity-row-orgs" className={FILA}>
       {/* The glyph says what the row is about without spending a word: it is
-          the subject, like the face above and the faces below. */}
-      <Building2 size={10} className="flex-shrink-0 text-app-text-muted" />
+          the subject, like the face above and the faces below.
+          `ml-1` mirrors the chip's own `px-1`: the other two subjects open
+          INSIDE a chip that carries that padding, so this glyph - which sits
+          outside any chip - started four pixels further left (x=6 against
+          x=10, measured). A MARGIN and not a padding, because the box is
+          `border-box`: padding here would squeeze the glyph and leave the edge
+          exactly where it was. */}
+      <span data-testid="identity-glyph" className={`ml-1 flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center text-app-text-muted`}>
+        <Building2 size={IDENTITY_GLYPH_INK} />
+      </span>
       {orgs.map((o) => (
         <ChipOrg
           key={o.id}
@@ -334,7 +351,7 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
 }
 
 function Logo({ org, size }: { org: OrgConPresenza; size: 3.5 | 5 }) {
-  const cls = size === 5 ? 'h-5 w-5 text-[9px]' : 'h-3.5 w-3.5 text-[7px]';
+  const cls = size === 5 ? 'h-5 w-5 text-[9px]' : `${IDENTITY_GLYPH_BOX} text-[7px]`;
   return org.logoUrl
     ? <img
         src={org.logoUrl}
@@ -380,10 +397,12 @@ function RigaAmici({ online, tutti, totali }: {
         onClick={() => setAperto((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={aperto}
-        className={`${CHIP} -mx-1 flex-1 text-left`}
+        className={`${CHIP} flex-1 text-left`}
         title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title')}
       >
-        <Users size={10} className={`flex-shrink-0 ${ci_sono ? SEGNALE_OK : 'text-app-text-muted'}`} />
+        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : 'text-app-text-muted'}`}>
+          <Users size={IDENTITY_GLYPH_INK} />
+        </span>
         {ci_sono && <Facce facce={online} totale={online.length} />}
         <span className={`truncate ${ci_sono ? 'text-app-text-secondary' : 'text-app-text-muted'}`}>
           {ci_sono ? tr('statusBar.friends.online', { n: online.length }) : tr('statusBar.friends.title')}
