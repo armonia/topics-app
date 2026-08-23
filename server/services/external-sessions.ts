@@ -13,6 +13,7 @@
  * Everything is best-effort: a failed scan keeps the previous census rather
  * than blanking the board or (worse) telling the dispatcher "nobody's there".
  */
+import { scanAllExternalSessions } from "../lib/external-sessions-registry";
 import {
   scanExternalClaudeSessions,
   DEFAULT_ACTIVE_MS,
@@ -85,7 +86,10 @@ function isUnder(cwd: string, path: string): boolean {
 export function createExternalSessionsService(deps: ExternalSessionsDeps): ExternalSessionsService {
   const ttlMs = deps.ttlMs ?? 10_000;
   const now = deps.now ?? Date.now;
-  const scan = deps.scan ?? scanExternalClaudeSessions;
+  // Tutti i provider, non solo Claude Code: il registro interroga ognuno e ne
+  // unisce le sessioni. Prima qui c'era il solo scanner di Claude Code, e le
+  // sessioni jcode non comparivano da nessuna parte.
+  const scan = deps.scan ?? ((opts) => scanAllExternalSessions({ ...opts, log }));
   const log = deps.log ?? ((m: string, e?: unknown) => (e ? console.error("[external-sessions] " + m, e) : undefined));
 
   let cache: ExternalClaudeSession[] = [];
