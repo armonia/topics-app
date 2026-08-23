@@ -586,7 +586,6 @@ export class SessioneRelay {
       return;
     }
 
-    const host = this.state.getWebSockets(TAG_MACCHINA);
     this.diciAllaMacchina({ t: "guest-left", sessionId: chi.sid, ruolo: chi.ruolo });
   }
 }

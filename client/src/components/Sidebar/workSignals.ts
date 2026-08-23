@@ -1,8 +1,9 @@
 /**
  * WHAT IS RUNNING RIGHT NOW, said in numbers instead of a sentence.
  *
- * The identity chip used to carry the presence phrase whole ("3 al lavoro · 12
- * aperte"). In a 240px column that sentence ate the row: the name truncated to
+ * The identity chip used to carry the presence phrase whole, the UI string
+ * "3 al lavoro / 12 aperte". allow-italian: the quoted string is the UI text.
+ * In a 240px column that sentence ate the row: the name truncated to
  * make room for words that are the same three words every time, and the only
  * part that CHANGES, the digits, arrived last and got cut first. A glyph plus a
  * digit says the same thing in a quarter of the width, and it survives the

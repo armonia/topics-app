@@ -23,6 +23,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 /** Storage key for a section. One writer, so a rename cannot half-apply. */
+// eslint-disable-next-line react-refresh/only-export-components -- the state of a section and the header that drives it are one unit; splitting them is the hand-rolled copy this module removes
 export function sectionKey(id: string): string {
   return `board:task${id}Open`;
 }
@@ -35,6 +36,7 @@ export function sectionKey(id: string): string {
  * card that should open normally, not a section stuck shut for a reason nobody
  * can see.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- the state of a section and the header that drives it are one unit; splitting them is the hand-rolled copy this module removes
 export function readSectionOpen(id: string, storage?: Pick<Storage, 'getItem'>): boolean {
   try {
     const store = storage ?? (typeof localStorage === 'undefined' ? null : localStorage);
@@ -44,6 +46,7 @@ export function readSectionOpen(id: string, storage?: Pick<Storage, 'getItem'>):
   }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- the state of a section and the header that drives it are one unit; splitting them is the hand-rolled copy this module removes
 export function writeSectionOpen(id: string, open: boolean, storage?: Pick<Storage, 'setItem'>): void {
   try {
     const store = storage ?? (typeof localStorage === 'undefined' ? null : localStorage);
@@ -58,6 +61,7 @@ export function writeSectionOpen(id: string, open: boolean, storage?: Pick<Stora
  * has to OPEN the section, not flip it, or the gesture closes the very list it
  * just added a row to when the section happened to be open already.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- the state of a section and the header that drives it are one unit; splitting them is the hand-rolled copy this module removes
 export function useSectionOpen(id: string): [boolean, () => void, (open: boolean) => void] {
   const [open, setOpen] = useState(() => readSectionOpen(id));
   const set = useCallback((next: boolean) => {
