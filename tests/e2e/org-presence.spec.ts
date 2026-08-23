@@ -299,7 +299,48 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     for (const id of seminati) await deleteTopic(request, id).catch(() => {});
   });
 
-  test("PRESENCE-07: senza nessuno la riga amici resta, dice «Amici» e zero", async ({ page }) => {
+  test("PRESENCE-09: la chip dell'identita' porta i NUMERI, non la frase", async ({ page }) => {
+    // The presence phrase ("3 al lavoro, 12 aperte" allow-italian: the exact
+    // string the bar used to print) repeated the same three
+    // words every day and truncated the name to fit them. The chip now carries
+    // the digits, each behind its own glyph, and the sentence stays in the
+    // tooltip: this checks the digits are the ones on screen.
+    const ora = Date.now();
+    await stubIdentita(page, [
+      membro("io", "Io", ora),
+      membro("a", "Anna", ora - 30_000),
+      membro("c", "Carla", ora - 3_600_000),
+    ], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+      { id: "a", displayName: "Anna Rossi", isMe: false },
+      { id: "c", displayName: "Carla Bianchi", isMe: false },
+    ]);
+    await page.route("**/api/system/presence", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ openSessions: 12, workingSessions: 3, activeTasks: 2, focusProject: null }) }));
+    await page.goto("/");
+    const segnali = page.getByTestId("presence-summary");
+    await expect(segnali).toBeVisible({ timeout: 20000 });
+    await expect(segnali).toContainText("3");
+    await expect(segnali).toContainText("12");
+    // No words: those cost six times the glyph and say the same thing.
+    await expect(segnali).not.toContainText("aperte");
+    await expect(segnali).not.toContainText("lavoro");
+    await page.screenshot({ path: join(SHOTS, "segnali-chip.png") });
+    // The review evidence, cropped to the foot of the column: a full 1280px
+    // shot shown on a 268px card turns the whole band into four grey pixels.
+    // The clip keeps the last rows and the bar above, which is what makes the
+    // band readable as a PLACE and not as a floating widget.
+    const box = await page.getByTestId("identity-block").boundingBox();
+    if (box) {
+      await page.screenshot({
+        path: join(SHOTS, "fascia-identita.png"),
+        clip: { x: 0, y: Math.max(0, box.y - 96), width: Math.round(box.width + 24), height: Math.round(box.height + 112) },
+      });
+    }
+  });
+
+  test("PRESENCE-07: senza nessuno la riga amici resta, dice «Persone» e zero", async ({ page }) => {
     // It used to disappear. A row that exists only when it has good news
     // leaves "but where are the friends?" unanswered for the very person who
     // has nobody yet, the only one who needs to get in to begin.

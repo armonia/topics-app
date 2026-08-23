@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -20,12 +20,10 @@ import { bloccoTooltip } from '@/lib/featureWeightText';
 import { VersionPopover } from './VersionPopover';
 import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
-import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER, TIER_DONE_TEXT } from '@/lib/selectionStyles';
+import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { isDesktop } from '@/lib/shell';
 import { getVersion, relaunch } from '@/lib/shell/app';
-import { useAgentActivityCounts } from '@/state/signals';
 import { useMobile } from '@/hooks/useMobile';
-import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useT } from '@/hooks/useT';
 
 declare const __BUILD_TIME__: string;
@@ -134,12 +132,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   onOpenDevices?: () => void;
 } = {}) {
   const tr = useT();
-  // Subscribed HERE, in the leaf that shows the number, not up in App.
-  // `useAgentActivityCounts` reads seven signal Sets through useShallow, so
-  // while App held it a single `terminal:activity` frame — several a second
-  // with a dozen live PTYs — re-rendered App, and with it PanelGrid and the
-  // whole sidebar, for a chip in the corner. Nothing else ever read it.
-  const agentCounts = useAgentActivityCounts(useTerminalSessions(), useTopics());
   // Serve solo a scegliere il glifo del gruppo «dispositivo»: chi legge deve
   // riconoscere a colpo d'occhio che quei numeri sono di QUESTO coso qui.
   const { isMobile } = useMobile();
@@ -664,9 +656,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               onMouseEnter={mostraInventario}
               onFocus={mostraInventario}
             >
-              {isMobile
-                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />
-                : <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />}
+              {/* NO MACHINE GLYPH HERE ANY MORE: which machine these numbers
+                  are measured on is written, with its own icon, in the
+                  identity chip right above, and the partial measure of a
+                  phone is already declared by the leading "~". A second
+                  monitor icon under the first one was decoration. */}
               {usage.totalMB !== null && (
                 <span className={`text-app-text-secondary ${totalMemHigh ? SEGNALE_ATTESA : ''}`}>
                   {segnoParziale(usage.memPartial)}{fmtMB(usage.totalMB)}
@@ -684,57 +678,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           )}
         </button>
 
-        {/* Live Claude Code agents: 🤖 = working now (running/tool-running),
-            ⏳ = parked awaiting you. Hidden when neither, matching the bar's
-            "only show live signals" convention (fps, ws-status).
-
-            The hourglass follows the SAME two tiers as every other surface
-            (`attentionTierForPhase`): amber only for `awaiting-approval` — a
-            permission gate that wants an answer now — and calm blue for the
-            rest, which merely means the turn ended. Painting the whole set
-            amber made a pile of finished turns look like a pile of prompts. */}
-        {agentCounts && (agentCounts.working > 0 || agentCounts.awaiting > 0) && (
-          <span
-            data-testid="agent-count"
-            className="flex items-center gap-1.5 text-[11px] flex-shrink-0 tabular-nums"
-            // Il tooltip dice cosa CONTA, non cosa suona bene: il gruppo blu è
-            // «ha finito e non l'hai ancora guardata» — turni conclusi più
-            // sessioni parcheggiate — ed è lo stesso insieme che porta il badge
-            // sulle tab. Il conteggio ne stava fuori per metà, e la frase
-            // «con il turno finito» era già lì a descrivere un altro insieme.
-            title={[
-              tr('statusBar.agents.heading'),
-              tr('statusBar.agents.working', { n: agentCounts.working }),
-              agentCounts.awaitingInput > 0 ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
-              agentCounts.awaiting - agentCounts.awaitingInput > 0
-                ? tr('statusBar.agents.toLookAt', { n: agentCounts.awaiting - agentCounts.awaitingInput })
-                : '',
-              '',
-              tr('statusBar.agents.notCounted'),
-            ].filter(Boolean).join('\n')}
-          >
-            {agentCounts.working > 0 && (
-              <span className={`flex items-center gap-0.5 ${SEGNALE_OK}`}>
-                <Bot size={12} className="animate-pulse" />
-                {agentCounts.working}
-              </span>
-            )}
-            {agentCounts.awaitingInput > 0 && (
-              <span data-testid="agent-count-input" className={`flex items-center gap-0.5 ${SEGNALE_ATTESA}`}>
-                <Hourglass size={10} />
-                {agentCounts.awaitingInput}
-              </span>
-            )}
-            {/* Same blue as the 'done' tier everywhere else (SpaceSwitcher's dot,
-                the awaiting fill) — one colour per tier, no new palette. */}
-            {agentCounts.awaiting - agentCounts.awaitingInput > 0 && (
-              <span data-testid="agent-count-done" className={`flex items-center gap-0.5 ${TIER_DONE_TEXT}`}>
-                <Hourglass size={10} />
-                {agentCounts.awaiting - agentCounts.awaitingInput}
-              </span>
-            )}
-          </span>
-        )}
+        {/* THE AGENTS ARE NOT HERE ANY MORE. The robot and the hourglass
+            moved up into the identity chip, two lines above: they counted the
+            same fleet the presence summary counts, and they counted it far
+            from the person the fleet belongs to, in the middle of the
+            megabytes. No copy is left down here: two places counting the same
+            thing are two places that end up saying two different numbers, and
+            the wrong one is always the one under your eyes all day. See
+            `IdentityBlock.tsx`. */}
 
         {/* WebSocket connection status — moved here from the sidebar header.
             Only visible when not connected; offline = red, connecting/
