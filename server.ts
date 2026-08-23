@@ -2241,11 +2241,19 @@ const activityRouter = createActivityRouter(ctx);
 // Le sessioni fuori da Topics, per la barra e per la presence: quante sono e
 // quante stanno LAVORANDO adesso. Il secondo numero e' quello che mancava —
 // dire «4 fuori da Topics» mentre una di quelle sta macinando, e non dirlo,
-// fa sembrare fermo un lavoro in corso. `byProject()` legge la stessa cache di
-// `list()` (TTL 10s), quindi non costa una scansione in piu'.
+// fa sembrare fermo un lavoro in corso.
+//
+// Si contano su `list()`, NON su `byProject()`: il secondo raggruppa per
+// progetto della board e quindi lascia fuori chi non e' attribuibile. Non e'
+// un caso di scuola — misurato il 23/08, tutte e quattro le sessioni al
+// lavoro stavano in `~` o in cartelle che non sono progetti registrati, e la
+// presence annunciava «0 al lavoro» avendone quattro sotto il naso. Chi
+// lavora fuori da Topics spesso lavora anche fuori dai progetti di Topics:
+// e' la norma, non l'eccezione. Stessa cache (TTL 10s), nessuna scansione in
+// piu'.
 ctx.externalSessionsCount = () => externalSessions.list().length;
 ctx.externalSessionsWorking = () =>
-  externalSessions.byProject().reduce((n, p) => n + (p.active || 0), 0);
+  externalSessions.list().filter((s) => s.state === "active").length;
 const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
 externalSessions.start();
 
