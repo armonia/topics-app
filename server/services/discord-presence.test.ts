@@ -117,7 +117,7 @@ describe("interruttore", () => {
     // che la sappia riscrivere. Tenerne una copia a mano l'aveva gia' fatto
     // divergere dal 647ccd7c, quando la parola cambio' di la' e non di qua.
     expect(discord.activities.at(-1)).toMatchObject({
-      details: presenceLines({ workingSessions: 3, openSessions: 12, activeTasks: 2 }, "it").details,
+      details: presenceLines(SNAPSHOT, "it").details,
     });
   });
 
