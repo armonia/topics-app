@@ -217,6 +217,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         db,
         activeStreams.size + countBusyAgentTerminals(),
         ctx.externalSessionsCount?.() ?? 0,
+        ctx.externalSessionsWorking?.() ?? 0,
       ));
     }
 

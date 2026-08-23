@@ -2028,6 +2028,7 @@ startDiscordPresence({
       ctx.db,
       ctx.activeStreams.size + countBusyAgentTerminals(),
       ctx.externalSessionsCount?.() ?? 0,
+      ctx.externalSessionsWorking?.() ?? 0,
     ),
     since: SERVER_STARTED_AT,
   }),
@@ -2237,10 +2238,14 @@ const activityRouter = createActivityRouter(ctx);
 
 // External-session census: poll + broadcast so a `claude` started in iTerm
 // surfaces on the board within ~20s without any client polling.
-// Il conteggio delle sessioni aperte fuori da Topics, per la barra e per la
-// presence. `list()` legge la cache del censimento (TTL 10s): chiamarla a ogni
-// poll non costa una scansione.
+// Le sessioni fuori da Topics, per la barra e per la presence: quante sono e
+// quante stanno LAVORANDO adesso. Il secondo numero e' quello che mancava —
+// dire «4 fuori da Topics» mentre una di quelle sta macinando, e non dirlo,
+// fa sembrare fermo un lavoro in corso. `byProject()` legge la stessa cache di
+// `list()` (TTL 10s), quindi non costa una scansione in piu'.
 ctx.externalSessionsCount = () => externalSessions.list().length;
+ctx.externalSessionsWorking = () =>
+  externalSessions.byProject().reduce((n, p) => n + (p.active || 0), 0);
 const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
 externalSessions.start();
 

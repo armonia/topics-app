@@ -46,6 +46,24 @@ describe("le sessioni aperte fuori da Topics", () => {
   });
 });
 
+describe("le esterne che stanno lavorando", () => {
+  test("se una macina, la frase lo dice invece di darle per ferme", () => {
+    const c = { ...BASE, externalSessions: 4, externalWorking: 1 };
+    expect(presenceLines(c, "it").details).toBe("3 al lavoro · 12 chat aperte · 1 al lavoro fuori da Topics (su 4)");
+    expect(presenceLines(c, "en").details).toBe("3 working · 12 chats open · 1 working outside Topics (of 4)");
+  });
+
+  test("se nessuna lavora si torna al conteggio semplice", () => {
+    const c = { ...BASE, externalSessions: 4, externalWorking: 0 };
+    expect(presenceLines(c, "it").details).toContain("4 fuori da Topics");
+  });
+
+  test("un chiamante che non conosce il campo si comporta come prima", () => {
+    const c = { ...BASE, externalSessions: 4 };
+    expect(presenceLines(c, "it").details).toContain("4 fuori da Topics");
+  });
+});
+
 describe("le due righe", () => {
   test("con qualcuno al lavoro dicono chi lavora e su quante aperte", () => {
     expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 chat aperte");

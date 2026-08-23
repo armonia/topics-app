@@ -52,6 +52,14 @@ export interface PresenceCounts {
    * che sembra una misura.
    */
   externalSessions?: number;
+  /**
+   * Di quelle esterne, quante stanno lavorando adesso.
+   *
+   * Serve perche' «4 fuori da Topics» mentre una di quelle macina fa sembrare
+   * fermo un lavoro in corso: e' la stessa distinzione che dentro Topics
+   * esiste gia' fra `openSessions` e `workingSessions`.
+   */
+  externalWorking?: number;
 }
 
 /** Le due righe della card, nell'ordine in cui Discord le impagina. */
@@ -72,6 +80,7 @@ const IT = {
   tasks: (n: number) => (n === 1 ? "1 task in corso" : `${n} task in corso`),
   onProject: (p: string) => `su ${p}`,
   external: (n: number) => (n === 1 ? "1 fuori da Topics" : `${n} fuori da Topics`),
+  externalWorking: (w: number, n: number) => `${w} al lavoro fuori da Topics (su ${n})`,
   app: PRESENCE_APP_NAME,
   quiet: "Nessun agente al lavoro",
 };
@@ -82,6 +91,7 @@ const EN = {
   tasks: (n: number) => (n === 1 ? "1 task running" : `${n} tasks running`),
   onProject: (p: string) => `on ${p}`,
   external: (n: number) => (n === 1 ? "1 outside Topics" : `${n} outside Topics`),
+  externalWorking: (w: number, n: number) => `${w} working outside Topics (of ${n})`,
   app: PRESENCE_APP_NAME,
   quiet: "No agent working",
 };
@@ -119,7 +129,11 @@ export function presenceLines(counts: PresenceCounts, lang: OutputLanguage = "au
     // misura e sommarle darebbe un numero che non risponde a nessuna domanda.
     details: [
       working > 0 ? d.working(working, counts.openSessions) : d.idle(counts.openSessions),
-      counts.externalSessions ? d.external(counts.externalSessions) : "",
+      counts.externalSessions
+        ? (counts.externalWorking
+            ? d.externalWorking(counts.externalWorking, counts.externalSessions)
+            : d.external(counts.externalSessions))
+        : "",
     ].filter(Boolean).join(" · "),
     state:
       counts.activeTasks > 0

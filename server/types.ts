@@ -363,6 +363,8 @@ export interface AppContext {
    * inventare un numero.
    */
   externalSessionsCount?: () => number;
+  /** Di quelle, quante stanno lavorando adesso. Stessa cache, costo zero. */
+  externalSessionsWorking?: () => number;
   relayConfig?: () => { baseUrl: string | null; installationId: string; relayId: string };
   /** Il relay è collegato ADESSO. Diverso da «configurato»: serve a dire a chi
    *  crea un link se quel link funzionerà subito o solo quando torna la rete. */

@@ -226,12 +226,14 @@ export function computePresenceCounts(
   db: Database,
   liveTurns: number,
   externalSessions = 0,
+  externalWorking = 0,
 ): {
   openSessions: number;
   workingSessions: number;
   activeTasks: number;
   focusProject: string | null;
   externalSessions: number;
+  externalWorking: number;
 } {
   const openSessions = scalar(db, "SELECT COUNT(*) AS v FROM topics WHERE archived = 0");
   const activeTasks = scalar(db, "SELECT COUNT(*) AS v FROM tasks WHERE dispatch_state = 'working'");
@@ -268,6 +270,9 @@ export function computePresenceCounts(
     // questo conta processi. Sommarli darebbe un totale che non e' ne' l'uno
     // ne' l'altro.
     externalSessions,
+    // Di quelle, quante macinano adesso: senza questo numero una sessione
+    // esterna al lavoro sembra ferma quanto una idle.
+    externalWorking,
     // Un turno vivo È una sessione al lavoro; i task della board hanno il loro
     // turno dentro `activeStreams`, quindi NON si risommano qui — sarebbe
     // contarli due volte, che è il modo in cui un contatore diventa vanteria.
