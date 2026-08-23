@@ -24,8 +24,8 @@ describe("le sessioni aperte fuori da Topics", () => {
     const c = { ...BASE, externalSessions: 2 };
     // 12 topic e 2 processi esterni: il totale «14» non risponderebbe a
     // nessuna domanda, perche' conta due cose diverse.
-    expect(presenceLines(c, "it").details).toBe("3 al lavoro · 12 aperte · 2 fuori da Topics");
-    expect(presenceLines(c, "en").details).toBe("3 working · 12 open · 2 outside Topics");
+    expect(presenceLines(c, "it").details).toBe("3 al lavoro · 12 chat aperte · 2 fuori da Topics");
+    expect(presenceLines(c, "en").details).toBe("3 working · 12 chats open · 2 outside Topics");
   });
 
   test("una sola sessione esterna si dice al singolare", () => {
@@ -35,27 +35,27 @@ describe("le sessioni aperte fuori da Topics", () => {
   });
 
   test("zero esterne non lascia un separatore appeso", () => {
-    expect(presenceLines({ ...BASE, externalSessions: 0 }, "it").details).toBe("3 al lavoro · 12 aperte");
+    expect(presenceLines({ ...BASE, externalSessions: 0 }, "it").details).toBe("3 al lavoro · 12 chat aperte");
     // e un chiamante che non le conosce affatto si comporta uguale
-    expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 aperte");
+    expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 chat aperte");
   });
 
   test("anche a fermo le esterne restano visibili: e' l'unico lavoro in corso", () => {
     const fermo = { ...BASE, workingSessions: 0, activeTasks: 0, externalSessions: 1 };
-    expect(presenceLines(fermo, "it").details).toBe("12 sessioni aperte · 1 fuori da Topics");
+    expect(presenceLines(fermo, "it").details).toBe("12 chat aperte · 1 fuori da Topics");
   });
 });
 
 describe("le due righe", () => {
   test("con qualcuno al lavoro dicono chi lavora e su quante aperte", () => {
-    expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 aperte");
-    expect(presenceLines(BASE, "en").details).toBe("3 working · 12 open");
+    expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 chat aperte");
+    expect(presenceLines(BASE, "en").details).toBe("3 working · 12 chats open");
   });
 
   test("a fermo non dicono «0 al lavoro»: dicono quante sessioni hai aperte", () => {
     const fermo = { ...BASE, workingSessions: 0, activeTasks: 0 };
     expect(presenceLines(fermo, "it")).toEqual({
-      details: "12 sessioni aperte",
+      details: "12 chat aperte",
       state: "Nessun agente al lavoro",
     });
   });
@@ -71,7 +71,7 @@ describe("la riga della barra", () => {
     const riga = presenceSummary(BASE, "it")!;
     expect(riga).toContain(details);
     expect(riga).toContain(state);
-    expect(riga).toBe("3 al lavoro · 12 aperte · 2 task in corso · su Armonia-CRM");
+    expect(riga).toBe("3 al lavoro · 12 chat aperte · 2 task in corso · su Armonia-CRM");
   });
 
   test("il nome del progetto ESCE, perché qui il pubblico sei tu", () => {
@@ -83,17 +83,17 @@ describe("la riga della barra", () => {
   test("senza un progetto in primo piano non si scrive «su null»", () => {
     const riga = presenceSummary({ ...BASE, focusProject: null }, "it")!;
     expect(riga).not.toContain("null");
-    expect(riga).toBe("3 al lavoro · 12 aperte · 2 task in corso");
+    expect(riga).toBe("3 al lavoro · 12 chat aperte · 2 task in corso");
   });
 
   test("«Topics» non entra nella riga: accanto al nome della finestra non aggiunge niente", () => {
     const riga = presenceSummary({ ...BASE, activeTasks: 0 }, "it")!;
-    expect(riga).toBe("3 al lavoro · 12 aperte · su Armonia-CRM");
+    expect(riga).toBe("3 al lavoro · 12 chat aperte · su Armonia-CRM");
   });
 
   test("a fermo la riga dichiara il silenzio invece di sparire a metà", () => {
     const riga = presenceSummary({ ...BASE, workingSessions: 0, activeTasks: 0 }, "it")!;
-    expect(riga).toBe("12 sessioni aperte · Nessun agente al lavoro · su Armonia-CRM");
+    expect(riga).toBe("12 chat aperte · Nessun agente al lavoro · su Armonia-CRM");
   });
 
   test("niente sessioni e niente task ⇒ nessuna riga, lo stesso caso in cui la presence si pulisce", () => {
@@ -102,6 +102,6 @@ describe("la riga della barra", () => {
 
   test("zero sessioni ma un task in corso NON è vuoto: la board sta lavorando", () => {
     const riga = presenceSummary({ openSessions: 0, workingSessions: 0, activeTasks: 1, focusProject: null }, "it");
-    expect(riga).toBe("0 sessioni aperte · 1 task in corso");
+    expect(riga).toBe("0 chat aperte · 1 task in corso");
   });
 });

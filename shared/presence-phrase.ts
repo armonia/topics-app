@@ -26,7 +26,15 @@ import type { OutputLanguage } from "./types";
 
 /** Lo stato ADESSO, in numeri esatti. Lo produce il server. */
 export interface PresenceCounts {
-  /** Le sessioni aperte: i topic non archiviati di questa installazione. */
+  /**
+   * Le chat aperte: i topic non archiviati di questa installazione.
+   *
+   * Si chiamavano «sessioni» nella frase e «chat» in tutto il resto
+   * dell'interfaccia — due parole per la stessa cosa, e quella sbagliata era
+   * proprio in vetrina. Peggio: «sessione» e' anche il nome dei PROCESSI che
+   * la status bar conta altrove, quindi lo stesso termine indicava sia i
+   * contenitori sia chi ci lavora dentro.
+   */
   openSessions: number;
   /** Quelle che stanno lavorando ADESSO. */
   workingSessions: number;
@@ -59,8 +67,8 @@ export interface PresenceLines {
 export const PRESENCE_APP_NAME = "Topics";
 
 const IT = {
-  idle: (n: number) => (n === 1 ? "1 sessione aperta" : `${n} sessioni aperte`),
-  working: (w: number, n: number) => `${w} al lavoro · ${n} apert${n === 1 ? "a" : "e"}`,
+  idle: (n: number) => (n === 1 ? "1 chat aperta" : `${n} chat aperte`),
+  working: (w: number, n: number) => `${w} al lavoro · ${n} chat apert${n === 1 ? "a" : "e"}`,
   tasks: (n: number) => (n === 1 ? "1 task in corso" : `${n} task in corso`),
   onProject: (p: string) => `su ${p}`,
   external: (n: number) => (n === 1 ? "1 fuori da Topics" : `${n} fuori da Topics`),
@@ -69,8 +77,8 @@ const IT = {
 };
 
 const EN = {
-  idle: (n: number) => (n === 1 ? "1 session open" : `${n} sessions open`),
-  working: (w: number, n: number) => `${w} working · ${n} open`,
+  idle: (n: number) => (n === 1 ? "1 chat open" : `${n} chats open`),
+  working: (w: number, n: number) => `${w} working · ${n} chats open`,
   tasks: (n: number) => (n === 1 ? "1 task running" : `${n} tasks running`),
   onProject: (p: string) => `on ${p}`,
   external: (n: number) => (n === 1 ? "1 outside Topics" : `${n} outside Topics`),

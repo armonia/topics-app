@@ -48,15 +48,15 @@ describe("activity", () => {
 
   test("con nessuno al lavoro non dice «0 al lavoro»: dice quante sono aperte", () => {
     const a = buildActivity({ ...BASE, workingSessions: 0, activeTasks: 0 }, "activity", "it");
-    expect(a!.details).toBe("12 sessioni aperte");
+    expect(a!.details).toBe("12 chat aperte");
     expect(a!.state).toBe("Nessun agente al lavoro");
   });
 
   test("il singolare è singolare (in entrambe le lingue)", () => {
     const uno: PresenceSnapshot = { ...BASE, openSessions: 1, workingSessions: 0, activeTasks: 1 };
-    expect(buildActivity(uno, "activity", "it")!.details).toBe("1 sessione aperta");
+    expect(buildActivity(uno, "activity", "it")!.details).toBe("1 chat aperta");
     expect(buildActivity(uno, "activity", "it")!.state).toBe("1 task in corso");
-    expect(buildActivity(uno, "activity", "en")!.details).toBe("1 session open");
+    expect(buildActivity(uno, "activity", "en")!.details).toBe("1 chat open");
     expect(buildActivity(uno, "activity", "en")!.state).toBe("1 task running");
   });
 
