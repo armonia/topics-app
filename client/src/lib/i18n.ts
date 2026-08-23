@@ -1651,10 +1651,8 @@ const IT: Dict = {
   // number people read first instead of two clicks further along.
   'statusBar.residenteInline': 'di cui in RAM adesso: {mb} MB (il resto e\' gia\' compresso o in swap)',
   'statusBar.agents.heading': 'Agenti Claude Code',
-  'statusBar.agents.working': '· {n} al lavoro',
   'statusBar.agents.awaitingInput': '· {n} in attesa di una tua risposta',
   'statusBar.agents.toLookAt': '· {n} da guardare (turno finito o in pausa)',
-  'statusBar.agents.notCounted': 'Non contano le chat archiviate e le sessioni chiuse: non hanno una riga dove andarle a spegnere.',
   'statusBar.presenceTitle': 'Lo stesso riepilogo che Topics pubblica sulla presence Discord. Sessioni aperte, quante lavorano adesso, task della board in corso.',
   'statusBar.wsTitle': 'Stato connessione realtime al server Topics',
   'statusBar.versionTitle': 'Info versione e aggiornamenti',
@@ -1674,8 +1672,15 @@ const IT: Dict = {
   // the click takes you.
   'statusBar.me.openProfile': 'Apri il tuo profilo',
   'statusBar.orgs.presence': '{n} di {tot} online adesso',
-  'statusBar.friends.online': '{n} online adesso',
   'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
+  // THE CHIP SIGNALS: on the row they are a glyph and a digit, here is the
+  // word that glyph draws. The number stays inside the sentence because the
+  // tooltip is read on its own, detached from the row that produced it.
+  'statusBar.signals.working': '{n} sessioni al lavoro adesso',
+  'statusBar.signals.awaitingInput': '{n} sessioni in attesa di una tua risposta',
+  'statusBar.signals.done': '{n} turni finiti che non hai ancora guardato',
+  'statusBar.signals.tasks': '{n} task della board in corso',
+  'statusBar.signals.open': '{n} sessioni aperte',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.

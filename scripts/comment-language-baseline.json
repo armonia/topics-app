@@ -293,7 +293,7 @@
     "client/src/components/Sidebar/PerfSection.tsx": 54,
     "client/src/components/Sidebar/PinnedTile.tsx": 342,
     "client/src/components/Sidebar/PinnedTiles.tsx": 426,
-    "client/src/components/Sidebar/SidebarStatusBar.tsx": 221,
+    "client/src/components/Sidebar/SidebarStatusBar.tsx": 216,
     "client/src/components/Sidebar/SidebarSystemMenu.tsx": 21,
     "client/src/components/Sidebar/SpaceGroups.tsx": 144,
     "client/src/components/Sidebar/SystemStatusPanel.tsx": 6,

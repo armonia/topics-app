@@ -19,6 +19,14 @@
  * because it also says WHAT the row is about, not just where the previous one
  * ended.
  *
+ * ONE INLINE FLOW, NOT THREE LINES.
+ * The three subjects are not three rows any more: they are chips in a single
+ * wrapping flow, so the block is as TALL as it needs and no taller. With one
+ * group and nobody around it collapses onto two lines instead of always
+ * spending three, and with six groups it grows by exactly the chips that did
+ * not fit. A fixed row per subject was paying, every single day, the price of
+ * the busiest day.
+ *
  * IT WRAPS, IT DOES NOT SCROLL.
  * The organisation chips used to sit on a row that scrolled sideways. A
  * horizontal scroll inside a 240px column is content hidden with nothing to say
@@ -43,22 +51,25 @@
  * says zero, and its panel explains where the people come from.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, ChevronRight, Monitor, Smartphone, Users } from 'lucide-react';
+import { Bot, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, Users } from 'lucide-react';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence, type OrgConPresenza } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { apriProfilo } from '@/state/profileTarget';
 import type { FacciaPresenza, RigaPresenza } from './orgPresence';
-import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, SIDEBAR_HOVER } from '@/lib/selectionStyles';
-import { PALLINO_OK, SEGNALE_OK } from './chromeSignals';
+import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, SIDEBAR_HOVER, TIER_DONE_TEXT } from '@/lib/selectionStyles';
+import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
+import { segnaliLavoro, type TipoSegnale } from './workSignals';
+import { useAgentActivityCounts } from '@/state/signals';
+import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useT } from '@/hooks/useT';
 
-/** The three rows: no border, no fixed height, and children that wrap.
- *  A small `gap-y` because once it wraps the two lines stay ONE thing. */
-const FILA = 'flex w-full flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px]';
+/** A subject inside the flow: it never breaks in the middle, it either fits on
+ *  the line or moves to the next one whole. */
+const SOGGETTO = 'flex min-w-0 items-center';
 
 /** An immersed chip: no border at rest, the lift arrives with the pointer.
  *  The rounded border was there to say "I am clickable", but that meant five
@@ -78,7 +89,7 @@ export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void })
   return (
     <div
       data-testid="identity-block"
-      className="flex flex-col gap-y-0.5 pb-1"
+      className="flex flex-wrap items-center gap-x-1 gap-y-0.5 pb-1 text-[11px]"
       style={{ paddingInline: ROW_INSET }}
     >
       <RigaIo presenza={presenza} onOpenDevices={onOpenDevices} />
@@ -93,13 +104,24 @@ export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void })
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * EVERYTHING ABOUT ME, on a single line.
+ * EVERYTHING ABOUT ME, in one chip.
  *
- * The face and the name are the subject; the machine is the detail; the work in
- * progress closes on the right. The device count is no longer on the row: it
- * moved down into the panel, because "2/3" next to a phone icon was the piece
- * that had to be explained every time, and in the panel it gets a whole
- * sentence.
+ * The face and the name are the subject; the machine is the detail; what is
+ * running closes the chip as GLYPHS AND DIGITS, not as a sentence. The phrase
+ * ("3 al lavoro / 12 aperte" allow-italian: it is the string the bar showed)
+ * said the same three words every day and pushed
+ * the name into an ellipsis to do it: the digits are the part that changes, and
+ * they arrived last, so they were the first to be cut. Now the sentence is the
+ * tooltip and the panel, and the chip carries the numbers.
+ *
+ * THESE NUMBERS ARE THE ONES THE STATUS BAR USED TO SHOW. The robot and the
+ * hourglass were down there, one strip below, next to the megabytes: two places
+ * counting the same fleet, and neither of them next to the person the fleet
+ * belongs to. They moved up here, and the bar below lost them for good rather
+ * than keeping a second copy.
+ *
+ * The device count is not on the chip: it lives in the panel, because "2/3"
+ * next to a phone glyph was the piece that had to be explained every time.
  */
 function RigaIo({ presenza, onOpenDevices }: {
   presenza: ReturnType<typeof useIdentityPresence>;
@@ -110,7 +132,8 @@ function RigaIo({ presenza, onOpenDevices }: {
   const [ferri, setFerri] = useState<{ connessi: number; totali: number } | null>(null);
   const [aperto, setAperto] = useState(false);
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
-  const { summary } = usePresenceSummary();
+  const { counts, summary } = usePresenceSummary();
+  const agenti = useAgentActivityCounts(useTerminalSessions(), useTopics());
   useEffect(() => subscribeSession(setSession), []);
 
   const chi = etichettaIdentita(presenza.io, session);
@@ -144,8 +167,27 @@ function RigaIo({ presenza, onOpenDevices }: {
   const locale = session.as === 'loopback';
   const Ferro = locale ? Monitor : Smartphone;
 
+  const attesa = agenti ? agenti.awaiting - agenti.awaitingInput : 0;
+  const segnali = segnaliLavoro({
+    openSessions: counts?.openSessions ?? 0,
+    workingSessions: counts?.workingSessions ?? 0,
+    activeTasks: counts?.activeTasks ?? 0,
+    awaitingInput: agenti?.awaitingInput ?? 0,
+    awaitingDone: attesa > 0 ? attesa : 0,
+  });
+  // The whole story stays reachable on hover: the chip is the headline, this is
+  // the paragraph, and the panel below is the page.
+  const raccontoLavoro = [
+    summary ?? '',
+    agenti && agenti.awaitingInput > 0 ? tr('statusBar.agents.awaitingInput', { n: agenti.awaitingInput }) : '',
+    attesa > 0 ? tr('statusBar.agents.toLookAt', { n: attesa }) : '',
+  ].filter(Boolean).join('\n');
+
   return (
-    <div data-testid="identity-row-me" className={FILA}>
+    // `flex-1` with a basis: on a wide sidebar the chip shares the line with the
+    // groups, on a narrow one it takes the line by itself and the groups wrap
+    // under it. No breakpoint decides that, the available width does.
+    <span data-testid="identity-row-me" className={`${SOGGETTO} flex-1 basis-40`}>
       <button
         ref={setChip}
         data-testid="identity-me-profile"
@@ -153,11 +195,11 @@ function RigaIo({ presenza, onOpenDevices }: {
         aria-haspopup="dialog"
         aria-expanded={aperto}
         // NO negative margin. `-mx-1` cancelled the chip's own `px-1`, so this
-        // subject started four pixels to the LEFT of the groups, whose glyph
-        // sits outside any chip. The hover surface it widened is worth less
-        // than the one edge the three opening glyphs share.
+        // subject started four pixels to the LEFT of the others. The hover
+        // surface it widened is worth less than the one edge every subject
+        // mark shares.
         className={`${CHIP} flex-1 text-left`}
-        title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}`}
+        title={[`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}`, raccontoLavoro].filter(Boolean).join('\n')}
       >
         {/* THE FACE, and only when there is a person: a disc holding the
             initial of "This computer" would be a fake avatar.
@@ -172,15 +214,14 @@ function RigaIo({ presenza, onOpenDevices }: {
             : <Ferro size={IDENTITY_GLYPH_INK} className="text-app-text-secondary" />}
         </span>
         <span className="truncate text-app-text">{chi.nome}</span>
-        {/* THE WORK IN PROGRESS, in the same words Topics publishes on the
-            presence: "3 working, 12 open". */}
-        {summary && (
+        {/* WHAT IS RUNNING, in glyphs. `segnaliLavoro` decides which three:
+            what is alive first, the inventory last, zeros never. */}
+        {segnali.length > 0 && (
           <span
             data-testid="presence-summary"
-            className="ml-auto flex min-w-0 items-center gap-1 text-app-text-secondary"
+            className="ml-auto flex flex-shrink-0 items-center gap-1.5 tabular-nums"
           >
-            <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK} animate-pulse`} />
-            <span className="truncate">{summary}</span>
+            {segnali.map((s) => <Segnale key={s.tipo} tipo={s.tipo} n={s.n} />)}
           </span>
         )}
       </button>
@@ -212,6 +253,25 @@ function RigaIo({ presenza, onOpenDevices }: {
                 <span className="truncate">{summary}</span>
               </Voce>
             )}
+            {/* The fleet, spelled out. On the chip it is glyphs and digits; the
+                panel is where "what is this hourglass" gets its sentence, and
+                it is the sentence the status bar used to hide in a tooltip. */}
+            {agenti && (agenti.awaitingInput > 0 || attesa > 0) && (
+              <Voce etichetta={tr('statusBar.agents.heading')}>
+                {agenti.awaitingInput > 0 && (
+                  <span className={`flex items-center gap-1 ${SEGNALE_ATTESA}`} title={tr('statusBar.agents.awaitingInput', { n: agenti.awaitingInput })}>
+                    <Hourglass size={11} />
+                    <span className="tabular-nums">{agenti.awaitingInput}</span>
+                  </span>
+                )}
+                {attesa > 0 && (
+                  <span className={`flex items-center gap-1 ${TIER_DONE_TEXT}`} title={tr('statusBar.agents.toLookAt', { n: attesa })}>
+                    <Hourglass size={11} />
+                    <span className="tabular-nums">{attesa}</span>
+                  </span>
+                )}
+              </Voce>
+            )}
             {ferri && ferri.totali > 0 && (
               <Voce etichetta={tr('statusBar.me.devicesRow')}>
                 <Ferro size={11} className="flex-shrink-0 text-app-text-muted" />
@@ -233,7 +293,7 @@ function RigaIo({ presenza, onOpenDevices }: {
           </div>
         </PresencePopover>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -259,18 +319,12 @@ function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
   const [apertaId, setApertaId] = useState<string | null>(null);
   if (orgs.length === 0) return null;
   return (
-    <div data-testid="identity-row-orgs" className={FILA}>
-      {/* The glyph says what the row is about without spending a word: it is
-          the subject, like the face above and the faces below.
-          `ml-1` mirrors the chip's own `px-1`: the other two subjects open
-          INSIDE a chip that carries that padding, so this glyph - which sits
-          outside any chip - started four pixels further left (x=6 against
-          x=10, measured). A MARGIN and not a padding, because the box is
-          `border-box`: padding here would squeeze the glyph and leave the edge
-          exactly where it was. */}
-      <span data-testid="identity-glyph" className={`ml-1 flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center text-app-text-muted`}>
-        <Building2 size={IDENTITY_GLYPH_INK} />
-      </span>
+// No leading glyph any more: it was there to tell one ROW from the next, and
+    // there are no rows left. Alignment survives without it: every subject now
+    // opens with a mark of the same IDENTITY_GLYPH_BOX size (the face, a group
+    // logo, the people sign) sitting inside a chip with the same padding, so
+    // the left edges agree by construction instead of by hand-tuned margins.
+    <span data-testid="identity-row-orgs" className={`${SOGGETTO} flex-wrap gap-x-1 gap-y-0.5`}>
       {orgs.map((o) => (
         <ChipOrg
           key={o.id}
@@ -280,7 +334,7 @@ function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
           onClose={() => setApertaId(null)}
         />
       ))}
-    </div>
+    </span>
   );
 }
 
@@ -350,16 +404,26 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
   );
 }
 
+/**
+ * A group's logo, and in the band it IS that subject's opening mark: same
+ * IDENTITY_GLYPH_BOX as the face and the people sign, so the three subjects
+ * agree on one left edge without a margin tuned by hand. That is why it
+ * carries the `identity-glyph` marker only at the band size: the popover uses
+ * the bigger one, which opens nothing.
+ */
 function Logo({ org, size }: { org: OrgConPresenza; size: 3.5 | 5 }) {
-  const cls = size === 5 ? 'h-5 w-5 text-[9px]' : `${IDENTITY_GLYPH_BOX} text-[7px]`;
+  const inBanda = size !== 5;
+  const cls = inBanda ? `${IDENTITY_GLYPH_BOX} text-[7px]` : 'h-5 w-5 text-[9px]';
+  const marker = inBanda ? 'identity-glyph' : undefined;
   return org.logoUrl
     ? <img
         src={org.logoUrl}
         alt=""
+        data-testid={marker}
         className={`${cls} flex-shrink-0 rounded-full object-cover`}
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
       />
-    : <span className={`${cls} flex flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-400`}>
+    : <span data-testid={marker} className={`${cls} flex flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-400`}>
         {org.nome.slice(0, 2).toUpperCase()}
       </span>;
 }
@@ -390,28 +454,32 @@ function RigaAmici({ online, tutti, totali }: {
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
   const ci_sono = online.length > 0;
   return (
-    <div data-testid="identity-row-friends" className={FILA}>
+    <span data-testid="identity-row-friends" className={SOGGETTO}>
       <button
         ref={setChip}
         data-testid="identity-friends-chip"
         onClick={() => setAperto((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={aperto}
-        className={`${CHIP} flex-1 text-left`}
+        className={`${CHIP} text-left`}
         title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title')}
       >
         <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : 'text-app-text-muted'}`}>
           <Users size={IDENTITY_GLYPH_INK} />
         </span>
         {ci_sono && <Facce facce={online} totale={online.length} />}
-        <span className={`truncate ${ci_sono ? 'text-app-text-secondary' : 'text-app-text-muted'}`}>
-          {ci_sono ? tr('statusBar.friends.online', { n: online.length }) : tr('statusBar.friends.title')}
-        </span>
-        {/* The total on the right is the denominator: "2 online" out of how
-            many people. At zero it stays and says zero: it is the number that
-            explains why the row above is empty. */}
-        <span data-testid="identity-friends-total" className="ml-auto flex-shrink-0 text-app-text-muted tabular-nums">
-          {totali}
+        {/* With people around the faces ARE the answer, so the chip drops the
+            words and keeps two numbers: how many are here, out of how many you
+            know. Alone, the chip says its own name instead, because a chip that
+            is only a glyph and a zero is a door nobody recognises. */}
+        {!ci_sono && (
+          <span className="truncate text-app-text-muted">{tr('statusBar.friends.title')}</span>
+        )}
+        {ci_sono && (
+          <span className="flex-shrink-0 text-app-text-secondary tabular-nums">{online.length}</span>
+        )}
+        <span data-testid="identity-friends-total" className="flex-shrink-0 text-app-text-muted tabular-nums">
+          {ci_sono ? `/${totali}` : totali}
         </span>
       </button>
 
@@ -438,11 +506,47 @@ function RigaAmici({ online, tutti, totali }: {
           </div>
         </PresencePopover>
       )}
-    </div>
+    </span>
   );
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * ONE SIGNAL: a glyph and a number, and the colour of its tier.
+ *
+ * The glyph is the noun ("sessions", "turns", "tasks") drawn instead of spelled:
+ * in a chip that shares a 240px line with a name, a word costs six times what
+ * the icon costs and says exactly the same thing. The `title` gives the word
+ * back to whoever hovers, and to whoever reads with a screen reader.
+ */
+function Segnale({ tipo, n }: { tipo: TipoSegnale; n: number }) {
+  const tr = useT();
+  const { Icona, tinta, etichetta, viva } = SEGNALI[tipo];
+  return (
+    <span className={`flex items-center gap-0.5 ${tinta}`} title={tr(etichetta, { n })}>
+      <Icona size={11} className={viva ? 'animate-pulse' : undefined} />
+      <span>{n}</span>
+    </span>
+  );
+}
+
+/** Glyph, tier colour and sentence for each signal. One table, so a new signal
+ *  is a line here and not a fourth place to keep in sync. */
+const SEGNALI: Record<TipoSegnale, {
+  Icona: typeof Bot;
+  tinta: string;
+  etichetta: string;
+  viva?: boolean;
+}> = {
+  // The only pulsing one: it is the only one where something is happening
+  // while you look at it.
+  working: { Icona: Bot, tinta: SEGNALE_OK, etichetta: 'statusBar.signals.working', viva: true },
+  awaitingInput: { Icona: Hourglass, tinta: SEGNALE_ATTESA, etichetta: 'statusBar.signals.awaitingInput' },
+  done: { Icona: Hourglass, tinta: TIER_DONE_TEXT, etichetta: 'statusBar.signals.done' },
+  tasks: { Icona: ListChecks, tinta: 'text-app-text-secondary', etichetta: 'statusBar.signals.tasks' },
+  open: { Icona: MessagesSquare, tinta: 'text-app-text-muted', etichetta: 'statusBar.signals.open' },
+};
 
 /**
  * THE LIST OF PEOPLE inside a panel: present on top, absent below.
