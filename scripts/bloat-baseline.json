@@ -153,6 +153,7 @@
     "server/services/worktree-gc.ts": 826,
     "tests/e2e/board.spec.ts": 825,
     "client/src/hooks/useCompletionNotifier.tsx": 821,
+    "server/services/tasks.delivery.test.ts": 820,
     "relay/src/ponte.ts": 821,
     "tests/e2e/global-setup.ts": 814,
     "scripts/check-route-latency.ts": 806,
