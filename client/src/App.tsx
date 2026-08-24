@@ -1628,12 +1628,12 @@ function App() {
         <SidebarStatusBar
           wsStatus={wsStatus}
           dataNotice={topicsError}
-          // La fascia identita' e' rimasta QUI, in fondo alla colonna, quindi
-          // «apri i dispositivi» torna a passare per una prop: e' un figlio, non
-          // una pane. Il deep-link a evento qui sopra resta e serve lo stesso -
-          // lo usano i pezzi che PANE lo sono davvero (il chip dell'org apre la
-          // gestione, il profilo apre le sue pagine), e quelli non possono
-          // raggiungere questo stato per props.
+          // The identity band stayed HERE, at the foot of the column, so "open
+          // the devices" goes back to travelling as a prop: it is a child, not
+          // a pane. The event deep link above stays and is still needed — it is
+          // used by the parts that ARE panes (the org chip opening the group
+          // management, the profile opening its pages), and those cannot reach
+          // this state through props.
           onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
         />
         </ErrorBoundary>

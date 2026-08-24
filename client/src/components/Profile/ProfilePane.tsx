@@ -56,14 +56,15 @@ export function ProfilePane() {
 
   return (
     <div data-testid="profile-pane" className="flex flex-1 flex-col min-h-0 overflow-hidden">
-      {/* LA FASCIA IDENTITA' NON STA QUI, e non e' una svista.
-          Vive in fondo alla sidebar (`Sidebar/SidebarStatusBar`), che e' dove
-          la si guarda mentre si lavora: chi si chiede «chi c'e' adesso» non
-          apre una tab per saperlo. Il profilo resta una tab come le altre - si
-          apre dal menu, ha la sua riga nella colonna, si chiude - ma le sue
-          pagine dicono gli stessi soggetti PER ESTESO, e ripetere qui la
-          striscia viva vorrebbe dire renderla due volte nella stessa app: due
-          `identity-block` nel DOM, e ogni misura che li cerca diventa ambigua. */}
+      {/* THE IDENTITY BAND IS NOT HERE, and that is not an oversight.
+          It lives at the bottom of the sidebar (`Sidebar/SidebarStatusBar`),
+          which is where you look at it while you work: nobody opens a tab to
+          find out who is around right now. The profile is still a tab like any
+          other — it opens from the menu, it gets its row in the column, it
+          closes — but its pages say the same subjects AT LENGTH, and repeating
+          the live strip here would render it twice in the same app: two
+          `identity-block` in the DOM, and every measurement that looks for one
+          becomes ambiguous. */}
       {/* The three entries ARE the heading: there is no pane title above them
           repeating the word "Profile" while you are looking at "Friends". */}
       <div

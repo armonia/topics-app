@@ -996,18 +996,19 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
 
   if (useIframe) {
     return (
-      // L'ANCORA STA SU TUTTI E TRE I RAMI, non su due.
+      // THE ANCHOR IS ON ALL THREE PATHS, not on two.
       //
-      // `data-browser-pane` dice «questa pane e' montata», e i rami di render
-      // sono tre: Tauri nativo, streaming, e questo iframe. Nato su due, e il
-      // terzo e' proprio quello che il client web imbocca quando il sito si
-      // lascia incorniciare. Il vecchio ancoraggio (`browser-url-input`) li
-      // copriva tutti per caso, perche' la barra dell'indirizzo c'era sempre:
-      // da quando si nasconde a pagina caricata, l'ancora e' questa e deve
-      // stare dove la pane sta davvero. Misurato: `detached-readonly` era
-      // l'unica spec a parlare col server vero (le altre intercettano
-      // `/api/browsers/*` e ricevono `framable` assente, quindi prendono il
-      // ramo streaming), e vedeva zero elementi nel DOM su una pane presente.
+      // `data-browser-pane` says "this pane is mounted", and there are three
+      // render paths: native Tauri, streaming, and this iframe. It was born on
+      // two, and the third is exactly the one the web client takes when the
+      // site lets itself be framed. The old anchor (`browser-url-input`)
+      // covered all three by accident, because the address row was always
+      // there; since it hides on a loaded page the anchor is this one, and it
+      // has to sit where the pane actually is. Measured: `detached-readonly`
+      // saw ZERO elements in the DOM while the failure screenshot showed the
+      // page loaded inside the pane. It stayed hidden because the other browser
+      // specs stub `/api/browsers/*`, get no `framable` key back, and so take
+      // the streaming path, which had the anchor.
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-pane" data-browser-pane={contextId}>
         <BrowserToolbar
           url={browser.url}
