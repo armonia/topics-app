@@ -25,6 +25,15 @@
  *    gli stessi glifi della riga «Board» in sidebar.
  *  - TOPBAR-09  il pannello impostazioni ha sezioni con un titolo invece di
  *    dieci righe tutte uguali, e la prima dice che quell'interruttore è globale.
+ *  - TOPBAR-10  il freno di QUESTA board sta nelle sue impostazioni, non fra
+ *    le globali: si misura la POSIZIONE, perche' e' quella a dire di chi e'.
+ *  - TOPBAR-11  chi sta per pubblicare legge che la release esce a tutti.
+ *  - TOPBAR-12  i chip progetto hanno UNA larghezza e UN rientro: con la
+ *    favicon e senza, la fila resta dritta.
+ *  - TOPBAR-13  sotto la barra non passa nessun filetto: si guarda la catena
+ *    dalla barra alla radice, perche' il bordo poteva stare su un involucro.
+ *  - TOPBAR-14  alle impostazioni si entra da un posto solo, e lo stato
+ *    dell'auto-dispatch ha una copia sola (il ▾ ne teneva una propria).
  *  - TOPBAR-07  audit di layout (`helpers/ui-audit.js`) alle tre larghezze:
  *    nessun overflow orizzontale, nessuna sovrapposizione, niente fuori
  *    schermo, riga a 40px (il contratto `h-10` della chrome).
@@ -466,7 +475,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   /**
-   * TOPBAR-10: la fila dei chip progetto e' UNA fila.
+   * TOPBAR-12: la fila dei chip progetto e' UNA fila.
    *
    * Era due di tutto. Il chip che apre il menu era tagliato a `11rem` e i
    * suggerimenti accanto a `13rem`: lo STESSO nome, sulla stessa riga, troncato
@@ -479,7 +488,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
    * l'ha: e' quella la coppia che sfasava la fila, e senza entrambi il caso non
    * si presenta.
    */
-  test("TOPBAR-10: i chip progetto hanno una sola larghezza e un solo rientro", async ({ page }) => {
+  test("TOPBAR-12: i chip progetto hanno una sola larghezza e un solo rientro", async ({ page }) => {
     // L'icona a UN progetto solo. Il ripiego (nessuna icona) resta sugli altri
     // tre: e' il confronto fra i due rami che il difetto rendeva visibile.
     writeFileSync(`${dirOf(PROJECTS[0])}/favicon.svg`,
@@ -707,5 +716,122 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       });
       expect(piccoli, `${etichetta}: bersagli nuovi sotto 24px`).toEqual([]);
     }
+  });
+
+  /**
+   * TOPBAR-13: sotto la barra non passa nessun filetto.
+   *
+   * La riga c'era, e disegnava un confine che si vedeva gia' da solo: sotto la
+   * barra comincia la board, che ha un fondo diverso e le colonne. Le strisce
+   * che compaiono in mezzo (errore, avviso di drop, archivio, impostazioni)
+   * portano il proprio bordo quando servono, quindi il filetto fisso era in
+   * piu' esattamente quando non serviva a niente.
+   *
+   * Oggi la regola vive in un COMMENTO sopra il nodo in `KanbanBoardPane.tsx`, e
+   * un commento non ferma niente: chi aggiunge un `border-b` all'involucro non
+   * lo legge. Qui la regola diventa una misura, e si guarda la CATENA dalla
+   * barra alla radice della board — il filetto poteva stare su uno qualunque
+   * degli involucri, non solo sulla barra.
+   */
+  test("TOPBAR-13: sotto la barra non c'e' nessun filetto", async ({ page }) => {
+    await stubProbes(page, { running: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    /** I bordi bassi di tutta la catena barra → radice, letti dal computed style. */
+    const bordiBassi = () =>
+      page.evaluate(() => {
+        const barra = document.querySelector('[data-testid="board-toolbar"]');
+        const radice = document.querySelector('[data-testid="kanban-board"]');
+        if (!barra || !radice) return null;
+        const out: { nodo: string; larghezza: string; stile: string; colore: string }[] = [];
+        let el: Element | null = barra;
+        while (el) {
+          const cs = getComputedStyle(el);
+          out.push({
+            nodo: el.getAttribute("data-testid") ?? el.tagName.toLowerCase(),
+            larghezza: cs.borderBottomWidth,
+            stile: cs.borderBottomStyle,
+            colore: cs.borderBottomColor,
+          });
+          if (el === radice) break;
+          el = el.parentElement;
+        }
+        return out;
+      });
+
+    /** Visibile = ha spessore, ha uno stile, e non e' trasparente. */
+    const visibili = (catena: NonNullable<Awaited<ReturnType<typeof bordiBassi>>>) =>
+      catena.filter(
+        (n) =>
+          parseFloat(n.larghezza) > 0 &&
+          n.stile !== "none" &&
+          !/,\s*0\s*\)$/.test(n.colore),
+      );
+
+    const catena = await bordiBassi();
+    expect(catena, "barra o radice della board non trovate").not.toBeNull();
+    expect(
+      visibili(catena!),
+      `un filetto sotto la barra: ${JSON.stringify(visibili(catena!))}`,
+    ).toEqual([]);
+
+    // IL SETACCIO MORDE. Senza questa seconda meta', un errore nel giro dei nodi
+    // (selettore sbagliato, catena che non risale) darebbe lista vuota e verde
+    // per il motivo sbagliato: un filetto messo a mano deve farsi trovare.
+    await page.evaluate(() => {
+      const barra = document.querySelector('[data-testid="board-toolbar"]') as HTMLElement;
+      barra.style.borderBottom = "1px solid rgb(255, 0, 0)";
+    });
+    const conFiletto = visibili((await bordiBassi())!);
+    expect(conFiletto.length, "la misura non riconosce nemmeno un filetto messo a mano").toBeGreaterThan(0);
+  });
+
+  /**
+   * TOPBAR-14: una porta sola alle impostazioni.
+   *
+   * Ce n'erano due, a mezzo centimetro l'una dall'altra: il ⚙ in coda alla
+   * barra e un menu ▾ accanto al titolo della board. Non erano due strade per
+   * la stessa stanza — il ▾ teneva una COPIA PROPRIA dello stato
+   * dell'auto-dispatch, quindi le due porte potevano dire cose diverse sullo
+   * stesso interruttore, e quale delle due avesse ragione dipendeva da quale
+   * era stata aperta per ultima.
+   *
+   * L'oracolo e' quindi doppio, e la seconda meta' e' quella che conta: non
+   * basta che i BOTTONI siano uno, deve essere una sola anche la COPIA dello
+   * stato. Con il pannello chiuso, nella board non si vede nessun controllo
+   * dell'auto-dispatch; aperto, se ne vede esattamente uno.
+   */
+  test("TOPBAR-14: alle impostazioni si entra da un posto solo, e lo stato ha una copia sola", async ({ page }) => {
+    await stubProbes(page, { running: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const board = page.getByTestId("kanban-board");
+    const porta = board.getByTitle("Impostazioni auto-dispatch");
+    const statoDispatch = board.getByTestId("global-cap-control");
+    const pannello = page.getByTestId("board-settings-panel");
+
+    // UNA porta, non due.
+    await expect(porta, "le porte alle impostazioni non sono una").toHaveCount(1);
+
+    // A pannello chiuso lo stato dell'auto-dispatch non si vede da nessuna
+    // parte: era proprio la copia del ▾ a renderlo visibile in barra.
+    await expect(pannello).toHaveCount(0);
+    await expect(statoDispatch, "lo stato dell'auto-dispatch e' fuori dal pannello").toHaveCount(0);
+
+    // Aperta la porta: il pannello c'e', e la copia dello stato e' UNA.
+    await porta.click();
+    await expect(pannello).toBeVisible();
+    await expect(statoDispatch, "due copie dello stato dell'auto-dispatch").toHaveCount(1);
+
+    // IL SETACCIO MORDE: `statoDispatch` sa riconoscere il controllo quando c'e'
+    // davvero — il conteggio a zero di sopra e' un'assenza misurata, non un
+    // selettore che non trova mai niente.
+    await expect(statoDispatch).toBeVisible();
+
+    await page.screenshot({ path: join(SHOTS, "porta-unica.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
   });
 });
