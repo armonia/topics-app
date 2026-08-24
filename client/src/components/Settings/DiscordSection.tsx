@@ -52,7 +52,7 @@ const COLORE: Record<DiscordPresenceStatus['connection'], string> = {
  * installazione e' «Jarvis». Finche' il filo e' chiuso non lo sappiamo, e si
  * mostra un segnaposto invece di indovinare.
  */
-function Anteprima({ activity, vuoto, appName }: { activity: DiscordActivityPreview | null; vuoto: string; appName: string | null }) {
+function Anteprima({ activity, vuoto, appName, nomeIgnoto }: { activity: DiscordActivityPreview | null; vuoto: string; appName: string | null; nomeIgnoto: string }) {
   // Lo STESSO testid sui due rami: chi misura vuole «cosa vede l'altro
   // adesso», e «niente» è una di quelle risposte. Un testid solo sul ramo
   // pieno costringerebbe la spec a distinguere fra «vuoto» e «non montato»,
@@ -80,7 +80,7 @@ function Anteprima({ activity, vuoto, appName }: { activity: DiscordActivityPrev
       </div>
       <div className="min-w-0">
         <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-app-text-tertiary">
-          {appName ?? '—'}
+          {appName ?? nomeIgnoto}
         </div>
         <div className="truncate text-[12px] text-app-text">{activity.details}</div>
         {activity.state && <div className="truncate text-[11.5px] text-app-text-secondary">{activity.state}</div>}
@@ -229,6 +229,7 @@ export function DiscordSection() {
             activity={preview?.[livello] ?? null}
             vuoto={t('discord.previewEmpty')}
             appName={status?.applicationName ?? null}
+            nomeIgnoto={t('discord.appNameUnknown')}
           />
           <p className="text-[10.5px] leading-snug text-app-text-muted">{t('discord.previewNote')}</p>
         </div>

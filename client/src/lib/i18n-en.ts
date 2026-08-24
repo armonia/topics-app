@@ -1056,6 +1056,7 @@ const EN = {
   'discord.level.activity.hint': 'Numbers, which name no client.',
   'discord.level.detailed': 'Also the project name',
   'discord.level.detailed.hint': 'The only level that lets out a word you did not choose for that audience.',
+  'discord.appNameUnknown': 'not connected',
   'discord.preview': 'What others see',
   'discord.previewEmpty': 'With no session open the presence is cleared: it does not stay hanging.',
   'discord.previewNote': 'This is the very thing that gets published, not an imitation. The language follows the app’s.',

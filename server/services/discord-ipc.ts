@@ -340,10 +340,14 @@ export function onActivityAck(
       const p = frame.payload as { cmd?: string; evt?: string; data?: Record<string, unknown> } | undefined;
       if (p?.cmd !== "SET_ACTIVITY") continue;
       if (p.evt === "ERROR") {
-        cb({ applicationName: null, error: String((p.data as any)?.message ?? "SET_ACTIVITY rifiutato") });
+        const messaggio = p.data?.message;
+        cb({
+          applicationName: null,
+          error: typeof messaggio === "string" ? messaggio : "SET_ACTIVITY rifiutato",
+        });
         continue;
       }
-      const nome = (p.data as any)?.name;
+      const nome = p.data?.name;
       cb({ applicationName: typeof nome === "string" ? nome : null, error: null });
     }
   });

@@ -1281,6 +1281,7 @@ const IT: Dict = {
   'discord.level.activity.hint': 'Numeri, che non nominano nessun cliente.',
   'discord.level.detailed': 'Anche il nome del progetto',
   'discord.level.detailed.hint': 'È l’unico livello che fa uscire di qui una parola che non hai scelto per quel pubblico.',
+  'discord.appNameUnknown': 'non collegato',
   'discord.preview': 'Cosa vedono gli altri',
   'discord.previewEmpty': 'Con nessuna sessione aperta la presence si svuota: non resta appesa.',
   'discord.previewNote': 'È la stessa cosa che viene pubblicata, non un’imitazione. La lingua segue quella scelta per l’app.',
