@@ -2244,12 +2244,20 @@ const activityRouter = createActivityRouter(ctx);
 // fa sembrare fermo un lavoro in corso.
 //
 // Si contano su `list()`, NON su `byProject()`: il secondo raggruppa per
-// progetto della board e quindi lascia fuori chi non e' attribuibile. Non e'
-// un caso di scuola — misurato il 23/08, tutte e quattro le sessioni al
-// lavoro stavano in `~` o in cartelle che non sono progetti registrati, e la
-// presence annunciava «0 al lavoro» avendone quattro sotto il naso. Chi
-// lavora fuori da Topics spesso lavora anche fuori dai progetti di Topics:
-// e' la norma, non l'eccezione. Stessa cache (TTL 10s), nessuna scansione in
+// progetto della board e quindi lascia fuori chi non e' attribuibile.
+//
+// NOTA su come ci sono arrivato, perche' la prima spiegazione era sbagliata.
+// Il 23/08 la presence diceva «0 al lavoro» avendone quattro, e avevo
+// incolpato questa riga. Rimettendo `byProject()` sul server vivo il numero
+// tornava CORRETTO: la vera causa era che lo scanner jcode non attribuiva
+// nessuna sessione a nessun progetto (`projectPath: null` fisso), quindi il
+// rollup era vuoto. Corretto li'.
+//
+// La formula su `list()` resta comunque quella giusta, per una ragione di
+// significato e non di sintomo: «quante stanno lavorando» non deve dipendere
+// dal fatto che la board conosca quella cartella. Chi lavora fuori da Topics
+// puo' benissimo lavorare fuori dai progetti di Topics, e in quel caso il
+// numero deve dirlo lo stesso. Stessa cache (TTL 10s), nessuna scansione in
 // piu'.
 ctx.externalSessionsCount = () => externalSessions.list().length;
 ctx.externalSessionsWorking = () =>

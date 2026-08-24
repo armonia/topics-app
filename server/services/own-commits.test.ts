@@ -14,9 +14,10 @@ import { RESIDUE_SUBJECT } from "./worktree-residue";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
   return new TextDecoder().decode(r.stdout).trim();
 }
 

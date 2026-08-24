@@ -115,6 +115,40 @@ describe("le sessioni jcode entrano nel censimento", () => {
     const r = scanJcodeSessions({ sessionsDir: dir, now: ORA, isAlive: vivo });
     expect(r[0]!.branch).toBe("main");
   });
+
+  test("attribuisce la sessione al progetto che contiene il suo cwd", () => {
+    // Il difetto vero, trovato dal vivo il 23/08: lo scanner metteva
+    // `projectPath: null` fisso, e TUTTE e 13 le sessioni jcode risultavano
+    // orfane — comprese quelle aperte dentro topics-app stesso. Una sessione
+    // senza progetto sparisce dal badge sulla board e dalla guardia del
+    // dispatcher, che poi cala un agente dove qualcuno sta gia' lavorando.
+    const dir = dirSessioni();
+    sessione(dir, "s1", { cwd: "/Users/x/Progetti/topics-app/client", minutiFa: 1 });
+    const [s] = scanJcodeSessions({
+      sessionsDir: dir,
+      now: ORA,
+      isAlive: vivo,
+      candidatePaths: ["/Users/x", "/Users/x/Progetti/topics-app"],
+      projectIdFor: (p) => `id:${p}`,
+    });
+    // La radice PIU' LUNGA che contiene il cwd, non la prima che combacia.
+    expect(s!.projectPath).toBe("/Users/x/Progetti/topics-app");
+    expect(s!.projectId).toBe("id:/Users/x/Progetti/topics-app");
+  });
+
+  test("un cwd fuori da ogni progetto noto resta senza progetto", () => {
+    const dir = dirSessioni();
+    sessione(dir, "s1", { cwd: "/Users/x/Musica", minutiFa: 1 });
+    const [s] = scanJcodeSessions({
+      sessionsDir: dir,
+      now: ORA,
+      isAlive: vivo,
+      candidatePaths: ["/Users/x/Progetti/topics-app"],
+      projectIdFor: (p) => p,
+    });
+    expect(s!.projectPath).toBeNull();
+    expect(s!.projectId).toBeNull();
+  });
 });
 
 describe("il registro tiene insieme piu' provider", () => {

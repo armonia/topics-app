@@ -52,6 +52,8 @@ export const PROVIDERS: SessionProvider[] = [
         now: opts.nowMs,
         activeMs: opts.activeMs,
         windowMs: opts.windowMs,
+        candidatePaths: opts.candidatePaths,
+        projectIdFor: opts.projectIdFor,
       }),
   },
   {

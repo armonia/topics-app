@@ -34,11 +34,38 @@ import { classifyLanding } from "./landing-audit";
 import { worktreeDirtProbe } from "./task-automerge";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const PID = "topics-app-live";
 
+/**
+ * `git` per i test, con l'ambiente della MACCHINA tenuto fuori.
+ *
+ * `-c core.hooksPath=` (vuoto) disattiva gli hook. Non e' pignoleria: su
+ * questa macchina la config globale punta a un hook `prepare-commit-msg` di
+ * terze parti che a ogni commit fa due `curl --max-time 2` verso
+ * `localhost:3333`. Misurato: 679ms per commit contro 219ms senza. Questi due
+ * file fanno 24 commit, quindi l'hook da solo puo' aggiungere una decina di
+ * secondi — e quando la porta risponde lenta invece che rifiutare subito,
+ * arriva a 4s per commit e i test sforano il timeout.
+ *
+ * Il sintomo era un rosso che compariva solo eseguendo la suite intera, mai
+ * sui file da soli: sembrava una collisione fra i test, ed era invece il
+ * mondo esterno che entrava dentro. Un test su git vero deve portarsi il
+ * proprio git, non quello di chi lo esegue.
+ *
+ * `commit.gpgsign=false` per la stessa ragione: chi firma i commit non deve
+ * vedersi chiedere la passphrase da una suite di test.
+ */
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    // `gitEnv()` porta l'isolamento del preload: senza `env` esplicito
+    // `Bun.spawnSync` NON eredita cio' che il preload ha messo in
+    // `process.env` — misurato, il figlio vede le variabili vuote.
+    env: gitEnv(),
+  });
   return { code: r.exitCode, out: new TextDecoder().decode(r.stdout).trim() };
 }
 
@@ -197,6 +224,10 @@ describe("una card in review che viene landata", () => {
     expect(testo).not.toContain("git fsck");
   });
 
+  // Piu' worktree = piu' git veri: 3 spawn di processo per ognuno, e sotto
+  // una suite che gira in parallelo il default di 5s non basta. Non e' una
+  // pezza sul sintomo: il lavoro qui e' genuinamente il triplo degli altri
+  // test del file, che restano nel budget di default.
   test("quattro card nella stessa passata: quattro restano in review", async () => {
     const cards = ["d6baaf5e", "3bde1ab0", "c8ea8173", "5472e584"].map((id) => cardConsegnata(id));
     for (const c of cards) landa(c.wt);
@@ -206,7 +237,7 @@ describe("una card in review che viene landata", () => {
     expect(cards.map((c) => svc.get(c.taskId)!.task.status)).toEqual(["review", "review", "review", "review"]);
     expect(s.unbound).toBe(4);
     expect(s.abandoned).toBe(0);
-  });
+  }, 20_000);
 
   // IL CONTROLLO CHE IMPEDISCE DI AVER SOLO SPENTO L'ALLARME. Un ramo cancellato
   // SENZA che il lavoro sia arrivato su main, sotto un task che dichiara di

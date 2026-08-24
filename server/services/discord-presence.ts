@@ -36,6 +36,7 @@ import {
   DiscordIpcError,
   handshake,
   netConnector,
+  onActivityAck,
   sendActivity,
   type IpcConnector,
   type IpcSocket,
@@ -57,22 +58,31 @@ export const DEFAULT_CLIENT_ID = "1467514747988611174";
 /**
  * L'immagine grande della presence.
  *
- * PERCHE' NELL'ANTEPRIMA SI VEDE UNA «T» E NON L'ICONA, ed e' la domanda che
- * arriva ogni volta: questo URL non c'entra. Discord scarica un `large_image`
- * esterno solo per le applicazioni che hanno gia' almeno un Rich Presence
- * ASSET caricato sul portale sviluppatori; senza, ignora il campo e ripiega
- * sull'iniziale del nome dell'applicazione — la «T» di Topics.
+ * NON SERVE CARICARE NIENTE SUL PORTALE: qui c'era scritto il contrario, ed
+ * era falso. La versione precedente di questo commento sosteneva che Discord
+ * onora un `large_image` esterno solo per le app che hanno gia' un Rich
+ * Presence asset caricato. Interrogato l'IPC direttamente (24/08), con
+ * l'applicazione a ZERO asset:
  *
- * Verificato che l'URL non sia il problema: risponde 200 e serve un PNG
- * 128x128 valido (5.351 byte), anche se il repo e' privato — `raw.githubusercontent`
- * su `main` e' leggibile perche' la reference lo e'.
+ *   - questo URL viene ACCETTATO e Discord lo riscrive come
+ *     `mp:external/<hash>/https/raw.githubusercontent.com/...`, cioe' l'ha
+ *     preso in carico e proxato sulla sua CDN;
+ *   - quell'indirizzo, chiesto a `media.discordapp.net`, risponde 200 con il
+ *     PNG 128x128 giusto (5.351 byte, le due nuvolette bianche su blu);
+ *   - una chiave inventata (`chiave_che_non_esiste`) sparisce invece dalla
+ *     risposta, e cosi' pure l'hash dell'icona dell'applicazione: quel campo
+ *     vuole una chiave di ASSET, che e' un'altra cosa.
  *
- * QUINDI IL PASSO MANCANTE NON E' CODICE. Va aperto
- * https://discord.com/developers/applications, scelta l'applicazione con
- * `DEFAULT_CLIENT_ID` qui sopra, e caricata l'icona in Rich Presence → Art
- * Assets. Da quel momento questo URL viene onorato; in alternativa si mette la
- * CHIAVE dell'asset caricato al posto dell'URL (Discord accetta entrambi, e la
- * chiave e' piu' robusta perche' non dipende da una fetch verso GitHub).
+ * Il controllo negativo e' la parte che conta: se Discord scartasse gli URL
+ * esterni, questo campo sparirebbe come sparisce la chiave inventata. Resta,
+ * quindi vale.
+ *
+ * La «T» che si vede nell'anteprima del pannello e' un'altra faccenda: quella
+ * e' l'ANTEPRIMA disegnata da noi, non la card di Discord.
+ *
+ * Il nome in cima alla card e' quello dell'APPLICAZIONE, non `large_text`:
+ * l'IPC lo rimanda indietro come `name: "Jarvis"`. Per farlo leggere «Topics»
+ * si rinomina l'applicazione sul portale — quello si', richiede il login.
  *
  * Si sovrascrive con `DISCORD_PRESENCE_IMAGE` senza ricompilare.
  */
@@ -120,7 +130,14 @@ export interface DiscordPresenceDeps {
 
 /** Quanto si aspetta prima di ritentare, per tipo di fallimento. Discord chiuso
  *  è una condizione che cambia da sola in fretta (lo apri); un ID rifiutato
- *  NON cambia col tempo, quindi ritentarlo ogni 15s è solo rumore. */
+ *  NON cambia col tempo, quindi ritentarlo ogni 15s è solo rumore.
+ *
+ *  Effetto collaterale da conoscere, misurato su sei riavvii del server: se il
+ *  PRIMO tentativo riesce la presence è viva in ~3s, se fallisce (Discord non
+ *  ha ancora riaperto il socket) si aspetta il minuto pieno di `socket_error`
+ *  e la ripresa arriva a ~50-60s. In mezzo lo stato è `error`, che a guardarlo
+ *  sembra un guasto e invece è l'attesa che funziona: chi diagnostica dopo un
+ *  riavvio guardi due volte a un minuto di distanza prima di dire «rotta». */
 const RETRY_MS: Record<string, number> = {
   no_socket: 30_000,
   timeout: 60_000,
@@ -162,6 +179,12 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
    *  limita la frequenza dei SET_ACTIVITY, e riscrivere lo stesso stato ogni
    *  quindici secondi è il modo di finire limitati per niente. */
   let publishedKey = "";
+  /**
+   * Il nome dell'applicazione come lo dice Discord, non come lo immaginiamo.
+   * Si sa solo dopo la prima activity accettata: prima resta `null`, che e'
+   * onesto, mentre scrivere «Topics» sarebbe la stessa bugia di prima.
+   */
+  let applicationName: string | null = null;
   let nextAttemptAt = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
   /** Un solo giro per volta: un tick lento (handshake in corso) non deve
@@ -174,6 +197,9 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
     socket = null;
     publishedKey = "";
     published = null;
+    // Il nome vale per il filo che l'ha detto: un'altra applicazione, un altro
+    // nome. Tenerlo qui sarebbe ricordare la risposta a una domanda diversa.
+    applicationName = null;
     user = null;
   }
 
@@ -200,6 +226,11 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
       });
       socket = res.socket;
       user = res.user;
+      // Discord rimanda l'activity come l'ha salvata: e' l'unico posto da cui
+      // si sa come si chiama davvero l'applicazione.
+      onActivityAck(res.socket, (ack) => {
+        if (ack.applicationName) applicationName = ack.applicationName;
+      });
       connection = "connected";
       lastError = null;
       nextAttemptAt = 0;
@@ -288,6 +319,7 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
         user,
         lastError,
         lastPublishedAt,
+        applicationName,
         activity: published,
       };
     },

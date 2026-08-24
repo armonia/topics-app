@@ -555,12 +555,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const costo = costTokens(parti);
   const contesto = contextTokens(parti);
   const sessionEnded = shouldExplainMissingSession(sessionState);
-  // Always shown: the eyebrow row carries the click-to-copy task id on every card
-  // (plus project/state/model/tab when present).
-  const showTopRow = true;
+  // The eyebrow row is now IDENTITY only: which project this card belongs to,
+  // and the door to its session. Everything about the turn (state, model,
+  // tokens, git) moved to the card's foot, so this row renders only when it
+  // has something of its own to say.
+  const showTopRow = (showProject && !unassigned) || canOpenSession || sessionEnded;
   const showPriority = !priorityAwaitingAgent(task) && task.priority !== 2;
-  // Review expands the subtask checklist on the card; elsewhere the count chip suffices.
-  const checklist = task.status === 'review' ? children : [];
+  // THE CHECKLIST IS THE SAME IN EVERY COLUMN. It used to open only in review
+  // and the other columns got a `3/7` chip instead: the same card changed
+  // shape as it crossed a boundary, which is exactly what this card is being
+  // straightened out for. The steps are what a task IS, in todo as much as in
+  // review. The fallback chip stays for the card whose children the list has
+  // not handed over yet.
+  const checklist = children;
   // "done" that never reached main — the 19/07 loss, made visible. Il predicato
   // sta in `shared/board`: la stessa pastiglia la disegnano la banda del drawer e
   // il contatore accanto a «Pubblica», e le tre copie divergevano.
@@ -583,22 +590,35 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // situazioni opposte davanti allo stesso gesto. Chi approva deve sapere quale
   // delle due sta guardando, e il silenzio non lo dice.
   //
-  // Solo in review: altrove non c'e' ancora niente da approvare, e un chip su
-  // ogni card in coda sarebbe rumore.
-  const checksGreen = task.status === 'review' && task.checksState === 'pass';
-  const checksRunning = task.status === 'review' && task.checksState === 'running';
+  // The fact EXISTS only after a run of the checks, so a second gate on the
+  // status buys nothing: a card in todo has no `checksState`, and an approved
+  // one that passed them keeps saying so. The `status === 'review'` that used
+  // to be here made the green vanish the instant the card was closed, that is,
+  // it changed what the card said without any fact changing.
+  const checksGreen = task.checksState === 'pass';
+  const checksRunning = task.checksState === 'running';
   // Un solo predicato per il chip e per la riga che lo contiene: due copie
   // dello stesso «questo chip c'è» sono precisamente il modo in cui la riga
   // finisce per non montarsi mentre il chip crede di esserci.
   // Il numero, non un booleano: dentro il chip serve il VALORE, e un flag
   // separato costringerebbe a un `!` che dice al compilatore «fidati» proprio
-  // dove il dato può mancare. `null` = niente chip, e la riga sotto lo sa.
+  // dove il dato può mancare. `null` = the measure was never recorded, which
+  // is not a zero: a zero would say "looked, and it changed nothing".
   // Lo ZERO non passa di qui: un ramo senza commit ha il suo chip
   // (`senzaCommit`), e «0 file +0 -0» accanto direbbe due volte la stessa cosa
   // con la forma di una misura buona.
-  const deliveryStat = task.status === 'review' && task.deliveryFilesChanged
-    ? task.deliveryFilesChanged
-    : null;
+  const deliveryStat = task.deliveryFilesChanged || null;
+  /**
+   * THE GIT CHANGES WHILE THE AGENT IS STILL WRITING THEM.
+   *
+   * The delivery measure is born at the end of the turn: before that the card
+   * said not one line about what was changing, and seeing it meant opening the
+   * task and its "Modifiche" panel. But the diff route reads the LIVE WORKTREE
+   * (`task-diff-range.ts`), so the data was already there: what was missing
+   * was a place to ask for it. That place is now the chip next to the model,
+   * and it only asks when opened, so no card costs a repository read.
+   */
+  const gitLive = deliveryStat === null && isAgentWorking(task.dispatchState);
   // COME E' STATO LAVORATO, quando una misura non c'e'.
   //
   // Misurato il 17/08: 33 card in review, 31 senza fotografia di consegna, 30
@@ -716,12 +736,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // dei due, e una card che nasce non ha attraversato nessun confine.
       className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
-      {/* Top row: project eyebrow (cross-project) on the LEFT; the AGENT
-          cluster in the top-right SLOT — dispatch state, model/effort, "apri
-          tab". Everything about "who's on this and where" lives up here, so
-          the body below is pure content. flex-wrap + justify-end: on a narrow
-          card extra chips drop to a second right-aligned line instead of
-          crushing the eyebrow. */}
+      {/* Eyebrow: WHICH project this card belongs to, and the door to its
+          session. Nothing else.
+
+          The agent cluster used to live here (dispatch state, model, tokens)
+          and the card changed face from one column to the next: a turn's
+          measure on top, content in the middle, chips at the bottom. The turn
+          now has a FOOT of its own (state, model, git, last update), the same
+          in every state, and this row is back to saying one thing. */}
       {showTopRow && (
         <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
           <div className="flex min-w-0 flex-1 items-center gap-1 text-xs md:text-[11px] text-app-text-secondary">
@@ -736,70 +758,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 card, e chi lo copia lo copia per parlare del task. Adesso apre
                 il titolo, che è la cosa che nomina. */}
           </div>
-          {/* The live chip's pulse dot already says "working": while it ticks,
-              the 'al lavoro' state chip is redundant — one chip, not two. */}
-          {awaiting ? (
-            // Vince su tutto il resto mentre dura: un turno fermo su di te non e'
-            // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
-            // esiste per togliere.
-            <span
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-300"
-              // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
-              // «il tab del task», che è l'altra superficie e non ha un campo
-              // dove rispondere a un turno vivo.
-              title={tr('board.task.awaitingYouTitle')}
-            >{tr('board.card.awaitingYou')}</span>
-          ) : (live && task.dispatchState === 'working') ? null : task.queueReason ? (
-            // Una card ferma in Todo dice PERCHÉ, e la ragione arriva già
-            // scritta dal server. Vince sul chip di stato («in coda», «in
-            // attesa»): sono la stessa informazione, ma quella è una parola
-            // sola e uguale per sei motivi diversi.
-            <QueueReasonChip reason={task.queueReason} />
-          ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
-            <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
-          ) : (!task.dispatchState && task.dispatchError) ? (
-            <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
-          ) : null}
-          {/* Il primo tratto del turno, quello in cui la card sembra ferma:
-              l'agente sta leggendo e inquadrando, e il titolo che si sta per
-              leggere è ancora quello buttato giù di fretta. Sta PRIMA del chip
-              vivo perché è la fase, e il chip vivo è la misura. */}
-          {live?.triage && task.dispatchState === 'working' && (
-            <span
-              data-testid="card-triage"
-              title={tr('board.card.triageTitle')}
-              className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300"
-            >{tr('board.card.triage')}</span>
-          )}
-          {live && task.dispatchState === 'working' ? (
-            <LiveEffortChip usage={live} />
-          ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
-            // The model always lives here, in the time/effort chip — never as a
-            // second standalone chip. Before the agent has logged any time we
-            // show just the model; once it runs we prepend it to the ⏱ effort,
-            // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
-            <span
-              // IL NUMERO E' QUANTO E' COSTATO, non quanti token sono passati.
-              // `agentTokens` da solo lascia fuori la RILETTURA di cache, che e'
-              // la quota dominante del consumo: il chip mostrava circa il 2,8%
-              // del vero. La rilettura non vale nemmeno uno, pero': costa un
-              // decimo, e sommarla intera farebbe sembrare enorme un turno che
-              // e' stato economico. La regola sta in `shared/token-cost.ts`, e
-              // la stessa la usano la dashboard e il piede di un messaggio.
-              // «Quanto contesto e' passato» resta qui sotto, nel tooltip.
-              title={(task.agentMs > 0 || costo > 0)
-                ? tr('board.card.effortTitle', {
-                  work: fmtMs(task.agentMs),
-                  cost: costo ? tr('board.card.effortCost', { cost: costo.toLocaleString(locale) }) : '',
-                  cache: task.agentCacheReadTokens > 0
-                    ? tr('board.card.effortCache', { context: fmtTok(contesto), cache: fmtTok(task.agentCacheReadTokens) })
-                    : '',
-                  model: fmtModel(task.model),
-                })
-                : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
-              className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
-            >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}</span>
-          ) : null}
           {canOpenSession && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenTopic!(task.assignedTopicId!); }}
@@ -927,87 +885,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             aggiunge un solo nodo al DOM. */}
         <MorphText text={task.text} />
       </span>
-      {/* Description preview — plain text, clamped (the full markdown lives in
-          the drawer). The update time closes the body — but on a REVIEW card the
-          review block below owns the tail, and prints the date itself after the
-          agent's last word, so it must not be printed here as well.
-          The gate used to be `!isAgentReview`, which is narrower than the block
-          it defers to: the block renders on every review card, so a review card
-          with no agent bound to it (a delivery nobody dispatched) printed the
-          same date TWICE, one line under the other.
-          `descriptionPreview` è ciò che la lista manda (240 caratteri: il
-          riquadro ne mostra due righe); `description` è la ricaduta per un
-          server più vecchio del client, che l'anteprima non la calcola. */}
-      {descriptionText && (
-        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
-      )}
-      {/* La checklist sta SOTTO LA DESCRIZIONE, non fra il titolo e lei.
-          Sopra spezzava in due la cosa che si legge per prima — il nome del
-          task e cosa chiede — con un elenco di passi che si guarda dopo aver
-          capito di cosa si parla. In Review la checklist EXPANDS —
-          the human is judging a delivery and the steps are the evidence: max 5
-          rows, the rest behind "Vedi tutti" (opens the drawer tree). The other
-          columns keep the compact done/total chip. */}
-      {checklist.length > 0 ? (
-        <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
-          {checklist.slice(0, 5).map((s) => {
-            // L'unico posto in cui un sottotask si vede sulla BOARD: le colonne
-            // mostrano solo le radici (`rootsOnly`), la checklist si apre sulla
-            // card in Review. Ed è il momento giusto per dirlo — è lì che si
-            // decide se approvare, e uno step «in corso» che non sta lavorando
-            // nessuno è esattamente ciò che tiene aperto il task.
-            const work = subtaskWorkChip(s);
-            return (
-            <button
-              key={s.id}
-              onClick={() => onOpen(s.id)}
-              title={tr('board.card.openSubtaskTitle', { status: STATUS_LABEL[s.status] })}
-              className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
-            >
-              <StatusIcon status={s.status} />
-              <span className={`min-w-0 flex-1 truncate text-xs ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
-              {work && (work.kind === 'unattended' ? (
-                <span
-                  data-testid={`card-subtask-work-${s.id}`}
-                  data-kind="unattended"
-                  title={work.title}
-                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-[10px] text-rose-300"
-                ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
-              ) : (
-                <span
-                  data-testid={`card-subtask-work-${s.id}`}
-                  data-kind="parent-turn"
-                  title={work.title}
-                  className="flex shrink-0 text-app-text-muted"
-                ><UserRound className="h-2.5 w-2.5" /></span>
-              ))}
-            </button>
-            );
-          })}
-          {checklist.length > 5 && (
-            <button
-              onClick={() => onOpen(task.id)}
-              title={tr('board.card.fullChecklistTitle')}
-              className="px-0.5 text-xs md:text-[11px] text-app-text-secondary hover:text-app-text"
-            >+{checklist.length - 5}… {tr('board.card.seeAll')}</button>
-          )}
-        </div>
-      ) : task.subtaskCount > 0 ? (
-        <div className="mt-1">
-          <span
-            title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
-            className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
-          >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
-        </div>
-      ) : null}
-      {task.status !== 'review' && (
-        <div
-          className="mt-1 text-xs md:text-[10px] text-app-text-muted"
-          title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-        >{fmtUpdatedAt(task.updatedAt)}</div>
-      )}
       {/* Relational chips (blocker / parent / thread / plan / assignee): the
-          row renders only when at least one is present. */}
+          row renders only when at least one is present.
+
+          UNDER THE TITLE, BEFORE THE DESCRIPTION. They used to trail the body,
+          and the body changed order depending on the column: the same fact had
+          to be looked for in a different place. Title, how it stands (chips),
+          what it holds (subtasks), what it asks (description): one reading,
+          the same in every state. */}
       {hasMetaRow && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {/* PRIMO della riga, e non per gravità: è l'unico chip che cambia la
@@ -1231,69 +1116,82 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               mettere in fondo, invece che mischiarli con le altre chip». Ma
               restavano un CONTEGGIO: dicevano quanto e mai cosa, e davanti a
               una consegna da rivedere «quali file ha toccato» e' la prima
-              domanda. Adesso sono un elenco che si apre, in fondo alla card e
-              prima dell'input: vedi `DeliveryFiles.tsx`. */}
+              domanda. Adesso sono un dropdown a chip nel piede della card,
+              a chip dropdown in the card's foot, next to the model: see
+              `DeliveryFiles.tsx`. */}
         </div>
       )}
-      {/* I FILE DELLA CONSEGNA, in fondo e PRIMA dell'input.
-          Chiuso e' il conteggio di sempre; aperto, i percorsi con le loro
-          righe. Sta qui e non fra i chip perche' e' l'unica cosa della card
-          che si puo' APRIRE: in mezzo a una riga di etichette un elemento
-          interattivo non si distingue da quelli che non lo sono.
-          Solo in review: nelle altre colonne non c'e' ancora una consegna da
-          pesare. `null` (non misurato) non disegna niente, perche' uno zero
-          direbbe «non ha prodotto niente», che e' un'altra affermazione. */}
-      {deliveryStat !== null && (
-        <DeliveryFiles
-          projectId={task.projectId}
-          taskId={task.id}
-          files={deliveryStat}
-          insertions={task.deliveryInsertions ?? 0}
-          deletions={task.deliveryDeletions ?? 0}
-          commit={task.deliveryCommit ?? null}
-        />
-      )}
-      {/* Steer a WORKING agent right from the card ("anche da kanban"): the
-          message is buffered and handed to the agent at the next turn. */}
-      {agentBusy && (
-        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-          {/* UNA riga sola. «Ferma» e «Consegna quello che hai» stavano qui
-              sopra come due bottoni pieni: azioni rare, disegnate col peso di
-              una decisione, su una card che non chiede niente — sta solo
-              lavorando, o aspetta il suo turno. Sono passate nel `⋯`, che è
-              l'ultima cosa della riga proprio perché è l'ultima che serve; il
-              campo e il suo invio restano attaccati, che è il gesto vero di una
-              card in corso.
-              Nel drawer restano bottoni (vedi TaskChoiceRow): lì la card la
-              stai già guardando apposta. */}
-          <div className="flex items-center gap-1">
-            <input
-              ref={freeTextRef}
-              value={freeText} disabled={busy}
-              onChange={(e) => setFreeText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
-              placeholder={tr('board.card.steerPlaceholder')}
-              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
-            />
+      {/* The checklist: the steps, in EVERY column and not only in review.
+          Max 5 rows, the rest behind "Vedi tutti" (opens the drawer tree).
+          The compact done/total chip stays as the fallback for a card whose
+          children have not arrived yet.
+          It sits between the chips and the description: the chips say how the
+          card stands, the steps what it holds, the description what it asks. */}
+      {checklist.length > 0 ? (
+        <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
+          {checklist.slice(0, 5).map((s) => {
+            // L'unico posto in cui un sottotask si vede sulla BOARD: le colonne
+            // mostrano solo le radici (`rootsOnly`), la checklist si apre sulla
+            // card in Review. Ed è il momento giusto per dirlo — è lì che si
+            // decide se approvare, e uno step «in corso» che non sta lavorando
+            // nessuno è esattamente ciò che tiene aperto il task.
+            const work = subtaskWorkChip(s);
+            return (
             <button
-              disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
-              title={tr('board.card.steerSendTitle')}
-              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
-            ><Send className="h-3.5 w-3.5" /></button>
-            <TaskChoiceMenu
-              task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
-              ariaLabel={tr('board.card.turnActions')}
-            />
-          </div>
+              key={s.id}
+              onClick={() => onOpen(s.id)}
+              title={tr('board.card.openSubtaskTitle', { status: STATUS_LABEL[s.status] })}
+              className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
+            >
+              <StatusIcon status={s.status} />
+              <span className={`min-w-0 flex-1 truncate text-xs ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
+              {work && (work.kind === 'unattended' ? (
+                <span
+                  data-testid={`card-subtask-work-${s.id}`}
+                  data-kind="unattended"
+                  title={work.title}
+                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-[10px] text-rose-300"
+                ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
+              ) : (
+                <span
+                  data-testid={`card-subtask-work-${s.id}`}
+                  data-kind="parent-turn"
+                  title={work.title}
+                  className="flex shrink-0 text-app-text-muted"
+                ><UserRound className="h-2.5 w-2.5" /></span>
+              ))}
+            </button>
+            );
+          })}
+          {checklist.length > 5 && (
+            <button
+              onClick={() => onOpen(task.id)}
+              title={tr('board.card.fullChecklistTitle')}
+              className="px-0.5 text-xs md:text-[11px] text-app-text-secondary hover:text-app-text"
+            >+{checklist.length - 5}… {tr('board.card.seeAll')}</button>
+          )}
         </div>
-      )}
-      {/* Bloccata: le scelte sono le uniche due uscite dall'attesa (togliere il
-          legame, o toglierlo e farla partire). Senza, la card resta ferma e
-          l'unico modo per muoverla è aprire il drawer e cercare il picker. */}
-      {choiceState === 'blocked' && (
-        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-          <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
+      ) : task.subtaskCount > 0 ? (
+        <div className="mt-1">
+          <span
+            title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
+            className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
+          >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
+      ) : null}
+      {/* Description preview — plain text, clamped (the full markdown lives in
+          the drawer). The update time closes the body — but on a REVIEW card the
+          review block below owns the tail, and prints the date itself after the
+          agent's last word, so it must not be printed here as well.
+          The gate used to be `!isAgentReview`, which is narrower than the block
+          it defers to: the block renders on every review card, so a review card
+          with no agent bound to it (a delivery nobody dispatched) printed the
+          same date TWICE, one line under the other.
+          `descriptionPreview` è ciò che la lista manda (240 caratteri: il
+          riquadro ne mostra due righe); `description` è la ricaduta per un
+          server più vecchio del client, che l'anteprima non la calcola. */}
+      {descriptionText && (
+        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(descriptionText)}</p>
       )}
       {/* OGNI card in review, non solo quelle di un agente. `showsQuestion`
           seleziona chi ha una PAROLA da mostrare (l'agente, o il sistema sui
@@ -1447,11 +1345,154 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
           )}
-          {/* Update time trails the agent's last word (the card body's true tail). */}
-          <div
-            className="text-xs md:text-[10px] text-app-text-muted"
-            title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
-          >{fmtUpdatedAt(task.updatedAt)}</div>
+        </div>
+      )}
+      {/* THE CARD'S FOOT: what is happening to the turn, and what it has cost
+          so far. The same place in every column.
+          ═══════════════════════════════════════════════════════════════════
+          Dispatch state, model with time and tokens, git changes, last update:
+          they are all measures OF THE TURN, and they were scattered. Two chips
+          on top, the diff at the bottom, the date in two different spots
+          depending on whether the card was in review. The same fact had to be
+          hunted in a different place on every column.
+          Here they stand together, at the end of the content and BEFORE the
+          controls: the card reads top down (name, how it stands, what it asks)
+          and closes with the measure of whoever is working it. The row is
+          always there, because the last update always is: no state hides it. */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="card-foot">
+        {/* The live chip's pulse dot already says "working": while it ticks,
+            the 'al lavoro' state chip is redundant — one chip, not two. */}
+        {awaiting ? (
+          // Vince su tutto il resto mentre dura: un turno fermo su di te non e'
+          // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
+          // esiste per togliere.
+          <span
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-300"
+            // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
+            // «il tab del task», che è l'altra superficie e non ha un campo
+            // dove rispondere a un turno vivo.
+            title={tr('board.task.awaitingYouTitle')}
+          >{tr('board.card.awaitingYou')}</span>
+        ) : (live && task.dispatchState === 'working') ? null : task.queueReason ? (
+          // Una card ferma in Todo dice PERCHÉ, e la ragione arriva già
+          // scritta dal server. Vince sul chip di stato («in coda», «in
+          // attesa»): sono la stessa informazione, ma quella è una parola
+          // sola e uguale per sei motivi diversi.
+          <QueueReasonChip reason={task.queueReason} />
+        ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+          <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
+        ) : (!task.dispatchState && task.dispatchError) ? (
+          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
+        ) : null}
+        {/* Il primo tratto del turno, quello in cui la card sembra ferma:
+            l'agente sta leggendo e inquadrando, e il titolo che si sta per
+            leggere è ancora quello buttato giù di fretta. Sta PRIMA del chip
+            vivo perché è la fase, e il chip vivo è la misura. */}
+        {live?.triage && task.dispatchState === 'working' && (
+          <span
+            data-testid="card-triage"
+            title={tr('board.card.triageTitle')}
+            className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300"
+          >{tr('board.card.triage')}</span>
+        )}
+        {live && task.dispatchState === 'working' ? (
+          <LiveEffortChip usage={live} />
+        ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
+          // The model always lives here, in the time/effort chip — never as a
+          // second standalone chip. Before the agent has logged any time we
+          // show just the model; once it runs we prepend it to the ⏱ effort,
+          // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
+          <span
+            // IL NUMERO E' QUANTO E' COSTATO, non quanti token sono passati.
+            // `agentTokens` da solo lascia fuori la RILETTURA di cache, che e'
+            // la quota dominante del consumo: il chip mostrava circa il 2,8%
+            // del vero. La rilettura non vale nemmeno uno, pero': costa un
+            // decimo, e sommarla intera farebbe sembrare enorme un turno che
+            // e' stato economico. La regola sta in `shared/token-cost.ts`, e
+            // la stessa la usano la dashboard e il piede di un messaggio.
+            // «Quanto contesto e' passato» resta qui sotto, nel tooltip.
+            title={(task.agentMs > 0 || costo > 0)
+              ? tr('board.card.effortTitle', {
+                work: fmtMs(task.agentMs),
+                cost: costo ? tr('board.card.effortCost', { cost: costo.toLocaleString(locale) }) : '',
+                cache: task.agentCacheReadTokens > 0
+                  ? tr('board.card.effortCache', { context: fmtTok(contesto), cache: fmtTok(task.agentCacheReadTokens) })
+                  : '',
+                model: fmtModel(task.model),
+              })
+              : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
+            className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
+          >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}</span>
+        ) : null}
+        {/* THE GIT CHANGES, next to the model that is writing them.
+            Closed it is a chip like the others; open it is a list that drops
+            under it, not a surface that takes the whole card. The full diff
+            stays in the task, where there is room to read it. */}
+        {(deliveryStat !== null || gitLive) && (
+          <DeliveryFiles
+            projectId={task.projectId}
+            taskId={task.id}
+            files={deliveryStat}
+            insertions={task.deliveryInsertions ?? 0}
+            deletions={task.deliveryDeletions ?? 0}
+            commit={task.deliveryCommit ?? null}
+            live={gitLive}
+          />
+        )}
+        {/* The last update closes the row, on the right: it is the weakest of
+            the four measures and does not belong among the others. */}
+        <span
+          className="ml-auto text-xs md:text-[10px] text-app-text-muted"
+          title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
+        >{fmtUpdatedAt(task.updatedAt)}</span>
+      </div>
+      {/* Steer a WORKING agent right from the card ("anche da kanban"): the
+          message is buffered and handed to the agent at the next turn. */}
+      {agentBusy && (
+        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+          {/* UNA riga sola. «Ferma» e «Consegna quello che hai» stavano qui
+              sopra come due bottoni pieni: azioni rare, disegnate col peso di
+              una decisione, su una card che non chiede niente — sta solo
+              lavorando, o aspetta il suo turno. Sono passate nel `⋯`, che è
+              l'ultima cosa della riga proprio perché è l'ultima che serve; il
+              campo e il suo invio restano attaccati, che è il gesto vero di una
+              card in corso.
+              Nel drawer restano bottoni (vedi TaskChoiceRow): lì la card la
+              stai già guardando apposta. */}
+          <div className="flex items-center gap-1">
+            <input
+              ref={freeTextRef}
+              value={freeText} disabled={busy}
+              onChange={(e) => setFreeText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
+              placeholder={tr('board.card.steerPlaceholder')}
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
+            />
+            <button
+              disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
+              title={tr('board.card.steerSendTitle')}
+              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
+            ><Send className="h-3.5 w-3.5" /></button>
+            <TaskChoiceMenu
+              task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
+              ariaLabel={tr('board.card.turnActions')}
+            />
+          </div>
+        </div>
+      )}
+      {/* Bloccata: le scelte sono le uniche due uscite dall'attesa (togliere il
+          legame, o toglierlo e farla partire). Senza, la card resta ferma e
+          l'unico modo per muoverla è aprire il drawer e cercare il picker. */}
+      {choiceState === 'blocked' && (
+        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+          <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
+        </div>
+      )}
+      {/* The review's EXITS: the choices, and the field that says why. They
+          sit below the card's foot because they are CONTROLS, and controls
+          come after everything you read in order to decide. */}
+      {task.status === 'review' && (
+        <div className="mt-2 space-y-1.5">
           {replyOptions.length > 0 && (
             <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
               {replyOptions.map((opt, i) => (

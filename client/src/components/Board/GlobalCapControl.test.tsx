@@ -213,10 +213,21 @@ describe('both surfaces mount it, and neither writes on its own', () => {
     expect(/from '\.\/BoardSettingsSections'/.test(s)).toBe(true);
   });
 
-  test('the header ▾ menu draws the cap through this component', () => {
+  // Il ▾ accanto al titolo non c'e' piu': era il SECONDO ingresso alle stesse
+  // impostazioni, con una copia sua dello stato dell'auto-dispatch. Restano il
+  // ⚙ e il suo pannello, che montano il blocco condiviso (asserito sopra come
+  // render vero). Quello che qui va tenuto fermo e' che la testata non si
+  // ricrei una porta propria: niente cap montato a mano fuori dal pannello,
+  // niente lettura/scrittura dell'interruttore globale per conto suo.
+  test('ONE settings door: the header does not mount the cap on its own', () => {
     const s = src('KanbanBoardPane.tsx');
-    expect(/<GlobalCapControl[\s/>]/.test(s)).toBe(true);
-    expect(/from '\.\/GlobalCapControl'/.test(s)).toBe(true);
+    expect(/<GlobalCapControl[\s/>]/.test(s)).toBe(false);
+    expect(/from '\.\/GlobalCapControl'/.test(s)).toBe(false);
+    // UNA sola lettura dell'interruttore globale in tutta la barra: quella che
+    // alimenta lo stato passato al pannello. Due letture erano due copie, ed e'
+    // il difetto per cui il ▾ mostrava «spento» mentre il pannello diceva
+    // «acceso».
+    expect(s.split('getGlobalDispatch').length - 1).toBe(1);
   });
 
   test('the ⚙ is not gated on having a project, or the general board loses it', () => {

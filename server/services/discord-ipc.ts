@@ -320,6 +320,40 @@ function tryOne(
 let nonceSeq = 0;
 
 /**
+ * Il nome dell'applicazione, come lo conosce Discord.
+ *
+ * Non arriva col READY — verificato leggendo il frame: li' ci sono solo `v`,
+ * `config` e `user`. Arriva invece nella risposta a un SET_ACTIVITY, dove
+ * Discord rimanda l'activity come l'ha salvata, con dentro `name`.
+ *
+ * Serve perche' quel nome lo decide il portale sviluppatori e nessuno puo'
+ * indovinarlo dal codice: l'anteprima nel pannello scriveva «Topics» a mano
+ * mentre la card vera diceva «Jarvis».
+ */
+export function onActivityAck(
+  socket: IpcSocket,
+  cb: (ack: { applicationName: string | null; error: string | null }) => void,
+): void {
+  const decode = createFrameDecoder();
+  socket.on("data", (chunk: Uint8Array) => {
+    for (const frame of decode(chunk)) {
+      const p = frame.payload as { cmd?: string; evt?: string; data?: Record<string, unknown> } | undefined;
+      if (p?.cmd !== "SET_ACTIVITY") continue;
+      if (p.evt === "ERROR") {
+        const messaggio = p.data?.message;
+        cb({
+          applicationName: null,
+          error: typeof messaggio === "string" ? messaggio : "SET_ACTIVITY rifiutato",
+        });
+        continue;
+      }
+      const nome = p.data?.name;
+      cb({ applicationName: typeof nome === "string" ? nome : null, error: null });
+    }
+  });
+}
+
+/**
  * Scrive un SET_ACTIVITY. `activity: null` PULISCE la presence — che è ciò che
  * deve succedere quando l'ultima sessione si chiude: uno stato appeso è peggio
  * di nessuno stato, perché dice una cosa falsa a tempo indeterminato.

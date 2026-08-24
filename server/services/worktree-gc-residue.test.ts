@@ -25,9 +25,10 @@ import { sweepWorktrees, decideWorktreeReap, type GcWorktree, type TaskStatus, t
 import { commitWorktreeResidue, RESIDUE_SUBJECT } from "./worktree-residue";
 import { worktreeDirtProbe } from "./task-automerge";
 import { branchStatusFromRepo } from "./branch-status";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
   return { code: r.exitCode, out: new TextDecoder().decode(r.stdout).trim() };
 }
 const branchResolves = (repo: string, b: string) =>

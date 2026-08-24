@@ -4,9 +4,10 @@ import type { GitRunResult } from "./own-commits";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): void {
-  Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
 }
 
 /**
@@ -28,7 +29,7 @@ describe("worktree-base-ref — su git vero", () => {
     root = mkdtempSync(join(tmpdir(), "wt-base-ref-"));
 
     conMain = join(root, "con-main");
-    Bun.spawnSync(["git", "init", "-q", "-b", "main", conMain], { stdout: "pipe", stderr: "pipe" });
+    Bun.spawnSync(["git", "init", "-q", "-b", "main", conMain], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
     git(conMain, "config", "user.email", "t@t");
     git(conMain, "config", "user.name", "t");
     writeFileSync(join(conMain, "a.txt"), "base");
@@ -42,7 +43,7 @@ describe("worktree-base-ref — su git vero", () => {
     git(conMain, "commit", "-q", "-m", "commit di un'altra card");
 
     senzaMain = join(root, "senza-main");
-    Bun.spawnSync(["git", "init", "-q", "-b", "sviluppo", senzaMain], { stdout: "pipe", stderr: "pipe" });
+    Bun.spawnSync(["git", "init", "-q", "-b", "sviluppo", senzaMain], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
     git(senzaMain, "config", "user.email", "t@t");
     git(senzaMain, "config", "user.name", "t");
     writeFileSync(join(senzaMain, "a.txt"), "base");

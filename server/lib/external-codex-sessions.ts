@@ -3,7 +3,7 @@
  *
  * PERCHE' UN TERZO SCANNER
  * Il registro dei provider nasce il 23/08 per far entrare jcode. Codex era il
- * caso di prova di quella promessa: misurato sulla macchina di chi usa l'app, tre
+ * caso di prova di quella promessa: misurato su una macchina vera, tre
  * sessioni toccate nelle ultime 8 ore che nessuna superficie contava. Se
  * aggiungere un provider non fosse costato poco, il registro non sarebbe
  * servito a niente.
@@ -54,7 +54,7 @@ import {
  * La testa: deve contenere per intero la `session_meta`, che e' la prima riga.
  *
  * Non e' una riga corta: porta con se' le istruzioni di base della sessione e
- * sul disco di quella macchina misura ~19KB. Con una testa da 16KB il JSON arrivava
+ * misura ~19KB sul disco. Con una testa da 16KB il JSON arrivava
  * troncato, non parsava, e OGNI sessione Codex spariva dal censimento senza
  * un errore: 64KB per stare larghi.
  */
@@ -184,14 +184,32 @@ function collectFiles(
   }
 }
 
+/**
+ * Una riga del rollout, per come ci serve leggerla.
+ *
+ * Non e' lo schema di Codex: e' il sottoinsieme che questo scanner guarda.
+ * Dichiararlo invece di usare `any` costa quattro righe e in cambio il
+ * compilatore accorge chi scrive `payload.cwdd`.
+ */
+interface RigaCodex {
+  type?: string;
+  payload?: {
+    session_id?: unknown;
+    id?: unknown;
+    cwd?: unknown;
+    originator?: unknown;
+    type?: unknown;
+  };
+}
+
 /** La prima `session_meta` trovata nella testa del file. */
 function parseHead(text: string): { sessionId: string | null; cwd: string | null; originator: string | null } {
   for (const line of text.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("{")) continue;
-    let o: any;
+    let o: RigaCodex | undefined;
     try {
-      o = JSON.parse(t);
+      o = JSON.parse(t) as RigaCodex;
     } catch {
       // La testa tronca l'ultima riga: normale, si prosegue.
       continue;
@@ -219,9 +237,9 @@ function tailSaysFinished(text: string): boolean {
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i]!.trim();
     if (!t.startsWith("{")) continue;
-    let o: any;
+    let o: RigaCodex | undefined;
     try {
-      o = JSON.parse(t);
+      o = JSON.parse(t) as RigaCodex;
     } catch {
       continue;
     }
@@ -237,9 +255,9 @@ function tailCwd(text: string): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i]!.trim();
     if (!t.startsWith("{")) continue;
-    let o: any;
+    let o: RigaCodex | undefined;
     try {
-      o = JSON.parse(t);
+      o = JSON.parse(t) as RigaCodex;
     } catch {
       continue;
     }

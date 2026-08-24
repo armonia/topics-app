@@ -29,7 +29,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ExternalClaudeSession } from "./external-claude-sessions";
-import { DEFAULT_ACTIVE_MS, DEFAULT_WINDOW_MS } from "./external-claude-sessions";
+import {
+  DEFAULT_ACTIVE_MS,
+  DEFAULT_WINDOW_MS,
+  resolveOwningProject,
+} from "./external-claude-sessions";
 
 export interface ScanJcodeOptions {
   /** Dove jcode tiene le sessioni. Iniettabile per i test. */
@@ -58,6 +62,18 @@ export interface ScanJcodeOptions {
   isAlive?: (pid: number) => boolean;
   /** Quante sessioni al massimo leggere, dalla piu' recente. */
   limit?: number;
+  /**
+   * Le radici di progetto note, per dire A QUALE progetto appartiene un cwd.
+   *
+   * Senza, ogni sessione jcode resta senza progetto e sparisce da tutto cio'
+   * che ragiona per progetto: il badge sulla board e la guardia del
+   * dispatcher, che rifiuta di calare un agente dove qualcuno sta gia'
+   * lavorando. Misurato il 23/08: 13 sessioni jcode su 13 erano orfane,
+   * comprese quelle aperte dentro `topics-app` stesso.
+   */
+  candidatePaths?: string[];
+  /** Il board id di una radice. */
+  projectIdFor?: (path: string) => string;
 }
 
 function aliveByDefault(pid: number): boolean {
@@ -101,6 +117,8 @@ export function scanJcodeSessions(opts: ScanJcodeOptions = {}): ExternalClaudeSe
   const windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
   const isAlive = opts.isAlive ?? aliveByDefault;
   const limit = opts.limit ?? 200;
+  const candidatePaths = opts.candidatePaths ?? [];
+  const projectIdFor = opts.projectIdFor ?? (() => "");
 
   if (!existsSync(dir)) return [];
 
@@ -144,11 +162,13 @@ export function scanJcodeSessions(opts: ScanJcodeOptions = {}): ExternalClaudeSe
     // ogni sessione mai aperta con questo server risulta al lavoro.
     const active = stato === "active" && pid !== null && isAlive(pid) && age <= activeMs;
 
+    const projectPath = resolveOwningProject(cwd, candidatePaths);
+
     out.push({
       sessionId: (typeof d.id === "string" ? d.id : f.path).replace(/^.*\//, "").replace(/\.json$/, ""),
       cwd,
-      projectPath: null,
-      projectId: null,
+      projectPath,
+      projectId: projectPath ? projectIdFor(projectPath) : null,
       branch: branchOf(cwd),
       entrypoint: "jcode",
       lastActivityMs: f.mtimeMs,

@@ -25,9 +25,10 @@ import { runLandingAudit, type AuditWiring } from "./landing-audit-pass";
 import type { AuditTask, LandingState } from "./landing-audit";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
   return new TextDecoder().decode(r.stdout).trim();
 }
 

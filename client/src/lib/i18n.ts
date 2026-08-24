@@ -971,6 +971,12 @@ const IT: Dict = {
   'board.card.deliveryFilesEmpty': 'nessun file nel commit di consegna',
   'board.card.deliveryFilesMore': 'e altri {n}',
   'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
+  // The turn is still running: the delivery counters do not exist, and what
+  // you read is the worktree as it stands right now.
+  'board.card.gitChanges': 'modifiche git',
+  'board.card.gitChangesTitle': '{files} file, +{add} -{del} righe nel worktree della card, adesso.',
+  'board.card.gitChangesLiveTitle': 'I file che l\'agente ha cambiato finora nel worktree della card. Apri per vederli.',
+  'board.card.gitChangesEmpty': 'nessun file cambiato, per ora',
   // Il VERDE si dice: senza, una card senza chip poteva voler dire «passati»
   // oppure «mai eseguiti», due situazioni opposte davanti allo stesso gesto.
   'board.card.checksGreen': 'check verdi',
@@ -1281,6 +1287,7 @@ const IT: Dict = {
   'discord.level.activity.hint': 'Numeri, che non nominano nessun cliente.',
   'discord.level.detailed': 'Anche il nome del progetto',
   'discord.level.detailed.hint': 'È l’unico livello che fa uscire di qui una parola che non hai scelto per quel pubblico.',
+  'discord.appNameUnknown': 'non collegato',
   'discord.preview': 'Cosa vedono gli altri',
   'discord.previewEmpty': 'Con nessuna sessione aperta la presence si svuota: non resta appesa.',
   'discord.previewNote': 'È la stessa cosa che viene pubblicata, non un’imitazione. La lingua segue quella scelta per l’app.',
