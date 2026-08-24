@@ -9963,7 +9963,6 @@ pub fn run() {
             // app vanishing, so the update gets offered instead of taken.
             if dev_auto_update_enabled() {
                 let handle = app.handle().clone();
-                let launched_at = std::time::Instant::now();
                 tauri::async_runtime::spawn(async move {
                     use tauri::Manager;
                     use tauri_plugin_updater::UpdaterExt;

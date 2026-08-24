@@ -13,22 +13,36 @@
  * literals written in two places, and a render test goes green again the moment
  * someone types a third one somewhere else. What is pinned is that the row
  * NAMES its measurements instead of spelling them.
+ *
+ * THE ADDRESS MOVED, THE CLAIM DID NOT. The chips used to be built inline in
+ * `KanbanBoardPane.tsx` and this file read that source. The topbar rework put
+ * the chip, its menu and its suggestions into one component, so the row now
+ * names its measurements in `ProjectFilterPicker.tsx` — one declaration each,
+ * reached by both chips. Reading the old file would have made this go red on a
+ * change that KEEPS the rule; reading the new one keeps asking the question the
+ * fault asked. The topbar is checked too, so the literals cannot come back
+ * there.
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const sorgente = readFileSync(join(import.meta.dir, 'KanbanBoardPane.tsx'), 'utf8');
-
 /** The source without prose: the comments NAME the literals the fix removed. */
-const codice = sorgente
+const senzaProsa = (s: string) => s
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/^\s*\/\/.*$/gm, '');
 
+const leggi = (f: string) => senzaProsa(readFileSync(join(import.meta.dir, f), 'utf8'));
+
+const codice = leggi('ProjectFilterPicker.tsx');
+const topbar = leggi('KanbanBoardPane.tsx');
+
 describe('the project chips: one width, one icon box', () => {
   it('no chip spells its own max width: the two caps were 11rem and 13rem', () => {
-    expect(codice).not.toContain('max-w-[11rem]');
-    expect(codice).not.toContain('max-w-[13rem]');
+    for (const src of [codice, topbar]) {
+      expect(src).not.toContain('max-w-[11rem]');
+      expect(src).not.toContain('max-w-[13rem]');
+    }
     expect(codice).toContain('CHIP_MAX');
   });
 
@@ -38,6 +52,8 @@ describe('the project chips: one width, one icon box', () => {
     // The chip that opens the menu, and the suggestions next to it.
     const usi = codice.match(/\$\{CHIP_MAX\}/g) ?? [];
     expect(usi.length).toBeGreaterThanOrEqual(2);
+    // And the name is not re-declared where the chips used to live.
+    expect(topbar).not.toContain('const CHIP_MAX');
   });
 
   it('the icon slot is reserved for everyone, favicon or not', () => {
@@ -46,19 +62,22 @@ describe('the project chips: one width, one icon box', () => {
     // what `ChipIcon` is: a project with no icon on disk must not shift the
     // name next to it.
     expect(codice).toContain('function ChipIcon');
-    expect(codice).toContain('const CHIP_ICON_BOX = 12');
-    // And no PROJECT chip draws a naked favicon, or a bare dot where an icon
-    // should be reserved. The scope is the project chips only: the priority
-    // chip next to them draws the same small circle, but there it is the
-    // subject itself and not the stand-in for a missing icon - checking the
-    // whole file would have called that a fault too.
-    const inizio = codice.indexOf('{showProjects && (');
-    const fine = codice.indexOf('{/* Priority');
-    expect(inizio, 'project chips block not found').toBeGreaterThan(-1);
-    const chipProgetti = fine > inizio ? codice.slice(inizio, fine) : codice.slice(inizio);
-    expect(chipProgetti).not.toContain('<ProjectFavicon');
-    expect(chipProgetti).not.toContain('border border-app-text-faint');
-    // They go through the shared slot instead.
-    expect(chipProgetti).toContain('<ChipIcon');
+    expect(codice).toContain('const ICON_BOX = 12');
+    // And no chip draws a naked favicon, or a bare dot where an icon should be
+    // reserved: everything goes through the shared slot. Measured with
+    // `ChipIcon` itself cut out, because inside it BOTH are correct - the
+    // favicon sized to the box, and the dot as the box's own fallback.
+    const inizio = codice.indexOf('function ChipIcon');
+    const fine = codice.indexOf('export function ProjectFilterPicker');
+    expect(inizio, 'ChipIcon not found').toBeGreaterThan(-1);
+    expect(fine, 'ProjectFilterPicker not found').toBeGreaterThan(inizio);
+    const fuoriDallaScatola = codice.slice(0, inizio) + codice.slice(fine);
+    expect(fuoriDallaScatola).not.toContain('<ProjectFavicon');
+    expect(fuoriDallaScatola).not.toContain('border border-app-text-faint');
+    expect(codice).toContain('<ChipIcon');
+    // The topbar hands the row over whole: it must not draw a project chip of
+    // its own any more, or the two would drift apart exactly as before.
+    expect(topbar).not.toContain('<ProjectFavicon');
+    expect(topbar).toContain('<ProjectFilterPicker');
   });
 });
