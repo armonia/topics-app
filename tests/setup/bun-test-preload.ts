@@ -127,6 +127,20 @@ setDefaultTimeout(applicato);
  * sta caricando in quel momento (vedi il commento del timeout, misurato), ma
  * le variabili d'ambiente si scrivono sul PROCESSO e restano. Verificato su
  * due file nella stessa corsa: entrambi vedono `core.hooksPath` isolato.
+ *
+ * QUI DENTRO NON VA L'IDENTITA' (`user.name` / `user.email`), e la prima
+ * versione ci era finita rompendo due test. `server/lib/git-identity.test.ts`
+ * simula una macchina SENZA identita' per provare il ripiego che sblocca il
+ * land: lo fa con un `GIT_CONFIG_GLOBAL` finto e `user.useConfigOnly`. Le
+ * chiavi passate da `GIT_CONFIG_*` battono quel file, quindi un'identita'
+ * messa qui rendeva la condizione impossibile da simulare e il test verde
+ * diventava rosso — mascherando per giunta un guasto vero, il commit che su
+ * un runner senza identita' esce 128.
+ *
+ * La regola che ne esce: qui si toglie di mezzo cio' che la macchina AGGIUNGE
+ * ai test (hook, firma), non si aggiunge cio' che a un test potrebbe servire.
+ * Chi ha bisogno di un'identita' se la passa lui, che e' anche l'unico modo di
+ * poterne provare l'assenza.
  */
 function isolaGitDaAmbiente(): void {
   // `GIT_CONFIG_COUNT` + le coppie chiave/valore: la via ufficiale per
@@ -139,10 +153,6 @@ function isolaGitDaAmbiente(): void {
     // percorso assoluto che non esiste: git non trova nulla e non esegue nulla.
     ["core.hooksPath", "/nonexistent/topics-test-hooks"],
     ["commit.gpgsign", "false"],
-    // Un repo di prova non ha bisogno di sapere chi lo committa, ma git si
-    // rifiuta di committare se non glielo si dice.
-    ["user.name", "Topics Test"],
-    ["user.email", "test@topics.invalid"],
   ];
   // Non si sovrascrive un conteggio gia' impostato da chi ci ha lanciati:
   // si accoda, altrimenti gli si buttano via le sue chiavi.
