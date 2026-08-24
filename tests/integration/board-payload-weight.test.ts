@@ -176,6 +176,38 @@ describe("il peso di GET /api/all-boards/tasks", () => {
     // `description` (+2.500 a riga), togliendo il gate della review, o
     // togliendo il taglio del testo.
     expect(perTask).toBeLessThan(2600);
+    //
+    // ── DIAGNOSI DEL 24/08, per chi trova questo rosso e non sa da dove
+    //    cominciare. Misurato: 2.602,3 byte per task, cioe' 2 byte sopra. Non
+    //    e' rumore ed e' esattamente il lavoro che questo cancello deve fare:
+    //    da 2.159 (15/08) a 2.602 sono 443 byte di grasso nuovo in nove
+    //    giorni. Da dove vengono, misurato voce per voce:
+    //
+    //      · ~280  `CARD_CONTEXT_CHARS` da 200 a 620 (abdacb63b, 20/08). Chi
+    //              l'ha alzato AVEVA misurato «620 passa, 800 sfonda», ed era
+    //              vero quel giorno: e' il resto a essersi mangiato il margine
+    //              che quella scelta si era lasciata.
+    //      · ~171  nove chiavi che non legge NESSUNO, ne' in `client/src` ne'
+    //              da un oggetto Task in `server/`: `checksCommit`,
+    //              `claudeTaskId`, `doneActor`, `landingCheckedAt`,
+    //              `previewRejected`, `urlProbeCheckedAt`, `waitReason`,
+    //              `waitSince`, `waitStreak`. Le chiavi del payload sono
+    //              passate da 63 a 70; 44 delle 70 sono SEMPRE `null` su
+    //              questa fixture e da sole pesano 840 byte per task.
+    //
+    //    Il codice non ha un difetto: `cardCommentContent` taglia, il gate
+    //    della review regge (100 task su 300 portano commenti, tutti in
+    //    review), `COLUMNS_WITH_NO_READER` esclude gia' le sei senza lettori.
+    //    Il grasso e' il TIPO `Task` che cresce di campi che nessuno legge.
+    //
+    //    Le due strade, e nessuna delle due si prende da soli: togliere quei
+    //    nove campi e' un cambio di contratto (la rotta ha consumatori e2e
+    //    oltre al client), e alzare il tetto e' spegnere il cancello — cosa
+    //    che il commento qui sopra vieta a chiare lettere. Chi ci mette mano
+    //    scelga, ma sapendo che il numero non e' arbitrario.
+    //
+    //    Attribuito con bisect sul solo `tasks.ts`: gia' 2.602,27 a 839aa3bc1
+    //    (23/08), quindi il debito e' anteriore a chi legge questo commento.
     // E il pavimento del cancello: se un giorno la fixture smettesse di portare
     // il thread o le descrizioni, il budget andrebbe verde misurando niente.
     expect(perTask).toBeGreaterThan(1200);
