@@ -408,6 +408,29 @@ async function checkExistingBridge() {
   // instead of evicting it and becoming the next one to be evicted.
   if (probe.reason === 'timeout' && ownerAlive) return 'busy';
 
+  // ANCHE SENZA UN PID REGISTRATO. Un `timeout` non e' silenzio: la connessione
+  // e' stata ACCETTATA, quindi su quel socket c'e' un processo in ascolto,
+  // qualunque cosa dica (o non dica) il file dei pid. Un socket morto non
+  // accetta: da' `connect-error` (ECONNREFUSED), che e' il caso in cui subentrare
+  // e' giusto.
+  //
+  // Senza questa riga c'era una finestra stretta ma reale, misurata il 24/08
+  // facendo correre cinque daemon sullo stesso socket: il vincitore scrive il
+  // pid DENTRO il callback di `listen()`, quindi fra `listen()` e
+  // `writeFileSync(pidPath)` esiste un istante in cui il socket accetta gia' e
+  // il pid file non c'e'. Un daemon che sondava li' dentro otteneva `timeout`
+  // con `ownerAlive` falso, cadeva in `free`, faceva `unlink` del socket vivo e
+  // si metteva in ascolto al suo posto: DUE processi «Listening» sullo stesso
+  // path, nessuno dei due raggiungibile da chi si collega dopo. Osservato:
+  // 2 fallimenti su 12 esecuzioni del caso «five daemons racing», con due
+  // righe `Listening` nello stesso log e nessun `unreachable`.
+  //
+  // Il rischio opposto (uscire quando invece si doveva subentrare) non si
+  // aggrava: se davvero non ascolta nessuno la sonda torna `connect-error`, non
+  // `timeout`, e la riga sotto continua a valere. Chi ci ha lanciati riprova a
+  // collegarsi, che e' quello che deve succedere quando qualcuno c'e' gia'.
+  if (probe.reason === 'timeout') return 'busy';
+
   if (ownerAlive) {
     console.error(`[AI Bridge] Recorded owner ${recordedPid} unreachable (${probe.reason}). SIGTERM.`);
     try { process.kill(recordedPid, 'SIGTERM'); } catch {}
@@ -473,14 +496,34 @@ async function start() {
     socket.on('error', drop);
   });
 
+  // IL PID PRIMA DI `listen()`, non dentro il suo callback.
+  //
+  // Scriverlo dopo lasciava una finestra in cui il socket accetta gia' e il
+  // file non esiste: chi sondava li' dentro vedeva un `timeout` senza un owner
+  // registrato, concludeva che il socket fosse abbandonato e subentrava a un
+  // processo vivo. `checkExistingBridge` ora regge lo stesso quel caso (un
+  // `timeout` prova che qualcuno ascolta), ma quella e' la rete: qui si toglie
+  // di mezzo la finestra.
+  //
+  // Se `listen()` fallisce il file resta scritto per un istante: il gestore di
+  // `error` qui sotto lo cancella prima di uscire. Prima non doveva farlo,
+  // perche' il pid nasceva solo a `listen()` riuscita; anticipandolo, quella
+  // pulizia diventa necessaria, altrimenti un daemon che non e' mai partito
+  // lascia in giro un pid che dice il contrario.
+  fs.writeFileSync(pidPath, String(process.pid));
+
   server.listen(socketPath, () => {
-    // Pid file BEFORE releasing the lock: whoever grabs the lock next must be
-    // able to read a valid owner, or it falls into the eviction branch.
-    fs.writeFileSync(pidPath, String(process.pid));
     releaseTakeoverLock();
     console.error(`[AI Bridge] Listening on ${socketPath} (PID ${process.pid}), store ${storeDir}`);
   });
-  server.on('error', (err) => { console.error(`[AI Bridge] Server error: ${err.message}`); releaseTakeoverLock(); process.exit(1); });
+  server.on('error', (err) => {
+    console.error(`[AI Bridge] Server error: ${err.message}`);
+    // Il pid l'abbiamo scritto PRIMA di listen(): se non siamo partiti, non
+    // deve restare a dire che questo processo possiede il socket.
+    try { fs.unlinkSync(pidPath); } catch {}
+    releaseTakeoverLock();
+    process.exit(1);
+  });
 
   setInterval(sweepStore, SWEEP_EVERY_MS).unref();
 
