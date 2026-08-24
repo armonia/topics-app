@@ -139,7 +139,30 @@ describe("ai-bridge · socket ownership", () => {
       if (!taken) await Bun.sleep(100);
     }
     expect(taken).toBe(true);
-    expect(readFileSync(pidPathFor(sock), "utf8").trim()).toBe(String(proc.pid));
+    // ASPETTARE ANCHE IL PID, e non solo l'ascolto: sono due eventi, in
+    // quest'ordine, e il test guardava fra l'uno e l'altro.
+    //
+    // Nel daemon il pid si scrive DENTRO il callback di `listen()`
+    // (ai-bridge.mjs: `server.listen(...)` poi `writeFileSync(pidPath)`),
+    // quindi c'e' una finestra in cui il socket risponde gia' e il file non
+    // esiste ancora. `someoneListening` la vede aperta e il `readFileSync`
+    // subito dopo esplodeva con ENOENT. Misurato nella suite intera: l'ascolto
+    // c'era dopo 300ms, il pid file no.
+    //
+    // Non e' un difetto del daemon: scrive il pid PRIMA di rilasciare il lock,
+    // che e' l'ordine che conta per chi si contende il socket. E' il test che
+    // trattava due eventi come uno. Stessa pazienza dell'attesa qui sopra,
+    // perche' il motivo e' lo stesso: sotto carico ogni passo dura di piu'.
+    let pid: string | null = null;
+    const pidDeadline = Date.now() + 25_000;
+    while (Date.now() < pidDeadline && pid === null) {
+      try {
+        pid = readFileSync(pidPathFor(sock), "utf8").trim();
+      } catch {
+        await Bun.sleep(100);
+      }
+    }
+    expect(pid).toBe(String(proc.pid));
   }, 40_000);
 
   test("five daemons racing for a free socket leave exactly ONE listening", async () => {
