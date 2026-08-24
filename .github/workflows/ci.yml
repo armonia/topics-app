@@ -206,6 +206,18 @@ jobs:
           # Salta da se dove il dizionario non c e, e lo dice.
           bun run check:identifier-language
           bun run check:sleeps
+          bun run check:spec-coverage
+
+      # `check:spec-coverage` chiude la fila e misura il legame fra i requisiti di
+      # `openspec/specs/` e i test che dicono di provarli. Non l'ha inventato:
+      # 274 test in 45 file usavano già `annotations.push({type:"spec"})`, e di
+      # quei 99 id solo 35 risolvevano a un requisito vero. Il resto era una
+      # tracciabilità che sembrava esserci. Tre invarianti, tutte a RATCHET su
+      # `openspec/coverage-baseline.json` come `check:sleeps` e `check:bloat`,
+      # per la stessa ragione: nate assolute nascerebbero rosse (47 requisiti
+      # senza test dichiarato) e verrebbero spente. La baseline si consuma —
+      # una voce che non è più violata fa fallire il check, così scende invece
+      # di restare a coprire un debito già pagato.
 
       # `check:sleeps` è l'ultimo di questa fila e conta una cosa sola:
       # `waitForTimeout` sotto `tests/e2e/`. `tests/e2e/CONVENTIONS.md:16` lo

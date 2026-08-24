@@ -119,8 +119,33 @@ export async function cleanupTestDataDir(dir: string): Promise<void> {
 /**
  * Create an `AppContext` rooted at the repo root + stub broadcastToAll
  * to a no-op. Same call shape every test had inline.
+ *
+ * ── PERCHE' QUI C'E' UNA GUARDIA ────────────────────────────────────────────
+ * Il contesto apre il database, e QUALE database dipende da `DATA_DIR`. Senza
+ * quella variabile `server/db.ts` ripiega sulla radice del repo, cioe' su
+ * `data/topics.db`: il DATABASE DI PRODUZIONE, quello dell'app che l'utente ha
+ * aperta in questo momento. Un test che scorda `setupTestDataDir` non fallisce
+ * — passa, e passa scrivendo sui dati veri.
+ *
+ * Non e' un'ipotesi: il 25/08/2026 e' successo. `topic-links.test.ts` ha creato
+ * 24 topic nel DB vivo prima che qualcuno se ne accorgesse, e l'unico indizio
+ * era una riga di log («Opened existing database at …/data/topics.db») in mezzo
+ * a un verde. Gli altri 24 file che usano questo helper facevano gia' la cosa
+ * giusta, quindi la guardia nasce verde: costa zero e chiude una porta che si
+ * apre in silenzio.
  */
 export async function createTestAppContext(): Promise<AppContext> {
+  const dataDir = process.env.DATA_DIR;
+  if (!dataDir || !isUnderTestTmp(dataDir)) {
+    throw new Error(
+      `createTestAppContext: DATA_DIR ${dataDir ? `= "${dataDir}"` : "non impostata"}, ` +
+        `quindi il contesto aprirebbe il database di PRODUZIONE (data/topics.db). ` +
+        `Isola il file prima di creare il contesto:\n` +
+        `  const ROOT = testTmpDir("<label>");\n` +
+        `  beforeAll(() => setupTestDataDir(join(ROOT, "data")));\n` +
+        `  afterAll(() => cleanupTestDataDir(ROOT));`,
+    );
+  }
   const { createAppContext } = await import("../../../server/utils");
   const ctx = createAppContext(PROJECT_ROOT);
   (ctx as { broadcastToAll: (msg: object) => void }).broadcastToAll = () => {};
