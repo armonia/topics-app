@@ -3,9 +3,10 @@
 #
 # PERCHE' ESISTE: il nome che Discord mostra sul profilo ("sta giocando a ...")
 # e' il nome dell'APPLICAZIONE registrata con quel Client ID, non qualcosa che
-# il nostro codice possa scegliere. Oggi Topics usa l'app 1467514747988611174,
-# che si chiama «Jarvis» ed e' la stessa del bot: rinominarla farebbe comparire
-# «Topics» sul profilo ma cambierebbe il nome del bot ovunque.
+# il nostro codice possa scegliere. Il default storico era 1467514747988611174,
+# che si chiama «Jarvis» ed e' la stessa app del bot: rinominarla avrebbe
+# cambiato il nome del bot ovunque. Dal 24/08 questa installazione punta a
+# un'app dedicata («Topics»), impostata proprio con questo script.
 #
 # La via pulita e' una SECONDA applicazione, chiamata «Topics», usata solo per
 # la presence. Crearla richiede l'account umano (i token bot ricevono 403 su
@@ -72,8 +73,15 @@ sleep 2
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 # Non basta che riparta: deve ricollegarsi a Discord e pubblicare.
-for _ in $(seq 1 20); do
-  sleep 3
+#
+# La finestra e' larga apposta. Discord chiude senza mai mandare READY quando
+# gli handshake arrivano troppo ravvicinati (misurato: il terzo di fila su
+# discord-ipc-0 scade, il primo risponde in 0,5s), e il servizio ritenta ogni
+# 60s (RETRY_MS.timeout in discord-presence.ts). Con 60 secondi totali il primo
+# tentativo cade quasi sempre nel buco e il ritentativo buono resta fuori dal
+# recinto: lo script dichiarava fallito un cambio che invece riusciva 70s dopo.
+for _ in $(seq 1 50); do
+  sleep 4
   OUT=$(curl -sk -m 5 "$API/api/profile/discord" 2>/dev/null || true)
   [[ -z "$OUT" ]] && continue
   CONN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["connection"])' <<<"$OUT" 2>/dev/null || echo "")
@@ -105,9 +113,11 @@ done
 echo >&2
 echo "La presence non si e' collegata (stato: ${CONN:-sconosciuto})." >&2
 if [[ "${LAST_ERR:-}" == *"READY"* ]]; then
-  echo "Discord non ha risposto READY: quasi sempre significa che" >&2
-  echo "l'applicazione $ID non appartiene a questo account." >&2
-  echo "Creane una TUA su https://discord.com/developers/applications." >&2
+  echo "Discord non ha mai risposto READY." >&2
+  echo "NON significa che l'app non e' tua: l'handshake fallisce anche quando" >&2
+  echo "le connessioni al socket sono troppo ravvicinate, e in quel caso" >&2
+  echo "riprovare fra un minuto basta. Per sapere quale dei due e', chiedi" >&2
+  echo "all'IPC a mano: se un handshake isolato risponde READY, l'app e' tua." >&2
 elif [[ -n "${LAST_ERR:-}" ]]; then
   echo "Discord dice: $LAST_ERR" >&2
 fi

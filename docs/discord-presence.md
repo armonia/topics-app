@@ -37,6 +37,26 @@ Se sulla stessa macchina un altro programma pubblica la presence, l'ultimo che
 scrive vince e la card sfarfalla fra due verità. Prima di accendere
 l'interruttore di Topics, ferma l'altro.
 
+## Il nome in cima alla card non lo scegliamo noi
+
+La riga grande («sta giocando a ...») è il nome dell'**applicazione** registrata
+col Client ID che stiamo usando, non `large_text` né una costante nostra. Il
+pannello lo espone come `status.applicationName` leggendolo dalla risposta di
+Discord a `SET_ACTIVITY`, quindi l'anteprima non può divergere dalla card vera.
+
+Cambiarlo vuol dire puntare a un'altra applicazione: `DISCORD_CLIENT_ID`, o
+`scripts/set-discord-app.sh <ID>` che la scrive nel LaunchAgent e verifica il
+collegamento. Il default nel codice resta l'app del bot («Jarvis»): condividerla
+significa che il nome sulla card è il nome del bot.
+
+**Un handshake senza READY non vuol dire «l'app non è tua».** Discord chiude in
+silenzio anche quando le connessioni al socket sono troppo ravvicinate: misurato
+su `discord-ipc-0`, il primo handshake risponde in mezzo secondo e il terzo di
+fila scade. Il servizio ritenta da sé dopo un minuto (`RETRY_MS.timeout`), e in
+quel giro il collegamento riesce. Prima di dare la colpa alle credenziali, fai
+un handshake isolato: se risponde READY, l'applicazione è tua e stavi solo
+guardando troppo presto.
+
 ## Da dove vengono i numeri
 
 Conteggi esatti del server, non stime:
