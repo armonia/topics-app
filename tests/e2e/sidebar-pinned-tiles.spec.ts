@@ -117,7 +117,7 @@ test.describe("Sidebar — tessere fissate", () => {
     await setPins(page, [a.id, b.id, chiaveProj, figlia.id], [[a.id], [b.id], [chiaveProj], [figlia.id]]);
     await gotoSidebar(page);
 
-    // FERMO, non subito. The accordion chevron carries `transition-transform
+    // SETTLED, not immediate. The accordion chevron carries `transition-transform
     // duration-150`, and its bounding box is the box of a ROTATING square: 12px
     // at rest, up to 16.97 crossing 45 degrees. Sampled frame by frame it walks
     // 16.12 -> 12.00 while its ink slides 5.94 -> 8.00, which is precisely the
