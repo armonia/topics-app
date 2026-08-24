@@ -147,8 +147,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await chip.click();
     await expect(page.getByTestId("org-panel")).toBeVisible();
     await page.getByTestId("org-open-manage").click();
-    await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("settings-page-organization")).toBeVisible();
+    // NOT the profile tab any more: the group is not part of your personal
+    // page, so "manage this group" lands in Settings, on the organisation
+    // page. The door is the same one, the room behind it changed.
+    await expect(page.getByTestId("settings-page-organization")).toBeVisible({ timeout: 20000 });
   });
 
   test("PRESENCE-06: il pannello dell'org elenca ANCHE chi non è online", async ({ page }) => {
@@ -408,6 +410,9 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(amici).not.toContainText("Nessuno online");
     // And the panel explains where the people come from, instead of being empty.
     await page.getByTestId("identity-friends-chip").click();
-    await expect(page.getByTestId("friends-panel")).toContainText("organizzazioni");
+    // The panel still answers "where do these people come from", which is the
+    // point of the assertion; it just answers it in the follower model now,
+    // where the old copy said "organisations".
+    await expect(page.getByTestId("friends-panel")).toContainText("Chi segui e chi ti segue");
   });
 });
