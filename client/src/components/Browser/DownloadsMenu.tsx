@@ -89,7 +89,15 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
 
   // Same adjust-during-render rule for the "open it now" request from the tab
   // menu: a bump opens, a reset (new pane identity) only re-syncs.
-  const [seenRequest, setSeenRequest] = useState(requestOpen);
+  //
+  // FROM ZERO, NOT FROM WHAT IT ALREADY IS. A request can be older than this
+  // component: a download arriving while the toolbar is hidden reveals the row
+  // and asks for the list in the SAME render, so this menu first draws with the
+  // counter already raised. Starting the comparison at the current value made
+  // that request unobservable - the button appeared, the list stayed shut - and
+  // it is precisely the case the feature exists for. Zero is also the value a
+  // pane resets to, so a genuinely fresh mount still opens nothing.
+  const [seenRequest, setSeenRequest] = useState(0);
   if (requestOpen !== seenRequest) {
     setSeenRequest(requestOpen);
     if (requestOpen > seenRequest) setWanted(true);

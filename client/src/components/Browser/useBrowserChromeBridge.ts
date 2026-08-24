@@ -110,10 +110,20 @@ export function useBrowserChromeBridge(
   // A DOWNLOAD THAT STARTS BRINGS THE ROW BACK. Its list is anchored to a
   // button that lives there, and a download that announces itself into a hidden
   // row announces itself to nobody. Same during-render adjustment as above.
+  //
+  // AND IT ASKS THE LIST TO OPEN, which is not the same act. The row is
+  // revealed in this very render, so the toolbar - and the downloads menu
+  // inside it - is MOUNTING now: the menu opens itself on a counter that grows
+  // while it watches, and it was not watching when this one grew. It would show
+  // a button nobody asked for and no list behind it. The explicit request
+  // survives the mount instead (see `requestOpen` in DownloadsMenu).
   const [seenStarted, setSeenStarted] = useState(input.downloadsStarted);
   if (input.downloadsStarted !== seenStarted) {
     setSeenStarted(input.downloadsStarted);
-    if (input.downloadsStarted > seenStarted && !revealed) setRevealed(true);
+    if (input.downloadsStarted > seenStarted) {
+      if (!revealed) setRevealed(true);
+      setDownloadsRequestOpen((n) => n + 1);
+    }
   }
 
   const showChrome = revealed || !isRealUrl(url);
