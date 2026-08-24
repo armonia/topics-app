@@ -53,9 +53,13 @@ significa che il nome sulla card è il nome del bot.
 silenzio anche quando le connessioni al socket sono troppo ravvicinate: misurato
 su `discord-ipc-0`, il primo handshake risponde in mezzo secondo e il terzo di
 fila scade. Il servizio ritenta da sé dopo un minuto (`RETRY_MS.timeout`), e in
-quel giro il collegamento riesce. Prima di dare la colpa alle credenziali, fai
-un handshake isolato: se risponde READY, l'applicazione è tua e stavi solo
-guardando troppo presto.
+quel giro il collegamento riesce. Prima di dare la colpa alle credenziali:
+
+    bun run scripts/discord-ipc-probe.ts [APPLICATION_ID]
+
+Un handshake solo, contro Discord vero. Se risponde `READY`, l'applicazione è
+tua e stavi guardando troppo presto. Se scade, rilancialo dopo un minuto: due
+rossi a freddo sono un'altra storia, uno solo no.
 
 ## Da dove vengono i numeri
 

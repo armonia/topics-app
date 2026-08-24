@@ -15,6 +15,7 @@ import net from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import {
   encodeFrame,
   createFrameDecoder,
@@ -93,6 +94,23 @@ describe("ipcCandidates", () => {
     const c = ipcCandidates({ TMPDIR: "/tmp/x/" } as NodeJS.ProcessEnv);
     expect(c.some((p) => p.includes("//"))).toBe(false);
   });
+
+  // Il caso vero: un processo lanciato con la propria scratch dir come TMPDIR
+  // cercava il socket SOLO lì e concludeva «Discord non è in esecuzione» con
+  // Discord aperto. La temp per-utente di macOS va cercata comunque.
+  test.skipIf(process.platform !== "darwin")(
+    "su macOS un TMPDIR sovrascritto non nasconde la temp di sistema",
+    () => {
+      const c = ipcCandidates({ TMPDIR: "/tmp/x" } as NodeJS.ProcessEnv);
+      expect(c).toContain("/tmp/x/discord-ipc-0");
+      // Non si confronta con una costante: il percorso è per-utente, e scriverlo
+      // a mano legherebbe il test a questa macchina.
+      const systemTemp = execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
+        encoding: "utf8",
+      }).trim().replace(/\/+$/, "");
+      expect(c).toContain(`${systemTemp}/discord-ipc-0`);
+    },
+  );
 });
 
 // ── Trasporto: un finto Discord ────────────────────────────────────────────

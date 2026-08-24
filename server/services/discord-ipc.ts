@@ -29,6 +29,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 // ── Protocollo ─────────────────────────────────────────────────────────────
 
@@ -110,6 +111,27 @@ export function createFrameDecoder(): (chunk: Uint8Array) => IpcFrame[] {
 // ── Dove sta il socket ─────────────────────────────────────────────────────
 
 /**
+ * La temp per-utente di macOS (`/var/folders/xx/yyy/T`), quella che Discord usa
+ * davvero, letta senza passare per l'ambiente.
+ *
+ * `getconf` è in `/usr/bin` su ogni macOS e non tocca la rete; se manca o
+ * risponde storto si torna `null` e restano i candidati dell'ambiente, cioè il
+ * comportamento di prima. Un errore qui non deve poter spegnere la ricerca.
+ */
+function darwinUserTempDir(): string | null {
+  try {
+    const out = execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
+      encoding: "utf8",
+      timeout: 2000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return out ? out.replace(/\/+$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * I posti in cui può stare il filo, in ordine di probabilità.
  *
  * Discord numera le istanze: la prima prende `discord-ipc-0`, una seconda (un
@@ -120,6 +142,14 @@ export function createFrameDecoder(): (chunk: Uint8Array) => IpcFrame[] {
  * Su Linux, con Flatpak o Snap, la radice non è `$XDG_RUNTIME_DIR` ma una
  * sottocartella; su Windows non è un file ma una named pipe, e lì `existsSync`
  * non risponde — per questo il filtro «esiste» sta nel chiamante e non qui.
+ *
+ * Su macOS `$TMPDIR` NON è affidabile: è per-processo e chi ci lancia dentro
+ * (un agente con la sua scratch dir, un launchd con `TMPDIR` esplicito) lo
+ * eredita diverso da quello di Discord, che usa sempre la temp per-utente di
+ * `confstr(_CS_DARWIN_USER_TEMP_DIR)`. Fidarsi solo dell'ambiente fa dire
+ * «Discord non è in esecuzione» mentre Discord è aperto: visto davvero, con
+ * `TMPDIR=~/.jcode/scratch`. Quindi su darwin la temp per-utente si cerca
+ * SEMPRE, anche quando l'ambiente ne indica un'altra.
  */
 export function ipcCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   if (process.platform === "win32") {
@@ -132,7 +162,17 @@ export function ipcCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
     env.TEMP ||
     os.tmpdir()
   ).replace(/\/+$/, "");
-  const roots = [base, ...["snap.discord", "app/com.discordapp.Discord", ".flatpak/dev.vencord.Vesktop/xdg-run"].map((s) => path.join(base, s))];
+  const bases = [base];
+  if (process.platform === "darwin") {
+    // `os.tmpdir()` legge $TMPDIR per primo, quindi da solo non basta a
+    // ritrovare la temp di sistema quando l'ambiente la sovrascrive.
+    const darwinTemp = darwinUserTempDir();
+    if (darwinTemp && !bases.includes(darwinTemp)) bases.push(darwinTemp);
+  }
+  const roots: string[] = [];
+  for (const b of bases) {
+    roots.push(b, ...["snap.discord", "app/com.discordapp.Discord", ".flatpak/dev.vencord.Vesktop/xdg-run"].map((s) => path.join(b, s)));
+  }
   const out: string[] = [];
   for (const root of roots) {
     for (let i = 0; i < 10; i++) out.push(path.join(root, `discord-ipc-${i}`));
