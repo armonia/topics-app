@@ -761,14 +761,20 @@ test.describe("Top bar della kanban — si legge da sola", () => {
         return out;
       });
 
-    /** Visibile = ha spessore, ha uno stile, e non e' trasparente. */
+    /**
+     * Visibile = ha spessore, ha uno stile, e non e' trasparente.
+     *
+     * La trasparenza si legge SOLO da `rgba(...)` con alfa zero. La prima
+     * versione cercava una virgola-zero in fondo alla stringa, e quel filtro
+     * scartava anche `rgb(255, 0, 0)`: il rosso puro finisce per «, 0)» perche'
+     * il suo canale BLU e' zero. Se n'e' accorta la meta' non vacua qui sotto,
+     * che ha messo un filetto rosso e non l'ha piu' ritrovato — cioe' il
+     * setaccio era cieco proprio nel verso in cui doveva mordere.
+     */
+    const trasparente = (colore: string) =>
+      colore === "transparent" || /^rgba\([^)]*,\s*0(\.0+)?\s*\)$/.test(colore);
     const visibili = (catena: NonNullable<Awaited<ReturnType<typeof bordiBassi>>>) =>
-      catena.filter(
-        (n) =>
-          parseFloat(n.larghezza) > 0 &&
-          n.stile !== "none" &&
-          !/,\s*0\s*\)$/.test(n.colore),
-      );
+      catena.filter((n) => parseFloat(n.larghezza) > 0 && n.stile !== "none" && !trasparente(n.colore));
 
     const catena = await bordiBassi();
     expect(catena, "barra o radice della board non trovate").not.toBeNull();
