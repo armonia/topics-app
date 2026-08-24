@@ -61,7 +61,7 @@ test.describe("Terminal Multi-Instance", () => {
     await cleanupTerminalTopic(request, topicId);
   });
 
-  test("TERM-04: multiple terminal instances can be opened and switched", async ({
+  test("TERMUI-04: multiple terminal instances can be opened and switched", async ({
     terminalPage,
     page,
   }) => {

@@ -60,7 +60,7 @@ test.describe("File Explorer — Git", () => {
     await cleanupFileProject(request, project);
   });
 
-  test("FILE-03: git status indicators on files", async ({
+  test("EXPLORER-03: git status indicators on files", async ({
     fileExplorerPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
@@ -98,7 +98,7 @@ test.describe("File Explorer — Git", () => {
     await expect(untrackedIndicator).toBeVisible();
   });
 
-  test("FILE-13: deleted file shows D status indicator", async ({
+  test("EXPLORER-13: deleted file shows D status indicator", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -127,7 +127,7 @@ test.describe("File Explorer — Git", () => {
     await expect(deletedIndicator).toBeVisible();
   });
 
-  test("FILE-14: git changes section lists modified files", async ({
+  test("EXPLORER-14: git changes section lists modified files", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -189,7 +189,7 @@ test.describe("File Explorer — Git", () => {
     await expect(nuovo).not.toContainText(/[+-]\d/);
   });
 
-  test("FILE-18: branch indicator shows current branch", async ({
+  test("EXPLORER-18: branch indicator shows current branch", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -208,7 +208,7 @@ test.describe("File Explorer — Git", () => {
     await expect(branchButton.first()).toBeVisible({ timeout: 5000 });
   });
 
-  test("FILE-19: git section expand and collapse", async ({
+  test("EXPLORER-19: git section expand and collapse", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -263,7 +263,7 @@ test.describe("File Explorer — Git", () => {
       .toBe(true);
   });
 
-  test("FILE-07: diff viewer renders with CodeMirror MergeView", async ({
+  test("EXPLORER-07: diff viewer renders with CodeMirror MergeView", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -321,7 +321,7 @@ test.describe("File Explorer — Git", () => {
   // che sta nel file tematicamente giusto (File Context Menu & Script Runner) e
   // usa `getByText(..., { exact: true })` invece di `hasText` parziale.
 
-  test("FILE-15: diff viewer shows styled additions and removals", async ({
+  test("EXPLORER-15: diff viewer shows styled additions and removals", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -365,7 +365,7 @@ test.describe("File Explorer — Git", () => {
     expect(changedCount).toBeGreaterThanOrEqual(1);
   });
 
-  test("FILE-16: git staging a file", async ({
+  test("EXPLORER-16: git staging a file", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -410,7 +410,7 @@ test.describe("File Explorer — Git", () => {
     await expect(stagedHeader.first()).toBeVisible({ timeout: 10000 });
   });
 
-  test("FILE-17: git commit with message", async ({
+  test("EXPLORER-17: git commit with message", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -481,7 +481,7 @@ test.describe("File Explorer — Git", () => {
    * ma il testo e' quello vero di git: e' esattamente lo stderr che FILE-17
    * incassava in silenzio.
    */
-  test("FILE-18: un commit rifiutato lascia l'errore nel pannello", async ({
+  test("EXPLORER-18: un commit rifiutato lascia l'errore nel pannello", async ({
     fileExplorerPage,
     page,
   }) => {

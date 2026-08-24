@@ -61,7 +61,7 @@ test.describe.serial("Terminal", () => {
     await cleanupTerminalTopic(request, topicId);
   });
 
-  test("TERM-01: terminal opens and xterm.js renders with WebSocket connection", async ({
+  test("TERMUI-01: terminal opens and xterm.js renders with WebSocket connection", async ({
     terminalPage,
     page,
   }) => {
@@ -77,7 +77,7 @@ test.describe.serial("Terminal", () => {
     await expect(tabBar).toBeVisible();
   });
 
-  test("TERM-02: terminal accepts keyboard input and shows output", async ({
+  test("TERMUI-02: terminal accepts keyboard input and shows output", async ({
     terminalPage,
     page,
   }) => {
@@ -95,7 +95,7 @@ test.describe.serial("Terminal", () => {
     await terminalPage.waitForOutput(marker);
   });
 
-  test("TERM-05: terminal opens with correct project cwd", async ({
+  test("TERMUI-05: terminal opens with correct project cwd", async ({
     terminalPage,
     page,
   }) => {
@@ -120,7 +120,7 @@ test.describe.serial("Terminal", () => {
     expect(hasProjectPath).toBeTruthy();
   });
 
-  test("TERM-06: terminal resizes when pane dimensions change", async ({
+  test("TERMUI-06: terminal resizes when pane dimensions change", async ({
     terminalPage,
     page,
   }) => {
@@ -157,7 +157,7 @@ test.describe.serial("Terminal", () => {
     expect(newWidth).toBeTruthy();
   });
 
-  test("TERM-07: terminal preserves scrollback buffer", async ({
+  test("TERMUI-07: terminal preserves scrollback buffer", async ({
     terminalPage,
     page,
   }) => {
@@ -181,7 +181,7 @@ test.describe.serial("Terminal", () => {
     }).toPass({ timeout: 5_000 });
   });
 
-  test("TERM-08: closing terminal tab removes it from tab bar", async ({
+  test("TERMUI-08: closing terminal tab removes it from tab bar", async ({
     terminalPage,
     page,
   }) => {
@@ -207,7 +207,7 @@ test.describe.serial("Terminal", () => {
     await expect(shellTab).not.toBeVisible({ timeout: 5_000 });
   });
 
-  test("TERM-09: terminal handles rapid input", async ({
+  test("TERMUI-09: terminal handles rapid input", async ({
     terminalPage,
     page,
   }) => {
@@ -230,7 +230,7 @@ test.describe.serial("Terminal", () => {
     expect(text).toContain(rapidText);
   });
 
-  test("TERM-10: terminal focus by clicking", async ({
+  test("TERMUI-10: terminal focus by clicking", async ({
     terminalPage,
     page,
   }) => {

@@ -135,12 +135,12 @@ function leggiTest(): FileTest[] {
   return fuori;
 }
 
-type Baseline = { scoperti: string[]; ambigui: string[]; penzolanti: string[]; motivi: Record<string, string> };
+type Baseline = { scoperti: string[]; ambigui: string[]; penzolanti: string[]; motivi: Record<string, string>; motiviPenzolanti: Record<string, string> };
 
 function leggiBaseline(): Baseline {
-  if (!existsSync(BASELINE)) return { scoperti: [], ambigui: [], penzolanti: [], motivi: {} };
+  if (!existsSync(BASELINE)) return { scoperti: [], ambigui: [], penzolanti: [], motivi: {}, motiviPenzolanti: {} };
   const j = JSON.parse(readFileSync(BASELINE, "utf8")) as Partial<Baseline>;
-  return { scoperti: j.scoperti ?? [], ambigui: j.ambigui ?? [], penzolanti: j.penzolanti ?? [], motivi: j.motivi ?? {} };
+  return { scoperti: j.scoperti ?? [], ambigui: j.ambigui ?? [], penzolanti: j.penzolanti ?? [], motivi: j.motivi ?? {}, motiviPenzolanti: j.motiviPenzolanti ?? {} };
 }
 
 const requisiti = leggiRequisiti();
@@ -207,6 +207,7 @@ if (modo === "scrivi") {
           "Il debito di tracciabilita' NOTO al momento in cui il cancello e' nato. Non e' un permesso: e' una lista che deve scendere. Una voce che non e' piu' violata fa fallire il cancello, cosi' si toglie invece di restare.",
         _quando: new Date().toISOString().slice(0, 10),
         motivi: Object.fromEntries(Object.entries(leggiBaseline().motivi).filter(([id]) => scoperti.includes(id))),
+        motiviPenzolanti: leggiBaseline().motiviPenzolanti,
         scoperti: [...scoperti].sort(),
         ambigui: [...new Set(ambigui.map((a) => `${a.id}@${a.file}`))].sort(),
         penzolanti: [...new Set(penzolanti.map((p) => `${p.id}@${p.file}`))].sort(),
@@ -270,6 +271,18 @@ if (modo === "report") {
     for (const id of conMotivo) console.log(`  ${id.padEnd(14)} ${base.motivi[id]}`);
   }
   console.log(`Scoperti senza motivo: ${senzaMotivo.length} — sono debito, non deroghe.`);
+  // I penzolanti non sono una cosa sola, e trattarli come tale nasconde che la
+  // cura e' diversa per ognuno dei tre gruppi.
+  const gruppi = new Map<string, string[]>();
+  for (const k of chiaviPenzolanti) {
+    const id = k.split("@")[0]!;
+    const g = base.motiviPenzolanti[id.replace(/-\d+[a-z]?$/, "")] ?? "non classificato";
+    gruppi.set(g, [...(gruppi.get(g) ?? []), id]);
+  }
+  console.log(`\nPenzolanti per cura (${chiaviPenzolanti.length}):`);
+  for (const [cura, ids] of [...gruppi].sort((a, b) => b[1].length - a[1].length)) {
+    console.log(`  ${String(ids.length).padStart(3)}  ${cura}`);
+  }
   console.log(`\n(report) scoperti: ${scoperti.length} · ambigui: ${chiaviAmbigue.length} · penzolanti: ${chiaviPenzolanti.length}`);
   process.exit(0);
 }

@@ -17,7 +17,7 @@ test.describe("Dashboard & Analytics", () => {
     await resetPaneStore(request, []);
   });
 
-  test("DASH-01: KPI cards render with data", async ({
+  test("KPI-01: KPI cards render with data", async ({
     page,
     dashboardPage,
   }) => {
@@ -41,7 +41,7 @@ test.describe("Dashboard & Analytics", () => {
     }
   });
 
-  test("DASH-02: KPI grid responsive layout", async ({
+  test("KPI-02: KPI grid responsive layout", async ({
     page,
     dashboardPage,
   }) => {
@@ -63,7 +63,7 @@ test.describe("Dashboard & Analytics", () => {
     }
   });
 
-  test("DASH-03: Time-series chart renders SVG with data", async ({
+  test("KPI-03: Time-series chart renders SVG with data", async ({
     page,
     dashboardPage,
   }) => {
@@ -93,7 +93,7 @@ test.describe("Dashboard & Analytics", () => {
     expect(textCount).toBeGreaterThan(0);
   });
 
-  test("DASH-04: Range selector changes chart", async ({
+  test("KPI-04: Range selector changes chart", async ({
     page,
     dashboardPage,
   }) => {
@@ -123,7 +123,7 @@ test.describe("Dashboard & Analytics", () => {
     await expect(dashboardPage.chartCircles).toHaveCount(30);
   });
 
-  test("DASH-08: KPI cards show descriptive labels", async ({
+  test("KPI-08: KPI cards show descriptive labels", async ({
     page,
     dashboardPage,
   }) => {
@@ -148,7 +148,7 @@ test.describe("Dashboard & Analytics", () => {
     expect(dashText).toMatch(/\d+/);
   });
 
-  test("DASH-09: Default chart range shows 7 data points", async ({
+  test("KPI-09: Default chart range shows 7 data points", async ({
     page,
     dashboardPage,
   }) => {
@@ -163,7 +163,7 @@ test.describe("Dashboard & Analytics", () => {
     await expect(dashboardPage.chartCircles).toHaveCount(7);
   });
 
-  test("DASH-10: Range selector buttons visible", async ({
+  test("KPI-10: Range selector buttons visible", async ({
     page,
     dashboardPage,
   }) => {
@@ -185,7 +185,7 @@ test.describe("Dashboard & Analytics", () => {
     ).toBeVisible();
   });
 
-  test("DASH-14: Chart area fill and line paths render distinctly", async ({
+  test("KPI-14: Chart area fill and line paths render distinctly", async ({
     page,
     dashboardPage,
   }) => {
@@ -208,7 +208,7 @@ test.describe("Dashboard & Analytics", () => {
     expect(areaD).not.toBe(lineD);
   });
 
-  test("DASH-15: Dashboard navigation from sidebar", async ({
+  test("KPI-15: Dashboard navigation from sidebar", async ({
     page,
     dashboardPage,
   }) => {

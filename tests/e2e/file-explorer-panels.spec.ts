@@ -54,7 +54,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     await cleanupFileProject(request, project);
   });
 
-  test("FILE-06: breadcrumb navigation", async ({
+  test("EXPLORER-06: breadcrumb navigation", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -216,7 +216,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     ).not.toEqual(srcEntries);
   });
 
-  test("FILE-09: process list renders", async ({
+  test("EXPLORER-09: process list renders", async ({
     fileExplorerPage,
     page,
   }) => {

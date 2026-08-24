@@ -38,7 +38,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-01: Cmd+K opens command palette with focused search input
-  test("CMD-01: Cmd+K opens command palette with focused search input", async ({
+  test("PALETTE-01: Cmd+K opens command palette with focused search input", async ({
     commandPalettePage,
     page,
   }) => {
@@ -58,7 +58,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-07: Escape closes the palette and removes it from DOM
-  test("CMD-07: Escape closes palette and removes it from DOM", async ({
+  test("PALETTE-07: Escape closes palette and removes it from DOM", async ({
     commandPalettePage,
     page,
   }) => {
@@ -76,7 +76,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-06: Keyboard navigation with arrow keys moves aria-selected
-  test("CMD-06: arrow keys move aria-selected between palette options", async ({
+  test("PALETTE-06: arrow keys move aria-selected between palette options", async ({
     commandPalettePage,
     page,
   }) => {
@@ -114,7 +114,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-02: Topic search filters results and navigates to selected topic
-  test("CMD-02: topic search filters and navigates to selected topic", async ({
+  test("PALETTE-02: topic search filters and navigates to selected topic", async ({
     commandPalettePage,
     page,
   }) => {
@@ -148,7 +148,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-03: Execute actions - theme toggle and new chat
-  test("CMD-03: theme toggle changes document class and new chat creates topic", async ({
+  test("PALETTE-03: theme toggle changes document class and new chat creates topic", async ({
     commandPalettePage,
     page,
   }) => {
@@ -215,7 +215,7 @@ test.describe("Command Palette", () => {
   // 1. The route mock for /api/files/flat works correctly
   // 2. The palette search/filter/select mechanism works (same path for file results)
   // 3. Palette structure supports file search categories
-  test("CMD-04: file search route mock and palette search mechanism", async ({
+  test("PALETTE-04: file search route mock and palette search mechanism", async ({
     commandPalettePage,
     page,
   }) => {
@@ -271,7 +271,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-05: Message search returns debounced results from mocked search API
-  test("CMD-05: message search shows debounced results from mocked search API", async ({
+  test("PALETTE-05: message search shows debounced results from mocked search API", async ({
     commandPalettePage,
     page,
   }) => {
@@ -343,7 +343,7 @@ test.describe("Command Palette", () => {
   // /api/search returns messageId → palette registers the jump target →
   // MessageList scrolls the virtualized row into view and flashes the
   // [data-jump-highlight] marker on it.
-  test("CMD-16: message hit jumps the chat to the exact message", async ({
+  test("PALETTE-16: message hit jumps the chat to the exact message", async ({
     commandPalettePage,
     page,
     request,
@@ -389,7 +389,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-10: Theme cycles through modes (light -> dark -> system -> light)
-  test("CMD-10: theme cycles through all three modes", async ({
+  test("PALETTE-10: theme cycles through all three modes", async ({
     commandPalettePage,
     page,
   }) => {
@@ -420,7 +420,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-11: Selecting a file from palette opens it in editor
-  test("CMD-11: selecting file from palette opens editor tab", async ({
+  test("PALETTE-11: selecting file from palette opens editor tab", async ({
     commandPalettePage,
     page,
   }) => {
@@ -462,7 +462,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-12: Palette search debounce verification
-  test("CMD-12: search debounce limits API calls", async ({
+  test("PALETTE-12: search debounce limits API calls", async ({
     commandPalettePage,
     page,
   }) => {
@@ -510,7 +510,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-13: Category headers in results
-  test("CMD-13: category headers render in results list", async ({
+  test("PALETTE-13: category headers render in results list", async ({
     commandPalettePage,
     page,
   }) => {
@@ -557,7 +557,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-14: Selecting message result closes palette and navigates
-  test("CMD-14: selecting message result closes palette and navigates", async ({
+  test("PALETTE-14: selecting message result closes palette and navigates", async ({
     commandPalettePage,
     page,
   }) => {
@@ -605,7 +605,7 @@ test.describe("Command Palette", () => {
   });
 
   // CMD-08: Cmd+? opens keyboard shortcuts help modal with General, Chat, and Voice groups
-  test("CMD-08: Cmd+/ opens keyboard shortcuts modal with all shortcut groups", async ({
+  test("PALETTE-08: Cmd+/ opens keyboard shortcuts modal with all shortcut groups", async ({
     page,
   }) => {
     await goToApp(page);
@@ -655,7 +655,7 @@ test.describe("Command Palette", () => {
 
   // CMD-15: "Reimposta pannelli al primo livello" action row flattens the
   // focused surface's split layout (per-window CustomEvent → PanelGrid).
-  test("CMD-15: 'Reimposta pannelli al primo livello' flattens the focused surface", async ({
+  test("PALETTE-15: 'Reimposta pannelli al primo livello' flattens the focused surface", async ({
     commandPalettePage,
     page,
   }) => {

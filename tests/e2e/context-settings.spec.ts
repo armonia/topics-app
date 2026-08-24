@@ -1,3 +1,14 @@
+/**
+ * @covers CTX-01
+ *
+ * Gli id `CTX-01..07` di questo file SEMBRANO uno scontro con il requisito
+ * omonimo e non lo sono: sono le sue PARTI. `CTX-01` elenca in una frase sola
+ * l'inspector con i conteggi di token, la barra del budget, l'interruttore per
+ * sorgente, le pillole nel composer e il CRUD della memoria — e qui c'e' un
+ * test per ciascuna di quelle cose, numerato nell'ordine in cui il requisito le
+ * nomina. La dichiarazione qui sopra e' cio' che rende la cosa leggibile a
+ * `check:spec-coverage` invece di lasciarla somigliare a un'ambiguita'.
+ */
 import path from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";
 import { createTopic, patchTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

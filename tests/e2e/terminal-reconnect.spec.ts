@@ -111,7 +111,7 @@ test.describe("Terminal Reconnect", () => {
     await cleanupTerminalTopic(request, topicId);
   });
 
-  test("TERM-03: terminal auto-reconnects after WebSocket disconnect", async ({
+  test("TERMUI-03: terminal auto-reconnects after WebSocket disconnect", async ({
     page,
     terminalPage,
   }) => {

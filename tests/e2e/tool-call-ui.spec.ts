@@ -280,7 +280,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
  * card bodies highlight code through the same hljs facade as markdown fences.
  */
 test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () => {
-  test("CHAT-TOOL-02: run of 5 settled calls collapses into a summary row with counts, errors and duration", async ({ page, request }) => {
+  test("TOOLROW-02: run of 5 settled calls collapses into a summary row with counts, errors and duration", async ({ page, request }) => {
     const fresh = await createTopic(request, "Tool Group " + Date.now());
     const sk = `topic:${fresh.id.slice(0, 8)}`;
     const base = Date.now() - 120_000;
@@ -335,7 +335,7 @@ test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () =
     }
   });
 
-  test("CHAT-TOOL-02: sub-agent rows never aggregate — they split the run", async ({ page, request }) => {
+  test("TOOLROW-02: sub-agent rows never aggregate — they split the run", async ({ page, request }) => {
     const fresh = await createTopic(request, "Tool Group Solo " + Date.now());
     const sk = `topic:${fresh.id.slice(0, 8)}`;
     try {
@@ -373,7 +373,7 @@ test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () =
     }
   });
 
-  test("CHAT-TOOL-04: Read body highlights TypeScript through the hljs facade", async ({ page, request }) => {
+  test("TOOLROW-04: Read body highlights TypeScript through the hljs facade", async ({ page, request }) => {
     const fresh = await createTopic(request, "Tool Highlight " + Date.now());
     const sk = `topic:${fresh.id.slice(0, 8)}`;
     try {

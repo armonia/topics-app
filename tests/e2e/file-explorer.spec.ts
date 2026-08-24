@@ -54,7 +54,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await cleanupFileProject(request, project);
   });
 
-  test("FILE-01: file tree renders hierarchy", async ({
+  test("EXPLORER-01: file tree renders hierarchy", async ({
     fileExplorerPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-01" });
@@ -92,7 +92,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await expect(indexTs).toBeVisible();
   });
 
-  test("FILE-02: clicking file opens editor", async ({
+  test("EXPLORER-02: clicking file opens editor", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -123,7 +123,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await expect(breadcrumb).toBeVisible();
   });
 
-  test("FILE-05: editor tabs open switch and close", async ({
+  test("EXPLORER-05: editor tabs open switch and close", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -194,7 +194,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await expect(packageTabSpan.first()).toBeVisible();
   });
 
-  test("FILE-10: expand and collapse directory node", async ({
+  test("EXPLORER-10: expand and collapse directory node", async ({
     fileExplorerPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-01" });
@@ -223,7 +223,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await expect(indexTs).toBeVisible({ timeout: 5000 });
   });
 
-  test("FILE-11: editor shows syntax highlighting", async ({
+  test("EXPLORER-11: editor shows syntax highlighting", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -254,7 +254,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     expect(editorText?.length).toBeGreaterThan(0);
   });
 
-  test("FILE-12: single-click opens preview tab (italic)", async ({
+  test("EXPLORER-12: single-click opens preview tab (italic)", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -349,7 +349,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await expect(cmContent).toContainText('hello', { timeout: 5000 });
   });
 
-  test("FILE-04: ricerca nel contenuto con ⌘F", async ({
+  test("EXPLORER-04: ricerca nel contenuto con ⌘F", async ({
     fileExplorerPage,
     page,
   }) => {

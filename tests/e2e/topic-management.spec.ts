@@ -43,7 +43,7 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-01: create new topic via sidebar and it appears in topic list
-  test("TOPIC-01: create new topic via sidebar and it appears in topic list", async ({
+  test("TOPICUI-01: create new topic via sidebar and it appears in topic list", async ({
     topicPage,
     request,
     page,
@@ -92,7 +92,7 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-02: switch between topics and main panel content changes
-  test("TOPIC-02: switch between topics changes main panel content", async ({
+  test("TOPICUI-02: switch between topics changes main panel content", async ({
     topicPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
@@ -109,7 +109,7 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-03: search/filter topics by name
-  test("TOPIC-03: command palette search filters topics by name", async ({
+  test("TOPICUI-03: command palette search filters topics by name", async ({
     topicPage,
     page,
   }) => {
@@ -150,7 +150,7 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-04: archive topic via context menu
-  test("TOPIC-04: archive topic via context menu removes it from active list", async ({
+  test("TOPICUI-04: archive topic via context menu removes it from active list", async ({
     topicPage,
     request,
   }) => {
@@ -191,7 +191,7 @@ test.describe("Topic Management", () => {
   // invariant (open ⟺ non-archived). Opening an archived topic must BOTH re-show
   // it as active AND flip archived→false server-side. Previously uncovered: the
   // suite only tested archive, never the de-archive-on-open path.
-  test("TOPIC-04b: opening an archived topic unarchives it (active + archived:false)", async ({
+  test("TOPICUI-04b: opening an archived topic unarchives it (active + archived:false)", async ({
     topicPage,
     page,
     request,
@@ -246,7 +246,7 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-05: rename topic via context menu
-  test("TOPIC-05: rename topic via context menu persists new name", async ({
+  test("TOPICUI-05: rename topic via context menu persists new name", async ({
     topicPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
@@ -286,7 +286,7 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-06: delete topic with confirmation dialog showing topic name (DEDICATED test)
-  test("TOPIC-06: delete confirmation shows topic name and Cancel works", async ({
+  test("TOPICUI-06: delete confirmation shows topic name and Cancel works", async ({
     topicPage,
     request,
   }) => {
@@ -333,7 +333,7 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-08: create topic from template via NewTopicModal
-  test("TOPIC-08: new topic from template pre-fills name and creates topic", async ({
+  test("TOPICUI-08: new topic from template pre-fills name and creates topic", async ({
     topicPage,
     page,
     request,

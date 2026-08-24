@@ -1,6 +1,32 @@
 {
   "_perche": "Il debito di tracciabilita' NOTO al momento in cui il cancello e' nato. Non e' un permesso: e' una lista che deve scendere. Una voce che non e' piu' violata fa fallire il cancello, cosi' si toglie invece di restare.",
   "_quando": "2026-08-24",
+  "motivi": {
+    "AGENT-01": "La feature non esiste: il roster agenti e' uscito il 05/08 insieme alle pane che lo mostravano (vedi tests/unit/ws-outbound-coverage.test.ts). La spec va archiviata, non coperta.",
+    "AGENT-02": "Come AGENT-01: descrive un pannello di gestione agenti rimosso. Cio' che oggi vive sotto «agents» e' l'orchestratore sub-agent, 5 rotte, coperte da topics-mcp-server.test.ts.",
+    "AGENT-03": "Come AGENT-01: l'editor di profili agente non esiste piu'.",
+    "WEBHOOK-01": "Il CRUD /api/webhooks descritto dalla spec non esiste: nessuna rotta, nessuna tabella, nessun handler. L'unico webhook nel codice e' quello Stripe in routes/billing.ts, che e' altra cosa ed e' testato.",
+    "CMD-02": "Push notification: client/src/hooks/usePushNotifications.ts non e' importato da nessun test. Buco vero, non fantasma — da coprire."
+  },
+  "motiviPenzolanti": {
+    "CCPROV": "PROMUOVERE: il requisito esiste in una change ARCHIVIATA e non e' mai stato portato in openspec/specs. Il test lo prova gia': e' il documento di riferimento a essere indietro.",
+    "CHAT-CONV": "PROMUOVERE: il requisito esiste in una change ARCHIVIATA e non e' mai stato portato in openspec/specs. Il test lo prova gia': e' il documento di riferimento a essere indietro.",
+    "CHAT-RND": "PROMUOVERE: il requisito esiste in una change ARCHIVIATA e non e' mai stato portato in openspec/specs. Il test lo prova gia': e' il documento di riferimento a essere indietro.",
+    "REAL-TC": "PROMUOVERE: il requisito esiste in una change ARCHIVIATA e non e' mai stato portato in openspec/specs. Il test lo prova gia': e' il documento di riferimento a essere indietro.",
+    "TOPIC-WT": "PROMUOVERE: il requisito esiste in una change ARCHIVIATA e non e' mai stato portato in openspec/specs. Il test lo prova gia': e' il documento di riferimento a essere indietro.",
+    "KANBAN": "COSTRUIRE O TOGLIERE: il requisito vive in una PROPOSTA non ancora costruita (kanban-agent-authoring, 0% dei task). L'annotation e' in anticipo sul codice.",
+    "BROWSER-CHAT": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "CD-CLOSE": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "CHANGELOG": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "FAST-MODE": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "GUEST": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "RELAY-E2E": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "TAB-BADGE": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "MUTE": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "PARITY": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "PROJECT-TABS-MOBILE": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura.",
+    "TOPIC": "NON E' UN REQUISITO: e' una famiglia di scenari LOCALE al file, dichiarata con type:'spec' come se fosse un requisito. O punta al requisito vero che il test esercita, o non e' una dichiarazione di copertura."
+  },
   "scoperti": [
     "AGENT-01",
     "AGENT-02",
@@ -30,21 +56,7 @@
     "WEBHOOK-01",
     "WORKTREE-05"
   ],
-  "ambigui": [
-    "CHAT-TOOL-02@tests/e2e/tool-call-ui.spec.ts",
-    "CHAT-TOOL-04@tests/e2e/tool-call-ui.spec.ts",
-    "CMD-02@tests/e2e/command-palette.spec.ts",
-    "CMD-03@tests/e2e/command-palette.spec.ts",
-    "CMD-04@tests/e2e/command-palette.spec.ts",
-    "CMD-05@tests/e2e/command-palette.spec.ts",
-    "CTX-01@tests/e2e/context-settings.spec.ts",
-    "DASH-02@tests/e2e/dashboard.spec.ts",
-    "DASH-03@tests/e2e/dashboard.spec.ts",
-    "FILE-02@tests/e2e/file-explorer.spec.ts",
-    "FILE-03@tests/e2e/file-explorer-git.spec.ts",
-    "TERM-02@tests/e2e/terminal.spec.ts",
-    "TOPIC-02@tests/e2e/topic-management.spec.ts"
-  ],
+  "ambigui": [],
   "penzolanti": [
     "BROWSER-CHAT-01@tests/e2e/browser-persistence.spec.ts",
     "BROWSER-CHAT-02@tests/e2e/browser-ws-streaming.spec.ts",
@@ -100,13 +112,5 @@
     "TAB-BADGE-09@tests/e2e/tab-notifications.spec.ts",
     "TOPIC-09@tests/e2e/topic-management-org.spec.ts",
     "TOPIC-WT-01@tests/e2e/worktree-domain.spec.ts"
-  ],
-  "motivi": {
-    "AGENT-01": "La feature non esiste: il roster agenti e' uscito il 05/08 insieme alle pane che lo mostravano (vedi tests/unit/ws-outbound-coverage.test.ts). La spec va archiviata, non coperta.",
-    "AGENT-02": "Come AGENT-01: descrive un pannello di gestione agenti rimosso. Cio' che oggi vive sotto «agents» e' l'orchestratore sub-agent, 5 rotte, coperte da topics-mcp-server.test.ts.",
-    "AGENT-03": "Come AGENT-01: l'editor di profili agente non esiste piu'.",
-    "WEBHOOK-01": "Il CRUD /api/webhooks descritto dalla spec non esiste: nessuna rotta, nessuna tabella, nessun handler. L'unico webhook nel codice e' quello Stripe in routes/billing.ts, che e' altra cosa ed e' testato.",
-    "CMD-02": "Push notification: client/src/hooks/usePushNotifications.ts non e' importato da nessun test. Buco vero, non fantasma — da coprire."
-  },
-  "_motivi_nota": "Un requisito scoperto SENZA motivo e' debito. Con un motivo e' una deroga, e il motivo dice se e' colmabile (un test da scrivere) o se la spec descrive codice che non esiste (allora va archiviata la spec, non scritto un test)."
+  ]
 }

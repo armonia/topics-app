@@ -130,7 +130,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     await resetPaneStore(request, [alphaId, betaId, gammaId]);
   });
 
-  test("TOPIC-07: topic settings modal with system prompt and context files", async ({
+  test("TOPICUI-07: topic settings modal with system prompt and context files", async ({
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
@@ -268,7 +268,7 @@ test.describe("Topic Management - Settings & Organization", () => {
   // sulla riga di progetto, che è anche ciò che il nome del test promette. Il
   // chevron è un controllo A SÉ dal nome del progetto (TopicTree.tsx §Project
   // header): apre e chiude soltanto, senza mai spostare il fuoco.
-  test("TOPIC-09: project folder expand and collapse", async ({ page }) => {
+  test("TOPICUI-09: project folder expand and collapse", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-09" });
     // Il figlio deve avere una NOTIFICA per comparire senza una tab aperta:
     // `buildSidebarItems` elenca una chat di progetto solo se ha una pane aperta
@@ -307,7 +307,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     await expect(childRow).toBeVisible({ timeout: 10000 });
   });
 
-  test("TOPIC-10: unread indicator via WebSocket mock", async ({ page }) => {
+  test("TOPICUI-10: unread indicator via WebSocket mock", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     // Intercept WebSocket BEFORE page.goto() — keeps real connection alive + allows injection
     const ws = await interceptWebSocket(page);
@@ -353,7 +353,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     await expect(badge).toBeVisible({ timeout: 5000 });
   });
 
-  test("TOPIC-11: color customization via context menu persists", async ({
+  test("TOPICUI-11: color customization via context menu persists", async ({
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
