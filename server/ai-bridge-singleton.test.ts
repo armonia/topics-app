@@ -199,6 +199,23 @@ describe("ai-bridge · socket ownership", () => {
     }
 
     expect(alive).toBe(1);
+    // ── SE QUESTA RIGA E' ROSSA, NON E' IL CARICO. Misurato il 24/08 con una
+    //    sonda che ripete la gara e poi ASPETTA oltre la scadenza del test:
+    //    quando i perdenti non escono entro 24s, non escono nemmeno a 30, 45 e
+    //    60. Restano vivi, in tre, sullo stesso socket. Riproducibile isolando
+    //    questo caso su una macchina scarica: 2 fallimenti su 12 giri.
+    //
+    //    Il commento qui sopra spiega bene perche' la scadenza e' generosa, e
+    //    quella parte resta valida; ma da' anche l'impressione che un rosso qui
+    //    sia sempre una questione di tempo, e non lo e'. Il difetto che questo
+    //    caso esiste per cogliere ("prima del fix restavano tutti in ascolto e
+    //    vivi per sempre") si ripresenta a bassa frequenza.
+    //
+    //    Non e' stato ancora attribuito a una riga di `ai-bridge.mjs`: serve
+    //    leggere lo stderr dei perdenti nel momento in cui sopravvivono, e una
+    //    sonda che lo faccia va scritta con cura (leggere lo stream di un
+    //    processo ancora vivo blocca chi legge, e la prima l'ha imparato a
+    //    proprie spese).
     expect(await someoneListening(sock)).toBe(true);
     // 45 s e non 30: la scadenza interna arriva a 24, e un tetto che scatta
     // PRIMA di quella attesa la renderebbe inutile — il test morirebbe per

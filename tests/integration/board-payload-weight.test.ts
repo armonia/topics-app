@@ -183,17 +183,21 @@ describe("il peso di GET /api/all-boards/tasks", () => {
     //    da 2.159 (15/08) a 2.602 sono 443 byte di grasso nuovo in nove
     //    giorni. Da dove vengono, misurato voce per voce:
     //
-    //      · ~280  `CARD_CONTEXT_CHARS` da 200 a 620 (abdacb63b, 20/08). Chi
-    //              l'ha alzato AVEVA misurato «620 passa, 800 sfonda», ed era
+    //      ·  280  `CARD_CONTEXT_CHARS` da 200 a 620 (abdacb63b, 20/08).
+    //              Misurato per falsificazione, non stimato: rimettendo 200 la
+    //              fixture pesa 2.322,3 e il test PASSA; con 620 pesa 2.602,3.
+    //              Chi l'ha alzato AVEVA misurato «620 passa, 800 sfonda», ed era
     //              vero quel giorno: e' il resto a essersi mangiato il margine
     //              che quella scelta si era lasciata.
-    //      · ~171  nove chiavi che non legge NESSUNO, ne' in `client/src` ne'
+    //      ·  177  nove chiavi che non legge NESSUNO, ne' in `client/src` ne'
     //              da un oggetto Task in `server/`: `checksCommit`,
     //              `claudeTaskId`, `doneActor`, `landingCheckedAt`,
     //              `previewRejected`, `urlProbeCheckedAt`, `waitReason`,
     //              `waitSince`, `waitStreak`. Le chiavi del payload sono
     //              passate da 63 a 70; 44 delle 70 sono SEMPRE `null` su
     //              questa fixture e da sole pesano 840 byte per task.
+    //              Anche questo misurato togliendole dal payload vero: 2.602,3
+    //              scende a 2.425,3, quindi da sole BASTANO a rientrare.
     //
     //    Il codice non ha un difetto: `cardCommentContent` taglia, il gate
     //    della review regge (100 task su 300 portano commenti, tutti in
