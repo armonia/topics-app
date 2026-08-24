@@ -57,22 +57,31 @@ export const DEFAULT_CLIENT_ID = "1467514747988611174";
 /**
  * L'immagine grande della presence.
  *
- * PERCHE' NELL'ANTEPRIMA SI VEDE UNA «T» E NON L'ICONA, ed e' la domanda che
- * arriva ogni volta: questo URL non c'entra. Discord scarica un `large_image`
- * esterno solo per le applicazioni che hanno gia' almeno un Rich Presence
- * ASSET caricato sul portale sviluppatori; senza, ignora il campo e ripiega
- * sull'iniziale del nome dell'applicazione — la «T» di Topics.
+ * NON SERVE CARICARE NIENTE SUL PORTALE: qui c'era scritto il contrario, ed
+ * era falso. La versione precedente di questo commento sosteneva che Discord
+ * onora un `large_image` esterno solo per le app che hanno gia' un Rich
+ * Presence asset caricato. Interrogato l'IPC direttamente (24/08), con
+ * l'applicazione a ZERO asset:
  *
- * Verificato che l'URL non sia il problema: risponde 200 e serve un PNG
- * 128x128 valido (5.351 byte), anche se il repo e' privato — `raw.githubusercontent`
- * su `main` e' leggibile perche' la reference lo e'.
+ *   - questo URL viene ACCETTATO e Discord lo riscrive come
+ *     `mp:external/<hash>/https/raw.githubusercontent.com/...`, cioe' l'ha
+ *     preso in carico e proxato sulla sua CDN;
+ *   - quell'indirizzo, chiesto a `media.discordapp.net`, risponde 200 con il
+ *     PNG 128x128 giusto (5.351 byte, le due nuvolette bianche su blu);
+ *   - una chiave inventata (`chiave_che_non_esiste`) sparisce invece dalla
+ *     risposta, e cosi' pure l'hash dell'icona dell'applicazione: quel campo
+ *     vuole una chiave di ASSET, che e' un'altra cosa.
  *
- * QUINDI IL PASSO MANCANTE NON E' CODICE. Va aperto
- * https://discord.com/developers/applications, scelta l'applicazione con
- * `DEFAULT_CLIENT_ID` qui sopra, e caricata l'icona in Rich Presence → Art
- * Assets. Da quel momento questo URL viene onorato; in alternativa si mette la
- * CHIAVE dell'asset caricato al posto dell'URL (Discord accetta entrambi, e la
- * chiave e' piu' robusta perche' non dipende da una fetch verso GitHub).
+ * Il controllo negativo e' la parte che conta: se Discord scartasse gli URL
+ * esterni, questo campo sparirebbe come sparisce la chiave inventata. Resta,
+ * quindi vale.
+ *
+ * La «T» che si vede nell'anteprima del pannello e' un'altra faccenda: quella
+ * e' l'ANTEPRIMA disegnata da noi, non la card di Discord.
+ *
+ * Il nome in cima alla card e' quello dell'APPLICAZIONE, non `large_text`:
+ * l'IPC lo rimanda indietro come `name: "Jarvis"`. Per farlo leggere «Topics»
+ * si rinomina l'applicazione sul portale — quello si', richiede il login.
  *
  * Si sovrascrive con `DISCORD_PRESENCE_IMAGE` senza ricompilare.
  */
