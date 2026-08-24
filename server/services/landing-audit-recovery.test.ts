@@ -29,9 +29,10 @@ import { branchExistsInRepo, commitStatusFromRepo, worktreeDiffStat } from "./br
 import { deliveryPointer } from "./own-commits";
 import { landedMergeRange } from "./task-diff-range";
 import { auditLandings, classifyLanding, type AuditTask, type LandingState } from "./landing-audit";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
   return new TextDecoder().decode(r.stdout).trim();
 }
 

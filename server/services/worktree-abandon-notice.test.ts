@@ -9,6 +9,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { abandonNoticeFromRepo, composeAbandonNotice } from "./worktree-abandon-notice";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const TTL_REASON = "task fermo in 'in_progress' da 9 giorni";
 const GHOST_REASON = "il branch del worktree non esiste più";
@@ -126,7 +127,7 @@ describe("abandonNoticeFromRepo — verifica su un repo vero", () => {
   // Timeout largo: il costo qui sono gli spawn di git del fixture, non la logica.
   beforeAll(() => {
     repo = mkdtempSync(join(tmpdir(), "abnotice-"));
-    const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" });
+    const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
     git("init", "-q", "-b", "main");
     git("config", "user.email", "t@t.t");
     git("config", "user.name", "t");

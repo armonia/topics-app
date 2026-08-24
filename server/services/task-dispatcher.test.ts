@@ -15,6 +15,7 @@ import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 // Lo schema di `tasks` arriva da TASKS_DDL: è la catena delle migration, e una
 // colonna nuova non fa più rosso QUI alla fusione. PRAGMA foreign_keys e la FK
@@ -2973,7 +2974,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // ricopiata e il ramo poi potato.
     const repo = mkdtempSync(join(tmpdir(), "redispatch-"));
     const git = (...args: string[]) => {
-      const r = Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" });
+      const r = Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
       return new TextDecoder().decode(r.stdout).trim();
     };
     try {

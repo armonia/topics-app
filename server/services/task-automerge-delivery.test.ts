@@ -3,6 +3,7 @@ import { createTaskAutoMerge, landFallout } from "./task-automerge";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /**
  * Il land contro la CONSEGNA, su git vero.
@@ -22,7 +23,7 @@ import { join } from "path";
  */
 
 function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
   return new TextDecoder().decode(r.stdout).trim();
 }
 
