@@ -117,10 +117,29 @@ test.describe("Sidebar — tessere fissate", () => {
     await setPins(page, [a.id, b.id, chiaveProj, figlia.id], [[a.id], [b.id], [chiaveProj], [figlia.id]]);
     await gotoSidebar(page);
 
+    // FERMO, non subito. The accordion chevron carries `transition-transform
+    // duration-150`, and its bounding box is the box of a ROTATING square: 12px
+    // at rest, up to 16.97 crossing 45 degrees. Sampled frame by frame it walks
+    // 16.12 -> 12.00 while its ink slides 5.94 -> 8.00, which is precisely the
+    // tile's column. Measuring on the first frame therefore reported a 1.7px
+    // gap that nobody can see and that is gone two frames later - a moving
+    // target read once. Every geometry here is taken when two consecutive
+    // frames agree on it.
+    const fermo = async <T>(prendi: () => Promise<T>): Promise<T> => {
+      let prima = JSON.stringify(await prendi());
+      for (let i = 0; i < 40; i++) {
+        await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+        const ora = await prendi();
+        if (JSON.stringify(ora) === prima) return ora;
+        prima = JSON.stringify(ora);
+      }
+      throw new Error(`la geometria non si ferma: ultimo valore ${prima}`);
+    };
+
     const misura = async (nome: string) => {
       const tile = tileNamed(page, nome);
       await expect(tile).toBeVisible({ timeout: 10000 });
-      return tile.evaluate((el) => {
+      return fermo(() => tile.evaluate((el) => {
         const r = el.getBoundingClientRect();
         const testo = el.querySelector('[data-testid="pinned-tile-name"]');
         const slot = el.querySelector('[data-testid="pinned-chevron-slot"]');
@@ -132,7 +151,7 @@ test.describe("Sidebar — tessere fissate", () => {
           // is what sat in three different columns.
           glifo: glifo ? +(glifo.getBoundingClientRect().left - r.left).toFixed(1) : null,
         };
-      });
+      }));
     };
 
     const xa = await misura(a.name);
@@ -151,14 +170,14 @@ test.describe("Sidebar — tessere fissate", () => {
     const tessera = await misura(cartella.split("/").pop()!);
     expect(tessera.glifo, "la tessera di un progetto con tab si apre, e mostra il chevron").not.toBeNull();
 
-    const riga = await page.evaluate(() => {
+    const riga = await fermo(() => page.evaluate(() => {
       const bottone = document.querySelector<HTMLElement>('[aria-expanded][aria-label^="Expand"], [aria-expanded][aria-label^="Collapse"]');
       if (!bottone) return null;
       const card = bottone.parentElement!;
       const glifo = bottone.querySelector("svg");
       if (!glifo) return null;
       return +(glifo.getBoundingClientRect().left - card.getBoundingClientRect().left).toFixed(1);
-    });
+    }));
     expect(riga, "serve almeno una riga con accordion nell'albero").not.toBeNull();
     expect(
       Math.abs(riga! - tessera.glifo!),
