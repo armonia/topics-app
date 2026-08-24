@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon } from 'lucide-react';
 import { getProjectLabel, sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
-import { attentionSurface, RESTING_SURFACE, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
+import { attentionSurface, RESTING_SURFACE, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { openContextMenuAt } from '../../hooks/useLongPress';
 import { useTouchDrag } from '../../hooks/useTouchDrag';
@@ -45,14 +45,13 @@ const UTILITY_ICONS: Record<string, LucideIcon> = {
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
  *  stessa rotazione, così «si apre» si legge uguale ovunque.
  *
- *  Lo SLOT (larghezza fissa) e l'uscita dal flusso sulle tessere quadrate
- *  (`pinned-tile-lead`) stanno sul wrapper, non qui: sono decisioni di LAYOUT
- *  della riga, e tenerle sul glifo faceva sì che il nome partisse da una x
- *  diversa a seconda che la tessera fosse espandibile o no. */
+ *  The slot around it (`ROW_CHEVRON_SLOT`) and whether it sits in the flow or
+ *  out of it belong to the WRAPPER below: they are decisions of the tile's
+ *  form, not of the glyph. */
 function ExpandChevron({ expanded }: { expanded: boolean }) {
   return (
     <ChevronRight
-      size={12}
+      size={ROW_CHEVRON}
       aria-hidden="true"
       data-testid="pinned-expand-hint"
       className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
@@ -116,6 +115,7 @@ export function PinnedTile({
   dragging,
   expandable,
   hasActions,
+  form = 'grid',
 }: {
   item: SidebarItem;
   expanded: boolean;
@@ -150,6 +150,22 @@ export function PinnedTile({
    *  deve solo sapere che c'è, per lasciargli uno slot invece di finirci sotto
    *  con il nome. Vedi `PINNED_TILE_ACTION_SLOT`. */
   hasActions?: boolean;
+  /** THE TILE HAS TWO FORMS, AND ONLY TWO, because the column has two
+   *  alignments and not a scale of them.
+   *
+   *   · `row`  — the tile is alone on its layout row, so it is as wide as the
+   *              column: it IS a row, and it lines up like every other row of
+   *              the sidebar. Content to the left, starting at the row inset.
+   *   · `grid` — the tile shares its row with others: what identifies it (the
+   *              icon, the name, or both) sits in the MIDDLE, and everything
+   *              that is not identity — chevron, badge — leaves the flow so it
+   *              cannot shift that centre.
+   *
+   *  It is told by the grid, not measured from the width: "am I alone on my
+   *  row" is a fact of the layout, and a width threshold answered it wrong at
+   *  every sidebar size but one — three tiles in a 400px column are 130px each,
+   *  which used to read as "row form" and left them all left-aligned. */
+  form?: 'row' | 'grid';
 }) {
   const projectPath = item.type === 'project' ? (item.projectPath ?? '') : '';
   const icon = useProjectIcon(projectPath);
@@ -304,6 +320,9 @@ export function PinnedTile({
     onCancel: onDragEnd,
   });
 
+  /** Alone on its row = a row; sharing it = a tile in a grid. See `form`. */
+  const isRow = form === 'row';
+
   return (
     <button
       type="button"
@@ -361,14 +380,13 @@ export function PinnedTile({
         // l'incasso, corretto a metà: allora era stato allineato il padding e
         // lasciato indietro il gap.
         `group/tile relative flex items-center ${ROW_GAP}`,
-        // Con il nome accanto non c'è spazio libero da distribuire (il nome è
-        // `flex-1`), quindi questo si vede SOLO quando il nome se n'è andato:
-        // l'icona rimasta sola sta al centro, e sopra la soglia la tessera
-        // torna una riga, che comincia da sinistra.
-        // Centra ciò che è NEL FLUSSO: perché il centro sia quello dell'icona
-        // e non quello del gruppo, chevron e conteggio ne escono — vedi
-        // `pinned-tile-lead` / `pinned-tile-count` in `index.css`.
-        'justify-center @min-[104px]/tile:justify-start',
+        // ONE ALIGNMENT PER FORM, decided by `form` and by nothing else.
+        // It used to be a scale of container-query thresholds — 54, 72, 104,
+        // 200 — and between two of them the tile centred its NAME inside a box
+        // that was itself left-aligned: a third alignment nobody asked for.
+        // In grid form what is left in the flow is only the identity (icon,
+        // name), so centring it centres what you see.
+        isRow ? 'justify-start' : 'justify-center',
         // `ROW_PX`, non un `px-1.5` scritto a mano: quel file dichiara questo
         // valore come «l'incasso orizzontale canonico di una riga di
         // contenuto — una tab della barra E una riga della colonna — così che
@@ -468,34 +486,56 @@ export function PinnedTile({
           «Senza ripetere il titolo se non c'entra» voleva dire proprio questo:
           se non ci sta. In una riga larga ci sta, troncato, e allora c'è — la
           soglia la misura la container query qui sotto. */}
-      {/* IL CHEVRON NON SPOSTA IL NOME.
-          Misurato nel DOM sulle tessere vere: quelle con il chevron avevano il
-          testo a x=42, tutte le altre a x=36. Sei pixel su una colonna di righe
-          identiche, cioè il tipo di scarto che si vede senza riuscire a
-          nominarlo - segnalato come «assicuriamoci che le icone degli accordion
-          siano tutte correttamente allineate».
-          Larghezza FISSA anche da vuoto: se lo spazio comparisse solo per le
-          tessere espandibili, il nome ballerebbe fra una riga e l'altra, che è
-          lo stesso difetto al contrario. */}
-      {/* MA UNO SLOT VUOTO NON DEVE PESARE DOVE IL CONTENUTO È CENTRATO.
-          Sotto i 104px il contenitore passa a `justify-center`: lì non c'è più
-          una colonna da cui far partire i nomi, c'è un centro. Uno slot vuoto
-          di 12px più 8 di gap continuava a spingere tutto a destra — misurato
-          su una tessera larga 77: 28px di aria a sinistra contro 8 a destra,
-          il contenuto fuori centro di 10px. Segnalato: «quelle pinnate, icona
-          o testo, devono essere ben centrate e il trigger non dovrebbe
-          partecipare al peso per farlo centrato».
-          Sparisce solo da VUOTO: con un chevron dentro resta, e a centrarsi è
-          il gruppo intero — che è ciò che si vede. */}
-      <span
-        data-testid="pinned-chevron-slot"
-        aria-hidden={!expandable || undefined}
-        className={`w-3 flex-shrink-0 items-center justify-center ${
-          expandable ? 'flex' : 'hidden @min-[104px]/tile:flex'
-        } ${hasRealIcon ? 'pinned-tile-lead' : ''}`}
-      >
-        {expandable && <ExpandChevron expanded={expanded} />}
-      </span>
+      {/* THE ACCORDION, AND ONLY WHERE THERE IS ONE TO OPEN.
+          The slot is the shared one (`ROW_CHEVRON_SLOT`): box = glyph, so the
+          ink starts at the row inset and lands in the same column as the
+          chevron of a project row and of a chat row with children.
+
+          A tile that does not open reserves NOTHING. It used to reserve the
+          slot always, to keep the names of two tiles in one column; the price
+          was 20px of dead space before nothing on every tile that has no
+          accordion, which is most of them ("no useless space before the
+          accordion"). The names of the expandable ones now start after their
+          chevron, exactly as they do in the tree.
+
+          IN GRID FORM IT IS MIRRORED, NOT REMOVED. Its weight would push the
+          identity off centre by half a chevron plus half a gap — measured on a
+          77px tile, 28px of air on the left against 8 on the right. Taking it
+          out of the flow fixes the centre and creates a worse problem: out of
+          the flow it stops reserving its room, and the name runs underneath
+          it. So the same 12px come back on the OTHER side, empty (see the
+          mirror at the end): the trigger does not weigh on the centre because
+          it weighs the same on both sides. Asked in these words: "we could
+          mirror the trigger's weight on the right, so spacing, footprint and
+          alignment stay correct". */}
+      {/* AND THE SAME FOR THE "+", which lands on the trailing corner: in grid
+          form its slot is mirrored in FRONT, so what is centred stays centred
+          while the command has its room. At rest both collapse (the shrink
+          factors below), so a name that fits sees neither. */}
+      {hasActions && !isRow && (
+        <span
+          aria-hidden="true"
+          data-testid="pinned-tile-action-mirror"
+          className={`hidden shrink-[9999] group-hover/cell:shrink-0 @min-[104px]/tile:block ${PINNED_TILE_ACTION_SLOT}`}
+        />
+      )}
+
+      {expandable && (
+        <span
+          data-testid="pinned-chevron-slot"
+          className={`${ROW_CHEVRON_SLOT} ${
+            // UNDER 74px THE HINT DOES NOT FIT, and this is the sum, not a
+            // taste: 16 of inset + 12 of chevron + 8 of gap + 18 of icon + 8
+            // + 12 of mirror = 74. Below that the pieces overflow the tile and
+            // the chevron ends up painted a pixel outside it (measured: -0.9px
+            // on a 56px tile). What goes is the HINT, not the behaviour: the
+            // tile still opens on click, and the identity keeps the middle.
+            isRow ? '' : 'hidden @min-[76px]/tile:flex'
+          }`}
+        >
+          <ExpandChevron expanded={expanded} />
+        </span>
+      )}
 
       {/* IL CONTENITORE DELL'ICONA SPARISCE QUANDO NON C'E' UN'ICONA.
           Un riquadro largo ZERO non occupa spazio, ma il `gap-2` della riga
@@ -506,20 +546,17 @@ export function PinnedTile({
           `hidden` e non `w-0`: toglie il figlio dal flusso, e con lui il suo
           gap. Il segnaposto mentre la sonda gira resta, perche' li' un
           ingombro c'e' e serve (tiene il posto che l'icona avra'). */}
-      {/* IN FORMA RIGA IL POSTO DELL'ICONA C'E' SEMPRE, anche vuoto.
-          Le due forme vogliono cose opposte, ed e' il motivo per cui questa
-          classe ha due rami:
-           · QUADRATA (< 104px): il contenuto si CENTRA, e un riquadro vuoto
-             col suo gap sposterebbe il centro - va tolto dal flusso.
-           · RIGA (>= 104px): i nomi si incolonnano, e un progetto senza icona
-             partirebbe 22px prima degli altri. Misurato sulle tessere vere il
-             17/08: chat a x=50, progetto senza favicon a x=28, uno con favicon
-             a x=54 - TRE colonne per la stessa lista. Segnalato: «c'e' ancora
-             spazio a sinistra delle icone chat e manca icona project».
-          E' la stessa correzione fatta stamattina sulle RIGHE dell'albero
-          (`TopicTree`): superficie diversa, difetto identico. */}
+      {/* IN ROW FORM THE ICON'S PLACE IS ALWAYS THERE, even empty.
+          The two forms want opposite things, which is why this class has two
+          branches:
+           · GRID: the identity is CENTRED, and an empty box with its gap would
+             move that centre — it must leave the flow.
+           · ROW: the names line up in a column, and a project without a
+             favicon would start 22px before the others. Measured on the real
+             tiles on 17/08: chat at x=50, project without favicon at x=28, one
+             with favicon at x=54 — THREE columns for the same list. */}
       <span className={`relative flex-shrink-0 items-center justify-center ${
-        hasRealIcon || Glyph || iconProbing ? 'flex' : 'hidden @min-[104px]/tile:flex'
+        hasRealIcon || Glyph || iconProbing || isRow ? 'flex' : 'hidden'
       }`}>
         {hasRealIcon
           ? <ProjectFavicon path={projectPath} size={18} />
@@ -540,90 +577,67 @@ export function PinnedTile({
               : <span aria-hidden="true" className="block w-[14px]" />}
       </span>
 
-      {/* IL NOME LO DECIDE LA FORMA DELLA TESSERA, NON IL CARICAMENTO.
-          Sotto la soglia la tessera è troppo stretta perché il titolo dica
-          qualcosa: sarebbe una lettera e tre puntini, e un titolo
-          lì dentro sarebbe due caratteri e tre puntini: se c'è una favicon a
-          reggere l'identità, il nome se ne va e resta l'icona sola, centrata.
-          Sopra, la tessera è una riga e il titolo ci sta — troncato, ma
-          abbastanza da distinguere due progetti con la stessa icona.
+      {/* THE NAME LEAVES ONLY WHEN THERE IS ANOTHER IDENTITY TO READ.
+          Below the threshold the tile is too narrow for the title to say
+          anything: it would be one letter and an ellipsis. With a favicon
+          holding the identity the name goes and the icon stays, centred; with
+          no icon the name stays at ANY width, because there it is the only
+          identity the tile has and four identical chat glyphs distinguish
+          nothing. 11px is the app's floor of legibility: we do not go under it
+          to fit one more word.
 
-          È una CONTAINER QUERY sulla cella, non un booleano: la larghezza di
-          una tessera dipende da quante ne hai messe in riga e da quanto è larga
-          la sidebar, cioè da cose che cambiano mentre trascini. Misurata dal
-          CSS, la soglia risponde durante il gesto e — soprattutto — non passa
-          da nessuno stato asincrono: era proprio la dipendenza dall'icona a far
-          lampeggiare il titolo a ogni refresh, disegnato nel frame in cui
-          l'icona non era ancora risolta e tolto in quello dopo.
+          It is a CONTAINER QUERY on the cell and not a boolean: the width of a
+          tile depends on how many are in the row and on how wide the sidebar
+          is, that is, on things that change while you drag. Measured from CSS
+          it answers during the gesture and — above all — it does not go
+          through any asynchronous state: it was exactly the dependency on the
+          icon that made the title flash at every refresh.
 
-          LA SOGLIA È 104, ed è misurata. Era 72, cioè «la tessera non è più un
-          quadrato» — ma una tessera larga 90 non è un quadrato e il titolo lì
-          dentro era comunque «e…»: misurato, a 90px il box del nome vale
-          SEDICI pixel per una stringa che ne chiede 76. Fra icona, rientri,
-          conteggio e slot del comando la tessera si mangia 74px prima di
-          arrivare al nome, quindi la domanda giusta non è «è una riga?» ma «ci
-          sta una parola?». 74 + 30 (cinque caratteri a 11px, il minimo
-          leggibile dell'app) = 104. Sotto, resta l'icona sola e centrata —
-          «se non ci entra la parola e c'è già l'icona, togliamola» (Attilio,
-          08/08).
-          I 104px stanno scritti a mano nella classe perché Tailwind legge il
-          sorgente: una variabile qui non genererebbe nessuna regola.
+          THE THRESHOLD IS 104, and it is measured. Between icon, insets,
+          count and the command slot the tile eats 74px before it gets to the
+          name; 74 + 30 (five characters at 11px) = 104. The number is written
+          out in the class because Tailwind reads the source: a variable here
+          would generate no rule.
 
-          Senza favicon il nome resta SEMPRE, a qualsiasi larghezza: lì il
-          titolo è l'unica identità che la tessera ha, e un glifo di categoria
-          da solo — quattro icone-chat identiche — non distingue niente.
-          11px è il minimo di leggibilità imposto in tutta l'app: sotto non si
-          scende nemmeno per far entrare una parola in più. */}
+          IT SIZES ITSELF TO THE TEXT, it does not stretch. `flex-1` in grid
+          form made the name box eat all the free width and then centre the
+          text INSIDE that box: measured on a 77px tile, the text sat 11px
+          right of the tile's centre — the group looked centred to the code and
+          was not on the screen. Shrink-to-fit (`flex-initial` + `max-w-full`)
+          leaves the free space where `justify-center` can split it in two.
+          In row form the name still takes everything that is left, because
+          there the tile is a row and the trailing slot needs a name that
+          yields. */}
       <span
         data-testid="pinned-tile-name"
-        // CENTRATO DA STRETTO, a sinistra da largo — «in queste condizioni»
-        // (Attilio, 08/08), e le condizioni sono la GRIGLIA.
-        //
-        // In una fila di tessere strette le icone stanno centrate e il nome di
-        // chi l'icona non ce l'ha («panea») stava a sinistra: due allineamenti
-        // nella stessa fila si leggono come un errore, non come una variante.
-        // Ma una tessera SOLA su una riga è larga quanto la colonna, e lì il
-        // nome centrato galleggia in mezzo al vuoto — «winfleet» a 180px dal
-        // bordo. La soglia separa i due casi: sotto i 200px si è in griglia.
-        //
-        // È una container query e NON l'esito della sonda dell'icona: la regola
-        // che vieta di commutare il layout su uno stato in volo resta intatta —
-        // qui si commuta sulla LARGHEZZA, che è misurata.
-        // `text-app-text`, non `-secondary`: qui il nome È la scheda. Per chi
-        // non ha un'icona è l'unica identità che la tessera mostra, e leggerla
-        // in `#aab0ba` invece che in `#e6e8ec` la fa sembrare una didascalia di
-        // qualcos'altro — «le schede pinnate non sono effettivamente bianche»
-        // (Attilio, 08/08). Il secondo colore resta, ma per le cose meno
-        // importanti: non per il nome della cosa che stai guardando.
-        // `flex-auto max-w-full` e non `flex-1`: con base 0 il nome prende
-        // tutto lo spazio che AVANZA dopo lo slot, quindi si taglia anche
-        // quando il «+» non c'è. Con base sul contenuto (limitata alla
-        // tessera) il nome dichiara quanto gli serve, e chi cede è lo slot.
-        // Vedi lo slot in fondo per la metà mancante della regola.
-        className={`relative min-w-0 max-w-full flex-auto truncate-tight text-center @min-[200px]/tile:text-left ${TAB_LABEL} ${
-          hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''
+        className={`relative min-w-0 max-w-full truncate-tight ${TAB_LABEL} ${
+          isRow
+            // `flex-auto` and not `flex-1`: with basis 0 the name takes all the
+            // room LEFT OVER by the trailing slot, so it truncates even while
+            // the "+" is not there. With its basis on the content (capped by
+            // the tile) the name declares what it needs and the one that gives
+            // way is the slot. See the slot at the bottom for the other half.
+            ? 'flex-auto text-left'
+            : `flex-initial text-center ${hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''}`
         }`}
       >
         {item.name}
       </span>
 
       {item.notificationCount > 0 && (
-        // In RIGA sta in fondo, in linea con tutto il resto. Da QUADRATO no:
-        // lì il conteggio in linea ruberebbe larghezza all'unica cosa rimasta
-        // — l'icona — e la spingerebbe fuori asse, quindi sale nell'angolo
-        // come il badge di un'icona (`pinned-tile-count`, che porta con sé
-        // anche il `relative` del caso in riga).
-        // Sparisce al passaggio del mouse perché lì, nello stesso posto,
-        // arriva il «+» — e due cose sovrapposte non si leggono. Vale ancora
-        // dal QUADRATO, dove il badge sta nell'angolo e il bottone gli finisce
-        // addosso; in riga adesso c'è lo slot qui sotto e non si toccherebbero
-        // più, ma si continua a nascondere entrambi allo stesso modo: un badge
-        // che sparisce solo a certe larghezze sarebbe una regola in più da
-        // ricordare per guadagnare sedici pixel.
+        // IN ROW FORM IT IS IN LINE, IN GRID FORM IT LEAVES THE FLOW.
+        // In the middle of a row the count is one more thing on the line, and
+        // it belongs there. In a grid it would steal width from the identity
+        // and push it off axis, so it climbs into the corner like the badge of
+        // an icon: what is not identity does not weigh on the centre. It used
+        // used to be gated by a container query at 72px, which is the same
+        // rule written as a width instead of as a form.
+        // It disappears under the pointer because the "+" lands in that very
+        // spot, and two things on top of each other do not read.
         <NotificationBadge
           count={item.notificationCount}
           className={`flex-shrink-0 group-hover/cell:invisible ${
-            hasRealIcon ? 'pinned-tile-count' : 'relative'
+            isRow ? 'relative' : 'pinned-tile-count'
           }`}
         />
       )}
@@ -658,11 +672,30 @@ export function PinnedTile({
           Sta DOPO il badge di proposito: il conteggio resta al suo posto e lo
           slot si apre oltre, così le due cose non si contendono lo stesso
           angolo. */}
+      {/* THE MIRROR OF THE CHEVRON — twelve empty pixels, and that is the point.
+          It exists only where something has to be centred and something else
+          leads the line: without it the group sits half a chevron plus half a
+          gap to the right of the tile's centre. With it the two ends of the
+          line weigh the same and the identity lands in the middle, which is
+          what one sees. */}
+      {expandable && !isRow && (
+        <span
+          aria-hidden="true"
+          data-testid="pinned-chevron-mirror"
+          className="hidden w-3 shrink-0 @min-[76px]/tile:block"
+        />
+      )}
+
       {hasActions && (
         <span
           aria-hidden="true"
           data-testid="pinned-tile-action-slot"
-          className={`hidden shrink-[9999] group-hover/cell:shrink-0 @min-[104px]/tile:block ${PINNED_TILE_ACTION_SLOT}`}
+          className={`shrink-[9999] group-hover/cell:shrink-0 ${PINNED_TILE_ACTION_SLOT} ${
+            // In row form there is always room for it; in grid form only above
+            // the width where a word fits at all — under it the slot would BE
+            // the tile.
+            isRow ? 'block' : 'hidden @min-[104px]/tile:block'
+          }`}
         />
       )}
     </button>

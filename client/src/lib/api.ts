@@ -1445,7 +1445,16 @@ export const projectsApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le PERSONE della mia organizzazione, coi profili GitHub (migration 094)
+// PEOPLE, their GitHub profiles, and the follow graph.
+//
+// The reachable set is no longer "the members of my org": it is me, whoever I
+// follow, whoever follows me, and the people I share an organisation with, the
+// last group being a way to FIND somebody and nothing else. Nothing in these
+// shapes names an organisation, on purpose.
+//
+// `stats` and `counts` are NULLABLE and that is the privacy: when a person
+// switches a facet off the server omits the value, so a client that ignored the
+// setting would have nothing to draw anyway.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ProfiloGitHubClient {
@@ -1456,6 +1465,8 @@ export interface ProfiloGitHubClient {
   bio: string | null;
   company: string | null;
   location: string | null;
+  blog: string | null;
+  twitterUsername: string | null;
   publicRepos: number | null;
   followers: number | null;
   fetchedAt: number | null;
@@ -1469,22 +1480,51 @@ export interface StatistichePersonaClient {
   ultimoPrompt: string | null;
 }
 
+/** The five switches of `Profile > Privacy`. Every one of them is enforced by
+ *  the server: this shape is what you SET, not what you are trusted to obey. */
+/* The profile shapes are declared ONCE, in shared/, and re-exported here. A
+ * hand-copied interface carries a "keep in sync" promise that no gate can
+ * enforce, so the two sides read the same file instead. */
+export type { ProfilePrivacy, ConteggiFollow } from "../../../shared/profile";
+import type { ProfilePrivacy, ConteggiFollow } from "../../../shared/profile";
+
 export interface PersonaConProfilo {
   id: string;
   displayName: string;
   email: string | null;
   githubLogin: string | null;
   github: ProfiloGitHubClient | null;
-  stats: StatistichePersonaClient;
+  /** `null` when this person does not publish their figures. */
+  stats: StatistichePersonaClient | null;
+  isMe: boolean;
+  /** `null` when this person does not publish their followers. */
+  counts: ConteggiFollow | null;
+  /** Whether I follow them. The relation is one way, so the other direction is
+   *  a separate field and not the same one read backwards. */
+  viewerFollows: boolean;
+  followsViewer: boolean;
+  /** `null` when this person does not publish their presence. */
+  lastSeenAt: number | null;
+  /** Only ever present on your own profile. */
+  privacy?: ProfilePrivacy;
+}
+
+/** A row in a followers/following list: enough to draw a face and follow back. */
+export interface PersonaSommaria {
+  id: string;
+  displayName: string;
+  githubLogin: string | null;
+  github: ProfiloGitHubClient | null;
+  viewerFollows: boolean;
   isMe: boolean;
 }
 
 export const peopleApi = {
-  /** La rubrica. NON tocca GitHub: le facce arrivano dalla cache del server. */
+  /** The directory. Does NOT touch GitHub: the faces come from the server cache. */
   async list(): Promise<{ people: PersonaConProfilo[] }> {
     return request<{ people: PersonaConProfilo[] }>('/people');
   },
-  /** Una persona sola — QUI il server va a prendere il profilo fresco. */
+  /** One person: HERE the server goes and fetches the fresh GitHub profile. */
   async get(id: string): Promise<PersonaConProfilo> {
     return request<PersonaConProfilo>(`/people/${id}`);
   },
@@ -1493,6 +1533,27 @@ export const peopleApi = {
       `/people/${id}`,
       { method: 'PATCH', body: JSON.stringify({ githubLogin }) },
     );
+  },
+  async follow(id: string): Promise<{ following: boolean; counts: ConteggiFollow }> {
+    return request<{ following: boolean; counts: ConteggiFollow }>(`/people/${id}/follow`, { method: 'POST' });
+  },
+  async unfollow(id: string): Promise<{ following: boolean; counts: ConteggiFollow }> {
+    return request<{ following: boolean; counts: ConteggiFollow }>(`/people/${id}/follow`, { method: 'DELETE' });
+  },
+  async followers(id: string): Promise<{ people: PersonaSommaria[] }> {
+    return request<{ people: PersonaSommaria[] }>(`/people/${id}/followers`);
+  },
+  async following(id: string): Promise<{ people: PersonaSommaria[] }> {
+    return request<{ people: PersonaSommaria[] }>(`/people/${id}/following`);
+  },
+  async privacy(id: string): Promise<{ privacy: ProfilePrivacy }> {
+    return request<{ privacy: ProfilePrivacy }>(`/people/${id}/privacy`);
+  },
+  async setPrivacy(id: string, patch: Partial<ProfilePrivacy>): Promise<{ privacy: ProfilePrivacy }> {
+    return request<{ privacy: ProfilePrivacy }>(`/people/${id}/privacy`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
   },
 };
 

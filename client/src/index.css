@@ -176,8 +176,7 @@
  *
  * E LE DUE CENTRATURE STANNO NELLA STESSA REGOLA, non una qui e una in una
  * classe accanto: fra due utility a pari specificità deciderebbe l'ordine dentro
- * `@layer utilities`, cioè nulla su cui si possa contare (stessa ragione per cui
- * `pinned-tile-lead`, più sotto, tiene dentro anche il `position`). Qui il ramo
+ * `@layer utilities`, cioè nulla su cui si possa contare. Qui il ramo
  * `@supports` viene dopo nella stessa regola, quindi vince dove è sostenuto e
  * sparisce dove non lo è.
  *
@@ -200,44 +199,35 @@
   }
 }
 
-/* ── La tessera fissata quadrata centra l'ICONA, non il GRUPPO ──────────────
+/* THE COUNT ON A PINNED TILE IN GRID FORM: in the corner, out of the flow.
  *
- * Sotto i 72px (la stessa soglia che manda via il titolo, vedi `PinnedTile`)
- * della tessera resta la sola icona, e `justify-center` centra ciò che è nel
- * flusso: se il chevron e il conteggio ci restano, il centro è quello del
- * gruppo e l'icona finisce fuori asse — di mezzo chevron, 8px su 32, che a
- * quella scala si vede eccome. Fuori dal flusso non pesano più, e il centro
- * dell'icona torna a coincidere col centro della tessera.
+ * A badge in the line would steal width from the only thing the tile is there
+ * to show — the icon, the name — and push it off axis. In the corner it takes
+ * width from nobody and stays inside the tile's rectangle (that nothing spills
+ * out is measured by TILE-26).
  *
- * Il chevron torna a pesare sotto i 54px, e non è un gusto: 12px appoggiati a
- * 6px dal bordo e un'icona da 18 al centro si TOCCANO proprio lì. Sotto quella
- * larghezza «non c'è spazio» è la verità, e l'unica cosa onesta è rimetterlo
- * nel flusso invece di stamparlo sopra l'icona.
- *
- * Il conteggio invece non ha soglia: va nell'ANGOLO, che è il posto di un
- * badge sopra un'icona — lì non contende larghezza a nessuno, e resta dentro
- * il rettangolo della tessera (che niente sbordi lo misura TILE-26).
- *
- * `position` sta TUTTO qui dentro, in una regola sola: messo metà qui e metà
- * in una classe `relative` accanto, a decidere sarebbe l'ordine dentro il
- * layer delle utility — cioè nulla su cui si possa contare. */
-@utility pinned-tile-lead {
-  @container tile (54px <= width < 72px) {
-    position: absolute;
-    left: 0.375rem;
-    top: 50%;
-    translate: 0 -50%;
-  }
+ * It used to be a container query at 72px. The width was the wrong question:
+ * what decides is the FORM (see the `form` prop of `PinnedTile`), and in row
+ * form the badge goes back into the line, where it belongs. */
+@utility pinned-tile-count {
+  position: absolute;
+  top: 0.125rem;
+  right: 0.125rem;
 }
 
-@utility pinned-tile-count {
-  position: relative;
-  @container tile (width < 72px) {
-    position: absolute;
-    top: 0.125rem;
-    right: 0.125rem;
-  }
-}
+/* THE TWO ALIGNMENTS OF A PINNED TILE ARE NO LONGER WRITTEN HERE.
+ *
+ * There used to be a second utility here, `pinned-tile-lead`, that pulled the
+ * CHEVRON out of the flow between 54 and 72px so that what was left could
+ * centre itself. The idea was right and the trigger was wrong: a width answers
+ * "is this tile narrow", while the question is "is this tile alone on its
+ * row" — a tile can be 190px wide and still be one of two in a grid. And out
+ * of the flow the chevron stopped reserving its room, so a name ran under it.
+ * It is now mirrored instead: twelve pixels at each end of the line.
+ *
+ * `PinnedTile` now takes the answer from the layout (`form`) and applies both
+ * decisions in Tailwind classes, next to the elements they move. See the
+ * `form` prop there. */
 
 /* Topbar tabs — fully hidden by default, ghost 3px thumb only on direct hover */
 @utility scrollbar-topbar {

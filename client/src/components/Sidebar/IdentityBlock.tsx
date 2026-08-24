@@ -56,7 +56,7 @@ import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence, type OrgConPresenza } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
-import { apriProfilo } from '@/state/profileTarget';
+import { apriProfilo, apriProfiloPersona } from '@/state/profileTarget';
 import type { FacciaPresenza, RigaPresenza } from './orgPresence';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, SIDEBAR_HOVER, TIER_DONE_TEXT } from '@/lib/selectionStyles';
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
@@ -65,6 +65,7 @@ import { PresencePopover } from './PresencePopover';
 import { segnaliLavoro, type TipoSegnale } from './workSignals';
 import { useAgentActivityCounts } from '@/state/signals';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
+import { apriImpostazioni } from '@/lib/openSettings';
 import { useT } from '@/hooks/useT';
 
 /** A subject inside the flow: it never breaks in the middle, it either fits on
@@ -394,7 +395,7 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
               from nowhere in particular is a link you have to guess the target
               of. Here it is opened from the group whose people you are reading. */}
           <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { onClose(); apriProfilo('organization'); }} testId="org-open-manage">
+            <Azione onClick={() => { onClose(); apriImpostazioni('organization'); }} testId="org-open-manage">
               {tr('statusBar.orgs.manageOne')}
             </Azione>
           </div>
@@ -500,7 +501,7 @@ function RigaAmici({ online, tutti, totali }: {
         >
           <Elenco gente={tutti} vuoto={tr('statusBar.friends.none')} suggerimento={tr('statusBar.friends.noneHint')} />
           <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { setAperto(false); apriProfilo('friends'); }} testId="friends-open-all">
+            <Azione onClick={() => { setAperto(false); apriProfilo('followers'); }} testId="friends-open-all">
               {tr('statusBar.friends.manage')}
             </Azione>
           </div>
@@ -594,12 +595,22 @@ function Elenco({ gente, vuoto, suggerimento }: {
   );
 }
 
+/**
+ * A PERSON IN A PANEL, and the panel is not where the story about them ends.
+ *
+ * This row used to be a `div`: a face, a name and a dot, and no way to get from
+ * any of the three to the person. Every place a person appears has to open
+ * their profile, otherwise there are faces the app shows you and refuses to
+ * tell you anything about, and the profile page might as well not exist.
+ */
 function Persona({ p }: { p: RigaPresenza }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => apriProfiloPersona(p.id)}
       data-testid="presence-person"
       data-online={p.presente ? 'true' : 'false'}
-      className="flex items-center gap-2 px-3 py-1 text-[11px]"
+      className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] hover:bg-app-hover coarse:min-h-11"
       title={p.nome}
     >
       <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full ${p.presente ? '' : 'opacity-50'}`}>
@@ -613,7 +624,7 @@ function Persona({ p }: { p: RigaPresenza }) {
       <span
         className={`ml-auto h-1.5 w-1.5 flex-shrink-0 rounded-full ${p.presente ? PALLINO_OK : 'bg-app-text-muted/40'}`}
       />
-    </div>
+    </button>
   );
 }
 

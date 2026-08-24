@@ -85,65 +85,85 @@ async function boxOf(page: Page, name: string) {
 }
 
 test.describe("Sidebar — tessere fissate", () => {
-  test("TILE-ALLINEA: il chevron non sposta il nome di sei pixel", async ({ page, request }) => {
-    // Misurato nel DOM sulle tessere vere: quelle con il chevron avevano il
-    // testo a x=42, tutte le altre a x=36. Sei pixel su una colonna di righe
-    // identiche, cioe' il tipo di scarto che si vede senza riuscire a
-    // nominarlo. Segnalato come «assicuriamoci che le icone degli accordion
-    // siano tutte correttamente allineate con la giusta spaziatura vicino al
-    // testo».
+  test("TILE-ALLINEA: una sola colonna per gli accordion, e niente spazio prima", async ({ page, request }) => {
+    // Measured in the DOM on the real rows: a project's chevron sat in a 20px
+    // box around a 14px glyph (ink 11px from the row's edge), a chat with
+    // children in a 16px box around a 12px glyph (at 10), a pinned tile in a
+    // 12px one (at 8). THREE columns for the same control, in a list where the
+    // rows sit one on top of the other.
     //
-    // Perche' un test e non un'occhiata: il difetto e' GEOMETRIA, e un VLM o un
-    // occhio distratto lo perdono. Sei pixel non si vedono, si misurano.
+    // And where there is NO accordion its empty place must not stay behind:
+    // "in the normal ones there must be no useless space before the accordion"
+    // (card a035f945). That was 12px of slot plus 8 of gap in front of nothing,
+    // on every tile that does not open, which is most of them.
+    //
+    // Why a test and not a look: the defect is GEOMETRY, and a VLM or a
+    // distracted eye lose it. Three pixels are not seen, they are measured.
     const a = await createTopic(request, `E2E-Allinea-A-${Date.now()}`);
     const b = await createTopic(request, `E2E-Allinea-B-${Date.now()}`);
-    created.push(a.id, b.id);
-    await setPins(page, [a.id, b.id], [[a.id], [b.id]]);
+    // A PROJECT with an open chat: it is the only tile that really opens
+    // (`renderExpanded` answers only for those with tabs), so it is the only
+    // way to measure a REAL chevron among the pinned ones.
+    const cartella = `/tmp/e2e-allinea-proj-${Date.now()}`;
+    const figlia = await createTopic(request, `E2E-Allinea-P-${Date.now()}`, { projectPath: cartella });
+    // A SECOND project, deliberately NOT pinned: the tree only lists what is
+    // not in the pinned block, so pinning the only project would leave no row
+    // with an accordion to compare the tile against.
+    const albero = `/tmp/e2e-allinea-albero-${Date.now()}`;
+    const figliaAlbero = await createTopic(request, `E2E-Allinea-T-${Date.now()}`, { projectPath: albero });
+    created.push(a.id, b.id, figlia.id, figliaAlbero.id);
+    const chiaveProj = `project:${cartella}`;
+    // Each on its OWN row: row form, that is, the "normal" alignment.
+    await setPins(page, [a.id, b.id, chiaveProj, figlia.id], [[a.id], [b.id], [chiaveProj], [figlia.id]]);
     await gotoSidebar(page);
 
     const misura = async (nome: string) => {
       const tile = tileNamed(page, nome);
       await expect(tile).toBeVisible({ timeout: 10000 });
       return tile.evaluate((el) => {
-        const testo = [...el.querySelectorAll("span")]
-          .find((s) => s.textContent?.trim() && !s.querySelector("svg"));
-        if (!testo) return null;
-        // Relativa alla TESSERA, non alla finestra: due tessere su righe
-        // diverse hanno x assolute diverse per costruzione.
-        return +(testo.getBoundingClientRect().left - el.getBoundingClientRect().left).toFixed(1);
+        const r = el.getBoundingClientRect();
+        const testo = el.querySelector('[data-testid="pinned-tile-name"]');
+        const slot = el.querySelector('[data-testid="pinned-chevron-slot"]');
+        const glifo = el.querySelector('[data-testid="pinned-expand-hint"]');
+        return {
+          testo: testo ? +(testo.getBoundingClientRect().left - r.left).toFixed(1) : null,
+          slot: slot ? +slot.getBoundingClientRect().width.toFixed(1) : null,
+          // The chevron's INK, not its box: that is what one sees, and that
+          // is what sat in three different columns.
+          glifo: glifo ? +(glifo.getBoundingClientRect().left - r.left).toFixed(1) : null,
+        };
       });
     };
 
     const xa = await misura(a.name);
     const xb = await misura(b.name);
-    expect(xa, "la prima tessera deve avere un testo misurabile").not.toBeNull();
-    expect(xb).not.toBeNull();
-    // Lo SLOT del chevron c'e' sempre, quindi due tessere della stessa forma
-    // partono dalla stessa x, con o senza chevron dentro.
-    expect(Math.abs(xa! - xb!), "il nome parte dalla stessa colonna").toBeLessThanOrEqual(0.5);
+    expect(xa.testo, "la prima tessera deve avere un testo misurabile").not.toBeNull();
+    expect(xb.testo).not.toBeNull();
+    expect(Math.abs(xa.testo! - xb.testo!), "due tessere della stessa forma partono dalla stessa colonna").toBeLessThanOrEqual(0.5);
 
-    // LA GARANZIA VERA: lo slot esiste ANCHE senza chevron, e ha una larghezza.
-    //
-    // Due topic fissati non sono mai espandibili (`renderExpanded` torna null
-    // per loro), quindi il confronto qui sopra da solo non distingue il codice
-    // corretto da quello rotto: entrambe le tessere passerebbero. La prova che
-    // regge e' che lo SPAZIO del chevron ci sia comunque — perche' e' quello
-    // che fa partire dalla stessa x una tessera espandibile e una no.
-    //
-    // Falsificato togliendo lo slot (chevron nel flusso, com'era prima): il
-    // riquadro sparisce e questa riga diventa rossa.
-    for (const nome of [a.name, b.name]) {
-      const slot = await tileNamed(page, nome).evaluate((el) => {
-        // Il testid, non `[aria-hidden]`: dentro una tessera ce ne sono altri
-        // (il glifo, il segnaposto dell'icona in volo) e il selettore generico
-        // ne pescava uno che c'e' comunque — il sabotaggio restava verde.
-        const s = el.querySelector('[data-testid="pinned-chevron-slot"]');
-        return s ? +s.getBoundingClientRect().width.toFixed(1) : null;
-      });
-      expect(slot, `lo slot del chevron manca su "${nome}": senza, il nome di una
-        tessera espandibile parte 6px piu' a destra delle vicine`).not.toBeNull();
-      expect(slot!).toBeGreaterThan(0);
-    }
+    // NO DEAD SPACE: a tile that does not open has no slot at all. Falsified
+    // by reserving the slot again (as it was before): these two lines go red.
+    expect(xa.slot, "una chat non si apre: nessuno slot da riservare").toBeNull();
+    expect(xb.slot).toBeNull();
+
+    // THE ACCORDION COLUMN, on the two surfaces that have one: the pinned
+    // tile of a project and the project row in the tree.
+    const tessera = await misura(cartella.split("/").pop()!);
+    expect(tessera.glifo, "la tessera di un progetto con tab si apre, e mostra il chevron").not.toBeNull();
+
+    const riga = await page.evaluate(() => {
+      const bottone = document.querySelector<HTMLElement>('[aria-expanded][aria-label^="Expand"], [aria-expanded][aria-label^="Collapse"]');
+      if (!bottone) return null;
+      const card = bottone.parentElement!;
+      const glifo = bottone.querySelector("svg");
+      if (!glifo) return null;
+      return +(glifo.getBoundingClientRect().left - card.getBoundingClientRect().left).toFixed(1);
+    });
+    expect(riga, "serve almeno una riga con accordion nell'albero").not.toBeNull();
+    expect(
+      Math.abs(riga! - tessera.glifo!),
+      `il chevron della riga parte a ${riga}px dal bordo, quello della tessera a ${tessera.glifo}: stesso comando, due colonne`,
+    ).toBeLessThanOrEqual(0.5);
   });
 
 
@@ -2251,13 +2271,13 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       riempitivi.push(t.id);
     }
 
-    // ── C'E' SPAZIO: il chevron esce dal flusso ────────────────────────────
-    // La sola leva sulla larghezza e' QUANTE ne stanno in riga: le larghezze
-    // scritte a mano non servono a niente, `reconcilePinnedLayout` le pareggia
-    // in lettura. Sui 244px di riga: tre fanno ~77 (sopra la fascia), QUATTRO
-    // fanno ~56 — dentro la fascia 54–72 in cui il chevron si sfila — cinque
-    // ~44 e sei ~36, cioe' sotto. Quattro e' anche il caso vero piu' comune.
-    const inFascia = [chiaveProj, chat.id, riempitivi[0], riempitivi[1]];
+    // -- THERE IS ROOM: the chevron weighs the same at both ends -----------
+    // The only lever on the width is HOW MANY fit in the row: hand-written
+    // widths do nothing, `reconcilePinnedLayout` evens them out on read. On a
+    // 244px row: THREE make ~77 (above the 76 where chevron, icon and mirror
+    // all fit, and below the 104 where the title would come back), four make
+    // ~56, five ~44, six ~36.
+    const inFascia = [chiaveProj, chat.id, riempitivi[0]];
     await setPins(page, inFascia, [inFascia]);
     await gotoSidebar(page);
     const tessera = tileNamed(page, "e2e-tile-centro");
@@ -2277,18 +2297,21 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       const chev = t.querySelector<HTMLElement>('[data-testid="pinned-expand-hint"]')!;
       const slot = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-slot"]')!;
       const c = chev.getBoundingClientRect();
+      const specchio = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-mirror"]');
       return {
         larghezza: b.width,
         scarto: (img.left + img.right) / 2 - (b.left + b.right) / 2,
         posizioneChevron: getComputedStyle(slot).position,
         chevronPrecede: c.right - img.left,
         chevronDentro: c.left - b.left,
+        slot: +slot.getBoundingClientRect().width.toFixed(1),
+        specchio: specchio ? +specchio.getBoundingClientRect().width.toFixed(1) : null,
       };
     });
     // La fascia E' il soggetto del test: se la griglia cambiasse e la tessera
     // ne uscisse, questo test misurerebbe un altro caso senza dirlo.
-    expect(misura.larghezza, `larghezza fuori fascia: ${JSON.stringify(misura)}`).toBeGreaterThanOrEqual(54);
-    expect(misura.larghezza, `larghezza fuori fascia: ${JSON.stringify(misura)}`).toBeLessThan(72);
+    expect(misura.larghezza, `larghezza fuori fascia: ${JSON.stringify(misura)}`).toBeGreaterThanOrEqual(76);
+    expect(misura.larghezza, `larghezza fuori fascia: ${JSON.stringify(misura)}`).toBeLessThan(104);
 
     await expect(tessera.getByTestId("pinned-tile-name"), "quadrata: niente titolo").toBeHidden();
     // Prima l'esito, poi il meccanismo: se un giorno si centra in un altro
@@ -2297,11 +2320,16 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       Math.abs(misura.scarto),
       `l'icona sta al centro della tessera: ${JSON.stringify(misura)}`,
     ).toBeLessThanOrEqual(1);
-    expect(misura.posizioneChevron, "lo slot del chevron esce dal flusso").toBe("absolute");
-    // Fuori dal flusso, ma non addosso all'icona ne' fuori dalla tessera: e'
-    // esattamente la condizione che regge la soglia dei 54px.
+    // THE CHEVRON STAYS IN THE FLOW, AND IT IS MIRRORED.
+    // It used to leave the flow between 54 and 72px: the centre came out right
+    // and the name ended up UNDER the chevron, because out of the flow it
+    // stops reserving its room. Now it weighs 12px at the head and 12 at the
+    // tail (same weight at both ends, so it moves nothing) and it overlaps
+    // nothing, at any width.
+    expect(misura.posizioneChevron, "il chevron resta nel flusso, in testa alla riga").toBe("static");
     expect(misura.chevronPrecede, "il chevron non si sovrappone all'icona").toBeLessThanOrEqual(0);
     expect(misura.chevronDentro, "e resta dentro la tessera").toBeGreaterThanOrEqual(-0.5);
+    expect(misura.specchio, "in coda c'e' lo specchio del chevron, largo uguale").toBe(misura.slot);
 
     // ── Il CONTEGGIO non pesa mai: va nell'angolo ──────────────────────────
     // Non si semina un non-letto vero — servirebbe una chat aperta e non
@@ -2337,24 +2365,40 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(conConteggio.aDestra, "e a destra").toBeLessThanOrEqual(4);
     expect(conConteggio.dentro, "dentro la tessera, come tutto il resto").toBe(true);
 
-    // ── NON C'E' SPAZIO: il chevron torna a pesare ─────────────────────────
-    // Sotto i 54px un chevron appoggiato al bordo finirebbe SOPRA l'icona, e
-    // fra un'icona fuori asse e due cose stampate una sull'altra la prima e'
-    // la meno peggio: la deroga e' dichiarata, e questa la difende.
+    // -- NARROWER STILL: the rule does not change --------------------------
+    // There used to be an exception under 54px (the chevron came back into the
+    // flow and the icon went off axis) because out of the flow it would have
+    // landed ON the icon. With the mirror the alignment has no threshold left:
+    // six tiles in a row centre like three. The HINT does go under 76px, where
+    // chevron, icon and mirror stop fitting together, and that is the only
+    // thing this branch has left to check.
     const strette = [chiaveProj, chat.id, ...riempitivi];
     await setPins(page, strette, [strette]);
     await gotoSidebar(page);
     const minuscola = tileNamed(page, "e2e-tile-centro");
     await expect(minuscola).toBeVisible({ timeout: 15000 });
     const senzaSpazio = await minuscola.evaluate((t: HTMLElement) => {
-      const chev = t.querySelector<HTMLElement>('[data-testid="pinned-expand-hint"]');
+      const b = t.getBoundingClientRect();
+      const img = t.querySelector("img")!.getBoundingClientRect();
+      // THE SLOT, not the glyph inside it. The glyph is an <svg>, and an SVG
+      // element has no `offsetParent` at all (it is an HTMLElement property):
+      // reading it there answers `undefined` on a hidden chevron just as on a
+      // visible one, which is an assertion that cannot fail. The slot is the
+      // element that carries the `display`, so it is the one to ask.
+      const slot = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-slot"]');
+      const disegnato = slot !== null && getComputedStyle(slot).display !== "none";
       return {
-        larghezza: t.getBoundingClientRect().width,
-        posizioneChevron: chev ? getComputedStyle(chev).position : null,
+        larghezza: b.width,
+        scarto: (img.left + img.right) / 2 - (b.left + b.right) / 2,
+        posizioneChevron: disegnato ? getComputedStyle(slot!).position : null,
       };
     });
-    expect(senzaSpazio.larghezza, `sei in riga: sotto la soglia — ${JSON.stringify(senzaSpazio)}`).toBeLessThan(54);
-    expect(senzaSpazio.posizioneChevron, "senza spazio il chevron torna nel flusso").toBe("static");
+    expect(senzaSpazio.larghezza, `sei in riga: sotto la soglia — ${JSON.stringify(senzaSpazio)}`).toBeLessThan(76);
+    expect(senzaSpazio.posizioneChevron, "sotto i 76px il segno se ne va: non ci sta").toBeNull();
+    expect(
+      Math.abs(senzaSpazio.scarto),
+      `anche a ${senzaSpazio.larghezza}px l'icona resta al centro: ${JSON.stringify(senzaSpazio)}`,
+    ).toBeLessThanOrEqual(1);
   });
 
   test("TILE-27: al ricarico il titolo non lampeggia prima dell'icona", async ({ page, request }) => {

@@ -40,6 +40,19 @@ export interface ProfiloGitHub {
   bio: string | null;
   company: string | null;
   location: string | null;
+  /**
+   * The two fields GitHub prints right under the bio: the website and the X
+   * handle. They are cached for the same reason as the avatar and not for a
+   * different one: a header that has to go to the network to draw a link is a
+   * header that spends the hourly quota on decoration.
+   *
+   * Both are what GitHub returns and nothing more. `blog` is a free-text field
+   * over there, so it can hold a bare host with no scheme, and it is stored
+   * verbatim: normalising it here would mean guessing, and a guess written
+   * into a cache is a guess that outlives the page that made it.
+   */
+  blog: string | null;
+  twitterUsername: string | null;
   publicRepos: number | null;
   followers: number | null;
   /** Quando questa copia è stata scaricata. `null` = non è mai riuscita. */
@@ -53,6 +66,7 @@ export function loginValido(login: unknown): login is string {
 interface Riga {
   login: string; name: string | null; avatar_url: string | null; html_url: string | null;
   bio: string | null; company: string | null; location: string | null;
+  blog: string | null; twitter_username: string | null;
   public_repos: number | null; followers: number | null;
   fetched_at: number | null; failed_at: number | null; status: number | null;
 }
@@ -61,6 +75,12 @@ const rigaAProfilo = (r: Riga): ProfiloGitHub => ({
   login: r.login,
   name: r.name, avatarUrl: r.avatar_url, htmlUrl: r.html_url, bio: r.bio,
   company: r.company, location: r.location,
+  // `?? null` and not a bare read: the row comes from `SELECT *`, so on a
+  // database written before these two columns existed the field is `undefined`
+  // rather than `null`, and `undefined` is the value that disappears from
+  // `JSON.stringify` and makes a client read "the key is missing" where the
+  // truth is "we have not cached it".
+  blog: r.blog ?? null, twitterUsername: r.twitter_username ?? null,
   publicRepos: r.public_repos, followers: r.followers,
   fetchedAt: r.fetched_at,
 });
@@ -130,6 +150,7 @@ export async function profiloGitHub(
       login: str("login") ?? login,
       name: str("name"), avatarUrl: str("avatar_url"), htmlUrl: str("html_url"),
       bio: str("bio"), company: str("company"), location: str("location"),
+      blog: str("blog"), twitterUsername: str("twitter_username"),
       publicRepos: num("public_repos"), followers: num("followers"),
       fetchedAt: ora,
     };
@@ -145,14 +166,17 @@ function scriviProfilo(db: Db, p: ProfiloGitHub, ora: number): void {
   try {
     db.query(`
       INSERT INTO github_profiles (login, name, avatar_url, html_url, bio, company, location,
+                                   blog, twitter_username,
                                    public_repos, followers, fetched_at, failed_at, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 200)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 200)
       ON CONFLICT(login) DO UPDATE SET
         name = excluded.name, avatar_url = excluded.avatar_url, html_url = excluded.html_url,
         bio = excluded.bio, company = excluded.company, location = excluded.location,
+        blog = excluded.blog, twitter_username = excluded.twitter_username,
         public_repos = excluded.public_repos, followers = excluded.followers,
         fetched_at = excluded.fetched_at, failed_at = NULL, status = 200
     `).run(p.login, p.name, p.avatarUrl, p.htmlUrl, p.bio, p.company, p.location,
+           p.blog, p.twitterUsername,
            p.publicRepos, p.followers, ora);
   } catch { /* la cache che non si scrive costa una richiesta in più, non un errore */ }
 }

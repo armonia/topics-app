@@ -16,11 +16,21 @@ import { SETTINGS_SECTIONS, IDENTITY_SECTIONS } from './sections';
 import { t, missingKeys } from '../../lib/i18n';
 
 describe('le voci delle impostazioni', () => {
-  test('profilo, organizzazione e amici sono TRE voci di primo livello', () => {
+  test('profile, followers, privacy and organization are top level entries', () => {
     const ids = SETTINGS_SECTIONS.map((s) => s.id);
     expect(ids).toContain('profile');
+    expect(ids).toContain('followers');
+    expect(ids).toContain('privacy');
     expect(ids).toContain('organization');
-    expect(ids).toContain('friends');
+  });
+
+  // THE PROFILE IS NOT THE ORGANISATION. Putting the org page back among the
+  // identity tabs is a one word change nobody would notice in review, and it
+  // would undo the whole point: a profile answers who a person is, and "which
+  // company they were added to" is not part of that answer. The org model
+  // itself stays where it is, carrying grants and project visibility.
+  test('the profile tab does not carry the organization', () => {
+    expect(IDENTITY_SECTIONS).not.toContain('organization');
   });
 
   test('nessuna voce è ripetuta e ognuna ha la sua etichetta', () => {
@@ -44,8 +54,10 @@ describe('le etichette esistono in tutte e due le lingue', () => {
     'settings.page.profile.blurb',
     'settings.page.organization.title',
     'settings.page.organization.blurb',
-    'settings.page.friends.title',
-    'settings.page.friends.blurb',
+    'settings.page.followers.title',
+    'settings.page.followers.blurb',
+    'settings.page.privacy.title',
+    'settings.page.privacy.blurb',
   ];
 
   test('italiano: nessuna chiave nuda a schermo', () => {

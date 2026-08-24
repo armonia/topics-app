@@ -9,6 +9,7 @@ import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
 import { resolveIdentity } from "../lib/identity";
 import { resolvePrincipals } from "../lib/principals";
+import { privacyPersona } from "../lib/follows";
 import { isResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
 import { nuovaChiave } from "../../shared/relay-crypto";
@@ -1099,21 +1100,38 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
              WHERE m.org_id = ? AND p.revoked_at IS NULL
              ORDER BY owner DESC, p.display_name`).all(orgId) as Array<Record<string, unknown>>;
           return json({
-            members: righe.map((r) => ({
-              id: r.id, name: r.name, email: r.email, role: r.role,
-              devices: Number(r.devices), owner: !!r.owner,
-              // Millisecondi o null: la soglia dell'«online» la decide chi
-              // disegna, non questa rotta. Un server che dichiarasse «online:
-              // true» congelerebbe qui una finestra temporale che il client non
-              // puo' piu' cambiare, e due schermate con due soglie diverse
-              // direbbero due verita' sullo stesso membro.
-              lastSeenAt: r.last_seen === null || r.last_seen === undefined ? null : Number(r.last_seen),
-              // Le DUE revoche restano distinte anche qui: una l'ha decisa il
-              // piano di controllo, l'altra tu — e solo la seconda sopravvive
-              // al prossimo aggiornamento.
-              revoked: r.revoked_at !== null,
-              blocked: r.local_blocked_at !== null,
-            })),
+            members: righe.map((r) => {
+              // PRESENCE IS A PROFILE SWITCH, AND IT HAS TO HOLD HERE TOO.
+              // `show_presence` is enforced by `/api/people`, but this route
+              // reads the same `devices.last_seen_at`, so a person who turned
+              // presence off would still show as online on the members screen.
+              // A switch that holds on only one of the two routes reading
+              // that column is not a switch, it is a hint. Filtered in
+              // TypeScript rather than in the SELECT above on purpose: naming
+              // the column in that query would make the whole handler throw on
+              // a database older than the migration, and the catch below
+              // answers an EMPTY members list, so hiding one timestamp would
+              // cost the entire screen.
+              const presenza = String(r.id) === ioPersona
+                || privacyPersona(db as never, String(r.id)).showPresence;
+              return {
+                id: r.id, name: r.name, email: r.email, role: r.role,
+                devices: Number(r.devices), owner: !!r.owner,
+                // Millisecondi o null: la soglia dell'«online» la decide chi
+                // disegna, non questa rotta. Un server che dichiarasse «online:
+                // true» congelerebbe qui una finestra temporale che il client non
+                // puo' piu' cambiare, e due schermate con due soglie diverse
+                // direbbero due verita' sullo stesso membro.
+                lastSeenAt: !presenza || r.last_seen === null || r.last_seen === undefined
+                  ? null
+                  : Number(r.last_seen),
+                // Le DUE revoche restano distinte anche qui: una l'ha decisa il
+                // piano di controllo, l'altra tu, e solo la seconda sopravvive
+                // al prossimo aggiornamento.
+                revoked: r.revoked_at !== null,
+                blocked: r.local_blocked_at !== null,
+              };
+            }),
           });
         } catch { return json({ members: [] }); }
       }

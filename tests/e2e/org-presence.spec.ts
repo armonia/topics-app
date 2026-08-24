@@ -58,10 +58,10 @@ async function stubIdentita(
   // (`useIdentityPresence`), not the session. They are two different fetches,
   // and that is exactly why `presentiOra` has to keep quiet while the identity
   // is not there yet.
-  // The WHOLE shape of a person, `stats` included. A half stub is not a smaller
-  // stub, it is a different server: the friends page reads `stats.prompts`, and
-  // a person without stats took the pane down to its error screen while the
-  // test was blaming the deep link.
+  // The WHOLE shape of a person, `stats` and the follow fields included. A half
+  // stub is not a smaller stub, it is a different server: the followers page
+  // reads the counters, and a person without them took the pane down to its
+  // error screen while the test was blaming the deep link.
   await page.route("**/api/people", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({
@@ -70,10 +70,20 @@ async function stubIdentita(
           githubLogin: null,
           github: null,
           stats: { prompts: 0, inputTokens: 0, outputTokens: 0, costCents: 0, ultimoPrompt: null },
+          counts: { followers: 0, following: 0 },
+          viewerFollows: false,
+          followsViewer: false,
+          lastSeenAt: null,
           ...p,
           ...(p.isMe ? { id: ioId } : {}),
         })),
       }) }));
+  // The followers page asks for the two lists of whoever is `isMe`. Unrouted
+  // they would reach the real server, which in this stubbed world knows none of
+  // these ids and answers 404: the page would then draw an empty state that has
+  // nothing to do with what the test is looking at.
+  await page.route("**/api/people/*/follow*", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ people: [] }) }));
   await page.route("**/api/auth/orgs/*/members", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ members: membri }) }));
@@ -182,7 +192,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("friends-panel")).toBeVisible();
     await page.getByTestId("friends-open-all").click();
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("settings-page-friends")).toBeVisible();
+    await expect(page.getByTestId("settings-page-followers")).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "amici-online.png") });
   });
 
@@ -394,7 +404,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
     // But it does not say so with bad news: at zero the row carries its own
     // name, not "nobody online".
-    await expect(amici).toContainText("Amici");
+    await expect(amici).toContainText("Persone");
     await expect(amici).not.toContainText("Nessuno online");
     // And the panel explains where the people come from, instead of being empty.
     await page.getByTestId("identity-friends-chip").click();

@@ -5,6 +5,7 @@ import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
+import { EVENTO_IMPOSTAZIONI, type DettaglioImpostazioni, type SezioneImpostazioni } from './lib/openSettings';
 import { runNotificationAction } from './lib/notify/notificationAction';
 import { decodeNotifyTarget, openNotifyToken } from './lib/notify/notifyTarget';
 import { boardNotificationDeps } from './lib/notify/boardActionDeps';
@@ -398,8 +399,20 @@ function App() {
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
   // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<'profile' | 'devices' | 'notifications' | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<SezioneImpostazioni | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // The deep link into Settings, from anywhere. The identity rows are the only
+  // sender today, and they became a PANE when they moved into the Profile tab:
+  // a pane cannot reach this state through props, so it asks by event, the same
+  // way panes are opened (`topics:open-utility`). See `lib/openSettings`.
+  useEffect(() => {
+    const apri = (e: Event) => {
+      setSettingsSection((e as CustomEvent<DettaglioImpostazioni>).detail?.section);
+      setShowSettings(true);
+    };
+    window.addEventListener(EVENTO_IMPOSTAZIONI, apri);
+    return () => window.removeEventListener(EVENTO_IMPOSTAZIONI, apri);
+  }, []);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
   // local `showNewMenu` boolean and a `newMenuBtnRef`. Both moved into
@@ -1614,6 +1627,12 @@ function App() {
         <SidebarStatusBar
           wsStatus={wsStatus}
           dataNotice={topicsError}
+          // La fascia identita' e' rimasta QUI, in fondo alla colonna, quindi
+          // «apri i dispositivi» torna a passare per una prop: e' un figlio, non
+          // una pane. Il deep-link a evento qui sopra resta e serve lo stesso -
+          // lo usano i pezzi che PANE lo sono davvero (il chip dell'org apre la
+          // gestione, il profilo apre le sue pagine), e quelli non possono
+          // raggiungere questo stato per props.
           onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
         />
         </ErrorBoundary>

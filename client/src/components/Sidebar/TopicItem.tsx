@@ -16,7 +16,7 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useMobile } from '@/hooks/useMobile';
@@ -335,10 +335,13 @@ export const TopicItem = memo(function TopicItem({
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           aria-label={isExpanded ? 'Comprimi' : 'Espandi'}
           aria-expanded={isExpanded}
-          className="flex items-center justify-center w-4 h-4 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+          // The SHARED accordion slot, same box as the project row and the
+          // pinned tile: the chevron ink starts at the row inset, so the three
+          // chevrons of the column line up instead of landing at 8, 10 and 11.
+          className={`${ROW_CHEVRON_SLOT} tap-expand-y h-full transition-colors`}
         >
           <ChevronRight
-            size={12}
+            size={ROW_CHEVRON}
             className={cn('transition-transform duration-150', isExpanded && 'rotate-90')}
           />
         </button>

@@ -38,7 +38,11 @@ const SHOTS = "test-results/settings";
  * machine happens to be.
  */
 async function apriImpostazioni(page: Page) {
-  await expect(page.getByTestId("identity-row-me")).toBeVisible({ timeout: 20000 });
+  // A LIVE piece of the app: the sidebar. It used to be the identity row,
+  // which is not in the sidebar any more (card a035f945 moved it into the
+  // Profile tab): waiting for it here made the wait fail for a reason that has
+  // nothing to do with the panel this file is about.
+  await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 20000 });
   const pannello = page.locator('[data-testid="settings-panel"]');
   await expect(async () => {
     await page.keyboard.press("Meta+Comma");

@@ -1,25 +1,28 @@
 /**
- * LE VOCI DELLE IMPOSTAZIONI, come dato e non come JSX.
+ * THE SETTINGS ENTRIES, as data and not as JSX.
  *
- * Stavano dentro `GlobalSettings.tsx`, e finché erano cinque bastava. Il
- * difetto che questo modulo chiude è un altro: «Profilo» era UNA voce che
- * conteneva sei riquadri — le tue statistiche, lo stato su Discord, l'account,
- * le organizzazioni con i loro membri, i progetti dell'organizzazione, i
- * profili delle persone. Sei cose che rispondono a tre domande diverse, in una
- * colonna che si scorre: chi cercava «le organizzazioni» o «gli amici» non li
- * trovava, e la conclusione non era «sono più in basso», era «non ci sono».
- * È già successo una volta con le organizzazioni dentro una voce chiamata
- * «Profile» (vedi `tests/e2e/settings-lingua-org.spec.ts`).
+ * They used to live inside `GlobalSettings.tsx`, and while there were five of
+ * them that was enough. The defect this module closes is a different one:
+ * "Profile" was ONE entry holding six boxes, and six things answering three
+ * different questions in a single scrolling column mean that whoever looked for
+ * one of them concluded it did not exist, not that it was further down.
  *
- * Tre domande, tre voci: CHI SEI (profilo), CON CHI STAI (organizzazione), CHI
- * C'È INTORNO (amici). Le stesse tre pagine le usa anche il pane «Profilo»
- * standalone, che quindi non può divergere da questa: la fonte è una.
+ * -- WHY THE PROFILE PAGES ARE NOT THE SETTINGS PAGES ANY MORE ---------------
+ * `SETTINGS_SECTIONS` is the settings PANEL: it still carries "organization",
+ * because creating a group, adding members and handing out roles is
+ * administration and it has to live somewhere.
  *
- * L'elenco è esportato come DATO perché un test possa leggerlo — che le tre
- * voci esistano, che le etichette siano nel dizionario in tutte e due le lingue
- * — senza montare un DOM che il progetto non ha.
+ * `IDENTITY_SECTIONS` is the PROFILE TAB, and it deliberately no longer
+ * contains the organisation. A profile answers "who is this person", and on
+ * every surface people actually read one, the answer is a face, a bio and how
+ * many people follow them. The org still decides what a person can SEE (grants,
+ * project visibility): it just stopped being what a person IS.
+ *
+ * The list is exported as DATA so a test can read it: that the entries exist,
+ * that the labels are in the dictionary in both languages, without mounting a
+ * DOM the project does not have.
  */
-import { Bell, Building2, Cpu, CreditCard, MonitorSmartphone, Palette, UserRound, Users } from 'lucide-react';
+import { Bell, Building2, Cpu, CreditCard, MonitorSmartphone, Palette, ShieldCheck, UserRound, Users } from 'lucide-react';
 
 export type SectionId =
   | 'appearance'
@@ -27,7 +30,8 @@ export type SectionId =
   | 'providers'
   | 'profile'
   | 'organization'
-  | 'friends'
+  | 'followers'
+  | 'privacy'
   | 'devices'
   | 'plan';
 
@@ -37,22 +41,29 @@ export interface SettingsSection {
   icon: typeof Palette;
 }
 
-// L'ORDINE È UN DISCORSO: prima come si vede e come avvisa l'app (aspetto,
-// notifiche), poi con che motore lavora (provider), poi chi sei e con chi
-// (profilo, organizzazione, amici), poi le macchine e il piano. Le tre voci
-// dell'identità stanno vicine perché è così che le si cerca, una dopo l'altra.
+// THE ORDER IS AN ARGUMENT: first how the app looks and how it warns you
+// (appearance, notifications), then which engine it works with (providers),
+// then who you are and who is around you (profile, followers, privacy), then
+// the group you administer, then the machines and the plan.
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'appearance', labelKey: 'settings.section.appearance', icon: Palette },
   { id: 'notifications', labelKey: 'settings.section.notifications', icon: Bell },
   { id: 'providers', labelKey: 'settings.section.providers', icon: Cpu },
   { id: 'profile', labelKey: 'settings.section.profile', icon: UserRound },
+  { id: 'followers', labelKey: 'settings.section.followers', icon: Users },
+  { id: 'privacy', labelKey: 'settings.section.privacy', icon: ShieldCheck },
   { id: 'organization', labelKey: 'settings.section.organization', icon: Building2 },
-  { id: 'friends', labelKey: 'settings.section.friends', icon: Users },
-  // L'id resta `devices`: è la chiave a cui punta il deep-link della riga
-  // d'identità in fondo alla sidebar (`onOpenDevices` in App.tsx).
+  // The id stays `devices`: it is the key the identity row deep-links to
+  // (`onOpenDevices`, and `apriImpostazioni('devices')` from the Profile pane).
   { id: 'devices', labelKey: 'settings.section.devices', icon: MonitorSmartphone },
   { id: 'plan', labelKey: 'settings.section.plan', icon: CreditCard },
 ];
 
-/** Le tre pagine dell'identità, nell'ordine in cui si presentano ovunque. */
-export const IDENTITY_SECTIONS: readonly SectionId[] = ['profile', 'organization', 'friends'];
+/**
+ * The pages of the PROFILE TAB, in the order they are presented everywhere.
+ *
+ * No organisation here, on purpose: see the header. Privacy is the third one
+ * and not a link buried in the first, because "what does this publish about
+ * me" is a question you ask WHILE you look at what it publishes.
+ */
+export const IDENTITY_SECTIONS: readonly SectionId[] = ['profile', 'followers', 'privacy'];

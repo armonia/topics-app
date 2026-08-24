@@ -12,7 +12,7 @@
  * menu must not land on the page somebody asked for at some other moment.
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { apriProfilo, dimenticaPaginaProfilo, paginaProfiloChiesta } from './profileTarget';
+import { apriProfilo, apriProfiloPersona, dimenticaPaginaProfilo, paginaProfiloChiesta, profiloChiesto } from './profileTarget';
 
 // `apriProfilo` fires two DOM events: in bun there is no window, so the two
 // gestures below need one that swallows them.
@@ -30,27 +30,44 @@ describe('paginaProfiloChiesta', () => {
   });
 
   test('TWO mounts in a row read the SAME page: the first does not eat it', () => {
-    apriProfilo('organization', 1_000);
-    expect(paginaProfiloChiesta(1_010)).toBe('organization');
-    expect(paginaProfiloChiesta(1_020)).toBe('organization');
+    apriProfilo('privacy', 1_000);
+    expect(paginaProfiloChiesta(1_010)).toBe('privacy');
+    expect(paginaProfiloChiesta(1_020)).toBe('privacy');
   });
 
   test('past the window it is gone: an hour later the profile opens on itself', () => {
-    apriProfilo('friends', 1_000);
+    apriProfilo('followers', 1_000);
     expect(paginaProfiloChiesta(3_600_000)).toBeNull();
     // And it stays gone, so a later mount cannot resurrect it.
     expect(paginaProfiloChiesta(3_600_001)).toBeNull();
   });
 
   test('the pane that showed the page forgets it, without waiting for the clock', () => {
-    apriProfilo('friends', 1_000);
+    apriProfilo('followers', 1_000);
     dimenticaPaginaProfilo();
     expect(paginaProfiloChiesta(1_010)).toBeNull();
   });
 
   test('the last request wins: two clicks, the second page', () => {
-    apriProfilo('organization', 1_000);
-    apriProfilo('friends', 1_100);
-    expect(paginaProfiloChiesta(1_110)).toBe('friends');
+    apriProfilo('privacy', 1_000);
+    apriProfilo('followers', 1_100);
+    expect(paginaProfiloChiesta(1_110)).toBe('followers');
+  });
+});
+
+describe('opening somebody else', () => {
+  test('a person is asked for by id, and the page is the overview', () => {
+    apriProfiloPersona('per_1', 1_000);
+    expect(profiloChiesto(1_010)).toEqual({ pagina: 'profile', personId: 'per_1' });
+  });
+
+  test('my own pages carry no person: the pane must not go looking for one', () => {
+    apriProfilo('followers', 1_000);
+    expect(profiloChiesto(1_010)?.personId).toBeNull();
+  });
+
+  test('a person expires like a page does', () => {
+    apriProfiloPersona('per_1', 1_000);
+    expect(profiloChiesto(3_600_000)).toBeNull();
   });
 });

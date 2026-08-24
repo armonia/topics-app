@@ -547,6 +547,32 @@ export const ROW_GLYPH = 14;
 export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-center';
 
 /**
+ * THE ACCORDION SLOT — one box for every chevron that opens a sidebar row.
+ *
+ * There were three of them, measured in the live DOM: the project row carried a
+ * 20px box with a 14px glyph (ink starting 3px past the row inset), a chat row
+ * with children a 16px box with a 12px glyph (2px past), a pinned tile a 12px
+ * box. Three columns for the same control, in a list where the rows sit one on
+ * top of the other and nothing else marks that column: the chevrons read as
+ * misaligned without anyone being able to say by how much.
+ *
+ * The box is EXACTLY the glyph, so the ink starts at the row inset ({@link
+ * ROW_PX}) and nothing pads the space before the accordion. A row without an
+ * accordion does not reserve this slot: its own content starts at that same
+ * inset, which is the second half of "no dead space before the chevron".
+ *
+ * 12 and not 14: lucide draws in a 24 box with stroke 2, so at 12 the stroke is
+ * exactly 1px — the same reasoning as {@link ROW_GLYPH}, one size down because
+ * a chevron is a control, not the subject of the row.
+ *
+ * `tap-expand-y` and not `tap-expand`: the 44x44 projection would reach 16px
+ * into the label and swallow the tap that opens the row. Height only steals
+ * nothing from the neighbours (see index.css).
+ */
+export const ROW_CHEVRON = 12;
+export const ROW_CHEVRON_SLOT = 'w-3 shrink-0 flex items-center justify-center';
+
+/**
  * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.
  *
  * Attilio, 07/08: «il tasto per poter spuntare una tab e chiuderla è troppo

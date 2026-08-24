@@ -746,7 +746,8 @@ const IT: Dict = {
   // «Profilo»: c'erano, ma si raggiungevano solo scorrendo, e una cosa che si
   // raggiunge solo scorrendo per chi la cerca non c'e'. Adesso sono due voci.
   'settings.section.organization': 'Organizzazione',
-  'settings.section.friends': 'Amici',
+  'settings.section.followers': 'Follower',
+  'settings.section.privacy': 'Privacy',
   'settings.section.devices': 'Dispositivi',
   'settings.section.plan': 'Piano',
   // Le intestazioni delle tre pagine. Una pagina senza titolo e senza una riga
@@ -755,8 +756,44 @@ const IT: Dict = {
   'settings.page.profile.blurb': 'Chi sei su questa macchina e fuori: le tue misure d’uso, lo stato che pubblichi, l’account.',
   'settings.page.organization.title': 'La tua organizzazione',
   'settings.page.organization.blurb': 'Il gruppo con cui condividi: nome, persone, ruoli e i progetti che gli appartengono.',
-  'settings.page.friends.title': 'Amici',
-  'settings.page.friends.blurb': 'Le facce e i numeri di chi lavora con te: profilo GitHub, prompt scritti, token consumati.',
+  'settings.page.followers.title': 'Follower',
+  'settings.page.followers.blurb': 'Chi segui e chi ti segue. La relazione e\u2019 a senso unico: seguire qualcuno non lo obbliga a seguirti.',
+  'settings.page.privacy.title': 'Privacy del profilo',
+  'settings.page.privacy.blurb': 'Cosa il tuo profilo pubblica agli altri. Quello che spegni qui il server non lo manda proprio.',
+  // THE PROFILE HEADER, the GitHub-shaped one. The counters are buttons, so
+  // their label is read aloud by whoever taps them.
+  'profile.followers': 'follower',
+  'profile.following': 'seguiti',
+  'profile.follow': 'Segui',
+  'profile.unfollow': 'Non seguire piu\u2019',
+  'profile.followsYou': 'Ti segue',
+  'profile.noGithub': 'Nessun profilo GitHub',
+  'profile.topics.title': 'Su Topics',
+  'profile.topics.prompts': 'prompt',
+  'profile.topics.tokensIn': 'token in',
+  'profile.topics.tokensOut': 'token out',
+  'profile.topics.lastPrompt': 'ultimo prompt',
+  'profile.topics.hidden': 'Questa persona non pubblica le sue statistiche.',
+  'profile.followers.emptyFollowers': 'Nessuno ti segue ancora.',
+  'profile.followers.emptyFollowing': 'Non segui ancora nessuno.',
+  'profile.followers.private': 'Questa persona non pubblica i suoi follower.',
+  'profile.notFound': 'Questo profilo non e\u2019 disponibile.',
+  'profile.back': 'Torna al tuo profilo',
+  'profile.people': 'Persone',
+  // THE FIVE PRIVACY SWITCHES. Each one names WHAT DISAPPEARS, not the
+  // feature: 'statistics' says nothing, 'your prompt and token figures' does.
+  'privacy.showProfile.label': 'Profilo visibile',
+  'privacy.showProfile.help': 'Spento, per gli altri il tuo profilo non esiste: non compare negli elenchi e aprirlo risponde \u00abnon trovato\u00bb.',
+  'privacy.showStats.label': 'Statistiche d\u2019uso',
+  'privacy.showStats.help': 'I tuoi prompt, i token e la spesa. Spento, il server non li manda a nessun altro.',
+  'privacy.showEmail.label': 'Indirizzo email',
+  'privacy.showEmail.help': 'Nasce spento: un indirizzo pubblicato non si ritira piu\u2019.',
+  'privacy.showFollowers.label': 'Follower e seguiti',
+  'privacy.showFollowers.help': 'I due contatori e le due liste. Spento, restano visibili solo a te.',
+  'privacy.showPresence.label': 'Presenza',
+  'privacy.showPresence.help': 'Se risulti online adesso e quando ti sei visto l\u2019ultima volta.',
+  'privacy.saved': 'Salvato',
+  'privacy.failed': 'Non e\u2019 riuscito a salvare.',
   // -- THE ORGANISATION'S PROJECTS (Settings > Organisation). They were written
   //    by hand inside the component, so an English speaking user read Italian
   //    and no translator could ever see them. The six descriptions are keys too:
@@ -1198,6 +1235,7 @@ const IT: Dict = {
   'identity.emailPlaceholder': 'Email (facoltativa)',
   'identity.personName': 'Nome della persona',
   'identity.personEmail': 'Email della persona',
+  'identity.openProfile': 'Apri il profilo',
   'identity.editPerson': 'Cambia nome o email',
   'identity.you': 'tu',
   'identity.notConnectedYet': 'da collegare',
@@ -1698,10 +1736,10 @@ const IT: Dict = {
   'statusBar.me.workRow': 'Adesso',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.alone': 'Sei l’unico membro',
-  'statusBar.friends.title': 'Amici',
+  'statusBar.friends.title': 'Persone',
   'statusBar.friends.none': 'Non conosci ancora nessuno',
-  'statusBar.friends.noneHint': 'Le persone delle tue organizzazioni compaiono qui.',
-  'statusBar.friends.manage': 'Gestisci gli amici',
+  'statusBar.friends.noneHint': 'Chi segui e chi ti segue compare qui.',
+  'statusBar.friends.manage': 'Follower e seguiti',
   'statusBar.friends.count': '{n} di {tot} online',
   // The group of absent people in the open list: their being there is not a
   // mistake, it is the reason the list gets opened at all.

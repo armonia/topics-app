@@ -67,6 +67,7 @@ function PinnedTilePreview({
   item,
   metaFor,
   hasActions,
+  form,
 }: {
   item: SidebarItem;
   metaFor: (item: SidebarItem) => PinnedTileMeta;
@@ -74,6 +75,10 @@ function PinnedTilePreview({
    *  slot della tessera vera, o il nome si troncherebbe a una misura diversa
    *  da quella che avrà un istante dopo il drop. */
   hasActions?: boolean;
+  /** The form the tile will have WHERE IT LANDS: alone on a new row it is a
+   *  row, inside a row that already has tiles it is a grid tile. The preview
+   *  shows the tile it is about to become, alignment included. */
+  form?: 'row' | 'grid';
 }) {
   const meta = metaFor(item);
   return (
@@ -83,6 +88,7 @@ function PinnedTilePreview({
       focused={meta.focused}
       attention={meta.attention}
       hasActions={hasActions}
+      form={form}
       onToggle={() => {}}
     />
   );
@@ -810,7 +816,7 @@ export function PinnedTiles({
       {newRowAt === at && (
         incomingRow
           ? <div data-testid="pinned-drop-preview" className={`${PINNED_TILE_CONTAINER} opacity-60 pointer-events-none`}>
-              <PinnedTilePreview item={incomingRow} metaFor={metaFor} hasActions={haAzioni(incomingRow)} />
+              <PinnedTilePreview item={incomingRow} metaFor={metaFor} hasActions={haAzioni(incomingRow)} form="row" />
             </div>
           : <div
               data-testid="pinned-drop-ghost"
@@ -905,6 +911,14 @@ export function PinnedTiles({
         const widths =
           cells.length === row.keys.length ? row.widths : pinnedRowWidths(cells.length);
 
+        // ONE TILE ON THE ROW = A ROW. Two or more = a grid, and there the
+        // tiles centre what identifies them. It is counted on the cells being
+        // DRAWN (ghost included), not on the saved row: while a second tile is
+        // hovering over a row that holds one, what you see is already a grid
+        // and the alignment must be the one of the drop, not the one of a
+        // moment ago.
+        const forma: 'row' | 'grid' = cells.length === 1 ? 'row' : 'grid';
+
         return (
           <div key={`row-${rowIdx}`} className="flex flex-col min-h-0">
             {rowGap(rowIdx)}
@@ -983,7 +997,7 @@ export function PinnedTiles({
                     <div key="ghost" style={flex} className={`${PINNED_TILE_CONTAINER} min-w-0`}>
                       {dropAt?.incoming
                         ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
-                            <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} hasActions={haAzioni(dropAt.incoming)} />
+                            <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} hasActions={haAzioni(dropAt.incoming)} form={forma} />
                           </div>
                         : <div
                             data-testid="pinned-drop-ghost"
@@ -1042,6 +1056,9 @@ export function PinnedTiles({
                     )}
                     <PinnedTile
                       item={item}
+                      // Row or grid: the two alignments of the column, told by
+                      // the layout and not measured from a width.
+                      form={forma}
                       // Non `expanded.has(key)`: l'intenzione da sola non basta
                       // a dirsi aperta, e una tessera accesa senza una fascia
                       // sotto è una tessera accesa senza motivo.
@@ -1137,7 +1154,15 @@ export function PinnedTiles({
             transform: 'translate(-50%, -50%) scale(1.06)',
           }}
         >
-          <PinnedTilePreview item={byId.get(ghost.key)!} metaFor={metaFor} hasActions={haAzioni(byId.get(ghost.key)!)} />
+          <PinnedTilePreview
+            item={byId.get(ghost.key)!}
+            metaFor={metaFor}
+            hasActions={haAzioni(byId.get(ghost.key)!)}
+            // The ghost is the tile as it is RIGHT NOW, so it keeps the form of
+            // the row it was lifted from: a full-width tile that turned into a
+            // centred square under the finger would look like a different one.
+            form={rows.find(r => r.keys.includes(ghost.key))?.keys.length === 1 ? 'row' : 'grid'}
+          />
         </div>,
         document.body,
       )}

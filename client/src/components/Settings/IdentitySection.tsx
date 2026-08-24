@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { User, Pencil, Plus, X, Trash2, Lock } from 'lucide-react';
+import { User, UserRound, Pencil, Plus, X, Trash2, Lock } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { chiaveErroreAuth } from '../../lib/authErrors';
 import { useConfirm } from '../../hooks/useConfirm';
 import { membriDaRisposta, splitMembri, type Membro, type Ruolo } from './membri';
 import { Select } from '../Shared/Select';
+import { apriProfiloPersona } from '../../state/profileTarget';
 
 /**
  * Chi sei, e con chi condividi. UN elenco solo.
@@ -502,6 +503,19 @@ export function IdentitySection() {
                 >
                   <span className="block truncate text-[12.5px] text-app-text">{m.name}</span>
                   {m.email && <span className="block truncate text-[11px] text-app-text-muted">{m.email}</span>}
+                </button>
+                {/* THE NAME EDITS, THE ICON OPENS. Two different verbs need two
+                    different targets: on this row the name is already the way
+                    into "rename this person", so the profile gets its own
+                    button rather than a second meaning for the same click. */}
+                <button
+                  onClick={() => apriProfiloPersona(m.id)}
+                  data-testid={`org-member-profile-${m.id}`}
+                  title={t('identity.openProfile')}
+                  aria-label={t('identity.openProfile')}
+                  className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text coarse:min-h-11"
+                >
+                  <UserRound size={13} />
                 </button>
                 {/* Il ruolo dice qualcosa solo da due membri in su: in un gruppo
                     di uno «proprietario» è rumore. */}

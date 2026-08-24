@@ -38,7 +38,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -1082,11 +1082,16 @@ export function TopicTree({
               collapse it. */}
           <button
             onClick={(e) => { e.stopPropagation(); toggleProject(item.id); }}
-            className="flex items-center justify-center w-5 h-full flex-shrink-0 text-app-text-secondary hover:text-app-text transition-colors"
+            // The SHARED accordion slot (ROW_CHEVRON_SLOT): box = glyph, so the
+            // chevron ink starts at the row inset and lands in the same column
+            // as every other accordion in the sidebar. It used to be a 20px box
+            // around a 14px glyph, which pushed this chevron 3px right of the
+            // others and put dead space before it.
+            className={`${ROW_CHEVRON_SLOT} tap-expand-y h-full text-app-text-secondary hover:text-app-text transition-colors`}
             aria-label={isExpanded ? `Collapse ${item.name}` : `Expand ${item.name}`}
             aria-expanded={isExpanded}
           >
-            <ChevronRight size={14} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+            <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
           </button>
           {/* Name button:
               - not selected → FOCUS the project + EXPAND it (show children).

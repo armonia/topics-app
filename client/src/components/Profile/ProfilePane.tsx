@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { ProfilePage, OrganizationPage, FriendsPage } from '../Settings/IdentityPages';
+import { ProfilePage, FollowersPage, PrivacyPage } from '../Settings/IdentityPages';
 import { IDENTITY_SECTIONS, SETTINGS_SECTIONS, type SectionId } from '../Settings/sections';
-import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, paginaProfiloChiesta, type PaginaProfilo } from '@/state/profileTarget';
+import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, profiloChiesto, type RichiestaProfilo } from '@/state/profileTarget';
+import { PersonProfile } from './PersonProfile';
 
 /**
  * The "Profile" pane: the tab about who you are, who you are with, and who you
@@ -22,6 +23,12 @@ import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, paginaProfiloChiesta, ty
  * settings ones (`Settings/IdentityPages`), so the two surfaces cannot diverge:
  * when the account showed up over there, it was missing here, and nobody had
  * noticed.
+ *
+ * -- THE PANE ALSO SHOWS OTHER PEOPLE -----------------------------------------
+ * Ask for a person and the three pages step aside for THEIR profile, with a way
+ * back to your own. It is the same tab because it is the same subject: opening
+ * a face in a second window would mean two places that answer "who is this",
+ * and the sidebar already learned how that ends.
  */
 export function ProfilePane() {
   const t = useT();
@@ -29,12 +36,19 @@ export function ProfilePane() {
   // is read on mount (the pane is `lazy()`: when the request is made this
   // component may not exist yet) and the event covers the opposite case, a pane
   // already open that has to change tab under the click.
-  const [pagina, setPagina] = useState<SectionId>(() => paginaProfiloChiesta() ?? 'profile');
+  const richiesta = profiloChiesto();
+  const [pagina, setPagina] = useState<SectionId>(() => richiesta?.pagina ?? 'profile');
+  // The person being looked at, `null` for your own profile. It is state and
+  // not a prop because the pane outlives every gesture that changes it.
+  const [personId, setPersonId] = useState<string | null>(() => richiesta?.personId ?? null);
 
   useEffect(() => {
     const vai = (e: Event) => {
-      const chiesta = (e as CustomEvent<{ pagina?: PaginaProfilo }>).detail?.pagina;
-      if (chiesta) { setPagina(chiesta); dimenticaPaginaProfilo(); }
+      const chiesta = (e as CustomEvent<RichiestaProfilo>).detail;
+      if (!chiesta?.pagina) return;
+      setPagina(chiesta.pagina);
+      setPersonId(chiesta.personId ?? null);
+      dimenticaPaginaProfilo();
     };
     window.addEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
     return () => window.removeEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
@@ -42,6 +56,14 @@ export function ProfilePane() {
 
   return (
     <div data-testid="profile-pane" className="flex flex-1 flex-col min-h-0 overflow-hidden">
+      {/* LA FASCIA IDENTITA' NON STA QUI, e non e' una svista.
+          Vive in fondo alla sidebar (`Sidebar/SidebarStatusBar`), che e' dove
+          la si guarda mentre si lavora: chi si chiede «chi c'e' adesso» non
+          apre una tab per saperlo. Il profilo resta una tab come le altre - si
+          apre dal menu, ha la sua riga nella colonna, si chiude - ma le sue
+          pagine dicono gli stessi soggetti PER ESTESO, e ripetere qui la
+          striscia viva vorrebbe dire renderla due volte nella stessa app: due
+          `identity-block` nel DOM, e ogni misura che li cerca diventa ambigua. */}
       {/* The three entries ARE the heading: there is no pane title above them
           repeating the word "Profile" while you are looking at "Friends". */}
       <div
@@ -53,13 +75,13 @@ export function ProfilePane() {
           const voce = SETTINGS_SECTIONS.find((s) => s.id === id);
           if (!voce) return null;
           const Icon = voce.icon;
-          const attiva = pagina === id;
+          const attiva = personId === null && pagina === id;
           return (
             <button
               key={id}
               role="tab"
               aria-selected={attiva}
-              onClick={() => setPagina(id)}
+              onClick={() => { setPersonId(null); setPagina(id); }}
               data-testid={`profile-tab-${id}`}
               className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-[12.5px] transition-colors coarse:min-h-11 ${
                 attiva
@@ -75,9 +97,15 @@ export function ProfilePane() {
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-5">
-        {pagina === 'profile' && <ProfilePage />}
-        {pagina === 'organization' && <OrganizationPage />}
-        {pagina === 'friends' && <FriendsPage />}
+        {personId !== null ? (
+          <PersonProfile personId={personId} onIndietro={() => setPersonId(null)} />
+        ) : (
+          <>
+            {pagina === 'profile' && <ProfilePage />}
+            {pagina === 'followers' && <FollowersPage />}
+            {pagina === 'privacy' && <PrivacyPage />}
+          </>
+        )}
       </div>
     </div>
   );

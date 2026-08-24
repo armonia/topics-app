@@ -8,7 +8,7 @@ import { NotificationsSection } from './NotificationsSection';
 import { AIProvidersSection } from './AIProvidersSection';
 import { DevicesSection } from './DevicesSection';
 import { PlanSection } from './PlanSection';
-import { ProfilePage, OrganizationPage, FriendsPage } from './IdentityPages';
+import { ProfilePage, OrganizationPage, FollowersPage, PrivacyPage } from './IdentityPages';
 import { SETTINGS_SECTIONS, type SectionId } from './sections';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { useT } from '../../hooks/useT';
@@ -187,7 +187,8 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             {section === 'plan' && <PlanSection />}
             {section === 'profile' && <ProfilePage />}
             {section === 'organization' && <OrganizationPage />}
-            {section === 'friends' && <FriendsPage />}
+            {section === 'followers' && <FollowersPage />}
+            {section === 'privacy' && <PrivacyPage />}
             {section === 'devices' && (
               // CHE FERRI HAI: una domanda di sicurezza, non di identità —
               // «quali macchine possono entrare, e come gliela tolgo». Da sola
