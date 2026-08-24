@@ -387,8 +387,8 @@ describe('cardDetailNeed: quando la card deve ancora chiedere', () => {
   });
 
   test('i sottotask restano l\'unico motivo per aprire il dettaglio', () => {
-    // I figli non viaggiano nel feed (`rootsOnly`), e la card in review li
-    // espande come checklist della consegna.
+    // Children do not travel in the feed (`rootsOnly`), and the card expands
+    // them as the checklist of its steps.
     expect(cardDetailNeed(row({ subtaskCount: 2 }))).toBe('children');
     // Senza figli non si chiede: era questa la GET moltiplicata per ogni card.
     expect(cardDetailNeed(row({ subtaskCount: 0 }))).toBe('none');

@@ -1,58 +1,75 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { ChevronDown, FileDiff } from 'lucide-react';
 import { boardApi } from '../../lib/board';
 import { useT } from '../../hooks/useT';
 
 /**
- * I FILE DELLA CONSEGNA, come elenco che si apre.
+ * THE CARD'S GIT CHANGES, as a chip that opens.
  *
- * COSA CAMBIA. Era un chip: «136 file +6017 -868», in fondo alla riga dei chip.
- * Diceva QUANTO e mai COSA — e davanti a una consegna da rivedere «quali file
- * ha toccato» e' la prima domanda, non la seconda. Chiesto esplicitamente:
- * «avevamo detto di mettere i file modificati come dropdown e metterli in fondo
- * alla card, ma prima dell'input».
+ * WHAT CHANGED. It was a mute chip: "136 files +6017 -868", at the end of the
+ * chip row. It said HOW MUCH and never WHAT, and in front of a delivery to
+ * review "which files did it touch" is the first question, not the second.
+ * Asked for in as many words: put the changed files in a dropdown, at the foot
+ * of the card, but before the input.
  *
- * IL RIASSUNTO RESTA CHIUSO. Aprire ogni card di una colonna trasformerebbe la
- * review in un muro di percorsi: il numero e' cio' che si legge di sfuggita, i
- * nomi sono cio' che si chiede quando quella card interessa davvero.
+ * WHERE IT SITS NOW. In the card's foot, next to the model: they are the same
+ * turn's measures, and reading them together is why they stand side by side.
+ * The panel that opens is a DROPDOWN as wide as it needs to be, not a surface
+ * that takes over the card: the diff in full lives in the task, here the list
+ * is enough.
  *
- * SI CARICA SOLO QUANDO SI APRE. I nomi non stanno nel task (il DB tiene solo i
- * conteggi) e arrivano da `/tasks/:id/diff`, che legge git: chiederlo per ogni
- * card di una board sarebbe una lettura di repository per riga. Una volta
- * caricati restano, finche' la card e' montata.
+ * EVEN WHILE THE AGENT WRITES. The delivery counters are born at the end of
+ * the turn, but the diff route reads the LIVE WORKTREE (`task-diff-range.ts`).
+ * With `live` the chip promises no number that does not exist yet: it says
+ * "git changes", and the numbers appear once the list arrives.
+ *
+ * THE SUMMARY STAYS CLOSED. Opening every card of a column would turn the
+ * review into a wall of paths: the number is what you read in passing, the
+ * names are what you ask for when that one card actually matters.
+ *
+ * IT LOADS ONLY WHEN OPENED. The names are not in the task (the DB keeps the
+ * counters only) and come from `/tasks/:id/diff`, which reads git: asking for
+ * every card of a board would be one repository read per row. Once loaded they
+ * stay, as long as the card is mounted.
  */
 
-/** Quanti file si mostrano prima di dire «e altri N». Un elenco piu' lungo di
- *  cosi' dentro una card non si legge: quello intero e' nel drawer, dove c'e'
- *  anche il diff. */
+/** How many files show before saying "and N more". A longer list than this
+ *  inside a card does not get read: the whole one is in the drawer, next to
+ *  the diff. */
 const MAX_FILE = 12;
 
 interface FileStat { path: string; additions: number; deletions: number; status: string }
 
-export function DeliveryFiles({ projectId, taskId, files, insertions, deletions, commit }: {
+export function DeliveryFiles({ projectId, taskId, files, insertions, deletions, commit, live }: {
   projectId: string;
   taskId: string;
-  /** Il CONTEGGIO, che il task porta sempre: e' cio' che si vede da chiuso. */
-  files: number;
+  /** The COUNT recorded at delivery. `null` = not measured yet (the turn is
+   *  still running): the chip says so instead of showing a zero. */
+  files: number | null;
   insertions: number;
   deletions: number;
   commit: string | null;
+  /** The worktree is still moving: what you read is of this instant. */
+  live?: boolean;
 }) {
   const tr = useT();
   const [aperto, setAperto] = useState(false);
   const [stat, setStat] = useState<FileStat[] | null>(null);
-  /** Un errore si DICE: un elenco vuoto dopo un click fa pensare a una
-   *  consegna senza file, che e' un'altra affermazione. */
+  /** An error is SAID: an empty list after a click reads as a delivery with
+   *  no files, which is a different statement. */
   const [errore, setErrore] = useState<string | null>(null);
   const [caricando, setCaricando] = useState(false);
 
   const apri = useCallback(async (e: React.MouseEvent) => {
-    // Il click nudo sulla card apre il drawer: qui NON vogliamo tutte e due le
-    // cose insieme.
+    // A bare click on the card opens the drawer: here we do NOT want both
+    // things at once.
     e.stopPropagation();
     const prossimo = !aperto;
     setAperto(prossimo);
-    if (!prossimo || stat || caricando) return;
+    // A live worktree changes under your feet: reopening the chip re-reads
+    // it, which is the only way "now" can mean now. On a delivery that has
+    // stopped the diff no longer moves, so what was read is kept.
+    if (!prossimo || caricando || (stat && !live)) return;
     setCaricando(true);
     setErrore(null);
     try {
@@ -63,32 +80,51 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
     } finally {
       setCaricando(false);
     }
-  }, [aperto, stat, caricando, projectId, taskId]);
+  }, [aperto, stat, caricando, live, projectId, taskId]);
 
   const mostrati = stat?.slice(0, MAX_FILE) ?? [];
   const resto = (stat?.length ?? 0) - mostrati.length;
+  /** On a running turn the numbers do NOT come from the task (they do not
+   *  exist yet): they are summed from what was just read. Before the first
+   *  open there is no number to show, and that is the honest state. */
+  const misura = useMemo(() => {
+    if (files !== null) return { files, insertions, deletions };
+    if (!stat) return null;
+    return {
+      files: stat.length,
+      // A binary file is -1 in git's numstat: summing it would subtract lines
+      // nobody removed.
+      insertions: stat.reduce((n, f) => n + Math.max(0, f.additions), 0),
+      deletions: stat.reduce((n, f) => n + Math.max(0, f.deletions), 0),
+    };
+  }, [files, insertions, deletions, stat]);
 
   return (
-    <div className="mt-1.5" data-testid="card-delivery-files">
+    <div className="relative" data-testid="card-delivery-files">
       <button
         type="button"
         onClick={apri}
         aria-expanded={aperto}
         data-testid="card-delivery-files-toggle"
-        title={tr('board.card.deliveryStatTitle', {
-          files, add: insertions, del: deletions, commit: commit?.slice(0, 8) ?? '?',
-        })}
-        className="flex w-full items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-xs md:text-[11px] text-app-text-heading hover:bg-white/15"
+        title={misura
+          ? tr(live ? 'board.card.gitChangesTitle' : 'board.card.deliveryStatTitle', {
+            files: misura.files, add: misura.insertions, del: misura.deletions,
+            commit: commit?.slice(0, 8) ?? '?',
+          })
+          : tr('board.card.gitChangesLiveTitle')}
+        className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading hover:bg-white/15"
       >
         <FileDiff className="h-3 w-3 shrink-0" />
-        {tr('board.card.deliveryFiles', { n: files })}
-        {/* I due numeri con i loro colori: il verde e il rosso qui non sono uno
-            stato ma un VERSO, ed e' l'unica cosa che distingue una consegna che
-            aggiunge da una che cancella. */}
-        <span className="text-emerald-400">+{insertions}</span>
-        <span className="text-rose-400">-{deletions}</span>
+        {misura
+          ? tr('board.card.deliveryFiles', { n: misura.files })
+          : tr('board.card.gitChanges')}
+        {/* The two numbers with their colours: green and red here are not a
+            state but a DIRECTION, and they are the only thing that tells a
+            delivery that adds from one that deletes. */}
+        {misura && <span className="text-emerald-400">+{misura.insertions}</span>}
+        {misura && <span className="text-rose-400">-{misura.deletions}</span>}
         <ChevronDown
-          className={`ml-auto h-3 w-3 shrink-0 transition-transform ${aperto ? 'rotate-180' : ''}`}
+          className={`h-3 w-3 shrink-0 transition-transform ${aperto ? 'rotate-180' : ''}`}
           aria-hidden
         />
       </button>
@@ -97,20 +133,27 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
         <div
           data-testid="card-delivery-files-list"
           onClick={(e) => e.stopPropagation()}
-          className="mt-1 max-h-40 overflow-y-auto rounded border border-app-border bg-black/20 px-1.5 py-1 scrollbar-standard"
+          /* IT DROPS UNDER THE CHIP, it does not stand in for the card:
+             `absolute`, a width of its own (never wider than the column,
+             `max-w`), above the rest (`z-20`) and with its own scrollbar when
+             the list is long. As a full-width block it used to push the card's
+             controls down every time someone glanced at the files. */
+          className="absolute left-0 top-full z-20 mt-1 max-h-40 w-64 max-w-[calc(100vw-4rem)] overflow-y-auto rounded border border-app-border bg-app-bg px-1.5 py-1 shadow-lg scrollbar-standard"
         >
           {caricando && <div className="px-0.5 py-1 text-[10px] text-app-text-muted">{tr('board.card.deliveryFilesLoading')}</div>}
           {errore && <div className="px-0.5 py-1 text-[10px] text-rose-300">{tr('board.card.deliveryFilesError')}</div>}
           {!caricando && !errore && stat?.length === 0 && (
-            <div className="px-0.5 py-1 text-[10px] text-app-text-muted">{tr('board.card.deliveryFilesEmpty')}</div>
+            <div className="px-0.5 py-1 text-[10px] text-app-text-muted">
+              {tr(live ? 'board.card.gitChangesEmpty' : 'board.card.deliveryFilesEmpty')}
+            </div>
           )}
           {mostrati.map((f) => (
             <div key={f.path} className="flex items-center gap-1.5 py-0.5 text-[10px] leading-tight">
-              {/* IL PERCORSO SI TRONCA A SINISTRA, non a destra: di
-                  `client/src/components/Board/Card.tsx` la parte che identifica
-                  il file e' la FINE, e `truncate` mangia proprio quella.
-                  `dir="rtl"` col testo isolato inverte il taglio senza
-                  invertire le lettere. */}
+              {/* THE PATH IS CUT ON THE LEFT, not on the right: of
+                  `client/src/components/Board/Card.tsx` the part that names the
+                  file is the END, and `truncate` eats exactly that one.
+                  `dir="rtl"` with the text isolated flips the cut without
+                  flipping the letters. */}
               <span
                 dir="rtl"
                 className="truncate text-app-text-secondary"
@@ -121,8 +164,8 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
             </div>
           ))}
           {resto > 0 && (
-            // La coda si DICHIARA invece di sparire: un elenco troncato in
-            // silenzio fa credere di aver visto tutto.
+            // The tail is DECLARED instead of vanishing: a list truncated in
+            // silence makes you believe you saw everything.
             <div className="px-0.5 pt-1 text-[10px] text-app-text-muted">
               {tr('board.card.deliveryFilesMore', { n: resto })}
             </div>

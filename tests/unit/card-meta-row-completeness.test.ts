@@ -134,7 +134,9 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
     // deve piu' produrre il chip «0 file +0 -0», perche' quel caso ha il suo
     // (`card-uncommitted`) e dirlo due volte con la forma di una misura buona e'
     // il difetto. Cio' che il cancello sorveglia non cambia: UNA dichiarazione.
-    const occorrenze = SORGENTE.split("const deliveryStat = task.status === 'review' && task.deliveryFilesChanged").length - 1;
+    // The `status === 'review'` gate is gone: the measure is drawn wherever it
+    // exists, and while the turn runs the live worktree answers instead.
+    const occorrenze = SORGENTE.split("const deliveryStat = task.deliveryFilesChanged || null;").length - 1;
     expect(occorrenze,
       "la condizione del chip va dichiarata una volta sola (const deliveryStat)",
     ).toBe(1);
