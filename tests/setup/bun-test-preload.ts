@@ -121,6 +121,12 @@ setDefaultTimeout(applicato);
  *
  * NON tocca la config dell'utente: sono variabili d'ambiente di questo
  * processo e muoiono con lui.
+ *
+ * COPRE TUTTA LA CORSA, a differenza del timeout qui sopra. Il preload gira
+ * una volta sola per corsa: `setDefaultTimeout` vale solo per il file che bun
+ * sta caricando in quel momento (vedi il commento del timeout, misurato), ma
+ * le variabili d'ambiente si scrivono sul PROCESSO e restano. Verificato su
+ * due file nella stessa corsa: entrambi vedono `core.hooksPath` isolato.
  */
 function isolaGitDaAmbiente(): void {
   // `GIT_CONFIG_COUNT` + le coppie chiave/valore: la via ufficiale per
