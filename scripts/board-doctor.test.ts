@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliveryPointer, listOwnCommits } from "../server/services/own-commits";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 import {
   branchFacts,
   CHECKS,
@@ -904,7 +905,7 @@ describe("branchFacts — la stessa domanda del land, su git vero", () => {
   let shaA: string;
   let shaM: string;
 
-  const g = (...args: string[]) => Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" })
+  const g = (...args: string[]) => Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() })
     .stdout.toString().trim();
 
   const commit = (file: string, body: string, msg: string) => {
