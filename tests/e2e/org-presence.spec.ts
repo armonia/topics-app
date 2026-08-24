@@ -14,6 +14,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 
 // The border between this file and the previous one: without it, this spec
 // inherits whatever the tests before it left in the shared DB.
@@ -199,7 +200,19 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * band hung off nothing and the presence, which was the whole point, was not
    * in the picture at all.
    */
-  test("PRESENCE-08: i tre glifi della fascia partono dalla stessa riga verticale", async ({ page }) => {
+  test("PRESENCE-08: i tre glifi della fascia partono dalla stessa riga verticale", async ({ page, request }) => {
+    // SOMETHING ABOVE THE BAND. It is not needed for the measurement - the
+    // glyphs sit at the bottom and do not move - but it is needed for the
+    // EVIDENCE: the earlier shot was withdrawn by the verifier because it
+    // showed the empty state of the app, column blank from y=122 to y=686 and
+    // the band hanging off nothing. A band photographed over a deserted column
+    // does not show the work.
+    const seminati: string[] = [];
+    for (const nome of ["Rilascio", "Anteprime", "Presenza"]) {
+      const t = await createTopic(request, `${nome} ${Date.now()}`);
+      seminati.push(t.id);
+    }
+
     const ora = Date.now();
     await stubIdentita(page, [
       membro("io", "Io", ora),
@@ -271,7 +284,19 @@ test.describe("presence dell'organizzazione, a schermo", () => {
         path: join(SHOTS, "fascia-allineata.png"),
         clip: { x: 0, y: Math.max(0, box.y - 40), width: Math.round(box.width + 24), height: Math.round(box.height + 56) },
       });
+      // And the shot for the CARD: the whole column, not just the crop of the
+      // band. A 279px-wide crop proves the measurement but is unrecognisable as
+      // a thumbnail, and a thumbnail is how this evidence gets looked at. Ratio
+      // below PREVIEW_CARD_MAX_RATIO (0.70).
+      const larghezza = 1000;
+      const altezza = Math.min(680, Math.round(larghezza * 0.66));
+      await page.screenshot({
+        path: join(SHOTS, "fascia-card.png"),
+        clip: { x: 0, y: Math.max(0, Math.round(box.y + box.height + 24 - altezza)), width: larghezza, height: altezza },
+      });
     }
+
+    for (const id of seminati) await deleteTopic(request, id).catch(() => {});
   });
 
   test("PRESENCE-07: senza nessuno la riga amici resta, dice «Amici» e zero", async ({ page }) => {
