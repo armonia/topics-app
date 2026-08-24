@@ -32,7 +32,7 @@ async function openBrowserPaneWithRetry(
       );
     }, topicId);
     const mounted = await page
-      .locator('[data-testid="browser-url-input"]')
+      .locator('[data-browser-pane]')
       .first()
       .isVisible()
       .catch(() => false);
@@ -77,7 +77,7 @@ test.describe("detached window is read-only toward the shared pane store", () =>
 
       // The pane itself is allowed (and expected) to work locally.
       if (mounted) {
-        await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible();
+        await expect(page.locator('[data-browser-pane]').first()).toBeVisible();
       }
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});

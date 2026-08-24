@@ -9,7 +9,7 @@
  * niente altro. Le regole che decidono cosa si vede stanno in
  * `consoleLogModel.ts` (pure e sotto test); qui resta solo il disegno.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, X, Search, Copy, Check, ArrowDown } from 'lucide-react';
 import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
 import { CONSOLE_FILTERS, buildConsoleView, consoleTime, formatConsoleRows, type ConsoleFilter, type ConsoleLogRow } from './consoleLogModel';
@@ -157,14 +157,25 @@ function ConsoleRow({ row }: { row: ConsoleLogRow }) {
 }
 
 export function ConsoleBadge({
-  entries, summary, onClear,
+  entries, summary, onClear, open: openProp, onOpenChange,
 }: {
   entries: BrowserConsoleEntry[];
   summary: { errors: number; warnings: number };
   onClear: () => void;
+  /** Controlled open state. The panel is normally its own master, but the tab
+   *  menu can now ask for "show me the console": that arrives from outside, so
+   *  the state has to be liftable. Uncontrolled (undefined) stays the default. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [openLocal, setOpenLocal] = useState(false);
+  const open = openProp ?? openLocal;
+  const setOpen = useCallback((next: boolean | ((o: boolean) => boolean)) => {
+    const value = typeof next === 'function' ? next(open) : next;
+    setOpenLocal(value);
+    onOpenChange?.(value);
+  }, [open, onOpenChange]);
   const [filter, setFilter] = useState<ConsoleFilter>('all');
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);

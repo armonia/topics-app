@@ -22,6 +22,16 @@
  *
  * Magazzino: localStorage (una chiave sola, tutta l'app). Con storage assente o
  * pieno lo store resta in memoria e l'interfaccia funziona lo stesso.
+ *
+ * TWO VIEWS, ONE SOURCE. Next to the sites this module also keeps the list
+ * of visited PAGES, in time order: it is the "history" in the sense a
+ * browser means it, and it is the navigation counterpart of the history of
+ * closed tabs (`closedTabRecord`). The two lists are born of the same call
+ * (`recordSiteVisit`), and that is the point: a second entry point would
+ * mean one path that records the visit and another one that forgets it,
+ * that is to say two histories that contradict each other. The site answers
+ * "which sites are mine", the page answers "where have I been", and whoever
+ * deletes a site carries both of them away.
  */
 
 import { siteHostOf } from '../lib/browserForgetSite';
@@ -41,7 +51,25 @@ export interface SiteEntry {
   lastVisit: number;
 }
 
+/** A visited PAGE: one row of the navigation history. */
+export interface PageVisit {
+  /** The full URL: nothing is aggregated by host here, you get back where you were. */
+  url: string;
+  /** Title of the page, once it arrived. May be empty. */
+  title: string;
+  /** Favicon declared by the page. May be empty. */
+  favicon: string;
+  /** Epoch ms of the visit. */
+  at: number;
+}
+
 const STORAGE_KEY = 'topics:browser-sites:v1';
+const PAGES_KEY = 'topics:browser-pages:v1';
+
+/** How many pages are kept. More than the sites (which are destinations) and
+ *  far fewer than a real browser history: this list is here to find again
+ *  what you opened in these days, not to run an archive search over it. */
+export const MAX_PAGES = 200;
 
 /** Quanti siti si conservano. Oltre, esce quello con la frecency più bassa: la
  *  griglia ne mostra otto, ma un magazzino più largo lascia risalire un sito
@@ -69,6 +97,7 @@ const RECENCY_WEIGHTS: ReadonlyArray<{ withinDays: number; weight: number }> = [
 const STALE_WEIGHT = 1;
 
 let sites: SiteEntry[] = load();
+let pages: PageVisit[] = loadPages();
 const listeners = new Set<() => void>();
 
 function storage(): Storage | null {
@@ -91,6 +120,24 @@ function load(): SiteEntry[] {
   }
 }
 
+function loadPages(): PageVisit[] {
+  try {
+    const raw = storage()?.getItem(PAGES_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isPage);
+  } catch {
+    return [];
+  }
+}
+
+function isPage(v: unknown): v is PageVisit {
+  if (!v || typeof v !== 'object') return false;
+  const e = v as Partial<PageVisit>;
+  return typeof e.url === 'string' && !!e.url && typeof e.at === 'number';
+}
+
 function isEntry(v: unknown): v is SiteEntry {
   if (!v || typeof v !== 'object') return false;
   const e = v as Partial<SiteEntry>;
@@ -108,9 +155,28 @@ function persist(): void {
   }
 }
 
-function commit(next: SiteEntry[]): void {
+function persistPages(): void {
+  try {
+    storage()?.setItem(PAGES_KEY, JSON.stringify(pages));
+  } catch {
+    /* as above: with no store the current session works just the same */
+  }
+}
+
+/**
+ * One single write for the two lists, and one single round of notifications.
+ *
+ * `nextPages` absent means "the pages do not change": it avoids rewriting an
+ * identical list to disk (that is the case of `noteSiteMeta` when the page is
+ * no longer the one on top).
+ */
+function commit(next: SiteEntry[], nextPages?: PageVisit[]): void {
   sites = next;
   persist();
+  if (nextPages) {
+    pages = nextPages;
+    persistPages();
+  }
   for (const fn of listeners) fn();
 }
 
@@ -152,7 +218,19 @@ export function recordSiteVisit(url: string, now: number = Date.now()): void {
     ? { ...prev, url, visits: prev.visits + (fresh ? 1 : 0), lastVisit: now }
     : { host, url, title: '', favicon: '', visits: 1, lastVisit: now };
   const next = [entry, ...sites.filter((s) => s.host !== host)];
-  commit(next.length > MAX_SITES ? evict(next, now) : next);
+  // The HISTORY row follows the same dedupe rule as the visit: a ⌘R, or a
+  // back and forward, must not leave three identical rows one under the other.
+  // When it is not a new visit the timestamp of the row on top is updated in
+  // place, because that row is the same page.
+  const head = pages[0];
+  const sameHead = head && head.url === url;
+  const nextPages = fresh || !sameHead
+    ? [
+        { url, title: prev && prev.url === url ? prev.title : '', favicon: prev && prev.url === url ? prev.favicon : '', at: now },
+        ...pages.filter((p) => p.url !== url),
+      ].slice(0, MAX_PAGES)
+    : [{ ...head, at: now }, ...pages.slice(1)];
+  commit(next.length > MAX_SITES ? evict(next, now) : next, nextPages);
 }
 
 /**
@@ -168,14 +246,26 @@ export function noteSiteMeta(url: string, meta: { title?: string; favicon?: stri
   const title = meta.title ?? prev.title;
   const favicon = meta.favicon ?? prev.favicon;
   if (title === prev.title && favicon === prev.favicon) return;
-  commit(sites.map((s) => (s.host === host ? { ...s, title, favicon } : s)));
+  // Title and icon hold for the history row of THAT page too, which without
+  // them would stay a naked URL in a list of names.
+  const nextPages = pages.some((p) => p.url === url && (p.title !== title || p.favicon !== favicon))
+    ? pages.map((p) => (p.url === url ? { ...p, title, favicon } : p))
+    : undefined;
+  commit(sites.map((s) => (s.host === host ? { ...s, title, favicon } : s)), nextPages);
 }
 
 /** Toglie il sito dallo storico: è il gesto del riquadro che non si vuole più
  *  vedere. Torna `true` se c'era qualcosa da togliere. */
 export function forgetSite(host: string): boolean {
-  if (!sites.some((s) => s.host === host)) return false;
-  commit(sites.filter((s) => s.host !== host));
+  const hadPages = pages.some((p) => siteKeyOf(p.url) === host);
+  if (!sites.some((s) => s.host === host) && !hadPages) return false;
+  // Forgetting a site carries away its PAGES too: leaving them would mean a
+  // gesture that promises to erase and erases by halves, with the URL popping
+  // back up in the row below.
+  commit(
+    sites.filter((s) => s.host !== host),
+    hadPages ? pages.filter((p) => siteKeyOf(p.url) !== host) : undefined,
+  );
   return true;
 }
 
@@ -201,6 +291,19 @@ export function sitesSnapshot(): SiteEntry[] {
   return sites;
 }
 
+/** The visited pages, most recent first. Stable identity, as above. */
+export function pagesSnapshot(): PageVisit[] {
+  return pages;
+}
+
+/** Empties the navigation history and leaves the sites standing (the new tab
+ *  page grid): they are two different promises, and whoever erases "where I
+ *  have been" is not asking to forget their own sites. */
+export function clearPageHistory(): void {
+  if (pages.length === 0) return;
+  commit(sites, []);
+}
+
 export function subscribeSites(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
@@ -209,8 +312,10 @@ export function subscribeSites(fn: () => void): () => void {
 /** Solo per i test. */
 export function __resetSiteHistory(): void {
   sites = [];
+  pages = [];
   try {
     storage()?.removeItem(STORAGE_KEY);
+    storage()?.removeItem(PAGES_KEY);
   } catch {
     /* niente storage: lo stato in memoria è già azzerato */
   }

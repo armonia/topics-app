@@ -137,7 +137,7 @@ async function montaLaPane(page: Page, topicId: string, url: string): Promise<vo
     },
     { tid: topicId, u: url },
   );
-  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 30_000 });
 }
 
 /** Quello che la pane sta DAVVERO mostrando: il co-browse DOM ricostruisce la
@@ -151,9 +151,13 @@ function statoMostrato(page: Page) {
 }
 
 /** Apre il dialogo dal menu ⋯ della pane. */
+/** "Forget this site" now lives in the TAB menu (the three dots), not in the
+ *  address bar: on a loaded page that bar is gone. The dots come out on hover,
+ *  so the pointer goes over the tab first. */
 async function apriIlDialogo(page: Page): Promise<void> {
-  await page.locator('[data-testid="browser-toolbar-overflow"]').first().click();
-  await page.locator('[data-testid="browser-forget-site"]').click();
+  await page.locator('[data-pane-id^="browser:"]').first().hover();
+  await page.getByTestId("browser-tab-menu").first().click();
+  await page.getByTestId("browser-tab-forget-site").click();
   await expect(page.getByTestId("forget-site-dialog")).toBeVisible({ timeout: 15_000 });
 }
 
@@ -214,14 +218,11 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
       },
       scena: async (page) => {
         await goToApp(page);
-        const barra = page.locator('[data-testid="browser-url-input"]').first();
-        await expect(barra).toBeVisible({ timeout: 30_000 });
-        // La pane che nasce vuota si prende il fuoco sulla barra (vedi
-        // `urlBarAutoFocusedRef`), e finché ce l'ha mostra la bozza — cioè il
-        // vuoto di quando l'indirizzo non era ancora arrivato. Il fuoco via, e
-        // la barra torna a dire dove siamo.
-        await barra.blur();
-        await expect(barra).toHaveValue(`${origine}/`, { timeout: 30_000 });
+        // WHERE WE ARE is written on the TAB, which is where the address lives
+        // now: the bar hides itself as soon as the page is loaded.
+        const host = new URL(origine).host;
+        await expect(page.getByRole("tab", { name: new RegExp(host.replace(".", "\\.")) }).first())
+          .toBeVisible({ timeout: 30_000 });
 
         // ── 1. La pane condivisa è dentro il sito ────────────────────────────
         // Non «la barra dice l'indirizzo»: la PAGINA rispecchiata dice che il

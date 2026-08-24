@@ -1732,7 +1732,13 @@ input[type="range"]::-webkit-slider-thumb {
   .row-trail { transition: opacity 100ms ease; }
   .row-card:hover > .row-actions,
   .row-card:focus-within > .row-actions,
-  .row-actions[data-pending='true'] {
+  .row-actions[data-pending='true'],
+  /* A MENU OPENED FROM THE RAIL KEEPS THE RAIL LIT. Its panel lives in a portal
+   * outside the row, so moving the pointer onto an item leaves the hover scope:
+   * the trigger would fade out from under the cursor and, worse, go back to
+   * `pointer-events: none` while its own menu is still open. Same rule the
+   * chrome bar already applies to `.bar-action-reveal`. */
+  .row-actions:has([aria-expanded='true']) {
     opacity: 1;
     pointer-events: auto;
   }

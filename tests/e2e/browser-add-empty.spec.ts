@@ -29,7 +29,7 @@ test.describe.serial("Add pane → Browser on an empty client", () => {
     await page.getByTestId("pane-add-menu-browser").click();
 
     // A browser pane must actually mount: welcome gone, browser chrome visible.
-    await expect(page.getByTestId("browser-url-input")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("[data-browser-pane]").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Welcome to Topics")).toHaveCount(0);
   });
 });

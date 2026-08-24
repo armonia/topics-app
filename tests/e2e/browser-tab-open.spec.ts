@@ -40,7 +40,7 @@ async function mountBrowserPaneViaEvent(
     },
     { tid: topicId, u: url },
   );
-  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
 }
 
 // Chi sporca pulisce: qui si aprono contesti browser server-side, che non
@@ -106,7 +106,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
 
       // The panel mounted → its toolbar URL input is present (a stable anchor;
       // the connection "Live" pill hides once streaming).
-      await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -134,8 +134,8 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       await mountBrowserPaneViaEvent(page, topic.id);
       // The pane's toolbar URL input anchors "the pane is present" (stable across
       // render modes, unlike the connection pill which hides once streaming).
-      const urlInput = page.locator('[data-testid="browser-url-input"]');
-      await expect(urlInput.first()).toBeVisible({ timeout: 10000 });
+      const paneRoot = page.locator("[data-browser-pane]");
+      await expect(paneRoot.first()).toBeVisible({ timeout: 10000 });
 
       const res = await request.post(
         `${E2E_BASE}/api/topics/${topic.id}/browser/close-pane`,
@@ -143,8 +143,8 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       );
       expect(res.ok()).toBeTruthy();
 
-      // Remote close removed the pane → its toolbar (URL input) is gone.
-      await expect(urlInput).toHaveCount(0, { timeout: 10000 });
+      // Remote close removed the pane → the pane root is gone.
+      await expect(paneRoot).toHaveCount(0, { timeout: 10000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -181,14 +181,17 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       await input.first().press("Enter");
 
       // The CustomEvent fires synchronously; the layout reducer mounts the
-      // browser pane shortly after. The toolbar URL input proves RemoteBrowserPanel
-      // rendered (a stable anchor — the connection pill hides once streaming).
-      const urlInput = page.locator('[data-testid="browser-url-input"]');
-      await expect(urlInput).toBeVisible({ timeout: 10000 });
-      const urlValue = await urlInput.inputValue();
-      // URL bar reflects the most recent navigation; tolerate either the
-      // initial about:blank (panel just mounted) or the navigated URL.
-      expect(urlValue).toMatch(/example\.com|about:blank|^$/);
+      // browser pane shortly after. `[data-browser-pane]` proves
+      // RemoteBrowserPanel rendered: it is on the pane root, so unlike the
+      // address row (which hides itself once the page is loaded) it is there
+      // for as long as the pane is.
+      await expect(page.locator("[data-browser-pane]").first()).toBeVisible({ timeout: 10000 });
+      // WHERE the pane went is now written on the TAB, which is the surface
+      // that carries the address. Tolerate the empty pane: the shared session
+      // can still be negotiating when this runs.
+      await expect(
+        page.getByRole("tab", { name: /example\.com|Browser|New Chat/ }).first(),
+      ).toBeVisible({ timeout: 10000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

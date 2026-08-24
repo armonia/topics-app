@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
+import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw, Grid2x2, Hourglass, History } from 'lucide-react';
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
@@ -67,6 +67,7 @@ import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
+import { seedBrowserPaneInitialUrl } from './state/pane/browserPaneUrl';
 import { isUtilityPanelType } from './state/pane/adapters/utilityPanelId';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
@@ -393,7 +394,7 @@ function App() {
   // ⌘K opens the palette in 'all' mode; ⌘F opens it pre-scoped to PROJECTS
   // (find/jump to a project). The scope is sticky for the open session of
   // the palette and reset by whichever shortcut/button opens it next.
-  const [searchScope, setSearchScope] = useState<'all' | 'projects'>('all');
+  const [searchScope, setSearchScope] = useState<'all' | 'projects' | 'history'>('all');
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
@@ -1948,6 +1949,19 @@ function App() {
             <span className="flex-1 text-left">Disponi automaticamente</span>
           </button>
           </>}
+          {/* HISTORY LIVES HERE, on the button that gives the column its name.
+              It is where a browser keeps it (the application menu), and it is the
+              only place in the app you look at when you are after something you
+              had open and no longer know where. It opens the palette in its one
+              and only perimeter: closed tabs and visited pages, mixed by time. */}
+          <button
+            onClick={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
+            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
+            data-testid="topics-menu-history"
+          >
+            <History size={isMobile ? 18 : 14} />
+            <span className="flex-1 text-left">{tr('palette.history')}</span>
+          </button>
           {/* Board / Dashboard / Cron stavano qui e ora stanno nel «+» (⌘N) —
               vedi il commento al posto di TOPICS_MENU_PAGES, in testa al file.
               Settings invece RESTA: è raggiungibile anche da ⌘K e da ⌘, ma
@@ -2092,6 +2106,17 @@ function App() {
             }}
             closedTabs={closedTabs}
             onReopenClosedTab={handleReopenClosedTab}
+            // A history row that is a PAGE opens in a brand new browser pane.
+            // The seed for the URL goes in BEFORE the open: the pane captures
+            // its `initialUrl` at mount, once and only once (see
+            // `seedBrowserPaneInitialUrl`), so writing it afterwards would
+            // mean a blank tab sitting next to a click that had promised a
+            // page.
+            onOpenHistoryUrl={(url) => {
+              const contextId = newBrowserContextId();
+              seedBrowserPaneInitialUrl(`browser:${contextId}`, url);
+              openBrowserPane(contextId);
+            }}
           />
         </Suspense>
       )}

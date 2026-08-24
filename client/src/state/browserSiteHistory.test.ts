@@ -17,7 +17,10 @@ import {
   sitesSnapshot,
   subscribeSites,
   MAX_SITES,
+  MAX_PAGES,
   VISIT_DEDUPE_MS,
+  pagesSnapshot,
+  clearPageHistory,
   __resetSiteHistory,
 } from './browserSiteHistory';
 
@@ -122,5 +125,61 @@ describe('titolo, favicon e oblio', () => {
     expect(sitesSnapshot()).toEqual([]);
     expect(beats).toBe(2);
     off();
+  });
+});
+
+/**
+ * The second view of the same store: the PAGES, in time order. This is the
+ * navigation history, and it must answer "where have I been" with the same
+ * dedupe as the visit, or else three ⌘R leave three identical rows in a stack.
+ */
+describe('cronologia di navigazione (pagine)', () => {
+  test('una riga per pagina, la più recente in testa', () => {
+    recordSiteVisit('https://a.dev/uno', T0);
+    recordSiteVisit('https://b.dev/due', T0 + 60_000);
+    expect(pagesSnapshot().map((p) => p.url)).toEqual(['https://b.dev/due', 'https://a.dev/uno']);
+    expect(pagesSnapshot()[0].at).toBe(T0 + 60_000);
+  });
+
+  test('un ricarico non aggiunge una riga: aggiorna quella in testa', () => {
+    recordSiteVisit('https://a.dev/uno', T0);
+    recordSiteVisit('https://a.dev/uno', T0 + 1_000);
+    expect(pagesSnapshot()).toHaveLength(1);
+    expect(pagesSnapshot()[0].at).toBe(T0 + 1_000);
+  });
+
+  test('tornare su una pagina vecchia la riporta in testa, senza duplicarla', () => {
+    recordSiteVisit('https://a.dev/uno', T0);
+    recordSiteVisit('https://b.dev/due', T0 + 60_000);
+    recordSiteVisit('https://a.dev/uno', T0 + 120_000);
+    expect(pagesSnapshot().map((p) => p.url)).toEqual(['https://a.dev/uno', 'https://b.dev/due']);
+  });
+
+  test('titolo e icona arrivano dopo e finiscono anche sulla riga', () => {
+    recordSiteVisit('https://a.dev/uno', T0);
+    noteSiteMeta('https://a.dev/uno', { title: 'Uno', favicon: 'https://a.dev/f.ico' });
+    expect(pagesSnapshot()[0].title).toBe('Uno');
+    expect(pagesSnapshot()[0].favicon).toBe('https://a.dev/f.ico');
+  });
+
+  test('oltre il tetto esce la più vecchia', () => {
+    for (let i = 0; i < MAX_PAGES + 5; i++) recordSiteVisit(`https://a.dev/p${i}`, T0 + i * 60_000);
+    expect(pagesSnapshot()).toHaveLength(MAX_PAGES);
+    expect(pagesSnapshot()[0].url).toBe(`https://a.dev/p${MAX_PAGES + 4}`);
+    expect(pagesSnapshot().some((p) => p.url === 'https://a.dev/p0')).toBe(false);
+  });
+
+  test('dimenticare un sito porta via anche le sue pagine', () => {
+    recordSiteVisit('https://a.dev/uno', T0);
+    recordSiteVisit('https://b.dev/due', T0 + 60_000);
+    expect(forgetSite('a.dev')).toBe(true);
+    expect(pagesSnapshot().map((p) => p.url)).toEqual(['https://b.dev/due']);
+  });
+
+  test('svuotare la cronologia lascia in piedi i siti', () => {
+    recordSiteVisit('https://a.dev/uno', T0);
+    clearPageHistory();
+    expect(pagesSnapshot()).toEqual([]);
+    expect(sitesSnapshot()).toHaveLength(1);
   });
 });

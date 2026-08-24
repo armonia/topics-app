@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
   Search, Settings, Moon, Sun, File,
   Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft,
@@ -27,6 +27,9 @@ import { useT } from '../../hooks/useT';
 import { isDesktop } from '../../lib/shell';
 import { rankPaths } from '../../lib/fuzzyScore';
 import { buildAddMenuItems } from './addMenuItems';
+import { buildHistoryRows } from '../../lib/historyRows';
+import { pagesSnapshot, subscribeSites } from '../../state/browserSiteHistory';
+import { BrowserFavicon } from '../Browser/BrowserFavicon';
 import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
 
@@ -65,9 +68,10 @@ function getProjectDescription(projectPath: string): string {
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Result scope: 'all' (⌘K — topics, messages, files, everything) or
-   *  'projects' (⌘F — find/jump to a project; only project rows render). */
-  scope?: 'all' | 'projects';
+  /** Result scope: 'all' (⌘K — topics, messages, files, everything),
+   *  'projects' (⌘F — find/jump to a project; only project rows render) or
+   *  'history' (the HISTORY: closed tabs and visited pages, one single list). */
+  scope?: 'all' | 'projects' | 'history';
   topics: Record<string, Topic>;
   /** Known workspace project paths (same source the sidebar uses) — merged
    *  into the Projects list so ⌘F can jump to a project even when none of
@@ -99,6 +103,10 @@ interface CommandPaletteProps {
   onOpenFile?: (path: string, lineNumber?: number) => void;
   closedTabs?: ClosedTabRecord[];
   onReopenClosedTab?: (record: ClosedTabRecord) => void;
+  /** Opens a history URL in a browser pane. Without it the page rows never
+   *  show up at all: a row that leads nowhere is worse than a row that is
+   *  simply missing. */
+  onOpenHistoryUrl?: (url: string) => void;
 }
 
 export function CommandPalette({
@@ -121,6 +129,7 @@ export function CommandPalette({
   onOpenFile,
   closedTabs,
   onReopenClosedTab,
+  onOpenHistoryUrl,
 }: CommandPaletteProps) {
   const t = useT();
   const [query, setQuery] = useState('');
@@ -276,50 +285,56 @@ export function CommandPalette({
     }));
   }, [topics, workspaceProjects, onOpenProject, onClose]);
 
-  // ── Tab recenti (closed tabs, always visible accordion under Projects) ──
-  // Moved out of the main list so the right column reads as a clean topic
-  // feed. Each entry carries the same metadata as before — pane type icon,
-  // cwd/project anchor, full path in tooltip.
+  // ── HISTORY (closed tabs + visited pages, one single list) ──
+  //
+  // They were two separate lists: closed tabs here, the browser pages inside
+  // a dropdown on its own toolbar, per topic. Two places for the same question
+  // ("where was I, take me back") means searching twice. The rows are built by
+  // `buildHistoryRows`, which is pure and merges them by time; the only thing
+  // decided here is what the click does, the one thing genuinely different
+  // between the two: a tab REOPENS where it was, a URL opens in a browser pane.
+  const pages = useSyncExternalStore(subscribeSites, pagesSnapshot, pagesSnapshot);
   const recentItems = useMemo((): CommandAction[] => {
-    if (!closedTabs || !onReopenClosedTab) return [];
-    return closedTabs.slice(0, 20).map((record, i) => {
-      const paneType = record.pane.type;
-      const config = PANE_CONFIG[paneType];
-      const timeAgo = formatTimeAgo(record.closedAt);
-      const icon = record.terminal?.sessionType === 'claude-code'
-        ? <ClaudeIcon size={14} />
-        : record.terminal?.sessionType === 'codex'
-          ? <CodexIcon size={14} />
-          : paneType === 'terminal'
-            ? <TerminalSquare size={14} />
-            : <RotateCcw size={14} />;
-      const parts: string[] = [`Chiusa ${timeAgo}`];
-      const cwd = record.terminal?.cwd;
-      const projectLabel = record.projectPath ? getProjectLabel(record.projectPath) : null;
-      if (paneType === 'terminal' && cwd) {
-        const cwdLabel = getProjectLabel(cwd);
-        parts.push(projectLabel && projectLabel !== cwdLabel
-          ? `${projectLabel} · ${cwdLabel}`
-          : cwdLabel);
-      } else if (projectLabel) {
-        parts.push(projectLabel);
-      }
-      const titleOverride = (paneType === 'terminal' && cwd)
-        ? cwd
-        : record.projectPath || undefined;
+    const rows = buildHistoryRows({
+      closedTabs: onReopenClosedTab ? closedTabs : [],
+      pages: onOpenHistoryUrl ? pages : [],
+      limit: 40,
+    });
+    return rows.map((row, i) => {
+      const rec = row.record;
+      const paneType = row.paneType;
+      const icon = row.kind === 'page'
+        ? <BrowserFavicon url={row.url ?? ''} faviconUrl={row.favicon} size={14} />
+        : rec?.terminal?.sessionType === 'claude-code'
+          ? <ClaudeIcon size={14} />
+          : rec?.terminal?.sessionType === 'codex'
+            ? <CodexIcon size={14} />
+            : paneType === 'terminal'
+              ? <TerminalSquare size={14} />
+              : <RotateCcw size={14} />;
+      const when = formatTimeAgo(row.at);
+      const parts = [row.kind === 'page' ? when : `Chiusa ${when}`, row.detail].filter(Boolean);
+      const config = paneType ? PANE_CONFIG[paneType] : undefined;
       return {
-        id: `closed-${record.id}`,
-        label: record.pane.title || config?.label || paneType,
+        id: `history-${row.id}`,
+        label: row.label || config?.label || paneType || row.url || '',
         description: parts.join(' · '),
         icon,
         category: 'recent-closed' as const,
-        _ts: record.closedAt,
-        shortcut: i === 0 ? '⇧⌘T' : undefined,
-        titleOverride,
-        action: () => { onReopenClosedTab(record); onClose(); },
+        _ts: row.at,
+        // The undo shortcut belongs to the most recent TAB, which is the only
+        // thing ⇧⌘T reopens: pinning it on a page row would promise a key that
+        // does something else.
+        shortcut: i === 0 && row.kind === 'tab' ? '⇧⌘T' : undefined,
+        titleOverride: row.url || rec?.terminal?.cwd || rec?.projectPath || undefined,
+        action: () => {
+          if (row.kind === 'tab' && rec && onReopenClosedTab) onReopenClosedTab(rec);
+          else if (row.url && onOpenHistoryUrl) onOpenHistoryUrl(row.url);
+          onClose();
+        },
       };
     });
-  }, [closedTabs, onReopenClosedTab, onClose]);
+  }, [closedTabs, pages, onReopenClosedTab, onOpenHistoryUrl, onClose]);
 
   // ── Topics for SEARCH (rendered only when there's a query, sorted by recency) ──
   // Includes ARCHIVED (= closed) topics on purpose: in the 2-state model a
@@ -458,6 +473,10 @@ export function CommandPalette({
   //  · query:            Projects → Actions → Topics → Recently-closed → Files → Messages
   const allItems = useMemo(() => {
     if (scope === 'projects') return filteredProjects;
+    // History is one single list: no projects, no actions, no topics. You get
+    // here from the "Topics" menu to look for WHERE YOU WERE, and every other
+    // row in here would be noise on that question.
+    if (scope === 'history') return filteredRecenti;
     // «Crea» sta in cima anche a query vuota: in una palette vuota la cosa piu'
     // azionabile e' quella che fa nascere qualcosa, ed e' l'unico modo per cui
     // le frecce ci arrivino sopra (prima era una barra di pill, fuori dalla
@@ -589,7 +608,7 @@ export function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={scope === 'projects' ? t('palette.searchProjects') : projectPath ? t('palette.searchWithFiles') : t('palette.search')}
+            placeholder={scope === 'projects' ? t('palette.searchProjects') : scope === 'history' ? t('palette.searchHistory') : projectPath ? t('palette.searchWithFiles') : t('palette.search')}
             /* Il campo misurava 24px di altezza: e' il bersaglio piu' importante
                della superficie e stava sotto misura come tutti gli altri. Su
                mobile anche `text-[16px]`, perche' sotto i 16 iOS ingrandisce la
@@ -607,7 +626,22 @@ export function CommandPalette({
             Ultimi progetti | Chiuse di recente. With a query = one full-width
             results list with plain section labels (no collapsible accordions). */}
         <div className="flex-1 min-h-0 flex flex-col">
-          {scope === 'projects' ? (
+          {scope === 'history' ? (
+            /* HISTORY: one full-width list, closed tabs and pages merged by
+               time. The same row as the normal palette, so the two surfaces
+               cannot tell the same story in two different ways. */
+            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Cronologia" data-testid="palette-history">
+              <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                {t('palette.history')}
+                {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
+              </div>
+              {filteredRecenti.length > 0 ? (
+                filteredRecenti.map(item => renderRow(item, { highlight: !!query.trim() }))
+              ) : (
+                <EmptyState variant="panel" title={t('palette.noHistory')} />
+              )}
+            </div>
+          ) : scope === 'projects' ? (
             /* ⌘F — projects scope: one full-width list, find/jump to a project. */
             <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Projects">
               <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
@@ -646,13 +680,13 @@ export function CommandPalette({
                 </div>
                 {filteredCreate.map(item => renderRow(item, { compact: !isMobile }))}
                 <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
-                  {t('palette.recentlyClosed')}
+                  {t('palette.history')}
                   {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
                 </div>
                 {filteredRecenti.length > 0 ? (
                   filteredRecenti.map(item => renderRow(item, { compact: !isMobile }))
                 ) : (
-                  <EmptyState variant="section" title={t('palette.noClosedTab')} />
+                  <EmptyState variant="section" title={t('palette.noHistory')} />
                 )}
               </section>
             </div>
@@ -700,7 +734,7 @@ export function CommandPalette({
                     )}
                     {filteredRecenti.length > 0 && (
                       <>
-                        <SectionHeader label="Tab chiuse" />
+                        <SectionHeader label={t('palette.history')} />
                         {filteredRecenti.map(item => renderRow(item, { highlight: true }))}
                       </>
                     )}

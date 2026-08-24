@@ -162,7 +162,7 @@ test.describe.serial("Add menu — sistema", () => {
     await expect(page.getByTestId("pane-add-menu-browser")).toHaveAttribute("data-mnemonic", "B");
     await page.keyboard.press("b");
 
-    await expect(page.getByTestId("browser-url-input")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("[data-browser-pane]").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("pane-add-palette")).toHaveCount(0);
   });
 

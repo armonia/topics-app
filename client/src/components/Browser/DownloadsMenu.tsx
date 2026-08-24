@@ -55,9 +55,15 @@ export interface DownloadsMenuProps {
   /** Solo pane nativa: apri il file / mostralo nel Finder. */
   onOpen?: (path: string) => void;
   onReveal?: (path: string) => void;
+  /** A counter the host bumps to say "open the list now". It exists because the
+   *  request comes from OUTSIDE this component (the tab menu, which is drawn in
+   *  another subtree) and an open command is an event, not a state: a boolean
+   *  would stay true after the user closed the panel and reopen it on the next
+   *  unrelated render. Same shape as `startedCount` right below, deliberately. */
+  requestOpen?: number;
 }
 
-export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onClear, onOpen, onReveal }: DownloadsMenuProps) {
+export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onClear, onOpen, onReveal, requestOpen = 0 }: DownloadsMenuProps) {
   // `wanted` è la VOLONTÀ (il menu è stato aperto), non il fatto: se l'elenco è
   // vuoto il bottone non esiste e il menu non ha più un'ancora, quindi
   // `open` si DERIVA. Prima quella riconciliazione era un effetto che spegneva
@@ -79,6 +85,14 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
   if (startedCount !== seenStarted) {
     setSeenStarted(startedCount);
     if (startedCount > seenStarted) setWanted(true);
+  }
+
+  // Same adjust-during-render rule for the "open it now" request from the tab
+  // menu: a bump opens, a reset (new pane identity) only re-syncs.
+  const [seenRequest, setSeenRequest] = useState(requestOpen);
+  if (requestOpen !== seenRequest) {
+    setSeenRequest(requestOpen);
+    if (requestOpen > seenRequest) setWanted(true);
   }
 
   if (items.length === 0) return null;

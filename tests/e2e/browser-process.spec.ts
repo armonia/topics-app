@@ -52,7 +52,7 @@ async function mountBrowserPaneViaEvent(
   );
   // Gate on the toolbar URL input (present in both stream + iframe render paths).
   // The connection-indicator pill hides in the steady 'connected' state now.
-  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
 }
 
 // ── ScriptRunner Tests (PROCESS-01..05: PASS, unchanged from phase 27) ──
@@ -432,7 +432,7 @@ test.describe("RemoteBrowserPanel", () => {
 
       // The pane mounted (toolbar URL input present) and surfaces the shared-
       // session negotiation state, not a JPEG screenshot.
-      await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 15000 });
       await expect(page.getByText(/Avvio sessione condivisa/)).toBeVisible({ timeout: 15000 });
       // The removed JPEG <img> surface must never render.
       await expect(page.locator('img[alt="Example"], img[alt="Browser page"]')).toHaveCount(0);

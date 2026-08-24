@@ -48,9 +48,19 @@ import {
 } from './spaceHelpers';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
+import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
+import { browserTabLabel, browserTabSubtitle } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
+
+/** The width of a tab, in px. Fixed on purpose: tabs that resize with their
+ *  own content make the tab under the pointer move while you are aiming at it. */
+const TAB_W = 150;
+/** ...and the width of a BROWSER tab, which carries an address instead of a
+ *  name. See the note at the call site for why the extra 50px is free. */
+const TAB_W_BROWSER = 200;
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -572,6 +582,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const etichettaTab = useCallback((pane: Pane | undefined, paneId: string): string => {
     if (!pane) return paneId;
     const config = getPaneConfig(pane.type);
+    // A BROWSER TAB WRITES THE ADDRESS, not the page title. Now that the
+    // address bar hides itself, the tab is the only surface left that answers
+    // "which page is this". The rule (and the why) lives in
+    // `lib/browserTabLabel`; here we only hand it the pane's state.
+    if (pane.type === 'browser') {
+      return browserTabLabel({
+        title: pane.title,
+        titleSource: pane.titleSource,
+        url: pane.url || getBrowserPaneUrl(pane.id),
+        fallback: config.label,
+      });
+    }
     return (isUtilityPanelId(pane.id) ? config.label : pane.title)
       || (pane.type === 'chat' ? 'New Chat' : config.label);
   }, []);
@@ -1088,6 +1110,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // lasciato era muta.
         const suppressOnSelect = isFullyActive && pane.type !== 'project';
         const badgeCount = !suppressOnSelect && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
+        // A BROWSER TAB IS WIDER, and it is paying for the row it removed.
+        //
+        // 150px fits a topic name; it does not fit `localhost:5173/board/task`,
+        // and an address truncated to the host is an address that stopped
+        // telling two tabs apart. The pane used to spend a whole 40px chrome
+        // row on saying it, for every browser pane on screen. Trading 40px of
+        // HEIGHT for 50px of WIDTH on one tab is a win the moment more than one
+        // browser pane is open, and it costs the other tabs nothing: they keep
+        // their 150.
+        const tabWidth = pane.type === 'browser' ? TAB_W_BROWSER : TAB_W;
 
         return (
           <div
@@ -1109,7 +1141,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
             aria-label={[label, statoTab, dettaglioProgetto].filter(Boolean).join(' · ')}
-            style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
+            style={{ width: tabWidth, minWidth: tabWidth, maxWidth: tabWidth, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
             // sum past the fixed 150px and spill into the next tab. The label
@@ -1220,6 +1252,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 Terminal glyph. */}
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
+            ) : pane.type === 'browser' ? (
+              // The SITE's icon, the same one the address bar shows, from the
+              // same component: a browser tab that shows a generic globe is a
+              // browser tab you have to read to recognise. Under the pointer
+              // the same slot becomes Reload (see BrowserTabIcon).
+              <BrowserTabIcon paneId={pane.id} url={pane.url || getBrowserPaneUrl(pane.id) || ''} />
             ) : isClaudeCodeTab ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <ClaudeIcon size={14} className="text-[#D97757]" />
@@ -1265,9 +1303,37 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               // rinominarne una li faceva passare a verde-vuoto senza che nulla
               // fosse rotto. Un data-attribute è il vero appiglio».
               data-testid="pane-tab-label"
-              className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}
+              className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''} ${
+                pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
+              }`}
+              // THE ADDRESS KEEPS THE BEHAVIOUR THE ADDRESS BAR HAD: click it
+              // and you can type over it. Only on the tab you are already
+              // looking at, so the first click on another tab still does the
+              // only thing it can mean, which is "bring me there".
+              onClick={pane.type === 'browser' && isFullyActive
+                ? (e) => {
+                  const edit = getBrowserPaneChrome(pane.id)?.commands.editAddress;
+                  if (!edit) return;
+                  e.stopPropagation();
+                  edit();
+                }
+                : undefined}
               onMouseEnter={ensurePaneUsageFresh}
-              title={`${label}${formatPaneUsageLine(
+              title={`${label}${
+                // A browser tab shows the address, so its tooltip carries the
+                // page title: the two together are what the old chrome row said.
+                pane.type === 'browser'
+                  ? (() => {
+                    const sub = browserTabSubtitle({
+                      title: pane.title,
+                      titleSource: pane.titleSource,
+                      url: pane.url || getBrowserPaneUrl(pane.id),
+                      fallback: '',
+                    });
+                    return sub ? `\n${sub}` : '';
+                  })()
+                  : ''
+              }${formatPaneUsageLine(
                 pane.type === 'terminal' ? termSid : null,
                 pane.type === 'terminal' || pane.type === 'browser',
                 // Le due sorgenti sono diverse: un terminale si cerca per
@@ -1362,6 +1428,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 </span>
               );
             })()}
+            {/* Quiet cue: this page logged errors to its console. It belongs in
+                the quiet rail and NOT on the three dots, because the dots only
+                exist under the pointer: a notification you have to hover to
+                find is not a notification. The count and the console itself
+                are one click away, in the menu. */}
+            {pane.type === 'browser' && <BrowserTabConsoleCue paneId={pane.id} onFill={onFill} />}
             {/* Quiet cue: this chat is backed by the cloud (OpenClaw) provider —
                 a cloud session, not a local one. Muted, like the browser cue. */}
             {pane.type === 'chat' && pane.topicId && topics[pane.topicId]?.provider === 'openclaw' && (
@@ -1432,10 +1504,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 (riaprendo si disarchivia). Il lucchetto restava solo finché non
                 toglievi il pin, cioè chiedeva di smontare la scorciatoia per
                 fare la cosa più comune che ci si fa. */}
-            {!nonClosablePaneIds?.has(pane.id) && (
+            {/* THE RAIL IS ONE, and the close ring is its LAST child (see
+                ROW_ACTIONS: "a new command goes in BEFORE the circle, never
+                after"). A second `.row-actions` sibling would be a second
+                absolute box on the same anchor, i.e. two commands stacked on
+                top of each other, so the browser's three dots ride inside this
+                one. A pane that cannot be closed still gets its menu. */}
+            {(!nonClosablePaneIds?.has(pane.id) || pane.type === 'browser') && (
               <PaneCloseButton
                 paneId={pane.id}
                 onClose={onClose}
+                closable={!nonClosablePaneIds?.has(pane.id)}
+                before={pane.type === 'browser' ? <BrowserTabMenuButton paneId={pane.id} /> : undefined}
               />
             )}
           </div>
@@ -1995,10 +2075,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
  * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
  */
 function PaneCloseButton({
-  paneId, onClose,
+  paneId, onClose, before, closable = true,
 }: {
   paneId: string;
   onClose: (id: string) => void;
+  /** Commands that ride in the same rail, BEFORE the close ring (the browser
+   *  tab's three dots). See the ROW_ACTIONS contract. */
+  before?: React.ReactNode;
+  /** false = the rail exists for `before` only; this pane does not close. */
+  closable?: boolean;
 }) {
   // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
   // sidebar-side keys (`archive-topic:<id>` for chat panes,
@@ -2101,10 +2186,14 @@ function PaneCloseButton({
   // mouse se ne va.
   return (
     <span
-      className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+      // `w-auto` when the rail carries more than one command: ROW_ACTION_BOX
+      // sizes ONE box, and a two-command rail clipped its first child to the
+      // width of the second.
+      className={`${ROW_ACTIONS} ${before ? 'h-7 md:h-7 w-auto' : ROW_ACTION_BOX}`}
       data-pending={pendingStatus ? 'true' : undefined}
     >
-      <PendingActionRing
+      {before}
+      {closable && <PendingActionRing
         status={pendingStatus}
         size={ROW_ACTION_GLYPH}
         boxClassName={ROW_ACTION_BOX}
@@ -2115,7 +2204,7 @@ function PaneCloseButton({
         idleAriaLabel={`Chiudi tab ${paneId}`}
         pendingTitle="Annulla chiusura"
         pendingAriaLabel="Annulla chiusura"
-      />
+      />}
     </span>
   );
 }

@@ -95,6 +95,14 @@ interface BrowserToolbarProps {
    *  La toolbar non cancella niente: apre il dialogo che ELENCA cosa sparisce,
    *  e quello vive nella pane, che sopravvive alla chiusura del popover. */
   onForgetSite?: () => void;
+  /** Controlled console panel: the tab menu opens it from outside the toolbar. */
+  consoleOpen?: boolean;
+  onConsoleOpenChange?: (open: boolean) => void;
+  /** Bumped by the host to ask the downloads list to open (see DownloadsMenu). */
+  downloadsRequestOpen?: number;
+  /** Escape / a finished navigation give the row back its space. Present only
+   *  when the row is a REVEALED one (the pane hides it on a loaded page). */
+  onDismiss?: () => void;
 }
 
 export function BrowserToolbar({
@@ -128,6 +136,10 @@ export function BrowserToolbar({
   shareMode,
   onToggleShare,
   onForgetSite,
+  consoleOpen,
+  onConsoleOpenChange,
+  downloadsRequestOpen,
+  onDismiss,
 }: BrowserToolbarProps) {
   const tr = useT();
   const [editUrl, setEditUrl] = useState(url);
@@ -410,6 +422,18 @@ export function BrowserToolbar({
                   onChange={(e) => { setEditUrl(e.target.value); setEditing(true); }}
                   onFocus={() => { setEditUrl(displayUrl(url)); setEditing(true); }}
                   onBlur={() => { setTimeout(() => setEditing(false), 200); }}
+                  // Escape gives the row back: on a loaded page this bar is a
+                  // REVEALED surface (the pane hides it), so it needs the same
+                  // way out as any other transient one. Without `onDismiss` it
+                  // is a permanent row and Escape only drops the edit.
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Escape') return;
+                    e.preventDefault();
+                    setEditing(false);
+                    setEditUrl(displayUrl(url));
+                    (e.currentTarget as HTMLInputElement).blur();
+                    onDismiss?.();
+                  }}
                   placeholder={tr('browser.url.placeholder')}
                   spellCheck={false}
                   data-testid="browser-url-input"
@@ -440,13 +464,19 @@ export function BrowserToolbar({
           presets) anchor correctly only when NOT nested inside another popover,
           so folding them into the overflow made the console menu mis-anchor. */}
       {consoleSummary && consoleEntries && onClearConsole && (
-        <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
+        <ConsoleBadge
+          entries={consoleEntries}
+          summary={consoleSummary}
+          onClear={onClearConsole}
+          open={consoleOpen}
+          onOpenChange={onConsoleOpenChange}
+        />
       )}
       {/* Download — inline a ogni larghezza, come il badge della console: il suo
           menu si ancora al proprio bottone, e piegato dentro l'overflow si
           ancorerebbe alla voce di un altro popover. Il bottone esiste solo
           quando c'è almeno un download, quindi a riposo non toglie niente. */}
-      {downloads && <DownloadsMenu {...downloads} />}
+      {downloads && <DownloadsMenu {...downloads} requestOpen={downloadsRequestOpen} />}
       {deviceMode && onSetDevice && (
         <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
       )}

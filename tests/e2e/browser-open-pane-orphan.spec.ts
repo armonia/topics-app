@@ -76,7 +76,7 @@ test.describe("open_browser_pane monta un pannello anche fuori da un progetto", 
     await goToApp(page);
     await waitForTopicVisible(page, topicId, { timeout: 15_000 });
     // Prima: nessun pannello browser da nessuna parte.
-    await expect(page.locator('[data-testid="browser-url-input"]')).toHaveCount(0);
+    await expect(page.locator('[data-browser-pane]')).toHaveCount(0);
     await beat(1200);
 
     // La porta dell'agente, non una scorciatoia del test.
@@ -88,7 +88,7 @@ test.describe("open_browser_pane monta un pannello anche fuori da un progetto", 
     const body = (await resp.json()) as { url?: string; visible?: boolean };
 
     // Dopo: il pannello c'è.
-    await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 15_000 });
     // E la risposta lo DICE — il secondo mezzo guasto: finché il messaggio era
     // identico nei due casi, nessuno poteva accorgersi del primo.
     expect(body.visible, "la rotta deve confermare un pannello VISIBILE, non solo un contesto vivo").toBe(true);

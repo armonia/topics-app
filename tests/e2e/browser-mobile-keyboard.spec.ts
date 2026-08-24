@@ -73,7 +73,7 @@ async function mountBrowserPane(
     },
     { tid: topicId, u: url },
   );
-  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
 }
 
 test.describe("Browser da telefono — la tastiera segue il campo", () => {

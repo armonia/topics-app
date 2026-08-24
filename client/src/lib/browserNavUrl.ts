@@ -120,6 +120,38 @@ export function displayUrl(raw: string): string {
   }
 }
 
+/**
+ * The COMPACT URL, the one written on a tab or on a row of the history
+ * list. It is Chrome's rule: `https://` is implied, `www.` is not
+ * information, and the trailing slash of a root is noise. A different scheme
+ * (`http://`, `file://`) is shown instead, because there the difference counts.
+ *
+ * It sits next to `displayUrl` and passes through it: whoever shows a URL must
+ * first translate the transport into the document, then shorten it. Two
+ * functions and not one because there are two questions: "which URL is it" and
+ * "how do I write it in a small space".
+ */
+export function prettyUrl(raw: string): string {
+  const shown = displayUrl(raw ?? '');
+  if (!shown) return '';
+  try {
+    const u = new URL(shown);
+    if (!u.hostname) return shown;
+    const scheme = u.protocol === 'https:' ? '' : `${u.protocol}//`;
+    // `host` and not `hostname`: the PORT is information, and in this app it is
+    // the most important information a URL can carry. Half of the browser panes
+    // here are looking at `localhost:3333` versus `localhost:5173`, and with no
+    // port those two tabs become the same word.
+    const host = u.host.replace(/^www\./, '');
+    const rest = `${u.pathname === '/' ? '' : u.pathname}${u.search}${u.hash}`;
+    return `${scheme}${host}${rest}`;
+  } catch {
+    // Not an absolute URL (`about:blank`, a half-typed search): it is shown
+    // as it is. Inventing a scheme for it would be worse than the raw text.
+    return shown;
+  }
+}
+
 
 /**
  * Un host RAGGIUNGIBILE su internet non merita di viaggiare in chiaro.

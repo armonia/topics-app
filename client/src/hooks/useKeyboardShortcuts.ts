@@ -58,7 +58,9 @@ export interface UseKeyboardShortcutsArgs {
   // Modal setters (React useState setters — stable identity).
   setShowSearch: Dispatch<SetStateAction<boolean>>;
   /** Palette scope — ⌘K apre 'all', ⌘⇧P apre 'projects' (salta a un progetto). */
-  setSearchScope: Dispatch<SetStateAction<'all' | 'projects'>>;
+  // 'history' is a scope the palette can be in but no shortcut opens directly:
+  // the setter still has to admit it, or the two types stop matching.
+  setSearchScope: Dispatch<SetStateAction<'all' | 'projects' | 'history'>>;
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
   /** ⌘, — le Preferenze, come su ogni app macOS. */

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { resolveBrowserNavigateUrl, normalizeUrl, displayUrl, toNavigableUrl, httpsFirstUrl } from './browserNavUrl';
+import { resolveBrowserNavigateUrl, normalizeUrl, displayUrl, toNavigableUrl, httpsFirstUrl, prettyUrl } from './browserNavUrl';
 
 // Stub the parts of `window` the resolver reads. Each case sets its own.
 function setWindow(opts: {
@@ -254,5 +254,34 @@ describe('un riferimento a un file di questo server', () => {
 
   it('`//host` non e un path locale: e protocol-relative', () => {
     expect(normalizeUrl('//example.com/x', 'https://127.0.0.1:3333')).not.toContain('127.0.0.1');
+  });
+});
+
+/**
+ * `prettyUrl` is the URL written in a small space: on a tab, on a row of the
+ * history list. The trap was found by a parallel session reading the code:
+ * with `hostname` the PORT disappears, and in this app two panes looking at
+ * `localhost:3333` and `localhost:5173` would become the same word.
+ */
+describe('prettyUrl', () => {
+  it("veste come Chrome: via https://, via www., via la barra della radice", () => {
+    expect(prettyUrl('https://www.esempio.it/')).toBe('esempio.it');
+    expect(prettyUrl('https://esempio.it/pagina?x=1#y')).toBe('esempio.it/pagina?x=1#y');
+  });
+
+  it('la PORTA resta: e\' l\'informazione che distingue due dev server', () => {
+    expect(prettyUrl('http://localhost:3333/board')).toBe('http://localhost:3333/board');
+    expect(prettyUrl('http://127.0.0.1:5173/')).toBe('http://127.0.0.1:5173');
+    expect(prettyUrl('https://esempio.it:8443/x')).toBe('esempio.it:8443/x');
+  });
+
+  it("cio' che non e' un indirizzo assoluto esce com'e'", () => {
+    expect(prettyUrl('about:blank')).toBe('about:blank');
+    expect(prettyUrl('')).toBe('');
+    expect(prettyUrl('mezza ricerca')).toBe('mezza ricerca');
+  });
+
+  it('passa da displayUrl: prima il documento, poi la vestizione', () => {
+    expect(prettyUrl('http://localhost:3333/api/media?path=%2Ftmp%2Fx.pdf')).toBe('file:///tmp/x.pdf');
   });
 });

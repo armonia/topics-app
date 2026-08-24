@@ -33,7 +33,7 @@ async function mountBrowserPane(
     },
     { tid: topicId, u: url },
   );
-  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
 }
 
 test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", () => {
