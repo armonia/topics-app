@@ -1,7 +1,44 @@
 # Topics App — E2E Test Suite
 
 Playwright E2E tests covering all major features (chat, sidebar, panels,
-layout, tabs, terminals, browser, agents, infra). 68 `*.spec.ts` files.
+layout, tabs, terminals, browser, agents, infra). **262** `*.spec.ts` files,
+1 083 tests — the count in this line said 68 until 2026-08-25, which is roughly
+when it was last true.
+
+> **Stato della suite, misurato il 25/08/2026.** Numeri che servono a chi la
+> tocca, non decorazione:
+>
+> - **175 `waitForTimeout` in 82 file = 149,9 s di attesa a vuoto per passata.**
+>   `CONVENTIONS.md` li vieta dalla prima riga; `check:sleeps` è verde perché è
+>   un cricchetto e congela il debito invece di vietarlo. È il taglio più grosso
+>   disponibile sui tempi senza toccare la parallelizzazione.
+> - **98 test (9%) hanno come unica asserzione la visibilità**, e 70 non passano
+>   nemmeno da un page-object che potrebbe asserire dentro. Violano D7 dello
+>   STANDARD di spec-flow.
+> - **956 usi di `.first()`/`.last()`**, che `CONVENTIONS.md` vieta su pareggi.
+>   Nessun cancello li guarda.
+> - **62 prefissi di nome con un solo file** e 12 gruppi di quasi-duplicati
+>   (quattro file coprono «lo split interno al progetto sopravvive al reload»).
+>   Non c'è una tassonomia: c'è un accumulo cronologico.
+> - **Zero baseline visive** (`toHaveScreenshot` non compare in nessun file):
+>   nessuna regressione puramente grafica può essere colta.
+> - **273 `data-testid` su 606 non sono usati da nessun test.**
+>
+> La riorganizzazione dei file **non** è stata fatta di proposito: spostarli
+> cambia l'assegnazione degli shard, e al 25/08 un'altra sessione stava
+> lavorando proprio sui tempi e sulla pubblicazione UAT. È il primo pezzo da
+> fare quando quel lavoro è finito, e va fatto in un colpo solo.
+>
+> Il legame fra questi test e i requisiti di `openspec/specs/` lo misura
+> `bun run check:spec-coverage` (cablato in CI). Si dichiara così, sullo
+> scenario — è la convenzione già in uso qui, 274 test in 45 file:
+>
+> ```ts
+> test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
+> ```
+>
+> Nei test `bun` (dove `test.info()` non esiste) si dichiara nel commento di
+> testa del file: `@covers KANBAN-01, KANBAN-02`.
 
 For test-authoring rules (locators, waits, fixtures, test data) see
 [`CONVENTIONS.md`](./CONVENTIONS.md) — the single source of truth.
