@@ -8,12 +8,12 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useT } from '../../hooks/useT';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, Check, ChevronDown, ChevronRight, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
@@ -22,29 +22,23 @@ import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstate
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { useBoardFeed } from '../../hooks/useBoardFeed';
 import {
-  boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
+  boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES,
   CLOSER_LABELS, KIND_LABELS, STATUS_LABEL,
-  type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
+  type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { GlobalCapControl } from './GlobalCapControl';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { useBoardMotion } from './useBoardMotion';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
-import { ProjectPickerBody } from './ProjectPicker';
-import { ProjectTaskCounts } from './atoms';
-import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
-import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { Tooltip } from '../Shared/Tooltip';
-import { homeTilde } from '../../lib/homeTilde';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, filterChipClass, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
+import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Column } from './Card';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
@@ -58,45 +52,6 @@ import { useDevInstall } from '../../hooks/useDevInstall';
 /** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
  *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
 const EMPTY_WRITES: ReadonlyMap<string, Partial<BoardTask>> = new Map();
-
-/**
- * THE PROJECT CHIP: one width and one icon box, for every chip in the row.
- *
- * It was two of each. The chip opening the menu was capped at `11rem` and the
- * suggestions next to it at `13rem`, so the SAME project name was truncated at
- * two different points on the same line. And the icon: a project with a favicon
- * on disk got 12px, one without got a 6px dot, so the names behind them did not
- * line up either - the row looked crooked without any single chip being wrong.
- *
- * `12rem` sits between the two caps rather than picking a winner: neither of the
- * two was measured, and the shorter one truncated names the longer one showed
- * whole. The icon box is fixed and lives OUTSIDE the favicon, because
- * `ProjectFavicon` draws its fallback bare, with no reserved width, and says so:
- * reserving it here means the chip stops depending on which projects happen to
- * have an icon.
- */
-const CHIP_MAX = 'max-w-[12rem]';
-const CHIP_ICON_BOX = 12;
-
-/**
- * The icon slot of a chip: always the same width, with or without a favicon.
- *
- * The empty case is not an empty box: it keeps the faint dot that used to be
- * drawn bare, now centred inside the reserved slot. So "this project has no
- * icon" is still said, and it is said without moving the name.
- */
-function ChipIcon({ path }: { path?: string | null }) {
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center"
-      style={{ width: CHIP_ICON_BOX, height: CHIP_ICON_BOX }}
-    >
-      {path
-        ? <ProjectFavicon path={path} size={CHIP_ICON_BOX} />
-        : <span className="h-1.5 w-1.5 rounded-full border border-app-text-faint" />}
-    </span>
-  );
-}
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -531,47 +486,15 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
   );
 }
 
-/** Machine-wide dispatch settings, reachable from EVERY board header (incl. the
- *  general board): the global auto-dispatch switch + the ONE concurrency cap
- *  enforced across ALL boards. The cap block is `GlobalCapControl`, the same
- *  component the board settings panel mounts: one store, one writer, and a
- *  change made here shows up there without a reload. Per-board overrides still
- *  live in the project board's ⚙ inline panel. */
-function GlobalSettingsMenu() {
-  const tr = useT();
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const [autoDispatch, setAutoDispatch] = useState<boolean | null>(null);
-  const load = () => {
-    boardApi.getGlobalDispatch().then(setAutoDispatch).catch(() => { /* keep last */ });
-  };
-  const toggleAuto = async (v: boolean) => {
-    setAutoDispatch(v);
-    try { await boardApi.setGlobalDispatch(v); } catch { load(); }
-  };
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={() => { setOpen((o) => !o); if (!open) load(); }}
-        title={tr('board.dispatchSettings')}
-        className={`-ml-1 flex items-center bg-transparent p-0 ${open ? 'text-app-text' : 'text-app-text-muted hover:text-app-text-heading'}`}
-      ><ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
-        <div className="space-y-2.5 px-3 py-2.5 text-xs text-app-text-heading">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dispatch.allBoards')}</p>
-          <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
-            <input type="checkbox" checked={!!autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
-          </label>
-          <div className="border-t border-app-border-subtle pt-2">
-            <GlobalCapControl />
-          </div>
-        </div>
-      </Menu>
-    </>
-  );
-}
+/* UNA sola porta alle impostazioni, ed e' il ⚙ a destra.
+ *
+ * Qui, accanto al titolo, viveva un secondo ingresso: un ▾ che apriva un menu
+ * con l'interruttore globale e il tetto degli agent. Erano due tasti per la
+ * stessa domanda («dove cambio le impostazioni?»), con due copie dello stato
+ * dell'auto-dispatch: quello del menu se lo leggeva da solo, e restava indietro
+ * quando l'altro pannello lo cambiava. Il pannello del ⚙ contiene gia' quel
+ * blocco (`GlobalSettingsSection`: interruttore + `GlobalCapControl`) su ogni
+ * board, anche quella generale, quindi togliendo il ▾ non sparisce niente. */
 
 interface BoardFilters {
   priority: number[]; assignedTo: string[]; text: string; projectId: string[]; labels: TaskLabel[];
@@ -610,10 +533,8 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const tr = useT();
   const prioBtnRef = useRef<HTMLButtonElement>(null);
   const asgBtnRef = useRef<HTMLButtonElement>(null);
-  const projBtnRef = useRef<HTMLButtonElement>(null);
   const [prioOpen, setPrioOpen] = useState(false);
   const [asgOpen, setAsgOpen] = useState(false);
-  const [projOpen, setProjOpen] = useState(false);
   const lblBtnRef = useRef<HTMLButtonElement>(null);
   const [lblOpen, setLblOpen] = useState(false);
 
@@ -637,158 +558,11 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
 
-  // ── Progetto: LO STESSO selettore del composer ────────────────────────────
-  // Prima questo filtro era un widget a parte che dell'indice progetti non
-  // sapeva nulla: niente ricerca, niente icone, e come nome l'id della board
-  // con l'hash tagliato via (`topics-app-4f2c` → «topics-app»), che assomiglia
-  // al nome vero ma non lo è. Ora la lista passa per `resolveProjectRefs`, che
-  // risolve nome e `path` — e senza `path` non c'è icona — dallo stesso indice
-  // che alimenta il chip del composer e il «Sposta su…» del drawer.
-  const projectIndex = useBoardProjects(mode === 'all');
-  const taskProjectIds = useMemo(() => Array.from(new Set(tasks.map((t) => t.projectId))), [tasks]);
-  // I task «senza progetto» sono di DUE specie (`_none` e la board catch-all
-  // `generale-<hash>`), ma per chi filtra sono una cosa sola: una riga, che
-  // accende e spegne entrambi gli id.
-  const projectlessIds = useMemo(() => taskProjectIds.filter(isProjectlessId), [taskProjectIds]);
-  // Quanti task, e in che stato. Il nome da solo non dice se quel progetto stia
-  // aspettando qualcuno o non abbia niente di aperto, ed è la domanda che si fa
-  // chi guarda una board generale con dodici progetti.
-  const projectCounts = useMemo(
-    () => projectTaskCounts(tasks, (t) => (isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId)),
-    [tasks],
-  );
-  /**
-   * Il contenuto del tooltip di un filtro. Prima era una riga sola dentro un
-   * `title=` nativo: il sistema operativo la mostrava dopo un secondo abbondante
-   * e senza struttura. Segnalato: «passando sui filtri dovrebbe dare un minimo
-   * di informazioni sul progetto, magari anche la location».
-   *
-   * Tre cose, in ordine di quanto servono: il NOME (che nel chip è troncato a
-   * 13rem), DOVE STA su disco (l'unica cosa che distingue due progetti chiamati
-   * uguale in cartelle diverse), e come stanno i task.
-   */
-  const countsTitle = (p: BoardProjectRef) => {
-    const c = projectCounts[p.projectId];
-    return (
-      <div className="space-y-1">
-        <div className="font-medium">{p.name}</div>
-        {p.path ? (
-          // Monospazio e a capo sul percorso: un path lungo su una riga sola
-          // diventa illeggibile, ed è proprio il dato che si viene a cercare.
-          <div className="break-all font-mono text-[10px] text-app-text-muted">{homeTilde(p.path)}</div>
-        ) : (
-          // Perché non c'è: senza questa riga il tooltip di un progetto sparito
-          // sembra solo un tooltip a cui manca un pezzo.
-          <div className="text-[10px] text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
-        )}
-        {c && <div className="text-[10px] text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
-      </div>
-    );
-  };
-  const projectOptions = useMemo(() => {
-    const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
-    return projectlessIds.length
-      ? [{ projectId: UNASSIGNED_PROJECT_ID, name: 'Senza progetto', path: '' }, ...refs]
-      : refs;
-  }, [taskProjectIds, projectlessIds, projectIndex]);
-  const showProjects = mode === 'all' && projectOptions.length > 0;
-  // Gli id che la riga «Senza progetto» rappresenta davvero.
-  const idsFor = (p: BoardProjectRef) =>
-    (p.projectId === UNASSIGNED_PROJECT_ID && projectlessIds.length ? projectlessIds : [p.projectId]);
-  const selectedProjectIds = useMemo(() => {
-    const sel = new Set(filters.projectId);
-    // La riga sintetica si accende se è acceso uno QUALSIASI dei suoi id.
-    if (projectlessIds.some((id) => sel.has(id))) sel.add(UNASSIGNED_PROJECT_ID);
-    return Array.from(sel);
-  }, [filters.projectId, projectlessIds]);
-  const toggleProject = (p: BoardProjectRef) => {
-    const ids = idsFor(p);
-    const on = ids.some((id) => filters.projectId.includes(id));
-    const updated = on
-      ? filters.projectId.filter((x) => !ids.includes(x))
-      : [...filters.projectId, ...ids.filter((id) => !filters.projectId.includes(id))];
-    onFiltersChange({ ...filters, projectId: updated });
-  };
-  // Le RIGHE accese (non gli id: «Senza progetto» ne rappresenta due). Un solo
-  // progetto filtrato → il chip lo MOSTRA (icona + nome), invece di dire
-  // «Progetto ·1» e costringere ad aprire il menu per sapere quale.
-  const pickedProjects = useMemo(
-    () => projectOptions.filter((p) => selectedProjectIds.includes(p.projectId)),
-    [projectOptions, selectedProjectIds],
-  );
-  const soleProject = pickedProjects.length === 1 ? pickedProjects[0]! : null;
-
   const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + (filters.text ? 1 : 0) > 0;
 
-  // ── I PROGETTI NELLO SPAZIO CHE AVANZA ────────────────────────────────────
-  //
-  // Il menu resta la porta canonica (ha la ricerca, e regge cento progetti),
-  // ma finché nella riga c'è larghezza libera i progetti stanno FUORI, come
-  // filtri a un click. La regola è che la barra non si deforma mai per farceli
-  // stare: niente a capo (spingerebbe giù la board), niente compressione fino
-  // all'illeggibile. Chi non entra torna dietro il chip «Progetto».
-  //
-  // Il conto si fa sulla geometria vera, non su una stima di caratteri: i chip
-  // sono TUTTI renderizzati in una riga `nowrap` dentro un contenitore che
-  // occupa lo spazio residuo, e quelli il cui bordo destro cade oltre il bordo
-  // del contenitore diventano `invisible`. Due proprietà, ed è per questo che
-  // il modo è questo:
-  //   · `visibility:hidden` tiene la posizione, quindi le misure dei chip
-  //     precedenti non cambiano quando l'ultimo sparisce — nessun ciclo in cui
-  //     nascondere un chip libera lo spazio che lo rifà comparire.
-  //   · il contenitore ha `min-w-0` + `overflow-hidden`, quindi la sua larghezza
-  //     MINIMA è zero: quando la riga è affollata collassa a 0, nessun chip
-  //     entra, e non allarga la barra di un pixel. È lo stesso motivo per cui
-  //     un chip a metà non si vede mai: sotto il taglio è invisibile, non
-  //     tagliato.
-  //   · la riga dei chip è ASSOLUTA (`w-max`), e questo non è un dettaglio di
-  //     stile: un figlio in flusso con `basis-0` contribuisce lo stesso la sua
-  //     larghezza MAX-CONTENT al calcolo intrinseco del genitore, e il genitore
-  //     qui sta dentro una barra che scorre. Misurato: con la riga in flusso, a
-  //     1000px la barra eccedeva di 243px — cioè i chip si prendevano lo spazio
-  //     invece di aspettare quello che avanza, ed è esattamente il difetto che
-  //     questa striscia esiste per non avere. Fuori flusso contribuisce zero, e
-  //     la striscia riceve SOLO ciò che resta.
-  const stripRef = useRef<HTMLDivElement>(null);
-  const stripRowRef = useRef<HTMLDivElement>(null);
-  const [inlineProjects, setInlineProjects] = useState(0);
-  useLayoutEffect(() => {
-    const strip = stripRef.current;
-    if (!showProjects || !strip) { setInlineProjects(0); return; }
-    const measure = () => {
-      const row = stripRowRef.current;
-      if (!row) return;
-      const avail = strip.clientWidth;
-      let fit = 0;
-      // I CHIP, non i figli della riga. Da quando ogni chip è avvolto nel
-      // `Tooltip`, i figli diretti sono wrapper `display: contents`: per il
-      // layout non esistono (ed è il motivo per cui si usa `contents`), ma nel
-      // DOM ci sono e hanno `offsetWidth` ZERO. La misura li vedeva larghi
-      // nulla, concludeva che ci stavano tutti, e i chip in eccesso finivano
-      // oltre il bordo destro invece che dentro il menu. `querySelectorAll`
-      // sul testid salta i wrapper e misura ciò che si vede davvero.
-      for (const chipEl of Array.from(row.querySelectorAll<HTMLElement>('[data-testid^="project-filter-chip-"]'))) {
-        // +0.5: le larghezze sono frazionarie, e un mezzo pixel di
-        // arrotondamento non è un chip che non ci sta.
-        if (chipEl.offsetLeft + chipEl.offsetWidth <= avail + 0.5) fit++;
-        else break;
-      }
-      setInlineProjects((n) => (n === fit ? n : fit));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(strip);
-    ro.observe(stripRowRef.current!);
-    return () => ro.disconnect();
-  }, [showProjects, projectOptions]);
-
-  // Same chip look the composer uses for its model/priority/project pickers.
-  // Explicit h-6 (not py-*) so the search <input> — which renders taller from
-  // its UA line-height — sits at the exact same height as these buttons.
-  const chip = (active: boolean) =>
-    `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
-      active ? 'bg-black/15 text-app-text dark:bg-white/15' : 'bg-black/5 text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
-    }`;
+  // Il chip dei filtri vive in `constants.ts`: lo divide con il selettore
+  // progetto, che si e' portato via i suoi suggerimenti.
+  const chip = filterChipClass;
   const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
 
   return (
@@ -842,36 +616,6 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         </>
       )}
 
-      {/* Progetto — chip + LO STESSO ProjectPickerBody del composer, in
-          modalità multi-selezione: il menu non si chiude a ogni clic perché un
-          filtro si costruisce a più scelte. */}
-      {showProjects && (
-        <>
-          <button
-            ref={projBtnRef} onClick={() => setProjOpen(true)}
-            data-testid="filter-project-chip"
-            title={soleProject ? tr('board.filter.projectNamed', { name: soleProject.name }) : tr('board.filter.projectTitle')}
-            className={`${chip(filters.projectId.length > 0)} min-w-0 ${CHIP_MAX}`}
-          >
-            {soleProject && <ChipIcon path={soleProject.path} />}
-            <span className="min-w-0 truncate">{soleProject ? soleProject.name : tr('common.project')}</span>
-            {!soleProject && pickedProjects.length > 0 && (
-              <span className="tabular-nums text-app-text-secondary">·{pickedProjects.length}</span>
-            )}
-            <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
-          </button>
-          <Menu open={projOpen} anchorRef={projBtnRef} onClose={() => setProjOpen(false)} minWidth={230} role="listbox" unmanagedFocus>
-            <ProjectPickerBody
-              projects={projectOptions}
-              selectedIds={selectedProjectIds}
-              onPick={toggleProject}
-              busy={false}
-              listLabel={tr('common.project')}
-              counts={projectCounts}
-            />
-          </Menu>
-        </>
-      )}
 
       {/* Etichette — chip + Menu. Il caso d'uso che le ha fatte nascere si
           compone qui: «visibile» acceso mentre si guarda la colonna Review è
@@ -912,34 +656,16 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         </button>
       )}
 
-      {/* I PROGETTI NELLO SPAZIO CHE AVANZA — vedi `useLayoutEffect` sopra. */}
-      {showProjects && (
-        <div ref={stripRef} className="relative ml-1.5 h-6 min-w-0 grow basis-0 overflow-hidden" data-testid="project-filter-strip">
-          <div ref={stripRowRef} className="absolute inset-y-0 left-0 flex w-max flex-nowrap items-center gap-1.5 [&>*]:shrink-0">
-            {projectOptions.map((p, i) => {
-              const on = selectedProjectIds.includes(p.projectId);
-              const shown = i < inlineProjects;
-              return (
-                // Il `key` sta sul Tooltip: è lui il figlio della lista ora.
-                <Tooltip key={p.projectId} content={countsTitle(p)}>
-                <button
-                  onClick={() => toggleProject(p)}
-                  aria-hidden={!shown}
-                  tabIndex={shown ? 0 : -1}
-                  data-testid={`project-filter-chip-${p.projectId}`}
-                  className={`${chip(on)} ${CHIP_MAX} ${shown ? '' : 'invisible'}`}
-                >
-                  <ChipIcon path={p.path} />
-                  <span className="min-w-0 truncate">{p.name}</span>
-                  {projectCounts[p.projectId] && <ProjectTaskCounts counts={projectCounts[p.projectId]!} />}
-                  {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                </button>
-                </Tooltip>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* PROGETTO: il chip col menu E i suoi suggerimenti, un blocco solo.
+          Vedi `ProjectFilterPicker.tsx`. Sta in fondo alla riga perche' e' il
+          solo filtro che cresce: si prende la larghezza che avanza per sporgere
+          i progetti fuori dal menu, e quando non ne avanza resta il chip. */}
+      <ProjectFilterPicker
+        tasks={tasks}
+        mode={mode}
+        selectedIds={filters.projectId}
+        onChange={(projectId) => onFiltersChange({ ...filters, projectId })}
+      />
     </div>
   );
 }
@@ -2016,7 +1742,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           The fade+chevron below is the mobile-only affordance that the strip
           continues past the right edge — it tracks live scroll position and
           disappears once fully scrolled. */}
-      <div className="relative shrink-0 border-b border-app-border">
+      {/* Nessun filetto sotto la barra: la board sotto e' gia' un'altra cosa
+          (colonne su fondo diverso), e la riga in piu' disegnava un confine che
+          si vedeva gia' da solo. Le strisce che compaiono sotto (errore,
+          archivio, impostazioni) portano il proprio bordo quando servono. */}
+      <div className="relative shrink-0">
       <div ref={toolbarScrollRef} data-testid="board-toolbar" className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
         {canToggle ? (
           <>
@@ -2032,7 +1762,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         ) : (
           <span className="text-xs font-semibold text-app-text">{tr('board.toolbar.general')}<span className="hidden sm:inline">{tr('board.toolbar.generalSuffix')}</span></span>
         )}
-        <GlobalSettingsMenu />
         <LoadAdviceChip />
         <WorktreeControl
           count={worktreeCount}
@@ -2057,7 +1786,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               nascosto dentro il popover. Il censimento resta lato server: lo
               legge il dispatcher per avvertire quando si sta per landare su un
               repo dove qualcun altro sta lavorando.) */}
-          {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
+          {/* L'auto-dispatch (e il tetto) stanno nel pannello del ⚙: una sola porta. */}
           {canRunMissions && (
             <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
           )}

@@ -264,3 +264,20 @@ export const COMMENTO_PIEGA_CHARS = 620;
  * il testo c'e' tutto e nessun bottone compare.
  */
 export const RICHIESTA_PIEGA_CHARS = 190;
+
+/**
+ * Il CHIP dei filtri della board: lo stesso aspetto che il composer del task
+ * usa per i suoi selettori (modello, priorita', progetto), cosi' filtri e
+ * creazione parlano una lingua sola.
+ *
+ * Sta qui e non dentro la barra perche' ora lo usano due file: la riga dei
+ * filtri e il selettore progetto, che si e' portato via i suoi suggerimenti.
+ * `h-6` esplicito (non `py-*`) perche' l'`<input>` della ricerca, che dalla
+ * line-height dell'UA viene piu' alto, deve stare alla stessa identica altezza.
+ */
+export const filterChipClass = (active: boolean) =>
+  `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
+    active
+      ? 'bg-black/15 text-app-text dark:bg-white/15'
+      : 'bg-black/5 text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
+  }`;
