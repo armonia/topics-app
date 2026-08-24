@@ -1,3 +1,9 @@
+/**
+ * @covers CCS-03, CCS-04
+ *
+ * La derivazione della fase dagli hook (CCS-03) e il reaper delle fasi rimaste
+ * indietro (CCS-04): sono le due meta' della macchina a stati, entrambe qui.
+ */
 import { describe, expect, it } from 'bun:test';
 import {
   ALL_PHASES,

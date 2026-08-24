@@ -1,3 +1,9 @@
+/**
+ * @covers CHAT-REL-05
+ *
+ * Parziale: la pulizia degli stream attivi rimasti appesi. Il ramo che sgancia
+ * lo stream alla chiusura ordinata del turno sta in chat-stream-abort.test.ts.
+ */
 // La BARRA: un turno il cui figlio è VIVO non viene mai chiuso da un orologio,
 // e chi legge il log deve poter credere al numero che ci trova scritto.
 //

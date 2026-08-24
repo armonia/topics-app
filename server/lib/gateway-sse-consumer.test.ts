@@ -7,6 +7,12 @@
  * routes/chat.ts, so regenerating a message on a gateway HTTP provider lost
  * all tool-call activity.  This module is the single source of truth; these
  * tests verify that both paths (tool_call and tool_result) are exercised.
+ *
+ * @covers CHAT-REL-01, CHAT-REL-02
+ *
+ * CHAT-REL-01 (risposta vuota rilevata) e' coperto per intero. CHAT-REL-02
+ * (propagazione dell'errore di stream) e' parziale: qui c'e' il lato consumer,
+ * non la risalita fino alla bolla in chat.
  */
 
 import { describe, expect, test, mock } from "bun:test";

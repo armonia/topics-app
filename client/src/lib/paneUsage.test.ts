@@ -5,6 +5,12 @@
  * "non ancora misurato" e "misurato, quasi zero" in un unico `0` o `—`. Sono
  * tre cose diverse, e l'unica disonesta sarebbe mostrare uno zero per le prime
  * due — un numero inventato con l'aria di una misura.
+ *
+ * @covers RES-ATTR-04, RES-ATTR-05
+ *
+ * RES-ATTR-04: l'attribuzione non moltiplica il costo del campionamento.
+ * RES-ATTR-05: una pane senza processo proprio si DICHIARA tale invece di
+ * ricevere una quota inventata con l'aria di una misura.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {

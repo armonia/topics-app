@@ -10,6 +10,12 @@
  *  - auto-dispatch pill: "agent: off" by default, IS the global toggle (click flips)
  *  - global board ("Board generale") opens from the standalone "+" menu and
  *    aggregates tasks across projects with project badges
+ *
+ * @covers KANBAN-02
+ *
+ * Parziale, e va detto: qui stanno filtri, impostazioni della board e il giro
+ * delle colonne. Le APPROVAZIONI e l'assegnazione agente dello stesso requisito
+ * vivono altrove (board-review-*.spec.ts, board-card-*.spec.ts).
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

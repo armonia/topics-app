@@ -12,6 +12,12 @@
  *  2. reinstallare RIPARA una entry nostra scritta da una versione precedente,
  *     invece di riconoscerla e lasciarla difettosa per sempre;
  *  3. le entry di altri non si toccano, né in install né in uninstall.
+ *
+ * @covers CCS-06
+ *
+ * L'idempotenza dell'installatore di hook. Prova forte: gira lo script vero
+ * come sottoprocesso con un HOME temporaneo, cioe' lo stesso percorso che fa
+ * una persona. Parziale sul ramo di disinstallazione.
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";

@@ -1,3 +1,9 @@
+/**
+ * @covers KANBAN-10
+ *
+ * La ripresa del dispatch dopo un riavvio del server: e' qui e in
+ * task-dispatcher-interrupted.test.ts che il requisito viene esercitato.
+ */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

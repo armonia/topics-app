@@ -17,6 +17,11 @@
  * `readyState`, `data` (dove sta il dispositivo, timbrato all'upgrade) e `send`.
  * Il resto della catena è vero: la rotta vera, la fan-out vera, il DB vero con
  * le migration vere.
+ *
+ * @covers PROJECT-03
+ *
+ * Parziale: l'igiene dei broadcast WebSocket sul progetto. Lo schema dei
+ * messaggi in uscita e' fissato a parte in tests/unit/ws-outbound-schema.test.ts.
  */
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import * as fs from "node:fs";

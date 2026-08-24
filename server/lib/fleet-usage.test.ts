@@ -1,3 +1,8 @@
+/**
+ * @covers RES-ATTR-01
+ *
+ * Il server attribuisce ogni processo alla sessione che lo ospita.
+ */
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
   parseCpuTimeSeconds,

@@ -49,6 +49,7 @@ import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-co
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
 import { decodeCol } from "../../shared/message-blob";
+import { processiSubagente } from "./subagentProcesses";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -2590,8 +2591,7 @@ export function createTopicsRouter(
           return json([]);
         }
         const sessions = result?.result?.sessions || [];
-        const processes = sessions.filter((s: any) => s.sessionKey?.includes("subagent")).map((s: any) => ({ sessionKey: s.sessionKey, label: s.label || s.sessionKey.split(":").pop() || "Sub-agent", status: s.status === "active" ? "running" : "done", startedAt: s.createdAt || new Date().toISOString(), completedAt: s.status !== "active" ? (s.updatedAt || new Date().toISOString()) : undefined }));
-        return json(processes);
+        return json(processiSubagente(sessions));
       } catch { return json([]); }
     }
 

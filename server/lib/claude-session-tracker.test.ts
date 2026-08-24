@@ -1,3 +1,10 @@
+/**
+ * @covers CCS-02, CCS-05
+ *
+ * CCS-02 (sicurezza e idempotenza dell'endpoint hook) e' parziale: qui c'e' il
+ * lato tracker, il gate localhost-only sta nella rotta. CCS-05 (contratto di
+ * broadcast `session:state`, con la coalescenza dei burst) e' coperto.
+ */
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { readFileSync, readdirSync, mkdtempSync, writeFileSync, appendFileSync, mkdirSync, utimesSync } from 'fs';

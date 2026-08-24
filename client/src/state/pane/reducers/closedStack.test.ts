@@ -1,3 +1,9 @@
+/**
+ * @covers CMD-05
+ *
+ * La cronologia dei chiusi e' durevole e limitata: e' il modello puro dietro
+ * il gesto che tests/e2e/reopen-closed-tab.spec.ts prova dall'interfaccia.
+ */
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import type { ClosedPaneRecord, Pane } from "../types";

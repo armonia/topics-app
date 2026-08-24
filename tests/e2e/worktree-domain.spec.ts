@@ -11,6 +11,12 @@
  *   · No `waitForTimeout`. Condition-based waits only.
  *   · Test data created via API, never direct DB.
  *   · Unique names: `…-${Date.now()}` so reruns don't collide.
+ *
+ * @covers PROJECT-02
+ *
+ * Parziale: la compatibilita' con i vecchi `project_path` come stringa, vista
+ * dal dominio worktree. Il lato di lettura pura sta in
+ * tests/integration/project-worktree-domain.test.ts.
  */
 import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";

@@ -10,6 +10,10 @@
  * quell'istante, e un test che si aspetta un numero preciso sarebbe rosso a
  * caso. Dove serve una misura si inietta dal boundary (`/api/system/status`),
  * che è l'unica cosa che questi test mockano.
+ *
+ * @covers RES-ATTR-03
+ *
+ * Ogni scheda mostra il proprio consumo al passaggio del mouse.
  */
 import { test, expect } from "@playwright/test";
 import { goToApp, openTestChat } from "./helpers";
