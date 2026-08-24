@@ -199,23 +199,24 @@ describe("ai-bridge · socket ownership", () => {
     }
 
     expect(alive).toBe(1);
-    // ── SE QUESTA RIGA E' ROSSA, NON E' IL CARICO. Misurato il 24/08 con una
-    //    sonda che ripete la gara e poi ASPETTA oltre la scadenza del test:
-    //    quando i perdenti non escono entro 24s, non escono nemmeno a 30, 45 e
-    //    60. Restano vivi, in tre, sullo stesso socket. Riproducibile isolando
-    //    questo caso su una macchina scarica: 2 fallimenti su 12 giri.
+    // ── SE QUESTA RIGA E' ROSSA, NON DARE LA COLPA AL CARICO PER PRIMO.
+    //    Il commento della scadenza qui sopra spiega bene perche' e' generosa,
+    //    ma da' anche l'impressione che un rosso qui sia sempre lentezza. Il
+    //    24/08 non lo era: aspettando OLTRE la scadenza, i perdenti che non
+    //    erano usciti entro 24s non uscivano nemmeno a 30, 45 e 60. Restavano
+    //    vivi, e due di loro avevano stampato «Listening» sullo stesso path.
     //
-    //    Il commento qui sopra spiega bene perche' la scadenza e' generosa, e
-    //    quella parte resta valida; ma da' anche l'impressione che un rosso qui
-    //    sia sempre una questione di tempo, e non lo e'. Il difetto che questo
-    //    caso esiste per cogliere ("prima del fix restavano tutti in ascolto e
-    //    vivi per sempre") si ripresenta a bassa frequenza.
+    //    Causa trovata e corretta in `ai-bridge.mjs` (553e60409): il pid si
+    //    scriveva DENTRO il callback di `listen()`, quindi c'era un istante in
+    //    cui il socket accettava e il pid file non esisteva. Chi sondava li'
+    //    dentro leggeva `timeout` senza owner registrato, concludeva «libero» e
+    //    subentrava a un processo vivo. Ora il pid si scrive prima, e un
+    //    `timeout` vale come «qualcuno ascolta» anche senza pid.
     //
-    //    Non e' stato ancora attribuito a una riga di `ai-bridge.mjs`: serve
-    //    leggere lo stderr dei perdenti nel momento in cui sopravvivono, e una
-    //    sonda che lo faccia va scritta con cura (leggere lo stream di un
-    //    processo ancora vivo blocca chi legge, e la prima l'ha imparato a
-    //    proprie spese).
+    //    Prima: 2 fallimenti su 12. Dopo: 30 giri su 30 verdi, e ricostruendo
+    //    il codice vecchio il difetto torna (1 su 20). Se questa riga si
+    //    ripresenta rossa, la sonda utile scrive lo stderr dei daemon su FILE:
+    //    leggere lo stream di un processo ancora vivo blocca chi legge.
     expect(await someoneListening(sock)).toBe(true);
     // 45 s e non 30: la scadenza interna arriva a 24, e un tetto che scatta
     // PRIMA di quella attesa la renderebbe inutile — il test morirebbe per
