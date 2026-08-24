@@ -26,8 +26,12 @@ const SNAPSHOT: PresenceSnapshot = {
 };
 
 /** Un Discord finto in processo: risponde READY (o no) e registra i comandi. */
-function fakeDiscord(opts: { ready?: boolean } = {}) {
+function fakeDiscord(opts: { ready?: boolean; appName?: string } = {}) {
   const ready = opts.ready !== false;
+  // Discord vero RISPONDE a un SET_ACTIVITY rimandando l'activity come l'ha
+  // salvata, col nome dell'applicazione dentro. Il finto lo imita, altrimenti
+  // qui non si puo' provare niente su quel nome.
+  const appName = opts.appName ?? "Jarvis";
   const activities: Array<unknown> = [];
   let connections = 0;
   const handlers = new Map<string, Array<(arg: never) => void>>();
@@ -41,7 +45,13 @@ function fakeDiscord(opts: { ready?: boolean } = {}) {
           })));
         }
         if (frame.op === IPC_OP.FRAME && frame.payload?.cmd === "SET_ACTIVITY") {
-          activities.push((frame.payload.args as { activity: unknown }).activity);
+          const activity = (frame.payload.args as { activity: unknown }).activity;
+          activities.push(activity);
+          const nonce = (frame.payload as { nonce?: string }).nonce;
+          queueMicrotask(() => emit("data", encodeFrame(IPC_OP.FRAME, {
+            cmd: "SET_ACTIVITY", nonce,
+            data: { ...(activity as Record<string, unknown> ?? {}), name: appName },
+          })));
         }
       }
       return true;
@@ -77,8 +87,9 @@ function servizio(over: {
   snapshot?: PresenceSnapshot;
   ready?: boolean;
   now?: () => number;
+  appName?: string;
 } = {}) {
-  const discord = fakeDiscord({ ready: over.ready });
+  const discord = fakeDiscord({ ready: over.ready, appName: over.appName });
   let current = over.settings ?? settings();
   const svc = createDiscordPresence({
     getSnapshot: () => over.snapshot ?? SNAPSHOT,
@@ -119,6 +130,25 @@ describe("interruttore", () => {
     expect(discord.activities.at(-1)).toMatchObject({
       details: presenceLines(SNAPSHOT, "it").details,
     });
+  });
+
+  test("il nome dell'applicazione lo dice Discord, non il codice", async () => {
+    // Il nome in cima alla card lo decide il portale sviluppatori e nessuno
+    // puo' indovinarlo da qui: il pannello scriveva «Topics» a mano mentre la
+    // card vera diceva «Jarvis», e chi apriva l'anteprima per sapere cosa
+    // vedono gli altri leggeva una cosa falsa.
+    const { svc } = servizio();
+    expect(svc.status().applicationName).toBeNull(); // prima del filo: non si sa
+    await svc.tick();
+    await svc.tick();
+    expect(svc.status().applicationName).toBe("Jarvis");
+  });
+
+  test("un'altra applicazione, un altro nome: non si ricicla il precedente", async () => {
+    const { svc } = servizio({ appName: "Topics" });
+    await svc.tick();
+    await svc.tick();
+    expect(svc.status().applicationName).toBe("Topics");
   });
 
   test("spegnere PULISCE la presence invece di lasciarla appesa", async () => {

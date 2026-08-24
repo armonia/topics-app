@@ -36,6 +36,7 @@ import {
   DiscordIpcError,
   handshake,
   netConnector,
+  onActivityAck,
   sendActivity,
   type IpcConnector,
   type IpcSocket,
@@ -178,6 +179,12 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
    *  limita la frequenza dei SET_ACTIVITY, e riscrivere lo stesso stato ogni
    *  quindici secondi è il modo di finire limitati per niente. */
   let publishedKey = "";
+  /**
+   * Il nome dell'applicazione come lo dice Discord, non come lo immaginiamo.
+   * Si sa solo dopo la prima activity accettata: prima resta `null`, che e'
+   * onesto, mentre scrivere «Topics» sarebbe la stessa bugia di prima.
+   */
+  let applicationName: string | null = null;
   let nextAttemptAt = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
   /** Un solo giro per volta: un tick lento (handshake in corso) non deve
@@ -190,6 +197,9 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
     socket = null;
     publishedKey = "";
     published = null;
+    // Il nome vale per il filo che l'ha detto: un'altra applicazione, un altro
+    // nome. Tenerlo qui sarebbe ricordare la risposta a una domanda diversa.
+    applicationName = null;
     user = null;
   }
 
@@ -216,6 +226,11 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
       });
       socket = res.socket;
       user = res.user;
+      // Discord rimanda l'activity come l'ha salvata: e' l'unico posto da cui
+      // si sa come si chiama davvero l'applicazione.
+      onActivityAck(res.socket, (ack) => {
+        if (ack.applicationName) applicationName = ack.applicationName;
+      });
       connection = "connected";
       lastError = null;
       nextAttemptAt = 0;
@@ -304,6 +319,7 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
         user,
         lastError,
         lastPublishedAt,
+        applicationName,
         activity: published,
       };
     },

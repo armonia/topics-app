@@ -42,8 +42,17 @@ const COLORE: Record<DiscordPresenceStatus['connection'], string> = {
   error: 'bg-red-500',
 };
 
-/** La card come la disegna Discord: due righe, l'icona e il cronometro. */
-function Anteprima({ activity, vuoto }: { activity: DiscordActivityPreview | null; vuoto: string }) {
+/**
+ * La card come la disegna Discord: due righe, l'icona e il cronometro.
+ *
+ * `appName` arriva da Discord (`status.applicationName`), non da qui. Prima
+ * era scritto «Topics» a mano, e chi apriva questo pannello per sapere cosa
+ * vedono gli altri leggeva un nome che sulla card vera non compare: quel
+ * titolo e' il nome dell'APPLICAZIONE del portale sviluppatori, che per questa
+ * installazione e' «Jarvis». Finche' il filo e' chiuso non lo sappiamo, e si
+ * mostra un segnaposto invece di indovinare.
+ */
+function Anteprima({ activity, vuoto, appName }: { activity: DiscordActivityPreview | null; vuoto: string; appName: string | null }) {
   // Lo STESSO testid sui due rami: chi misura vuole «cosa vede l'altro
   // adesso», e «niente» è una di quelle risposte. Un testid solo sul ramo
   // pieno costringerebbe la spec a distinguere fra «vuoto» e «non montato»,
@@ -63,11 +72,16 @@ function Anteprima({ activity, vuoto }: { activity: DiscordActivityPreview | nul
       data-testid="discord-preview"
       className="flex items-start gap-2.5 rounded-md border border-app-border bg-app-hover/40 px-3 py-2"
     >
+      {/* L'iniziale del nome VERO. La «T» fissa di prima faceva credere che
+          Discord non stesse onorando l'immagine, mentre era solo questo
+          quadratino disegnato da noi. */}
       <div className="mt-0.5 h-8 w-8 flex-shrink-0 rounded bg-primary/15 text-center text-[13px] font-semibold leading-8 text-primary">
-        T
+        {(appName ?? '?').slice(0, 1).toUpperCase()}
       </div>
       <div className="min-w-0">
-        <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-app-text-tertiary">Topics</div>
+        <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-app-text-tertiary">
+          {appName ?? '—'}
+        </div>
         <div className="truncate text-[12px] text-app-text">{activity.details}</div>
         {activity.state && <div className="truncate text-[11.5px] text-app-text-secondary">{activity.state}</div>}
       </div>
@@ -211,7 +225,11 @@ export function DiscordSection() {
         {/* Ciò che vedono gli altri */}
         <div className="space-y-1.5 border-t border-app-border pt-2">
           <div className="text-[11px] font-medium text-app-text-secondary">{t('discord.preview')}</div>
-          <Anteprima activity={preview?.[livello] ?? null} vuoto={t('discord.previewEmpty')} />
+          <Anteprima
+            activity={preview?.[livello] ?? null}
+            vuoto={t('discord.previewEmpty')}
+            appName={status?.applicationName ?? null}
+          />
           <p className="text-[10.5px] leading-snug text-app-text-muted">{t('discord.previewNote')}</p>
         </div>
 

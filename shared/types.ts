@@ -169,6 +169,17 @@ export interface DiscordPresenceStatus {
   user: { id?: string; username?: string; global_name?: string } | null;
   lastError: string | null;
   lastPublishedAt: number | null;
+  /**
+   * Il nome dell'APPLICAZIONE Discord, cioe' la riga in cima alla card.
+   *
+   * Non e' un dettaglio decorativo: quel nome lo decide il portale
+   * sviluppatori, non noi, e non c'e' modo di indovinarlo dal codice. Il
+   * pannello scriveva «Topics» a mano mentre Discord mostrava «Jarvis», e chi
+   * guardava l'anteprima per capire cosa vedono gli altri leggeva una cosa
+   * falsa. `null` finche' il filo non e' aperto: prima di collegarsi non lo
+   * sappiamo, e inventarlo sarebbe tornare al punto di partenza.
+   */
+  applicationName: string | null;
   /** Ciò che gli altri vedono ADESSO — la struttura scritta sul filo, non una
    *  sua descrizione. `null` = presence pulita. */
   activity: DiscordActivity | null;
