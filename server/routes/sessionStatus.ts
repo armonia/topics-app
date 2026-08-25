@@ -92,7 +92,7 @@ export function statoSessione(o: StatoOpts): string {
     t?.effort ? `⚡ Effort: ${t.effort}` : null,
     t?.fastMode ? "🏎️ Fast mode: acceso" : null,
     t?.autonomyLevel
-      ? `🛡️ Autonomia: ${t.autonomyLevel} — ${AUTONOMIA[t.autonomyLevel] ?? "livello sconosciuto"}`
+      ? `🛡️ Autonomia: ${t.autonomyLevel}. ${AUTONOMIA[t.autonomyLevel] ?? "livello sconosciuto"}`
       : null,
 
     // Two that explain a missing capability rather than a behaviour.

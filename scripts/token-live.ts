@@ -274,13 +274,41 @@ function renderTable(): void {
 }
 
 /**
- * Un solo oggetto JSON su stdout e nient'altro: niente colori, niente
- * intestazione, niente legenda — `--json` esiste per essere dato in pasto a
- * qualcosa, non letto a occhio. Il Δ resta fuori: è la differenza fra due
- * render, non un dato della chat.
+ * ONE JSON object on stdout and nothing else: no colours, no header, no
+ * legend. `--json` exists to be piped into something, not read by eye. The Δ
+ * stays out: it is the difference between two renders, not a fact about a chat.
+ *
+ * THE ENVELOPE IS NOT DECORATION, and it was lost once already. `chats` alone
+ * cannot answer the two questions a consumer asks first: WHEN was this true,
+ * and WHAT was it filtered by. Without `generatedAt` a cached reading is
+ * indistinguishable from a fresh one; without `filter` a short list reads as
+ * "few chats" when it was "few chats MATCHING". `count` is the cheap guard
+ * against a truncated pipe: a consumer can compare it with `chats.length`.
+ *
+ * Delivered on 2026-08-09 (`6ce96c06c`), removed on 2026-08-10 by `01c118f3f`,
+ * which rewrote the render for an unrelated reason and took the wrapper with
+ * it. Nothing caught it because nothing asserted the shape — `token-live.test.ts`
+ * now does.
  */
 function renderJson(): void {
-  console.log(JSON.stringify({ chats: measure(selected()) }));
+  const chats = measure(selected());
+  console.log(JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    filter: filter || null,
+    count: chats.length,
+    chats,
+  }));
+}
+
+// `--json` EXCLUDES `--watch`, and says so instead of obeying half of it.
+// A watched JSON render prints one object every four seconds, which is a
+// STREAM of objects: `jq` on the other end of that pipe either blocks or
+// chokes on the second one. Refusing is the kind thing — the alternative is a
+// command that appears to work and produces something unparseable.
+// This guard was in the original delivery too, and was lost with the envelope.
+if (asJson && watch) {
+  console.error("token-live: --json e --watch si escludono. --json stampa UN oggetto; con --watch ne stamperebbe uno ogni 4s, che non e' un oggetto ma un flusso.");
+  process.exit(2);
 }
 
 const render = asJson ? renderJson : renderTable;

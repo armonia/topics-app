@@ -108,6 +108,40 @@ describe("token-live --json", () => {
     expect(parsed.chats).toHaveLength(1); // l'archiviata resta fuori
   });
 
+  it("l'involucro risponde alle due domande che un consumatore fa per prime", async () => {
+    // WHEN was this true, and WHAT was it filtered by. This wrapper was
+    // delivered on 2026-08-09 and silently removed the day after by a rewrite
+    // done for an unrelated reason (`01c118f3f`); nothing caught it because
+    // nothing asserted the shape. Without `generatedAt` a cached reading is
+    // indistinguishable from a fresh one; without `filter` a short list reads
+    // as "few chats" when it was "few chats MATCHING".
+    const { stdout } = await run("--json");
+    const parsed = JSON.parse(stdout);
+
+    expect(Number.isFinite(Date.parse(parsed.generatedAt)), "generatedAt deve essere una data leggibile").toBe(true);
+    expect(parsed).toHaveProperty("filter", null);
+    // `count` is the cheap guard against a truncated pipe: a consumer compares
+    // it with what it actually received.
+    expect(parsed.count).toBe(parsed.chats.length);
+  });
+
+  it("il filtro finisce NELL'involucro, non solo nell'effetto", async () => {
+    const { stdout } = await run("--json", "prima");
+    const parsed = JSON.parse(stdout);
+    expect(parsed.filter, "chi legge deve poter dire perche' la lista e' corta").toBe("prima");
+  });
+
+  it("`--json --watch` viene RIFIUTATO, non obbedito a meta'", async () => {
+    // A watched JSON render prints one object every four seconds, which is a
+    // stream of objects: `jq` on the other end either blocks or chokes on the
+    // second one. The kind failure is the loud one — the alternative is a
+    // command that appears to work and produces something unparseable.
+    const { code, stderr, stdout } = await run("--json", "--watch");
+    expect(code, "deve uscire non-zero").not.toBe(0);
+    expect(stderr).toContain("si escludono");
+    expect(stdout.trim(), "e non deve aver stampato niente su stdout").toBe("");
+  });
+
   it("ogni voce porta gli stessi numeri della tabella", async () => {
     const { stdout } = await run("--json");
     const [chat] = JSON.parse(stdout).chats;
