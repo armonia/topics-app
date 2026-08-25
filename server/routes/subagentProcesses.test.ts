@@ -20,12 +20,12 @@
  * @covers SUBAGENT-03
  */
 import { describe, expect, test } from "bun:test";
-import { processiSubagente, type SessionePerProcessi } from "./subagentProcesses";
+import { subagentProcesses, type SessionForProcesses } from "./subagentProcesses";
 
-const ADESSO = "2026-08-25T02:00:00.000Z";
-const adesso = () => ADESSO;
+const NOW_ISO = "2026-08-25T02:00:00.000Z";
+const now = () => NOW_ISO;
 
-const sessione = (p: Partial<SessionePerProcessi>): SessionePerProcessi => ({
+const session = (p: Partial<SessionForProcesses>): SessionForProcesses => ({
   sessionKey: "topic:abc:subagent:uno",
   status: "active",
   createdAt: "2026-08-25T01:00:00.000Z",
@@ -34,16 +34,16 @@ const sessione = (p: Partial<SessionePerProcessi>): SessionePerProcessi => ({
 
 describe("quali sessioni finiscono nel pannello", () => {
   test("solo quelle che sono sotto-agenti", () => {
-    const fuori = processiSubagente(
+    const kept = subagentProcesses(
       [
-        sessione({ sessionKey: "topic:abc:subagent:esplora" }),
-        sessione({ sessionKey: "topic:abc" }),
-        sessione({ sessionKey: "terminal:xyz" }),
-        sessione({ sessionKey: "topic:def:subagent:verifica" }),
+        session({ sessionKey: "topic:abc:subagent:esplora" }),
+        session({ sessionKey: "topic:abc" }),
+        session({ sessionKey: "terminal:xyz" }),
+        session({ sessionKey: "topic:def:subagent:verifica" }),
       ],
-      adesso,
+      now,
     );
-    expect(fuori.map((p) => p.sessionKey)).toEqual([
+    expect(kept.map((p) => p.sessionKey)).toEqual([
       "topic:abc:subagent:esplora",
       "topic:def:subagent:verifica",
     ]);
@@ -52,29 +52,29 @@ describe("quali sessioni finiscono nel pannello", () => {
   test("una sessione senza chiave non entra e non fa esplodere niente", () => {
     // The branch the route's `?.` already protected, and nobody exercised:
     // a list arriving from a provider can carry a truncated entry.
-    expect(processiSubagente([{ status: "active" }, sessione({})], adesso)).toHaveLength(1);
+    expect(subagentProcesses([{ status: "active" }, session({})], now)).toHaveLength(1);
   });
 
   test("un elenco vuoto e' un pannello vuoto, non un errore", () => {
-    expect(processiSubagente([], adesso)).toEqual([]);
+    expect(subagentProcesses([], now)).toEqual([]);
   });
 });
 
 describe("in corso oppure finito", () => {
   test("`active` e' in corso, e non porta un'ora di fine", () => {
-    const [p] = processiSubagente([sessione({ status: "active" })], adesso);
+    const [p] = subagentProcesses([session({ status: "active" })], now);
     expect(p!.status).toBe("running");
     expect(p!.completedAt, "un processo vivo dichiara anche di essere finito").toBeUndefined();
   });
 
   test("qualunque altro stato e' finito, e l'ora di fine c'e'", () => {
-    for (const stato of ["done", "exited", "failed", "unknown", "", null]) {
-      const [p] = processiSubagente(
-        [sessione({ status: stato, updatedAt: "2026-08-25T01:30:00.000Z" })],
-        adesso,
+    for (const status of ["done", "exited", "failed", "unknown", "", null]) {
+      const [p] = subagentProcesses(
+        [session({ status, updatedAt: "2026-08-25T01:30:00.000Z" })],
+        now,
       );
-      expect(p!.status, `stato ${JSON.stringify(stato)}`).toBe("done");
-      expect(p!.completedAt, `stato ${JSON.stringify(stato)}`).toBe("2026-08-25T01:30:00.000Z");
+      expect(p!.status, `stato ${JSON.stringify(status)}`).toBe("done");
+      expect(p!.completedAt, `stato ${JSON.stringify(status)}`).toBe("2026-08-25T01:30:00.000Z");
     }
   });
 
@@ -82,29 +82,29 @@ describe("in corso oppure finito", () => {
     // The same thing as the assertion above, said from the side that counts:
     // the permissive branch is the one that does damage, because it produces
     // no signal at all.
-    const [p] = processiSubagente([sessione({ status: "qualcosa-di-nuovo" })], adesso);
+    const [p] = subagentProcesses([session({ status: "qualcosa-di-nuovo" })], now);
     expect(p!.status).toBe("done");
   });
 });
 
 describe("come si chiama e quando e' partito", () => {
   test("l'etichetta e' l'ultimo segmento della chiave quando manca", () => {
-    const [p] = processiSubagente([sessione({ sessionKey: "topic:abc:subagent:esplora", label: null })], adesso);
+    const [p] = subagentProcesses([session({ sessionKey: "topic:abc:subagent:esplora", label: null })], now);
     expect(p!.label, "in un pannello stretto la chiave intera non si legge").toBe("esplora");
   });
 
   test("un'etichetta vera vince sul ripiego", () => {
-    const [p] = processiSubagente([sessione({ label: "Ricerca sui competitor" })], adesso);
+    const [p] = subagentProcesses([session({ label: "Ricerca sui competitor" })], now);
     expect(p!.label).toBe("Ricerca sui competitor");
   });
 
   test("senza data di partenza si usa adesso, non una stringa vuota", () => {
-    const [p] = processiSubagente([sessione({ createdAt: null })], adesso);
-    expect(p!.startedAt).toBe(ADESSO);
+    const [p] = subagentProcesses([session({ createdAt: null })], now);
+    expect(p!.startedAt).toBe(NOW_ISO);
   });
 
   test("un processo finito senza data di fine prende adesso", () => {
-    const [p] = processiSubagente([sessione({ status: "done", updatedAt: null })], adesso);
-    expect(p!.completedAt).toBe(ADESSO);
+    const [p] = subagentProcesses([session({ status: "done", updatedAt: null })], now);
+    expect(p!.completedAt).toBe(NOW_ISO);
   });
 });

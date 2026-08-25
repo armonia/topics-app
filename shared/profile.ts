@@ -48,7 +48,7 @@ export interface ProfilePrivacy {
  * showed a single "friends" figure would be describing a relation this graph
  * does not have.
  */
-export interface ConteggiFollow {
+export interface FollowCounts {
   /** How many people follow this person. */
   followers: number;
   /** How many people this person follows. */

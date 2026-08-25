@@ -43,16 +43,16 @@ type Router = ReturnType<typeof import("../../server/routes/tasks").createTasksR
 
 /** The long title that triggers the rewrite: below 60 characters the service
  *  does not even call the model, and that is a choice, not a limit. */
-const TITOLO_LUNGO =
+const LONG_TITLE =
   "potremmo fare in modo che quando uno apre la board dopo aver chiuso tutto le colonne " +
   "si ricordino da sole quanto erano larghe, perche' adesso tornano tutte uguali";
-const DESCRIZIONE =
+const DESCRIPTION =
   "Le larghezze delle colonne della board non sopravvivono alla chiusura della finestra: " +
   "alla riapertura tornano al valore di partenza invece di riprendere quelle scelte. " +
   "Vanno persistite per progetto e ripristinate al montaggio della board, con lo stesso " +
   "meccanismo che gia' tiene l'ordine delle colonne.";
 
-async function chiama(router: Router, method: string, path: string, body?: unknown) {
+async function call(router: Router, method: string, path: string, body?: unknown) {
   const url = new URL(`http://h${path}`);
   const req = new Request(url, {
     method,
@@ -87,13 +87,13 @@ async function banco(naming?: () => unknown): Promise<{ router: Router; projectI
     undefined,
     naming ? ({ namingProvider: naming } as never) : undefined,
   );
-  return { router, projectId: await progetto() };
+  return { router, projectId: await nextProjectId() };
 }
 
-let contatore = 0;
-async function progetto(): Promise<string> {
+let counter = 0;
+async function nextProjectId(): Promise<string> {
   const { projectIdForPath } = await import("../../shared/board");
-  return projectIdForPath(join(ROOT, `p-${++contatore}`));
+  return projectIdForPath(join(ROOT, `p-${++counter}`));
 }
 
 /** A router on the SAME database, with or without a model wired in. */
@@ -107,14 +107,14 @@ async function router(naming?: () => unknown): Promise<Router> {
 }
 
 async function creaTask(router: Router, projectId: string, text: string, description?: string): Promise<string> {
-  const res = await chiama(router, "POST", `/api/boards/${projectId}/tasks`, { text, description });
+  const res = await call(router, "POST", `/api/boards/${projectId}/tasks`, { text, description });
   expect(res.status, await res.clone().text()).toBeLessThan(300);
   return ((await res.json()) as { id: string }).id;
 }
 
 /** The card's title, read back from the route instead of from the response. */
-async function titoloDi(router: Router, projectId: string, taskId: string): Promise<string> {
-  const res = await chiama(router, "GET", `/api/boards/${projectId}/tasks/${taskId}`);
+async function titleOf(router: Router, projectId: string, taskId: string): Promise<string> {
+  const res = await call(router, "GET", `/api/boards/${projectId}/tasks/${taskId}`);
   expect(res.status).toBe(200);
   const body = (await res.json()) as { task?: { text: string }; text?: string };
   return body.task?.text ?? body.text ?? "";
@@ -123,17 +123,17 @@ async function titoloDi(router: Router, projectId: string, taskId: string): Prom
 describe("il modello riscrive il titolo di una card", () => {
   test("senza un modello cablato dice di no, e non tocca niente", async () => {
     const { router, projectId } = await banco();
-    const id = await creaTask(router, projectId, TITOLO_LUNGO, DESCRIZIONE);
+    const id = await creaTask(router, projectId, LONG_TITLE, DESCRIPTION);
 
-    const res = await chiama(router, "POST", `/api/boards/${projectId}/tasks/${id}/retitle`);
+    const res = await call(router, "POST", `/api/boards/${projectId}/tasks/${id}/retitle`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: false, reason: "no_provider" });
-    expect(await titoloDi(router, projectId, id)).toBe(TITOLO_LUNGO);
+    expect(await titleOf(router, projectId, id)).toBe(LONG_TITLE);
   });
 
   test("una card che non esiste e' 404", async () => {
     const { router, projectId } = await banco(provider("qualcosa"));
-    const res = await chiama(router, "POST", `/api/boards/${projectId}/tasks/mai-esistita/retitle`);
+    const res = await call(router, "POST", `/api/boards/${projectId}/tasks/mai-esistita/retitle`);
     expect(res.status).toBe(404);
   });
 
@@ -142,13 +142,13 @@ describe("il modello riscrive il titolo di una card", () => {
     // is a decision, not a fallback, and the model is not even queried. The
     // provider here does answer, and its answer has to go unheard.
     const { router, projectId } = await banco(provider("Titolo inventato dal modello"));
-    const corto = "Larghezze delle colonne persistenti";
-    const id = await creaTask(router, projectId, corto, DESCRIZIONE);
+    const shortTitle = "Larghezze delle colonne persistenti";
+    const id = await creaTask(router, projectId, shortTitle, DESCRIPTION);
 
-    const res = await chiama(router, "POST", `/api/boards/${projectId}/tasks/${id}/retitle`);
+    const res = await call(router, "POST", `/api/boards/${projectId}/tasks/${id}/retitle`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: false, reason: "nothing_better" });
-    expect(await titoloDi(router, projectId, id), "ha riscritto un titolo che una persona aveva gia' scelto").toBe(corto);
+    expect(await titleOf(router, projectId, id), "ha riscritto un titolo che una persona aveva gia' scelto").toBe(shortTitle);
   });
 
   test("quando riscrive, la card cambia davvero e la risposta dice anche il prima", async () => {
@@ -157,25 +157,25 @@ describe("il modello riscrive il titolo di una card", () => {
     // would have the card reach `retitle` already renamed and the route would
     // answer "nothing_better" - green on the wrong branch. Two routers on the
     // same database keep the two moments apart.
-    const nuovo = "Larghezze delle colonne che sopravvivono alla riapertura";
-    const projectId = await progetto();
-    const senzaModello = await router();
-    const id = await creaTask(senzaModello, projectId, TITOLO_LUNGO, DESCRIZIONE);
-    expect(await titoloDi(senzaModello, projectId, id), "la card e' gia' stata rinominata prima di retitle").toBe(TITOLO_LUNGO);
+    const newTitle = "Larghezze delle colonne che sopravvivono alla riapertura";
+    const projectId = await nextProjectId();
+    const withoutModel = await router();
+    const id = await creaTask(withoutModel, projectId, LONG_TITLE, DESCRIPTION);
+    expect(await titleOf(withoutModel, projectId, id), "la card e' gia' stata rinominata prima di retitle").toBe(LONG_TITLE);
 
-    const conModello = await router(provider(nuovo));
-    const res = await chiama(conModello, "POST", `/api/boards/${projectId}/tasks/${id}/retitle`);
+    const withModel = await router(provider(newTitle));
+    const res = await call(withModel, "POST", `/api/boards/${projectId}/tasks/${id}/retitle`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean; text: string; before: string; reason?: string };
     expect(body.ok, JSON.stringify(body)).toBe(true);
-    expect(body.text).toBe(nuovo);
+    expect(body.text).toBe(newTitle);
     // `before` is not decoration: it is the only place where what the person
     // had written survives, once the card has been rewritten.
-    expect(body.before).toBe(TITOLO_LUNGO);
+    expect(body.before).toBe(LONG_TITLE);
 
     // And the proof that counts: the card, read back, carries the new title. An
     // `{ok:true}` with the write lost would answer identically.
-    expect(await titoloDi(conModello, projectId, id)).toBe(nuovo);
+    expect(await titleOf(withModel, projectId, id)).toBe(newTitle);
   });
 });
 
@@ -184,7 +184,7 @@ describe("la modalita' notte di una board", () => {
     // The branch of every board that has never turned night mode on, i.e.
     // almost all of them: it has to be an answer, not a permanent red on a panel.
     const { router, projectId } = await banco();
-    const res = await chiama(router, "GET", `/api/boards/${projectId}/night-status`);
+    const res = await call(router, "GET", `/api/boards/${projectId}/night-status`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ enabled: false, action: "off" });
   });

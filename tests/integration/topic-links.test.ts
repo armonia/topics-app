@@ -42,7 +42,7 @@ afterAll(() => cleanupTestDataDir(ROOT));
 
 type Router = ReturnType<typeof import("../../server/routes/topics").createTopicsRouter>;
 
-async function chiama(router: Router, method: string, path: string, body?: unknown) {
+async function call(router: Router, method: string, path: string, body?: unknown) {
   const url = new URL(`http://h${path}`);
   const req = new Request(url, {
     method,
@@ -56,7 +56,7 @@ async function chiama(router: Router, method: string, path: string, body?: unkno
 }
 
 async function creaTopic(router: Router, name: string): Promise<string> {
-  const res = await chiama(router, "POST", "/api/topics", { name });
+  const res = await call(router, "POST", "/api/topics", { name });
   expect(res.status).toBe(201);
   return ((await res.json()) as { id: string }).id;
 }
@@ -70,7 +70,7 @@ async function creaTopic(router: Router, name: string): Promise<string> {
  * instead of poking the store.
  */
 async function linksDi(router: Router, id: string): Promise<string[]> {
-  const res = await chiama(router, "GET", "/api/topics");
+  const res = await call(router, "GET", "/api/topics");
   const { topics } = (await res.json()) as { topics: Record<string, { links?: string[] }> };
   const t = topics[id];
   expect(t, `topic ${id} disappeared from the list`).toBeTruthy();
@@ -94,7 +94,7 @@ describe("collegamento fra topic", () => {
     expect(await linksDi(router, a)).toEqual([]);
     expect(await linksDi(router, b)).toEqual([]);
 
-    const res = await chiama(router, "POST", `/api/topics/${a}/link`, { targetId: b });
+    const res = await call(router, "POST", `/api/topics/${a}/link`, { targetId: b });
     expect(res.status).toBe(200);
 
     expect(await linksDi(router, a)).toContain(b);
@@ -106,8 +106,8 @@ describe("collegamento fra topic", () => {
     const a = await creaTopic(router, `dup-a-${Date.now()}`);
     const b = await creaTopic(router, `dup-b-${Date.now()}`);
 
-    await chiama(router, "POST", `/api/topics/${a}/link`, { targetId: b });
-    await chiama(router, "POST", `/api/topics/${a}/link`, { targetId: b });
+    await call(router, "POST", `/api/topics/${a}/link`, { targetId: b });
+    await call(router, "POST", `/api/topics/${a}/link`, { targetId: b });
 
     expect(await linksDi(router, a)).toEqual([b]);
     expect(await linksDi(router, b)).toEqual([a]);
@@ -117,8 +117,8 @@ describe("collegamento fra topic", () => {
     const { router } = await banco();
     const a = await creaTopic(router, `err-a-${Date.now()}`);
 
-    expect((await chiama(router, "POST", `/api/topics/${a}/link`, {})).status).toBe(400);
-    expect((await chiama(router, "POST", `/api/topics/${a}/link`, { targetId: "non-esiste" })).status).toBe(404);
+    expect((await call(router, "POST", `/api/topics/${a}/link`, {})).status).toBe(400);
+    expect((await call(router, "POST", `/api/topics/${a}/link`, { targetId: "non-esiste" })).status).toBe(404);
 
     // And the refusal left nothing behind it.
     expect(await linksDi(router, a)).toEqual([]);
@@ -128,10 +128,10 @@ describe("collegamento fra topic", () => {
     const { router } = await banco();
     const a = await creaTopic(router, `del-a-${Date.now()}`);
     const b = await creaTopic(router, `del-b-${Date.now()}`);
-    await chiama(router, "POST", `/api/topics/${a}/link`, { targetId: b });
+    await call(router, "POST", `/api/topics/${a}/link`, { targetId: b });
     expect(await linksDi(router, b)).toContain(a);
 
-    const res = await chiama(router, "DELETE", `/api/topics/${a}/link/${b}`);
+    const res = await call(router, "DELETE", `/api/topics/${a}/link/${b}`);
     expect(res.status).toBe(200);
 
     expect(await linksDi(router, a)).toEqual([]);
@@ -144,12 +144,12 @@ describe("collegamento fra topic", () => {
     const { router } = await banco();
     const a = await creaTopic(router, `orfano-a-${Date.now()}`);
     const b = await creaTopic(router, `orfano-b-${Date.now()}`);
-    await chiama(router, "POST", `/api/topics/${a}/link`, { targetId: b });
+    await call(router, "POST", `/api/topics/${a}/link`, { targetId: b });
 
-    const del = await chiama(router, "DELETE", `/api/topics/${b}`);
+    const del = await call(router, "DELETE", `/api/topics/${b}`);
     expect(del.status).toBeLessThan(300);
 
-    const res = await chiama(router, "DELETE", `/api/topics/${a}/link/${b}`);
+    const res = await call(router, "DELETE", `/api/topics/${a}/link/${b}`);
     expect(res.status).toBe(200);
     expect(await linksDi(router, a)).toEqual([]);
   });
@@ -157,7 +157,7 @@ describe("collegamento fra topic", () => {
   test("togliere un collegamento da un topic che non esiste e' 404", async () => {
     const { router } = await banco();
     const b = await creaTopic(router, `404-b-${Date.now()}`);
-    expect((await chiama(router, "DELETE", `/api/topics/non-esiste/link/${b}`)).status).toBe(404);
+    expect((await call(router, "DELETE", `/api/topics/non-esiste/link/${b}`)).status).toBe(404);
   });
 });
 
@@ -169,7 +169,7 @@ describe("il progetto di un topic", () => {
     // project would send the board off to read somebody else's board.
     const { router } = await banco();
     const a = await creaTopic(router, `senza-progetto-${Date.now()}`);
-    const res = await chiama(router, "GET", `/api/topics/${a}/project-id`);
+    const res = await call(router, "GET", `/api/topics/${a}/project-id`);
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error?: string }).error).toBeTruthy();
   });
@@ -177,11 +177,11 @@ describe("il progetto di un topic", () => {
   test("con un progetto collegato risponde con il suo id", async () => {
     const { router } = await banco();
     const a = await creaTopic(router, `con-progetto-${Date.now()}`);
-    const cartella = `/tmp/topic-links-${Date.now()}`;
-    const patch = await chiama(router, "PATCH", `/api/topics/${a}`, { projectPath: cartella });
+    const projectDir = `/tmp/topic-links-${Date.now()}`;
+    const patch = await call(router, "PATCH", `/api/topics/${a}`, { projectPath: projectDir });
     expect(patch.status).toBeLessThan(300);
 
-    const res = await chiama(router, "GET", `/api/topics/${a}/project-id`);
+    const res = await call(router, "GET", `/api/topics/${a}/project-id`);
     expect(res.status).toBe(200);
     const { projectId } = (await res.json()) as { projectId: string };
     expect(typeof projectId).toBe("string");
@@ -190,6 +190,6 @@ describe("il progetto di un topic", () => {
     // The same id the board computes from the path: if the two diverged, the
     // chat and its board would be talking about two different projects.
     const { projectIdForPath } = await import("../../shared/board");
-    expect(projectId).toBe(projectIdForPath(cartella));
+    expect(projectId).toBe(projectIdForPath(projectDir));
   });
 });

@@ -362,13 +362,13 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.goto("/");
     await openGlobalBoard(page);
 
-    const primo = page.getByTestId(`project-filter-chip-${boardIdForPath(dirOf(PROJECTS[0]))}`);
-    await expect(primo).toBeVisible({ timeout: 15000 });
+    const firstChip = page.getByTestId(`project-filter-chip-${boardIdForPath(dirOf(PROJECTS[0]))}`);
+    await expect(firstChip).toBeVisible({ timeout: 15000 });
 
     // The name's INDENT: where the text starts inside the chip, measured from
     // the chip's edge. It is the distance that changed between a project with
     // an icon and one without, and it is what reads as a "crooked row".
-    const rientri = await page.evaluate(() => {
+    const indents = await page.evaluate(() => {
       const out: Array<{ id: string; rientro: number; larghezzaMax: string }> = [];
       for (const el of Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="project-filter-chip-"]'))) {
         if (el.getBoundingClientRect().width === 0) continue;
@@ -383,15 +383,15 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       return out;
     });
 
-    expect(rientri.length, "servono almeno due chip progetto in barra").toBeGreaterThan(1);
+    expect(indents.length, "servono almeno due chip progetto in barra").toBeGreaterThan(1);
     // ONE INDENT ONLY, icon or no icon.
-    const soli = [...new Set(rientri.map((r) => r.rientro))];
-    expect(soli, `rientri diversi: ${JSON.stringify(rientri)}`).toHaveLength(1);
+    const soli = [...new Set(indents.map((r) => r.rientro))];
+    expect(soli, `rientri diversi: ${JSON.stringify(indents)}`).toHaveLength(1);
     // And ONE MAXIMUM WIDTH ONLY, including the chip that opens the menu, which
     // is the other half of the pair that diverged (11rem against 13rem).
-    const apre = await page.getByTestId("filter-project-chip").evaluate((el) => getComputedStyle(el).maxWidth);
-    const larghezze = [...new Set([...rientri.map((r) => r.larghezzaMax), apre])];
-    expect(larghezze, `larghezze massime diverse: ${larghezze.join(" vs ")}`).toHaveLength(1);
+    const openerMaxWidth = await page.getByTestId("filter-project-chip").evaluate((el) => getComputedStyle(el).maxWidth);
+    const maxWidths = [...new Set([...indents.map((r) => r.larghezzaMax), openerMaxWidth])];
+    expect(maxWidths, `larghezze massime diverse: ${maxWidths.join(" vs ")}`).toHaveLength(1);
 
     await page.screenshot({ path: join(SHOTS, "chip-fila-allineata.png"), clip: { x: 0, y: 0, width: 1440, height: 120 } });
   });
@@ -606,11 +606,11 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await openProjectBoard(page);
 
     /** The bottom borders of the whole bar -> root chain, read from the computed style. */
-    const bordiBassi = () =>
+    const bottomBorders = () =>
       page.evaluate(() => {
         const barra = document.querySelector('[data-testid="board-toolbar"]');
-        const radice = document.querySelector('[data-testid="kanban-board"]');
-        if (!barra || !radice) return null;
+        const root = document.querySelector('[data-testid="kanban-board"]');
+        if (!barra || !root) return null;
         const out: { nodo: string; larghezza: string; stile: string; colore: string }[] = [];
         let el: Element | null = barra;
         while (el) {
@@ -621,7 +621,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
             stile: cs.borderBottomStyle,
             colore: cs.borderBottomColor,
           });
-          if (el === radice) break;
+          if (el === root) break;
           el = el.parentElement;
         }
         return out;
@@ -637,16 +637,16 @@ test.describe("Top bar della kanban — si legge da sola", () => {
      * hairline and never finding it again - that is, the sieve was blind in
      * exactly the direction in which it was supposed to bite.
      */
-    const trasparente = (colore: string) =>
+    const isTransparent = (colore: string) =>
       colore === "transparent" || /^rgba\([^)]*,\s*0(\.0+)?\s*\)$/.test(colore);
-    const visibili = (catena: NonNullable<Awaited<ReturnType<typeof bordiBassi>>>) =>
-      catena.filter((n) => parseFloat(n.larghezza) > 0 && n.stile !== "none" && !trasparente(n.colore));
+    const visibleBorders = (catena: NonNullable<Awaited<ReturnType<typeof bottomBorders>>>) =>
+      catena.filter((n) => parseFloat(n.larghezza) > 0 && n.stile !== "none" && !isTransparent(n.colore));
 
-    const catena = await bordiBassi();
+    const catena = await bottomBorders();
     expect(catena, "barra o radice della board non trovate").not.toBeNull();
     expect(
-      visibili(catena!),
-      `un filetto sotto la barra: ${JSON.stringify(visibili(catena!))}`,
+      visibleBorders(catena!),
+      `un filetto sotto la barra: ${JSON.stringify(visibleBorders(catena!))}`,
     ).toEqual([]);
 
     // THE SIEVE BITES. Without this second half, a mistake in the walk over the
@@ -657,8 +657,8 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       const barra = document.querySelector('[data-testid="board-toolbar"]') as HTMLElement;
       barra.style.borderBottom = "1px solid rgb(255, 0, 0)";
     });
-    const conFiletto = visibili((await bordiBassi())!);
-    expect(conFiletto.length, "la misura non riconosce nemmeno un filetto messo a mano").toBeGreaterThan(0);
+    const withHairline = visibleBorders((await bottomBorders())!);
+    expect(withHairline.length, "la misura non riconosce nemmeno un filetto messo a mano").toBeGreaterThan(0);
   });
 
   /**
@@ -683,7 +683,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
 
     const board = page.getByTestId("kanban-board");
     const porta = board.getByTitle("Impostazioni auto-dispatch");
-    const statoDispatch = board.getByTestId("global-cap-control");
+    const dispatchState = board.getByTestId("global-cap-control");
     const pannello = page.getByTestId("board-settings-panel");
 
     // ONE door, not two.
@@ -692,17 +692,17 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     // With the panel closed the auto-dispatch state is nowhere to be seen: it
     // was precisely the caret's copy that made it visible in the bar.
     await expect(pannello).toHaveCount(0);
-    await expect(statoDispatch, "lo stato dell'auto-dispatch e' fuori dal pannello").toHaveCount(0);
+    await expect(dispatchState, "lo stato dell'auto-dispatch e' fuori dal pannello").toHaveCount(0);
 
     // Once the door is opened: the panel is there, and the copy of the state is ONE.
     await porta.click();
     await expect(pannello).toBeVisible();
-    await expect(statoDispatch, "due copie dello stato dell'auto-dispatch").toHaveCount(1);
+    await expect(dispatchState, "due copie dello stato dell'auto-dispatch").toHaveCount(1);
 
-    // THE SIEVE BITES: `statoDispatch` can recognise the control when it really
+    // THE SIEVE BITES: `dispatchState` can recognise the control when it really
     // is there - the zero count above is a measured absence, not a selector that
     // never finds anything.
-    await expect(statoDispatch).toBeVisible();
+    await expect(dispatchState).toBeVisible();
 
     await page.screenshot({ path: join(SHOTS, "porta-unica.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
   });

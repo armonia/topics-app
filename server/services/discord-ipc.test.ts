@@ -1,13 +1,13 @@
 /**
- * Il filo con Discord, provato senza Discord.
+ * The wire to Discord, tested without Discord.
  *
- * Le due metà si provano in due modi diversi, di proposito:
- *   • il PROTOCOLLO con dei byte scritti a mano — è lì che vivono le trappole
- *     (lunghezza in byte, frame spezzato, due frame in un chunk), e sono
- *     esattamente i casi che «funziona sul mio Mac» non tocca mai;
- *   • il TRASPORTO contro un finto Discord: un vero socket unix in tmpdir che
- *     parla il vero protocollo. Non un mock del nostro client — un
- *     interlocutore, che può anche rispondere male.
+ * The two halves are tested in two different ways, on purpose:
+ *   • the PROTOCOL with hand-written bytes - that is where the traps live
+ *     (length in bytes, split frame, two frames in one chunk), and they are
+ *     exactly the cases "it works on my Mac" never touches;
+ *   • the TRANSPORT against a fake Discord: a real unix socket in tmpdir that
+ *     speaks the real protocol. Not a mock of our own client - a
+ *     counterpart, one that can also answer badly.
  */
 
 import { describe, expect, test, afterEach } from "bun:test";
@@ -39,14 +39,15 @@ describe("encodeFrame", () => {
   });
 
   test("la lunghezza è in BYTE, non in caratteri", () => {
-    // «Attività» e un'emoji: `String.length` direbbe meno del vero, e da lì in
-    // poi ogni frame successivo sarebbe disallineato.
+    // An accented word and an emoji (the fixture below): `String.length` would
+    // say less than the truth, and from there on every following frame would be
+    // out of alignment.
     const payload = { details: "Attività su Pixê 🌙" };
     const frame = encodeFrame(IPC_OP.FRAME, payload);
     const json = JSON.stringify(payload);
     expect(frame.readUInt32LE(4)).toBe(Buffer.byteLength(json, "utf8"));
     expect(frame.readUInt32LE(4)).toBeGreaterThan(json.length);
-    // E il giro completo non perde un carattere.
+    // And the full round trip does not lose a character.
     const decode = createFrameDecoder();
     expect(decode(frame)[0]?.payload).toEqual(payload);
   });
@@ -95,16 +96,16 @@ describe("ipcCandidates", () => {
     expect(c.some((p) => p.includes("//"))).toBe(false);
   });
 
-  // Il caso vero: un processo lanciato con la propria scratch dir come TMPDIR
-  // cercava il socket SOLO lì e concludeva «Discord non è in esecuzione» con
-  // Discord aperto. La temp per-utente di macOS va cercata comunque.
+  // The real case: a process launched with its own scratch dir as TMPDIR looked
+  // for the socket ONLY there and concluded "Discord is not running" while
+  // Discord was open. The macOS per-user temp has to be looked up anyway.
   test.skipIf(process.platform !== "darwin")(
     "su macOS un TMPDIR sovrascritto non nasconde la temp di sistema",
     () => {
       const c = ipcCandidates({ TMPDIR: "/tmp/x" } as NodeJS.ProcessEnv);
       expect(c).toContain("/tmp/x/discord-ipc-0");
-      // Non si confronta con una costante: il percorso è per-utente, e scriverlo
-      // a mano legherebbe il test a questa macchina.
+      // We do not compare against a constant: the path is per-user, and writing
+      // it out by hand would tie the test to this machine.
       const systemTemp = execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
         encoding: "utf8",
       }).trim().replace(/\/+$/, "");
@@ -113,21 +114,21 @@ describe("ipcCandidates", () => {
   );
 });
 
-// ── Trasporto: un finto Discord ────────────────────────────────────────────
+// ── Transport: a fake Discord ──────────────────────────────────────────────
 
 interface FakeDiscord {
   path: string;
-  /** Tutto ciò che il client ha scritto, già scomposto. */
+  /** Everything the client wrote, already decomposed. */
   received: Array<{ op: number; payload: Record<string, unknown> | null }>;
   close: () => Promise<void>;
 }
 
 /**
- * Un socket unix che parla il protocollo vero.
+ * A unix socket that speaks the real protocol.
  *
- * `mode` decide come si comporta all'handshake: `ready` risponde READY,
- * `refuse` risponde ERROR (l'Application ID sbagliato), `silent` non risponde
- * affatto (il caso che deve finire in timeout e non in attesa infinita).
+ * `mode` decides how it behaves at the handshake: `ready` answers READY,
+ * `refuse` answers ERROR (the wrong Application ID), `silent` does not answer
+ * at all (the case that has to end in a timeout and not in an endless wait).
  */
 function startFakeDiscord(dir: string, mode: "ready" | "refuse" | "silent" = "ready"): Promise<FakeDiscord> {
   const path = join(dir, "discord-ipc-0");
@@ -135,8 +136,8 @@ function startFakeDiscord(dir: string, mode: "ready" | "refuse" | "silent" = "re
   const server = net.createServer((sock) => {
     const decode = createFrameDecoder();
     sock.on("data", (chunk: Buffer | string) => {
-      // `net` tipizza `data` come `string | Buffer` (dipende da `setEncoding`,
-      // che qui nessuno chiama): il filo è binario, e va detto.
+      // `net` types `data` as `string | Buffer` (it depends on `setEncoding`,
+      // which nobody calls here): the wire is binary, and that has to be said.
       for (const frame of decode(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk)) {
         received.push({ op: frame.op, payload: frame.payload });
         if (frame.op !== IPC_OP.HANDSHAKE) continue;
@@ -147,7 +148,7 @@ function startFakeDiscord(dir: string, mode: "ready" | "refuse" | "silent" = "re
         }
       }
     });
-    sock.on("error", () => { /* il client che chiude di colpo non è un guasto */ });
+    sock.on("error", () => { /* a client that closes abruptly is not a fault */ });
   });
   return new Promise((resolve) => {
     server.listen(path, () => {
@@ -196,14 +197,14 @@ describe("handshake", () => {
     sendActivity(res.socket, 4242, { details: "3 al lavoro · 12 aperte" });
     await Bun.sleep(60);
 
-    const attivita = fake.received.find((f) => f.payload?.cmd === "SET_ACTIVITY");
-    expect(attivita).toBeDefined();
-    expect(attivita!.payload).toMatchObject({
+    const activity = fake.received.find((f) => f.payload?.cmd === "SET_ACTIVITY");
+    expect(activity).toBeDefined();
+    expect(activity!.payload).toMatchObject({
       cmd: "SET_ACTIVITY",
       args: { pid: 4242, activity: { details: "3 al lavoro · 12 aperte" } },
     });
-    // Il nonce esiste: senza, Discord ignora il comando in silenzio.
-    expect(typeof attivita!.payload!.nonce).toBe("string");
+    // The nonce is there: without it, Discord ignores the command in silence.
+    expect(typeof activity!.payload!.nonce).toBe("string");
     res.socket.destroy();
   });
 
@@ -216,8 +217,8 @@ describe("handshake", () => {
     sendActivity(res.socket, 1, null);
     await Bun.sleep(60);
 
-    const attivita = fake.received.find((f) => f.payload?.cmd === "SET_ACTIVITY");
-    expect((attivita!.payload!.args as { activity: unknown }).activity).toBeNull();
+    const activity = fake.received.find((f) => f.payload?.cmd === "SET_ACTIVITY");
+    expect((activity!.payload!.args as { activity: unknown }).activity).toBeNull();
     res.socket.destroy();
   });
 
@@ -236,7 +237,7 @@ describe("handshake", () => {
       .then(() => null, (e: DiscordIpcError) => e);
     expect(err).toBeInstanceOf(DiscordIpcError);
     expect(err!.code).toBe("handshake_refused");
-    // Il messaggio porta la ragione di Discord, non un «non funziona».
+    // The message carries Discord's own reason, not an "it does not work".
     expect(err!.message).toContain("Invalid Client ID");
   });
 

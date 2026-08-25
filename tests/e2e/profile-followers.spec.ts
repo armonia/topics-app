@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
-import { apriPaneProfilo } from "./helpers/profile-pane";
+import { openProfilePane } from "./helpers/profile-pane";
 
 /**
  * THE GITHUB SHAPED PROFILE, live, and this is the delivery clip of the card.
@@ -44,11 +44,11 @@ const AVATAR = `${E2E_BASE}/icons/icon-192.png`;
  * PROMPT (the 095 column) and the usage on the ANSWER hanging off that prompt,
  * which is exactly the direction `person-stats.ts` sums them in.
  */
-function seminaTurni(personId: string, quanti: number): void {
+function seedTurns(personId: string, count: number): void {
   const db = join(E2E_DATA_DIR, "topics.db");
   const sk = "topic:evidenza-profili";
   let sql = "";
-  for (let i = 0; i < quanti; i++) {
+  for (let i = 0; i < count; i++) {
     const u = `ev-u${i}`, a = `ev-a${i}`;
     sql += `
       INSERT OR REPLACE INTO messages (id, session_key, role, content, timestamp, sort_order, author_person_id)
@@ -66,7 +66,7 @@ function seminaTurni(personId: string, quanti: number): void {
  * this test: the server reads `github_profiles` BEFORE deciding whether to go
  * out, and a row with `fetched_at` of now tells it there is no need.
  */
-function seminaProfiloInCache(): void {
+function seedProfileCache(): void {
   const db = join(E2E_DATA_DIR, "topics.db");
   execFileSync("sqlite3", [
     db,
@@ -88,29 +88,29 @@ test.describe("Il profilo, alla GitHub", () => {
     const me = await (await request.get(`${E2E_BASE}/api/auth/me`)).json();
     const personId = me?.person?.id as string;
     expect(personId, "l'installazione deve avere una persona (migration 084)").toBeTruthy();
-    seminaTurni(personId, 7);
-    seminaProfiloInCache();
+    seedTurns(personId, 7);
+    seedProfileCache();
 
     await page.goto("/");
-    await apriPaneProfilo(page);
+    await openProfilePane(page);
 
     // ── BEHAVIOUR 1: the header fills up from a login.
     //
     // The header is the page: no title above it, the face first. Before the
     // login there is no face and the button says so.
-    const intestazione = page.getByTestId("profile-header");
-    await expect(intestazione).toBeVisible();
+    const header = page.getByTestId("profile-header");
+    await expect(header).toBeVisible();
     await page.getByTestId("profile-github-edit").click();
     await page.getByTestId("profile-github-input").fill("octocat");
-    await intestazione.getByRole("button", { name: "Salva" }).click();
+    await header.getByRole("button", { name: "Salva" }).click();
 
     await expect(page.getByTestId("profile-name")).toHaveText("Mona Octocat");
     await expect(page.getByTestId("profile-login")).toHaveText("@octocat");
-    await expect(intestazione).toContainText("Writes things that must not fall over.");
-    await expect(intestazione).toContainText("Armonia");
-    await expect(intestazione).toContainText("Salerno");
-    await expect(intestazione).toContainText("armonia.io");
-    await expect(intestazione.locator("img")).toBeVisible();
+    await expect(header).toContainText("Writes things that must not fall over.");
+    await expect(header).toContainText("Armonia");
+    await expect(header).toContainText("Salerno");
+    await expect(header).toContainText("armonia.io");
+    await expect(header.locator("img")).toBeVisible();
 
     // The counters are there and they are buttons: zero followers is still a
     // measurement, and it is drawn, because it is my own profile.
@@ -120,8 +120,8 @@ test.describe("Il profilo, alla GitHub", () => {
     // `toBeVisible()` says "it is in the DOM with a rectangle", not "it is on
     // the screen": since this test IS the delivery evidence, the clip would run
     // green over a piece of interface that never appears in the film.
-    await expect(intestazione).toBeInViewport();
-    await expect(intestazione.locator("img")).toBeInViewport();
+    await expect(header).toBeInViewport();
+    await expect(header.locator("img")).toBeInViewport();
 
     // ── BEHAVIOUR 2: a privacy switch, and the server stops sending.
     //
@@ -129,18 +129,18 @@ test.describe("Il profilo, alla GitHub", () => {
     // again, and `stats` comes back null. A test that only looked at the
     // rendered page could not tell a filter from a `display: none`.
     await page.getByTestId("profile-tab-privacy").click();
-    const interruttore = page.getByTestId("privacy-showStats");
-    await expect(interruttore).toBeVisible();
-    await expect(interruttore).toHaveAttribute("aria-checked", "true");
-    await interruttore.click();
-    await expect(interruttore).toHaveAttribute("aria-checked", "false");
+    const toggle = page.getByTestId("privacy-showStats");
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
 
-    const dopo = await (await request.get(`${E2E_BASE}/api/people/${personId}/privacy`)).json();
-    expect(dopo.privacy.showStats, "il server ha davvero registrato lo spegnimento").toBe(false);
+    const after = await (await request.get(`${E2E_BASE}/api/people/${personId}/privacy`)).json();
+    expect(after.privacy.showStats, "il server ha davvero registrato lo spegnimento").toBe(false);
 
     // And back on, so the fixture database is left as it was found: a spec that
     // leaves a switch closed poisons whichever spec runs after it.
-    await interruttore.click();
-    await expect(interruttore).toHaveAttribute("aria-checked", "true");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 });

@@ -1,25 +1,23 @@
 /**
- * IL TETTO SI VEDE, E LE DUE SUPERFICI NE MOSTRANO UNO SOLO.
+ * THE CAP IS VISIBLE, AND THE TWO SURFACES SHOW ONE SINGLE ONE OF IT.
  *
- * La promessa è quella fatta da chi usa la app: «non ci deve essere tetto
- * globale se non quello visualizzabile dalle settings board». Quindi due cose,
- * e nessuna delle due la tiene in piedi il compilatore:
+ * The promise is the one made by whoever uses the app: «there must be no global
+ * cap other than the one viewable from the board settings». So, two things, and
+ * neither of them is held up by the compiler:
  *
- *  1. il controllo DISEGNA i due numeri (quanti al lavoro, di quanti), presi
- *     dallo store e non da una copia sua;
- *  2. lo montano davvero ENTRAMBE le superfici, il menu ▾ del titolo e il
- *     pannello delle impostazioni, e nessuna delle due parla col server per
- *     conto proprio.
+ *  1. the control DRAWS the two numbers (how many at work, out of how many),
+ *     taken from the store and not from a copy of its own;
+ *  2. BOTH surfaces really do mount it, the title's ▾ menu and the settings
+ *     panel, and neither of the two talks to the server on its own account.
  *
- * Il punto 2 è controllato sul SORGENTE, con lo stesso metodo (e lo stesso
- * motivo) di `ThreadRuns.test.tsx`: `TaskDetail.tsx` e `KanbanBoardPane.tsx`
- * tirano dentro l'API, il layout delle pane e una dozzina di store, quindi non
- * si montano in un test unitario, e «la superficie ha smesso di chiamarlo» è
- * una modifica di una riga. `bun test` non risolve nemmeno l'alias `@/` che
- * quei file usano.
+ * Point 2 is checked on the SOURCE, with the same method (and the same reason)
+ * as `ThreadRuns.test.tsx`: `TaskDetail.tsx` and `KanbanBoardPane.tsx` pull in
+ * the API, the pane layout and a dozen stores, so they do not mount in a unit
+ * test, and «the surface has stopped calling it» is a one-line change. `bun
+ * test` does not even resolve the `@/` alias those files use.
  *
- * (jsdom/happy-dom non sono dipendenze di questo progetto, come dice
- * `ThreadRuns.test.tsx`: il montaggio è `renderToStaticMarkup`.)
+ * (jsdom/happy-dom are not dependencies of this project, as
+ * `ThreadRuns.test.tsx` says: the mounting is `renderToStaticMarkup`.)
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { readFileSync } from 'node:fs';

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import { peopleApi, type PersonaConProfilo, type PersonaSommaria } from '@/lib/api';
+import { peopleApi, type PersonWithProfile, type PersonSummary } from '@/lib/api';
 import { useT } from '@/hooks/useT';
 import { ProfileHeader, ProfileTopicsStats } from './ProfileHeader';
 import { PeopleList } from './PeopleList';
@@ -19,7 +19,7 @@ import { PeopleList } from './PeopleList';
  * request will not succeed later either, and a spinner that never ends is how a
  * deliberate refusal gets reported as a bug.
  */
-export function PersonProfile({ personId, onIndietro }: { personId: string; onIndietro: () => void }) {
+export function PersonProfile({ personId, onBack }: { personId: string; onBack: () => void }) {
   const t = useT();
   // ONE STATE CARRYING ITS OWN ID, instead of three that get cleared by hand.
   // Resetting them at the top of the effect is a synchronous setState in an
@@ -27,45 +27,45 @@ export function PersonProfile({ personId, onIndietro }: { personId: string; onIn
   // and it was also a real defect: between the reset and the answer the page
   // showed the PREVIOUS person for one frame. Here the record carries the id it
   // is about, so a record for somebody else is simply not drawn.
-  const [caricato, setCaricato] = useState<{ id: string; persona: PersonaConProfilo | null }>(
+  const [loaded, setLoaded] = useState<{ id: string; persona: PersonWithProfile | null }>(
     { id: '', persona: null },
   );
-  const [assente, setAssente] = useState<string | null>(null);
-  const [scheda, setScheda] = useState<'followers' | 'following' | null>(null);
-  const [gente, setGente] = useState<{ scheda: string; persone: PersonaSommaria[] } | null>(null);
+  const [missing, setMissing] = useState<string | null>(null);
+  const [tab, setTab] = useState<'followers' | 'following' | null>(null);
+  const [listed, setListed] = useState<{ tab: string; people: PersonSummary[] } | null>(null);
 
   useEffect(() => {
-    let annullato = false;
+    let canceled = false;
     peopleApi.get(personId).then(
-      (p) => { if (!annullato) setCaricato({ id: personId, persona: p }); },
-      () => { if (!annullato) setAssente(personId); },
+      (p) => { if (!canceled) setLoaded({ id: personId, persona: p }); },
+      () => { if (!canceled) setMissing(personId); },
     );
-    return () => { annullato = true; };
+    return () => { canceled = true; };
   }, [personId]);
 
   useEffect(() => {
-    if (!scheda) return;
-    let annullato = false;
-    const chiedi = scheda === 'followers' ? peopleApi.followers(personId) : peopleApi.following(personId);
-    chiedi.then(
-      ({ people }) => { if (!annullato) setGente({ scheda, persone: people }); },
-      () => { if (!annullato) setGente({ scheda, persone: [] }); },
+    if (!tab) return;
+    let canceled = false;
+    const request = tab === 'followers' ? peopleApi.followers(personId) : peopleApi.following(personId);
+    request.then(
+      ({ people }) => { if (!canceled) setListed({ tab, people }); },
+      () => { if (!canceled) setListed({ tab, people: [] }); },
     );
-    return () => { annullato = true; };
-  }, [scheda, personId]);
+    return () => { canceled = true; };
+  }, [tab, personId]);
 
-  const apri = useCallback((s: 'followers' | 'following') => () => {
-    setScheda((cur) => (cur === s ? null : s));
+  const openList = useCallback((s: 'followers' | 'following') => () => {
+    setTab((cur) => (cur === s ? null : s));
   }, []);
 
-  const persona = caricato.id === personId ? caricato.persona : null;
-  const elenco = gente?.scheda === scheda ? gente.persone : null;
+  const persona = loaded.id === personId ? loaded.persona : null;
+  const list = listed?.tab === tab ? listed.people : null;
 
   return (
     <div data-testid="person-profile" className="space-y-5">
       <button
         type="button"
-        onClick={onIndietro}
+        onClick={onBack}
         data-testid="person-profile-back"
         className="inline-flex items-center gap-1.5 text-[12px] text-app-text-muted hover:text-primary coarse:min-h-11"
       >
@@ -73,7 +73,7 @@ export function PersonProfile({ personId, onIndietro }: { personId: string; onIn
         {t('profile.back')}
       </button>
 
-      {assente === personId && (
+      {missing === personId && (
         <p data-testid="person-profile-missing" className="text-[13px] text-app-text-muted">
           {t('profile.notFound')}
         </p>
@@ -83,16 +83,16 @@ export function PersonProfile({ personId, onIndietro }: { personId: string; onIn
         <>
           <ProfileHeader
             persona={persona}
-            onCambiata={(p) => setCaricato({ id: personId, persona: p })}
-            onApriFollower={persona.counts ? apri('followers') : undefined}
-            onApriSeguiti={persona.counts ? apri('following') : undefined}
+            onChanged={(p) => setLoaded({ id: personId, persona: p })}
+            onOpenFollowers={persona.counts ? openList('followers') : undefined}
+            onOpenFollowing={persona.counts ? openList('following') : undefined}
           />
           <ProfileTopicsStats persona={persona} />
-          {scheda && elenco && (
+          {tab && list && (
             <PeopleList
-              persone={elenco}
-              vuoto={t('profile.followers.private')}
-              testId={`person-list-${scheda}`}
+              people={list}
+              emptyText={t('profile.followers.private')}
+              testId={`person-list-${tab}`}
             />
           )}
         </>

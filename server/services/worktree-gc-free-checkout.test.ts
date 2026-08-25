@@ -1,20 +1,20 @@
 /**
- * `free-checkout` su GIT VERO.
+ * `free-checkout` on REAL GIT.
  *
- * Il contratto è puro e collaudato altrove (`worktree-gc.test.ts`), ma la sua
- * promessa non è una stringa: è che dopo la passata la CARTELLA non ci sia più e
- * il BRANCH sia ancora risolvibile. Quella si verifica solo con `git rev-parse`
- * su un repo che esiste — un mock che restituisce `true` avrebbe superato anche
- * la versione che cancella il branch.
+ * The contract is pure and tested elsewhere (`worktree-gc.test.ts`), but its
+ * promise is not a string: it is that after the sweep the FOLDER is gone and
+ * the BRANCH is still resolvable. That can only be verified with `git rev-parse`
+ * on a repo that exists - a mock returning `true` would have passed even the
+ * version that deletes the branch.
  *
- * Tre casi, che sono le tre righe da non sbagliare:
- *   • task `done`, albero pulito, branch conservato → cartella via, commit vivi;
- *   • task `in_progress` → cartella INTATTA anche se pulita;
- *   • modifiche non committate → cartella INTATTA, e il GC dice perché.
+ * Three cases, which are the three lines you must not get wrong:
+ *   • task `done`, clean tree, branch preserved → folder gone, commits alive;
+ *   • task `in_progress` → folder UNTOUCHED even if clean;
+ *   • uncommitted changes → folder UNTOUCHED, and the GC says why.
  *
- * Il land è forzato a `skipped`: è il caso NORMALE da `03ca44c3` (il land rifiuta
- * un branch che porta commit di un'altra sessione) ed è esattamente lo scenario
- * che teneva in vita 77 worktree per 33,9 GB.
+ * The land is forced to `skipped`: it is the NORMAL case since `03ca44c3` (the
+ * land refuses a branch carrying commits from another session) and it is exactly
+ * the scenario that kept 77 worktrees alive for 33.9 GB.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "fs";
@@ -26,37 +26,37 @@ import { branchStatusFromRepo } from "./branch-status";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /**
- * `git` per i test, con l'ambiente della MACCHINA tenuto fuori.
+ * `git` for the tests, with the MACHINE's environment kept out.
  *
- * `-c core.hooksPath=` (vuoto) disattiva gli hook. Non e' pignoleria: su
- * questa macchina la config globale punta a un hook `prepare-commit-msg` di
- * terze parti che a ogni commit fa due `curl --max-time 2` verso
- * `localhost:3333`. Misurato: 679ms per commit contro 219ms senza. Questi due
- * file fanno 24 commit, quindi l'hook da solo puo' aggiungere una decina di
- * secondi — e quando la porta risponde lenta invece che rifiutare subito,
- * arriva a 4s per commit e i test sforano il timeout.
+ * `-c core.hooksPath=` (empty) disables the hooks. It is not fussiness: on this
+ * machine the global config points at a third-party `prepare-commit-msg` hook
+ * that on every commit makes two `curl --max-time 2` calls to `localhost:3333`.
+ * Measured: 679ms per commit against 219ms without. These two files make 24
+ * commits, so the hook on its own can add some ten seconds - and when the port
+ * answers slowly instead of refusing straight away, it reaches 4s per commit
+ * and the tests blow past the timeout.
  *
- * Il sintomo era un rosso che compariva solo eseguendo la suite intera, mai
- * sui file da soli: sembrava una collisione fra i test, ed era invece il
- * mondo esterno che entrava dentro. Un test su git vero deve portarsi il
- * proprio git, non quello di chi lo esegue.
+ * The symptom was a red that appeared only when running the whole suite, never
+ * on the files alone: it looked like a collision between tests, and it was
+ * instead the outside world coming in. A test on real git has to bring its own
+ * git, not the one belonging to whoever runs it.
  *
- * `commit.gpgsign=false` per la stessa ragione: chi firma i commit non deve
- * vedersi chiedere la passphrase da una suite di test.
+ * `commit.gpgsign=false` for the same reason: whoever signs their commits must
+ * not be asked for the passphrase by a test suite.
  */
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
   const r = Bun.spawnSync(["git", "-C", cwd, ...args], {
     stdout: "pipe",
     stderr: "pipe",
-    // `gitEnv()` porta l'isolamento del preload: senza `env` esplicito
-    // `Bun.spawnSync` NON eredita cio' che il preload ha messo in
-    // `process.env` — misurato, il figlio vede le variabili vuote.
+    // `gitEnv()` carries the preload's isolation: without an explicit `env`,
+    // `Bun.spawnSync` does NOT inherit what the preload put into `process.env`
+    // - measured, the child sees the variables empty.
     env: gitEnv(),
   });
   return { code: r.exitCode, out: new TextDecoder().decode(r.stdout).trim() };
 }
 
-/** `git rev-parse <branch>` esce zero ⇒ i commit sono ancora raggiungibili. */
+/** `git rev-parse <branch>` exits zero ⇒ the commits are still reachable. */
 function branchResolves(repo: string, branch: string): boolean {
   return git(repo, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).code === 0;
 }
@@ -64,14 +64,14 @@ function branchResolves(repo: string, branch: string): boolean {
 describe("free-checkout su git vero", () => {
   let repo: string;
   let root: string;
-  /** Worktree montati, per id. */
+  /** Mounted worktrees, by id. */
   let trees: Map<string, GcWorktree>;
-  /** Stato del task legato a ogni worktree. */
+  /** Status of the task tied to each worktree. */
   let statuses: Map<string, TaskStatus>;
   let logs: string[];
   let notes: Array<[string, string]>;
 
-  /** Un worktree `branch`-mode con un commit che main NON ha. */
+  /** A `branch`-mode worktree with a commit main does NOT have. */
   function mountWorktree(id: string, opts: { dirty?: boolean } = {}): GcWorktree {
     const branch = `topics/${id}`;
     const absPath = join(root, id);
@@ -85,8 +85,8 @@ describe("free-checkout su git vero", () => {
     return wt;
   }
 
-  /** Le card timbrate col loro ramo prima che la cartella sparisse. */
-  const timbri: Array<[string, string]> = [];
+  /** The cards stamped with their branch before the folder disappeared. */
+  const stamps: Array<[string, string]> = [];
 
   function deps(over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps {
     return {
@@ -97,11 +97,11 @@ describe("free-checkout su git vero", () => {
       realDirt: (p) => worktreeDirtProbe(p),
       branchStatus: (wt) => branchStatusFromRepo(repo, wt.branchName),
       autoMergeEnabled: () => true,
-      // Il cancello di `03ca44c3`: il branch porta commit non della card.
+      // The `03ca44c3` gate: the branch carries commits that are not the card's.
       tryLand: async () => "skipped",
       freeCheckout: async (id) => {
         const wt = trees.get(id)!;
-        // `deleteBranch: false` — la cartella, non il ref.
+        // `deleteBranch: false` - the folder, not the ref.
         const r = git(repo, "worktree", "remove", "--force", wt.absPath);
         if (r.code !== 0) return false;
         trees.delete(id);
@@ -115,14 +115,14 @@ describe("free-checkout su git vero", () => {
         return true;
       },
       noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
-      stampDeliveryBranch: (taskId, branch) => timbri.push([taskId, branch]),
+      stampDeliveryBranch: (taskId, branch) => stamps.push([taskId, branch]),
       log: (m) => logs.push(m),
       ...over,
     };
   }
 
   beforeEach(() => {
-    timbri.length = 0;
+    stamps.length = 0;
     root = mkdtempSync(join(tmpdir(), "wt-gc-"));
     repo = join(root, "repo");
     git(root, "init", "--quiet", "repo");
@@ -150,15 +150,15 @@ describe("free-checkout su git vero", () => {
 
     const s = await sweepWorktrees(deps());
 
-    // PRIMA il lavoro, poi lo spazio: se una modifica trasforma `free-checkout`
-    // in `reap` è QUESTA riga che deve diventare rossa per prima, non un
-    // contatore — il rosso deve nominare il danno, non l'effetto collaterale.
-    // I commit ci sono: `git rev-parse` verde, e sullo STESSO tip di prima.
+    // WORK first, space second: if a change turns `free-checkout` into `reap`
+    // it is THIS line that has to go red first, not a counter - the red has to
+    // name the damage, not the side effect.
+    // The commits are there: `git rev-parse` green, and on the SAME tip as before.
     expect(branchResolves(repo, wt.branchName!)).toBe(true);
     expect(git(repo, "rev-parse", wt.branchName!).out).toBe(tip);
-    // E il contenuto è ancora leggibile dal repo, non solo il ref.
+    // And the content is still readable from the repo, not just the ref.
     expect(git(repo, "show", `${wt.branchName}:chiuso.txt`).out).toBe("lavoro consegnato");
-    // La cartella invece non c'è più: è lo spazio che si libera.
+    // The folder, on the other hand, is gone: that is the space being freed.
     expect(existsSync(wt.absPath)).toBe(false);
     expect(s.freed).toBe(1);
     expect(s.reaped).toBe(0);
@@ -166,39 +166,39 @@ describe("free-checkout su git vero", () => {
   });
 
   test("la card resta LANDABILE: il ramo le viene timbrato prima che la cartella sparisca", async () => {
-    // IL GUASTO, misurato su 714c2fc5 (il fix `_close`), che ha perso il land DUE
-    // volte per questa causa. Liberata la cartella, `topics.worktree_id` resta
-    // vuoto: `worktreeOfTask` non risolve piu', `taskDeliveryRef` risponde
-    // `null`, `captureDelivery` non scrive `delivery_branch`, e
-    // `chooseMergeTarget(null, {branch: null})` risponde `no-branch` — l'unico
-    // codice che lascia la card chiusa senza aver fuso niente. Il bottone «Landa
-    // su main» su quella card non poteva funzionare.
+    // THE FAULT, measured on 714c2fc5 (the `_close` fix), which lost the land
+    // TWICE for this reason. Once the folder is freed, `topics.worktree_id`
+    // stays empty: `worktreeOfTask` no longer resolves, `taskDeliveryRef`
+    // answers `null`, `captureDelivery` does not write `delivery_branch`, and
+    // `chooseMergeTarget(null, {branch: null})` answers `no-branch` - the only
+    // code that leaves the card closed without having merged anything. The
+    // "Land on main" button on that card could not work.
     //
-    // Qui il ramo e' ancora noto: e' l'ultimo istante in cui si puo' dire alla
-    // card dove vive il suo lavoro.
+    // Here the branch is still known: it is the last instant in which the card
+    // can be told where its work lives.
     const wt = mountWorktree("chiuso");
     statuses.set("chiuso", "done");
     await sweepWorktrees(deps());
-    expect(timbri).toEqual([["task-chiuso", wt.branchName!]]);
+    expect(stamps).toEqual([["task-chiuso", wt.branchName!]]);
   });
 
   test("il timbro arriva PRIMA della liberazione, non dopo", async () => {
-    // Dopo, il ramo non e' piu' nominabile: la riga `worktrees` non c'e' piu' e
-    // con lei l'unico modo che la card ha di risalirci. L'ordine E' il fix.
+    // Afterwards the branch can no longer be named: the `worktrees` row is gone
+    // and with it the only way the card has of tracing it. The ORDER is the fix.
     mountWorktree("chiuso");
     statuses.set("chiuso", "done");
-    const ordine: string[] = [];
+    const order: string[] = [];
     await sweepWorktrees(deps({
-      stampDeliveryBranch: () => { ordine.push("timbro"); },
+      stampDeliveryBranch: () => { order.push("timbro"); },
       freeCheckout: async (id) => {
-        ordine.push("libera");
+        order.push("libera");
         const wt = trees.get(id)!;
         if (git(repo, "worktree", "remove", "--force", wt.absPath).code !== 0) return false;
         trees.delete(id);
         return true;
       },
     }));
-    expect(ordine).toEqual(["timbro", "libera"]);
+    expect(order).toEqual(["timbro", "libera"]);
   });
 
   test("il task viene avvisato di DOVE è finito il suo lavoro", async () => {
@@ -238,10 +238,10 @@ describe("free-checkout su git vero", () => {
     expect(s.reaped).toBe(0);
     expect(s.kept).toBe(1);
     expect(existsSync(wt.absPath)).toBe(true);
-    // Il file non committato è ancora lì, con il suo contenuto.
+    // The uncommitted file is still there, with its content.
     expect(Bun.spawnSync(["cat", join(wt.absPath, "sporco.txt")]).stdout.toString().trim())
       .toBe("modifica MAI committata");
-    // «Lo dice»: il motivo del keep è registrato e nomina lo sporco.
+    // "It says so": the reason for the keep is recorded and names the dirt.
     expect(Object.keys(s.keptReasons).join(" ")).toContain("non committate");
   });
 
@@ -258,10 +258,10 @@ describe("free-checkout su git vero", () => {
     expect(branchResolves(repo, wt.branchName!)).toBe(true);
   });
 
-  // Piu' worktree = piu' git veri: 3 spawn di processo per ognuno, e sotto
-  // una suite che gira in parallelo il default di 5s non basta. Non e' una
-  // pezza sul sintomo: il lavoro qui e' genuinamente il triplo degli altri
-  // test del file, che restano nel budget di default.
+  // More worktrees = more real gits: 3 process spawns for each of them, and
+  // under a suite running in parallel the 5s default is not enough. It is not a
+  // patch on the symptom: the work here is genuinely three times that of the
+  // other tests in the file, which stay within the default budget.
   test("una passata mista tocca solo ciò che deve: 1 liberato, 2 intatti", async () => {
     const chiuso = mountWorktree("misto-chiuso");
     const attivo = mountWorktree("misto-attivo");
@@ -279,7 +279,7 @@ describe("free-checkout su git vero", () => {
     expect(existsSync(chiuso.absPath)).toBe(false);
     expect(existsSync(attivo.absPath)).toBe(true);
     expect(existsSync(sporco.absPath)).toBe(true);
-    // Nessuno dei tre branch è stato perso.
+    // None of the three branches has been lost.
     for (const wt of [chiuso, attivo, sporco]) {
       expect(branchResolves(repo, wt.branchName!)).toBe(true);
     }
@@ -304,7 +304,7 @@ describe("free-checkout su git vero", () => {
 
     const s = await sweepWorktrees(deps({
       tryLand: async () => {
-        // Un land vero: il contenuto arriva su main.
+        // A real land: the content arrives on main.
         expect(git(repo, "merge", "--no-ff", "-m", "land", wt.branchName!).code).toBe(0);
         return "landed";
       },
@@ -315,7 +315,7 @@ describe("free-checkout su git vero", () => {
     expect(s.freed).toBe(0);
     expect(existsSync(wt.absPath)).toBe(false);
     expect(branchResolves(repo, wt.branchName!)).toBe(false);
-    // Il lavoro non è perso: è su main.
+    // The work is not lost: it is on main.
     expect(git(repo, "show", "main:landato.txt").out).toBe("lavoro consegnato");
   });
 });

@@ -41,7 +41,7 @@ afterAll(() => cleanupTestDataDir(ROOT));
 
 type Router = ReturnType<typeof import("../../server/routes/topics").createTopicsRouter>;
 
-async function chiama(router: Router, path: string) {
+async function call(router: Router, path: string) {
   const url = new URL(`http://h${path}`);
   const res = await router(new Request(url), url, url.pathname, "GET");
   if (!res) throw new Error(`no route handled GET ${path}`);
@@ -54,7 +54,7 @@ async function banco(): Promise<Router> {
 }
 
 /** The escapes that SURVIVE normalisation and reach the handler. */
-const FUGHE = [
+const ESCAPES = [
   "..%2F..%2Fetc%2Fpasswd",
   "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
   "..%2f.ssh%2fid_rsa",
@@ -64,7 +64,7 @@ const FUGHE = [
 ] as const;
 
 /** The shapes the URL normalises away: they do not even reach the route. */
-const NORMALIZZATE = [
+const NORMALIZED_AWAY = [
   ["../../../etc/passwd", "/etc/passwd"],
   ["..", "/api/"],
 ] as const;
@@ -72,14 +72,14 @@ const NORMALIZZATE = [
 describe("il cancello del sorgente di un comando slash", () => {
   test("nessun nome che esce dalle cartelle note arriva al filesystem", async () => {
     const router = await banco();
-    const passate: string[] = [];
-    for (const nome of FUGHE) {
-      const res = await chiama(router, `/api/slash-commands/${nome}`);
+    const passed: string[] = [];
+    for (const nome of ESCAPES) {
+      const res = await call(router, `/api/slash-commands/${nome}`);
       // 400 = the gate said no. Anything else (200 with a body, 500 with a
       // stack trace) means the name reached the disk.
-      if (res.status !== 400) passate.push(`${nome} -> ${res.status}`);
+      if (res.status !== 400) passed.push(`${nome} -> ${res.status}`);
     }
-    expect(passate, "nomi che hanno superato il cancello").toEqual([]);
+    expect(passed, "nomi che hanno superato il cancello").toEqual([]);
   });
 
   test("le fughe non codificate le mangia la normalizzazione, prima del routing", async () => {
@@ -88,7 +88,7 @@ describe("il cancello del sorgente di un comando slash", () => {
     // because without this line the test above would look like it covered the
     // literal case too, which in fact never comes through here - and the day the
     // routing changed parser, this difference would start counting again.
-    for (const [nome, atteso] of NORMALIZZATE) {
+    for (const [nome, atteso] of NORMALIZED_AWAY) {
       const u = new URL(`http://h/api/slash-commands/${nome}`);
       expect(u.pathname, `${nome} non e' piu' normalizzato`).toBe(atteso);
       expect(u.pathname.startsWith("/api/slash-commands/")).toBe(false);
@@ -100,17 +100,17 @@ describe("il cancello del sorgente di un comando slash", () => {
     // THROUGH, and the answer changes. If it answered 400 to this one too, the
     // green above would say nothing.
     const router = await banco();
-    const res = await chiama(router, "/api/slash-commands/comando-che-non-esiste-12345");
+    const res = await call(router, "/api/slash-commands/comando-che-non-esiste-12345");
     expect(res.status).toBe(404);
   });
 
   test("l'elenco risponde con una lista, e ogni voce si dichiara comando o skill", async () => {
     const router = await banco();
-    const res = await chiama(router, "/api/slash-commands");
+    const res = await call(router, "/api/slash-commands");
     expect(res.status).toBe(200);
-    const voci = (await res.json()) as Array<{ name: string; description: string; kind: string }>;
-    expect(Array.isArray(voci)).toBe(true);
-    for (const v of voci) {
+    const items = (await res.json()) as Array<{ name: string; description: string; kind: string }>;
+    expect(Array.isArray(items)).toBe(true);
+    for (const v of items) {
       expect(typeof v.name).toBe("string");
       expect(["command", "skill"]).toContain(v.kind);
     }
@@ -123,16 +123,16 @@ describe("il resolver, con le sue cartelle sotto controllo", () => {
     // the process's directory: `bun test` runs the files in the same process,
     // and a `chdir` that is not restored would change the world out from under
     // the files that follow. Here the same proof with no side effects.
-    const casa = join(ROOT, "casa");
-    const lavoro = join(ROOT, "lavoro");
-    mkdirSync(join(lavoro, ".claude", "commands"), { recursive: true });
-    mkdirSync(join(casa, ".claude", "commands"), { recursive: true });
-    writeFileSync(join(lavoro, ".claude", "commands", "recap.md"), "# recap\nDue righe e basta.\n");
+    const homeDir = join(ROOT, "casa");
+    const workDir = join(ROOT, "lavoro");
+    mkdirSync(join(workDir, ".claude", "commands"), { recursive: true });
+    mkdirSync(join(homeDir, ".claude", "commands"), { recursive: true });
+    writeFileSync(join(workDir, ".claude", "commands", "recap.md"), "# recap\nDue righe e basta.\n");
 
-    const trovato = readSlashCommandSource("recap", { home: casa, cwd: lavoro });
-    expect(trovato, "un comando che esiste non viene letto").toBeTruthy();
-    expect(trovato!.kind).toBe("command");
-    expect(trovato!.body).toContain("Due righe e basta");
+    const found = readSlashCommandSource("recap", { home: homeDir, cwd: workDir });
+    expect(found, "un comando che esiste non viene letto").toBeTruthy();
+    expect(found!.kind).toBe("command");
+    expect(found!.body).toContain("Due righe e basta");
   });
 
   test("un link che punta fuori dalle cartelle note non si legge", async () => {
@@ -140,17 +140,17 @@ describe("il resolver, con le sue cartelle sotto controllo", () => {
     // it exists for: the name is allowed, the file is where it is expected to
     // be, but the file IS a link to something else.
     const { symlinkSync } = await import("node:fs");
-    const casa = join(ROOT, "casa2");
-    const lavoro = join(ROOT, "lavoro2");
-    const fuori = join(ROOT, "fuori2");
-    mkdirSync(join(lavoro, ".claude", "commands"), { recursive: true });
-    mkdirSync(join(casa, ".claude", "commands"), { recursive: true });
-    mkdirSync(fuori, { recursive: true });
-    const segreto = join(fuori, "segreto.md");
-    writeFileSync(segreto, "roba che non deve uscire");
-    symlinkSync(segreto, join(lavoro, ".claude", "commands", "esca.md"));
+    const homeDir = join(ROOT, "casa2");
+    const workDir = join(ROOT, "lavoro2");
+    const outsideDir = join(ROOT, "fuori2");
+    mkdirSync(join(workDir, ".claude", "commands"), { recursive: true });
+    mkdirSync(join(homeDir, ".claude", "commands"), { recursive: true });
+    mkdirSync(outsideDir, { recursive: true });
+    const secret = join(outsideDir, "segreto.md");
+    writeFileSync(secret, "roba che non deve uscire");
+    symlinkSync(secret, join(workDir, ".claude", "commands", "esca.md"));
 
     expect(isValidSlashCommandName("esca"), "il nome e' ammesso: e' il percorso a non esserlo").toBe(true);
-    expect(readSlashCommandSource("esca", { home: casa, cwd: lavoro })).toBeNull();
+    expect(readSlashCommandSource("esca", { home: homeDir, cwd: workDir })).toBeNull();
   });
 });

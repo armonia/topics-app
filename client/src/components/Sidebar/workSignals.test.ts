@@ -9,9 +9,9 @@
  *     answer.
  */
 import { describe, it, expect } from 'bun:test';
-import { segnaliLavoro, type ContiLavoro } from './workSignals';
+import { workSignals, type WorkCounts } from './workSignals';
 
-const zero: ContiLavoro = {
+const zero: WorkCounts = {
   openSessions: 0,
   workingSessions: 0,
   activeTasks: 0,
@@ -19,39 +19,39 @@ const zero: ContiLavoro = {
   awaitingDone: 0,
 };
 
-describe('segnaliLavoro', () => {
-  it('a macchina ferma non disegna niente', () => {
-    expect(segnaliLavoro(zero)).toEqual([]);
+describe('workSignals', () => {
+  it('a quiet machine draws nothing', () => {
+    expect(workSignals(zero)).toEqual([]);
   });
 
-  it('salta gli zeri e tiene solo cio\' che esiste', () => {
-    const s = segnaliLavoro({ ...zero, openSessions: 12 });
-    expect(s).toEqual([{ tipo: 'open', n: 12 }]);
+  it('skips the zeros and keeps only what exists', () => {
+    const s = workSignals({ ...zero, openSessions: 12 });
+    expect(s).toEqual([{ kind: 'open', n: 12 }]);
   });
 
-  it('mette prima cio\' che e\' vivo e per ultimo l\'inventario', () => {
-    const s = segnaliLavoro({ ...zero, openSessions: 12, workingSessions: 3 });
-    expect(s.map((x) => x.tipo)).toEqual(['working', 'open']);
+  it('puts what is alive first and the inventory last', () => {
+    const s = workSignals({ ...zero, openSessions: 12, workingSessions: 3 });
+    expect(s.map((x) => x.kind)).toEqual(['working', 'open']);
   });
 
-  it('con cinque candidati ne tiene tre, e il primo a cadere e\' il meno urgente', () => {
-    const s = segnaliLavoro({
+  it('with five candidates it keeps three, and the first to fall is the least urgent', () => {
+    const s = workSignals({
       openSessions: 12,
       workingSessions: 3,
       activeTasks: 2,
       awaitingInput: 1,
       awaitingDone: 4,
     });
-    expect(s.map((x) => x.tipo)).toEqual(['working', 'awaitingInput', 'done']);
+    expect(s.map((x) => x.kind)).toEqual(['working', 'awaitingInput', 'done']);
     // The board tasks fall, and so does the open count: the three that stay are
     // the ones that mean somebody is waiting for you.
     expect(s.map((x) => x.n)).toEqual([3, 1, 4]);
   });
 
-  it('il numero di sessioni resta anche quando i task cadono', () => {
-    const s = segnaliLavoro({ ...zero, openSessions: 12, workingSessions: 3, activeTasks: 2 });
-    expect(s.map((x) => x.tipo)).toEqual(['working', 'tasks', 'open']);
-    const stretto = segnaliLavoro({ ...zero, openSessions: 12, workingSessions: 3, activeTasks: 2 }, 2);
-    expect(stretto.map((x) => x.tipo)).toEqual(['working', 'open']);
+  it('the session count survives even when the tasks fall', () => {
+    const s = workSignals({ ...zero, openSessions: 12, workingSessions: 3, activeTasks: 2 });
+    expect(s.map((x) => x.kind)).toEqual(['working', 'tasks', 'open']);
+    const narrower = workSignals({ ...zero, openSessions: 12, workingSessions: 3, activeTasks: 2 }, 2);
+    expect(narrower.map((x) => x.kind)).toEqual(['working', 'open']);
   });
 });

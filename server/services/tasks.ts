@@ -152,8 +152,8 @@ export interface Task {
   completedAt: string | null;
   updatedAt: string;
   /**
-   * SUL FILO, non nel corpo fisso: viaggia solo quando ha un valore. Qui
-   * `null` non e' uno stato — assente e mai-controllato sono la stessa cosa.
+   * ON THE WIRE, not in the fixed body: it travels only when it has a value.
+   * Here `null` is not a state - absent and never-checked are the same thing.
    */
   claudeTaskId?: string;
   assignedTopicId: string | null;
@@ -198,8 +198,8 @@ export interface Task {
   urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
   /** Timestamp dell'ultima sonda (ISO string). */
   /**
-   * SUL FILO, non nel corpo fisso: viaggia solo quando ha un valore. Qui
-   * `null` non e' uno stato — assente e mai-controllato sono la stessa cosa.
+   * ON THE WIRE, not in the fixed body: it travels only when it has a value.
+   * Here `null` is not a state - absent and never-checked are the same thing.
    */
   urlProbeCheckedAt?: string;
   /** Screenshot della consegna (path assoluto allowlistato, servito da
@@ -308,8 +308,8 @@ export interface Task {
    *  null = never audited (pre-audit task, or no delivery recorded). */
   landingState: "landed" | "unlanded" | "unverifiable" | null;
   /**
-   * SUL FILO, non nel corpo fisso: viaggia solo quando ha un valore. Qui
-   * `null` non e' uno stato — assente e mai-controllato sono la stessa cosa.
+   * ON THE WIRE, not in the fixed body: it travels only when it has a value.
+   * Here `null` is not a state - absent and never-checked are the same thing.
    */
   landingCheckedAt?: string;
   /**
@@ -1285,7 +1285,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * The column is a JSON array; an unreadable row counts as "nothing
    * rejected", which is the previous behaviour and never loses real evidence.
    */
-  const pathRespinti = (raw: string | null | undefined): string[] => {
+  const rejectedPaths = (raw: string | null | undefined): string[] => {
     if (!raw) return [];
     try {
       const v = JSON.parse(raw);
@@ -1294,10 +1294,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   };
 
   /** The list including `path`, without duplicates and without empties. */
-  const conPathRespinto = (raw: string | null | undefined, path: string | null | undefined): string[] => {
+  const withRejectedPath = (raw: string | null | undefined, path: string | null | undefined): string[] => {
     const p = (path ?? "").trim();
-    const gia = pathRespinti(raw);
-    return p && !gia.includes(p) ? [...gia, p] : gia;
+    const already = rejectedPaths(raw);
+    return p && !already.includes(p) ? [...already, p] : already;
   };
 
   /** Quante evidenze al massimo finiscono nel carosello della card. Oltre, non
@@ -1406,7 +1406,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // to the comment that carried it, which is precisely where we fish below:
       // without this line the startup sweep put the just-rejected shot back on
       // the card, and turned the retirement off while doing it.
-      const respinti = pathRespinti(row.preview_rejected);
+      const alreadyRejected = rejectedPaths(row.preview_rejected);
       const rows = db.prepare(
         "SELECT media FROM task_comments WHERE task_id = ? AND media IS NOT NULL ORDER BY created_at DESC LIMIT 10",
       ).all(taskId) as Array<{ media: string }>;
@@ -1417,7 +1417,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (!Array.isArray(files)) continue;
         for (const f of files) {
           if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
-          if (respinti.includes(f)) continue;
+          if (alreadyRejected.includes(f)) continue;
           if (!fileExists(f)) continue;
           const tall = tooTallForCard(f);
           if (tall) { rejected.push({ path: f, shape: tall }); continue; }
@@ -2187,13 +2187,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
      * this read the retired shot stayed visible next to the good one, so the
      * card kept showing exactly what the retirement had declared false. One
      * query, like the media above. */
-    const respintiPerTask = new Map<string, string[]>();
+    const rejectedByTask = new Map<string, string[]>();
     try {
       const rr = db.query(
         `SELECT id, preview_rejected FROM tasks
           WHERE id IN (SELECT value FROM json_each(?)) AND preview_rejected IS NOT NULL`,
       ).all(JSON.stringify(ids)) as Array<{ id: string; preview_rejected: string | null }>;
-      for (const r of rr) respintiPerTask.set(r.id, pathRespinti(r.preview_rejected));
+      for (const r of rr) rejectedByTask.set(r.id, rejectedPaths(r.preview_rejected));
     } catch { /* column missing (old db): nothing rejected, as before */ }
     /* Il tipo della riga e' DICHIARATO, non `any`: sono due colonne, si
      * scrivono. Il cricchetto sugli `any` (`check:any-budget`) mi ha preso
@@ -2216,7 +2216,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Le stesse regole della promozione: path assoluto, estensione che
         // qualcuno sa disegnare. Un `.pdf` fra le slide sarebbe un buco.
         if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
-        if (respintiPerTask.get(r.task_id)?.includes(f)) continue;
+        if (rejectedByTask.get(r.task_id)?.includes(f)) continue;
         const list = out.get(r.task_id);
         if (!list) { out.set(r.task_id, [f]); continue; }
         if (list.length >= PREVIEW_SLIDES_MAX) continue;
@@ -2441,20 +2441,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           })()
         : {}),
 
-      // TRE CAMPI CHE VIAGGIAVANO SEMPRE E CHE NON LEGGE NESSUNO.
+      // THREE FIELDS THAT ALWAYS TRAVELLED AND THAT NOBODY READS.
       //
-      // Stessa regola dei due campi rari qui sopra: viaggiano solo quando
-      // hanno un contenuto. Su una lista da 600 card un `null` ripetuto non e'
-      // informazione, e' il nome della chiave — 44 delle 70 chiavi di questo
-      // payload sono SEMPRE nulle e da sole pesano 840 byte per task.
+      // Same rule as the two rare fields just above: they travel only when
+      // they have content. On a list of 600 cards a repeated `null` is not
+      // information, it is the name of the key - 44 of the 70 keys of this
+      // payload are ALWAYS null and on their own weigh 840 bytes per task.
       //
-      // Solo TRE, e la selezione e' la parte importante. Il criterio non e'
-      // "chi e' nullo" ma "per chi `null` NON e' uno stato": qui sono un id
-      // esterno e due timestamp di sonde — assente e mai-controllato sono la
-      // stessa cosa. Sono invece rimasti fissi tutti i campi in cui `null`
-      // dice qualcosa: `checksCommit` (dove «null non e' un verde» e' scritto
-      // in un test), `doneActor`, `waitStreak`/`waitReason`/`waitSince`.
-      // Provato a toglierli: otto test rossi, ed erano nel giusto.
+      // Only THREE, and the selection is the important part. The criterion is
+      // not "who is null" but "for whom `null` is NOT a state": here they are
+      // an external id and two probe timestamps - absent and never-checked are
+      // the same thing. All the fields where `null` does say something stayed
+      // fixed instead: `checksCommit` (where "null is not a green" is written
+      // down in a test), `doneActor`, `waitStreak`/`waitReason`/`waitSince`.
+      // Tried removing them: eight red tests, and they were in the right.
       ...(r.claude_task_id ? { claudeTaskId: r.claude_task_id } : {}),
       ...(r.url_probe_checked_at ? { urlProbeCheckedAt: r.url_probe_checked_at } : {}),
       ...(r.landing_checked_at ? { landingCheckedAt: r.landing_checked_at } : {}),
@@ -2464,7 +2464,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // The rejected paths reach the client because that is where what to draw
       // gets decided: the card needs them so the carousel does not redraw the
       // very image the retirement declared false.
-      previewRejected: pathRespinti(r.preview_rejected),
+      previewRejected: rejectedPaths(r.preview_rejected),
       planFirst: !!r.plan_first,
       planCommentId: r.plan_comment_id ?? null,
       inProgressAt: r.in_progress_at ?? null,
@@ -5095,7 +5095,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET preview_image = NULL, preview_rejected = ?, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
       ).run(
-        JSON.stringify(conPathRespinto(row.preview_rejected, row.preview_image)),
+        JSON.stringify(withRejectedPath(row.preview_rejected, row.preview_image)),
         now(), reason.trim() || null, now(), taskId,
       );
       return rowToTask(getTaskRow(taskId));

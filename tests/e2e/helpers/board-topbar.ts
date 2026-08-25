@@ -52,8 +52,8 @@ export async function apiCreateTask(
   // `done` cannot be created: the service refuses a task that is born already
   // closed (`cannot create a task already done`). You get there the way a human
   // gets there - by creating it and then closing it.
-  const nasce = status === "done" ? "backlog" : status;
-  const res = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks`, { data: { text, status: nasce } });
+  const bornStatus = status === "done" ? "backlog" : status;
+  const res = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks`, { data: { text, status: bornStatus } });
   expect(res.ok(), `creazione task «${text}»`).toBe(true);
   const task = (await res.json()) as { id: string };
   if (status === "done") {

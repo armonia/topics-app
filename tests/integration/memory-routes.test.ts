@@ -32,7 +32,7 @@ afterAll(() => cleanupTestDataDir(ROOT));
 
 type Router = ReturnType<typeof import("../../server/routes/memory").createMemoryRouter>;
 
-async function chiama(router: Router, method: string, path: string, body?: unknown) {
+async function call(router: Router, method: string, path: string, body?: unknown) {
   const url = new URL(`http://h${path}`);
   const req = new Request(url, {
     method,
@@ -50,47 +50,47 @@ async function banco(): Promise<Router> {
   return createMemoryRouter(await createTestAppContext());
 }
 
-const leggiTopic = async (router: Router, id: string) =>
-  ((await (await chiama(router, "GET", `/api/memory/${id}`)).json()) as { topicContent: string }).topicContent;
+const readTopic = async (router: Router, id: string) =>
+  ((await (await call(router, "GET", `/api/memory/${id}`)).json()) as { topicContent: string }).topicContent;
 
-const leggiGlobale = async (router: Router) =>
-  ((await (await chiama(router, "GET", "/api/memory")).json()) as { content: string }).content;
+const readGlobal = async (router: Router) =>
+  ((await (await call(router, "GET", "/api/memory")).json()) as { content: string }).content;
 
 describe("aggiungere alla memoria di un topic", () => {
   test("l'aggiunta si aggiunge: quello che c'era resta", async () => {
     const router = await banco();
     const id = `t-append-${Date.now()}`;
 
-    await chiama(router, "PUT", `/api/memory/${id}`, { content: "La prima cosa detta." });
-    expect(await leggiTopic(router, id)).toBe("La prima cosa detta.");
+    await call(router, "PUT", `/api/memory/${id}`, { content: "La prima cosa detta." });
+    expect(await readTopic(router, id)).toBe("La prima cosa detta.");
 
-    const res = await chiama(router, "POST", `/api/memory/${id}/append`, { content: "La seconda." });
+    const res = await call(router, "POST", `/api/memory/${id}/append`, { content: "La seconda." });
     expect(res.status).toBe(200);
 
-    const dopo = await leggiTopic(router, id);
-    expect(dopo, "l'aggiunta ha sovrascritto invece di aggiungere").toContain("La prima cosa detta.");
-    expect(dopo).toContain("La seconda.");
+    const after = await readTopic(router, id);
+    expect(after, "l'aggiunta ha sovrascritto invece di aggiungere").toContain("La prima cosa detta.");
+    expect(after).toContain("La seconda.");
     // The new entry carries a date, and that is the only thing that tells apart
     // two appends with the same text.
-    expect(dopo).toMatch(/- \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] La seconda\./);
+    expect(after).toMatch(/- \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] La seconda\./);
   });
 
   test("aggiungere due volte lascia due righe, in ordine", async () => {
     const router = await banco();
     const id = `t-ordine-${Date.now()}`;
-    await chiama(router, "POST", `/api/memory/${id}/append`, { content: "uno" });
-    await chiama(router, "POST", `/api/memory/${id}/append`, { content: "due" });
+    await call(router, "POST", `/api/memory/${id}/append`, { content: "uno" });
+    await call(router, "POST", `/api/memory/${id}/append`, { content: "due" });
 
-    const testo = await leggiTopic(router, id);
-    expect(testo.indexOf("uno")).toBeGreaterThanOrEqual(0);
-    expect(testo.indexOf("due")).toBeGreaterThan(testo.indexOf("uno"));
+    const text = await readTopic(router, id);
+    expect(text.indexOf("uno")).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf("due")).toBeGreaterThan(text.indexOf("uno"));
   });
 
   test("senza contenuto e' 400, e non crea niente", async () => {
     const router = await banco();
     const id = `t-vuoto-${Date.now()}`;
-    expect((await chiama(router, "POST", `/api/memory/${id}/append`, {})).status).toBe(400);
-    expect(await leggiTopic(router, id)).toBe("");
+    expect((await call(router, "POST", `/api/memory/${id}/append`, {})).status).toBe(400);
+    expect(await readTopic(router, id)).toBe("");
   });
 
   test("un'aggiunta che sfora il tetto viene rifiutata E non tocca il file", async () => {
@@ -99,15 +99,15 @@ describe("aggiungere alla memoria di un topic", () => {
     // the one that truncates - that is, the 413 would arrive AFTER the damage.
     const router = await banco();
     const id = `t-tetto-${Date.now()}`;
-    const prezioso = "Questo non deve sparire.";
-    await chiama(router, "PUT", `/api/memory/${id}`, { content: prezioso });
+    const precious = "Questo non deve sparire.";
+    await call(router, "PUT", `/api/memory/${id}`, { content: precious });
 
-    const tetto = ((await (await chiama(router, "GET", `/api/memory/${id}`)).json()) as { maxTopicBytes: number }).maxTopicBytes;
-    expect(tetto).toBeGreaterThan(0);
+    const cap = ((await (await call(router, "GET", `/api/memory/${id}`)).json()) as { maxTopicBytes: number }).maxTopicBytes;
+    expect(cap).toBeGreaterThan(0);
 
-    const res = await chiama(router, "POST", `/api/memory/${id}/append`, { content: "x".repeat(tetto + 1) });
+    const res = await call(router, "POST", `/api/memory/${id}/append`, { content: "x".repeat(cap + 1) });
     expect(res.status).toBe(413);
-    expect(await leggiTopic(router, id), "il rifiuto ha comunque scritto").toBe(prezioso);
+    expect(await readTopic(router, id), "il rifiuto ha comunque scritto").toBe(precious);
   });
 });
 
@@ -115,30 +115,30 @@ describe("le due memorie sono due cose separate", () => {
   test("cancellare la globale non tocca quella del topic", async () => {
     const router = await banco();
     const id = `t-scope-a-${Date.now()}`;
-    await chiama(router, "PUT", "/api/memory", { content: "memoria globale" });
-    await chiama(router, "PUT", `/api/memory/${id}`, { content: "memoria del topic" });
+    await call(router, "PUT", "/api/memory", { content: "memoria globale" });
+    await call(router, "PUT", `/api/memory/${id}`, { content: "memoria del topic" });
 
-    const res = await chiama(router, "DELETE", "/api/memory/global");
+    const res = await call(router, "DELETE", "/api/memory/global");
     expect(res.status).toBe(200);
 
-    expect(await leggiGlobale(router)).toBe("");
-    expect(await leggiTopic(router, id), "la cancellazione globale si e' portata via il topic").toBe("memoria del topic");
+    expect(await readGlobal(router)).toBe("");
+    expect(await readTopic(router, id), "la cancellazione globale si e' portata via il topic").toBe("memoria del topic");
   });
 
   test("cancellare quella di un topic non tocca la globale ne' gli altri topic", async () => {
     const router = await banco();
-    const uno = `t-scope-b-${Date.now()}`;
-    const due = `t-scope-c-${Date.now()}`;
-    await chiama(router, "PUT", "/api/memory", { content: "globale intatta" });
-    await chiama(router, "PUT", `/api/memory/${uno}`, { content: "primo topic" });
-    await chiama(router, "PUT", `/api/memory/${due}`, { content: "secondo topic" });
+    const first = `t-scope-b-${Date.now()}`;
+    const second = `t-scope-c-${Date.now()}`;
+    await call(router, "PUT", "/api/memory", { content: "globale intatta" });
+    await call(router, "PUT", `/api/memory/${first}`, { content: "primo topic" });
+    await call(router, "PUT", `/api/memory/${second}`, { content: "secondo topic" });
 
-    const res = await chiama(router, "DELETE", `/api/memory/topic/${uno}`);
+    const res = await call(router, "DELETE", `/api/memory/topic/${first}`);
     expect(res.status).toBe(200);
 
-    expect(await leggiTopic(router, uno)).toBe("");
-    expect(await leggiTopic(router, due), "cancellato il topic sbagliato").toBe("secondo topic");
-    expect(await leggiGlobale(router), "la cancellazione di un topic si e' portata via la globale").toBe("globale intatta");
+    expect(await readTopic(router, first)).toBe("");
+    expect(await readTopic(router, second), "cancellato il topic sbagliato").toBe("secondo topic");
+    expect(await readGlobal(router), "la cancellazione di un topic si e' portata via la globale").toBe("globale intatta");
   });
 
   test("`/append` non viene inghiottita dalla rotta del singolo topic", async () => {
@@ -149,7 +149,7 @@ describe("le due memorie sono due cose separate", () => {
     // and nothing written.
     const router = await banco();
     const id = `t-rotta-${Date.now()}`;
-    await chiama(router, "POST", `/api/memory/${id}/append`, { content: "arrivata a destinazione" });
-    expect(await leggiTopic(router, id)).toContain("arrivata a destinazione");
+    await call(router, "POST", `/api/memory/${id}/append`, { content: "arrivata a destinazione" });
+    expect(await readTopic(router, id)).toContain("arrivata a destinazione");
   });
 });

@@ -1,14 +1,15 @@
 /**
- * La macchina a stati della presence.
+ * The presence state machine.
  *
- * Il trasporto ha già il suo test contro un socket vero (`discord-ipc.test.ts`);
- * qui l'interlocutore è un socket finto IN PROCESSO, perché le domande sono
- * altre e nessuna riguarda i byte: spegnere pulisce? lo stesso stato si
- * riscrive? Discord chiuso è un errore o una condizione? un Application ID
- * rifiutato smette di essere ritentato?
+ * The transport already has its own test against a real socket
+ * (`discord-ipc.test.ts`); here the counterpart is a fake socket IN PROCESS,
+ * because the questions are different ones and none of them is about bytes:
+ * does turning off clear? does the same state get rewritten? is a closed
+ * Discord an error or a condition? does a refused Application ID stop being
+ * retried?
  *
- * Sono le quattro cose che il daemon sostituito sbagliava — l'ultima gli
- * costava un crash-loop con i rapporti di diagnostica di macOS pieni.
+ * They are the four things the daemon this replaced got wrong - the last one
+ * cost it a crash-loop with the macOS diagnostic reports full.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -25,12 +26,12 @@ const SNAPSHOT: PresenceSnapshot = {
   since: 1_700_000_000_000,
 };
 
-/** Un Discord finto in processo: risponde READY (o no) e registra i comandi. */
+/** A fake in-process Discord: it answers READY (or not) and records the commands. */
 function fakeDiscord(opts: { ready?: boolean; appName?: string } = {}) {
   const ready = opts.ready !== false;
-  // Discord vero RISPONDE a un SET_ACTIVITY rimandando l'activity come l'ha
-  // salvata, col nome dell'applicazione dentro. Il finto lo imita, altrimenti
-  // qui non si puo' provare niente su quel nome.
+  // The real Discord ANSWERS a SET_ACTIVITY by sending the activity back as it
+  // saved it, with the application name inside. The fake one imitates that,
+  // otherwise nothing about that name could be proved here.
   const appName = opts.appName ?? "Jarvis";
   const activities: Array<unknown> = [];
   let connections = 0;
@@ -80,9 +81,9 @@ function settings(over: Partial<DiscordPresenceSettings> = {}): DiscordPresenceS
   return { enabled: true, level: "activity", language: "it", ...over };
 }
 
-/** Il servizio non si avvia col timer: i test chiamano `tick()` a mano, così
- *  non c'è nessun orologio vero da aspettare. */
-function servizio(over: {
+/** The service does not start with the timer: the tests call `tick()` by hand,
+ *  so there is no real clock to wait for. */
+function service(over: {
   settings?: DiscordPresenceSettings;
   snapshot?: PresenceSnapshot;
   ready?: boolean;
@@ -98,18 +99,18 @@ function servizio(over: {
     candidates: ["/finto/discord-ipc-0"],
     clientId: "test",
     largeImage: null,
-    // Il Discord finto «muto» (`ready:false`) va in timeout per definizione:
-    // 40ms invece di 4s, così il test dura quanto la logica che prova.
+    // The "mute" fake Discord (`ready:false`) times out by definition: 40ms
+    // instead of 4s, so the test lasts as long as the logic it tests.
     handshakeTimeoutMs: 40,
     now: over.now,
-    log: () => { /* silenzio nei test */ },
+    log: () => { /* silence in the tests */ },
   });
   return { svc, discord, set: (s: Partial<DiscordPresenceSettings>) => { current = { ...current, ...s }; } };
 }
 
 describe("interruttore", () => {
   test("spento: nessun filo aperto, e lo stato lo DICE («off», non «errore»)", async () => {
-    const { svc, discord } = servizio({ settings: settings({ enabled: false }) });
+    const { svc, discord } = service({ settings: settings({ enabled: false }) });
     await svc.tick();
     expect(discord.connections).toBe(0);
     expect(svc.status().connection).toBe("off");
@@ -117,42 +118,43 @@ describe("interruttore", () => {
   });
 
   test("acceso: si collega e pubblica ciò che sta succedendo", async () => {
-    const { svc, discord } = servizio();
+    const { svc, discord } = service();
     await svc.tick();
-    await svc.tick(); // il READY arriva in un microtask: il secondo giro scrive
+    await svc.tick(); // the READY arrives in a microtask: the second round writes
     expect(discord.connections).toBe(1);
     expect(svc.status().connection).toBe("connected");
     expect(svc.status().user?.username).toBe("pippo");
-    // L'etichetta e' quella di `presence-phrase` («chat aperte», non
-    // «aperte»): questo test verifica che il servizio PUBBLICHI la frase, non
-    // che la sappia riscrivere. Tenerne una copia a mano l'aveva gia' fatto
-    // divergere dal 647ccd7c, quando la parola cambio' di la' e non di qua.
+    // The label is the one from `presence-phrase` («chat aperte», not  allow-italian: quotes the published label verbatim
+    // «aperte»): this test checks that the service PUBLISHES the phrase, not  allow-italian: quotes the published label verbatim
+    // that it knows how to rewrite it. Keeping a copy of it by hand had already
+    // made it diverge back at 647ccd7c, when the word changed over there and
+    // not over here.
     expect(discord.activities.at(-1)).toMatchObject({
       details: presenceLines(SNAPSHOT, "it").details,
     });
   });
 
   test("il nome dell'applicazione lo dice Discord, non il codice", async () => {
-    // Il nome in cima alla card lo decide il portale sviluppatori e nessuno
-    // puo' indovinarlo da qui: il pannello scriveva «Topics» a mano mentre la
-    // card vera diceva «Jarvis», e chi apriva l'anteprima per sapere cosa
-    // vedono gli altri leggeva una cosa falsa.
-    const { svc } = servizio();
-    expect(svc.status().applicationName).toBeNull(); // prima del filo: non si sa
+    // The name at the top of the card is decided by the developer portal and
+    // nobody can guess it from here: the panel wrote "Topics" by hand while the
+    // real card said "Jarvis", and whoever opened the preview to know what
+    // other people see was reading something false.
+    const { svc } = service();
+    expect(svc.status().applicationName).toBeNull(); // before the wire: unknown
     await svc.tick();
     await svc.tick();
     expect(svc.status().applicationName).toBe("Jarvis");
   });
 
   test("un'altra applicazione, un altro nome: non si ricicla il precedente", async () => {
-    const { svc } = servizio({ appName: "Topics" });
+    const { svc } = service({ appName: "Topics" });
     await svc.tick();
     await svc.tick();
     expect(svc.status().applicationName).toBe("Topics");
   });
 
   test("spegnere PULISCE la presence invece di lasciarla appesa", async () => {
-    const { svc, discord, set } = servizio();
+    const { svc, discord, set } = service();
     await svc.tick();
     await svc.tick();
     expect(discord.activities.at(-1)).not.toBeNull();
@@ -167,7 +169,7 @@ describe("interruttore", () => {
 
 describe("scritture sul filo", () => {
   test("lo stesso stato non si riscrive: Discord limita i SET_ACTIVITY", async () => {
-    const { svc, discord } = servizio();
+    const { svc, discord } = service();
     await svc.tick();
     await svc.tick();
     const dopoPrima = discord.activities.length;
@@ -177,7 +179,7 @@ describe("scritture sul filo", () => {
   });
 
   test("uno stato diverso si scrive", async () => {
-    const { svc, discord, set } = servizio();
+    const { svc, discord, set } = service();
     await svc.tick();
     await svc.tick();
     const prima = discord.activities.length;
@@ -204,31 +206,31 @@ describe("quando Discord non c'è", () => {
   });
 
   test("un ID rifiutato non si ritenta a ogni giro: il fallimento non passa col tempo", async () => {
-    let orologio = 0;
-    const { svc, discord } = servizio({ ready: false, now: () => orologio });
+    let clock = 0;
+    const { svc, discord } = service({ ready: false, now: () => clock });
     await svc.tick();
     expect(svc.status().connection).toBe("error");
-    const tentativi = discord.connections;
+    const attempts = discord.connections;
 
-    orologio += 30_000; // mezzo minuto dopo: ancora dentro il rallentamento
+    clock += 30_000; // half a minute later: still inside the slowdown
     await svc.tick();
-    expect(discord.connections).toBe(tentativi);
+    expect(discord.connections).toBe(attempts);
 
-    orologio += 600_000; // dieci minuti dopo: si riprova
+    clock += 600_000; // ten minutes later: we try again
     await svc.tick();
-    expect(discord.connections).toBe(tentativi + 1);
+    expect(discord.connections).toBe(attempts + 1);
   }, 10_000);
 });
 
 describe("anteprima", () => {
   test("si guarda a interruttore SPENTO — è il punto: si guarda prima di accendere", () => {
-    const { svc, discord } = servizio({ settings: settings({ enabled: false }) });
+    const { svc, discord } = service({ settings: settings({ enabled: false }) });
     expect(svc.preview("detailed")).toMatchObject({ state: "su Armonia-CRM" });
     expect(discord.connections).toBe(0);
   });
 
   test("l'anteprima di un livello è ciò che quel livello pubblica, non un'imitazione", async () => {
-    const { svc, discord, set } = servizio({ settings: settings({ level: "minimal" }) });
+    const { svc, discord, set } = service({ settings: settings({ level: "minimal" }) });
     const attesa = svc.preview();
     await svc.tick();
     await svc.tick();

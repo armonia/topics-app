@@ -58,8 +58,14 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // A dictionary hole, not jargon. `/usr/share/dict/words` is a 1934 legacy and
+  // does not carry words today's English uses without thinking: `entries`
+  // (Object.entries) is as English as `entry`, which it does carry.
+  "entries",
+
   // the product and its parts
   "topics", "topic", "openclaw", "armonia", "tauri", "kanban", "pane", "panes",
+  "jcode", "unfollow",
   "worktree", "worktrees", "dispatcher", "dispatch", "board", "boards", "drawer",
   // tech and tooling
   "ts", "tsx", "js", "jsx", "api", "apis", "url", "urls", "uri", "uuid", "id", "ids",
@@ -74,6 +80,9 @@ export const PROJECT_WORDS = new Set([
   "ref", "refs", "props", "prop", "attr", "attrs", "elem", "btn", "nav", "auth",
   "admin", "repo", "repos", "sha", "diff", "diffs", "commit", "commits", "git",
   "npm", "bun", "vite", "react", "playwright", "sse", "mcp", "pty", "ptys",
+  // The browser pane's own nouns. `web2` is a 1934 dictionary: it does not
+  // carry `download`, and the feature it names is a menu on screen.
+  "download", "downloads",
   // words the language of software invented
   "dedupe", "dedup", "stringify", "serializable", "nullable", "iterable",
   "truthy", "falsy", "boolean", "enum", "enums", "middleware", "callback",
@@ -84,6 +93,38 @@ export const PROJECT_WORDS = new Set([
   "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",
   "jpg", "webm", "gif", "pdf", "blob", "cors", "csrf", "xhr", "oauth", "jwt",
   "utc", "iso", "ms", "sec", "px", "rem",
+  // Plain English that web2 (`/usr/share/dict/words`, the list this gate reads)
+  // simply does not carry. It has "boxberry" and "boxcar" but not "box", so
+  // `IDENTITY_GLYPH_BOX` and `ROW_ACTION_BOX` read as foreign. The word is not
+  // the problem; the dictionary is.
+  "box", "boxes",
+  // Platforms and devices the code has to name to test them. Proper nouns: no
+  // dictionary carries "iPhone", and the user-agent constants in
+  // `push/environment.test.ts` cannot say which device they impersonate
+  // without them.
+  "ios", "ipad", "ipados", "iphone", "macos", "android",
+  // Interface vocabulary and the shorthand this codebase reads in field names,
+  // neither of which web2 carries. "avatar" is what the GitHub payload calls
+  // the face (`avatarUrl`) and what the profile surface draws in four places;
+  // "stats" is the name of the server field the profile renders
+  // (`persona.stats`), so the component that draws it would otherwise have to
+  // be named after something the payload does not say.
+  "avatar", "avatars", "stats",
+  // The board's own column names, and two more words web2 does not have.
+  // "todo" is a STATUS this product stores and routes on (`status: "todo"`),
+  // so a variable holding the card in that column cannot be called anything
+  // else without lying about which column it came from. "inline" is the CSS
+  // display value the topbar helper measures; "kpi" is what the dashboard
+  // calls its own numbers, route included (`/api/dashboard/kpis`).
+  "todo", "inline", "kpi", "kpis",
+  // Names the Discord IPC layer cannot avoid. "darwin" is what
+  // `process.platform` calls macOS and what `getconf DARWIN_USER_TEMP_DIR`
+  // spells, so the helper that reads that directory has no other honest name;
+  // "ack" is the acknowledgement frame the protocol sends back
+  // (`onActivityAck`), a term of art older than this codebase; "app" is what
+  // Discord itself calls the application whose name it returns (`appName`, from
+  // `applicationName`), and web2 carries neither.
+  "darwin", "ack", "acks", "app", "apps",
 ]);
 
 function trackedFiles(): string[] {

@@ -1,24 +1,24 @@
 #!/usr/bin/env bun
 /**
- * Un handshake SOLO, contro Discord vero, per rispondere a una domanda sola:
- * questa applicazione è mia?
+ * ONE handshake, against the real Discord, to answer one single question: is
+ * this application mine?
  *
- * PERCHE' ESISTE: quando la presence resta in `error` con «nessun READY», la
- * spiegazione ovvia è che l'Application ID non appartenga a questo account.
- * E' spesso falsa. Discord chiude in silenzio anche quando gli handshake sono
- * troppo ravvicinati: misurato su `discord-ipc-0`, il primo risponde in mezzo
- * secondo e il terzo di fila scade. Il 24/08 questa diagnosi sbagliata ha fatto
- * annullare un cambio di applicazione che stava riuscendo.
+ * WHY IT EXISTS: when presence stays in `error` with «nessun READY», the  allow-italian: quotes the error message the code emits
+ * obvious explanation is that the Application ID does not belong to this
+ * account. It is often false. Discord also closes silently when handshakes
+ * come too close together: measured on `discord-ipc-0`, the first answers in
+ * half a second and the third in a row times out. On 24/08 this wrong
+ * diagnosis got a change of application that was succeeding called off.
  *
- * Isolato vuol dire isolato: se il server sta ritentando ogni minuto, la sonda
- * gareggia con lui e può ereditare il suo timeout. Ferma il server, oppure
- * accetta che un rosso qui vada riprovato.
+ * Isolated means isolated: if the server is retrying every minute, the probe
+ * races against it and can inherit its timeout. Stop the server, or accept
+ * that a red here has to be retried.
  *
  *   bun run scripts/discord-ipc-probe.ts [APPLICATION_ID]
  *
- * Senza argomento usa lo stesso id del servizio (DISCORD_CLIENT_ID, o il
- * default del codice), che è la domanda giusta nove volte su dieci: «l'app che
- * sto per usare davvero, risponde?».
+ * With no argument it uses the service's own id (DISCORD_CLIENT_ID, or the
+ * code's default), which is the right question nine times out of ten: "the app
+ * I am actually about to use, does it answer?".
  */
 import { DEFAULT_CLIENT_ID } from "../server/services/discord-presence";
 import { DiscordIpcError, existingIpcCandidates, handshake } from "../server/services/discord-ipc";
@@ -36,11 +36,11 @@ console.log(`socket       : ${candidates.length === 0 ? "nessuno" : candidates.j
 
 const started = Date.now();
 try {
-  // Il timeout è il DOPPIO di quello del servizio (4s): una sonda che scade
-  // prima del vero client risponderebbe a una domanda diversa da quella posta.
+  // The timeout is DOUBLE the service's (4s): a probe that expires before the
+  // real client would be answering a different question from the one asked.
   const res = await handshake({ clientId, timeoutMs: 8000 });
   const ms = Date.now() - started;
-  try { res.socket.destroy(); } catch { /* già morto */ }
+  try { res.socket.destroy(); } catch { /* already dead */ }
   console.log(`\nREADY in ${ms}ms su ${res.socketPath}`);
   console.log(`utente       : ${res.user?.username ?? "?"} (${res.user?.id ?? "?"})`);
   console.log(`\nL'applicazione risponde: e' di questo account.`);
@@ -53,9 +53,9 @@ try {
   if (code === "no_socket") {
     console.error(`\nDiscord desktop non e' in esecuzione: non c'e' niente da interrogare.`);
   } else {
-    // Le due cause hanno lo stesso sintomo, e distinguerle costa un minuto di
-    // attesa: dirlo qui evita di scambiare un limite di frequenza per un furto
-    // di identita'.
+    // The two causes have the same symptom, and telling them apart costs a
+    // minute of waiting: saying so here keeps a rate limit from being mistaken
+    // for a stolen identity.
     console.error(`\nDue cause danno lo stesso silenzio:`);
     console.error(`  - handshake troppo ravvicinati (aspetta ~60s e rilancia questa sonda);`);
     console.error(`  - l'applicazione non appartiene a questo account.`);

@@ -5,7 +5,7 @@ import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
-import { EVENTO_IMPOSTAZIONI, type DettaglioImpostazioni, type SezioneImpostazioni } from './lib/openSettings';
+import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail, type SettingsPanelSection } from './lib/openSettings';
 import { runNotificationAction } from './lib/notify/notificationAction';
 import { decodeNotifyTarget, openNotifyToken } from './lib/notify/notifyTarget';
 import { boardNotificationDeps } from './lib/notify/boardActionDeps';
@@ -400,19 +400,19 @@ function App() {
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
   // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<SezioneImpostazioni | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<SettingsPanelSection | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
   // The deep link into Settings, from anywhere. The identity rows are the only
   // sender today, and they became a PANE when they moved into the Profile tab:
   // a pane cannot reach this state through props, so it asks by event, the same
   // way panes are opened (`topics:open-utility`). See `lib/openSettings`.
   useEffect(() => {
-    const apri = (e: Event) => {
-      setSettingsSection((e as CustomEvent<DettaglioImpostazioni>).detail?.section);
+    const handleOpen = (e: Event) => {
+      setSettingsSection((e as CustomEvent<OpenSettingsDetail>).detail?.section);
       setShowSettings(true);
     };
-    window.addEventListener(EVENTO_IMPOSTAZIONI, apri);
-    return () => window.removeEventListener(EVENTO_IMPOSTAZIONI, apri);
+    window.addEventListener(OPEN_SETTINGS_EVENT, handleOpen);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handleOpen);
   }, []);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a

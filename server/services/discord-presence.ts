@@ -1,29 +1,29 @@
 /**
- * Lo stato Discord, pubblicato da Topics.
+ * The Discord status, published by Topics.
  *
- * ── COSA SOSTITUISCE ────────────────────────────────────────────────────────
- * Un daemon a parte (`~/Projects/claude-discord-presence`, launchd) che ogni
- * 15s lanciava `ps`, contava i processi `claude`, ne campionava il delta di CPU
- * per un secondo e da lì INDOVINAVA quante sessioni stessero lavorando. Aveva
- * due errori strutturali, non di taratura: contava processi che non sono
- * sessioni di lavoro, e non vedeva le chat via API, che non lanciano nessun
- * processo. Topics non indovina — sa quali turni sta trasmettendo e quali task
- * la board ha in mano.
+ * ── WHAT IT REPLACES ────────────────────────────────────────────────────────
+ * A separate daemon (`~/Projects/claude-discord-presence`, launchd) that every
+ * 15s ran `ps`, counted the `claude` processes, sampled their CPU delta for one
+ * second and from there GUESSED how many sessions were working. It had two
+ * structural errors, not calibration ones: it counted processes that are not
+ * working sessions, and it did not see the chats over the API, which launch no
+ * process at all. Topics does not guess - it knows which turns it is streaming
+ * and which tasks the board has in hand.
  *
- * ── PERCHÉ IL SERVIZIO È UNA MACCHINA A STATI E NON UN `setInterval` ────────
- * Ci sono tre cose che possono essere diverse a ogni giro: l'interruttore, il
- * filo con Discord, e ciò che c'è da dire. Tenerle in un unico tick significa
- * che spegnere l'interruttore PULISCE la presence (e non la lascia appesa), che
- * Discord chiuso non è un errore ma uno stato da cui si esce da soli, e che un
- * Application ID sbagliato non produce una tempesta di tentativi: quel
- * fallimento non passa col tempo, quindi si rallenta.
+ * ── WHY THE SERVICE IS A STATE MACHINE AND NOT A `setInterval` ──────────────
+ * There are three things that can be different on every round: the switch, the
+ * wire to Discord, and what there is to say. Keeping them in a single tick
+ * means that turning the switch off CLEARS the presence (rather than leaving it
+ * stale), that a closed Discord is not an error but a state you get out of by
+ * yourself, and that a wrong Application ID does not produce a storm of
+ * attempts: that failure does not pass with time, so we slow down.
  *
- * ── NIENTE È GLOBALE QUI DENTRO ─────────────────────────────────────────────
- * Snapshot, impostazioni, connettore e orologio arrivano iniettati: il test fa
- * girare il servizio contro un finto Discord in tmpdir e contro uno snapshot
- * scritto a mano, senza toccare né il DB né l'app vera. Il singleton — che
- * serve, perché il filo è uno solo per processo — sta in fondo, ed è dieci
- * righe.
+ * ── NOTHING IS GLOBAL IN HERE ───────────────────────────────────────────────
+ * Snapshot, settings, connector and clock all arrive injected: the test runs
+ * the service against a fake Discord in tmpdir and against a hand-written
+ * snapshot, touching neither the DB nor the real app. The singleton - which is
+ * needed, because there is only one wire per process - sits at the bottom, and
+ * is ten lines long.
  */
 
 import type {
@@ -44,61 +44,62 @@ import {
 import { buildActivity, type DiscordActivity, type PresenceSnapshot } from "./discord-activity";
 
 /**
- * L'Application ID di Discord sotto cui compare la card.
+ * The Discord Application ID the card shows up under.
  *
- * Non è un segreto — è pubblico per costruzione, sta nel client di chiunque
- * veda la tua presence — quindi vive nel codice e non fra le chiavi. L'env
- * serve a chi vuole la propria app (il nome in cima alla card è quello
- * dell'applicazione, quindi chi non usa la nostra vedrà scritto il suo).
+ * It is not a secret - it is public by construction, it sits in the client of
+ * anyone who sees your presence - so it lives in the code and not among the
+ * keys. The env var is for whoever wants their own app (the name at the top of
+ * the card is the application's, so whoever does not use ours will see theirs
+ * written there).
  */
 export const DEFAULT_CLIENT_ID = "1467514747988611174";
 
-/** L'immagine grande della card. Un URL diretto: i client recenti lo
- *  risolvono senza dover caricare un art-asset nel Developer Portal. */
+/** The card's large image. A direct URL: recent clients resolve it without
+ *  having to upload an art asset in the Developer Portal. */
 /**
- * L'immagine grande della presence.
+ * The presence's large image.
  *
- * NON SERVE CARICARE NIENTE SUL PORTALE: qui c'era scritto il contrario, ed
- * era falso. La versione precedente di questo commento sosteneva che Discord
- * onora un `large_image` esterno solo per le app che hanno gia' un Rich
- * Presence asset caricato. Interrogato l'IPC direttamente (24/08), con
- * l'applicazione a ZERO asset:
+ * NOTHING NEEDS TO BE UPLOADED ON THE PORTAL: the opposite used to be written
+ * here, and it was false. The previous version of this comment claimed that
+ * Discord honours an external `large_image` only for apps that already have a
+ * Rich Presence asset uploaded. Asking the IPC directly (24/08), with the
+ * application at ZERO assets:
  *
- *   - questo URL viene ACCETTATO e Discord lo riscrive come
- *     `mp:external/<hash>/https/raw.githubusercontent.com/...`, cioe' l'ha
- *     preso in carico e proxato sulla sua CDN;
- *   - quell'indirizzo, chiesto a `media.discordapp.net`, risponde 200 con il
- *     PNG 128x128 giusto (5.351 byte, le due nuvolette bianche su blu);
- *   - una chiave inventata (`chiave_che_non_esiste`) sparisce invece dalla
- *     risposta, e cosi' pure l'hash dell'icona dell'applicazione: quel campo
- *     vuole una chiave di ASSET, che e' un'altra cosa.
+ *   - this URL is ACCEPTED and Discord rewrites it as
+ *     `mp:external/<hash>/https/raw.githubusercontent.com/...`, that is, it
+ *     took charge of it and proxied it on its own CDN;
+ *   - that address, asked of `media.discordapp.net`, answers 200 with the right
+ *     128x128 PNG (5,351 bytes, the two white clouds on blue);
+ *   - a made-up key (`chiave_che_non_esiste`) disappears from the reply  allow-italian: the key sent to Discord, quoted verbatim
+ *     instead, and so does the hash of the application icon: that field wants
+ *     an ASSET key, which is another thing entirely.
  *
- * Il controllo negativo e' la parte che conta: se Discord scartasse gli URL
- * esterni, questo campo sparirebbe come sparisce la chiave inventata. Resta,
- * quindi vale.
+ * The negative control is the part that counts: if Discord discarded external
+ * URLs, this field would disappear the way the made-up key disappears. It
+ * stays, so it holds.
  *
- * La «T» che si vede nell'anteprima del pannello e' un'altra faccenda: quella
- * e' l'ANTEPRIMA disegnata da noi, non la card di Discord.
+ * The "T" you see in the panel's preview is another matter: that is the
+ * PREVIEW drawn by us, not Discord's card.
  *
- * Il nome in cima alla card e' quello dell'APPLICAZIONE, non `large_text`:
- * l'IPC lo rimanda indietro come `name: "Jarvis"`. Per farlo leggere «Topics»
- * si rinomina l'applicazione sul portale — quello si', richiede il login.
+ * The name at the top of the card is the APPLICATION's, not `large_text`: the
+ * IPC sends it back as `name: "Jarvis"`. To make it read "Topics" you rename
+ * the application on the portal - that one does require logging in.
  *
- * Si sovrascrive con `DISCORD_PRESENCE_IMAGE` senza ricompilare.
+ * It is overridden with `DISCORD_PRESENCE_IMAGE` without recompiling.
  */
 export const DEFAULT_LARGE_IMAGE =
   "https://raw.githubusercontent.com/armonia/topics-app/main/desktop-tauri/src-tauri/icons/128x128.png";
 
 /**
- * Lo stato del filo e la sua fotografia stanno in `shared/types.ts`, non qui:
- * `GET /api/profile/discord` li manda al pannello tali e quali, e una seconda
- * dichiarazione lato client sarebbe uno specchio destinato a divergere
+ * The wire's state and its snapshot live in `shared/types.ts`, not here:
+ * `GET /api/profile/discord` sends them to the panel as they are, and a second
+ * client-side declaration would be a mirror doomed to diverge
  * (`tests/unit/no-type-mirrors.test.ts`).
  *
- * E da qui non si ri-esportano: questo modulo li USA, non è la loro porta.
- * Un `export type { … }` di comodo qui darebbe alla stessa forma due indirizzi,
- * nessuno importerebbe il secondo, e `check:deadcode` lo conterebbe morto —
- * che è esattamente ciò che ha rimandato indietro questa card.
+ * And they are not re-exported from here: this module USES them, it is not
+ * their door. A convenience `export type { … }` here would give the same shape
+ * two addresses, nobody would import the second, and `check:deadcode` would
+ * count it dead - which is exactly what sent this card back.
  */
 
 export interface DiscordPresenceSettings {
@@ -108,36 +109,37 @@ export interface DiscordPresenceSettings {
 }
 
 export interface DiscordPresenceDeps {
-  /** Lo stato vero, chiesto a ogni giro: è ciò che rende i numeri esatti. */
+  /** The real state, asked for on every round: it is what makes the numbers exact. */
   getSnapshot: () => PresenceSnapshot;
-  /** Le impostazioni, rilette a ogni giro: così un interruttore mosso da
-   *  un'altra finestra vale senza che nessuno debba avvisare questo servizio. */
+  /** The settings, re-read on every round: this way a switch moved from
+   *  another window takes effect without anyone having to notify this service. */
   getSettings: () => DiscordPresenceSettings;
   clientId?: string;
   largeImage?: string | null;
   connect?: IpcConnector;
   candidates?: string[];
-  /** Ogni quanto si guarda se è cambiato qualcosa. */
+  /** How often we look at whether anything has changed. */
   refreshMs?: number;
-  /** Quanto si aspetta il READY. Un Discord che accetta la connessione e poi
-   *  tace è raro ma reale (avvio in corso), e senza un tetto il tick resterebbe
-   *  appeso a quel filo — cioè la presence smetterebbe di aggiornarsi senza che
-   *  niente lo dica. */
+  /** How long we wait for the READY. A Discord that accepts the connection and
+   *  then goes quiet is rare but real (startup in progress), and without a cap
+   *  the tick would hang on that wire - that is, the presence would stop
+   *  updating without anything saying so. */
   handshakeTimeoutMs?: number;
   now?: () => number;
   log?: (msg: string) => void;
 }
 
-/** Quanto si aspetta prima di ritentare, per tipo di fallimento. Discord chiuso
- *  è una condizione che cambia da sola in fretta (lo apri); un ID rifiutato
- *  NON cambia col tempo, quindi ritentarlo ogni 15s è solo rumore.
+/** How long we wait before retrying, by kind of failure. A closed Discord is a
+ *  condition that changes on its own quickly (you open it); a refused ID does
+ *  NOT change with time, so retrying it every 15s is just noise.
  *
- *  Effetto collaterale da conoscere, misurato su sei riavvii del server: se il
- *  PRIMO tentativo riesce la presence è viva in ~3s, se fallisce (Discord non
- *  ha ancora riaperto il socket) si aspetta il minuto pieno di `socket_error`
- *  e la ripresa arriva a ~50-60s. In mezzo lo stato è `error`, che a guardarlo
- *  sembra un guasto e invece è l'attesa che funziona: chi diagnostica dopo un
- *  riavvio guardi due volte a un minuto di distanza prima di dire «rotta». */
+ *  A side effect worth knowing, measured over six server restarts: if the FIRST
+ *  attempt succeeds the presence is alive in ~3s, if it fails (Discord has not
+ *  reopened the socket yet) we wait the full `socket_error` minute and the
+ *  recovery arrives at ~50-60s. In between the state is `error`, which at a
+ *  glance looks like a fault and is instead the waiting working as intended:
+ *  whoever diagnoses after a restart should look twice, a minute apart, before
+ *  saying "broken". */
 const RETRY_MS: Record<string, number> = {
   no_socket: 30_000,
   timeout: 60_000,
@@ -148,14 +150,14 @@ const RETRY_MS: Record<string, number> = {
 export interface DiscordPresenceService {
   start(): void;
   stop(): Promise<void>;
-  /** Un giro subito, senza aspettare il timer. La chiama chi muove
-   *  l'interruttore: una spunta che impiega quindici secondi a fare effetto si
-   *  legge come una spunta rotta. */
+  /** One round right away, without waiting for the timer. Called by whoever
+   *  moves the switch: a checkbox that takes fifteen seconds to take effect
+   *  reads as a broken checkbox. */
   tick(): Promise<void>;
   status(): DiscordPresenceStatus;
-  /** L'attività che verrebbe pubblicata ORA con un dato livello — l'anteprima
-   *  della card in Impostazioni. Non tocca il filo: si può chiamare con
-   *  l'interruttore spento, ed è il punto (si guarda prima di accendere). */
+  /** The activity that would be published NOW at a given level - the preview
+   *  of the card in Settings. It does not touch the wire: it can be called with
+   *  the switch off, and that is the point (you look before turning it on). */
   preview(level?: DiscordDetailLevel): DiscordActivity | null;
 }
 
@@ -175,30 +177,31 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
   let lastError: string | null = null;
   let lastPublishedAt: number | null = null;
   let published: DiscordActivity | null = null;
-  /** La chiave di ciò che è già sul filo: si scrive solo quando CAMBIA. Discord
-   *  limita la frequenza dei SET_ACTIVITY, e riscrivere lo stesso stato ogni
-   *  quindici secondi è il modo di finire limitati per niente. */
+  /** The key of what is already on the wire: we write only when it CHANGES.
+   *  Discord rate-limits SET_ACTIVITY, and rewriting the same state every
+   *  fifteen seconds is the way to end up throttled for nothing. */
   let publishedKey = "";
   /**
-   * Il nome dell'applicazione come lo dice Discord, non come lo immaginiamo.
-   * Si sa solo dopo la prima activity accettata: prima resta `null`, che e'
-   * onesto, mentre scrivere «Topics» sarebbe la stessa bugia di prima.
+   * The application name as Discord says it, not as we imagine it. It is known
+   * only after the first accepted activity: before that it stays `null`, which
+   * is honest, whereas writing "Topics" would be the same lie as before.
    */
   let applicationName: string | null = null;
   let nextAttemptAt = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
-  /** Un solo giro per volta: un tick lento (handshake in corso) non deve
-   *  accavallarsi con quello del timer e aprire due fili. */
+  /** One round at a time: a slow tick (handshake in progress) must not overlap
+   *  with the timer's and open two wires. */
   let inFlight: Promise<void> | null = null;
 
   function dropSocket(): void {
     if (!socket) return;
-    try { socket.destroy(); } catch { /* già morto */ }
+    try { socket.destroy(); } catch { /* already dead */ }
     socket = null;
     publishedKey = "";
     published = null;
-    // Il nome vale per il filo che l'ha detto: un'altra applicazione, un altro
-    // nome. Tenerlo qui sarebbe ricordare la risposta a una domanda diversa.
+    // The name holds for the wire that said it: another application, another
+    // name. Keeping it here would be remembering the answer to a different
+    // question.
     applicationName = null;
     user = null;
   }
@@ -214,9 +217,9 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
         candidates: deps.candidates,
         timeoutMs: deps.handshakeTimeoutMs,
         onClose: (why) => {
-          // Il filo è caduto: si riparte dal prossimo giro, senza timer propri
-          // (un tick c'è già, e due orologi che si rincorrono sono il modo in
-          // cui il daemon vecchio si era ritrovato a impilare socket).
+          // The wire dropped: we start again on the next round, with no timers
+          // of our own (a tick already exists, and two clocks chasing each
+          // other are how the old daemon ended up stacking sockets).
           if (!socket) return;
           dropSocket();
           connection = "connecting";
@@ -226,8 +229,8 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
       });
       socket = res.socket;
       user = res.user;
-      // Discord rimanda l'activity come l'ha salvata: e' l'unico posto da cui
-      // si sa come si chiama davvero l'applicazione.
+      // Discord sends the activity back as it saved it: it is the only place
+      // from which we learn what the application is really called.
       onActivityAck(res.socket, (ack) => {
         if (ack.applicationName) applicationName = ack.applicationName;
       });
@@ -270,8 +273,8 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
 
     if (!settings.enabled) {
       if (socket) {
-        // Spegnere PULISCE: uno stato appeso dopo che hai tolto il consenso è
-        // la cosa peggiore che questo servizio possa fare.
+        // Turning off CLEARS: a stale state after you have withdrawn consent is
+        // the worst thing this service can do.
         write(null);
         dropSocket();
       }
@@ -305,7 +308,7 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
     },
     async stop(): Promise<void> {
       if (timer) { clearInterval(timer); timer = null; }
-      await inFlight?.catch(() => { /* la chiusura non fallisce per un tick */ });
+      await inFlight?.catch(() => { /* shutting down does not fail over a tick */ });
       if (socket) { write(null); dropSocket(); }
       connection = "off";
     },
@@ -330,33 +333,33 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
   };
 }
 
-// ── Il singleton, perché il filo è uno solo per processo ───────────────────
+// ── The singleton, because there is only one wire per process ──────────────
 
-let servizio: DiscordPresenceService | null = null;
+let service: DiscordPresenceService | null = null;
 
-/** Innesta il servizio (lo fa `server.ts`, una volta) e lo avvia. */
+/** Grafts the service in (`server.ts` does it, once) and starts it. */
 export function startDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenceService {
-  servizio?.stop().catch(() => { /* il vecchio se ne va comunque */ });
-  servizio = createDiscordPresence(deps);
-  servizio.start();
-  return servizio;
+  service?.stop().catch(() => { /* the old one goes away regardless */ });
+  service = createDiscordPresence(deps);
+  service.start();
+  return service;
 }
 
-/** Il servizio vivo, se c'è. `null` in ogni contesto ridotto (i test delle
- *  rotte, un server senza questo pezzo): chi legge deve saperlo gestire, e la
- *  rotta lo fa dicendo «spento» invece di rompersi. */
+/** The live service, if there is one. `null` in every reduced context (the
+ *  route tests, a server without this piece): whoever reads it has to handle
+ *  that, and the route does so by saying "off" instead of breaking. */
 export function getDiscordPresence(): DiscordPresenceService | null {
-  return servizio;
+  return service;
 }
 
 /**
- * Un giro SUBITO perché le impostazioni sono cambiate.
+ * One round RIGHT AWAY because the settings changed.
  *
- * La chiama la rotta che scrive l'interruttore. Senza questo, accendere la
- * presence avrebbe effetto al prossimo tick — fino a quindici secondi di
- * pannello che dice «acceso» e profilo che non mostra niente, cioè un
- * interruttore che sembra rotto.
+ * Called by the route that writes the switch. Without this, turning the
+ * presence on would take effect at the next tick - up to fifteen seconds of a
+ * panel saying "on" and a profile showing nothing, that is, a switch that looks
+ * broken.
  */
 export async function reconcileDiscordPresence(): Promise<void> {
-  await servizio?.tick();
+  await service?.tick();
 }

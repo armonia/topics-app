@@ -165,25 +165,24 @@ export function useBrowserChromeBridge(
   } = input;
 
   /**
-   * L'INDIRIZZO CHE LA TAB MOSTRA E' QUELLO CHE LA TAB SA, non quello che il
-   * browser ha finito di caricare.
+   * THE ADDRESS THE TAB SHOWS IS THE ONE THE TAB KNOWS, not the one the browser
+   * has finished loading.
    *
-   * Stessa divergenza di `showChrome`, e stessa cura. Sulla pane ripristinata
-   * `url` e' `about:blank` per qualche istante, quindi `prettyUrl` non
-   * produceva niente e la riga dell'indirizzo dentro il menu dei tre pallini
-   * semplicemente non veniva disegnata: il menu si apriva monco proprio dove
-   * la card aveva spostato l'indirizzo.
+   * Same divergence as `showChrome`, and the same cure. On a restored pane
+   * `url` is `about:blank` for a few instants, so `prettyUrl` produced nothing
+   * and the address line inside the three-dots menu simply was not drawn: the
+   * menu opened maimed exactly where the card had moved the address to.
    *
-   * Non e' una bugia mostrare `knownUrl`: l'ETICHETTA della tab, un centimetro
-   * piu' su, legge gia' lo store e mostra gia' quell'indirizzo. Prima le due
-   * superfici dicevano cose diverse sulla stessa pane; adesso dicono la stessa.
-   * E resta un ripiego, non una sostituzione — appena il browser naviga, `url`
-   * e' reale e vince.
+   * Showing `knownUrl` is not a lie: the tab's LABEL, a centimetre further up,
+   * already reads the store and already shows that address. Before, the two
+   * surfaces said different things about the same pane; now they say the same.
+   * And it stays a fallback, not a replacement — as soon as the browser
+   * navigates, `url` is real and wins.
    */
-  const urlDaMostrare = isRealUrl(url) ? url : (input.knownUrl ?? url);
+  const urlToShow = isRealUrl(url) ? url : (input.knownUrl ?? url);
 
   const chrome = useMemo(() => ({
-    url: urlDaMostrare,
+    url: urlToShow,
     faviconUrl,
     loading,
     canGoBack,
@@ -201,7 +200,7 @@ export function useBrowserChromeBridge(
       openDownloads: downloads > 0 ? openDownloads : undefined,
     },
   }), [
-    urlDaMostrare, faviconUrl, loading, canGoBack, canGoForward,
+    urlToShow, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
     commands, revealAddress, openConsole, openDownloads,
   ]);

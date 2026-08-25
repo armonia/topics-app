@@ -1,77 +1,77 @@
 /**
- * IL RIEPILOGO: una frase sola, due superfici.
+ * THE SUMMARY: one sentence, two surfaces.
  *
- * ── PERCHE' STA IN `shared/` E NON DENTRO IL PEZZO DISCORD ──────────────────
- * La stessa fotografia va detta in due posti: sul profilo Discord (che la
- * vedono gli altri) e nella barra di stato in fondo alla colonna (che la vedi
- * tu). Scriverla due volte significa che fra un mese diranno due cose diverse,
- * e quella sbagliata sara' quella che guardi tutto il giorno. Qui c'e' un
- * dizionario solo e una composizione sola: `buildActivity` la usa per
- * pubblicare, la barra la usa per mostrare.
+ * ── WHY IT LIVES IN `shared/` AND NOT INSIDE THE DISCORD PIECE ──────────────
+ * The same snapshot has to be told in two places: on the Discord profile (the
+ * one other people see) and in the status bar at the bottom of the column (the
+ * one you see). Writing it twice means that in a month they will say two
+ * different things, and the wrong one will be the one you stare at all day.
+ * Here there is a single dictionary and a single composition: `buildActivity`
+ * uses it to publish, the bar uses it to show.
  *
- * ── DOVE LE DUE SUPERFICI SI SEPARANO DAVVERO ───────────────────────────────
- * La privacy. Sul profilo il nome del progetto esce solo al gradino
- * `detailed`, perche' li' il pubblico e' chiunque condivida un server con te.
- * Nella barra il pubblico sei tu, seduto davanti alla macchina: non c'e' nulla
- * da nascondere e la riga porta tutto. E' una scelta di destinatario, non due
- * frasi diverse: le PAROLE restano queste.
+ * ── WHERE THE TWO SURFACES REALLY PART WAYS ─────────────────────────────────
+ * Privacy. On the profile the project name only comes out at the `detailed`
+ * step, because there the audience is anyone sharing a server with you. In the
+ * bar the audience is you, sitting in front of the machine: there is nothing
+ * to hide and the line carries it all. It is a choice of addressee, not two
+ * different sentences: the WORDS stay these.
  *
- * ── I NUMERI NON SI FORMATTANO QUI, SI RICEVONO ─────────────────────────────
- * Chi conta e' il server (`computePresenceCounts`), che sa quali turni sta
- * trasmettendo e quali task ha in mano la board. Questo file non stima niente:
- * riceve i conteggi e li dice.
+ * ── THE NUMBERS ARE NOT FORMATTED HERE, THEY ARE RECEIVED ───────────────────
+ * The one that counts is the server (`computePresenceCounts`), which knows
+ * which turns it is streaming and which tasks the board has in hand. This file
+ * estimates nothing: it receives the counts and says them.
  */
 
 import type { OutputLanguage } from "./types";
 
-/** Lo stato ADESSO, in numeri esatti. Lo produce il server. */
+/** The state RIGHT NOW, in exact numbers. The server produces it. */
 export interface PresenceCounts {
   /**
-   * Le chat aperte: i topic non archiviati di questa installazione.
+   * The open chats: the non-archived topics of this installation.
    *
-   * Si chiamavano «sessioni» nella frase e «chat» in tutto il resto
-   * dell'interfaccia — due parole per la stessa cosa, e quella sbagliata era
-   * proprio in vetrina. Peggio: «sessione» e' anche il nome dei PROCESSI che
-   * la status bar conta altrove, quindi lo stesso termine indicava sia i
-   * contenitori sia chi ci lavora dentro.
+   * They used to be called «sessioni» in the phrase and «chat» everywhere else  allow-italian: the two competing UI words ARE the subject here
+   * in the interface — two words for the same thing, and the wrong one was
+   * right in the shop window. Worse: «sessione» is also the name of the  allow-italian: the UI word IS the subject
+   * PROCESSES the status bar counts elsewhere, so the same term stood both for
+   * the containers and for whoever works inside them.
    */
   openSessions: number;
-  /** Quelle che stanno lavorando ADESSO. */
+  /** The ones that are working RIGHT NOW. */
   workingSessions: number;
-  /** I task che la board sta eseguendo in questo momento. */
+  /** The tasks the board is running at this moment. */
   activeTasks: number;
-  /** Il progetto su cui c'e' lavoro adesso. */
+  /** The project work is happening on right now. */
   focusProject: string | null;
   /**
-   * Le sessioni Claude aperte FUORI da Topics: un terminale, un altro harness.
-   * NON si sommano a `openSessions` — quello conta topic, cioe' contenitori, e
-   * questo conta processi vivi. Un totale unico non sarebbe ne' l'uno ne'
-   * l'altro, per questo la frase le nomina a parte.
+   * The Claude sessions open OUTSIDE Topics: a terminal, another harness.
+   * They do NOT add up with `openSessions` — that one counts topics, that is
+   * containers, and this one counts live processes. A single total would be
+   * neither the one nor the other, which is why the phrase names them apart.
    *
-   * Opzionale: un chiamante che non le conosce non deve inventare uno zero
-   * che sembra una misura.
+   * Optional: a caller that does not know about them must not invent a zero
+   * that looks like a measurement.
    */
   externalSessions?: number;
   /**
-   * Di quelle esterne, quante stanno lavorando adesso.
+   * Of the external ones, how many are working right now.
    *
-   * Serve perche' «4 fuori da Topics» mentre una di quelle macina fa sembrare
-   * fermo un lavoro in corso: e' la stessa distinzione che dentro Topics
-   * esiste gia' fra `openSessions` e `workingSessions`.
+   * It is needed because «4 fuori da Topics» while one of them is grinding  allow-italian: quotes the Italian line the bar renders
+   * makes work in progress look idle: it is the same distinction that already
+   * exists inside Topics between `openSessions` and `workingSessions`.
    */
   externalWorking?: number;
 }
 
-/** Le due righe della card, nell'ordine in cui Discord le impagina. */
+/** The two lines of the card, in the order Discord lays them out. */
 export interface PresenceLines {
-  /** La riga in alto: chi lavora, su quante sessioni aperte. */
+  /** The top line: who is working, out of how many open sessions. */
   details: string;
-  /** La riga sotto: i task in corso, o il silenzio dichiarato. */
+  /** The line below: the running tasks, or silence declared out loud. */
   state: string;
 }
 
-/** Il nome dell'applicazione, che e' anche cio' che si dice quando non si
- *  vuole dire altro (gradino `minimal`). */
+/** The application name, which is also what gets said when nothing else is
+ *  to be said (the `minimal` step). */
 export const PRESENCE_APP_NAME = "Topics";
 
 const IT = {
@@ -97,36 +97,37 @@ const EN = {
 };
 
 /**
- * La lingua delle frasi.
+ * The language of the phrases.
  *
- * `auto` non e' una lingua (shared/types.ts): sul profilo il pubblico non e' il
- * browser di nessuno, quindi in assenza di una scelta si parla inglese. La
- * barra passa la lingua GIA' risolta dell'interfaccia, quindi questo ramo non
- * la riguarda.
+ * `auto` is not a language (shared/types.ts): on the profile the audience is
+ * nobody's browser, so with no choice made the language spoken is English. The
+ * bar passes the interface language ALREADY resolved, so this branch does not
+ * concern it.
  */
 function dict(lang: OutputLanguage) {
   return lang === "it" ? IT : EN;
 }
 
-/** Il nome del progetto, detto. Fuori dalla composizione perche' il gradino
- *  `detailed` lo mette al posto della seconda riga, non in fondo. */
+/** The project name, spoken. Outside the composition because the `detailed`
+ *  step puts it in place of the second line, not at the end. */
 export function presenceProjectPhrase(project: string, lang: OutputLanguage = "auto"): string {
   return dict(lang).onProject(project);
 }
 
 /**
- * I conteggi, in due righe.
+ * The counts, in two lines.
  *
- * La prima non dice mai «0 al lavoro»: a fermo la notizia e' quante sessioni
- * hai aperte. La seconda porta i task, e quando non ce ne sono dichiara il
- * silenzio invece di lasciare la riga vuota.
+ * The first never says «0 al lavoro»: at rest the news is how many sessions  allow-italian: quotes the Italian line the card renders
+ * you have open. The second carries the tasks, and when there are none it
+ * declares silence instead of leaving the line empty.
  */
 export function presenceLines(counts: PresenceCounts, lang: OutputLanguage = "auto"): PresenceLines {
   const d = dict(lang);
   const working = counts.workingSessions;
   return {
-    // Le sessioni fuori da Topics vanno DOPO, separate: sono un'altra unita' di
-    // misura e sommarle darebbe un numero che non risponde a nessuna domanda.
+    // The sessions outside Topics go AFTER, kept separate: they are another
+    // unit of measure, and adding them up would give a number that answers no
+    // question at all.
     details: [
       working > 0 ? d.working(working, counts.openSessions) : d.idle(counts.openSessions),
       counts.externalSessions
@@ -135,9 +136,9 @@ export function presenceLines(counts: PresenceCounts, lang: OutputLanguage = "au
             : d.external(counts.externalSessions))
         : "",
     ].filter(Boolean).join(" · "),
-    // «Nessun agente al lavoro» deve guardare ANCHE fuori: se la prima riga
-    // dice che una sessione esterna sta macinando, la seconda non puo'
-    // dichiarare il silenzio. Si contraddicevano.
+    // «Nessun agente al lavoro» has to look outside TOO: if the first line  allow-italian: quotes the Italian line the card renders
+    // says an external session is grinding, the second one cannot declare
+    // silence. They used to contradict each other.
     state:
       counts.activeTasks > 0
         ? d.tasks(counts.activeTasks)
@@ -148,18 +149,17 @@ export function presenceLines(counts: PresenceCounts, lang: OutputLanguage = "au
 }
 
 /**
- * Lo stesso riepilogo su UNA riga, per la barra di stato.
+ * The same summary on ONE line, for the status bar.
  *
- * Non e' una terza frase: sono i pezzi di `presenceLines` piu' il progetto,
- * uniti dallo stesso separatore che gia' divide «al lavoro» da «aperte». Il
- * ramo `Topics` della seconda riga qui cade: sul profilo serve a non lasciare
- * la card mezza vuota, in una barra sarebbe una parola che non aggiunge niente
- * accanto al nome della finestra.
+ * It is not a third phrase: it is the pieces of `presenceLines` plus the
+ * project, joined by the same separator that already divides «al lavoro» from  allow-italian: quotes the Italian pieces the phrase joins
+ * «aperte». The `Topics` branch of the second line falls away here: on the  allow-italian: quotes the Italian pieces the phrase joins
+ * profile it serves to keep the card from looking half empty, in a bar it
+ * would be a word adding nothing next to the window name.
  *
- * `null` significa che non c'e' niente da dire, ed e' lo stesso caso in cui la
- * presence si PULISCE: nessuna sessione aperta e nessun task. Una riga che
- * annuncia «0 sessioni» sta occupando spazio per dire che non sta succedendo
- * niente.
+ * `null` means there is nothing to say, and it is the same case in which the
+ * presence is CLEARED: no open session and no task. A line announcing
+ * «0 sessioni» is taking up space to say that nothing is happening.  allow-italian: quotes the Italian line that would be rendered
  */
 export function presenceSummary(counts: PresenceCounts, lang: OutputLanguage = "auto"): string | null {
   if (counts.openSessions <= 0 && counts.activeTasks <= 0) return null;

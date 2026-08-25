@@ -45,11 +45,12 @@
 import type { AppContext, RouteHandler } from "../types";
 import { actingPersonId, canAdministerOrg, installationOrgId } from "../lib/orgs";
 import { resolvePrincipals } from "../lib/principals";
-import { profiloGitHub, profiloInCache, loginValido, type ProfiloGitHub, type OpzioniGitHub } from "../lib/github-profile";
+import { profiloGitHub, profiloInCache, loginValido, type OpzioniGitHub } from "../lib/github-profile";
+import type { ProfiloGitHub as GitHubProfile } from "../lib/github-profile";
 import { statistichePersona } from "../lib/person-stats";
 import {
-  follow, unfollow, conteggiFollow, segue, idFollower, idSeguiti,
-  privacyPersona, impostaPrivacy, type ProfilePrivacy,
+  follow, unfollow, countFollows, segue, idFollower, idFollowing,
+  privacyPersona, setPrivacy, type ProfilePrivacy,
 } from "../lib/follows";
 
 export interface DipendenzePeople {
@@ -66,12 +67,12 @@ interface RigaPersona {
 }
 
 /** A person as the address book and the single profile both render them. */
-interface SchedaPersona {
+interface PersonCard {
   id: string;
   displayName: string;
   email: string | null;
   githubLogin: string | null;
-  github: ProfiloGitHub | null;
+  github: GitHubProfile | null;
   stats: ReturnType<typeof statistichePersona> | null;
   counts: { followers: number; following: number } | null;
   viewerFollows: boolean;
@@ -81,8 +82,8 @@ interface SchedaPersona {
 }
 
 /** The target of a `/api/people/:id/...` route, once it is known to be visible. */
-interface Bersaglio {
-  riga: RigaPersona;
+interface Target {
+  row: RigaPersona;
   isMe: boolean;
   privacy: ProfilePrivacy;
 }
@@ -103,7 +104,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
   /**
    * Le organizzazioni di chi chiede. Dal LOOPBACK non c'è un dispositivo da cui
    * risolverle, e si ricade su quella dell'installazione: è la stessa rete
-   * anti-lockout di sempre, davanti a questo Mac la rubrica si vede.
+   * anti-lockout di sempre, davanti a questo Mac la rubrica si canSee.
    */
   function mieOrg(req: Request): string[] {
     const deviceId = ctx.requestIdentity?.(req)?.deviceId ?? null;
@@ -117,11 +118,11 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
   }
 
   /** The ids of the live members of those organisations: the discovery pool. */
-  function idMembriOrg(orgIds: string[]): string[] {
+  function memberIds(orgIds: string[]): string[] {
     if (!orgIds.length) return [];
     const segnaposto = orgIds.map(() => "?").join(",");
     try {
-      const righe = db.query(`
+      const rows = db.query(`
         SELECT DISTINCT p.id AS id
           FROM people p
           JOIN org_members om ON om.person_id = p.id
@@ -129,7 +130,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
            AND om.revoked_at IS NULL
            AND om.local_blocked_at IS NULL
            AND p.revoked_at IS NULL`).all(...orgIds) as Array<{ id: string }>;
-      return righe.map((r) => r.id);
+      return rows.map((r) => r.id);
     } catch {
       return [];
     }
@@ -144,11 +145,11 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
    * list because the four sources overlap constantly, and a co-member you also
    * follow must not appear twice in the address book.
    */
-  function idsRaggiungibili(io: string | null, req: Request): Set<string> {
-    const out = new Set<string>(idMembriOrg(mieOrg(req)));
+  function reachableIds(io: string | null, req: Request): Set<string> {
+    const out = new Set<string>(memberIds(mieOrg(req)));
     if (io) {
       out.add(io);
-      for (const id of idSeguiti(db as never, io)) out.add(id);
+      for (const id of idFollowing(db as never, io)) out.add(id);
       for (const id of idFollower(db as never, io)) out.add(id);
     }
     return out;
@@ -162,7 +163,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
   };
 
   /** Those ids, alive, in the order the address book is drawn. */
-  function persone(ids: string[]): RigaPersona[] {
+  function peopleRows(ids: string[]): RigaPersona[] {
     if (!ids.length) return [];
     const segnaposto = ids.map(() => "?").join(",");
     try {
@@ -188,7 +189,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
    * change, and two screens with two thresholds would tell two truths about
    * the same person.
    */
-  function ultimoAccesso(personId: string): number | null {
+  function lastSeen(personId: string): number | null {
     try {
       const r = db.query(
         "SELECT MAX(last_seen_at) AS t FROM devices WHERE person_id = ? AND revoked_at IS NULL",
@@ -202,38 +203,38 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
   /**
    * One person, with every field the viewer is allowed to see and no other.
    *
-   * `vede` reads `isMe` FIRST on every switch: a person always sees their own
+   * `canSee` reads `isMe` FIRST on every switch: a person always sees their own
    * profile whole, or the settings screen would be unable to show what it is
    * about to change.
    */
-  function scheda(
+  function personCard(
     r: RigaPersona,
     io: string | null,
-    github: ProfiloGitHub | null,
+    github: GitHubProfile | null,
     privacy?: ProfilePrivacy,
-  ): SchedaPersona {
+  ): PersonCard {
     const isMe = io !== null && r.id === io;
     // The caller passes the switches it has already read: the address book
     // filters on them a line earlier, and reading them twice per row would
     // double the query count of the whole screen for nothing.
     const p = privacy ?? privacyPersona(db as never, r.id);
-    const vede = (acceso: boolean) => isMe || acceso;
+    const canSee = (isOn: boolean) => isMe || isOn;
     return {
       id: r.id,
       displayName: r.display_name,
-      email: vede(p.showEmail) ? r.email : null,
+      email: canSee(p.showEmail) ? r.email : null,
       githubLogin: r.github_login,
       github,
-      stats: vede(p.showStats) ? statistichePersona(db as never, r.id) : null,
+      stats: canSee(p.showStats) ? statistichePersona(db as never, r.id) : null,
       // The viewer goes in: the two list routes exempt the viewer's own row
       // from the visibility filter, so the counter has to exempt the same one
       // or the header contradicts the list under it.
-      counts: vede(p.showFollowers) ? conteggiFollow(db as never, r.id, io) : null,
+      counts: canSee(p.showFollowers) ? countFollows(db as never, r.id, io) : null,
       // Nobody follows themself, so the two edges are false on your own row
       // rather than the result of a query that can only answer no.
       viewerFollows: io !== null && !isMe && segue(db as never, io, r.id),
       followsViewer: io !== null && !isMe && segue(db as never, r.id, io),
-      lastSeenAt: vede(p.showPresence) ? ultimoAccesso(r.id) : null,
+      lastSeenAt: canSee(p.showPresence) ? lastSeen(r.id) : null,
       isMe,
     };
   }
@@ -245,17 +246,17 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
    * response would turn the third one into a way to confirm that a person
    * exists, which is exactly what closing the profile was meant to prevent.
    */
-  function bersaglio(id: string, io: string | null): Bersaglio | null {
-    const riga = persona(id);
-    if (!riga || riga.revoked_at !== null) return null;
-    const isMe = io !== null && riga.id === io;
-    const privacy = privacyPersona(db as never, riga.id);
+  function target(id: string, io: string | null): Target | null {
+    const row = persona(id);
+    if (!row || row.revoked_at !== null) return null;
+    const isMe = io !== null && row.id === io;
+    const privacy = privacyPersona(db as never, row.id);
     if (!isMe && !privacy.showProfile) return null;
-    return { riga, isMe, privacy };
+    return { row, isMe, privacy };
   }
 
   /** One person from a follower list: no stats, no email, cached face only. */
-  function voceElenco(r: RigaPersona, io: string | null) {
+  function listEntry(r: RigaPersona, io: string | null) {
     const isMe = io !== null && r.id === io;
     return {
       id: r.id,
@@ -272,20 +273,20 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
     const io = ioPersona(req);
 
     /** Computed at most once per request: it costs three queries. */
-    let memoRaggiungibili: Set<string> | null = null;
-    const raggiungibili = (): Set<string> =>
-      (memoRaggiungibili ??= idsRaggiungibili(io, req));
+    let reachableMemo: Set<string> | null = null;
+    const reachable = (): Set<string> =>
+      (reachableMemo ??= reachableIds(io, req));
 
     // GET /api/people: the address book.
     if (method === "GET" && pathname === "/api/people") {
-      const people = persone([...raggiungibili()])
+      const people = peopleRows([...reachable()])
         .map((r) => ({ r, privacy: privacyPersona(db as never, r.id) }))
         .filter(({ r, privacy }) => (io !== null && r.id === io) || privacy.showProfile)
         .map(({ r, privacy }) =>
           // Cache only: see the header. A face missing on the first open
           // appears once somebody opens that person, and from then on it is
           // there for everybody.
-          scheda(r, io, r.github_login ? profiloInCache(db as never, r.github_login) : null, privacy));
+          personCard(r, io, r.github_login ? profiloInCache(db as never, r.github_login) : null, privacy));
       return json({ people });
     }
 
@@ -305,8 +306,8 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
       if (pFollow.id === io) return errorResponse(400, "cannot follow yourself");
 
       /** What the caller learns about the target once the write is done. */
-      const esito = (): Response => {
-        const b = bersaglio(pFollow.id, io);
+      const outcome = (): Response => {
+        const b = target(pFollow.id, io);
         return json({
           // Re-read instead of assumed: an INSERT OR IGNORE that hit a
           // database without the table reports nothing, and answering `true`
@@ -316,14 +317,14 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
           // The counter is the same datum the two list routes protect, and
           // handing it out here would make the privacy switch decorative.
           counts: b && (b.isMe || b.privacy.showFollowers)
-            ? conteggiFollow(db as never, pFollow.id, io)
+            ? countFollows(db as never, pFollow.id, io)
             : null,
         });
       };
 
       // CUTTING AN EDGE YOU MADE IS NOT GATED ON SEEING THE OTHER END.
       //
-      // It used to run through `bersaglio` like the POST does, and that made a
+      // It used to run through `target` like the POST does, and that made a
       // follow PERMANENT the moment the target closed their profile or was
       // revoked: DELETE answered 404, the row stayed, and no other path in the
       // API could remove it. That is not a stricter rule, it is a trap, and it
@@ -337,19 +338,19 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
       // visible AND publishes them.
       if (method === "DELETE") {
         unfollow(db as never, io, pFollow.id);
-        return esito();
+        return outcome();
       }
 
       // The POST is NOT gated on the reachable set, and that is the whole
       // point: a follow is how somebody ENTERS it. Requiring membership first
       // would mean the graph could only ever grow among people who already
       // share a licence, which is the limitation this route exists to remove.
-      // `bersaglio` still applies, so a person who closed their profile cannot
+      // `target` still applies, so a person who closed their profile cannot
       // be followed and cannot be probed for existence either.
-      const b = bersaglio(pFollow.id, io);
+      const b = target(pFollow.id, io);
       if (!b) return errorResponse(404, "Person not found");
-      follow(db as never, io, b.riga.id);
-      return esito();
+      follow(db as never, io, b.row.id);
+      return outcome();
     }
 
     // GET /api/people/:id/followers | /following
@@ -358,18 +359,18 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
     if (pFollowers || pFollowing) {
       if (method !== "GET") return errorResponse(405, "method not allowed");
       const id = (pFollowers ?? pFollowing)!.id;
-      const b = bersaglio(id, io);
+      const b = target(id, io);
       // The same gate as opening the profile: a list you can read about a
       // person you cannot open would be a way around the profile itself.
-      if (!b || !raggiungibili().has(id)) return errorResponse(404, "Person not found");
+      if (!b || !reachable().has(id)) return errorResponse(404, "Person not found");
       if (!b.isMe && !b.privacy.showFollowers) return errorResponse(403, "followers are private");
 
-      const ids = pFollowers ? idFollower(db as never, id) : idSeguiti(db as never, id);
-      const people = persone(ids)
+      const ids = pFollowers ? idFollower(db as never, id) : idFollowing(db as never, id);
+      const people = peopleRows(ids)
         // A person who closed their profile is absent from every list, not
         // greyed out in it: an entry saying "hidden" still confirms they exist.
         .filter((r) => (io !== null && r.id === io) || privacyPersona(db as never, r.id).showProfile)
-        .map((r) => voceElenco(r, io));
+        .map((r) => listEntry(r, io));
       return json({ people });
     }
 
@@ -389,28 +390,28 @@ export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {})
 
       const body = await readJSON(req);
       if (!body) return errorResponse(400, "body required");
-      // The body goes in whole and `impostaPrivacy` does the sifting: it keeps
+      // The body goes in whole and `setPrivacy` does the sifting: it keeps
       // the five keys it knows and only when they carry a real boolean, so an
       // unknown key and the string "false" are both dropped there. Filtering
       // here as well would be a SECOND copy of that rule, and the second copy
       // is the one that forgets a field the day a sixth switch is added.
-      return json({ privacy: impostaPrivacy(db as never, io, body as Partial<ProfilePrivacy>) });
+      return json({ privacy: setPrivacy(db as never, io, body as Partial<ProfilePrivacy>) });
     }
 
     const params = matchRoute(pathname, "/api/people/:id");
     if (!params) return null;
-    const b = bersaglio(params.id, io);
+    const b = target(params.id, io);
     // Outside the address book it does not exist, for every verb: the same
     // shape as the filter on projects, and for the same reason.
-    if (!b || !raggiungibili().has(params.id)) return errorResponse(404, "Person not found");
-    const chi = b.riga;
+    if (!b || !reachable().has(params.id)) return errorResponse(404, "Person not found");
+    const chi = b.row;
 
     if (method === "GET") {
       const github = chi.github_login
         ? await profiloGitHub(db as never, chi.github_login, deps.github ?? {})
         : null;
       return json({
-        ...scheda(chi, io, github, b.privacy),
+        ...personCard(chi, io, github, b.privacy),
         // Only to the person themself, and only here: the settings screen has
         // to know the current state of what it is about to change, and nobody
         // else has any use for it.

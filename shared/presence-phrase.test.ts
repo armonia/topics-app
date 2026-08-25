@@ -1,12 +1,12 @@
 /**
- * Il riepilogo, provato dove vive: una frase sola per il profilo Discord e per
- * la barra di stato.
+ * The summary, tested where it lives: one single phrase for the Discord
+ * profile and for the status bar.
  *
- * Cosa si prova qui e cosa no: le due righe della card hanno gia' il loro test
- * per gradino di privacy (`server/services/discord-activity.test.ts`). Qui si
- * prova cio' che quel file non poteva provare finche' la frase stava dentro di
- * lui: che la riga della barra sia fatta degli STESSI pezzi, e non di una
- * seconda scrittura che un giorno dira' un'altra cosa.
+ * What is proven here and what is not: the two lines of the card already have
+ * their own test per privacy step (`server/services/discord-activity.test.ts`).
+ * What gets proven here is what that file could not prove while the phrase
+ * lived inside it: that the bar's line is made of the SAME pieces, and not of
+ * a second writing that one day will say something else.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -22,8 +22,8 @@ const BASE: PresenceCounts = {
 describe("le sessioni aperte fuori da Topics", () => {
   test("si nominano a parte invece di sommarsi alle aperte", () => {
     const c = { ...BASE, externalSessions: 2 };
-    // 12 topic e 2 processi esterni: il totale «14» non risponderebbe a
-    // nessuna domanda, perche' conta due cose diverse.
+    // 12 topics and 2 external processes: the total «14» would answer no
+    // question, because it counts two different things.
     expect(presenceLines(c, "it").details).toBe("3 al lavoro · 12 chat aperte · 2 fuori da Topics");
     expect(presenceLines(c, "en").details).toBe("3 working · 12 chats open · 2 outside Topics");
   });
@@ -36,7 +36,7 @@ describe("le sessioni aperte fuori da Topics", () => {
 
   test("zero esterne non lascia un separatore appeso", () => {
     expect(presenceLines({ ...BASE, externalSessions: 0 }, "it").details).toBe("3 al lavoro · 12 chat aperte");
-    // e un chiamante che non le conosce affatto si comporta uguale
+    // and a caller that does not know about them at all behaves the same
     expect(presenceLines(BASE, "it").details).toBe("3 al lavoro · 12 chat aperte");
   });
 
@@ -50,8 +50,8 @@ describe("le esterne che stanno lavorando", () => {
   test("se lavora solo una esterna, la seconda riga NON dichiara il silenzio", () => {
     const c = { ...BASE, workingSessions: 0, activeTasks: 0, externalSessions: 4, externalWorking: 1 };
     const r = presenceLines(c, "it");
-    // le due righe si contraddicevano: la prima diceva «1 al lavoro fuori»,
-    // la seconda «Nessun agente al lavoro».
+    // the two lines used to contradict each other: the first said «1 al  allow-italian: quotes the two Italian lines that clashed
+    // lavoro fuori», the second «Nessun agente al lavoro».  allow-italian: quotes the two Italian lines that clashed
     expect(r.details).toContain("1 al lavoro fuori da Topics");
     expect(r.state).not.toBe("Nessun agente al lavoro");
   });
@@ -107,8 +107,8 @@ describe("la riga della barra", () => {
   });
 
   test("il nome del progetto ESCE, perché qui il pubblico sei tu", () => {
-    // Sul profilo lo stesso nome esce solo al gradino `detailed`: e' la sola
-    // differenza fra le due superfici, ed e' voluta.
+    // On the profile the same name only comes out at the `detailed` step: it
+    // is the only difference between the two surfaces, and it is deliberate.
     expect(presenceSummary(BASE, "it")).toContain("Armonia-CRM");
   });
 

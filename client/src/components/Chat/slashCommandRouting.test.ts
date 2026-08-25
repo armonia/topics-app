@@ -38,45 +38,45 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..", "..", "..");
-const leggi = (p: string) => readFileSync(join(ROOT, p), "utf8");
+const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
-const CHAT_INPUT = leggi("client/src/components/Chat/ChatInput.tsx");
-const CHAT_PANE = leggi("client/src/components/Chat/ChatPane.tsx");
-const ADAPT = leggi("server/context/adapt.ts");
+const CHAT_INPUT = read("client/src/components/Chat/ChatInput.tsx");
+const CHAT_PANE = read("client/src/components/Chat/ChatPane.tsx");
+const ADAPT = read("server/context/adapt.ts");
 
 /** The commands the composer offers, from the `SLASH_COMMANDS` literal. */
-const offerti: string[] = [...CHAT_INPUT.matchAll(/\{\s*cmd:\s*'\/([a-z-]+)'/g)].map((m) => m[1]!);
+const offered: string[] = [...CHAT_INPUT.matchAll(/\{\s*cmd:\s*'\/([a-z-]+)'/g)].map((m) => m[1]!);
 
 /** The names the server hands to the CLI untouched. */
-const nudi: Set<string> = (() => {
-  const inizio = ADAPT.indexOf("const CLI_BUILTINS");
-  const fine = ADAPT.indexOf("]);", inizio);
-  expect(inizio, "CLI_BUILTINS non e' piu' dove questo test lo cerca").toBeGreaterThan(-1);
-  return new Set([...ADAPT.slice(inizio, fine).matchAll(/"([a-z-]+)"/g)].map((m) => m[1]!));
+const naked: Set<string> = (() => {
+  const start = ADAPT.indexOf("const CLI_BUILTINS");
+  const end = ADAPT.indexOf("]);", start);
+  expect(start, "CLI_BUILTINS non e' piu' dove questo test lo cerca").toBeGreaterThan(-1);
+  return new Set([...ADAPT.slice(start, end).matchAll(/"([a-z-]+)"/g)].map((m) => m[1]!));
 })();
 
 /** Does `ChatPane` name this command anywhere it could act on it? */
-const gestito = (c: string) => new RegExp(`['"\`]/${c}['"\` ]`).test(CHAT_PANE);
+const handled = (c: string) => new RegExp(`['"\`]/${c}['"\` ]`).test(CHAT_PANE);
 
 describe("the two lists are non-empty, or this file proves nothing", () => {
   // Both are read out of source with a regex. A rename that breaks either
   // pattern would leave an empty list, and an empty list passes every
   // assertion below while checking nothing at all.
   test("the composer offers a plausible number of commands", () => {
-    expect(offerti.length).toBeGreaterThan(8);
-    expect(new Set(offerti).size, "the same command offered twice").toBe(offerti.length);
+    expect(offered.length).toBeGreaterThan(8);
+    expect(new Set(offered).size, "the same command offered twice").toBe(offered.length);
   });
 
   test("the allowlist is a plausible size", () => {
-    expect(nudi.size).toBeGreaterThan(20);
+    expect(naked.size).toBeGreaterThan(20);
   });
 });
 
 describe("no menu entry leads nowhere", () => {
   test("each offered command is either handled here or passed naked to the CLI", () => {
-    const orfani = offerti.filter((c) => !gestito(c) && !nudi.has(c));
+    const orphans = offered.filter((c) => !handled(c) && !naked.has(c));
     expect(
-      orfani,
+      orphans,
       "these are offered in the composer and go nowhere: picking one sends its text to the model as prose",
     ).toEqual([]);
   });
@@ -84,11 +84,11 @@ describe("no menu entry leads nowhere", () => {
   test("and the check can actually fail", () => {
     // The non-vacuity half, stated as an assertion instead of trusted: a name
     // that is in neither list must be reported. Without this, a broken
-    // `gestito` regex (one that matches everything) would make the test above
+    // `handled` regex (one that matches everything) would make the test above
     // permanently green.
-    const inventato = "questo-comando-non-esiste";
-    expect(gestito(inventato)).toBe(false);
-    expect(nudi.has(inventato)).toBe(false);
+    const invented = "questo-comando-non-esiste";
+    expect(handled(invented)).toBe(false);
+    expect(naked.has(invented)).toBe(false);
   });
 });
 
@@ -102,8 +102,8 @@ describe("`/help` cannot fall behind the menu", () => {
   // undone rather than against the drift — a hand-written list can drift again
   // the day after anyone syncs it.
   test("the help text is built from the same array the menu uses", () => {
-    const riga = CHAT_PANE.match(/const SLASH_COMMANDS_HELP\s*=\s*([^;]+);/)?.[1] ?? "";
-    expect(riga, "`/help` is a hand-written list again").toContain("SLASH_COMMANDS.map");
+    const line = CHAT_PANE.match(/const SLASH_COMMANDS_HELP\s*=\s*([^;]+);/)?.[1] ?? "";
+    expect(line, "`/help` is a hand-written list again").toContain("SLASH_COMMANDS.map");
     expect(CHAT_PANE, "`ChatPane` must import the menu, not copy it").toContain(
       "import { SLASH_COMMANDS } from './ChatInput'",
     );
@@ -129,8 +129,8 @@ describe("the allowlist can be matched at all", () => {
   // `"output style"` would therefore never match anything — dead weight that
   // reads as coverage: the name is in the list, so everyone assumes it passes.
   test("no entry carries a slash, a space or an upper-case letter", () => {
-    const inerti = [...nudi].filter((n) => n !== n.toLowerCase() || /[\s/]/.test(n));
-    expect(inerti, "these entries can never match a message").toEqual([]);
+    const inert = [...naked].filter((n) => n !== n.toLowerCase() || /[\s/]/.test(n));
+    expect(inert, "these entries can never match a message").toEqual([]);
   });
 
   test("the commands that ship in the menu and rely on the allowlist are in it", () => {
@@ -138,7 +138,7 @@ describe("the allowlist can be matched at all", () => {
     // their entire route to working is this list, so a silent removal from it
     // turns each into prose.
     for (const c of ["compact", "clear", "model", "status", "context", "help"]) {
-      expect(nudi.has(c), `/${c} has no local handler: without the allowlist it is prose`).toBe(true);
+      expect(naked.has(c), `/${c} has no local handler: without the allowlist it is prose`).toBe(true);
     }
   });
 });

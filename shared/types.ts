@@ -23,25 +23,26 @@
  * the re-export.
  */
 
-// ─── Lingua (interfaccia E risposte del modello) ───────────────────────
+// ─── Language (the interface AND the model's answers) ──────────────────
 
 /**
- * La lingua scelta dall'utente. UNA preferenza sola, che governa insieme le
- * stringhe dell'interfaccia (`client/src/lib/i18n.ts`) e la lingua in cui il
- * modello risponde (`languageDirective` in `server/lib/topics-agent-prompt.ts`).
+ * The language the user chose. ONE single preference, governing together the
+ * interface strings (`client/src/lib/i18n.ts`) and the language the model
+ * answers in (`languageDirective` in `server/lib/topics-agent-prompt.ts`).
  *
- * Sono una cosa sola di proposito: due selettori quasi uguali — «lingua della
- * UI» e «lingua delle risposte» — sarebbero due preferenze da spiegare, e
- * nessuno saprebbe perché la prima non sposta la seconda. È esattamente il
- * difetto che c'era: il selettore muoveva le stringhe della UI e si fermava lì.
+ * They are one thing on purpose: two nearly identical selectors — "UI
+ * language" and "answer language" — would be two preferences to explain, and
+ * nobody would know why the first does not move the second. That is exactly
+ * the defect that was there: the selector moved the UI strings and stopped.
  *
- * `auto` NON è una lingua: è l'assenza di una scelta. La UI segue il browser,
- * e al modello non arriva NESSUNA direttiva — cioè risponde come ha sempre
- * fatto. Non si inventa una lingua quando l'utente non ne ha chiesta una.
+ * `auto` is NOT a language: it is the absence of a choice. The UI follows the
+ * browser, and NO directive reaches the model — that is, it answers the way it
+ * always has. A language is not invented when the user has not asked for one.
  *
- * Il tipo DERIVA dall'array, come già fa `shared/effort.ts`: chi valida (la
- * rotta), chi risolve (il server) e chi disegna il selettore leggono lo stesso
- * insieme, così non può esistere in tre copie destinate a divergere.
+ * The type DERIVES from the array, as `shared/effort.ts` already does: whoever
+ * validates (the route), whoever resolves (the server) and whoever draws the
+ * selector read the same set, so it cannot exist in three copies destined to
+ * diverge.
  */
 export const OUTPUT_LANGUAGES = ['auto', 'it', 'en'] as const;
 export type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number];

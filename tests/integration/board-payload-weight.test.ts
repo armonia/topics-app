@@ -177,45 +177,47 @@ describe("il peso di GET /api/all-boards/tasks", () => {
     // togliendo il taglio del testo.
     expect(perTask).toBeLessThan(2600);
     //
-    // ── CHIUSA IL 25/08. Era a 2.602,3, cioe' DUE byte sopra: 443 di grasso
-    //    accumulato in nove giorni, misurato voce per voce dalla diagnosi
-    //    precedente. Di quel grasso, 177 byte erano nove chiavi che non legge
-    //    NESSUNO — riverificato campo per campo su `client/src` escludendo le
-    //    dichiarazioni di tipo (che non sono letture) e su `tests/e2e`: zero
-    //    riferimenti per tutti e nove, e quattro non compaiono affatto lato
-    //    client.
+    // ── CLOSED ON 25/08. It was at 2,602.3, i.e. TWO bytes over: 443 of fat
+    //    piled up in nine days, measured item by item by the earlier
+    //    diagnosis. Of that fat, 177 bytes were nine keys NOBODY reads —
+    //    re-verified field by field over `client/src`, excluding the type
+    //    declarations (which are not reads), and over `tests/e2e`: zero
+    //    references for all nine, and four do not appear on the client side at
+    //    all.
     //
-    //    La cura NON e' stata togliere le chiavi, che sarebbe un cambio di
-    //    contratto, ne' alzare il tetto, che sarebbe spegnere il cancello.
-    //    E' stata la regola che questo payload gia' applicava ai due campi
-    //    rari (`previewImages`, `checksProgress`): viaggiano solo quando hanno
-    //    un contenuto. Cinque campi di stato del dispatcher e di sonde
+    //    The cure was NOT taking the keys away, which would be a change of
+    //    contract, nor raising the ceiling, which would be switching the gate
+    //    off. It was the rule this payload already applied to the two rare
+    //    fields (`previewImages`, `checksProgress`): they travel only when
+    //    they have content. Five dispatcher-state and probe fields
     //    (`claudeTaskId`, `waitStreak`, `waitReason`, `waitSince`,
-    //    `urlProbeCheckedAt`) sono passati da sempre-presenti a condizionali,
-    //    e il tipo e' diventato opzionale invece di sparire: il giorno che una
-    //    card volesse mostrare da quanto un task e' in attesa, il campo arriva
-    //    — quando ha qualcosa da dire.
+    //    `urlProbeCheckedAt`) went from always-present to conditional, and the
+    //    type became optional instead of disappearing: the day a card wants to
+    //    show how long a task has been waiting, the field arrives — when it
+    //    has something to say.
     //
-    //    TRE campi in tutto, e la selezione e' la parte che conta. Il
-    //    criterio non e' «chi e' nullo» ma «per chi `null` NON e' uno stato»:
-    //    `claudeTaskId` e' un id esterno, `urlProbeCheckedAt` e
-    //    `landingCheckedAt` sono timestamp di sonde — assente e
-    //    mai-controllato sono la stessa cosa. Da 2.602,3 a 2.533,3 byte per
-    //    task, cioe' 69 tolti e 67 di margine.
+    //    THREE fields in all, and the selection is the part that counts. The
+    //    criterion is not «which one is null» but «for which one `null` is NOT
+    //    a state»: `claudeTaskId` is an external id, `urlProbeCheckedAt` and
+    //    `landingCheckedAt` are probe timestamps — absent and never-checked
+    //    are the same thing. From 2,602.3 to 2,533.3 bytes per task, i.e. 69
+    //    taken off and 67 of margin.
     //
-    //    LA PRIMA VERSIONE NE TOGLIEVA OTTO, ED ERA SBAGLIATA. Provata e
-    //    misurata: 2.446,3 byte, un margine tre volte migliore, e OTTO TEST
-    //    ROSSI. `checksCommit` («null non e' un verde» e' il titolo di uno di
-    //    quei test), `doneActor`, `waitStreak`/`waitReason`/`waitSince`: li'
-    //    il `null` E' un'informazione, e sostituirlo con l'assenza cancella
-    //    uno stato raggiungibile. La regola non e' il peso, e' il significato:
-    //    un campo che vale qualcosa quando e' nullo resta fisso anche se costa.
+    //    THE FIRST VERSION TOOK EIGHT OFF, AND IT WAS WRONG. Tried and
+    //    measured: 2,446.3 bytes, a margin three times better, and EIGHT RED
+    //    TESTS. `checksCommit` («null is not a green» is the title of one of
+    //    those tests), `doneActor`, `waitStreak`/`waitReason`/`waitSince`:
+    //    down there the `null` IS information, and replacing it with absence
+    //    erases a reachable state. The rule is not the weight, it is the
+    //    meaning: a field that is worth something when it is null stays fixed
+    //    even if it costs.
     //
-    //    Cosa NON si e' toccato, e va detto perche' il margine e' stretto:
-    //    `CARD_CONTEXT_CHARS` da 200 a 620 vale ancora 280 byte, ed e' una
-    //    scelta di prodotto (quanta anteprima mostra la card) che non si
-    //    prende da un test. Se questo cancello torna rosso, quella e' la leva
-    //    successiva, e va tirata da chi decide cosa mostra la card.
+    //    What was NOT touched, and it has to be said because the margin is
+    //    narrow: `CARD_CONTEXT_CHARS` from 200 to 620 is still worth 280
+    //    bytes, and it is a product choice (how much preview the card shows)
+    //    that is not taken from a test. If this gate goes red again, that is
+    //    the next lever, and it has to be pulled by whoever decides what the
+    //    card shows.
     // E il pavimento del cancello: se un giorno la fixture smettesse di portare
     // il thread o le descrizioni, il budget andrebbe verde misurando niente.
     expect(perTask).toBeGreaterThan(1200);

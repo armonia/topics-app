@@ -30,7 +30,7 @@
 
 /** The subset of a topic this report reads. Narrow on purpose: a wider type
  *  invites lines that answer nothing. */
-export interface TopicPerStato {
+export interface TopicForStatus {
   name?: string | null;
   projectPath?: string | null;
   model?: string | null;
@@ -51,16 +51,16 @@ export interface TopicPerStato {
  * comments: this report is read in the app, in the app's language.
  * allow-italian: these are the sentences shown to the user
  */
-const AUTONOMIA: Record<string, string> = {
+const AUTONOMY: Record<string, string> = {
   ask: "propone e aspetta (non tocca file, non esegue comandi)",
   "auto-apply": "scrive sui file da sé, il resto lo propone",
   yolo: "fa tutto senza chiedere",
 };
 
-export interface StatoOpts {
+export interface StatusOpts {
   sessionKey: string;
   messaggi: number;
-  topic: TopicPerStato | null | undefined;
+  topic: TopicForStatus | null | undefined;
   /** The model that would actually handle the next turn when the topic pins none. */
   modelloDiRipiego?: string | null;
 }
@@ -72,9 +72,9 @@ export interface StatoOpts {
  * none" teaches the reader nothing and pushes the lines that do matter further
  * down. An absent override IS the default, and the default is not news.
  */
-export function statoSessione(o: StatoOpts): string {
+export function sessionStatus(o: StatusOpts): string {
   const t = o.topic;
-  const righe: (string | null)[] = [
+  const rows: (string | null)[] = [
     t?.name ? `📝 Topic: ${t.name}` : null,
     t?.projectPath ? `📁 Progetto: ${t.projectPath}` : null,
     t?.worktreeId ? `🌿 Worktree: ${t.worktreeId}` : null,
@@ -92,7 +92,7 @@ export function statoSessione(o: StatoOpts): string {
     t?.effort ? `⚡ Effort: ${t.effort}` : null,
     t?.fastMode ? "🏎️ Fast mode: acceso" : null,
     t?.autonomyLevel
-      ? `🛡️ Autonomia: ${t.autonomyLevel}. ${AUTONOMIA[t.autonomyLevel] ?? "livello sconosciuto"}`
+      ? `🛡️ Autonomia: ${t.autonomyLevel}. ${AUTONOMY[t.autonomyLevel] ?? "livello sconosciuto"}`
       : null,
 
     // Two that explain a missing capability rather than a behaviour.
@@ -106,5 +106,5 @@ export function statoSessione(o: StatoOpts): string {
     // report, not what you came to read.
     `📍 Sessione: ${o.sessionKey}`,
   ];
-  return righe.filter(Boolean).join("\n");
+  return rows.filter(Boolean).join("\n");
 }

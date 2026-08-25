@@ -13,7 +13,7 @@ import { expect, type Page } from "@playwright/test";
  * menu itself: what these specs are about is the identity, and driving three
  * clicks to get there would make them red for a reason that is not theirs.
  */
-export async function apriPaneProfilo(page: Page): Promise<void> {
+export async function openProfilePane(page: Page): Promise<void> {
   await page.evaluate(() =>
     window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "profile" } })),
   );

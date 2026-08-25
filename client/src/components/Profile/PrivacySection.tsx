@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type ProfilePrivacy } from '@/lib/api';
 import { useT } from '@/hooks/useT';
-import { useIo } from './useIo';
+import { useSelf } from './useSelf';
 
 /**
  * WHAT YOUR PROFILE PUBLISHES, five switches, and none of them is decoration.
@@ -32,7 +32,7 @@ import { useIo } from './useIo';
  * write fails the switch goes back, with a line saying so.
  */
 
-const VOCI: ReadonlyArray<keyof ProfilePrivacy> = [
+const SWITCHES: ReadonlyArray<keyof ProfilePrivacy> = [
   'showProfile',
   'showStats',
   'showEmail',
@@ -40,37 +40,37 @@ const VOCI: ReadonlyArray<keyof ProfilePrivacy> = [
   'showPresence',
 ];
 
-function Interruttore({ acceso, onCambia, etichetta, aiuto, testId, disabilitato }: {
-  acceso: boolean;
-  onCambia: () => void;
-  etichetta: string;
-  aiuto: string;
+function Switch({ on, onToggle, label, help, testId, disabled }: {
+  on: boolean;
+  onToggle: () => void;
+  label: string;
+  help: string;
   testId: string;
-  disabilitato: boolean;
+  disabled: boolean;
 }) {
   return (
     <li className="flex items-start gap-3 rounded-md border border-app-border px-3 py-2.5">
       <button
         type="button"
         role="switch"
-        aria-checked={acceso}
-        aria-label={etichetta}
-        disabled={disabilitato}
-        onClick={onCambia}
+        aria-checked={on}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onToggle}
         data-testid={testId}
         className={`mt-0.5 h-5 w-9 flex-shrink-0 rounded-full border transition-colors disabled:opacity-50 ${
-          acceso ? 'border-primary bg-primary/70' : 'border-app-border bg-app-hover'
+          on ? 'border-primary bg-primary/70' : 'border-app-border bg-app-hover'
         }`}
       >
         <span
           className={`block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-            acceso ? 'translate-x-4' : 'translate-x-0.5'
+            on ? 'translate-x-4' : 'translate-x-0.5'
           }`}
         />
       </button>
       <div className="min-w-0">
-        <div className="text-[13px] text-app-text">{etichetta}</div>
-        <p className="text-[11.5px] leading-snug text-app-text-muted">{aiuto}</p>
+        <div className="text-[13px] text-app-text">{label}</div>
+        <p className="text-[11.5px] leading-snug text-app-text-muted">{help}</p>
       </div>
     </li>
   );
@@ -78,42 +78,42 @@ function Interruttore({ acceso, onCambia, etichetta, aiuto, testId, disabilitato
 
 export function PrivacySection() {
   const t = useT();
-  const { io, pronto } = useIo();
+  const { me, ready } = useSelf();
   const [privacy, setPrivacy] = useState<ProfilePrivacy | null>(null);
-  const [errore, setErrore] = useState(false);
-  const [inCorso, setInCorso] = useState(false);
+  const [error, setError] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const ioId = io?.id ?? null;
+  const meId = me?.id ?? null;
 
   useEffect(() => {
-    if (!ioId) return;
-    let annullato = false;
-    peopleApi.privacy(ioId).then(
-      ({ privacy: p }) => { if (!annullato) setPrivacy(p); },
-      () => { if (!annullato) setErrore(true); },
+    if (!meId) return;
+    let canceled = false;
+    peopleApi.privacy(meId).then(
+      ({ privacy: p }) => { if (!canceled) setPrivacy(p); },
+      () => { if (!canceled) setError(true); },
     );
-    return () => { annullato = true; };
-  }, [ioId]);
+    return () => { canceled = true; };
+  }, [meId]);
 
-  const cambia = useCallback((chiave: keyof ProfilePrivacy) => async () => {
-    if (!ioId || !privacy || inCorso) return;
-    const prima = privacy;
-    const dopo = { ...privacy, [chiave]: !privacy[chiave] };
-    setPrivacy(dopo);
-    setInCorso(true);
-    setErrore(false);
+  const toggle = useCallback((field: keyof ProfilePrivacy) => async () => {
+    if (!meId || !privacy || saving) return;
+    const before = privacy;
+    const after = { ...privacy, [field]: !privacy[field] };
+    setPrivacy(after);
+    setSaving(true);
+    setError(false);
     try {
-      const r = await peopleApi.setPrivacy(ioId, { [chiave]: dopo[chiave] });
+      const r = await peopleApi.setPrivacy(meId, { [field]: after[field] });
       setPrivacy(r.privacy);
     } catch {
-      setPrivacy(prima);
-      setErrore(true);
+      setPrivacy(before);
+      setError(true);
     } finally {
-      setInCorso(false);
+      setSaving(false);
     }
-  }, [ioId, privacy, inCorso]);
+  }, [meId, privacy, saving]);
 
-  if (!pronto) return null;
+  if (!ready) return null;
   if (!privacy) {
     return (
       <p data-testid="privacy-unavailable" className="text-[12px] text-app-text-muted">
@@ -125,19 +125,19 @@ export function PrivacySection() {
   return (
     <div data-testid="privacy-section" className="space-y-2">
       <ul className="space-y-2">
-        {VOCI.map((chiave) => (
-          <Interruttore
-            key={chiave}
-            acceso={privacy[chiave]}
-            onCambia={() => void cambia(chiave)()}
-            etichetta={t(`privacy.${chiave}.label`)}
-            aiuto={t(`privacy.${chiave}.help`)}
-            testId={`privacy-${chiave}`}
-            disabilitato={inCorso}
+        {SWITCHES.map((field) => (
+          <Switch
+            key={field}
+            on={privacy[field]}
+            onToggle={() => void toggle(field)()}
+            label={t(`privacy.${field}.label`)}
+            help={t(`privacy.${field}.help`)}
+            testId={`privacy-${field}`}
+            disabled={saving}
           />
         ))}
       </ul>
-      {errore && <p className="text-[11px] text-red-500">{t('privacy.failed')}</p>}
+      {error && <p className="text-[11px] text-red-500">{t('privacy.failed')}</p>}
     </div>
   );
 }

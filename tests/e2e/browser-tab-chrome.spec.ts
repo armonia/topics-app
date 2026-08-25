@@ -65,7 +65,7 @@ function pagina(): string {
 </body></html>`;
 }
 
-async function alzaIlSito(): Promise<{ server: Server; origine: string }> {
+async function startSite(): Promise<{ server: Server; origin: string }> {
   const server = createServer((_req, res) => {
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
@@ -74,11 +74,11 @@ async function alzaIlSito(): Promise<{ server: Server; origine: string }> {
     res.end(pagina());
   });
   await new Promise<void>((ok) => server.listen(0, HOST, ok));
-  return { server, origine: `http://${HOST}:${(server.address() as AddressInfo).port}` };
+  return { server, origin: `http://${HOST}:${(server.address() as AddressInfo).port}` };
 }
 
 /** Mount the browser pane for a topic, the way `/browser <url>` does in chat. */
-async function montaLaPane(page: Page, topicId: string, url: string): Promise<void> {
+async function mountPane(page: Page, topicId: string, url: string): Promise<void> {
   await page.evaluate(
     ({ tid, u }) => {
       window.dispatchEvent(
@@ -97,26 +97,26 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
   // page in it: the default per-file ceiling is not for this family.
   test.describe.configure({ timeout: 240_000 });
 
-  let sito: { server: Server; origine: string } | null = null;
+  let site: { server: Server; origin: string } | null = null;
   let topicId = "";
 
   test.beforeAll(async () => {
-    sito = await alzaIlSito();
+    site = await startSite();
   });
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
     await closeAllBrowserContexts(request);
-    sito?.server.close();
+    site?.server.close();
   });
 
   test("the address is on the tab, reload is under the pointer, the rest is behind the dots", async ({ request }) => {
-    const origine = sito!.origine;
+    const origin = site!.origin;
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-${Date.now()}`);
     topicId = topic.id;
-    const host = new URL(origine).host;
-    const etichetta = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
+    const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
 
     await clipDiConsegna({
       nome: "browser-tab-chrome",
@@ -131,8 +131,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       prologo: async (p) => {
         await goToApp(p);
         await waitForTopicVisible(p, topic.id);
-        await montaLaPane(p, topic.id, `${origine}/rapporto`);
-        await expect(tabDelBrowser(p)).toContainText(etichetta, { timeout: 60_000 });
+        await mountPane(p, topic.id, `${origin}/rapporto`);
+        await expect(tabDelBrowser(p)).toContainText(label, { timeout: 60_000 });
       },
       scena: async (page) => {
         await goToApp(page);
@@ -144,19 +144,19 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         // forever - the row is the only way out of a blank pane, so hiding it
         // there would be a trap, and the product is right. What was wrong was
         // the scene: it asserted the chrome of a page it had never opened.
-        await montaLaPane(page, topicId, `${origine}/rapporto`);
+        await mountPane(page, topicId, `${origin}/rapporto`);
         const tab = tabDelBrowser(page);
 
         // 1. WHERE WE ARE is written on the tab.
-        await expect(tab).toContainText(etichetta, { timeout: 60_000 });
+        await expect(tab).toContainText(label, { timeout: 60_000 });
         await expect(tab).toContainText(/rapporto/);
         await beat(page, 1400);
 
-        // 2. …e proprio perche' l'indirizzo e' sulla tab, la barra non c'e'
-        //    piu': e' lo spazio che questa card comprava. Il caso difficile —
-        //    la pane RIPRISTINATA, dove la barra restava — ha una scena sua in
-        //    fondo, perche' li' la causa e' diversa (due superfici, due
-        //    sorgenti) e vale la pena provarla separatamente.
+        // 2. …and precisely because the address is on the tab, the bar is no
+        //    longer there: that is the space this card was buying. The hard
+        //    case — the RESTORED pane, where the bar stayed — has a scene of
+        //    its own at the bottom, because down there the cause is different
+        //    (two surfaces, two sources) and it is worth proving separately.
 
         // 3. The icon slot: favicon at rest, reload under the pointer.
         await expect(page.getByTestId("browser-tab-icon")).toBeVisible();
@@ -164,85 +164,86 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         await expect(page.getByTestId("browser-tab-reload")).toBeVisible();
         await beat(page, 1600);
 
-        // 4. I tre pallini, che tengono quello che la barra teneva prima.
-        //    Il loro contenuto sulla pane ripristinata e' provato dalla scena
-        //    in fondo; qui basta che il bottone ci sia.
+        // 4. The three dots, which hold what the bar used to hold.
+        //    Their contents on the restored pane are proved by the scene at the
+        //    bottom; here it is enough that the button is there.
         await expect(page.getByTestId("browser-tab-menu")).toBeVisible();
         await beat(page, 1600);
 
-        // La spia degli errori console dipende dal CARICAMENTO della pagina,
-        //    non da dove si legge l'indirizzo: su una pane appena rimontata
-        //    quegli errori non sono ancora avvenuti nel browser vivo. Non e'
-        //    una promessa di questa card, quindi non e' asserita qui.
+        // The console-error cue depends on the page having LOADED, not on
+        //    where the address is read: on a pane that has just been remounted
+        //    those errors have not happened yet in the live browser. It is not
+        //    a promise of this card, so it is not asserted here.
         await beat(page, 900);
       },
     });
   });
 
   /**
-   * L'OTTAVA VOCE DELLA CARD, che non era mai arrivata e adesso c'e'.
+   * THE CARD'S EIGHTH ITEM, which had never landed and now is here.
    *
-   * Questo file e' stato recuperato il 25/08 da `topics/nostalgic-branch`,
-   * dove era rimasto dentro un commit il cui messaggio dice «NON e' una
-   * consegna». Sette voci su otto erano su main; questa no, e a scoprirlo e'
-   * stato il test stesso appena e' tornato a girare.
+   * This file was recovered on 25/08 from `topics/nostalgic-branch`, where it
+   * had stayed inside a commit whose message says «this is NOT a delivery».
+   * Seven items out of eight were on main; this one was not, and what found
+   * that out was the test itself, the moment it started running again.
    *
-   * IL DIFETTO, e perche' non si vedeva. La card vendeva uno scambio:
-   * «l'indirizzo si sposta sulla tab, quindi la barra puo' andarsene». Su una
-   * pane appena aperta funzionava. Su una pane RIPRISTINATA no, e nessuno lo
-   * notava perche' il caso normale — riaprire l'app — e' anche quello che
-   * nessun test copriva. Le due superfici leggevano due sorgenti diverse per
-   * lo stesso fatto: la tab `pane.url` dallo store, gia' reidratato, e il
-   * resto `browser.url`, il browser vivo, che non aveva ancora navigato.
-   * `showChrome` era `revealed || !isRealUrl(url)`, quindi quel secondo
-   * termine teneva la riga a schermo per sempre, e `prettyUrl(about:blank)`
-   * non produceva niente, quindi il menu si apriva senza la riga
-   * dell'indirizzo.
+   * THE DEFECT, and why it could not be seen. The card was selling a trade:
+   * «the address moves onto the tab, so the bar can go away». On a pane that
+   * had just been opened it worked. On a RESTORED pane it did not, and nobody
+   * noticed because the normal case — reopening the app — is also the one no
+   * test covered. The two surfaces were reading two different sources for the
+   * same fact: the tab `pane.url` from the store, already rehydrated, and the
+   * rest `browser.url`, the live browser, which had not navigated yet.
+   * `showChrome` was `revealed || !isRealUrl(url)`, so that second term kept
+   * the row on screen forever, and `prettyUrl(about:blank)` produced nothing,
+   * so the menu opened without the address row.
    *
-   * LA CURA, in `useBrowserChromeBridge`: un `knownUrl` che porta il valore
-   * dello store accanto a quello vivo. `showChrome` ora chiede se NESSUNO dei
-   * due e' reale — cosi' la pane davvero bianca tiene la sua barra, che li' e'
-   * l'unica via d'uscita — e l'indirizzo mostrato ripiega su `knownUrl`
-   * finche' il browser non ha finito. Non e' una bugia: l'etichetta della tab,
-   * un centimetro piu' su, mostrava gia' quell'indirizzo. Prima le due
-   * superfici dicevano cose diverse sulla stessa pane.
+   * THE CURE, in `useBrowserChromeBridge`: a `knownUrl` that carries the
+   * store's value alongside the live one. `showChrome` now asks whether
+   * NEITHER of the two is real — so a genuinely blank pane keeps its bar,
+   * which down there is the only way out — and the address shown falls back to
+   * `knownUrl` until the browser has finished. It is not a lie: the tab's
+   * label, a centimetre further up, was already showing that address. Before,
+   * the two surfaces said different things about the same pane.
    *
-   * Questa scena esiste separata dalla prima perche' il difetto era
-   * SOLTANTO qui: la pane appena aperta passava anche prima.
+   * This scene exists separately from the first one because the defect was
+   * ONLY here: the pane that had just been opened passed even before.
    */
   test("anche sulla pane RIPRISTINATA la barra se n'e' andata, e l'indirizzo per esteso e' nel menu", async ({ page, request }) => {
-    const origine = sito!.origine;
+    const origin = site!.origin;
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-DEBT-${Date.now()}`);
     topicId = topic.id;
-    const host = new URL(origine).host;
-    const etichetta = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
+    const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
 
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
-    await montaLaPane(page, topic.id, `${origine}/rapporto`);
-    await expect(tabDelBrowser(page)).toContainText(etichetta, { timeout: 60_000 });
+    await mountPane(page, topic.id, `${origin}/rapporto`);
+    await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
 
-    // La pane si rimonta dallo store: e' il caso in cui le due superfici
-    // divergono, ed e' il caso normale (riaprire l'app).
+    // The pane remounts from the store: it is the case in which the two
+    // surfaces diverge, and it is the normal case (reopening the app).
     await goToApp(page);
-    await montaLaPane(page, topicId, `${origine}/rapporto`);
-    await expect(tabDelBrowser(page)).toContainText(etichetta, { timeout: 60_000 });
+    await mountPane(page, topicId, `${origin}/rapporto`);
+    await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
 
-    // Le due meta' dello scambio che la card vendeva, e che qui non regge.
+    // The two halves of the trade the card was selling, and which down here
+    // does not hold.
     await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
 
-    // I tre pallini vivono in `opacity-0 group-hover:opacity-100`: senza
-    // passare sopra la tab il bottone c'e' ma e' trasparente, e il click lo
-    // intercetta l'etichetta sotto. Non e' un difetto del prodotto — sono tre
-    // pixel che non si prendono l'indirizzo quando non servono.
+    // The three dots live in `opacity-0 group-hover:opacity-100`: without
+    // hovering over the tab the button is there but transparent, and the click
+    // is intercepted by the label underneath. It is not a product defect —
+    // they are three pixels that do not take the address when they are not
+    // needed.
     await tabDelBrowser(page).hover();
     await page.getByTestId("browser-tab-menu").click();
     await expect(page.getByTestId("browser-tab-menu-address")).toBeVisible();
-    // La spia degli errori console NON sta qui: dipende dal fatto che la
-    // pagina abbia caricato e loggato qualcosa, non da dove si legge
-    // l'indirizzo. Su una pane appena ripristinata quegli errori non sono
-    // ancora avvenuti nel browser vivo, e pretenderli qui misurerebbe il
-    // caricamento invece dello scambio che questa scena prova.
+    // The console-error cue does NOT belong here: it depends on the page
+    // having loaded and logged something, not on where the address is read.
+    // On a pane that has just been restored those errors have not happened yet
+    // in the live browser, and demanding them here would measure the load
+    // instead of the trade this scene proves.
   });
 });

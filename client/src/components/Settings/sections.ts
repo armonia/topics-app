@@ -54,7 +54,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'privacy', labelKey: 'settings.section.privacy', icon: ShieldCheck },
   { id: 'organization', labelKey: 'settings.section.organization', icon: Building2 },
   // The id stays `devices`: it is the key the identity row deep-links to
-  // (`onOpenDevices`, and `apriImpostazioni('devices')` from the Profile pane).
+  // (`onOpenDevices`, and `openSettings('devices')` from the Profile pane).
   { id: 'devices', labelKey: 'settings.section.devices', icon: MonitorSmartphone },
   { id: 'plan', labelKey: 'settings.section.plan', icon: CreditCard },
 ];

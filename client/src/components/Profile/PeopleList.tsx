@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
-import { peopleApi, type PersonaSommaria } from '@/lib/api';
+import { peopleApi, type PersonSummary } from '@/lib/api';
 import { useT } from '@/hooks/useT';
-import { apriProfiloPersona } from '@/state/profileTarget';
+import { openPersonProfile } from '@/state/profileTarget';
 import { PersonAvatar } from './PersonAvatar';
 
 /**
@@ -17,41 +17,41 @@ import { PersonAvatar } from './PersonAvatar';
  * itself: following somebody from a list must not also navigate away from the
  * list you are following them in.
  */
-export function PeopleList({ persone, vuoto, testId }: {
-  persone: PersonaSommaria[];
+export function PeopleList({ people, emptyText, testId }: {
+  people: PersonSummary[];
   /** What to say when there is nobody. Not an empty box: a sentence. */
-  vuoto: string;
+  emptyText: string;
   testId: string;
 }) {
   const t = useT();
-  const [stato, setStato] = useState<Record<string, boolean>>({});
+  const [follows, setFollows] = useState<Record<string, boolean>>({});
 
-  const cambia = useCallback(async (p: PersonaSommaria) => {
-    const adesso = stato[p.id] ?? p.viewerFollows;
-    setStato((s) => ({ ...s, [p.id]: !adesso }));
+  const toggleFollow = useCallback(async (p: PersonSummary) => {
+    const current = follows[p.id] ?? p.viewerFollows;
+    setFollows((s) => ({ ...s, [p.id]: !current }));
     try {
-      const r = adesso ? await peopleApi.unfollow(p.id) : await peopleApi.follow(p.id);
-      setStato((s) => ({ ...s, [p.id]: r.following }));
+      const r = current ? await peopleApi.unfollow(p.id) : await peopleApi.follow(p.id);
+      setFollows((s) => ({ ...s, [p.id]: r.following }));
     } catch {
-      setStato((s) => ({ ...s, [p.id]: adesso }));
+      setFollows((s) => ({ ...s, [p.id]: current }));
     }
-  }, [stato]);
+  }, [follows]);
 
-  if (persone.length === 0) {
-    return <p data-testid={`${testId}-empty`} className="text-[12px] text-app-text-muted">{vuoto}</p>;
+  if (people.length === 0) {
+    return <p data-testid={`${testId}-empty`} className="text-[12px] text-app-text-muted">{emptyText}</p>;
   }
 
   return (
     <ul data-testid={testId} className="space-y-1">
-      {persone.map((p) => {
-        const segue = stato[p.id] ?? p.viewerFollows;
+      {people.map((p) => {
+        const isFollowing = follows[p.id] ?? p.viewerFollows;
         return (
           <li key={p.id} className="rounded-md border border-app-border">
             <div
               role="button"
               tabIndex={0}
-              onClick={() => apriProfiloPersona(p.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') apriProfiloPersona(p.id); }}
+              onClick={() => openPersonProfile(p.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openPersonProfile(p.id); }}
               data-testid={`person-row-${p.id}`}
               className="flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left hover:bg-app-hover coarse:min-h-11"
             >
@@ -67,16 +67,16 @@ export function PeopleList({ persone, vuoto, testId }: {
               {!p.isMe && (
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); void cambia(p); }}
-                  aria-pressed={segue}
+                  onClick={(e) => { e.stopPropagation(); void toggleFollow(p); }}
+                  aria-pressed={isFollowing}
                   data-testid={`person-follow-${p.id}`}
                   className={`flex-shrink-0 rounded border px-2 py-1 text-[11.5px] coarse:min-h-11 ${
-                    segue
+                    isFollowing
                       ? 'border-app-border text-app-text-secondary hover:bg-app-hover'
                       : 'border-primary text-primary hover:bg-primary/10'
                   }`}
                 >
-                  {segue ? t('profile.unfollow') : t('profile.follow')}
+                  {isFollowing ? t('profile.unfollow') : t('profile.follow')}
                 </button>
               )}
             </div>

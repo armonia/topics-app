@@ -28,32 +28,32 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The source without prose: the comments NAME the literals the fix removed. */
-const senzaProsa = (s: string) => s
+const withoutProse = (s: string) => s
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/^\s*\/\/.*$/gm, '');
 
-const leggi = (f: string) => senzaProsa(readFileSync(join(import.meta.dir, f), 'utf8'));
+const read = (f: string) => withoutProse(readFileSync(join(import.meta.dir, f), 'utf8'));
 
-const codice = leggi('ProjectFilterPicker.tsx');
-const topbar = leggi('KanbanBoardPane.tsx');
+const code = read('ProjectFilterPicker.tsx');
+const topBar = read('KanbanBoardPane.tsx');
 
 describe('the project chips: one width, one icon box', () => {
   it('no chip spells its own max width: the two caps were 11rem and 13rem', () => {
-    for (const src of [codice, topbar]) {
+    for (const src of [code, topBar]) {
       expect(src).not.toContain('max-w-[11rem]');
       expect(src).not.toContain('max-w-[13rem]');
     }
-    expect(codice).toContain('CHIP_MAX');
+    expect(code).toContain('CHIP_MAX');
   });
 
   it('the width is named once and both chips reach for that name', () => {
-    const dichiarazioni = codice.match(/const CHIP_MAX\b/g) ?? [];
-    expect(dichiarazioni).toHaveLength(1);
+    const declarations = code.match(/const CHIP_MAX\b/g) ?? [];
+    expect(declarations).toHaveLength(1);
     // The chip that opens the menu, and the suggestions next to it.
-    const usi = codice.match(/\$\{CHIP_MAX\}/g) ?? [];
-    expect(usi.length).toBeGreaterThanOrEqual(2);
+    const uses = code.match(/\$\{CHIP_MAX\}/g) ?? [];
+    expect(uses.length).toBeGreaterThanOrEqual(2);
     // And the name is not re-declared where the chips used to live.
-    expect(topbar).not.toContain('const CHIP_MAX');
+    expect(topBar).not.toContain('const CHIP_MAX');
   });
 
   it('the icon slot is reserved for everyone, favicon or not', () => {
@@ -61,23 +61,23 @@ describe('the project chips: one width, one icon box', () => {
     // declared in the component. So the box has to live OUTSIDE it, which is
     // what `ChipIcon` is: a project with no icon on disk must not shift the
     // name next to it.
-    expect(codice).toContain('function ChipIcon');
-    expect(codice).toContain('const ICON_BOX = 12');
+    expect(code).toContain('function ChipIcon');
+    expect(code).toContain('const ICON_BOX = 12');
     // And no chip draws a naked favicon, or a bare dot where an icon should be
     // reserved: everything goes through the shared slot. Measured with
     // `ChipIcon` itself cut out, because inside it BOTH are correct - the
     // favicon sized to the box, and the dot as the box's own fallback.
-    const inizio = codice.indexOf('function ChipIcon');
-    const fine = codice.indexOf('export function ProjectFilterPicker');
-    expect(inizio, 'ChipIcon not found').toBeGreaterThan(-1);
-    expect(fine, 'ProjectFilterPicker not found').toBeGreaterThan(inizio);
-    const fuoriDallaScatola = codice.slice(0, inizio) + codice.slice(fine);
-    expect(fuoriDallaScatola).not.toContain('<ProjectFavicon');
-    expect(fuoriDallaScatola).not.toContain('border border-app-text-faint');
-    expect(codice).toContain('<ChipIcon');
+    const start = code.indexOf('function ChipIcon');
+    const end = code.indexOf('export function ProjectFilterPicker');
+    expect(start, 'ChipIcon not found').toBeGreaterThan(-1);
+    expect(end, 'ProjectFilterPicker not found').toBeGreaterThan(start);
+    const outsideTheBox = code.slice(0, start) + code.slice(end);
+    expect(outsideTheBox).not.toContain('<ProjectFavicon');
+    expect(outsideTheBox).not.toContain('border border-app-text-faint');
+    expect(code).toContain('<ChipIcon');
     // The topbar hands the row over whole: it must not draw a project chip of
     // its own any more, or the two would drift apart exactly as before.
-    expect(topbar).not.toContain('<ProjectFavicon');
-    expect(topbar).toContain('<ProjectFilterPicker');
+    expect(topBar).not.toContain('<ProjectFavicon');
+    expect(topBar).toContain('<ProjectFilterPicker');
   });
 });

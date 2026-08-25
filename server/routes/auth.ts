@@ -1112,7 +1112,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
               // a database older than the migration, and the catch below
               // answers an EMPTY members list, so hiding one timestamp would
               // cost the entire screen.
-              const presenza = String(r.id) === ioPersona
+              const presenceVisible = String(r.id) === ioPersona
                 || privacyPersona(db as never, String(r.id)).showPresence;
               return {
                 id: r.id, name: r.name, email: r.email, role: r.role,
@@ -1122,7 +1122,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
                 // true» congelerebbe qui una finestra temporale che il client non
                 // puo' piu' cambiare, e due schermate con due soglie diverse
                 // direbbero due verita' sullo stesso membro.
-                lastSeenAt: !presenza || r.last_seen === null || r.last_seen === undefined
+                lastSeenAt: !presenceVisible || r.last_seen === null || r.last_seen === undefined
                   ? null
                   : Number(r.last_seen),
                 // Le DUE revoche restano distinte anche qui: una l'ha decisa il

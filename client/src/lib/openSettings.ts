@@ -18,7 +18,7 @@
  */
 /** The event App listens to. Exported so the listener and the sender cannot
  *  drift on a string. */
-export const EVENTO_IMPOSTAZIONI = 'topics:open-settings';
+export const OPEN_SETTINGS_EVENT = 'topics:open-settings';
 
 /** The sections a deep link can land on: the same set App's panel accepts as
  *  `initialSection`. Anything else is the panel's normal entry point.
@@ -26,15 +26,15 @@ export const EVENTO_IMPOSTAZIONI = 'topics:open-settings';
  *  `organization` is here because the profile tab stopped carrying it. The
  *  group is administration, not identity, and the door to it now leads where
  *  administration lives instead of into a profile page that no longer has it. */
-export type SezioneImpostazioni = 'profile' | 'devices' | 'notifications' | 'organization';
+export type SettingsPanelSection = 'profile' | 'devices' | 'notifications' | 'organization';
 
-export interface DettaglioImpostazioni {
-  section?: SezioneImpostazioni;
+export interface OpenSettingsDetail {
+  section?: SettingsPanelSection;
 }
 
 /** Open Settings, optionally on a given section. */
-export function apriImpostazioni(section?: SezioneImpostazioni): void {
+export function openSettings(section?: SettingsPanelSection): void {
   window.dispatchEvent(
-    new CustomEvent<DettaglioImpostazioni>(EVENTO_IMPOSTAZIONI, { detail: { section } }),
+    new CustomEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, { detail: { section } }),
   );
 }

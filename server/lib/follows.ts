@@ -35,7 +35,7 @@
  * schema we cannot interrogate it stays closed.
  */
 import type { Database } from "bun:sqlite";
-import type { ProfilePrivacy, ConteggiFollow as Conteggi } from "../../shared/profile";
+import type { ProfilePrivacy, FollowCounts } from "../../shared/profile";
 
 /**
  * The two shapes that cross the wire are DECLARED IN `shared/`, and re-exported
@@ -69,7 +69,7 @@ export const PRIVACY_DEFAULTS: ProfilePrivacy = {
 };
 
 /** Column name per field, in one place: the reader and the writer share it. */
-const COLONNE: Record<keyof ProfilePrivacy, string> = {
+const COLUMNS: Record<keyof ProfilePrivacy, string> = {
   showProfile: "show_profile",
   showStats: "show_stats",
   showEmail: "show_email",
@@ -77,10 +77,10 @@ const COLONNE: Record<keyof ProfilePrivacy, string> = {
   showPresence: "show_presence",
 };
 
-const CAMPI = Object.keys(COLONNE) as (keyof ProfilePrivacy)[];
+const FIELDS = Object.keys(COLUMNS) as (keyof ProfilePrivacy)[];
 
 /** SQLite has no boolean: anything other than 0 is a yes. */
-const acceso = (v: unknown): boolean => Number(v) !== 0;
+const isOn = (v: unknown): boolean => Number(v) !== 0;
 
 /**
  * Follow. `true` means the edge is there afterwards, whether this call put it
@@ -148,7 +148,7 @@ export function unfollow(db: Db, followerId: string, followeeId: string): boolea
  * definitely notice. `null` matches nothing in SQL, so a viewerless call just
  * counts the publicly visible edges.
  */
-const EDGE_VISIBILE = "p.revoked_at IS NULL AND (p.show_profile != 0 OR p.id = ?)";
+const VISIBLE_EDGE = "p.revoked_at IS NULL AND (p.show_profile != 0 OR p.id = ?)";
 
 /**
  * The two counters of one person, as THIS viewer would see the lists.
@@ -158,14 +158,14 @@ const EDGE_VISIBILE = "p.revoked_at IS NULL AND (p.show_profile != 0 OR p.id = ?
  * `followers` uses `idx_follows_followee`, `following` uses the primary key,
  * and both are a seek before the join to `people` on its own primary key.
  */
-export function conteggiFollow(db: Db, personId: string, viewerId: string | null = null): Conteggi {
+export function countFollows(db: Db, personId: string, viewerId: string | null = null): FollowCounts {
   try {
     const f = db.query(
       `SELECT COUNT(*) AS n FROM follows f JOIN people p ON p.id = f.follower_id
-        WHERE f.followee_id = ? AND ${EDGE_VISIBILE}`).get(personId, viewerId) as { n: number } | undefined;
+        WHERE f.followee_id = ? AND ${VISIBLE_EDGE}`).get(personId, viewerId) as { n: number } | undefined;
     const s = db.query(
       `SELECT COUNT(*) AS n FROM follows f JOIN people p ON p.id = f.followee_id
-        WHERE f.follower_id = ? AND ${EDGE_VISIBILE}`).get(personId, viewerId) as { n: number } | undefined;
+        WHERE f.follower_id = ? AND ${VISIBLE_EDGE}`).get(personId, viewerId) as { n: number } | undefined;
     return { followers: Number(f?.n ?? 0), following: Number(s?.n ?? 0) };
   } catch {
     // Zero here reads as "follows nobody, followed by nobody", which on a
@@ -204,24 +204,24 @@ export function segue(db: Db, followerId: string, followeeId: string): boolean {
  */
 export function idFollower(db: Db, personId: string): string[] {
   try {
-    const righe = db.query(
+    const rows = db.query(
       `SELECT f.follower_id AS id FROM follows f JOIN people p ON p.id = f.follower_id
         WHERE f.followee_id = ? AND p.revoked_at IS NULL
         ORDER BY f.created_at DESC`).all(personId) as Array<{ id: string }>;
-    return righe.map((r) => r.id);
+    return rows.map((r) => r.id);
   } catch {
     return [];
   }
 }
 
 /** The LIVE people this person follows, newest edge first. Same rule as above. */
-export function idSeguiti(db: Db, personId: string): string[] {
+export function idFollowing(db: Db, personId: string): string[] {
   try {
-    const righe = db.query(
+    const rows = db.query(
       `SELECT f.followee_id AS id FROM follows f JOIN people p ON p.id = f.followee_id
         WHERE f.follower_id = ? AND p.revoked_at IS NULL
         ORDER BY f.created_at DESC`).all(personId) as Array<{ id: string }>;
-    return righe.map((r) => r.id);
+    return rows.map((r) => r.id);
   } catch {
     return [];
   }
@@ -246,11 +246,11 @@ export function privacyPersona(db: Db, personId: string): ProfilePrivacy {
     ).get(personId) as Record<string, unknown> | undefined;
     if (!r) return { ...PRIVACY_DEFAULTS };
     return {
-      showProfile: acceso(r.show_profile),
-      showStats: acceso(r.show_stats),
-      showEmail: acceso(r.show_email),
-      showFollowers: acceso(r.show_followers),
-      showPresence: acceso(r.show_presence),
+      showProfile: isOn(r.show_profile),
+      showStats: isOn(r.show_stats),
+      showEmail: isOn(r.show_email),
+      showFollowers: isOn(r.show_followers),
+      showPresence: isOn(r.show_presence),
     };
   } catch {
     // Schema older than the migration that added the five columns. Same
@@ -275,24 +275,24 @@ export function privacyPersona(db: Db, personId: string): ProfilePrivacy {
  * does: a row that changes without moving its revision is a row an open socket
  * will never notice has changed.
  */
-export function impostaPrivacy(
+export function setPrivacy(
   db: Db,
   personId: string,
   patch: Partial<ProfilePrivacy>,
   now = Date.now(),
 ): ProfilePrivacy {
   const set: string[] = [];
-  const valori: number[] = [];
-  for (const campo of CAMPI) {
-    const v = patch[campo];
+  const values: number[] = [];
+  for (const field of FIELDS) {
+    const v = patch[field];
     if (typeof v !== "boolean") continue;
-    set.push(`${COLONNE[campo]} = ?`);
-    valori.push(v ? 1 : 0);
+    set.push(`${COLUMNS[field]} = ?`);
+    values.push(v ? 1 : 0);
   }
   if (set.length) {
     try {
       db.query(`UPDATE people SET ${set.join(", ")}, rev = rev + 1, updated_at = ? WHERE id = ?`)
-        .run(...valori, now, personId);
+        .run(...values, now, personId);
     } catch {
       // Nothing was written, so nothing is claimed: the read below reports the
       // state that actually holds, which on an unmigrated database is the

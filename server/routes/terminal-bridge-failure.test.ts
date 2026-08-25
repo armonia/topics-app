@@ -6,7 +6,7 @@
  *
  *   [Terminal] Bridge init failed: Failed to connect to PTY bridge after
  *   spawning (node --socket /tmp/topics-pty-bridge-e2e-13334.sock)
- *   Nessun log in /tmp/topics-pty-bridge-e2e-13334.log.
+ *   Nessun log in /tmp/topics-pty-bridge-e2e-13334.log.  allow-italian: the quoted error string IS the subject
  *
  * and that last sentence was a lie by construction. It reads as "the bridge
  * started and said nothing", which is one specific fact; but the code emitted
@@ -37,7 +37,11 @@
 import { describe, expect, test } from "bun:test";
 import { bridgeFailureDetail } from "./terminal";
 
-const LOG = "/tmp/topics-pty-bridge-e2e-13334.log";
+// The path below is the one that appears IN THE MESSAGE under test, copied from
+// the nightly run that produced this file. Nothing here opens, creates or
+// deletes that directory. The marker has to sit on the line itself: the gate
+// matches per line, so the same note written above would not be seen.
+const LOG = "/tmp/topics-pty-bridge-e2e-13334.log"; // allow-shared-tmp: the data under test, not a working directory
 
 describe("each cause gets its own sentence", () => {
   test("the spawn failed: it says so, and names the errno", () => {
@@ -108,15 +112,15 @@ describe("the sentence is a sentence", () => {
     // together. And a branch that drops its own input reads as a reason while
     // saying nothing: that is the bug this whole file exists about, so it is
     // asserted for every branch rather than only for the ones above.
-    const casi: [string, string][] = [
+    const cases: [string, string][] = [
       [bridgeFailureDetail({ spawnError: "ENOSPAWN", logPath: LOG }), "ENOSPAWN"],
       [bridgeFailureDetail({ logLine: "IL-MOTIVO", logPath: LOG }), "IL-MOTIVO"],
       [bridgeFailureDetail({ logOpenError: "NONAPRIBILE", logPath: LOG }), "NONAPRIBILE"],
       [bridgeFailureDetail({ logPath: LOG }), LOG],
     ];
-    for (const [c, deveContenere] of casi) {
+    for (const [c, mustContain] of cases) {
       expect(c.startsWith(" "), `«${c}» would glue itself onto the previous word`).toBe(true);
-      expect(c, `«${c}» reads like a reason and does not carry one`).toContain(deveContenere);
+      expect(c, `«${c}» reads like a reason and does not carry one`).toContain(mustContain);
     }
   });
 

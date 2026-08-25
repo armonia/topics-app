@@ -1,39 +1,40 @@
 /**
- * IL FILTRO «PROGETTO» DELLA BOARD, chip e suggerimenti in un pezzo solo.
+ * THE BOARD'S «PROJECT» FILTER, chip and suggestions in a single piece.
  *
- * Nella barra c'erano DUE oggetti che parlavano dello stesso filtro, e in due
- * punti lontani della riga: il chip «Progetto» (col menu di ricerca) fra gli
- * altri filtri, e in coda alla barra una striscia di chip-suggerimento, uno per
- * progetto, che appariva quando avanzava spazio. Chi guardava la barra vedeva
- * due controlli diversi; chi la leggeva nel codice trovava lo stesso stato
- * calcolato per entrambi in mezzo agli altri filtri.
+ * The bar held TWO objects that talked about the same filter, and at two
+ * far-apart points of the row: the «Project» chip (with its search menu) among
+ * the other filters, and at the tail of the bar a strip of suggestion chips,
+ * one per project, that appeared when there was space to spare. Whoever looked
+ * at the bar saw two different controls; whoever read it in the code found the
+ * same state computed for both, in the middle of the other filters.
  *
- * Qui stanno insieme: il chip apre la lista completa (ricerca, cento progetti),
- * i suggerimenti sono la stessa lista sporta fuori finche' c'e' larghezza. Un
- * componente solo, un solo posto in cui si decide cosa e' selezionato.
+ * Here they stand together: the chip opens the full list (search, a hundred
+ * projects), the suggestions are that same list leaned out as long as there is
+ * width. One single component, one single place where what is selected is
+ * decided.
  *
- * LA REGOLA DELLA STRISCIA, invariata: la barra non si deforma mai per far
- * stare i suggerimenti. Niente a capo (spingerebbe giu' la board), niente
- * compressione fino all'illeggibile; chi non entra resta dietro il chip.
- * Il conto si fa sulla geometria vera, non su una stima di caratteri: i chip
- * sono TUTTI renderizzati in una riga `nowrap` dentro un contenitore che occupa
- * lo spazio residuo, e quelli il cui bordo destro cade oltre il bordo del
- * contenitore diventano `invisible`. Tre proprieta', ed e' per questo che il
- * modo e' questo:
- *   · `visibility:hidden` tiene la posizione, quindi le misure dei chip
- *     precedenti non cambiano quando l'ultimo sparisce: nessun ciclo in cui
- *     nascondere un chip libera lo spazio che lo rifa' comparire.
- *   · il contenitore ha `min-w-0` + `overflow-hidden`, quindi la sua larghezza
- *     MINIMA e' zero: quando la riga e' affollata collassa a 0, nessun chip
- *     entra, e non allarga la barra di un pixel. E' lo stesso motivo per cui un
- *     chip a meta' non si vede mai: sotto il taglio e' invisibile, non tagliato.
- *   · la riga dei chip e' ASSOLUTA (`w-max`), e questo non e' un dettaglio di
- *     stile: un figlio in flusso con `basis-0` contribuisce lo stesso la sua
- *     larghezza MAX-CONTENT al calcolo intrinseco del genitore, e il genitore
- *     qui sta dentro una barra che scorre. Misurato: con la riga in flusso, a
- *     1000px la barra eccedeva di 243px, cioe' i chip si prendevano lo spazio
- *     invece di aspettare quello che avanza. Fuori flusso contribuisce zero, e
- *     la striscia riceve SOLO cio' che resta.
+ * THE STRIP'S RULE, unchanged: the bar never deforms itself to make the
+ * suggestions fit. No wrapping (it would push the board down), no compression
+ * down to the unreadable; whatever does not fit stays behind the chip.
+ * The count is done on the real geometry, not on an estimate of characters: the
+ * chips are ALL rendered in one `nowrap` row inside a container that occupies
+ * the leftover space, and the ones whose right edge falls beyond the
+ * container's edge become `invisible`. Three properties, and this is why the
+ * way is this one:
+ *   · `visibility:hidden` keeps the position, so the measurements of the
+ *     preceding chips do not change when the last one disappears: no loop in
+ *     which hiding a chip frees the space that makes it appear again.
+ *   · the container has `min-w-0` + `overflow-hidden`, so its MINIMUM width is
+ *     zero: when the row is crowded it collapses to 0, no chip fits in, and it
+ *     does not widen the bar by a pixel. It is the same reason why a half chip
+ *     is never seen: below the cut it is invisible, not clipped.
+ *   · the chip row is ABSOLUTE (`w-max`), and this is not a styling detail: a
+ *     child in flow with `basis-0` still contributes its MAX-CONTENT width to
+ *     the parent's intrinsic calculation, and the parent here sits inside a bar
+ *     that scrolls. Measured: with the row in flow, at 1000px the bar exceeded
+ *     by 243px, that is, the chips took the space for themselves instead of
+ *     waiting for what is left over. Out of flow it contributes zero, and the
+ *     strip receives ONLY what remains.
  */
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
@@ -50,33 +51,33 @@ import { ProjectTaskCounts } from './atoms';
 import { filterChipClass } from './constants';
 
 /**
- * Il respiro fra il contenuto e il bordo del fondino, per lato (px).
+ * The breathing room between the content and the shell's edge, per side (px).
  *
- * UNO SOLO, e vale su tutti e quattro i lati: 4px a destra li aggiunge la
- * misura qui sotto, 4px a sinistra sono il `px-1` dell'ospite, 4px sopra e
- * sotto sono il `-inset-y-1` del fondino. Prima il verticale era ZERO
- * (`inset-y-0` su un ospite alto quanto i chip): il bordo passava rasente al
- * chip, e un riquadro che tocca il suo contenuto si legge come un errore di
- * allineamento, non come un raggruppamento.
+ * ONE SINGLE ONE, and it holds on all four sides: the 4px on the right are
+ * added by the measurement below, the 4px on the left are the host's `px-1`,
+ * the 4px above and below are the shell's `-inset-y-1`. Before, the vertical
+ * one was ZERO (`inset-y-0` on a host as tall as the chips): the border ran
+ * flush against the chip, and a box that touches its own content reads as an
+ * alignment mistake, not as a grouping.
  */
 const SHELL_PAD = 4;
 
 /**
- * LA SCATOLA DELL'ICONA, la stessa per ogni chip.
+ * THE ICON'S BOX, the same one for every chip.
  *
- * `ProjectFavicon` disegna il `fallback` NUDO, senza riservargli larghezza (è
- * dichiarato: «no path → no element, no reserved width»). Il fallback qui era
- * un punto da 6px contro un'icona da 12: i chip di un progetto con icona e di
- * uno senza rientravano in modo diverso, e in fila i nomi non erano
- * incolonnati. La scatola sta FUORI dal favicon, così la larghezza del chip
- * non dipende più da quali progetti abbiano un'icona su disco.
+ * `ProjectFavicon` draws the `fallback` BARE, without reserving width for it
+ * (it is declared: «no path → no element, no reserved width»). The fallback
+ * here was a 6px dot against a 12px icon: the chips of a project with an icon
+ * and of one without were indented differently, and in a row the names were not
+ * lined up. The box sits OUTSIDE the favicon, so the chip's width no longer
+ * depends on which projects happen to have an icon on disk.
  */
 const ICON_BOX = 12;
 
 /**
- * La larghezza massima di un chip, la stessa per il chip che apre il menu e
- * per i suggerimenti: erano `11rem` e `13rem`, cioè lo stesso oggetto troncato
- * a due misure diverse nella stessa riga.
+ * The maximum width of a chip, the same for the chip that opens the menu and
+ * for the suggestions: they were `11rem` and `13rem`, that is, the same object
+ * truncated at two different measures in the same row.
  */
 const CHIP_MAX = 'max-w-[12rem]';
 
@@ -97,9 +98,9 @@ function ChipIcon({ path }: { path: string }) {
 
 export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterIds, onChange }: {
   tasks: readonly BoardTask[];
-  /** I progetti si filtrano solo dove ce n'e' piu' di uno: la board «tutti». */
+  /** Projects are filtered only where there is more than one: the «all» board. */
   mode: 'project' | 'all';
-  /** Gli id accesi nel filtro (quelli veri, non le righe sintetiche). */
+  /** The ids switched on in the filter (the real ones, not the synthetic rows). */
   selectedIds: readonly string[];
   onChange: (ids: string[]) => void;
 }) {
@@ -107,43 +108,43 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
 
-  // LO STESSO indice progetti del composer. Prima questo filtro era un widget a
-  // parte che dell'indice non sapeva nulla: niente ricerca, niente icone, e come
-  // nome l'id della board con l'hash tagliato via (`topics-app-4f2c` →
-  // «topics-app»), che assomiglia al nome vero ma non lo e'. Ora la lista passa
-  // per `resolveProjectRefs`, che risolve nome e `path` (e senza `path` non c'e'
-  // icona) dallo stesso indice che alimenta il chip del composer e il «Sposta
-  // su…» del drawer.
+  // THE SAME project index as the composer. Before, this filter was a widget of
+  // its own that knew nothing about the index: no search, no icons, and for a
+  // name the board id with the hash cut away (`topics-app-4f2c` →
+  // «topics-app»), which looks like the real name but is not it. Now the list
+  // goes through `resolveProjectRefs`, which resolves name and `path` (and with
+  // no `path` there is no icon) from the same index that feeds the composer's
+  // chip and the drawer's «Move to…».
   const projectIndex = useBoardProjects(mode === 'all');
   const taskProjectIds = useMemo(() => Array.from(new Set(tasks.map((t) => t.projectId))), [tasks]);
-  // I task «senza progetto» sono di DUE specie (`_none` e la board catch-all
-  // `generale-<hash>`), ma per chi filtra sono una cosa sola: una riga, che
-  // accende e spegne entrambi gli id.
-  const projectlessIds = useMemo(() => taskProjectIds.filter(isProjectlessId), [taskProjectIds]);
-  // Quanti task, e in che stato. Il nome da solo non dice se quel progetto stia
-  // aspettando qualcuno o non abbia niente di aperto, ed e' la domanda che si fa
-  // chi guarda una board generale con dodici progetti.
+  // The «no project» tasks come in TWO species (`_none` and the catch-all board
+  // `generale-<hash>`), but for whoever filters they are one single thing: one
+  // row, which switches both ids on and off.
+  const unassignedIds = useMemo(() => taskProjectIds.filter(isProjectlessId), [taskProjectIds]);
+  // How many tasks, and in what state. The name on its own does not say whether
+  // that project is waiting for somebody or has nothing open, and that is the
+  // question asked by whoever looks at a general board with twelve projects.
   const projectCounts = useMemo(
     () => projectTaskCounts(tasks, (t) => (isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId)),
     [tasks],
   );
   const projectOptions = useMemo(() => {
     const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
-    return projectlessIds.length
+    return unassignedIds.length
       ? [{ projectId: UNASSIGNED_PROJECT_ID, name: 'Senza progetto', path: '' }, ...refs]
       : refs;
-  }, [taskProjectIds, projectlessIds, projectIndex]);
+  }, [taskProjectIds, unassignedIds, projectIndex]);
   const showProjects = mode === 'all' && projectOptions.length > 0;
 
-  // Gli id che la riga «Senza progetto» rappresenta davvero.
+  // The ids the «No project» row really stands for.
   const idsFor = (p: BoardProjectRef) =>
-    (p.projectId === UNASSIGNED_PROJECT_ID && projectlessIds.length ? projectlessIds : [p.projectId]);
+    (p.projectId === UNASSIGNED_PROJECT_ID && unassignedIds.length ? unassignedIds : [p.projectId]);
   const selectedRowIds = useMemo(() => {
-    const sel = new Set(selectedFilterIds);
-    // La riga sintetica si accende se e' acceso uno QUALSIASI dei suoi id.
-    if (projectlessIds.some((id) => sel.has(id))) sel.add(UNASSIGNED_PROJECT_ID);
-    return Array.from(sel);
-  }, [selectedFilterIds, projectlessIds]);
+    const selected = new Set(selectedFilterIds);
+    // The synthetic row switches on if ANY ONE of its ids is on.
+    if (unassignedIds.some((id) => selected.has(id))) selected.add(UNASSIGNED_PROJECT_ID);
+    return Array.from(selected);
+  }, [selectedFilterIds, unassignedIds]);
   const toggleProject = (p: BoardProjectRef) => {
     const ids = idsFor(p);
     const on = ids.some((id) => selectedFilterIds.includes(id));
@@ -151,9 +152,9 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
       ? selectedFilterIds.filter((x) => !ids.includes(x))
       : [...selectedFilterIds, ...ids.filter((id) => !selectedFilterIds.includes(id))]);
   };
-  // Le RIGHE accese (non gli id: «Senza progetto» ne rappresenta due). Un solo
-  // progetto filtrato → il chip lo MOSTRA (icona + nome), invece di dire
-  // «Progetto ·1» e costringere ad aprire il menu per sapere quale.
+  // The ROWS switched on (not the ids: «No project» stands for two of them). A
+  // single project filtered → the chip SHOWS it (icon + name), instead of saying
+  // «Project ·1» and forcing you to open the menu to find out which one.
   const pickedProjects = useMemo(
     () => projectOptions.filter((p) => selectedRowIds.includes(p.projectId)),
     [projectOptions, selectedRowIds],
@@ -164,11 +165,11 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
   const stripRef = useRef<HTMLDivElement>(null);
   const stripRowRef = useRef<HTMLDivElement>(null);
   const [inlineProjects, setInlineProjects] = useState(0);
-  /* LA CONCHIGLIA, in pixel. Il blocco occupa tutta la larghezza che avanza
-     nella riga, ma i suggerimenti finiscono dove finisce l'ultimo chip che ci
-     sta: disegnare il bordo sul contenitore darebbe una scatola vuota lunga
-     fino al fondo della barra. Qui si misura il bordo destro di cio' che si
-     vede davvero, e il fondino si ferma li'. */
+  /* THE SHELL, in pixels. The block occupies all the width left over in the
+     row, but the suggestions end where the last chip that fits ends: drawing
+     the border on the container would give an empty box running all the way to
+     the end of the bar. Here the right edge of what is really seen gets
+     measured, and the shell stops there. */
   const [shellWidth, setShellWidth] = useState(0);
   useLayoutEffect(() => {
     const strip = stripRef.current;
@@ -178,23 +179,24 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
       if (!row) return;
       const avail = strip.clientWidth;
       let fit = 0;
-      // I CHIP, non i figli della riga. Da quando ogni chip e' avvolto nel
-      // `Tooltip`, i figli diretti sono wrapper `display: contents`: per il
-      // layout non esistono (ed e' il motivo per cui si usa `contents`), ma nel
-      // DOM ci sono e hanno `offsetWidth` ZERO. La misura li vedeva larghi
-      // nulla, concludeva che ci stavano tutti, e i chip in eccesso finivano
-      // oltre il bordo destro invece che dentro il menu. `querySelectorAll` sul
-      // testid salta i wrapper e misura cio' che si vede davvero.
+      // THE CHIPS, not the row's children. Ever since every chip is wrapped in
+      // the `Tooltip`, the direct children are `display: contents` wrappers: for
+      // the layout they do not exist (and that is the reason `contents` is
+      // used), but in the DOM they are there and their `offsetWidth` is ZERO.
+      // The measurement saw them as no wider than nothing, concluded they all
+      // fitted, and the chips in excess ended up beyond the right edge instead
+      // of inside the menu. `querySelectorAll` on the testid skips the wrappers
+      // and measures what is really seen.
       const chips = Array.from(row.querySelectorAll<HTMLElement>('[data-testid^="project-filter-chip-"]'));
       for (const chipEl of chips) {
-        // +0.5: le larghezze sono frazionarie, e un mezzo pixel di
-        // arrotondamento non e' un chip che non ci sta.
+        // +0.5: the widths are fractional, and half a pixel of rounding is not
+        // a chip that does not fit.
         if (chipEl.offsetLeft + chipEl.offsetWidth <= avail + 0.5) fit++;
         else break;
       }
       setInlineProjects((n) => (n === fit ? n : fit));
-      // Dove finisce il blocco: il chip da solo se non sporge nessun
-      // suggerimento, altrimenti il bordo destro dell'ultimo che ci sta.
+      // Where the block ends: the chip on its own if no suggestion leans out,
+      // otherwise the right edge of the last one that fits.
       const btn = btnRef.current;
       let right = btn ? btn.offsetLeft + btn.offsetWidth : 0;
       const last = fit > 0 ? chips[fit - 1] : null;
@@ -210,14 +212,15 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
   }, [showProjects, projectOptions]);
 
   /**
-   * Il contenuto del tooltip di un suggerimento. Prima era una riga sola dentro
-   * un `title=` nativo: il sistema operativo la mostrava dopo un secondo
-   * abbondante e senza struttura. Segnalato: «passando sui filtri dovrebbe dare
-   * un minimo di informazioni sul progetto, magari anche la location».
+   * The content of a suggestion's tooltip. Before it was one single line inside
+   * a native `title=`: the operating system showed it after a good second and
+   * without structure. Reported: «hovering over the filters ought to give a
+   * minimum of information about the project, maybe the location too».
    *
-   * Tre cose, in ordine di quanto servono: il NOME (che nel chip e' troncato a
-   * `CHIP_MAX`), DOVE STA su disco (l'unica cosa che distingue due progetti chiamati
-   * uguale in cartelle diverse), e come stanno i task.
+   * Three things, in order of how much they are needed: the NAME (which in the
+   * chip is truncated at `CHIP_MAX`), WHERE IT SITS on disk (the only thing that
+   * tells apart two projects called the same in different folders), and how the
+   * tasks are doing.
    */
   const countsTitle = (p: BoardProjectRef) => {
     const c = projectCounts[p.projectId];
@@ -225,12 +228,12 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
       <div className="space-y-1">
         <div className="font-medium">{p.name}</div>
         {p.path ? (
-          // Monospazio e a capo sul percorso: un path lungo su una riga sola
-          // diventa illeggibile, ed e' proprio il dato che si viene a cercare.
+          // Monospace and wrapping on the path: a long path on one single line
+          // becomes unreadable, and it is exactly the datum you come looking for.
           <div className="break-all font-mono text-[10px] text-app-text-muted">{homeTilde(p.path)}</div>
         ) : (
-          // Perche' non c'e': senza questa riga il tooltip di un progetto sparito
-          // sembra solo un tooltip a cui manca un pezzo.
+          // Why it is not there: without this line the tooltip of a vanished
+          // project just looks like a tooltip with a piece missing.
           <div className="text-[10px] text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
         )}
         {c && <div className="text-[10px] text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
@@ -241,28 +244,30 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
   if (!showProjects) return null;
 
   return (
-    /* `grow basis-0` + `min-w-0`: il blocco prende SOLO lo spazio che avanza
-       nella riga dei filtri, e la sua larghezza minima e' quella del chip. */
+    /* `grow basis-0` + `min-w-0`: the block takes ONLY the space left over in
+       the filter row, and its minimum width is the chip's. */
     <div ref={hostRef} className="relative flex min-w-0 grow basis-0 items-center gap-1.5 px-1" data-testid="project-filter">
-      {/* IL FONDINO che tiene insieme chip e suggerimenti: senza, restano due
-          oggetti vicini e chi guarda non ha modo di sapere che i progetti li'
-          in fila SONO il selettore aperto sulla riga. Sta dietro (assoluto,
-          `pointer-events-none`), quindi non entra in nessuna misura.
+      {/* THE SHELL that holds chip and suggestions together: without it they
+          stay two objects standing near each other and whoever looks has no way
+          of knowing that the projects lined up there ARE the selector opened
+          onto the row. It sits behind (absolute, `pointer-events-none`), so it
+          enters no measurement.
 
-          I COLORI SONO A COPPIE, e non e' un vezzo: nato `border-white/15
-          bg-white/[0.05]`, il fondino era bianco su bianco in tema chiaro,
-          cioe' invisibile proprio dove lo si stava cercando (segnalato tre
-          volte: «ancora non sono wrappati dal selettore»). E' l'errore che la
-          REGOLA in cima a `index.css` descrive parola per parola: un rialzo
-          si dichiara `bg-black/N dark:bg-white/N`, oppure con i token opachi.
-          Il bordo passa a un token, che i due temi risolvono da se'. E' la
-          variante `-light` e non quella base perche' i numeri lo impongono:
-          in chiaro `--border` vale 91,4% di lightness su un fondo che ne vale
-          93 (differenza 1,6: un bordo che non c'e'), e in SCURO sarebbe
-          18% contro il 24,8 a cui arrivava il vecchio bianco/15, cioe' un
-          passo indietro proprio dove qualcosa si vedeva. `--border-light`
-          e' 88,5% in chiaro e 24% in scuro: meglio del bordo base nel primo,
-          pari al vecchio nel secondo. Nessun tema ci perde. */}
+          THE COLOURS COME IN PAIRS, and it is not a whim: born `border-white/15
+          bg-white/[0.05]`, the shell was white on white in the light theme,
+          that is, invisible exactly where it was being looked for (reported
+          three times: «they are still not wrapped by the selector»). It is the
+          mistake the RULE at the top of `index.css` describes word for word: a
+          raised surface is declared `bg-black/N dark:bg-white/N`, or with the
+          opaque tokens. The border moves to a token, which the two themes
+          resolve by themselves. It is the `-light` variant and not the base one
+          because the numbers impose it: in light `--border` is worth 91.4% of
+          lightness on a background worth 93 (difference 1.6: a border that is
+          not there), and in DARK it would be 18% against the 24.8 the old
+          white/15 reached, that is, a step backwards exactly where something
+          was visible. `--border-light` is 88.5% in light and 24% in dark:
+          better than the base border in the first, equal to the old one in the
+          second. Neither theme loses out. */}
       <div
         aria-hidden
         data-testid="project-filter-shell"
@@ -282,9 +287,9 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
         )}
         <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
       </button>
-      {/* LO STESSO `ProjectPickerBody` del composer, in modalita' multi-selezione:
-          il menu non si chiude a ogni clic perche' un filtro si costruisce a
-          piu' scelte. */}
+      {/* THE SAME `ProjectPickerBody` as the composer, in multi-selection mode:
+          the menu does not close on every click because a filter is built out
+          of several choices. */}
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={230} role="listbox" unmanagedFocus>
         <ProjectPickerBody
           projects={projectOptions}
@@ -296,14 +301,14 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
         />
       </Menu>
 
-      {/* I SUGGERIMENTI, nello spazio che avanza. Vedi il `useLayoutEffect`. */}
+      {/* THE SUGGESTIONS, in the space left over. See the `useLayoutEffect`. */}
       <div ref={stripRef} className="relative h-6 min-w-0 grow basis-0 overflow-hidden" data-testid="project-filter-strip">
         <div ref={stripRowRef} className="absolute inset-y-0 left-0 flex w-max flex-nowrap items-center gap-1.5 [&>*]:shrink-0">
           {projectOptions.map((p, i) => {
             const on = selectedRowIds.includes(p.projectId);
             const shown = i < inlineProjects;
             return (
-              // Il `key` sta sul Tooltip: e' lui il figlio della lista ora.
+              // The `key` sits on the Tooltip: it is the list's child now.
               <Tooltip key={p.projectId} content={countsTitle(p)}>
               <button
                 onClick={() => toggleProject(p)}

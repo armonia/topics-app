@@ -73,28 +73,28 @@ const BASELINE = join(ROOT, "openspec", "coverage-baseline.json");
 /** Roots where a test can live. Outside these, a `@covers` is never seen. */
 const TEST_ROOTS = ["tests", "client/src", "server", "shared", "relay", "cli", "scripts"];
 
-type Requisito = {
+type Requirement = {
   id: string;
   capability: string;
-  titolo: string;
+  title: string;
   file: string;
   /** The spec says out loud that this describes code nobody wrote. */
-  nonCostruito: boolean;
+  notBuilt: boolean;
 };
-type FileTest = { path: string; covers: string[]; titoli: { id: string; testo: string }[] };
+type FileTest = { path: string; covers: string[]; titles: { id: string; title: string }[] };
 
-function cammina(dir: string, out: string[] = []): string[] {
-  let voci: string[];
+function walk(dir: string, out: string[] = []): string[] {
+  let entries: string[];
   try {
-    voci = readdirSync(dir);
+    entries = readdirSync(dir);
   } catch {
     return out;
   }
-  for (const nome of voci) {
-    if (nome === "node_modules" || nome === ".git" || nome === "dist" || nome === "data") continue;
-    const p = join(dir, nome);
+  for (const name of entries) {
+    if (name === "node_modules" || name === ".git" || name === "dist" || name === "data") continue;
+    const p = join(dir, name);
     try {
-      if (statSync(p).isDirectory()) cammina(p, out);
+      if (statSync(p).isDirectory()) walk(p, out);
       else out.push(p);
     } catch {
       /* a broken link or a file that vanished mid-walk is not a gate failure */
@@ -124,7 +124,7 @@ function cammina(dir: string, out: string[] = []): string[] {
  * the marker is stale. That is the day someone built the thing — the note has
  * to go, and nobody has to remember to remove it.
  */
-const MARCATORE_NON_COSTRUITO = /^\s*(?:>\s*)?\*\*Status:\s*NOT BUILT\*\*/m;
+const NOT_BUILT_MARKER = /^\s*(?:>\s*)?\*\*Status:\s*NOT BUILT\*\*/m;
 
 /**
  * Declared requirements: `### Requirement: CAP-nn — title`.
@@ -139,37 +139,37 @@ const MARCATORE_NON_COSTRUITO = /^\s*(?:>\s*)?\*\*Status:\s*NOT BUILT\*\*/m;
  * widening on the title regex below adds thirteen titles, none of them a
  * duplicate and none naming a requirement, so R3 and R4 stay where they were.
  */
-function leggiRequisiti(): Requisito[] {
-  const fuori: Requisito[] = [];
-  for (const f of cammina(SPECS)) {
+function readRequirements(): Requirement[] {
+  const out: Requirement[] = [];
+  for (const f of walk(SPECS)) {
     if (!f.endsWith(".md")) continue;
     const capability = f.slice(SPECS.length + 1).split("/")[0]!;
-    const testo = readFileSync(f, "utf8");
-    const teste = [...testo.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm)];
-    for (let i = 0; i < teste.length; i++) {
-      const m = teste[i]!;
+    const text = readFileSync(f, "utf8");
+    const heads = [...text.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm)];
+    for (let i = 0; i < heads.length; i++) {
+      const m = heads[i]!;
       // The requirement's own body, up to the next `###`. Read only to spot
       // the NOT BUILT marker described below.
-      const corpo = testo.slice(m.index! + m[0].length, teste[i + 1]?.index ?? testo.length);
-      fuori.push({
+      const body = text.slice(m.index! + m[0].length, heads[i + 1]?.index ?? text.length);
+      out.push({
         id: m[1]!,
         capability,
-        titolo: (m[2] ?? "").trim(),
+        title: (m[2] ?? "").trim(),
         file: f.slice(ROOT.length),
-        nonCostruito: MARCATORE_NON_COSTRUITO.test(corpo),
+        notBuilt: NOT_BUILT_MARKER.test(body),
       });
     }
   }
-  return fuori;
+  return out;
 }
 
 /** One test file: what it claims to cover, and the ids it names its scenarios with. */
-function leggiTest(): FileTest[] {
-  const fuori: FileTest[] = [];
-  for (const radice of TEST_ROOTS) {
-    for (const f of cammina(join(ROOT, radice))) {
+function readTests(): FileTest[] {
+  const out: FileTest[] = [];
+  for (const root of TEST_ROOTS) {
+    for (const f of walk(join(ROOT, root))) {
       if (!/\.(test|spec)\.(ts|tsx)$/.test(f)) continue;
-      const testo = readFileSync(f, "utf8");
+      const text = readFileSync(f, "utf8");
       // TWO channels, because the two runners do not have the same tool.
       //
       //  - Playwright: `test.info().annotations.push({type:"spec", ...})`. This
@@ -179,39 +179,39 @@ function leggiTest(): FileTest[] {
       //    declared twice.
       //  - bun test: `test.info()` does not exist, so for unit tests the link
       //    is a `@covers` in the header comment, at FILE granularity.
-      const daAnnotation = [...testo.matchAll(/type:\s*["']spec["']\s*,\s*description:\s*["'`]([^"'`]+)["'`]/g)]
+      const fromAnnotation = [...text.matchAll(/type:\s*["']spec["']\s*,\s*description:\s*["'`]([^"'`]+)["'`]/g)]
         .flatMap((m) => m[1]!.split(/[,\s/]+/))
         .filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
-      const daCovers = [...testo.matchAll(/@covers\s+([A-Z0-9,\s-]+)/g)]
+      const fromCovers = [...text.matchAll(/@covers\s+([A-Z0-9,\s-]+)/g)]
         .flatMap((m) => m[1]!.split(/[,\s]+/))
         .filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
-      const covers = [...new Set([...daAnnotation, ...daCovers])];
-      const titoli = [...testo.matchAll(/\b(?:test|it)\(\s*["'`]([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)[^"'`]*?:\s*([^"'`]{0,90})/g)].map(
-        (m) => ({ id: m[1]!, testo: (m[2] ?? "").trim() }),
+      const covers = [...new Set([...fromAnnotation, ...fromCovers])];
+      const titles = [...text.matchAll(/\b(?:test|it)\(\s*["'`]([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)[^"'`]*?:\s*([^"'`]{0,90})/g)].map(
+        (m) => ({ id: m[1]!, title: (m[2] ?? "").trim() }),
       );
-      if (covers.length || titoli.length) fuori.push({ path: f.slice(ROOT.length), covers, titoli });
+      if (covers.length || titles.length) out.push({ path: f.slice(ROOT.length), covers, titles });
     }
   }
-  return fuori;
+  return out;
 }
 
 type Baseline = { scoperti: string[]; ambigui: string[]; penzolanti: string[]; motivi: Record<string, string>; motiviPenzolanti: Record<string, string> };
 
-function leggiBaseline(): Baseline {
+function readBaseline(): Baseline {
   if (!existsSync(BASELINE)) return { scoperti: [], ambigui: [], penzolanti: [], motivi: {}, motiviPenzolanti: {} };
   const j = JSON.parse(readFileSync(BASELINE, "utf8")) as Partial<Baseline>;
   return { scoperti: j.scoperti ?? [], ambigui: j.ambigui ?? [], penzolanti: j.penzolanti ?? [], motivi: j.motivi ?? {}, motiviPenzolanti: j.motiviPenzolanti ?? {} };
 }
 
-const requisiti = leggiRequisiti();
-const fileTest = leggiTest();
+const requirements = readRequirements();
+const fileTest = readTests();
 
 // NOT VACUOUS. If the file walk broke - a wrong path, a regex that no longer
 // matches the spec format - every set would be empty and the gate would go
 // green for the worst possible reason: because it looked at nothing. These two
 // numbers are the proof that it looked.
-if (requisiti.length < 20) {
-  console.error(`check:spec-coverage: only ${requisiti.length} requirements read from ${SPECS} - the gate is measuring nothing.`);
+if (requirements.length < 20) {
+  console.error(`check:spec-coverage: only ${requirements.length} requirements read from ${SPECS} - the gate is measuring nothing.`);
   process.exit(2);
 }
 if (fileTest.length < 50) {
@@ -219,52 +219,52 @@ if (fileTest.length < 50) {
   process.exit(2);
 }
 
-const idRequisito = new Map(requisiti.map((r) => [r.id, r]));
-const dichiarati = new Map<string, string[]>();
-for (const t of fileTest) for (const c of t.covers) dichiarati.set(c, [...(dichiarati.get(c) ?? []), t.path]);
+const requirementById = new Map(requirements.map((r) => [r.id, r]));
+const claimed = new Map<string, string[]>();
+for (const t of fileTest) for (const c of t.covers) claimed.set(c, [...(claimed.get(c) ?? []), t.path]);
 
 // R1 - a claim that resolves to no requirement.
-const penzolanti: { id: string; file: string }[] = [];
-for (const t of fileTest) for (const c of t.covers) if (!idRequisito.has(c)) penzolanti.push({ id: c, file: t.path });
+const dangling: { id: string; file: string }[] = [];
+for (const t of fileTest) for (const c of t.covers) if (!requirementById.has(c)) dangling.push({ id: c, file: t.path });
 
 // R2 - a requirement nobody claims. Requirements the spec itself marks NOT
 // BUILT are not debt: there is nothing to test. They are counted apart.
-const nonCostruiti = requisiti.filter((r) => r.nonCostruito).map((r) => r.id);
-const scoperti = requisiti.filter((r) => !r.nonCostruito && !dichiarati.has(r.id)).map((r) => r.id);
+const notBuiltIds = requirements.filter((r) => r.notBuilt).map((r) => r.id);
+const uncovered = requirements.filter((r) => !r.notBuilt && !claimed.has(r.id)).map((r) => r.id);
 // R5 - the marker gone stale: it says nobody built it, and a test covers it.
-const marcatoriScaduti = requisiti.filter((r) => r.nonCostruito && dichiarati.has(r.id)).map((r) => r.id);
+const staleMarkers = requirements.filter((r) => r.notBuilt && claimed.has(r.id)).map((r) => r.id);
 
 // R3 - requirement id used as a scenario title without claiming it.
-const ambigui: { id: string; file: string; requisito: string; scenario: string }[] = [];
+const ambiguous: { id: string; file: string; requirement: string; scenario: string }[] = [];
 for (const t of fileTest) {
-  for (const { id, testo } of t.titoli) {
-    const r = idRequisito.get(id);
-    if (r && !t.covers.includes(id)) ambigui.push({ id, file: t.path, requisito: r.titolo, scenario: testo });
+  for (const { id, title } of t.titles) {
+    const r = requirementById.get(id);
+    if (r && !t.covers.includes(id)) ambiguous.push({ id, file: t.path, requirement: r.title, scenario: title });
   }
 }
 
-const base = leggiBaseline();
-const modo = process.argv.includes("--report") ? "report" : process.argv.includes("--write-baseline") ? "scrivi" : "cancello";
+const base = readBaseline();
+const mode = process.argv.includes("--report") ? "report" : process.argv.includes("--write-baseline") ? "scrivi" : "cancello";
 
 // -- Snapshot ---------------------------------------------------------------
-const perCapability = new Map<string, { tot: number; coperti: number }>();
-for (const r of requisiti) {
-  if (r.nonCostruito) continue; // no code, no bar to fill
-  const v = perCapability.get(r.capability) ?? { tot: 0, coperti: 0 };
+const perCapability = new Map<string, { tot: number; covered: number }>();
+for (const r of requirements) {
+  if (r.notBuilt) continue; // no code, no bar to fill
+  const v = perCapability.get(r.capability) ?? { tot: 0, covered: 0 };
   v.tot++;
-  if (dichiarati.has(r.id)) v.coperti++;
+  if (claimed.has(r.id)) v.covered++;
   perCapability.set(r.capability, v);
 }
-console.log(`Requisiti: ${requisiti.length} in ${perCapability.size} capability · file di test letti: ${fileTest.length}`);
-console.log(`Dichiarati coperti: ${requisiti.length - scoperti.length - nonCostruiti.length}/${requisiti.length - nonCostruiti.length}` +
-  (nonCostruiti.length ? ` (${nonCostruiti.length} requisiti marcati NOT BUILT restano fuori dal conto: non c'e' codice da provare)` : ""));
+console.log(`Requisiti: ${requirements.length} in ${perCapability.size} capability · file di test letti: ${fileTest.length}`);
+console.log(`Dichiarati coperti: ${requirements.length - uncovered.length - notBuiltIds.length}/${requirements.length - notBuiltIds.length}` +
+  (notBuiltIds.length ? ` (${notBuiltIds.length} requisiti marcati NOT BUILT restano fuori dal conto: non c'e' codice da provare)` : ""));
 console.log("");
-for (const [cap, v] of [...perCapability].sort((a, b) => a[1].coperti / a[1].tot - b[1].coperti / b[1].tot)) {
-  const barra = v.coperti === v.tot ? "pieno" : `${v.coperti}/${v.tot}`;
-  console.log(`  ${cap.padEnd(24)} ${barra}`);
+for (const [cap, v] of [...perCapability].sort((a, b) => a[1].covered / a[1].tot - b[1].covered / b[1].tot)) {
+  const bar = v.covered === v.tot ? "pieno" : `${v.covered}/${v.tot}`;
+  console.log(`  ${cap.padEnd(24)} ${bar}`);
 }
 
-if (modo === "scrivi") {
+if (mode === "scrivi") {
   writeFileSync(
     BASELINE,
     `${JSON.stringify(
@@ -272,111 +272,111 @@ if (modo === "scrivi") {
         _perche:
           "Il debito di tracciabilita' NOTO al momento in cui il cancello e' nato. Non e' un permesso: e' una lista che deve scendere. Una voce che non e' piu' violata fa fallire il cancello, cosi' si toglie invece di restare.",
         _quando: new Date().toISOString().slice(0, 10),
-        motivi: Object.fromEntries(Object.entries(leggiBaseline().motivi).filter(([id]) => scoperti.includes(id))),
-        motiviPenzolanti: leggiBaseline().motiviPenzolanti,
-        scoperti: [...scoperti].sort(),
-        ambigui: [...new Set(ambigui.map((a) => `${a.id}@${a.file}`))].sort(),
-        penzolanti: [...new Set(penzolanti.map((p) => `${p.id}@${p.file}`))].sort(),
+        motivi: Object.fromEntries(Object.entries(readBaseline().motivi).filter(([id]) => uncovered.includes(id))),
+        motiviPenzolanti: readBaseline().motiviPenzolanti,
+        scoperti: [...uncovered].sort(),
+        ambigui: [...new Set(ambiguous.map((a) => `${a.id}@${a.file}`))].sort(),
+        penzolanti: [...new Set(dangling.map((p) => `${p.id}@${p.file}`))].sort(),
       },
       null,
       2,
     )}\n`,
   );
-  console.log(`\nLinea di partenza scritta in ${BASELINE.slice(ROOT.length)}: ${scoperti.length} scoperti, ${new Set(ambigui.map((a) => `${a.id}@${a.file}`)).size} ambigui.`);
+  console.log(`\nLinea di partenza scritta in ${BASELINE.slice(ROOT.length)}: ${uncovered.length} scoperti, ${new Set(ambiguous.map((a) => `${a.id}@${a.file}`)).size} ambigui.`);
   process.exit(0);
 }
 
 // -- Verdict ----------------------------------------------------------------
-const chiaviAmbigue = [...new Set(ambigui.map((a) => `${a.id}@${a.file}`))];
-const chiaviPenzolanti = [...new Set(penzolanti.map((p) => `${p.id}@${p.file}`))];
-const nuoviScoperti = scoperti.filter((id) => !base.scoperti.includes(id));
-const nuoviAmbigui = chiaviAmbigue.filter((k) => !base.ambigui.includes(k));
-const nuoviPenzolanti = chiaviPenzolanti.filter((k) => !base.penzolanti.includes(k));
-const risolti = [
-  ...base.scoperti.filter((id) => !scoperti.includes(id)),
-  ...base.ambigui.filter((k) => !chiaviAmbigue.includes(k)),
-  ...base.penzolanti.filter((k) => !chiaviPenzolanti.includes(k)),
+const ambiguousKeys = [...new Set(ambiguous.map((a) => `${a.id}@${a.file}`))];
+const danglingKeys = [...new Set(dangling.map((p) => `${p.id}@${p.file}`))];
+const newUncovered = uncovered.filter((id) => !base.scoperti.includes(id));
+const newAmbiguous = ambiguousKeys.filter((k) => !base.ambigui.includes(k));
+const newDangling = danglingKeys.filter((k) => !base.penzolanti.includes(k));
+const resolved = [
+  ...base.scoperti.filter((id) => !uncovered.includes(id)),
+  ...base.ambigui.filter((k) => !ambiguousKeys.includes(k)),
+  ...base.penzolanti.filter((k) => !danglingKeys.includes(k)),
 ];
 
-let rosso = false;
+let red = false;
 
 // R4 - a scenario id must name exactly ONE test, across the whole suite.
 const perId = new Map<string, string[]>();
 for (const t of fileTest) {
-  for (const { id, testo } of t.titoli) {
-    perId.set(id, [...(perId.get(id) ?? []), `${t.path.replace(/^\//, "")} — ${testo.slice(0, 54)}`]);
+  for (const { id, title } of t.titles) {
+    perId.set(id, [...(perId.get(id) ?? []), `${t.path.replace(/^\//, "")} — ${title.slice(0, 54)}`]);
   }
 }
-const nonUnici = [...perId].filter(([, v]) => v.length > 1);
-if (nonUnici.length) {
-  rosso = true;
-  console.log(`\nR4 — lo stesso id nomina piu' di un test (${nonUnici.length}):`);
-  for (const [id, dove] of nonUnici) {
+const notUnique = [...perId].filter(([, v]) => v.length > 1);
+if (notUnique.length) {
+  red = true;
+  console.log(`\nR4 — lo stesso id nomina piu' di un test (${notUnique.length}):`);
+  for (const [id, where] of notUnique) {
     console.log(`  ${id}`);
-    for (const d of dove) console.log(`      ${d}`);
+    for (const d of where) console.log(`      ${d}`);
   }
   console.log("  → la convenzione per una variante dello stesso scenario e' il suffisso (TOPBAR-04 / TOPBAR-04b).");
 }
 
-if (nuoviPenzolanti.length) {
-  rosso = true;
-  console.log(`\nR1 — un test dichiara un requisito che le spec non hanno (${nuoviPenzolanti.length} nuovi):`);
-  for (const k of nuoviPenzolanti) console.log(`  ${k.split("@")[0]!.padEnd(18)} dichiarato da ${k.split("@")[1]}`);
+if (newDangling.length) {
+  red = true;
+  console.log(`\nR1 — un test dichiara un requisito che le spec non hanno (${newDangling.length} nuovi):`);
+  for (const k of newDangling) console.log(`  ${k.split("@")[0]!.padEnd(18)} dichiarato da ${k.split("@")[1]}`);
   console.log("  → o l'id e' sbagliato, o il requisito va scritto: il test lo prova gia'.");
 }
-if (nuoviScoperti.length) {
-  rosso = true;
-  console.log(`\nR2 — requisiti NUOVI che nessun test dichiara di coprire (${nuoviScoperti.length}):`);
-  for (const id of nuoviScoperti) console.log(`  ${id.padEnd(18)} ${idRequisito.get(id)!.titolo}`);
+if (newUncovered.length) {
+  red = true;
+  console.log(`\nR2 — requisiti NUOVI che nessun test dichiara di coprire (${newUncovered.length}):`);
+  for (const id of newUncovered) console.log(`  ${id.padEnd(18)} ${requirementById.get(id)!.title}`);
   console.log("  → aggiungi `@covers <ID>` nel commento di testa del test che lo esercita.");
 }
-if (nuoviAmbigui.length) {
-  rosso = true;
-  console.log(`\nR3 — id di requisito usato come titolo di scenario senza dichiararlo (${nuoviAmbigui.length}):`);
-  for (const k of nuoviAmbigui) {
-    const a = ambigui.find((x) => `${x.id}@${x.file}` === k)!;
+if (newAmbiguous.length) {
+  red = true;
+  console.log(`\nR3 — id di requisito usato come titolo di scenario senza dichiararlo (${newAmbiguous.length}):`);
+  for (const k of newAmbiguous) {
+    const a = ambiguous.find((x) => `${x.id}@${x.file}` === k)!;
     console.log(`  ${a.id.padEnd(14)} ${a.file}`);
-    console.log(`  ${" ".repeat(14)} il requisito dice: ${a.requisito}`);
+    console.log(`  ${" ".repeat(14)} il requisito dice: ${a.requirement}`);
     console.log(`  ${" ".repeat(14)} il test prova:     ${a.scenario}`);
   }
 }
-if (marcatoriScaduti.length) {
-  rosso = true;
-  console.log(`\nR5 — un requisito marcato NOT BUILT ha un test che lo copre (${marcatoriScaduti.length}):`);
-  for (const id of marcatoriScaduti) console.log(`  ${id.padEnd(18)} ${idRequisito.get(id)!.file}`);
+if (staleMarkers.length) {
+  red = true;
+  console.log(`\nR5 — un requisito marcato NOT BUILT ha un test che lo copre (${staleMarkers.length}):`);
+  for (const id of staleMarkers) console.log(`  ${id.padEnd(18)} ${requirementById.get(id)!.file}`);
   console.log("  → qualcuno l'ha costruito: togli la riga `**Status: NOT BUILT**` dalla spec.");
   console.log("  Nessuna linea di partenza qui: un marcatore che sopravvive a cio' che descrive e' sempre un errore.");
 }
-if (risolti.length) {
-  rosso = true;
-  console.log(`\nLinea di partenza stantia — queste voci non sono piu' violate, vanno tolte (${risolti.length}):`);
-  for (const k of risolti) console.log(`  ${k}`);
+if (resolved.length) {
+  red = true;
+  console.log(`\nLinea di partenza stantia — queste voci non sono piu' violate, vanno tolte (${resolved.length}):`);
+  for (const k of resolved) console.log(`  ${k}`);
   console.log("  → bun run scripts/check-spec-coverage.ts --write-baseline");
 }
 
-const senzaMotivo = scoperti.filter((id) => !base.motivi[id]);
-if (modo === "report") {
-  const conMotivo = scoperti.filter((id) => base.motivi[id]);
-  if (conMotivo.length) {
-    console.log(`\nScoperti CON un motivo scritto (${conMotivo.length}):`);
-    for (const id of conMotivo) console.log(`  ${id.padEnd(14)} ${base.motivi[id]}`);
+const withoutReason = uncovered.filter((id) => !base.motivi[id]);
+if (mode === "report") {
+  const withReason = uncovered.filter((id) => base.motivi[id]);
+  if (withReason.length) {
+    console.log(`\nScoperti CON un motivo scritto (${withReason.length}):`);
+    for (const id of withReason) console.log(`  ${id.padEnd(14)} ${base.motivi[id]}`);
   }
-  console.log(`Scoperti senza motivo: ${senzaMotivo.length} — sono debito, non deroghe.`);
+  console.log(`Scoperti senza motivo: ${withoutReason.length} — sono debito, non deroghe.`);
   // Dangling claims are not one thing, and treating them as one hides that the
   // cure differs per group: promote the requirement, build the feature, or stop
   // declaring an id that was never a requirement.
-  const gruppi = new Map<string, string[]>();
-  for (const k of chiaviPenzolanti) {
+  const groups = new Map<string, string[]>();
+  for (const k of danglingKeys) {
     const id = k.split("@")[0]!;
     const g = base.motiviPenzolanti[id.replace(/-\d+[a-z]?$/, "")] ?? "non classificato";
-    gruppi.set(g, [...(gruppi.get(g) ?? []), id]);
+    groups.set(g, [...(groups.get(g) ?? []), id]);
   }
-  console.log(`\nPenzolanti per cura (${chiaviPenzolanti.length}):`);
-  for (const [cura, ids] of [...gruppi].sort((a, b) => b[1].length - a[1].length)) {
-    console.log(`  ${String(ids.length).padStart(3)}  ${cura}`);
+  console.log(`\nPenzolanti per cura (${danglingKeys.length}):`);
+  for (const [cure, ids] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
+    console.log(`  ${String(ids.length).padStart(3)}  ${cure}`);
   }
-  console.log(`\n(report) scoperti: ${scoperti.length} · ambigui: ${chiaviAmbigue.length} · penzolanti: ${chiaviPenzolanti.length}`);
+  console.log(`\n(report) scoperti: ${uncovered.length} · ambigui: ${ambiguousKeys.length} · penzolanti: ${danglingKeys.length}`);
   process.exit(0);
 }
-if (rosso) process.exit(1);
+if (red) process.exit(1);
 console.log(`\nVerde. Debito noto: ${base.scoperti.length} scoperti, ${base.ambigui.length} ambigui, ${base.penzolanti.length} penzolanti — e non e' cresciuto.`);

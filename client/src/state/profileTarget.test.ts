@@ -12,7 +12,7 @@
  * menu must not land on the page somebody asked for at some other moment.
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { apriProfilo, apriProfiloPersona, dimenticaPaginaProfilo, paginaProfiloChiesta, profiloChiesto } from './profileTarget';
+import { apriProfilo, openPersonProfile, dimenticaPaginaProfilo, paginaProfiloChiesta, requestedProfile } from './profileTarget';
 
 // `apriProfilo` fires two DOM events: in bun there is no window, so the two
 // gestures below need one that swallows them.
@@ -57,17 +57,17 @@ describe('paginaProfiloChiesta', () => {
 
 describe('opening somebody else', () => {
   test('a person is asked for by id, and the page is the overview', () => {
-    apriProfiloPersona('per_1', 1_000);
-    expect(profiloChiesto(1_010)).toEqual({ pagina: 'profile', personId: 'per_1' });
+    openPersonProfile('per_1', 1_000);
+    expect(requestedProfile(1_010)).toEqual({ pagina: 'profile', personId: 'per_1' });
   });
 
   test('my own pages carry no person: the pane must not go looking for one', () => {
     apriProfilo('followers', 1_000);
-    expect(profiloChiesto(1_010)?.personId).toBeNull();
+    expect(requestedProfile(1_010)?.personId).toBeNull();
   });
 
   test('a person expires like a page does', () => {
-    apriProfiloPersona('per_1', 1_000);
-    expect(profiloChiesto(3_600_000)).toBeNull();
+    openPersonProfile('per_1', 1_000);
+    expect(requestedProfile(3_600_000)).toBeNull();
   });
 });

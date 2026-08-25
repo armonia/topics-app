@@ -1,28 +1,28 @@
 /**
- * Il filo con l'app Discord del desktop: socket IPC locale, zero dipendenze.
+ * The wire to the desktop Discord app: local IPC socket, zero dependencies.
  *
- * ── PERCHÉ NON UNA LIBRERIA ─────────────────────────────────────────────────
- * Il protocollo è di una pagina: un socket unix, un'intestazione di otto byte,
- * JSON dentro. Le librerie di Rich Presence che si trovano portano dietro un
- * client OAuth, il voice, gli inviti alle lobby — cioè un albero di dipendenze
- * per usarne trenta righe. Qui c'è quello che serve e nient'altro.
+ * ── WHY NOT A LIBRARY ───────────────────────────────────────────────────────
+ * The protocol is one page long: a unix socket, an eight-byte header, JSON
+ * inside. The Rich Presence libraries you can find drag along an OAuth client,
+ * voice, lobby invites - that is, a dependency tree to use thirty lines of it.
+ * Here there is what is needed and nothing else.
  *
- * ── IL PROTOCOLLO ───────────────────────────────────────────────────────────
- *   socket   $TMPDIR/discord-ipc-N   (N = 0..9, unix domain; su Windows è una
- *                                     named pipe, vedi `ipcCandidates`)
+ * ── THE PROTOCOL ────────────────────────────────────────────────────────────
+ *   socket   $TMPDIR/discord-ipc-N   (N = 0..9, unix domain; on Windows it is a
+ *                                     named pipe, see `ipcCandidates`)
  *   frame    [op: uint32 LE][len: uint32 LE][payload JSON utf-8]
- *   op 0 HANDSHAKE  {v:1, client_id}       → Discord risponde op 1 evt:"READY"
+ *   op 0 HANDSHAKE  {v:1, client_id}       → Discord answers op 1 evt:"READY"
  *   op 1 FRAME      {cmd:"SET_ACTIVITY", args:{pid, activity}, nonce}
  *   op 2 CLOSE      op 3 PING   op 4 PONG
  *
- * ── DUE STRATI, E LA RAGIONE È IL TEST ──────────────────────────────────────
- * Qui sotto stanno il PROTOCOLLO (comporre e scomporre frame: funzioni pure,
- * nessun socket) e il TRASPORTO (aprire il filo, riprovare). Il primo si prova
- * senza Discord ed è dove vivono le trappole vere — un `len` in BYTE che
- * qualcuno legge come caratteri, un frame che arriva spezzato in tre pezzi, due
- * frame nello stesso chunk. Il secondo si prova con un finto Discord in tmpdir
- * (`discord-ipc.test.ts` ne apre uno) perché niente in questo file conosce
- * l'app vera: il connettore arriva iniettato.
+ * ── TWO LAYERS, AND THE REASON IS THE TEST ──────────────────────────────────
+ * Below live the PROTOCOL (composing and decomposing frames: pure functions, no
+ * socket) and the TRANSPORT (opening the wire, retrying). The first is tested
+ * without Discord and is where the real traps live - a `len` in BYTES that
+ * someone reads as characters, a frame that arrives split into three pieces,
+ * two frames in the same chunk. The second is tested with a fake Discord in
+ * tmpdir (`discord-ipc.test.ts` opens one) because nothing in this file knows
+ * the real app: the connector arrives injected.
  */
 
 import net from "node:net";
@@ -31,7 +31,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
-// ── Protocollo ─────────────────────────────────────────────────────────────
+// ── Protocol ───────────────────────────────────────────────────────────────
 
 export const IPC_OP = {
   HANDSHAKE: 0,
@@ -41,30 +41,30 @@ export const IPC_OP = {
   PONG: 4,
 } as const;
 
-/** Gli op che questo modulo SA scrivere. Non è esportato di proposito: fuori
- *  di qui nessuno compone frame a mano, e un export senza consumatori è codice
- *  morto per `check:deadcode`. Serve invece a `encodeFrame`, che così accetta
- *  solo op del protocollo invece di un `number` qualunque. */
+/** The ops this module KNOWS how to write. It is deliberately not exported:
+ *  outside of here nobody composes frames by hand, and an export with no
+ *  consumers is dead code for `check:deadcode`. It serves `encodeFrame`
+ *  instead, which this way accepts only protocol ops rather than any `number`. */
 type IpcOp = (typeof IPC_OP)[keyof typeof IPC_OP];
 
 export interface IpcFrame {
   op: number;
-  /** Il corpo già decodificato. `null` se non era JSON valido — un frame
-   *  illeggibile non è una ragione per buttare giù il filo. */
+  /** The body, already decoded. `null` if it was not valid JSON - an
+   *  unreadable frame is not a reason to tear the wire down. */
   payload: Record<string, unknown> | null;
-  /** Il corpo grezzo, per i messaggi d'errore: dire «Discord ha risposto
-   *  qualcosa» senza mostrarlo non aiuta nessuno. */
+  /** The raw body, for the error messages: saying "Discord answered
+   *  something" without showing it helps nobody. */
   raw: string;
 }
 
 /**
- * Un frame pronto da scrivere sul filo.
+ * A frame ready to be written on the wire.
  *
- * `Buffer.byteLength` e non `String.length`: il campo `len` conta BYTE. Con un
- * nome di progetto accentato — cioè metà dei progetti di questa casa — le due
- * misure divergono, Discord legge una lunghezza corta, e da lì in poi ogni
- * frame successivo è disallineato di qualche byte. Il filo non muore: diventa
- * spazzatura silenziosa.
+ * `Buffer.byteLength` and not `String.length`: the `len` field counts BYTES.
+ * With an accented project name - that is, half the projects in this house -
+ * the two measures diverge, Discord reads a short length, and from there on
+ * every following frame is a few bytes out of alignment. The wire does not die:
+ * it becomes silent garbage.
  */
 export function encodeFrame(op: IpcOp, payload: unknown): Buffer {
   const body = Buffer.from(JSON.stringify(payload), "utf8");
@@ -75,13 +75,13 @@ export function encodeFrame(op: IpcOp, payload: unknown): Buffer {
 }
 
 /**
- * Lo scompositore: gli si danno i chunk come arrivano, restituisce i frame
- * COMPLETI che ha potuto ricavare.
+ * The decomposer: you hand it the chunks as they arrive, it returns the
+ * COMPLETE frames it managed to extract.
  *
- * Un socket non consegna messaggi, consegna byte: un frame può arrivare in tre
- * pezzi e tre frame possono arrivare in un pezzo solo. Chi legge `chunk` come
- * se fosse un messaggio funziona finché i payload sono corti — cioè finché non
- * si aggiunge un campo.
+ * A socket does not deliver messages, it delivers bytes: one frame can arrive
+ * in three pieces and three frames can arrive in a single piece. Whoever reads
+ * `chunk` as if it were a message works as long as the payloads are short -
+ * that is, until one more field gets added.
  */
 export function createFrameDecoder(): (chunk: Uint8Array) => IpcFrame[] {
   let buf = Buffer.alloc(0);
@@ -108,15 +108,16 @@ export function createFrameDecoder(): (chunk: Uint8Array) => IpcFrame[] {
   };
 }
 
-// ── Dove sta il socket ─────────────────────────────────────────────────────
+// ── Where the socket lives ─────────────────────────────────────────────────
 
 /**
- * La temp per-utente di macOS (`/var/folders/xx/yyy/T`), quella che Discord usa
- * davvero, letta senza passare per l'ambiente.
+ * The macOS per-user temp (`/var/folders/xx/yyy/T`), the one Discord actually
+ * uses, read without going through the environment.
  *
- * `getconf` è in `/usr/bin` su ogni macOS e non tocca la rete; se manca o
- * risponde storto si torna `null` e restano i candidati dell'ambiente, cioè il
- * comportamento di prima. Un errore qui non deve poter spegnere la ricerca.
+ * `getconf` is in `/usr/bin` on every macOS and does not touch the network; if
+ * it is missing or answers crooked we return `null` and the environment
+ * candidates remain, that is, the previous behaviour. An error here must not be
+ * able to switch the search off.
  */
 function darwinUserTempDir(): string | null {
   try {
@@ -132,24 +133,25 @@ function darwinUserTempDir(): string | null {
 }
 
 /**
- * I posti in cui può stare il filo, in ordine di probabilità.
+ * The places the wire can be, in order of likelihood.
  *
- * Discord numera le istanze: la prima prende `discord-ipc-0`, una seconda (un
- * canary aperto accanto allo stable) prende la `-1`. Provarne una sola
- * significa non trovare Discord quando è aperto, che dall'interfaccia si legge
- * «Discord non c'è» — la diagnosi sbagliata.
+ * Discord numbers its instances: the first takes `discord-ipc-0`, a second one
+ * (a canary open next to the stable) takes `-1`. Trying only one means not
+ * finding Discord while it is open, which from the interface reads as "Discord
+ * is not there" - the wrong diagnosis.
  *
- * Su Linux, con Flatpak o Snap, la radice non è `$XDG_RUNTIME_DIR` ma una
- * sottocartella; su Windows non è un file ma una named pipe, e lì `existsSync`
- * non risponde — per questo il filtro «esiste» sta nel chiamante e non qui.
+ * On Linux, with Flatpak or Snap, the root is not `$XDG_RUNTIME_DIR` but a
+ * subfolder; on Windows it is not a file but a named pipe, and there
+ * `existsSync` does not answer - which is why the "exists" filter sits in the
+ * caller and not here.
  *
- * Su macOS `$TMPDIR` NON è affidabile: è per-processo e chi ci lancia dentro
- * (un agente con la sua scratch dir, un launchd con `TMPDIR` esplicito) lo
- * eredita diverso da quello di Discord, che usa sempre la temp per-utente di
- * `confstr(_CS_DARWIN_USER_TEMP_DIR)`. Fidarsi solo dell'ambiente fa dire
- * «Discord non è in esecuzione» mentre Discord è aperto: visto davvero, con
- * `TMPDIR=~/.jcode/scratch`. Quindi su darwin la temp per-utente si cerca
- * SEMPRE, anche quando l'ambiente ne indica un'altra.
+ * On macOS `$TMPDIR` is NOT reliable: it is per-process, and whoever launches
+ * us inside it (an agent with its own scratch dir, a launchd with an explicit
+ * `TMPDIR`) inherits a different one from Discord's, which always uses the
+ * per-user temp from `confstr(_CS_DARWIN_USER_TEMP_DIR)`. Trusting only the
+ * environment makes us say "Discord is not running" while Discord is open:
+ * actually seen, with `TMPDIR=~/.jcode/scratch`. So on darwin the per-user temp
+ * is looked up ALWAYS, even when the environment points at another one.
  */
 export function ipcCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   if (process.platform === "win32") {
@@ -164,8 +166,8 @@ export function ipcCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   ).replace(/\/+$/, "");
   const bases = [base];
   if (process.platform === "darwin") {
-    // `os.tmpdir()` legge $TMPDIR per primo, quindi da solo non basta a
-    // ritrovare la temp di sistema quando l'ambiente la sovrascrive.
+    // `os.tmpdir()` reads $TMPDIR first, so on its own it is not enough to
+    // find the system temp again when the environment overrides it.
     const darwinTemp = darwinUserTempDir();
     if (darwinTemp && !bases.includes(darwinTemp)) bases.push(darwinTemp);
   }
@@ -180,8 +182,8 @@ export function ipcCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   return out;
 }
 
-/** I candidati che ESISTONO adesso. Su Windows non si filtra: una named pipe
- *  non è un file, e `existsSync` la dichiarerebbe assente sempre. */
+/** The candidates that EXIST right now. On Windows we do not filter: a named
+ *  pipe is not a file, and `existsSync` would declare it absent every time. */
 export function existingIpcCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   const all = ipcCandidates(env);
   if (process.platform === "win32") return all;
@@ -194,10 +196,10 @@ export function existingIpcCandidates(env: NodeJS.ProcessEnv = process.env): str
   });
 }
 
-// ── Trasporto ──────────────────────────────────────────────────────────────
+// ── Transport ──────────────────────────────────────────────────────────────
 
-/** La forma minima di socket che serve a questo modulo: la usano sia `net` sia
- *  il finto Discord dei test. */
+/** The minimum socket shape this module needs: both `net` and the fake Discord
+ *  of the tests satisfy it. */
 export interface IpcSocket {
   write(data: Uint8Array): unknown;
   destroy(): unknown;
@@ -209,17 +211,17 @@ export interface IpcSocket {
 
 export type IpcConnector = (socketPath: string) => IpcSocket;
 
-/** Il connettore vero. Iniettabile perché i test non aprono l'app Discord. */
+/** The real connector. Injectable because the tests do not open the Discord app. */
 export const netConnector: IpcConnector = (socketPath: string) =>
   net.createConnection(socketPath) as unknown as IpcSocket;
 
 export interface HandshakeResult {
   socket: IpcSocket;
-  /** Il path che ha risposto: serve a dirlo nella diagnostica. */
+  /** The path that answered: needed so the diagnostics can say it. */
   socketPath: string;
-  /** Chi sei per Discord. Non lo mostriamo per vanità: è l'unica conferma che
-   *  la presence sta finendo sul profilo GIUSTO quando su una macchina ci sono
-   *  due account. */
+  /** Who you are to Discord. We do not show it out of vanity: it is the only
+   *  confirmation that the presence is landing on the RIGHT profile when a
+   *  machine has two accounts on it. */
   user: { id?: string; username?: string; global_name?: string } | null;
 }
 
@@ -227,22 +229,22 @@ export interface HandshakeOptions {
   clientId: string;
   connect?: IpcConnector;
   candidates?: string[];
-  /** Quanto si aspetta il READY prima di dichiarare morto quel candidato. */
+  /** How long we wait for the READY before declaring that candidate dead. */
   timeoutMs?: number;
-  /** Dove finiscono i frame che arrivano DOPO l'handshake (errori di Discord,
-   *  CLOSE). Chi chiama decide se ricollegarsi. */
+  /** Where the frames that arrive AFTER the handshake end up (Discord errors,
+   *  CLOSE). The caller decides whether to reconnect. */
   onFrame?: (frame: IpcFrame) => void;
   onClose?: (reason: string) => void;
 }
 
 /**
- * Apre il filo e completa l'handshake, provando i candidati in ordine.
+ * Opens the wire and completes the handshake, trying the candidates in order.
  *
- * Rifiuta con un messaggio che DISTINGUE i due fallimenti che l'interfaccia
- * deve saper raccontare in modo diverso: «Discord non è aperto» (nessun socket)
- * e «Discord c'è ma rifiuta questa applicazione» (socket sì, READY no) — il
- * secondo di solito è un Application ID sbagliato, e mandare qualcuno a
- * riavviare Discord per un id sbagliato è farlo girare a vuoto.
+ * Rejects with a message that DISTINGUISHES the two failures the interface has
+ * to be able to tell apart: "Discord is not open" (no socket) and "Discord is
+ * there but refuses this application" (socket yes, READY no) - the second is
+ * usually a wrong Application ID, and sending someone off to restart Discord
+ * over a wrong id is sending them round in circles.
  */
 export function handshake(opts: HandshakeOptions): Promise<HandshakeResult> {
   const connect = opts.connect ?? netConnector;
@@ -261,8 +263,8 @@ export function handshake(opts: HandshakeOptions): Promise<HandshakeResult> {
     }
     const socketPath = candidates[index]!;
     return tryOne(socketPath, opts.clientId, connect, timeoutMs, opts).catch((err) => {
-      // Un candidato che non risponde non è un errore da mostrare: è il motivo
-      // per cui esiste una lista. Si propaga solo l'ULTIMO.
+      // A candidate that does not answer is not an error to show: it is the
+      // reason a list exists at all. Only the LAST one propagates.
       if (index + 1 < candidates.length) return attempt(index + 1);
       throw err;
     });
@@ -302,25 +304,25 @@ function tryOne(
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { socket.destroy(); } catch { /* già morto */ }
+      try { socket.destroy(); } catch { /* already dead */ }
       reject(new DiscordIpcError("timeout", `${socketPath}: nessun READY entro ${timeoutMs}ms`));
     }, timeoutMs);
-    // Il timer non deve tenere sveglio il processo: se il server sta chiudendo,
-    // un handshake in volo non è una ragione per restare vivi.
+    // The timer must not keep the process awake: if the server is shutting
+    // down, an in-flight handshake is not a reason to stay alive.
     (timer as unknown as { unref?: () => void }).unref?.();
 
     const fail = (err: DiscordIpcError) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { socket.destroy(); } catch { /* già morto */ }
+      try { socket.destroy(); } catch { /* already dead */ }
       reject(err);
     };
 
     socket.on("data", (chunk: Uint8Array) => {
       for (const frame of decode(chunk)) {
         if (settled) {
-          // Dopo l'handshake i frame appartengono a chi ha chiesto il filo.
+          // After the handshake the frames belong to whoever asked for the wire.
           opts.onFrame?.(frame);
           if (frame.op === IPC_OP.CLOSE) opts.onClose?.(frame.raw);
           continue;
@@ -360,15 +362,16 @@ function tryOne(
 let nonceSeq = 0;
 
 /**
- * Il nome dell'applicazione, come lo conosce Discord.
+ * The application name, as Discord knows it.
  *
- * Non arriva col READY — verificato leggendo il frame: li' ci sono solo `v`,
- * `config` e `user`. Arriva invece nella risposta a un SET_ACTIVITY, dove
- * Discord rimanda l'activity come l'ha salvata, con dentro `name`.
+ * It does not arrive with the READY - verified by reading the frame: there are
+ * only `v`, `config` and `user` in there. It arrives instead in the answer to a
+ * SET_ACTIVITY, where Discord sends the activity back as it saved it, with
+ * `name` inside.
  *
- * Serve perche' quel nome lo decide il portale sviluppatori e nessuno puo'
- * indovinarlo dal codice: l'anteprima nel pannello scriveva «Topics» a mano
- * mentre la card vera diceva «Jarvis».
+ * It matters because that name is decided by the developer portal and nobody
+ * can guess it from the code: the preview in the panel wrote "Topics" by hand
+ * while the real card said "Jarvis".
  */
 export function onActivityAck(
   socket: IpcSocket,
@@ -380,23 +383,23 @@ export function onActivityAck(
       const p = frame.payload as { cmd?: string; evt?: string; data?: Record<string, unknown> } | undefined;
       if (p?.cmd !== "SET_ACTIVITY") continue;
       if (p.evt === "ERROR") {
-        const messaggio = p.data?.message;
+        const message = p.data?.message;
         cb({
           applicationName: null,
-          error: typeof messaggio === "string" ? messaggio : "SET_ACTIVITY rifiutato",
+          error: typeof message === "string" ? message : "SET_ACTIVITY rifiutato",
         });
         continue;
       }
-      const nome = p.data?.name;
-      cb({ applicationName: typeof nome === "string" ? nome : null, error: null });
+      const name = p.data?.name;
+      cb({ applicationName: typeof name === "string" ? name : null, error: null });
     }
   });
 }
 
 /**
- * Scrive un SET_ACTIVITY. `activity: null` PULISCE la presence — che è ciò che
- * deve succedere quando l'ultima sessione si chiude: uno stato appeso è peggio
- * di nessuno stato, perché dice una cosa falsa a tempo indeterminato.
+ * Writes a SET_ACTIVITY. `activity: null` CLEARS the presence - which is what
+ * has to happen when the last session closes: a stale state is worse than no
+ * state, because it says something false for an indefinite time.
  */
 export function sendActivity(socket: IpcSocket, pid: number, activity: unknown): void {
   socket.write(

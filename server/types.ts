@@ -6,17 +6,17 @@ import type { OutboundMessage } from "../shared/ws-outbound";
 export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
 
 /**
- * Cosa può raggiungere un ospite. DUE domande, perché le fan-out sono di due
- * forme diverse e una sola risposta non le copre entrambe.
+ * What a guest can reach. TWO questions, because the fan-outs come in two
+ * different shapes and a single answer does not cover both.
  *
- * `mayReceiveFrame` serve a `broadcastToAll`, che manda a tutti un frame che
- * porta con sé (a volte) l'entità di cui parla: lì si guarda prima il TIPO e poi
- * l'entità dichiarata dentro il frame.
+ * `mayReceiveFrame` serves `broadcastToAll`, which sends everyone a frame that
+ * carries (sometimes) the entity it talks about: there we look at the TYPE
+ * first and then at the entity declared inside the frame.
  *
- * `mayReadTopic` serve alle fan-out per topic, dove l'entità NON sta nel frame
- * ma è l'argomento della chiamata. Chiederlo al frame lì sarebbe sbagliato due
- * volte: molti di quei frame non nominano il topic, e quello vero lo conosce
- * solo chi chiama.
+ * `mayReadTopic` serves the per-topic fan-outs, where the entity is NOT in the
+ * frame but is the argument of the call. Asking the frame there would be wrong
+ * twice over: many of those frames do not name the topic, and only the caller
+ * knows the real one.
  */
 export interface GuestBroadcastFilter {
   mayReceiveFrame: (deviceId: string, message: OutboundMessage) => boolean;
@@ -26,24 +26,24 @@ export interface GuestBroadcastFilter {
 export interface WSData {
   id: string;
   /**
-   * Il dispositivo a cui appartiene questa socket, quando la connessione arriva
-   * da fuori loopback. Timbrato all'upgrade — l'unico momento in cui gli header
-   * (e quindi il cookie di sessione) sono ancora leggibili: dopo, un WebSocket è
-   * solo un tubo. Serve a dire nell'elenco quali dispositivi sono connessi
-   * ADESSO, che è un fatto diverso da «autorizzato».
-   * `null` = loopback, cioe' il computer stesso.
+   * The device this socket belongs to, when the connection arrives from outside
+   * loopback. Stamped at upgrade - the only moment the headers (and therefore
+   * the session cookie) are still readable: after that, a WebSocket is just a
+   * pipe. It is used to say in the list which devices are connected RIGHT NOW,
+   * which is a different fact from "authorised".
+   * `null` = loopback, that is, the computer itself.
    */
   deviceId?: string | null;
   /**
-   * Il RUOLO di quel dispositivo, timbrato insieme all'id e per lo stesso
-   * motivo: dopo l'upgrade il cookie non è più leggibile.
+   * The ROLE of that device, stamped together with the id and for the same
+   * reason: after the upgrade the cookie is no longer readable.
    *
-   * Esiste perché senza di esso «ha un deviceId» finiva per voler dire «è un
-   * ospite», e non è vero: l'upgrade timbra l'id di QUALUNQUE dispositivo
-   * appaiato, proprietari compresi. Il filtro degli ospiti si applicava quindi
-   * anche al telefono del proprietario — che non ha concessioni, perché non gli
-   * servono — e gli faceva cadere ogni frame. Solo il loopback ne usciva, per
-   * il motivo sbagliato: `deviceId` nullo, non ruolo.
+   * It exists because without it "has a deviceId" ended up meaning "is a
+   * guest", and that is not true: the upgrade stamps the id of ANY paired
+   * device, owners included. The guest filter therefore applied to the owner's
+   * phone too - which has no grants, because it does not need any - and made
+   * every frame drop for it. Only loopback escaped, for the wrong reason: a
+   * null `deviceId`, not a role.
    */
   deviceRole?: 'owner' | 'guest' | null;
   /**
@@ -117,7 +117,7 @@ export interface WSData {
   windowId?: string;
   windowLabel?: string;
   detached?: boolean;
-  /** Lo Spazio (gruppo) che questa finestra ospita da sola (`?space=`). */
+  /** The Space (group) this window hosts on its own (`?space=`). */
   presenceSpaceId?: string;
   presenceTopicIds?: string[];
   presenceFocusedTopicId?: string;
@@ -127,22 +127,22 @@ export interface WSData {
   presenceTabs?: { id: string; type: string; title?: string }[];
 }
 
-// ─── Tipi del messaggio: dichiarati in shared/, non qui ────────────────
+// ─── Message types: declared in shared/, not here ──────────────────────
 //
-// ToolCallDetail, ToolCall e ContentBlock viaggiano sul filo TALI E QUALI e
-// il client li ridichiarava riga per riga (identici a meno dei commenti).
-// Una sola dichiarazione, in `shared/types.ts`.
+// ToolCallDetail, ToolCall and ContentBlock travel the wire AS THEY ARE and the
+// client used to redeclare them line by line (identical but for the comments).
+// One single declaration, in `shared/types.ts`.
 export type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
-// Solo i due che servono in scope qui sotto: `ToolCallDetail` lo consumano
-// altri moduli via il re-export sopra, non questo file.
+// Only the two that are needed in scope below: `ToolCallDetail` is consumed by
+// other modules via the re-export above, not by this file.
 import type { ToolCall, ContentBlock } from "../shared/types";
 
 /**
- * La riga su cui un turno RIADOTTATO continuerà a scrivere, più la sola cosa
- * che il chiamante non può dedurre da solo: se quella riga porta già un corpo
- * scritto prima del riavvio (`reusedBody`) o è nata adesso. È il flag che
- * decide se il client deve svuotare la BOLLA prima che il replay la ricostruisca
- * — perché il RECORD non viene più svuotato. Vedi
+ * The row a RE-ADOPTED turn will keep writing to, plus the only thing the
+ * caller cannot work out on its own: whether that row already carries a body
+ * written before the restart (`reusedBody`) or was born just now. It is the
+ * flag that decides whether the client has to empty the BUBBLE before the
+ * replay rebuilds it - because the RECORD is no longer emptied. See
  * `reuseOrCreatePartialForReattach`.
  */
 export interface ReattachedPartial extends StoredMessage {
@@ -196,71 +196,73 @@ export interface StoredMessage {
   /** Best-effort cost in USD cents (`Math.round(usd * 100)`). */
   costCents?: number;
   /**
-   * Il modello che ha prodotto il turno (`claude-opus-5`, `gpt-4o`, …).
+   * The model that produced the turn (`claude-opus-5`, `gpt-4o`, …).
    *
-   * Il server lo conosce nell'istante in cui calcola `costCents` e lo buttava:
-   * restava il risultato del prezzo, non l'input che lo aveva determinato. Il
-   * giorno in cui il prezzo è sbagliato — ed è successo, ogni Opus tariffato al
-   * triplo per mesi — senza questo campo non si può nemmeno sapere quale riga
-   * vada corretta e di quanto: la bonifica 077 ha dovuto DEDURRE la tariffa
-   * dividendo il costo per le quote pesate, e regge solo finché due modelli non
-   * condividono lo stesso prezzo.
+   * The server knows it at the instant it computes `costCents` and used to
+   * throw it away: what was left was the result of the price, not the input
+   * that determined it. The day the price is wrong - and it happened, every
+   * Opus billed at triple for months - without this field you cannot even know
+   * which row needs correcting and by how much: remediation 077 had to DEDUCE
+   * the rate by dividing the cost by the weighted shares, and that only holds
+   * as long as no two models share the same price.
    *
-   * `undefined` sulle righe anteriori alla migration 076: non è ricostruibile da
-   * nessuna parte, e inventarlo sarebbe peggio del non saperlo.
+   * `undefined` on rows older than migration 076: it cannot be reconstructed
+   * from anywhere, and making it up would be worse than not knowing.
    */
   model?: string;
   /**
-   * Lo SCORPORO di `usagePromptTokens`: quanta parte era cache.
+   * The BREAKDOWN of `usagePromptTokens`: how much of it was cache.
    *
-   * Serve perché il totale da solo non insegna niente. In un turno agentico lungo
-   * lo stesso prompt viene riletto a ogni chiamata al modello e la cache diventa
-   * la voce schiacciante: senza scorporarla si vede quanto è costato il messaggio,
-   * non cosa l'ha reso costoso. Il provider manda le quote separate — il server le
-   * calcolava già per il prezzo e le buttava.
+   * It matters because the total on its own teaches nothing. In a long agentic
+   * turn the same prompt gets re-read at every call to the model and the cache
+   * becomes the overwhelming item: without breaking it out you see how much the
+   * message cost, not what made it expensive. The provider sends the shares
+   * separately - the server already computed them for the price and threw them
+   * away.
    *
-   * Quote DISGIUNTE, stessa convenzione di `usage/pricing.ts`:
+   * DISJOINT shares, same convention as `usage/pricing.ts`:
    * `usagePromptTokens = fresh + cacheRead + cacheCreation + cacheCreation1h`.
-   * `cacheCreationTokens` NON include `cacheCreation1hTokens`.
+   * `cacheCreationTokens` does NOT include `cacheCreation1hTokens`.
    *
-   * `undefined` ≠ 0: assente vuol dire "non lo sappiamo" (riga vecchia, provider
-   * che non riporta l'usage, turno abortito prima del `result`), 0 vuol dire
-   * "misurato, nessuna cache". Confonderli farebbe sembrare che milioni di token
-   * di cache non siano mai esistiti.
+   * `undefined` ≠ 0: absent means "we do not know" (old row, a provider that
+   * does not report usage, a turn aborted before the `result`), 0 means
+   * "measured, no cache". Confusing the two would make it look as if millions of
+   * cache tokens had never existed.
    */
   cacheReadTokens?: number;
-  /** Scritture in cache a cinque minuti (1.25× l'input fresco). */
+  /** Five-minute cache writes (1.25x fresh input). */
   cacheCreationTokens?: number;
-  /** Scritture in cache a UN'ORA (2×), quota disgiunta dalla precedente. */
+  /** ONE-HOUR cache writes (2x), a share disjoint from the previous one. */
   cacheCreation1hTokens?: number;
   /**
-   * CHI ha scritto questo messaggio (migration 095).
+   * WHO wrote this message (migration 095).
    *
-   * La persona è il soggetto, il dispositivo è il credenziale da cui il
-   * messaggio è entrato: `server/lib/message-author.ts` li ricava insieme
-   * dall'identità della richiesta.
+   * The person is the subject, the device is the credential the message came in
+   * through: `server/lib/message-author.ts` derives them together from the
+   * request's identity.
    *
-   * `undefined` ≠ «di nessuno»: vuol dire NON LO SAPPIAMO — una risposta
-   * dell'assistente (l'autore è un modello), un turno importato da un
-   * transcript della CLI, una riga scritta prima della 095. Un profilo che
-   * conta i prompt di una persona deve saltarle, non attribuirsele.
+   * `undefined` ≠ "nobody's": it means WE DO NOT KNOW - an assistant reply (the
+   * author is a model), a turn imported from a CLI transcript, a row written
+   * before 095. A profile that counts a person's prompts has to skip them, not
+   * attribute them to itself.
    */
   authorPersonId?: string | null;
   authorDeviceId?: string | null;
 }
 
-// ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
+// ─── Domain entities: declared in shared/, not here ────────────────────
 //
-// Topic, Project, Worktree, TopicsData e UnreadData vivevano qui e una
-// SECONDA volta in `client/src/types/index.ts`, col commento "Mirrors
-// server/types.ts:X" a fare da unica garanzia. Non bastava: `mcpPolicy` e
-// `browserState` non sono mai arrivati dall'altra parte, e `workspaceProjects`
-// — che è il SERVER a mettere nella risposta di GET /api/topics — mancava
-// proprio qui. Ora la dichiarazione è una sola, in `shared/types.ts`, e questo
-// re-export tiene valido ogni `import type { Topic } from "./types"` esistente.
+// Topic, Project, Worktree, TopicsData and UnreadData used to live here and a
+// SECOND time in `client/src/types/index.ts`, with the comment "Mirrors
+// server/types.ts:X" as the only guarantee. It was not enough: `mcpPolicy` and
+// `browserState` never made it to the other side, and `workspaceProjects` -
+// which the SERVER is the one to put in the GET /api/topics response - was
+// missing right here. Now there is one single declaration, in
+// `shared/types.ts`, and this re-export keeps every existing
+// `import type { Topic } from "./types"` valid.
 export type { Topic, Project, Worktree, TopicsData, UnreadData } from "../shared/types";
-// `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
-// qui sotto `AppContext` li usa. Import separato, non è una ridondanza.
+// `export type { … } from` re-exports but does NOT bring the names into local
+// scope, and `AppContext` below uses them. A separate import, not redundancy.
 import type { Topic, Project, TopicsData, UnreadData } from "../shared/types";
 import type { ServizioLicenza } from "./lib/licenza";
 
@@ -274,20 +276,20 @@ export interface ActiveStream {
   messageId: string;
   abortController?: AbortController;
   /**
-   * Questo turno sopravvive a un riavvio del server?
+   * Does this turn survive a server restart?
    *
-   * `true` = gira in un processo FIGLIO (claude-code): il SIGTERM non lo tocca,
-   * il broker lo tiene, la riadozione lo riprende. `false` = gira DENTRO questo
-   * processo (runtime nativo `topics`): quando il processo muore, muore il
-   * turno. Il cancello di `restart-when-idle` legge questo campo per decidere
-   * quanto aspettare — un turno che nessuno riprenderà merita l'attesa lunga di
-   * una card, non il minuto concesso a chi verrà riadottato.
+   * `true` = it runs in a CHILD process (claude-code): the SIGTERM does not
+   * touch it, the broker holds it, the re-adoption picks it back up. `false` =
+   * it runs INSIDE this process (native `topics` runtime): when the process
+   * dies, the turn dies. The `restart-when-idle` gate reads this field to decide
+   * how long to wait - a turn nobody will pick back up deserves the long wait of
+   * a card, not the minute granted to one that will be re-adopted.
    *
-   * SI DECIDE QUI, all'apertura dello stream, e non a ogni giro del cancello:
-   * il provider di una sessione non cambia per la durata di un turno, quindi
-   * ricavarlo due volte al secondo sarebbe una query per tick per una risposta
-   * che è già nota — e sarebbe anche una seconda occasione di rispondere in
-   * modo diverso dalla prima.
+   * IT IS DECIDED HERE, when the stream opens, and not on every round of the
+   * gate: a session's provider does not change for the duration of a turn, so
+   * deriving it twice a second would be one query per tick for an answer that is
+   * already known - and it would also be a second chance to answer differently
+   * from the first.
    */
   survivesRestart: boolean;
 }
@@ -308,7 +310,7 @@ export interface AppContext {
   projectStore: import("./services/project-store").ProjectStore;
   worktreeStore: import("./services/worktree-store").WorktreeStore;
   worktreeManager: import("./services/worktree-manager").WorktreeManager;
-  /** Lazy closure: iniettato in server.ts dopo createProcessesRouter (task e3240a22). */
+  /** Lazy closure: injected in server.ts after createProcessesRouter (task e3240a22). */
   worktreeGcDeps: import("./services/worktree-manager").WorktreeManagerGcDeps;
   // Multi-machine (Phase D · added at migration 020-021)
   machineStore: import("./services/machine-store").MachineStore;
@@ -337,76 +339,79 @@ export interface AppContext {
   wsClients: Set<ServerWebSocket<WSData>>;
 
   // Utils
-  // `OutboundMessage` (non `object`) vincola il `type` al registro degli schemi:
-  // un broadcast con un tipo che nessuno ha modellato non compila.
+  // `OutboundMessage` (not `object`) binds the `type` to the schema registry: a
+  // broadcast with a type nobody has modelled does not compile.
   broadcast: (message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
-  /** A UN dispositivo soltanto, tutte le sue socket. L'opposto di un broadcast
-   *  filtrato: si usa quando il destinatario è noto e il frame non porta
-   *  un'entità su cui filtrare (vedi `auth:shares-changed`). */
+  /** To ONE device only, all of its sockets. The opposite of a filtered
+   *  broadcast: used when the recipient is known and the frame carries no
+   *  entity to filter on (see `auth:shares-changed`). */
   sendToDevice: (deviceId: string, message: OutboundMessage) => void;
   /**
-   * Dove vive il relay, e i due nomi di questa macchina. `baseUrl: null` =
-   * spento, e allora il gesto «condividi fuori rete» non si offre affatto.
+   * Where the relay lives, and this machine's two names. `baseUrl: null` = off,
+   * and then the "share outside the network" gesture is not offered at all.
    *
-   * `relayId` è quello che va nei link; `installationId` è quello a cui è
-   * legata la licenza e non deve finire in un URL. Sono separati apposta:
-   * quando erano lo stesso valore, mostrarne uno regalava l'altro
-   * (`shared/relay-identita.ts`). Il SEGRETO non è qui, e non deve arrivarci —
-   * questo oggetto viene servito da `/api/auth/relay`.
+   * `relayId` is the one that goes in the links; `installationId` is the one the
+   * licence is tied to and must never end up in a URL. They are separate on
+   * purpose: when they were the same value, showing one gave the other away
+   * (`shared/relay-identita.ts`). The SECRET is not here, and must not get here
+   * - this object is served by `/api/auth/relay`.
    */
   /**
-   * Quante sessioni Claude sono aperte FUORI da Topics — un terminale, un altro
-   * harness. Il censimento le tiene gia' in cache (TTL 10s), quindi chiamarla a
-   * ogni poll della barra non costa una scansione.
+   * How many Claude sessions are open OUTSIDE Topics - a terminal, another
+   * harness. The census already keeps them cached (TTL 10s), so calling it on
+   * every poll of the bar does not cost a scan.
    *
-   * Assente in un contesto ridotto: chi la usa deve ripiegare su 0, non
-   * inventare un numero.
+   * Absent in a reduced context: whoever uses it must fall back to 0, not make a
+   * number up.
    */
   externalSessionsCount?: () => number;
-  /** Di quelle, quante stanno lavorando adesso. Stessa cache, costo zero. */
+  /** Of those, how many are working right now. Same cache, zero cost. */
   externalSessionsWorking?: () => number;
   relayConfig?: () => { baseUrl: string | null; installationId: string; relayId: string };
-  /** Il relay è collegato ADESSO. Diverso da «configurato»: serve a dire a chi
-   *  crea un link se quel link funzionerà subito o solo quando torna la rete. */
+  /** The relay is connected RIGHT NOW. Different from "configured": it tells
+   *  whoever creates a link whether that link will work immediately or only
+   *  when the network comes back. */
   relayConnected?: () => boolean;
-  /** COSA È CONCESSO su questa installazione — la porta unica, `server/lib/licenza.ts`.
-   *  Opzionale perché un contesto ridotto (le prove) non la innesta: chi legge
-   *  cade sul piano gratuito, che è il verso giusto in cui mancare. */
+  /** WHAT IS GRANTED on this installation - the single door,
+   *  `server/lib/licenza.ts`. Optional because a reduced context (the tests)
+   *  does not graft it in: whoever reads falls back to the free plan, which is
+   *  the right direction to be missing in. */
   licenza?: () => ServizioLicenza;
-  /** Chiude tutte le socket di un dispositivo. L'identità di una socket è
-   *  timbrata all'upgrade e non si rilegge, quindi senza questo una revoca
-   *  valeva sull'HTTP e non sul filo già aperto. Torna quante ne ha chiuse. */
+  /** Closes all of a device's sockets. A socket's identity is stamped at
+   *  upgrade and never re-read, so without this a revocation held over HTTP and
+   *  not over the already-open wire. Returns how many it closed. */
   closeDeviceSockets: (deviceId: string) => number;
-  /** Innesta il filtro che decide cosa può raggiungere un OSPITE. Vive in
-   *  `server.ts` perché serve il DB delle concessioni; `utils.ts` resta senza
-   *  quella dipendenza. */
+  /** Grafts in the filter that decides what can reach a GUEST. It lives in
+   *  `server.ts` because the grants DB is needed; `utils.ts` stays free of that
+   *  dependency. */
   setGuestBroadcastFilter: (f: GuestBroadcastFilter | null) => void;
   /**
-   * L'indirizzo del peer di una richiesta. Assegnato in `server.ts` DOPO
-   * `Bun.serve`, perche' `requestIP` vive sull'istanza del server e il contesto
-   * nasce prima. Le rotte che devono distinguere loopback da remoto (l'asse
-   * dell'identita', `lib/device-auth.ts`) passano di qui invece di ricevere il
-   * server intero.
+   * The peer address of a request. Assigned in `server.ts` AFTER `Bun.serve`,  allow-italian: `Bun.serve` is an API name, not Italian prose
+   * because `requestIP` lives on the server instance and the context is born
+   * before it. The routes that have to tell loopback from remote (the identity
+   * axis, `lib/device-auth.ts`) go through here instead of receiving the whole
+   * server.
    */
   requestIp?: (req: Request) => string | null;
   /**
-   * L'identita' gia' risolta per QUESTA richiesta: il gate la calcola comunque a
-   * ogni chiamata, e ricalcolarla nelle rotte vorrebbe dire due query e due
-   * verita' possibili. Popolata in `server.ts` subito dopo il gate.
+   * The identity already resolved for THIS request: the gate computes it on
+   * every call anyway, and recomputing it in the routes would mean two queries
+   * and two possible truths. Populated in `server.ts` right after the gate.
    *
-   * `null` = nessuna identita' risolta (percorso esente, o kill-switch). Le rotte
-   * che filtrano per ruolo devono trattarlo come «proprietario»: e' lo stesso
-   * significato che ha il loopback, ed e' il comportamento precedente.
+   * `null` = no identity resolved (exempt path, or kill switch). The routes that
+   * filter by role must treat it as "owner": it is the same meaning loopback
+   * has, and it is the previous behaviour.
    */
   requestIdentity?: (req: Request) => { role: 'owner' | 'guest'; deviceId: string | null } | null;
   broadcastToAll: (message: OutboundMessage) => void;
   /**
-   * I tre frame che portano una riga di `projects` per intero. NON passano da
-   * `broadcastToAll`: quel payload è uno solo per tutte le socket, e questi
-   * portano nome e path — cioè proprio ciò che `GET /api/projects` filtra per
-   * organizzazione e incognito. Qui la riga esce solo verso chi `vedeProgetto`
-   * dice, e a tutti gli altri parte la ritratta (`project:deleted`, il solo id).
-   * `project:deleted` vero resta su `broadcastToAll`: porta già solo l'id.
+   * The three frames that carry a whole `projects` row. They do NOT go through
+   * `broadcastToAll`: that payload is one and the same for every socket, and
+   * these carry name and path - that is, exactly what `GET /api/projects`
+   * filters by organisation and incognito. Here the row goes out only to whoever
+   * `vedeProgetto` says, and everyone else gets the retraction
+   * (`project:deleted`, the id alone). A real `project:deleted` stays on
+   * `broadcastToAll`: it already carries only the id.
    */
   broadcastProject: (type: import("./lib/project-visibility").TipoFrameProgetto, project: Project) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
@@ -424,20 +429,20 @@ export interface AppContext {
   getTopicById: (id: string) => Topic | null;
   /** Constant-time topic lookup by sessionKey (UNIQUE column). */
   getTopicBySessionKey: (sessionKey: string) => Topic | null;
-  /** Scrive SOLO `topics.browser_state` (migration 075). `null` cancella. Vedi utils.ts. */
+  /** Writes ONLY `topics.browser_state` (migration 075). `null` clears. See utils.ts. */
   setTopicBrowserState: (topicId: string, state: Topic['browserState'] | null) => void;
   /**
-   * Scrive SOLO `topics.updated_at` e rilegge la riga. Da usare per il bump di
-   * attività a fine turno: un `saveSingleTopic` con l'oggetto letto all'inizio
-   * del turno riporterebbe indietro ogni colonna cambiata nel frattempo. Vedi
-   * utils.ts.
+   * Writes ONLY `topics.updated_at` and re-reads the row. To be used for the
+   * activity bump at the end of a turn: a `saveSingleTopic` with the object read
+   * at the start of the turn would roll back every column changed in the
+   * meantime. See utils.ts.
    */
   touchTopicActivity: (topicId: string, updatedAt: string) => Topic | null;
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
-  /** Righe della sessione INTERA (rami morti compresi) — ciò che una
-   *  cancellazione colpisce davvero. */
+  /** Rows of the WHOLE session (dead branches included) - what a deletion
+   *  actually hits. */
   countMessagesBySession: (sessionKey: string) => number;
   saveLocalMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   appendLocalMessage: (
@@ -468,11 +473,11 @@ export interface AppContext {
    */
   updateToolCallFields: (sessionKey: string, toolCallId: string, patch: Partial<ToolCall>) => StoredMessage | null;
   /**
-   * `survivesRestart`: questo turno regge un riavvio del server? Lo sa il
-   * chiamante, che ha in mano il provider risolto — vedi `ActiveStream`.
-   * Il default `false` è prudente di proposito: chi non si dichiara vale «non
-   * sopravvive», e sbagliare così costa un riavvio più lento invece del lavoro
-   * di qualcuno.
+   * `survivesRestart`: does this turn withstand a server restart? The caller
+   * knows, holding the resolved provider - see `ActiveStream`. The `false`
+   * default is cautious on purpose: whoever does not declare counts as "does not
+   * survive", and being wrong that way costs a slower restart instead of
+   * somebody's work.
    */
   startStream: (sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart?: boolean) => void;
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
@@ -497,20 +502,20 @@ export interface AppContext {
   getMimeType: (filepath: string) => string;
   isPathAllowed: (filepath: string) => boolean;
   /**
-   * La FORMA di un'immagine sul disco, o `null` quando non si riesce a leggerla
-   * (formato ignoto, file illeggibile). Serve al cancello dell'anteprima: una
-   * immagine piu' alta che larga occupa la card e spinge giu' il testo che
-   * quella card deve far leggere.
+   * The SHAPE of an image on disk, or `null` when it cannot be read (unknown
+   * format, unreadable file). It serves the preview gate: an image taller than
+   * it is wide takes over the card and pushes down the text that card is there
+   * to make people read.
    *
-   * `null` non e' «troppo alta»: chi non sa misurare lascia passare, o un
-   * difetto di sonda bloccherebbe consegne buone.
+   * `null` is not "too tall": whoever cannot measure lets it through, or a probe
+   * defect would block good deliveries.
    */
   imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number } | null;
   /**
-   * Controlla se un file esiste sul disco. Separato da `existsSync` per
-   * permettere ai test di iniettare uno stub senza toccare il filesystem reale.
-   * Se assente, si assume che il file esista (compatibilita' con contesti di
-   * test che non impostano il campo).
+   * Checks whether a file exists on disk. Separate from `existsSync` so the
+   * tests can inject a stub without touching the real filesystem. If absent, the
+   * file is assumed to exist (compatibility with test contexts that do not set
+   * the field).
    */
   fileExistsSync?: (filepath: string) => boolean;
   findNewMediaFiles: (sinceMs: number) => Promise<string[]>;
@@ -531,9 +536,9 @@ export interface AppContext {
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
   ) => StoredMessage;
   createBranchPartialMessage: (sessionKey: string, parentId: string) => StoredMessage;
-  /** Cancella messaggio + sottoalbero e ripara la numerazione dei rami. */
+  /** Deletes message + subtree and repairs the branch numbering. */
   deleteMessageSubtree: (sessionKey: string, messageId: string) => boolean;
-  /** Scarta il turno appena finalizzato se non ha prodotto NIENTE; ritorna l'id scartato. */
+  /** Discards the just-finalised turn if it produced NOTHING; returns the discarded id. */
   discardIfEmptyTurn: (sessionKey: string, msg: StoredMessage | null) => string | null;
   switchActiveBranch: (sessionKey: string, parentId: string, branchIndex: number) => void;
   getSiblingMessages: (parentId: string) => StoredMessage[];

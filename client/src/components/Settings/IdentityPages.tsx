@@ -27,7 +27,7 @@ import { OrgProjectsSection } from './OrgProjectsSection';
 import { FollowersSection } from '../Profile/FollowersSection';
 import { PrivacySection } from '../Profile/PrivacySection';
 import { ProfileHeader } from '../Profile/ProfileHeader';
-import { useIo } from '../Profile/useIo';
+import { useSelf } from '../Profile/useSelf';
 
 function PageHeader({ title, blurb }: { title: string; blurb: string }) {
   return (
@@ -60,10 +60,10 @@ function Page({ testid, titleKey, blurbKey, children }: {
  * question from "who is this", and they were the only answer for too long.
  */
 export function ProfilePage() {
-  const { io, aggiorna } = useIo();
+  const { me, update } = useSelf();
   return (
     <div className="space-y-6" data-testid="settings-page-profile">
-      {io && <ProfileHeader persona={io} onCambiata={aggiorna} />}
+      {me && <ProfileHeader persona={me} onChanged={update} />}
       <ProfileStatsSection />
       {/* The status published outside comes right after the figures it
           publishes: it is the same material, seen by whoever is not here. */}

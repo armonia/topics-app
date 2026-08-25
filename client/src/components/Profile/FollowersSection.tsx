@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { peopleApi, type PersonaSommaria } from '@/lib/api';
+import { peopleApi, type PersonSummary } from '@/lib/api';
 import { useT } from '@/hooks/useT';
 import { PeopleList } from './PeopleList';
-import { useIo } from './useIo';
+import { useSelf } from './useSelf';
 
 /**
  * FOLLOWERS, FOLLOWING, AND WHERE NEW ONES COME FROM.
@@ -24,35 +24,35 @@ import { useIo } from './useIo';
  * is only how the name reached the list.
  */
 
-type Scheda = 'followers' | 'following' | 'people';
+type Tab = 'followers' | 'following' | 'people';
 
-export function FollowersSection({ schedaIniziale = 'followers' }: { schedaIniziale?: Scheda }) {
+export function FollowersSection({ initialTab = 'followers' }: { initialTab?: Tab }) {
   const t = useT();
-  const { io, rubrica, pronto } = useIo();
-  const [scheda, setScheda] = useState<Scheda>(schedaIniziale);
-  const [follower, setFollower] = useState<PersonaSommaria[] | null>(null);
-  const [seguiti, setSeguiti] = useState<PersonaSommaria[] | null>(null);
+  const { me, directory, ready } = useSelf();
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [followers, setFollowers] = useState<PersonSummary[] | null>(null);
+  const [following, setFollowing] = useState<PersonSummary[] | null>(null);
 
-  const ioId = io?.id ?? null;
+  const meId = me?.id ?? null;
 
   useEffect(() => {
-    if (!ioId) return;
-    let annullato = false;
-    void Promise.allSettled([peopleApi.followers(ioId), peopleApi.following(ioId)]).then(([f, s]) => {
-      if (annullato) return;
-      setFollower(f.status === 'fulfilled' ? f.value.people : []);
-      setSeguiti(s.status === 'fulfilled' ? s.value.people : []);
+    if (!meId) return;
+    let canceled = false;
+    void Promise.allSettled([peopleApi.followers(meId), peopleApi.following(meId)]).then(([f, s]) => {
+      if (canceled) return;
+      setFollowers(f.status === 'fulfilled' ? f.value.people : []);
+      setFollowing(s.status === 'fulfilled' ? s.value.people : []);
     });
-    return () => { annullato = true; };
-  }, [ioId]);
+    return () => { canceled = true; };
+  }, [meId]);
 
-  const scegli = useCallback((s: Scheda) => () => setScheda(s), []);
+  const chooseTab = useCallback((s: Tab) => () => setTab(s), []);
 
-  if (!pronto) return null;
+  if (!ready) return null;
 
   // The directory minus me: a row with a follow button pointing at yourself is
   // a button that can only fail.
-  const altri: PersonaSommaria[] = rubrica
+  const others: PersonSummary[] = directory
     .filter((p) => !p.isMe)
     .map((p) => ({
       id: p.id,
@@ -63,50 +63,50 @@ export function FollowersSection({ schedaIniziale = 'followers' }: { schedaInizi
       isMe: false,
     }));
 
-  const schede: Array<[Scheda, string, number | null]> = [
-    ['followers', t('profile.followers'), follower?.length ?? null],
-    ['following', t('profile.following'), seguiti?.length ?? null],
-    ['people', t('profile.people'), altri.length],
+  const tabs: Array<[Tab, string, number | null]> = [
+    ['followers', t('profile.followers'), followers?.length ?? null],
+    ['following', t('profile.following'), following?.length ?? null],
+    ['people', t('profile.people'), others.length],
   ];
 
   return (
     <div data-testid="followers-section" className="space-y-3">
       <div className="flex items-center gap-1" role="tablist" aria-label={t('settings.page.followers.title')}>
-        {schede.map(([id, etichetta, n]) => (
+        {tabs.map(([id, label, n]) => (
           <button
             key={id}
             role="tab"
-            aria-selected={scheda === id}
-            onClick={scegli(id)}
+            aria-selected={tab === id}
+            onClick={chooseTab(id)}
             data-testid={`followers-tab-${id}`}
             className={`rounded-md px-3 py-1.5 text-[12.5px] coarse:min-h-11 ${
-              scheda === id
+              tab === id
                 ? 'bg-primary/10 font-medium text-primary'
                 : 'text-app-text-secondary hover:bg-app-hover hover:text-app-text'
             }`}
           >
-            {etichetta}
+            {label}
             {n !== null && <span className="ml-1.5 tabular-nums text-app-text-tertiary">{n}</span>}
           </button>
         ))}
       </div>
 
-      {scheda === 'followers' && (
+      {tab === 'followers' && (
         <PeopleList
-          persone={follower ?? []}
-          vuoto={t('profile.followers.emptyFollowers')}
+          people={followers ?? []}
+          emptyText={t('profile.followers.emptyFollowers')}
           testId="list-followers"
         />
       )}
-      {scheda === 'following' && (
+      {tab === 'following' && (
         <PeopleList
-          persone={seguiti ?? []}
-          vuoto={t('profile.followers.emptyFollowing')}
+          people={following ?? []}
+          emptyText={t('profile.followers.emptyFollowing')}
           testId="list-following"
         />
       )}
-      {scheda === 'people' && (
-        <PeopleList persone={altri} vuoto={t('profile.followers.emptyFollowing')} testId="list-people" />
+      {tab === 'people' && (
+        <PeopleList people={others} emptyText={t('profile.followers.emptyFollowing')} testId="list-people" />
       )}
     </div>
   );

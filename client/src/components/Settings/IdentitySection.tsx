@@ -5,7 +5,7 @@ import { chiaveErroreAuth } from '../../lib/authErrors';
 import { useConfirm } from '../../hooks/useConfirm';
 import { membriDaRisposta, splitMembri, type Membro, type Ruolo } from './membri';
 import { Select } from '../Shared/Select';
-import { apriProfiloPersona } from '../../state/profileTarget';
+import { openPersonProfile } from '../../state/profileTarget';
 
 /**
  * Chi sei, e con chi condividi. UN elenco solo.
@@ -509,7 +509,7 @@ export function IdentitySection() {
                     into "rename this person", so the profile gets its own
                     button rather than a second meaning for the same click. */}
                 <button
-                  onClick={() => apriProfiloPersona(m.id)}
+                  onClick={() => openPersonProfile(m.id)}
                   data-testid={`org-member-profile-${m.id}`}
                   title={t('identity.openProfile')}
                   aria-label={t('identity.openProfile')}

@@ -26,7 +26,7 @@
  */
 
 /** One entry of a provider's session list, in the shape this mapping needs. */
-export interface SessionePerProcessi {
+export interface SessionForProcesses {
   sessionKey?: string;
   label?: string | null;
   status?: string | null;
@@ -34,7 +34,7 @@ export interface SessionePerProcessi {
   updatedAt?: string | null;
 }
 
-export interface ProcessoSubagente {
+export interface SubagentProcess {
   sessionKey: string;
   label: string;
   status: "running" | "done";
@@ -43,33 +43,32 @@ export interface ProcessoSubagente {
 }
 
 /** The mark that a session IS a sub-agent, in its key. */
-const MARCA_SUBAGENTE = "subagent";
+const SUBAGENT_MARK = "subagent";
 
 /**
  * The sub-agent sessions, in the shape the panel draws.
  *
  * The clock is a parameter and not `new Date()` on purpose: it is the fallback
  * for missing dates, and a test that cannot pin it would assert on the clock.
- * (The parameter is `adesso`.)  allow-italian: the identifier's own name
  */
-export function processiSubagente(
-  sessioni: readonly SessionePerProcessi[],
-  adesso: () => string = () => new Date().toISOString(),
-): ProcessoSubagente[] {
-  return sessioni
-    .filter((s) => s.sessionKey?.includes(MARCA_SUBAGENTE))
+export function subagentProcesses(
+  sessions: readonly SessionForProcesses[],
+  now: () => string = () => new Date().toISOString(),
+): SubagentProcess[] {
+  return sessions
+    .filter((s) => s.sessionKey?.includes(SUBAGENT_MARK))
     .map((s) => {
-      const chiave = s.sessionKey!;
-      const attivo = s.status === "active";
+      const key = s.sessionKey!;
+      const isActive = s.status === "active";
       return {
-        sessionKey: chiave,
+        sessionKey: key,
         // The fallback is the LAST segment of the key, not the whole key:
         // `topic:abc:subagent:explore` in a narrow panel has to read as
         // "explore". The last fallback is a word, never an empty string.
-        label: s.label || chiave.split(":").pop() || "Sub-agent",
-        status: attivo ? "running" : "done",
-        startedAt: s.createdAt || adesso(),
-        ...(attivo ? {} : { completedAt: s.updatedAt || adesso() }),
+        label: s.label || key.split(":").pop() || "Sub-agent",
+        status: isActive ? "running" : "done",
+        startedAt: s.createdAt || now(),
+        ...(isActive ? {} : { completedAt: s.updatedAt || now() }),
       };
     });
 }

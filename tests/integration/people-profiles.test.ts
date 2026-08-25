@@ -340,24 +340,24 @@ describe("i follow e la privacy del profilo", () => {
   /** The same route as seen by somebody else. */
   const come = (id: string) => router(db, `dev-${id}`, finto);
 
-  const corpo = async <T>(r: Response | null): Promise<T> => (await r!.json()) as T;
+  const jsonOf = async <T>(r: Response | null): Promise<T> => (await r!.json()) as T;
   const idsRubrica = async (r: RouteHandler): Promise<string[]> =>
-    (await corpo<{ people: Array<{ id: string }> }>(await chiama(r, "/api/people"))).people.map((p) => p.id);
+    (await jsonOf<{ people: Array<{ id: string }> }>(await chiama(r, "/api/people"))).people.map((p) => p.id);
 
-  type Contatori = { followers: number; following: number } | null;
-  type RispostaFollow = { following: boolean; counts: Contatori };
+  type Counts = { followers: number; following: number } | null;
+  type FollowResponse = { following: boolean; counts: Counts };
 
   test("seguire e' asimmetrico: l'altro verso resta vuoto", async () => {
     const r = await chiama(io(), "/api/people/mircea/follow", "POST");
     expect(r!.status).toBe(200);
-    expect(await corpo<RispostaFollow>(r)).toEqual({
+    expect(await jsonOf<FollowResponse>(r)).toEqual({
       following: true,
       counts: { followers: 1, following: 0 },
     });
 
     // From Mircea's side: he does NOT follow me, I follow him. Two different
     // fields, and a symmetric implementation would have both of them true.
-    const visto = await corpo<{ viewerFollows: boolean; followsViewer: boolean }>(
+    const visto = await jsonOf<{ viewerFollows: boolean; followsViewer: boolean }>(
       await chiama(come("mircea"), `/api/people/${ioPersonId}`),
     );
     expect(visto.viewerFollows).toBe(false);
@@ -366,18 +366,18 @@ describe("i follow e la privacy del profilo", () => {
 
   test("seguire due volte e' seguire una volta: il contatore non sale", async () => {
     await chiama(io(), "/api/people/mircea/follow", "POST");
-    const secondo = await corpo<RispostaFollow>(await chiama(io(), "/api/people/mircea/follow", "POST"));
-    expect(secondo.following).toBe(true);
-    expect(secondo.counts).toEqual({ followers: 1, following: 0 });
+    const second = await jsonOf<FollowResponse>(await chiama(io(), "/api/people/mircea/follow", "POST"));
+    expect(second.following).toBe(true);
+    expect(second.counts).toEqual({ followers: 1, following: 0 });
 
-    const dopo = await corpo<RispostaFollow>(await chiama(io(), "/api/people/mircea/follow", "DELETE"));
-    expect(dopo).toEqual({ following: false, counts: { followers: 0, following: 0 } });
+    const after = await jsonOf<FollowResponse>(await chiama(io(), "/api/people/mircea/follow", "DELETE"));
+    expect(after).toEqual({ following: false, counts: { followers: 0, following: 0 } });
   });
 
   test("seguire se stessi e' rifiutato con 400, non con un no-op silenzioso", async () => {
     const r = await chiama(io(), `/api/people/${ioPersonId}/follow`, "POST");
     expect(r!.status).toBe(400);
-    expect((await corpo<{ error: string }>(r)).error).toContain("yourself");
+    expect((await jsonOf<{ error: string }>(r)).error).toContain("yourself");
   });
 
   test("una persona senza nessuna org in comune diventa raggiungibile con un follow", async () => {
@@ -395,7 +395,7 @@ describe("i follow e la privacy del profilo", () => {
     expect((await chiama(come("estraneo"), `/api/people/${ioPersonId}/follow`, "POST"))!.status).toBe(200);
 
     expect(await idsRubrica(io())).toContain("estraneo");
-    const visto = await corpo<{ viewerFollows: boolean; followsViewer: boolean }>(
+    const visto = await jsonOf<{ viewerFollows: boolean; followsViewer: boolean }>(
       await chiama(io(), "/api/people/estraneo"),
     );
     expect(visto.viewerFollows).toBe(false);
@@ -410,39 +410,39 @@ describe("i follow e la privacy del profilo", () => {
 
     const suo = await chiama(come("mircea"), "/api/people/mircea");
     expect(suo!.status).toBe(200);
-    expect((await corpo<{ id: string }>(suo)).id).toBe("mircea");
+    expect((await jsonOf<{ id: string }>(suo)).id).toBe("mircea");
   });
 
   test("un profilo chiuso sparisce anche dagli elenchi di chi lo segue", async () => {
     await chiama(come("mircea"), `/api/people/${ioPersonId}/follow`, "POST");
-    const prima = await corpo<{ people: Array<{ id: string }> }>(
+    const before = await jsonOf<{ people: Array<{ id: string }> }>(
       await chiama(io(), `/api/people/${ioPersonId}/followers`),
     );
-    expect(prima.people.map((p) => p.id)).toContain("mircea");
+    expect(before.people.map((p) => p.id)).toContain("mircea");
 
     db.run("UPDATE people SET show_profile = 0 WHERE id = 'mircea'");
 
-    const dopo = await corpo<{ people: Array<{ id: string }> }>(
+    const after = await jsonOf<{ people: Array<{ id: string }> }>(
       await chiama(io(), `/api/people/${ioPersonId}/followers`),
     );
     // Absent, not "hidden": an entry that says "private" still confirms that
     // this person exists.
-    expect(dopo.people.map((p) => p.id)).not.toContain("mircea");
+    expect(after.people.map((p) => p.id)).not.toContain("mircea");
   });
 
   test("le statistiche spente sono `null`, non un numero accanto a una bandiera", async () => {
     turno(db, "mircea", 1000, 200);
     db.run("UPDATE people SET show_stats = 0 WHERE id = 'mircea'");
 
-    const altrui = await corpo<{ stats: unknown }>(await chiama(io(), "/api/people/mircea"));
-    expect(altrui.stats).toBeNull();
+    const fromOutside = await jsonOf<{ stats: unknown }>(await chiama(io(), "/api/people/mircea"));
+    expect(fromOutside.stats).toBeNull();
 
-    const suo = await corpo<{ stats: { prompts: number } }>(
+    const suo = await jsonOf<{ stats: { prompts: number } }>(
       await chiama(come("mircea"), "/api/people/mircea"),
     );
     expect(suo.stats.prompts).toBe(1);
 
-    const rubrica = await corpo<{ people: Array<{ id: string; stats: unknown }> }>(
+    const rubrica = await jsonOf<{ people: Array<{ id: string; stats: unknown }> }>(
       await chiama(io(), "/api/people"),
     );
     expect(rubrica.people.find((p) => p.id === "mircea")!.stats).toBeNull();
@@ -452,14 +452,14 @@ describe("i follow e la privacy del profilo", () => {
     db.run("UPDATE people SET email = 'mircea@example.invalid' WHERE id = 'mircea'");
 
     // The migration's default is 0: closed, with nobody having touched a thing.
-    expect((await corpo<{ email: string | null }>(await chiama(io(), "/api/people/mircea"))).email)
+    expect((await jsonOf<{ email: string | null }>(await chiama(io(), "/api/people/mircea"))).email)
       .toBeNull();
     // A person always sees their own.
-    expect((await corpo<{ email: string | null }>(await chiama(come("mircea"), "/api/people/mircea"))).email)
+    expect((await jsonOf<{ email: string | null }>(await chiama(come("mircea"), "/api/people/mircea"))).email)
       .toBe("mircea@example.invalid");
 
     db.run("UPDATE people SET show_email = 1 WHERE id = 'mircea'");
-    expect((await corpo<{ email: string | null }>(await chiama(io(), "/api/people/mircea"))).email)
+    expect((await jsonOf<{ email: string | null }>(await chiama(io(), "/api/people/mircea"))).email)
       .toBe("mircea@example.invalid");
   });
 
@@ -467,38 +467,38 @@ describe("i follow e la privacy del profilo", () => {
     await chiama(io(), "/api/people/mircea/follow", "POST");
     db.run("UPDATE people SET show_followers = 0 WHERE id = 'mircea'");
 
-    expect((await corpo<{ counts: Contatori }>(await chiama(io(), "/api/people/mircea"))).counts)
+    expect((await jsonOf<{ counts: Counts }>(await chiama(io(), "/api/people/mircea"))).counts)
       .toBeNull();
 
-    for (const elenco of ["followers", "following"]) {
-      const r = await chiama(io(), `/api/people/mircea/${elenco}`);
+    for (const list of ["followers", "following"]) {
+      const r = await chiama(io(), `/api/people/mircea/${list}`);
       expect(r!.status).toBe(403);
-      expect((await corpo<{ error: string }>(r)).error).toBe("followers are private");
+      expect((await jsonOf<{ error: string }>(r)).error).toBe("followers are private");
     }
 
     // The follow route stops handing the number out too: it is the same value,
     // and letting it through from there would make the switch decorative.
-    expect((await corpo<RispostaFollow>(await chiama(io(), "/api/people/mircea/follow", "POST"))).counts)
+    expect((await jsonOf<FollowResponse>(await chiama(io(), "/api/people/mircea/follow", "POST"))).counts)
       .toBeNull();
 
     // The person sees their own, counters and lists alike.
     const suo = await chiama(come("mircea"), "/api/people/mircea/followers");
     expect(suo!.status).toBe(200);
-    expect((await corpo<{ people: Array<{ id: string }> }>(suo)).people.map((p) => p.id))
+    expect((await jsonOf<{ people: Array<{ id: string }> }>(suo)).people.map((p) => p.id))
       .toEqual([ioPersonId]);
   });
 
   test("le manopole si leggono e si scrivono solo da chi le possiede", async () => {
-    const mie = await chiama(come("mircea"), "/api/people/mircea/privacy");
-    expect(mie!.status).toBe(200);
-    expect((await corpo<{ privacy: Record<string, boolean> }>(mie)).privacy).toEqual({
+    const mine = await chiama(come("mircea"), "/api/people/mircea/privacy");
+    expect(mine!.status).toBe(200);
+    expect((await jsonOf<{ privacy: Record<string, boolean> }>(mine)).privacy).toEqual({
       showProfile: true, showStats: true, showEmail: false, showFollowers: true, showPresence: true,
     });
 
-    const altrui = await chiama(io(), "/api/people/mircea/privacy");
-    expect(altrui!.status).toBe(403);
-    const scrittura = await chiama(io(), "/api/people/mircea/privacy", "PATCH", { showStats: false });
-    expect(scrittura!.status).toBe(403);
+    const fromOutside = await chiama(io(), "/api/people/mircea/privacy");
+    expect(fromOutside!.status).toBe(403);
+    const write = await chiama(io(), "/api/people/mircea/privacy", "PATCH", { showStats: false });
+    expect(write!.status).toBe(403);
     // The refusal really stopped something.
     expect((db.query("SELECT show_stats AS s FROM people WHERE id = 'mircea'").get() as { s: number }).s)
       .toBe(1);
@@ -514,29 +514,29 @@ describe("i follow e la privacy del profilo", () => {
       showQualcosa: true,
     });
     expect(r!.status).toBe(200);
-    expect((await corpo<{ privacy: Record<string, boolean> }>(r)).privacy).toEqual({
+    expect((await jsonOf<{ privacy: Record<string, boolean> }>(r)).privacy).toEqual({
       showProfile: true, showStats: false, showEmail: false, showFollowers: true, showPresence: true,
     });
   });
 
   test("le manopole viaggiano nel profilo solo verso chi le possiede", async () => {
-    expect(await corpo<{ privacy?: unknown }>(await chiama(come("mircea"), "/api/people/mircea")))
+    expect(await jsonOf<{ privacy?: unknown }>(await chiama(come("mircea"), "/api/people/mircea")))
       .toHaveProperty("privacy");
-    expect(await corpo<{ privacy?: unknown }>(await chiama(io(), "/api/people/mircea")))
+    expect(await jsonOf<{ privacy?: unknown }>(await chiama(io(), "/api/people/mircea")))
       .not.toHaveProperty("privacy");
   });
 
   test("presenza spenta: l'ultimo accesso e' `null` per gli altri e resta per se stessi", async () => {
     db.run("UPDATE devices SET last_seen_at = 1700 WHERE person_id = 'mircea'");
 
-    expect((await corpo<{ lastSeenAt: number | null }>(await chiama(io(), "/api/people/mircea"))).lastSeenAt)
+    expect((await jsonOf<{ lastSeenAt: number | null }>(await chiama(io(), "/api/people/mircea"))).lastSeenAt)
       .toBe(1700);
 
     db.run("UPDATE people SET show_presence = 0 WHERE id = 'mircea'");
 
-    expect((await corpo<{ lastSeenAt: number | null }>(await chiama(io(), "/api/people/mircea"))).lastSeenAt)
+    expect((await jsonOf<{ lastSeenAt: number | null }>(await chiama(io(), "/api/people/mircea"))).lastSeenAt)
       .toBeNull();
-    expect((await corpo<{ lastSeenAt: number | null }>(
+    expect((await jsonOf<{ lastSeenAt: number | null }>(
       await chiama(come("mircea"), "/api/people/mircea"),
     )).lastSeenAt).toBe(1700);
   });
@@ -545,19 +545,19 @@ describe("i follow e la privacy del profilo", () => {
     await chiama(io(), "/api/people/mircea/follow", "POST");
 
     // I follow him: he is in MY following and in none of my followers.
-    expect((await corpo<{ people: Array<{ id: string }> }>(
+    expect((await jsonOf<{ people: Array<{ id: string }> }>(
       await chiama(io(), `/api/people/${ioPersonId}/following`),
     )).people.map((p) => p.id)).toEqual(["mircea"]);
-    expect((await corpo<{ people: Array<{ id: string }> }>(
+    expect((await jsonOf<{ people: Array<{ id: string }> }>(
       await chiama(io(), `/api/people/${ioPersonId}/followers`),
     )).people).toEqual([]);
 
     // And mirrored on his profile. Without this half, a route serving the
     // followers where the following belongs would pass all the same.
-    expect((await corpo<{ people: Array<{ id: string }> }>(
+    expect((await jsonOf<{ people: Array<{ id: string }> }>(
       await chiama(io(), "/api/people/mircea/followers"),
     )).people.map((p) => p.id)).toEqual([ioPersonId]);
-    expect((await corpo<{ people: Array<{ id: string }> }>(
+    expect((await jsonOf<{ people: Array<{ id: string }> }>(
       await chiama(io(), "/api/people/mircea/following"),
     )).people).toEqual([]);
   });
@@ -565,10 +565,10 @@ describe("i follow e la privacy del profilo", () => {
   test("una voce d'elenco porta tutto quello che la riga disegna, non solo l'id", async () => {
     await chiama(come("mircea"), `/api/people/${ioPersonId}/follow`, "POST");
 
-    const prima = await corpo<{ people: Array<Record<string, unknown>> }>(
+    const before = await jsonOf<{ people: Array<Record<string, unknown>> }>(
       await chiama(io(), `/api/people/${ioPersonId}/followers`),
     );
-    expect(prima.people).toEqual([
+    expect(before.people).toEqual([
       { id: "mircea", displayName: "mircea", githubLogin: null, github: null,
         viewerFollows: false, isMe: false },
     ]);
@@ -578,17 +578,17 @@ describe("i follow e la privacy del profilo", () => {
     // implementation with the two arguments swapped would already read `true`
     // above, and the row would offer Unfollow on somebody I do not follow.
     await chiama(io(), "/api/people/mircea/follow", "POST");
-    const dopo = await corpo<{ people: Array<Record<string, unknown>> }>(
+    const after = await jsonOf<{ people: Array<Record<string, unknown>> }>(
       await chiama(io(), `/api/people/${ioPersonId}/followers`),
     );
-    expect(dopo.people[0]!.viewerFollows).toBe(true);
+    expect(after.people[0]!.viewerFollows).toBe(true);
   });
 
   test("gli elenchi di una persona fuori dalla rubrica non si aprono", async () => {
     // The same boundary as the profile: a list readable about a person you
     // cannot open would be the way around the profile itself.
-    for (const elenco of ["followers", "following"]) {
-      expect((await chiama(io(), `/api/people/estraneo/${elenco}`))!.status).toBe(404);
+    for (const list of ["followers", "following"]) {
+      expect((await chiama(io(), `/api/people/estraneo/${list}`))!.status).toBe(404);
     }
   });
 
@@ -609,7 +609,7 @@ describe("i follow e la privacy del profilo", () => {
     // edge that puts the FOLLOWER inside the hidden person's address book.
     const via = await chiama(io(), "/api/people/mircea/follow", "DELETE");
     expect(via!.status).toBe(200);
-    expect(await corpo<RispostaFollow>(via)).toEqual({ following: false, counts: null });
+    expect(await jsonOf<FollowResponse>(via)).toEqual({ following: false, counts: null });
     expect(db.query("SELECT COUNT(*) AS n FROM follows").get()).toEqual({ n: 0 });
   });
 
@@ -617,26 +617,26 @@ describe("i follow e la privacy del profilo", () => {
     collega(db, "ombra", orgId);
     await chiama(come("mircea"), `/api/people/${ioPersonId}/follow`, "POST");
     await chiama(come("ombra"), `/api/people/${ioPersonId}/follow`, "POST");
-    expect((await corpo<{ counts: Contatori }>(await chiama(io(), `/api/people/${ioPersonId}`))).counts)
+    expect((await jsonOf<{ counts: Counts }>(await chiama(io(), `/api/people/${ioPersonId}`))).counts)
       .toEqual({ followers: 2, following: 0 });
 
     db.run("UPDATE people SET show_profile = 0 WHERE id = 'ombra'");
 
     // For me: gone from the list, therefore gone from the number. The failure
     // to avoid is a header reading two over a list that draws one.
-    expect((await corpo<{ counts: Contatori }>(await chiama(io(), `/api/people/${ioPersonId}`))).counts!
+    expect((await jsonOf<{ counts: Counts }>(await chiama(io(), `/api/people/${ioPersonId}`))).counts!
       .followers).toBe(1);
-    expect((await corpo<{ people: Array<{ id: string }> }>(
+    expect((await jsonOf<{ people: Array<{ id: string }> }>(
       await chiama(io(), `/api/people/${ioPersonId}/followers`),
     )).people.map((p) => p.id)).toEqual(["mircea"]);
 
     // For OMBRA the same profile counts two, because the list she sees holds
     // her own row as well: the count belongs to the view, not to the table.
-    const daOmbra = come("ombra");
-    expect((await corpo<{ counts: Contatori }>(await chiama(daOmbra, `/api/people/${ioPersonId}`))).counts!
+    const shadowView = come("ombra");
+    expect((await jsonOf<{ counts: Counts }>(await chiama(shadowView, `/api/people/${ioPersonId}`))).counts!
       .followers).toBe(2);
-    expect((await corpo<{ people: Array<{ id: string }> }>(
-      await chiama(daOmbra, `/api/people/${ioPersonId}/followers`),
+    expect((await jsonOf<{ people: Array<{ id: string }> }>(
+      await chiama(shadowView, `/api/people/${ioPersonId}/followers`),
     )).people.map((p) => p.id)).toEqual(["mircea", "ombra"]);
   });
 
@@ -644,19 +644,19 @@ describe("i follow e la privacy del profilo", () => {
     db.run("UPDATE devices SET last_seen_at = 1700 WHERE person_id = 'mircea'");
     const auth = createAuthRouter(ctxAuth(db));
 
-    const prima = await corpo<{ members: Array<{ id: string; lastSeenAt: number | null }> }>(
+    const before = await jsonOf<{ members: Array<{ id: string; lastSeenAt: number | null }> }>(
       await chiama(auth, `/api/auth/orgs/${orgId}/members`),
     );
-    expect(prima.members.find((m) => m.id === "mircea")!.lastSeenAt).toBe(1700);
+    expect(before.members.find((m) => m.id === "mircea")!.lastSeenAt).toBe(1700);
 
     db.run("UPDATE people SET show_presence = 0 WHERE id = 'mircea'");
 
-    const dopo = await corpo<{ members: Array<{ id: string; lastSeenAt: number | null }> }>(
+    const after = await jsonOf<{ members: Array<{ id: string; lastSeenAt: number | null }> }>(
       await chiama(auth, `/api/auth/orgs/${orgId}/members`),
     );
     // The member stays in the list: they have not vanished, they have stopped
     // saying when they were last seen.
-    expect(dopo.members.find((m) => m.id === "mircea")).toBeDefined();
-    expect(dopo.members.find((m) => m.id === "mircea")!.lastSeenAt).toBeNull();
+    expect(after.members.find((m) => m.id === "mircea")).toBeDefined();
+    expect(after.members.find((m) => m.id === "mircea")!.lastSeenAt).toBeNull();
   });
 });

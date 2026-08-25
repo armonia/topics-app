@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { peopleApi, type PersonaConProfilo } from '@/lib/api';
+import { peopleApi, type PersonWithProfile } from '@/lib/api';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 
 /**
@@ -35,7 +35,7 @@ export function iniziali(nome: string): string {
 }
 
 export function useProfileIdentity(): ProfiloIdentita {
-  const [io, setIo] = useState<PersonaConProfilo | null>(null);
+  const [io, setIo] = useState<PersonWithProfile | null>(null);
   const [sessione, setSessione] = useState<SessionState>({ status: 'loading' });
 
   useEffect(() => subscribeSession(setSessione), []);

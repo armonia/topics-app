@@ -41,7 +41,7 @@ beforeAll(() => setupTestDataDir(join(ROOT, "data")));
 afterAll(() => cleanupTestDataDir(ROOT));
 
 const T0 = 1_700_000_000_000;
-const RADICE = join(import.meta.dir, "..", "..");
+const REPO_ROOT = join(import.meta.dir, "..", "..");
 
 /**
  * The same in-memory schema `claude-session-tracker.test.ts` builds: the two
@@ -62,17 +62,17 @@ function dbFresco(): Database {
       FOREIGN KEY (session_key) REFERENCES topics(session_key) ON DELETE CASCADE
     )
   `);
-  const migDir = join(RADICE, "server", "db", "migrations");
+  const migDir = join(REPO_ROOT, "server", "db", "migrations");
   for (const prefix of ["027-", "096-"]) {
     const file = readdirSync(migDir).find((f) => f.startsWith(prefix))!;
     const sql = readFileSync(join(migDir, file), "utf-8")
       .split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
-    for (const stmt of sql.split(";").map((s) => s.trim()).filter(Boolean)) db.run(stmt);
+    for (const statement of sql.split(";").map((s) => s.trim()).filter(Boolean)) db.run(statement);
   }
   return db;
 }
 
-function semina(db: Database, sessionKey: string, claudeSessionId: string, jsonlPath?: string) {
+function seed(db: Database, sessionKey: string, claudeSessionId: string, jsonlPath?: string) {
   db.prepare(`INSERT INTO topics VALUES (?)`).run(sessionKey);
   db.prepare(`
     INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, phase, phase_updated_at, jsonl_path)
@@ -82,14 +82,14 @@ function semina(db: Database, sessionKey: string, claudeSessionId: string, jsonl
 
 type Router = ReturnType<typeof import("../../server/routes/claude-hooks").createClaudeHooksRouter>;
 
-async function chiama(router: Router, path: string) {
+async function call(router: Router, path: string) {
   const url = new URL(`http://h${path}`);
   const res = await router(new Request(url), url, url.pathname, "GET");
   if (!res) throw new Error(`no route handled GET ${path}`);
   return res;
 }
 
-interface Istantanea {
+interface Snapshot {
   sessionKey: string;
   claudeSessionId: string;
   phase: string;
@@ -111,33 +111,33 @@ describe("l'istantanea delle sessioni Claude", () => {
   });
 
   test("a mani vuote e' una lista vuota, non un errore", async () => {
-    const res = await chiama(router, "/api/claude-sessions");
+    const res = await call(router, "/api/claude-sessions");
     expect(res.status).toBe(200);
-    const { sessions } = (await res.json()) as { sessions: Istantanea[] };
+    const { sessions } = (await res.json()) as { sessions: Snapshot[] };
     expect(Array.isArray(sessions)).toBe(true);
     expect(sessions).toEqual([]);
   });
 
   test("ogni sessione porta il puntatore al transcript, non solo la fase", async () => {
-    semina(db, "topic:uno", "cli-uno", "/tmp/finto/uno.jsonl");
-    semina(db, "topic:due", "cli-due");
+    seed(db, "topic:uno", "cli-uno", "/tmp/finto/uno.jsonl");
+    seed(db, "topic:due", "cli-due");
 
-    const res = await chiama(router, "/api/claude-sessions");
+    const res = await call(router, "/api/claude-sessions");
     expect(res.status).toBe(200);
-    const { sessions } = (await res.json()) as { sessions: Istantanea[] };
+    const { sessions } = (await res.json()) as { sessions: Snapshot[] };
     expect(sessions).toHaveLength(2);
 
-    const uno = sessions.find((s) => s.sessionKey === "topic:uno")!;
-    expect(uno).toBeTruthy();
-    expect(uno.claudeSessionId).toBe("cli-uno");
-    expect(uno.phase).toBe("starting");
+    const one = sessions.find((s) => s.sessionKey === "topic:uno")!;
+    expect(one).toBeTruthy();
+    expect(one.claudeSessionId).toBe("cli-uno");
+    expect(one.phase).toBe("starting");
 
     // The pointer: it is the field the route's own comment declares it serves
     // on purpose, and it is the one that disappears quietly if somebody thins
     // out the map literal.
-    expect(Object.keys(uno)).toContain("jsonlPath");
-    expect(Object.keys(uno)).toContain("jsonlOffset");
-    expect(uno.jsonlPath).toBe("/tmp/finto/uno.jsonl");
+    expect(Object.keys(one)).toContain("jsonlPath");
+    expect(Object.keys(one)).toContain("jsonlOffset");
+    expect(one.jsonlPath).toBe("/tmp/finto/uno.jsonl");
 
     // A session with no transcript does NOT carry the key: `JSON.stringify`
     // strips the `undefined`s, so on the wire `jsonlPath` simply is not there.
@@ -149,33 +149,33 @@ describe("l'istantanea delle sessioni Claude", () => {
   });
 
   test("una sessione sola si chiede per chiave, e quella che non c'e' e' 404", async () => {
-    semina(db, "topic:tre", "cli-tre");
+    seed(db, "topic:tre", "cli-tre");
 
-    const trovata = await chiama(router, "/api/claude-sessions/by-key/topic:tre");
-    expect(trovata.status).toBe(200);
-    const { session } = (await trovata.json()) as { session: Istantanea };
+    const found = await call(router, "/api/claude-sessions/by-key/topic:tre");
+    expect(found.status).toBe(200);
+    const { session } = (await found.json()) as { session: Snapshot };
     expect(session.sessionKey).toBe("topic:tre");
     expect(session.claudeSessionId).toBe("cli-tre");
 
     // 404 and not an empty 200: to a client a 200 with no session reads as
     // "it is there, and it is idle", which is the wrong thing to believe about
     // a session that no longer exists.
-    const assente = await chiama(router, "/api/claude-sessions/by-key/topic:mai-esistita");
-    expect(assente.status).toBe(404);
+    const missing = await call(router, "/api/claude-sessions/by-key/topic:mai-esistita");
+    expect(missing.status).toBe(404);
   });
 
   test("l'istantanea segue la fase che gli hook fanno cambiare", async () => {
     // The link between the two halves: the state machine is tested elsewhere,
     // here what gets tested is that the route reports the CURRENT STATE and not
     // a copy frozen at the first round.
-    semina(db, "topic:quattro", "cli-quattro");
+    seed(db, "topic:quattro", "cli-quattro");
 
-    const prima = (await (await chiama(router, "/api/claude-sessions/by-key/topic:quattro")).json()) as { session: Istantanea };
-    expect(prima.session.phase).toBe("starting");
+    const before = (await (await call(router, "/api/claude-sessions/by-key/topic:quattro")).json()) as { session: Snapshot };
+    expect(before.session.phase).toBe("starting");
 
     tracker.ingestHook({ hook_event_name: "UserPromptSubmit", session_id: "cli-quattro" } as never);
 
-    const dopo = (await (await chiama(router, "/api/claude-sessions/by-key/topic:quattro")).json()) as { session: Istantanea };
-    expect(dopo.session.phase, "la rotta serve una copia congelata invece dello stato vivo").not.toBe("starting");
+    const after = (await (await call(router, "/api/claude-sessions/by-key/topic:quattro")).json()) as { session: Snapshot };
+    expect(after.session.phase, "la rotta serve una copia congelata invece dello stato vivo").not.toBe("starting");
   });
 });

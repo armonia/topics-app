@@ -1,28 +1,28 @@
 /**
- * Chi lancia `git` in un test si porta l'ambiente isolato del preload.
+ * Whoever launches `git` in a test carries the preload's isolated environment.
  *
- * PERCHE' NON BASTA AVERLI CORRETTI. Il 24/08 diciassette file di test
- * costruivano un repo git vero e ci facevano 46 commit ereditando la config
- * della macchina, hook compresi. Su quella di sviluppo `core.hooksPath` punta a
- * un `prepare-commit-msg` di terze parti che a ogni commit fa due
- * `curl --max-time 2` verso `localhost:3333`: misurato, 380ms per commit contro
- * 160ms, e sotto carico i test sforavano il timeout. Il sintomo era il peggiore
- * possibile, un rosso che compariva SOLO nella suite intera e su un test diverso
- * ogni volta.
+ * WHY HAVING FIXED THEM IS NOT ENOUGH. On 24/08 seventeen test files were
+ * building a real git repo and making 46 commits in it, inheriting the
+ * machine's config, hooks included. On the development one `core.hooksPath`
+ * points at a third-party `prepare-commit-msg` that on every commit fires two
+ * `curl --max-time 2` at `localhost:3333`: measured, 380ms per commit against
+ * 160ms, and under load the tests overran the timeout. The symptom was the
+ * worst one available, a red that showed up ONLY in the whole suite and on a
+ * different test every time.
  *
- * I diciassette sono stati corretti a mano. Questa guardia esiste per il
- * diciottesimo, quello che nascera' domani: il criterio «questo file lancia
- * git?» non e' scritto da nessuna parte, e chi copia il vicino copiera' la
- * versione senza `env`. Il costo di riscoprirlo e' una giornata, perche' il
- * rosso non parla del file che l'ha causato.
+ * The seventeen were fixed by hand. This guard exists for the eighteenth, the
+ * one that will be born tomorrow: the criterion «does this file launch git?»
+ * is written down nowhere, and whoever copies their neighbour will copy the
+ * version without `env`. The cost of rediscovering it is a day, because the
+ * red does not talk about the file that caused it.
  *
- * COSA PRETENDE, e perche' cosi' poco: che dove c'e' uno spawn di `git` ci sia
- * anche un `env`, non che sia `gitEnv()`. `landing-verdict.test.ts` passa
- * `process.env` con dentro `GIT_AUTHOR_DATE` per fissare le date, ed eredita
- * l'isolamento lo stesso, quindi pretendere il nome della funzione lo
- * boccerebbe per niente. La differenza che conta e' fra «passo un ambiente» e
- * «non ne passo nessuno», che e' il caso in cui `Bun.spawnSync` non eredita
- * cio' che il preload ha impostato a runtime.
+ * WHAT IT DEMANDS, and why so little: that where there is a `git` spawn there
+ * is also an `env`, not that it be `gitEnv()`. `landing-verdict.test.ts`
+ * passes `process.env` with `GIT_AUTHOR_DATE` inside it to pin the dates, and
+ * inherits the isolation all the same, so demanding the function's name would
+ * fail it for nothing. The difference that counts is between «I pass an
+ * environment» and «I pass none at all», which is the case in which
+ * `Bun.spawnSync` does not inherit what the preload set at runtime.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -30,91 +30,92 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const RADICE = resolve(import.meta.dir, "..", "..");
+const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 
-/** I file di test tracciati da git: quelli non tracciati non sono di nessuno. */
-function testTracciati(): string[] {
+/** The test files git tracks: the untracked ones belong to nobody. */
+function trackedTestFiles(): string[] {
   const out = execFileSync("git", ["ls-files", "*.test.ts"], {
-    cwd: RADICE,
+    cwd: REPO_ROOT,
     encoding: "utf-8",
     maxBuffer: 32 * 1024 * 1024,
   });
-  // QUESTO file resta fuori dalla scansione, e non e' una scorciatoia.
+  // THIS file stays out of the scan, and that is not a shortcut.
   //
-  // La prova «lo scanner sa dire di NO» contiene, per forza, un esempio
-  // LETTERALE della forma cattiva: `Bun.spawnSync(["git", ...], { stdout })`
-  // senza `env`. E' la meta' non vacua del cancello — senza, lo scanner
-  // potrebbe smettere di riconoscere la forma e il test passerebbe per sempre
-  // guardando il nulla. Ma quell'esempio e' testo, non una chiamata: nessun
-  // git viene lanciato, nessun hook della macchina entra in un test.
+  // The proof «the scanner can say NO» contains, of necessity, a LITERAL
+  // example of the bad form: `Bun.spawnSync(["git", ...], { stdout })` with no
+  // `env`. It is the non-vacuous half of the gate — without it, the scanner
+  // could stop recognising the form and the test would pass forever while
+  // looking at nothing. But that example is text, not a call: no git is
+  // launched, no hook of the machine gets into a test.
   //
-  // Scansionando anche se stesso, il cancello si autodenunciava: rosso fisso,
-  // colpevole `tests/unit/git-env-nei-test.test.ts (1)`, e nessun modo di
-  // farlo tornare verde se non cancellando proprio la prova che lo rende
-  // affilato. Un cancello che chiede di disarmarsi per diventare verde ha un
-  // difetto nel perimetro, non nella regola.
-  const questoFile = "tests/unit/git-env-nei-test.test.ts";
-  return out.split("\n").filter(Boolean).filter((f) => f !== questoFile);
+  // By scanning itself as well, the gate reported itself: a permanent red,
+  // offender `tests/unit/git-env-nei-test.test.ts (1)`, and no way of getting  allow-italian: the file's own path is the quoted output
+  // it green again other than deleting the very proof that makes it sharp. A
+  // gate that asks to be disarmed in order to go green has a defect in its
+  // perimeter, not in its rule.
+  const thisFile = "tests/unit/git-env-nei-test.test.ts";
+  return out.split("\n").filter(Boolean).filter((f) => f !== thisFile);
 }
 
 /**
- * Gli spawn di `git` in un file, con l'indicazione se portano un `env`.
+ * The `git` spawns in a file, with the note of whether they carry an `env`.
  *
- * Si guarda la chiamata per intero fino alla parentesi che la chiude, perche'
- * `env` sta nelle opzioni e quelle possono andare a capo. Un `env` che compare
- * DOPO la fine della chiamata non e' di questa chiamata.
+ * The call is looked at in full up to the parenthesis that closes it, because
+ * `env` lives in the options and those can wrap onto the next line. An `env`
+ * that appears AFTER the end of the call is not this call's.
  */
-function spawnSenzaEnv(testo: string): number {
-  let quanti = 0;
+function spawnsWithoutEnv(text: string): number {
+  let count = 0;
   const re = /(?:Bun\.)?spawnSync?\(\s*\[\s*["']git["']/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(testo))) {
-    // Dalla chiamata, si prende fino alla graffa di chiusura delle opzioni o
-    // alla parentesi finale: e' li' che vive `env`.
-    const coda = testo.slice(m.index, m.index + 600);
-    const fine = coda.indexOf(");");
-    const chiamata = fine === -1 ? coda : coda.slice(0, fine);
-    // `env: qualcosa` oppure la forma abbreviata `{ ..., env }`, che
-    // `landing-verdict.test.ts` usa per infilare GIT_AUTHOR_DATE: passa un
-    // ambiente a tutti gli effetti, e bocciarla sarebbe un falso positivo.
-    if (!/\benv\s*[:,}]/.test(chiamata)) quanti += 1;
+  while ((m = re.exec(text))) {
+    // From the call, take up to the closing brace of the options or to the
+    // final parenthesis: that is where `env` lives.
+    const tail = text.slice(m.index, m.index + 600);
+    const end = tail.indexOf(");");
+    const call = end === -1 ? tail : tail.slice(0, end);
+    // `env: something`, or the shorthand form `{ ..., env }`, which
+    // `landing-verdict.test.ts` uses to slip GIT_AUTHOR_DATE in: it passes an
+    // environment to all intents and purposes, and failing it would be a false
+    // positive.
+    if (!/\benv\s*[:,}]/.test(call)) count += 1;
   }
-  return quanti;
+  return count;
 }
 
 describe("i test che lanciano git si portano l'ambiente isolato", () => {
   test("lo scanner vede qualcosa (guardia contro un elenco vuoto)", () => {
-    // Senza questa riga il test sarebbe verde anche se `git ls-files` non
-    // tornasse niente, cioe' misurando il nulla.
-    const files = testTracciati();
+    // Without this line the test would be green even if `git ls-files`
+    // returned nothing, i.e. while measuring nothing.
+    const files = trackedTestFiles();
     expect(files.length).toBeGreaterThan(100);
   });
 
   test("lo scanner sa dire di NO (guardia contro un controllo che non morde)", () => {
-    // Il caso negativo: se `spawnSenzaEnv` non riconoscesse piu' la forma, il
-    // test sotto passerebbe per sempre senza guardare niente.
-    expect(spawnSenzaEnv(`Bun.spawnSync(["git", "-C", d, "log"], { stdout: "pipe" });`)).toBe(1);
-    expect(spawnSenzaEnv(`Bun.spawnSync(["git", "-C", d, "log"], { stdout: "pipe", env: gitEnv() });`)).toBe(0);
-    expect(spawnSenzaEnv(`Bun.spawnSync(["git", "log"], { env: process.env });`)).toBe(0);
-    expect(spawnSenzaEnv(`Bun.spawnSync(["git", "log"], { stdout: "pipe", env });`)).toBe(0);
+    // The negative case: if `spawnsWithoutEnv` stopped recognising the form,
+    // the test below would pass forever without looking at anything.
+    expect(spawnsWithoutEnv(`Bun.spawnSync(["git", "-C", d, "log"], { stdout: "pipe" });`)).toBe(1);
+    expect(spawnsWithoutEnv(`Bun.spawnSync(["git", "-C", d, "log"], { stdout: "pipe", env: gitEnv() });`)).toBe(0);
+    expect(spawnsWithoutEnv(`Bun.spawnSync(["git", "log"], { env: process.env });`)).toBe(0);
+    expect(spawnsWithoutEnv(`Bun.spawnSync(["git", "log"], { stdout: "pipe", env });`)).toBe(0);
   });
 
   test("nessun file di test lancia git senza passare un env", () => {
-    const colpevoli: string[] = [];
-    for (const rel of testTracciati()) {
-      let testo: string;
+    const offenders: string[] = [];
+    for (const rel of trackedTestFiles()) {
+      let text: string;
       try {
-        testo = readFileSync(join(RADICE, rel), "utf-8");
+        text = readFileSync(join(REPO_ROOT, rel), "utf-8");
       } catch {
-        continue; // cancellato fra `ls-files` e qui: non e' un colpevole
+        continue; // deleted between `ls-files` and here: not an offender
       }
-      const n = spawnSenzaEnv(testo);
-      if (n > 0) colpevoli.push(`${rel} (${n})`);
+      const n = spawnsWithoutEnv(text);
+      if (n > 0) offenders.push(`${rel} (${n})`);
     }
-    // Se questo elenco non e' vuoto: aggiungi `env: gitEnv()` allo spawn, con
-    // `import { gitEnv } from "<...>/tests/setup/bun-test-preload"`. Serve a
-    // tenere fuori gli hook della macchina di chi esegue, che altrimenti girano
-    // a ogni commit del tuo repo di prova.
-    expect(colpevoli).toEqual([]);
+    // If this list is not empty: add `env: gitEnv()` to the spawn, with
+    // `import { gitEnv } from "<...>/tests/setup/bun-test-preload"`. It serves
+    // to keep out the hooks of the machine of whoever runs it, which otherwise
+    // fire on every commit of your test repo.
+    expect(offenders).toEqual([]);
   });
 });

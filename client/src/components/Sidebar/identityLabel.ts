@@ -26,7 +26,7 @@
  * copie della stessa decisione e già divergevano: il menu mostrava la persona,
  * la riga no.
  */
-import type { PersonaConProfilo } from '@/lib/api';
+import type { PersonWithProfile } from '@/lib/api';
 import type { SessionState } from '@/lib/auth/session';
 
 export interface EtichettaIdentita {
@@ -61,7 +61,7 @@ function nomeDelFerro(sessione: SessionState): string {
 }
 
 export function etichettaIdentita(
-  persona: Pick<PersonaConProfilo, 'displayName' | 'github'> | null,
+  persona: Pick<PersonWithProfile, 'displayName' | 'github'> | null,
   sessione: SessionState,
 ): EtichettaIdentita {
   const ferro = nomeDelFerro(sessione);

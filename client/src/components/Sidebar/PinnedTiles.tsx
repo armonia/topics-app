@@ -330,7 +330,7 @@ export function PinnedTiles({
   }, [clearDrag]);
 
   /** Un drag che possiamo servire: porta il tipo giusto E viene da QUESTA
-   *  griglia. Un drag della stessa forma da un'altra finestra porterebbe il
+   *  griglia. Un drag della stessa shape da un'altra finestra porterebbe il
    *  tipo ma non la chiave, e riordinare su una chiave che non abbiamo
    *  significherebbe inventarsi un movimento. */
   const isOurs = (e: React.DragEvent) =>
@@ -584,7 +584,7 @@ export function PinnedTiles({
   // vietato dal compilatore React (`This value cannot be modified`), e la
   // regola ha ragione — chi possiede il ref e' il genitore, e una scrittura
   // diretta durante l'effetto e' invisibile a chi legge il componente. Questa
-  // e' la forma sanzionata per pubblicare un'API imperativa verso l'alto, e
+  // e' la shape sanzionata per pubblicare un'API imperativa verso l'alto, e
   // fa esattamente la stessa cosa, compreso l'azzeramento allo smontaggio.
   useImperativeHandle(externalTouch, () => esternoDalDito);
 
@@ -917,7 +917,7 @@ export function PinnedTiles({
         // hovering over a row that holds one, what you see is already a grid
         // and the alignment must be the one of the drop, not the one of a
         // moment ago.
-        const forma: 'row' | 'grid' = cells.length === 1 ? 'row' : 'grid';
+        const shape: 'row' | 'grid' = cells.length === 1 ? 'row' : 'grid';
 
         return (
           <div key={`row-${rowIdx}`} className="flex flex-col min-h-0">
@@ -997,7 +997,7 @@ export function PinnedTiles({
                     <div key="ghost" style={flex} className={`${PINNED_TILE_CONTAINER} min-w-0`}>
                       {dropAt?.incoming
                         ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
-                            <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} hasActions={haAzioni(dropAt.incoming)} form={forma} />
+                            <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} hasActions={haAzioni(dropAt.incoming)} form={shape} />
                           </div>
                         : <div
                             data-testid="pinned-drop-ghost"
@@ -1058,7 +1058,7 @@ export function PinnedTiles({
                       item={item}
                       // Row or grid: the two alignments of the column, told by
                       // the layout and not measured from a width.
-                      form={forma}
+                      form={shape}
                       // Non `expanded.has(key)`: l'intenzione da sola non basta
                       // a dirsi aperta, e una tessera accesa senza una fascia
                       // sotto è una tessera accesa senza motivo.

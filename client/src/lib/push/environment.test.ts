@@ -21,24 +21,24 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { pushCapable, pushDeviceId, readPushEnvironment } from "./environment";
 
-type Globali = { navigator?: unknown; window?: unknown; localStorage?: unknown; Notification?: unknown };
-const ORIGINALI: Globali = {
-  navigator: (globalThis as Globali).navigator,
-  window: (globalThis as Globali).window,
-  localStorage: (globalThis as Globali).localStorage,
-  Notification: (globalThis as Globali).Notification,
+type Globals = { navigator?: unknown; window?: unknown; localStorage?: unknown; Notification?: unknown };
+const ORIGINALS: Globals = {
+  navigator: (globalThis as Globals).navigator,
+  window: (globalThis as Globals).window,
+  localStorage: (globalThis as Globals).localStorage,
+  Notification: (globalThis as Globals).Notification,
 };
 
-function metti(g: Globali) {
+function setGlobals(g: Globals) {
   for (const [k, v] of Object.entries(g)) {
     Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
   }
 }
 
-afterEach(() => metti(ORIGINALI));
+afterEach(() => setGlobals(ORIGINALS));
 
 /** A fake browser environment, with only what the module actually reads. */
-function ambiente(opts: {
+function environment(opts: {
   ua?: string;
   touch?: number;
   standalone?: boolean;
@@ -57,7 +57,7 @@ function ambiente(opts: {
     matchMedia: (q: string) => ({ matches: q.includes("standalone") ? (opts.displayMode ?? false) : false }),
   };
   if (opts.pushManager ?? true) win.PushManager = function () {};
-  metti({
+  setGlobals({
     navigator: nav,
     window: win,
     Notification: { permission: opts.permission ?? "default" },
@@ -66,13 +66,13 @@ function ambiente(opts: {
 
 describe("il browser puo' ricevere una notifica push?", () => {
   test("servono ENTRAMBI: service worker e PushManager", () => {
-    ambiente({});
+    environment({});
     expect(pushCapable()).toBe(true);
 
-    ambiente({ serviceWorker: false });
+    environment({ serviceWorker: false });
     expect(pushCapable(), "senza service worker non c'e' niente da iscrivere").toBe(false);
 
-    ambiente({ pushManager: false });
+    environment({ pushManager: false });
     expect(pushCapable(), "senza PushManager non c'e' niente da iscrivere").toBe(false);
   });
 });
@@ -83,24 +83,24 @@ describe("iOS fuori dalla PWA installata", () => {
   const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome";
 
   test("un iPhone in Safari ha un rimedio: installare la PWA", () => {
-    ambiente({ ua: IPHONE, pushManager: false });
+    environment({ ua: IPHONE, pushManager: false });
     expect(readPushEnvironment(false).iosNeedsInstall).toBe(true);
   });
 
   test("lo stesso iPhone, con la PWA installata, non chiede piu' niente", () => {
-    ambiente({ ua: IPHONE, standalone: true });
+    environment({ ua: IPHONE, standalone: true });
     expect(readPushEnvironment(false).iosNeedsInstall).toBe(false);
   });
 
   test("e lo riconosce anche dal display-mode, non solo da `navigator.standalone`", () => {
-    ambiente({ ua: IPHONE, displayMode: true });
+    environment({ ua: IPHONE, displayMode: true });
     expect(readPushEnvironment(false).iosNeedsInstall).toBe(false);
   });
 
   test("UN IPAD SI DICHIARA «MACINTOSH»: lo tradisce il touch", () => {
     // The case the double check exists for. The exact same string as a Mac,
     // and the difference is a single field.
-    ambiente({ ua: IPAD_13, touch: 5, pushManager: false });
+    environment({ ua: IPAD_13, touch: 5, pushManager: false });
     expect(
       readPushEnvironment(false).iosNeedsInstall,
       "un iPad in Safari finisce nel ramo desktop e si sente dire «non supportato»",
@@ -110,7 +110,7 @@ describe("iOS fuori dalla PWA installata", () => {
   test("un Mac vero resta un Mac: stessa stringa, zero touch", () => {
     // The half that makes the test above non-vacuous: if the string alone were
     // enough, this would give the same result, and the double check would not be needed.
-    ambiente({ ua: MAC, touch: 0 });
+    environment({ ua: MAC, touch: 0 });
     expect(readPushEnvironment(false).iosNeedsInstall).toBe(false);
   });
 
@@ -125,14 +125,14 @@ describe("iOS fuori dalla PWA installata", () => {
     // engine, a change in Safari - this test would become the place where it
     // gets discovered, instead of a Mac user being told to install a PWA they
     // have no use for.
-    ambiente({ ua: MAC, touch: 10 });
+    environment({ ua: MAC, touch: 10 });
     expect(readPushEnvironment(false).iosNeedsInstall).toBe(true);
   });
 });
 
 describe("l'ambiente riassunto", () => {
   test("porta il permesso e lo stato di iscrizione che gli si passa", () => {
-    ambiente({ permission: "denied" });
+    environment({ permission: "denied" });
     const env = readPushEnvironment(true);
     expect(env.permission).toBe("denied");
     expect(env.subscribed).toBe(true);
@@ -142,22 +142,22 @@ describe("l'ambiente riassunto", () => {
 
 describe("l'identita' del dispositivo", () => {
   test("e' stabile: chiesta due volte, risponde lo stesso", () => {
-    const memoria = new Map<string, string>();
-    metti({
+    const store = new Map<string, string>();
+    setGlobals({
       localStorage: {
-        getItem: (k: string) => memoria.get(k) ?? null,
-        setItem: (k: string, v: string) => void memoria.set(k, v),
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
       },
     });
-    const uno = pushDeviceId();
-    expect(uno).toBeTruthy();
-    expect(pushDeviceId(), "un id che cambia non puo' reggere una preferenza").toBe(uno);
+    const first = pushDeviceId();
+    expect(first).toBeTruthy();
+    expect(pushDeviceId(), "un id che cambia non puo' reggere una preferenza").toBe(first);
   });
 
   test("con lo storage non scrivibile risponde comunque, invece di fallire", () => {
     // The branch declared in the source: "worse is a subscription that fails
     // altogether". Blocked private browsing, full storage.
-    metti({
+    setGlobals({
       localStorage: {
         getItem: () => { throw new Error("storage bloccato"); },
         setItem: () => { throw new Error("storage bloccato"); },

@@ -51,22 +51,23 @@ export const PRIORITY_LABEL: Record<number, string> = {
 };
 
 /**
- * Il colore di una colonna kanban, sul suo glifo.
+ * The colour of a kanban column, on its glyph.
  *
- * ── Due toni per tema, e la ragione è misurata ──────────────────────────────
- * Erano i soli `-400` di Tailwind: nati su una superficie scura, dove reggono.
- * Sul chrome CHIARO (#eaecf0) misurano — contro il fondo, che per un glifo è il
- * confronto che conta — sky-400 1,83:1, emerald-400 1,64:1, rose-400 2,28:1:
- * tre colori che si intuiscono invece di vedersi. È il «blu troppo chiaro» che
- * Attilio ha segnalato il 07/08, e da quando questi glifi compaiono anche nella
- * SIDEBAR (la riga della board) si vede in tema chiaro senza aprire niente.
+ * ── Two tones per theme, and the reason is measured ─────────────────────────
+ * They were Tailwind's `-400` alone: born on a dark surface, where they hold
+ * up. On the LIGHT chrome (#eaecf0) they measure — against the background,
+ * which for a glyph is the comparison that counts — sky-400 1.83:1,
+ * emerald-400 1.64:1, rose-400 2.28:1: three colours you infer instead of
+ * seeing. It is the «blue too light» Attilio reported on 07/08, and ever since
+ * these glyphs appear in the SIDEBAR too (the board's row) it is visible in the
+ * light theme without opening anything.
  *
- * I `-600` sullo stesso fondo danno 3,46 / 3,19 / 3,10:1, cioè sopra la soglia
- * di 3:1 che WCAG chiede a un elemento grafico. In scuro non cambia niente:
- * restano i `-400` di prima, che lì sono giusti.
+ * The `-600` on the same background give 3.46 / 3.19 / 3.10:1, that is, above
+ * the 3:1 threshold WCAG asks of a graphic element. In dark nothing changes:
+ * the `-400` from before stay, and there they are right.
  *
- * `backlog` e `todo` erano già su token di testo, quindi già bitematici: la
- * correzione riguarda i tre che avevano una tinta fissa.
+ * `backlog` and `todo` were already on text tokens, hence already bi-thematic:
+ * the correction concerns the three that had a fixed tint.
  */
 export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
   backlog: 'text-app-text-muted',
@@ -76,12 +77,13 @@ export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
   done: 'text-emerald-600 dark:text-emerald-400',
 };
 
-/* (Qui stava `STATUS_DOT`, i pallini pieni per riassumere una colonna dove non
-   c'è spazio per il nome. L'unico consumatore era il conteggio sulla riga della
-   board nella sidebar, che dal 07/08 disegna il glifo VERO della kanban
-   (`StatusIcon`) invece di un pallino: il colore da solo dice «rosso», non dice
-   «review» né in che ordine vengono le colonne. Senza consumatori la mappa era
-   codice morto, e `check:deadcode` l'avrebbe segnalata al giro dopo.) */
+/* (`STATUS_DOT` used to be here, the filled dots for summarising a column
+   where there is no room for the name. Its only consumer was the count on the
+   board's row in the sidebar, which since 07/08 draws the REAL kanban glyph
+   (`StatusIcon`) instead of a dot: the colour on its own says «red», it does
+   not say «review» nor in what order the columns come. With no consumers the
+   map was dead code, and `check:deadcode` would have flagged it next time
+   round.) */
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {

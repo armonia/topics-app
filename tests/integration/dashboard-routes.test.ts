@@ -38,7 +38,7 @@ afterAll(() => cleanupTestDataDir(ROOT));
 
 type Router = ReturnType<typeof import("../../server/routes/dashboard").createDashboardRouter>;
 
-async function chiama(router: Router, path: string) {
+async function call(router: Router, path: string) {
   const url = new URL(`http://h${path}`);
   const res = await router(new Request(url), url, url.pathname, "GET");
   if (!res) throw new Error(`no route handled GET ${path}`);
@@ -51,7 +51,7 @@ async function banco(): Promise<Router> {
 }
 
 /** The keys the dashboard's five components are wired to. */
-const CHIAVI_KPI = [
+const KPI_KEYS = [
   "throughputDay",
   "throughputWeek",
   "avgCycleTimeHours",
@@ -68,12 +68,12 @@ const CHIAVI_KPI = [
 describe("i numeri del cruscotto", () => {
   test("a database vuoto ogni KPI c'e' ed e' un numero, non un buco", async () => {
     const router = await banco();
-    const res = await chiama(router, "/api/dashboard/kpis");
+    const res = await call(router, "/api/dashboard/kpis");
     expect(res.status).toBe(200);
     const kpi = (await res.json()) as Record<string, unknown>;
 
-    const mancanti = CHIAVI_KPI.filter((k) => typeof kpi[k] !== "number");
-    expect(mancanti, "chiavi assenti o non numeriche: la card resta vuota, non rossa").toEqual([]);
+    const missing = KPI_KEYS.filter((k) => typeof kpi[k] !== "number");
+    expect(missing, "chiavi assenti o non numeriche: la card resta vuota, non rossa").toEqual([]);
 
     // Empty means zero, not `null`: it is the `?? 0` branch the route puts on
     // every statement, and with no data it is the only one that runs.
@@ -87,7 +87,7 @@ describe("i numeri del cruscotto", () => {
     // and the wrong branch would give `NaN` - which in JSON becomes `null` and
     // on the card becomes a dash, quietly.
     const router = await banco();
-    const kpi = (await (await chiama(router, "/api/dashboard/kpis")).json()) as { errorRate: number };
+    const kpi = (await (await call(router, "/api/dashboard/kpis")).json()) as { errorRate: number };
     expect(Number.isFinite(kpi.errorRate)).toBe(true);
   });
 });
@@ -96,7 +96,7 @@ describe("la serie storica del cruscotto", () => {
   test("le quattro metriche note rispondono con dei punti", async () => {
     const router = await banco();
     for (const metric of ["throughput", "tokens", "cost", "errors"]) {
-      const res = await chiama(router, `/api/dashboard/timeseries?metric=${metric}&range=7d`);
+      const res = await call(router, `/api/dashboard/timeseries?metric=${metric}&range=7d`);
       expect(res.status, `metrica ${metric}`).toBe(200);
       const { points } = (await res.json()) as { points: Array<{ date: string; value: number }> };
       expect(Array.isArray(points), `metrica ${metric}`).toBe(true);
@@ -108,13 +108,13 @@ describe("la serie storica del cruscotto", () => {
     // An empty chart and a chart that does not exist are drawn the same way, and
     // only the status code tells them apart.
     const router = await banco();
-    const res = await chiama(router, "/api/dashboard/timeseries?metric=inventata&range=7d");
+    const res = await call(router, "/api/dashboard/timeseries?metric=inventata&range=7d");
     expect(res.status).toBe(400);
   });
 
   test("senza metrica si intende throughput", async () => {
     const router = await banco();
-    const res = await chiama(router, "/api/dashboard/timeseries");
+    const res = await call(router, "/api/dashboard/timeseries");
     expect(res.status).toBe(200);
   });
 
@@ -125,10 +125,10 @@ describe("la serie storica del cruscotto", () => {
     // choice - an odd range is a preference, an odd metric is a request with no
     // answer.
     const router = await banco();
-    const strano = await chiama(router, "/api/dashboard/timeseries?metric=throughput&range=999y");
-    expect(strano.status).toBe(200);
+    const odd = await call(router, "/api/dashboard/timeseries?metric=throughput&range=999y");
+    expect(odd.status).toBe(200);
 
-    const sette = await chiama(router, "/api/dashboard/timeseries?metric=throughput&range=7d");
-    expect(await strano.clone().json()).toEqual(await sette.json());
+    const sevenDays = await call(router, "/api/dashboard/timeseries?metric=throughput&range=7d");
+    expect(await odd.clone().json()).toEqual(await sevenDays.json());
   });
 });

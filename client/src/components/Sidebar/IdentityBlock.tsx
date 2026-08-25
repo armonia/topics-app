@@ -56,21 +56,21 @@ import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence, type OrgConPresenza } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
-import { apriProfilo, apriProfiloPersona } from '@/state/profileTarget';
+import { apriProfilo, openPersonProfile } from '@/state/profileTarget';
 import type { FacciaPresenza, RigaPresenza } from './orgPresence';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, SIDEBAR_HOVER, TIER_DONE_TEXT } from '@/lib/selectionStyles';
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
-import { segnaliLavoro, type TipoSegnale } from './workSignals';
+import { workSignals, type SignalKind } from './workSignals';
 import { useAgentActivityCounts } from '@/state/signals';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
-import { apriImpostazioni } from '@/lib/openSettings';
+import { openSettings } from '@/lib/openSettings';
 import { useT } from '@/hooks/useT';
 
 /** A subject inside the flow: it never breaks in the middle, it either fits on
  *  the line or moves to the next one whole. */
-const SOGGETTO = 'flex min-w-0 items-center';
+const SUBJECT = 'flex min-w-0 items-center';
 
 /** An immersed chip: no border at rest, the lift arrives with the pointer.
  *  The rounded border was there to say "I am clickable", but that meant five
@@ -134,7 +134,7 @@ function RigaIo({ presenza, onOpenDevices }: {
   const [aperto, setAperto] = useState(false);
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
   const { counts, summary } = usePresenceSummary();
-  const agenti = useAgentActivityCounts(useTerminalSessions(), useTopics());
+  const agentCounts = useAgentActivityCounts(useTerminalSessions(), useTopics());
   useEffect(() => subscribeSession(setSession), []);
 
   const chi = etichettaIdentita(presenza.io, session);
@@ -168,27 +168,27 @@ function RigaIo({ presenza, onOpenDevices }: {
   const locale = session.as === 'loopback';
   const Ferro = locale ? Monitor : Smartphone;
 
-  const attesa = agenti ? agenti.awaiting - agenti.awaitingInput : 0;
-  const segnali = segnaliLavoro({
+  const awaitingDone = agentCounts ? agentCounts.awaiting - agentCounts.awaitingInput : 0;
+  const signals = workSignals({
     openSessions: counts?.openSessions ?? 0,
     workingSessions: counts?.workingSessions ?? 0,
     activeTasks: counts?.activeTasks ?? 0,
-    awaitingInput: agenti?.awaitingInput ?? 0,
-    awaitingDone: attesa > 0 ? attesa : 0,
+    awaitingInput: agentCounts?.awaitingInput ?? 0,
+    awaitingDone: awaitingDone > 0 ? awaitingDone : 0,
   });
   // The whole story stays reachable on hover: the chip is the headline, this is
   // the paragraph, and the panel below is the page.
-  const raccontoLavoro = [
+  const workStory = [
     summary ?? '',
-    agenti && agenti.awaitingInput > 0 ? tr('statusBar.agents.awaitingInput', { n: agenti.awaitingInput }) : '',
-    attesa > 0 ? tr('statusBar.agents.toLookAt', { n: attesa }) : '',
+    agentCounts && agentCounts.awaitingInput > 0 ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
+    awaitingDone > 0 ? tr('statusBar.agents.toLookAt', { n: awaitingDone }) : '',
   ].filter(Boolean).join('\n');
 
   return (
     // `flex-1` with a basis: on a wide sidebar the chip shares the line with the
     // groups, on a narrow one it takes the line by itself and the groups wrap
     // under it. No breakpoint decides that, the available width does.
-    <span data-testid="identity-row-me" className={`${SOGGETTO} flex-1 basis-40`}>
+    <span data-testid="identity-row-me" className={`${SUBJECT} flex-1 basis-40`}>
       <button
         ref={setChip}
         data-testid="identity-me-profile"
@@ -200,7 +200,7 @@ function RigaIo({ presenza, onOpenDevices }: {
         // surface it widened is worth less than the one edge every subject
         // mark shares.
         className={`${CHIP} flex-1 text-left`}
-        title={[`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}`, raccontoLavoro].filter(Boolean).join('\n')}
+        title={[`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}`, workStory].filter(Boolean).join('\n')}
       >
         {/* THE FACE, and only when there is a person: a disc holding the
             initial of "This computer" would be a fake avatar.
@@ -215,14 +215,14 @@ function RigaIo({ presenza, onOpenDevices }: {
             : <Ferro size={IDENTITY_GLYPH_INK} className="text-app-text-secondary" />}
         </span>
         <span className="truncate text-app-text">{chi.nome}</span>
-        {/* WHAT IS RUNNING, in glyphs. `segnaliLavoro` decides which three:
+        {/* WHAT IS RUNNING, in glyphs. `workSignals` decides which three:
             what is alive first, the inventory last, zeros never. */}
-        {segnali.length > 0 && (
+        {signals.length > 0 && (
           <span
             data-testid="presence-summary"
             className="ml-auto flex flex-shrink-0 items-center gap-1.5 tabular-nums"
           >
-            {segnali.map((s) => <Segnale key={s.tipo} tipo={s.tipo} n={s.n} />)}
+            {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
           </span>
         )}
       </button>
@@ -243,13 +243,13 @@ function RigaIo({ presenza, onOpenDevices }: {
         >
           <div className="px-3 py-2 text-[11px]">
             {chi.dettaglio && (
-              <Voce etichetta={tr('statusBar.me.machine')}>
+              <Voce label={tr('statusBar.me.machine')}>
                 <Ferro size={11} className="flex-shrink-0 text-app-text-muted" />
                 <span className="truncate">{chi.dettaglio}</span>
               </Voce>
             )}
             {summary && (
-              <Voce etichetta={tr('statusBar.me.workRow')}>
+              <Voce label={tr('statusBar.me.workRow')}>
                 <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />
                 <span className="truncate">{summary}</span>
               </Voce>
@@ -257,24 +257,24 @@ function RigaIo({ presenza, onOpenDevices }: {
             {/* The fleet, spelled out. On the chip it is glyphs and digits; the
                 panel is where "what is this hourglass" gets its sentence, and
                 it is the sentence the status bar used to hide in a tooltip. */}
-            {agenti && (agenti.awaitingInput > 0 || attesa > 0) && (
-              <Voce etichetta={tr('statusBar.agents.heading')}>
-                {agenti.awaitingInput > 0 && (
-                  <span className={`flex items-center gap-1 ${SEGNALE_ATTESA}`} title={tr('statusBar.agents.awaitingInput', { n: agenti.awaitingInput })}>
+            {agentCounts && (agentCounts.awaitingInput > 0 || awaitingDone > 0) && (
+              <Voce label={tr('statusBar.agents.heading')}>
+                {agentCounts.awaitingInput > 0 && (
+                  <span className={`flex items-center gap-1 ${SEGNALE_ATTESA}`} title={tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput })}>
                     <Hourglass size={11} />
-                    <span className="tabular-nums">{agenti.awaitingInput}</span>
+                    <span className="tabular-nums">{agentCounts.awaitingInput}</span>
                   </span>
                 )}
-                {attesa > 0 && (
-                  <span className={`flex items-center gap-1 ${TIER_DONE_TEXT}`} title={tr('statusBar.agents.toLookAt', { n: attesa })}>
+                {awaitingDone > 0 && (
+                  <span className={`flex items-center gap-1 ${TIER_DONE_TEXT}`} title={tr('statusBar.agents.toLookAt', { n: awaitingDone })}>
                     <Hourglass size={11} />
-                    <span className="tabular-nums">{attesa}</span>
+                    <span className="tabular-nums">{awaitingDone}</span>
                   </span>
                 )}
               </Voce>
             )}
             {ferri && ferri.totali > 0 && (
-              <Voce etichetta={tr('statusBar.me.devicesRow')}>
+              <Voce label={tr('statusBar.me.devicesRow')}>
                 <Ferro size={11} className="flex-shrink-0 text-app-text-muted" />
                 <span className="tabular-nums">
                   {tr('statusBar.me.devicesCount', { n: ferri.connessi, tot: ferri.totali })}
@@ -325,7 +325,7 @@ function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
     // opens with a mark of the same IDENTITY_GLYPH_BOX size (the face, a group
     // logo, the people sign) sitting inside a chip with the same padding, so
     // the left edges agree by construction instead of by hand-tuned margins.
-    <span data-testid="identity-row-orgs" className={`${SOGGETTO} flex-wrap gap-x-1 gap-y-0.5`}>
+    <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-wrap gap-x-1 gap-y-0.5`}>
       {orgs.map((o) => (
         <ChipOrg
           key={o.id}
@@ -395,7 +395,7 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
               from nowhere in particular is a link you have to guess the target
               of. Here it is opened from the group whose people you are reading. */}
           <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { onClose(); apriImpostazioni('organization'); }} testId="org-open-manage">
+            <Azione onClick={() => { onClose(); openSettings('organization'); }} testId="org-open-manage">
               {tr('statusBar.orgs.manageOne')}
             </Azione>
           </div>
@@ -455,7 +455,7 @@ function RigaAmici({ online, tutti, totali }: {
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
   const ci_sono = online.length > 0;
   return (
-    <span data-testid="identity-row-friends" className={SOGGETTO}>
+    <span data-testid="identity-row-friends" className={SUBJECT}>
       <button
         ref={setChip}
         data-testid="identity-friends-chip"
@@ -521,12 +521,12 @@ function RigaAmici({ online, tutti, totali }: {
  * the icon costs and says exactly the same thing. The `title` gives the word
  * back to whoever hovers, and to whoever reads with a screen reader.
  */
-function Segnale({ tipo, n }: { tipo: TipoSegnale; n: number }) {
+function Signal({ kind, n }: { kind: SignalKind; n: number }) {
   const tr = useT();
-  const { Icona, tinta, etichetta, viva } = SEGNALI[tipo];
+  const { Icon, tint, label, alive } = SIGNALS[kind];
   return (
-    <span className={`flex items-center gap-0.5 ${tinta}`} title={tr(etichetta, { n })}>
-      <Icona size={11} className={viva ? 'animate-pulse' : undefined} />
+    <span className={`flex items-center gap-0.5 ${tint}`} title={tr(label, { n })}>
+      <Icon size={11} className={alive ? 'animate-pulse' : undefined} />
       <span>{n}</span>
     </span>
   );
@@ -534,19 +534,19 @@ function Segnale({ tipo, n }: { tipo: TipoSegnale; n: number }) {
 
 /** Glyph, tier colour and sentence for each signal. One table, so a new signal
  *  is a line here and not a fourth place to keep in sync. */
-const SEGNALI: Record<TipoSegnale, {
-  Icona: typeof Bot;
-  tinta: string;
-  etichetta: string;
-  viva?: boolean;
+const SIGNALS: Record<SignalKind, {
+  Icon: typeof Bot;
+  tint: string;
+  label: string;
+  alive?: boolean;
 }> = {
   // The only pulsing one: it is the only one where something is happening
   // while you look at it.
-  working: { Icona: Bot, tinta: SEGNALE_OK, etichetta: 'statusBar.signals.working', viva: true },
-  awaitingInput: { Icona: Hourglass, tinta: SEGNALE_ATTESA, etichetta: 'statusBar.signals.awaitingInput' },
-  done: { Icona: Hourglass, tinta: TIER_DONE_TEXT, etichetta: 'statusBar.signals.done' },
-  tasks: { Icona: ListChecks, tinta: 'text-app-text-secondary', etichetta: 'statusBar.signals.tasks' },
-  open: { Icona: MessagesSquare, tinta: 'text-app-text-muted', etichetta: 'statusBar.signals.open' },
+  working: { Icon: Bot, tint: SEGNALE_OK, label: 'statusBar.signals.working', alive: true },
+  awaitingInput: { Icon: Hourglass, tint: SEGNALE_ATTESA, label: 'statusBar.signals.awaitingInput' },
+  done: { Icon: Hourglass, tint: TIER_DONE_TEXT, label: 'statusBar.signals.done' },
+  tasks: { Icon: ListChecks, tint: 'text-app-text-secondary', label: 'statusBar.signals.tasks' },
+  open: { Icon: MessagesSquare, tint: 'text-app-text-muted', label: 'statusBar.signals.open' },
 };
 
 /**
@@ -607,7 +607,7 @@ function Persona({ p }: { p: RigaPresenza }) {
   return (
     <button
       type="button"
-      onClick={() => apriProfiloPersona(p.id)}
+      onClick={() => openPersonProfile(p.id)}
       data-testid="presence-person"
       data-online={p.presente ? 'true' : 'false'}
       className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] hover:bg-app-hover coarse:min-h-11"
@@ -630,10 +630,10 @@ function Persona({ p }: { p: RigaPresenza }) {
 
 /** A label/value pair in the identity panel. The label is what the closed row
  *  had no room to spell out. */
-function Voce({ etichetta, children }: { etichetta: string; children: React.ReactNode }) {
+function Voce({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 py-0.5">
-      <span className="flex-shrink-0 text-app-text-muted">{etichetta}</span>
+      <span className="flex-shrink-0 text-app-text-muted">{label}</span>
       <span className="ml-auto flex min-w-0 items-center gap-1 text-app-text-secondary">{children}</span>
     </div>
   );

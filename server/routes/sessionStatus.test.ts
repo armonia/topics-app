@@ -24,10 +24,10 @@
  * @covers CMD-07
  */
 import { describe, expect, test } from "bun:test";
-import { statoSessione, type TopicPerStato } from "./sessionStatus";
+import { sessionStatus, type TopicForStatus } from "./sessionStatus";
 
-const base = (t: Partial<TopicPerStato> = {}) =>
-  statoSessione({ sessionKey: "topic:abc", messaggi: 7, topic: { name: "Rifattorizzare il dispatcher", ...t } });
+const base = (t: Partial<TopicForStatus> = {}) =>
+  sessionStatus({ sessionKey: "topic:abc", messaggi: 7, topic: { name: "Rifattorizzare il dispatcher", ...t } });
 
 describe("le domande a cui deve rispondere", () => {
   test("«perche' non ha toccato i file?» — l'autonomia dice il livello E cosa comporta", () => {
@@ -64,7 +64,7 @@ describe("il modello dice DA DOVE viene", () => {
   });
 
   test("non fissato: si nomina il ripiego e si dice che e' un default", () => {
-    const out = statoSessione({
+    const out = sessionStatus({
       sessionKey: "topic:abc",
       messaggi: 0,
       topic: {},
@@ -75,14 +75,14 @@ describe("il modello dice DA DOVE viene", () => {
   });
 
   test("il topic vince sul ripiego, e il ripiego non compare due volte", () => {
-    const out = statoSessione({
+    const out = sessionStatus({
       sessionKey: "topic:abc",
       messaggi: 0,
       topic: { model: "claude-opus-5" },
       modelloDiRipiego: "claude-sonnet-5",
     });
     expect(out).toContain("claude-opus-5");
-    expect(out, "due righe «modello» sono due risposte a una domanda sola").not.toContain("claude-sonnet-5");
+    expect(out, "due rows «modello» sono due risposte a una domanda sola").not.toContain("claude-sonnet-5");
   });
 });
 
@@ -110,15 +110,15 @@ describe("cosa NON si scrive", () => {
 describe("l'ordine, e il caso senza topic", () => {
   test("l'identificatore interno sta in fondo", () => {
     // It is copied into a bug report; it is not what anyone came to read.
-    const righe = base({ model: "claude-opus-5" }).split("\n");
-    expect(righe.at(-1)).toContain("topic:abc");
-    expect(righe[0], "quello che si legge per primo e' il nome della chat").toContain("Rifattorizzare");
+    const rows = base({ model: "claude-opus-5" }).split("\n");
+    expect(rows.at(-1)).toContain("topic:abc");
+    expect(rows[0], "quello che si legge per primo e' il nome della chat").toContain("Rifattorizzare");
   });
 
   test("senza topic risponde lo stesso, invece di rompersi", () => {
     // A session the registry does not know (adopted, or just created) must not
     // fail the command: the two facts we do have are enough.
-    const out = statoSessione({ sessionKey: "topic:orfano", messaggi: 3, topic: null });
+    const out = sessionStatus({ sessionKey: "topic:orfano", messaggi: 3, topic: null });
     expect(out).toContain("topic:orfano");
     expect(out).toContain("3");
   });

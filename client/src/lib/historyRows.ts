@@ -62,19 +62,19 @@ export function buildHistoryRows(input: {
 }): HistoryRow[] {
   const rows: HistoryRow[] = [];
 
-  for (const rec of input.closedTabs ?? []) {
-    const url = rec.pane.type === 'browser' ? rec.pane.url : undefined;
-    const projectLabel = rec.projectPath ? getProjectLabel(rec.projectPath) : '';
-    const cwd = rec.terminal?.cwd ? getProjectLabel(rec.terminal.cwd) : '';
+  for (const closed of input.closedTabs ?? []) {
+    const url = closed.pane.type === 'browser' ? closed.pane.url : undefined;
+    const projectLabel = closed.projectPath ? getProjectLabel(closed.projectPath) : '';
+    const cwd = closed.terminal?.cwd ? getProjectLabel(closed.terminal.cwd) : '';
     rows.push({
-      id: `tab:${rec.id}`,
+      id: `tab:${closed.id}`,
       kind: 'tab',
-      label: rec.pane.title || (url ? prettyUrl(url) : '') || rec.pane.type,
+      label: closed.pane.title || (url ? prettyUrl(url) : '') || closed.pane.type,
       detail: [projectLabel, cwd && cwd !== projectLabel ? cwd : ''].filter(Boolean).join(' · '),
-      at: rec.closedAt,
+      at: closed.closedAt,
       url,
-      paneType: rec.pane.type,
-      record: rec,
+      paneType: closed.pane.type,
+      record: closed,
     });
   }
 

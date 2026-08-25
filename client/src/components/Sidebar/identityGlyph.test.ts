@@ -25,7 +25,7 @@ import { join } from 'node:path';
 // erased before anything has to be found on disk.
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK } from '../../lib/selectionStyles';
 
-const sorgente = readFileSync(join(import.meta.dir, 'IdentityBlock.tsx'), 'utf8');
+const source = readFileSync(join(import.meta.dir, 'IdentityBlock.tsx'), 'utf8');
 
 /**
  * The source with the prose taken out.
@@ -35,12 +35,12 @@ const sorgente = readFileSync(join(import.meta.dir, 'IdentityBlock.tsx'), 'utf8'
  * string the fix deleted, sitting inside the sentence explaining the deletion.
  * What is checked is the code.
  */
-const codice = sorgente
+const code = source
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/^\s*\/\/.*$/gm, '');
 
 /** The three subjects, each with the line that opens it in the source. */
-const SOGGETTI = [
+const SUBJECTS = [
   ['me', 'identity-row-me'],
   ['organisations', 'identity-row-orgs'],
   ['friends', 'identity-row-friends'],
@@ -56,22 +56,22 @@ describe('the identity band: one glyph box for the three subjects', () => {
     // The literals that used to be there, one per subject. `h-4` was the
     // avatar, `size={10}` the bare machine and people marks, `h-3.5 w-3.5`
     // the org logo writing by hand what the constant now says.
-    const inizio = codice.indexOf('function RigaIo');
-    const fine = codice.indexOf('function Facce');
-    const fascia = codice.slice(inizio, fine);
-    expect(fascia).not.toContain('h-4 w-4');
-    expect(fascia).not.toContain('size={10}');
+    const start = code.indexOf('function RigaIo');
+    const end = code.indexOf('function Facce');
+    const band = code.slice(start, end);
+    expect(band).not.toContain('h-4 w-4');
+    expect(band).not.toContain('size={10}');
   });
 
   // Every subject in the band opens with the marked box, and there are exactly
   // three: one per subject. The marker is what the pixel test then measures, so
   // a fourth subject arriving without it would go unmeasured and silent.
   it('the band carries exactly three marked glyph boxes, one per subject', () => {
-    expect(SOGGETTI).toHaveLength(3);
+    expect(SUBJECTS).toHaveLength(3);
     // Two are written inline ("me", "friends"); the third reaches the org mark
     // through `Logo`, which attaches it only in the band and not in a title.
-    const marcati = codice.match(/identity-glyph/g) ?? [];
-    expect(marcati).toHaveLength(3);
+    const marked = code.match(/identity-glyph/g) ?? [];
+    expect(marked).toHaveLength(3);
   });
 
   // The organisation mark reaches the box through its PLACE, not through a
@@ -81,7 +81,7 @@ describe('the identity band: one glyph box for the three subjects', () => {
   // glyphs: it used to spell `h-3.5 w-3.5` by hand, which is how a value that
   // has to move together with the others ended up written in two places.
   it('the org logo names the shared box instead of copying its value', () => {
-    const logo = codice.slice(codice.indexOf('function Logo'));
+    const logo = code.slice(code.indexOf('function Logo'));
     expect(logo.slice(0, 400)).toContain('IDENTITY_GLYPH_BOX');
     expect(logo.slice(0, 400)).not.toContain("'h-3.5 w-3.5 text-[7px]'");
   });
@@ -90,8 +90,8 @@ describe('the identity band: one glyph box for the three subjects', () => {
   // four pixels the band was out by, and nothing else in the file may reopen it.
   it('no subject cancels the shared inset with a negative margin', () => {
     // The whole band, not just one subject: two of the three carried it.
-    const inizio = codice.indexOf('function RigaIo');
-    const fine = codice.indexOf('function Facce');
-    expect(codice.slice(inizio, fine)).not.toContain('-mx-1');
+    const start = code.indexOf('function RigaIo');
+    const end = code.indexOf('function Facce');
+    expect(code.slice(start, end)).not.toContain('-mx-1');
   });
 });

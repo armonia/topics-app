@@ -49,8 +49,8 @@ import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-co
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
 import { decodeCol } from "../../shared/message-blob";
-import { processiSubagente } from "./subagentProcesses";
-import { statoSessione } from "./sessionStatus";
+import { subagentProcesses } from "./subagentProcesses";
+import { sessionStatus } from "./sessionStatus";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -2437,7 +2437,7 @@ export function createTopicsRouter(
             // reach it; this branch only gathers what it reads.
             const messages = loadLocalMessages(sessionKey);
             const topic = getTopicBySessionKey(sessionKey);
-            const output = statoSessione({
+            const output = sessionStatus({
               sessionKey,
               messaggi: messages.length,
               topic: topic as never,
@@ -2598,7 +2598,7 @@ export function createTopicsRouter(
           return json([]);
         }
         const sessions = result?.result?.sessions || [];
-        return json(processiSubagente(sessions));
+        return json(subagentProcesses(sessions));
       } catch { return json([]); }
     }
 

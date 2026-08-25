@@ -18,21 +18,21 @@
  *
  * THE ORDER OF THE CUT IS NOT THE ORDER ON SCREEN.
  * What gets dropped first is the least urgent (board tasks), but what is READ
- * first is what is alive (working). So there are two orders: `PRIORITA` decides
- * who stays, `ORDINE` decides where they sit. Merging them would mean either
+ * first is what is alive (working). So there are two orders: `PRIORITY` decides
+ * who stays, `ORDER` decides where they sit. Merging them would mean either
  * dropping the open-session count, which is the one number always worth having,
  * or reading the row right to left.
  */
 
 /** The five things that can appear, each with its own glyph in the chip. */
-export type TipoSegnale = 'working' | 'awaitingInput' | 'done' | 'tasks' | 'open';
+export type SignalKind = 'working' | 'awaitingInput' | 'done' | 'tasks' | 'open';
 
-export interface SegnaleLavoro {
-  tipo: TipoSegnale;
+export interface WorkSignal {
+  kind: SignalKind;
   n: number;
 }
 
-export interface ContiLavoro {
+export interface WorkCounts {
   /** Sessions that exist and are not archived. */
   openSessions: number;
   /** Sessions with an agent answering right now. */
@@ -47,15 +47,15 @@ export interface ContiLavoro {
 
 /** How many glyphs the chip can hold before it stops being a chip. Three is
  *  what fits next to a name in a sidebar dragged to its usual width. */
-export const MAX_SEGNALI = 3;
+export const MAX_SIGNALS = 3;
 
 /** Who survives the cut, most urgent first. `open` sits above `tasks` because
  *  "how much is going on in here" is the question the chip answers even when
  *  nothing is running. */
-const PRIORITA: TipoSegnale[] = ['working', 'awaitingInput', 'done', 'open', 'tasks'];
+const PRIORITY: SignalKind[] = ['working', 'awaitingInput', 'done', 'open', 'tasks'];
 
 /** Who sits where, once the survivors are known: alive first, inventory last. */
-const ORDINE: TipoSegnale[] = ['working', 'awaitingInput', 'done', 'tasks', 'open'];
+const ORDER: SignalKind[] = ['working', 'awaitingInput', 'done', 'tasks', 'open'];
 
 /**
  * The signals to draw, already cut and already sorted.
@@ -65,18 +65,18 @@ const ORDINE: TipoSegnale[] = ['working', 'awaitingInput', 'done', 'tasks', 'ope
  * at zero the function returns an empty list and the chip is just your name,
  * which is the truthful shape of a quiet machine.
  */
-export function segnaliLavoro(conti: ContiLavoro, max: number = MAX_SEGNALI): SegnaleLavoro[] {
-  const valore: Record<TipoSegnale, number> = {
-    working: conti.workingSessions,
-    awaitingInput: conti.awaitingInput,
-    done: conti.awaitingDone,
-    tasks: conti.activeTasks,
-    open: conti.openSessions,
+export function workSignals(counts: WorkCounts, max: number = MAX_SIGNALS): WorkSignal[] {
+  const value: Record<SignalKind, number> = {
+    working: counts.workingSessions,
+    awaitingInput: counts.awaitingInput,
+    done: counts.awaitingDone,
+    tasks: counts.activeTasks,
+    open: counts.openSessions,
   };
-  const scelti = new Set<TipoSegnale>();
-  for (const tipo of PRIORITA) {
-    if (scelti.size >= max) break;
-    if (valore[tipo] > 0) scelti.add(tipo);
+  const chosen = new Set<SignalKind>();
+  for (const kind of PRIORITY) {
+    if (chosen.size >= max) break;
+    if (value[kind] > 0) chosen.add(kind);
   }
-  return ORDINE.filter((t) => scelti.has(t)).map((tipo) => ({ tipo, n: valore[tipo] }));
+  return ORDER.filter((t) => chosen.has(t)).map((kind) => ({ kind, n: value[kind] }));
 }

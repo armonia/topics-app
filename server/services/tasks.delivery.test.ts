@@ -460,11 +460,11 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
   test("il ritiro sopravvive alla spazzata d'avvio: la foto respinta non torna", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "consegna con foto falsa allegata" });
-    const falsa = png("falsa.png", 1440, 760);
+    const fake = png("falsa.png", 1440, 760);
     // The shot is attached to the thread, as always: it is the verifier note.
-    s.addComment({ taskId: t.id, author: "verifier", content: "Anteprima viva pronta", media: [falsa] });
+    s.addComment({ taskId: t.id, author: "verifier", content: "Anteprima viva pronta", media: [fake] });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
-    expect(preview(t.id)).toBe(falsa);
+    expect(preview(t.id)).toBe(fake);
 
     s.retirePreview({ taskId: t.id, reason: "mostrava lo stato vuoto dell'app" });
     expect(preview(t.id)).toBeNull();
@@ -476,11 +476,11 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     // does not switch the retirement off.
     const dopo = preview(t.id);
     expect(dopo === null || isDeliverySheetPath(dopo)).toBe(true);
-    expect(dopo).not.toBe(falsa);
+    expect(dopo).not.toBe(fake);
     expect(retired(t.id).at).not.toBeNull();
 
     // Nor does it sneak back via the carousel: same lie, one slide over.
-    expect(s.get(t.id)!.task.previewImages ?? []).not.toContain(falsa);
+    expect(s.get(t.id)!.task.previewImages ?? []).not.toContain(fake);
   });
 
   // REAL evidence arriving later must still win: the rejection memory is a
@@ -488,8 +488,8 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
   test("dopo un ritiro una foto NUOVA viene promossa lo stesso", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "riconsegna dopo il ritiro" });
-    const falsa = png("vuota.png", 1440, 760);
-    s.addComment({ taskId: t.id, author: "verifier", content: "anteprima", media: [falsa] });
+    const fake = png("vuota.png", 1440, 760);
+    s.addComment({ taskId: t.id, author: "verifier", content: "anteprima", media: [fake] });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
     s.retirePreview({ taskId: t.id, reason: "pagina bianca" });
 

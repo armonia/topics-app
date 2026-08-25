@@ -1,27 +1,27 @@
 /**
- * Il censimento delle sessioni **jcode**, nella stessa forma di quelle di
- * Claude Code.
+ * The census of the **jcode** sessions, in the same shape as the Claude Code
+ * ones.
  *
- * PERCHE' UN SECONDO SCANNER E NON UN RAMO DENTRO IL PRIMO
- * `external-claude-sessions.ts` cammina `~/.claude/projects/<cwd-codificato>/
- * <id>.jsonl` e deduce la freschezza dall'ultima riga scritta: un flusso di
- * eventi, dove «viva» significa «qualcuno ci ha scritto or ora». jcode tiene
- * UN file JSON per sessione in `~/.jcode/sessions/`, riscritto a fine turno.
+ * WHY A SECOND SCANNER AND NOT A BRANCH INSIDE THE FIRST
+ * `external-claude-sessions.ts` walks `~/.claude/projects/<encoded-cwd>/
+ * <id>.jsonl` and infers freshness from the last line written: a stream of
+ * events, where «alive» means «somebody wrote to it just now». jcode keeps ONE
+ * JSON file per session in `~/.jcode/sessions/`, rewritten at the end of a turn.
  *
- * La differenza non e' cosmetica: sull'mtime, jcode risulta sempre fermo.
- * Misurato il 23/08 — 1375 sessioni su disco, ZERO con mtime negli ultimi 15
- * minuti, mentre sette processi erano vivi e uno stava macinando. Uno scanner
- * che chiedesse a jcode la stessa domanda che funziona per Claude Code
- * risponderebbe «nessuno al lavoro» ogni volta.
+ * The difference is not cosmetic: on the mtime, jcode always looks idle.
+ * Measured on 08/23 — 1375 sessions on disk, ZERO with an mtime in the last 15
+ * minutes, while seven processes were alive and one was grinding away. A
+ * scanner that asked jcode the same question that works for Claude Code would
+ * answer «nobody at work» every time.
  *
- * Qui la freschezza si legge dove jcode la scrive davvero: `status` e
- * `last_pid`. Un pid che risponde e' una sessione viva, e non c'e' niente da
- * indovinare.
+ * Here freshness is read where jcode really writes it: `status` and
+ * `last_pid`. A pid that answers is a live session, and there is nothing to
+ * guess.
  *
- * AGGIUNGERE UN TERZO PROVIDER
- * Serve una funzione che restituisca `ExternalClaudeSession[]`, e va aggiunta
- * all'elenco in `scanAllExternalSessions`. Il contratto e' quello, non questo
- * file: chi arriva dopo non deve leggere come funziona jcode.
+ * ADDING A THIRD PROVIDER
+ * It takes a function that returns `ExternalClaudeSession[]`, and it has to be
+ * added to the list in `scanAllExternalSessions`. That is the contract, not
+ * this file: whoever comes next need not read how jcode works.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -36,43 +36,43 @@ import {
 } from "./external-claude-sessions";
 
 export interface ScanJcodeOptions {
-  /** Dove jcode tiene le sessioni. Iniettabile per i test. */
+  /** Where jcode keeps the sessions. Injectable for the tests. */
   sessionsDir?: string;
-  /** Adesso, in ms epoch. Iniettabile per i test. */
+  /** Now, in epoch ms. Injectable for the tests. */
   now?: number;
-  /** Oltre questa eta' una sessione e' `idle` anche se il processo vive. */
+  /** Past this age a session is `idle` even if the process is alive. */
   activeMs?: number;
   /**
-   * Oltre questa eta' la sessione non compare affatto.
+   * Past this age the session does not show up at all.
    *
-   * Senza, il censimento riporta ogni conversazione mai aperta: misurato,
-   * 207 sessioni di cui 12 toccate nelle ultime 24 ore. Un numero cosi' non
-   * risponde a «chi sta lavorando ora», risponde a «quanto ho usato jcode
-   * quest'anno». Stessa finestra di Claude Code, per non avere due nozioni
-   * di «recente» nella stessa riga.
+   * Without it, the census reports every conversation ever opened: measured,
+   * 207 sessions of which 12 were touched in the last 24 hours. A number like
+   * that does not answer «who is working now», it answers «how much have I
+   * used jcode this year». Same window as Claude Code, so as not to have two
+   * notions of «recent» in the same row.
    */
   windowMs?: number;
   /**
-   * Il processo esiste? Di norma `process.kill(pid, 0)`, che non manda alcun
-   * segnale e serve solo a chiedere «c'e' ancora?».
+   * Does the process exist? Normally `process.kill(pid, 0)`, which sends no
+   * signal at all and only serves to ask «are you still there?».
    *
-   * Iniettabile perche' un test non puo' dipendere dai pid della macchina che
-   * lo esegue.
+   * Injectable because a test cannot depend on the pids of the machine that
+   * runs it.
    */
   isAlive?: (pid: number) => boolean;
-  /** Quante sessioni al massimo leggere, dalla piu' recente. */
+  /** How many sessions to read at most, from the most recent one. */
   limit?: number;
   /**
-   * Le radici di progetto note, per dire A QUALE progetto appartiene un cwd.
+   * The known project roots, to say WHICH project a cwd belongs to.
    *
-   * Senza, ogni sessione jcode resta senza progetto e sparisce da tutto cio'
-   * che ragiona per progetto: il badge sulla board e la guardia del
-   * dispatcher, che rifiuta di calare un agente dove qualcuno sta gia'
-   * lavorando. Misurato il 23/08: 13 sessioni jcode su 13 erano orfane,
-   * comprese quelle aperte dentro `topics-app` stesso.
+   * Without them, every jcode session stays without a project and disappears
+   * from everything that reasons per project: the badge on the board and the
+   * dispatcher's guard, which refuses to drop an agent where somebody is
+   * already working. Measured on 08/23: 13 jcode sessions out of 13 were
+   * orphans, including the ones opened inside `topics-app` itself.
    */
   candidatePaths?: string[];
-  /** Il board id di una radice. */
+  /** The board id of a root. */
   projectIdFor?: (path: string) => string;
 }
 
@@ -81,16 +81,16 @@ function aliveByDefault(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    // Due errori diversi, e confonderli fa sparire sessioni vive: ESRCH dice
-    // che il processo non esiste, EPERM che esiste ma e' di un altro utente.
-    // Verificato in Node: `e.code` porta la distinzione, `process.errno` non
-    // esiste e restituiva sempre undefined.
+    // Two different errors, and confusing them makes live sessions vanish:
+    // ESRCH says the process does not exist, EPERM that it exists but belongs
+    // to another user. Verified in Node: `e.code` carries the distinction,
+    // `process.errno` does not exist and always returned undefined.
     return (e as NodeJS.ErrnoException)?.code === "EPERM";
   }
 }
 
-/** Il ramo git di una directory, se e' un checkout. Best effort: un cwd che non
- *  e' un repository non e' un errore. */
+/** The git branch of a directory, if it is a checkout. Best effort: a cwd that
+ *  is not a repository is not an error. */
 function branchOf(cwd: string): string | null {
   try {
     const head = join(cwd, ".git", "HEAD");
@@ -103,12 +103,12 @@ function branchOf(cwd: string): string | null {
 }
 
 /**
- * Le sessioni jcode, piu' recenti per prime.
+ * The jcode sessions, most recent first.
  *
- * Una sessione e' `active` quando il suo `last_pid` risponde ED e' stata
- * toccata entro `activeMs`. Il pid da solo non basta: il server jcode e'
- * condiviso, quindi lo stesso pid compare su molte sessioni e resta vivo
- * anche quando quella conversazione e' finita da ore.
+ * A session is `active` when its `last_pid` answers AND it was touched within
+ * `activeMs`. The pid alone is not enough: the jcode server is shared, so the
+ * same pid shows up on many sessions and stays alive even when that
+ * conversation has been over for hours.
  */
 export function scanJcodeSessions(opts: ScanJcodeOptions = {}): ExternalClaudeSession[] {
   const dir = opts.sessionsDir ?? join(homedir(), ".jcode", "sessions");
@@ -147,20 +147,21 @@ export function scanJcodeSessions(opts: ScanJcodeOptions = {}): ExternalClaudeSe
     try {
       d = JSON.parse(readFileSync(f.path, "utf8")) as Record<string, unknown>;
     } catch {
-      continue; // un file a meta' scrittura non e' una sessione persa
+      continue; // a half-written file is not a lost session
     }
 
     const cwd = typeof d.working_dir === "string" ? d.working_dir : null;
     if (!cwd) continue;
 
     const pid = typeof d.last_pid === "number" ? d.last_pid : null;
-    const stato = typeof d.status === "string" ? d.status.toLowerCase() : "";
+    const status = typeof d.status === "string" ? d.status.toLowerCase() : "";
     const age = now - f.mtimeMs;
 
-    // Tre condizioni, tutte necessarie: jcode la dice attiva, il processo
-    // risponde, e c'e' stato movimento di recente. Basta togliere la terza e
-    // ogni sessione mai aperta con questo server risulta al lavoro.
-    const active = stato === "active" && pid !== null && isAlive(pid) && age <= activeMs;
+    // Three conditions, all of them necessary: jcode says it is active, the
+    // process answers, and there has been movement recently. Drop the third
+    // one and every session ever opened with this server looks like it is at
+    // work.
+    const active = status === "active" && pid !== null && isAlive(pid) && age <= activeMs;
 
     const projectPath = resolveOwningProject(cwd, candidatePaths);
 

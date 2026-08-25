@@ -1,34 +1,33 @@
 /**
- * Il censimento di **tutte** le sessioni esterne, qualunque CLI le abbia
- * aperte.
+ * The census of **all** the external sessions, whichever CLI opened them.
  *
- * PERCHE' ESISTE
- * Fino al 23/08 il censimento era una funzione sola, che sapeva leggere il
- * formato di Claude Code. Sembrava generico perche' si chiamava «sessioni
- * esterne», ma rispondeva a una domanda piu' stretta: «quali sessioni CLAUDE
- * CODE sono aperte». Le sessioni jcode — 1375 su disco, sette processi vivi —
- * non comparivano ne' nel totale ne' fra quelle al lavoro, e la presence
- * dichiarava «nessun agente al lavoro» mentre l'utente ne guardava tre.
+ * WHY IT EXISTS
+ * Until 08/23 the census was a single function, which knew how to read Claude
+ * Code's format. It looked generic because it was called «external sessions»,
+ * but it answered a narrower question: «which CLAUDE CODE sessions are open».
+ * The jcode sessions — 1375 on disk, seven live processes — showed up neither
+ * in the total nor among the ones at work, and presence declared «no agent at
+ * work» while the user was looking at three of them.
  *
- * Il difetto non era «manca jcode»: era che un provider stava scritto dentro
- * la funzione invece che accanto agli altri. Qui i provider sono una LISTA, e
- * aggiungerne uno e' aggiungere una riga.
+ * The defect was not «jcode is missing»: it was that one provider was written
+ * inside the function instead of next to the others. Here the providers are a
+ * LIST, and adding one is adding a line.
  *
- * COME AGGIUNGERE UN PROVIDER
- * Serve una funzione che restituisca `ExternalClaudeSession[]` leggendo dove
- * quella CLI tiene le sue sessioni, e una riga in `PROVIDERS`. Due regole che
- * costano care se si saltano:
+ * HOW TO ADD A PROVIDER
+ * It takes a function that returns `ExternalClaudeSession[]` by reading where
+ * that CLI keeps its sessions, and one line in `PROVIDERS`. Two rules that
+ * cost dearly if skipped:
  *
- *  1. **La freschezza si legge dove quella CLI la scrive.** Claude Code scrive
- *     un evento per riga, quindi l'mtime del file dice «or ora». jcode
- *     riscrive un JSON a fine turno, quindi l'mtime dice «quando ha finito»:
- *     misurato, ZERO sessioni jcode risultano toccate negli ultimi 15 minuti
- *     mentre lavorano. Copiare il criterio del vicino produce un provider che
- *     sembra sempre fermo.
+ *  1. **Freshness is read where that CLI writes it.** Claude Code writes one
+ *     event per line, so the file's mtime says «just now». jcode rewrites a
+ *     JSON at the end of a turn, so the mtime says «when it finished»:
+ *     measured, ZERO jcode sessions look touched in the last 15 minutes while
+ *     they are working. Copying the neighbour's criterion produces a provider
+ *     that always looks idle.
  *
- *  2. **Un provider che esplode non deve spegnere gli altri.** Ogni scanner
- *     gira dentro un try: una CLI installata a meta' fa sparire le sue
- *     sessioni, non il censimento.
+ *  2. **A provider that blows up must not switch off the others.** Every
+ *     scanner runs inside a try: a half-installed CLI makes its own sessions
+ *     disappear, not the census.
  */
 
 import type { ExternalClaudeSession, ScanOptions } from "./external-claude-sessions";
@@ -36,9 +35,9 @@ import { scanExternalClaudeSessions } from "./external-claude-sessions";
 import { scanCodexSessions } from "./external-codex-sessions";
 import { scanJcodeSessions } from "./external-jcode-sessions";
 
-/** Uno scanner: da opzioni comuni alle sessioni che quella CLI ha aperto. */
+/** One scanner: from common options to the sessions that CLI has opened. */
 export interface SessionProvider {
-  /** Il nome che compare nelle diagnosi. */
+  /** The name that shows up in the diagnostics. */
   name: string;
   scan: (opts: ScanOptions) => ExternalClaudeSession[];
 }
@@ -71,42 +70,41 @@ export const PROVIDERS: SessionProvider[] = [
 ];
 
 export interface ScanAllOptions extends ScanOptions {
-  /** I provider da interrogare. Iniettabile per i test. */
+  /** The providers to query. Injectable for the tests. */
   providers?: SessionProvider[];
-  /** Dove finiscono gli errori di un singolo provider. */
+  /** Where a single provider's errors end up. */
   log?: (msg: string, err?: unknown) => void;
 }
 
 /**
- * Interroga ogni provider e restituisce l'unione, piu' recenti per prime.
+ * Queries every provider and returns the union, most recent first.
  *
- * Le sessioni che Topics gia' possiede (`knownSessionIds`) restano fuori: sono
- * «esterne» solo quelle che nessun'altra superficie di Topics sta gia'
- * mostrando.
+ * The sessions Topics already owns (`knownSessionIds`) stay out: «external»
+ * are only the ones that no other Topics surface is already showing.
  */
 export function scanAllExternalSessions(opts: ScanAllOptions): ExternalClaudeSession[] {
   const providers = opts.providers ?? PROVIDERS;
   const log = opts.log ?? (() => {});
 
   const out: ExternalClaudeSession[] = [];
-  const visti = new Set<string>();
+  const seen = new Set<string>();
 
   for (const p of providers) {
-    let trovate: ExternalClaudeSession[] = [];
+    let found: ExternalClaudeSession[] = [];
     try {
-      trovate = p.scan(opts);
+      found = p.scan(opts);
     } catch (err) {
-      // Un provider rotto costa le SUE sessioni, non tutte le altre.
+      // A broken provider costs ITS OWN sessions, not all the others.
       log(`scanner "${p.name}" fallito`, err);
       continue;
     }
-    for (const s of trovate) {
-      // Stessa sessione vista da due provider: vince chi l'ha trovata prima,
-      // cioe' l'ordine di PROVIDERS. Non capita oggi, ma un id duplicato
-      // gonfierebbe il conteggio in silenzio.
-      if (visti.has(s.sessionId)) continue;
+    for (const s of found) {
+      // Same session seen by two providers: whoever found it first wins, that
+      // is the order of PROVIDERS. It does not happen today, but a duplicated
+      // id would silently inflate the count.
+      if (seen.has(s.sessionId)) continue;
       if (opts.knownSessionIds.has(s.sessionId)) continue;
-      visti.add(s.sessionId);
+      seen.add(s.sessionId);
       out.push(s);
     }
   }

@@ -86,9 +86,9 @@ function isUnder(cwd: string, path: string): boolean {
 export function createExternalSessionsService(deps: ExternalSessionsDeps): ExternalSessionsService {
   const ttlMs = deps.ttlMs ?? 10_000;
   const now = deps.now ?? Date.now;
-  // Tutti i provider, non solo Claude Code: il registro interroga ognuno e ne
-  // unisce le sessioni. Prima qui c'era il solo scanner di Claude Code, e le
-  // sessioni jcode non comparivano da nessuna parte.
+  // Every provider, not just Claude Code: the registry queries each one and
+  // merges their sessions. This used to hold only the Claude Code scanner, and
+  // jcode sessions showed up nowhere at all.
   const scan = deps.scan ?? ((opts) => scanAllExternalSessions({ ...opts, log }));
   const log = deps.log ?? ((m: string, e?: unknown) => (e ? console.error("[external-sessions] " + m, e) : undefined));
 

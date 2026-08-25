@@ -1,26 +1,26 @@
 /**
- * LANDARE UNA CARD IN REVIEW, PER INTERO E SU ROBA VERA.
+ * LANDING A CARD IN REVIEW, END TO END AND ON REAL STUFF.
  *
- * Il 12/08 quattro card che stavano in `review` ad aspettare una decisione umana
- * — `d6baaf5e`, `3bde1ab0`, `c8ea8173`, `5472e584` — sono finite in `backlog`
- * marcate `failed` nella stessa ora, tutte con la stessa riga: «Worktree
- * liberato: il branch del worktree non esiste piu'». Nessuna aveva fallito. Il
- * loro lavoro era ATTERRATO: il land pota il ramo, il GC trova una riga fantasma
- * e parcheggia la card. Il backlog non lo dispaccia nessuno e non lo guarda
- * nessuno, quindi la decisione non era rimandata: era persa di vista. E capitava
- * proprio alle card che avevano funzionato.
+ * On 12/08 four cards that were sitting in `review` waiting for a human
+ * decision - `d6baaf5e`, `3bde1ab0`, `c8ea8173`, `5472e584` - ended up in
+ * `backlog` marked `failed` within the same hour, all with the same line:
+ * "Worktree liberato: il branch del worktree non esiste piu'". None of them had  allow-italian: the notice the GC actually wrote, quoted verbatim
+ * failed. Their work had LANDED: the land prunes the branch, the GC finds a
+ * ghost row and parks the card. Nobody dispatches the backlog and nobody looks
+ * at it, so the decision was not postponed: it was lost from sight. And it
+ * happened precisely to the cards that had worked.
  *
- * Perché questo file esiste accanto a `worktree-gc.test.ts`, che il contratto lo
- * collauda già: lì i pezzi sono finti. Qui il ramo lo pota GIT dopo un merge
- * vero, e lo stato della card lo scrive il `TaskService` vero su uno SCHEMA vero
- * (la catena delle migration). Un mock che restituisce `"gone"` avrebbe superato
- * anche la versione che parcheggia, ed è esattamente ciò che è successo.
+ * Why this file exists next to `worktree-gc.test.ts`, which already tests the
+ * contract: there the pieces are fake. Here the branch is pruned by GIT after a
+ * real merge, and the card's state is written by the real `TaskService` on a
+ * real SCHEMA (the migration chain). A mock returning `"gone"` would have passed
+ * even the version that parks, and that is exactly what happened.
  *
- * Le tre righe che devono reggere, che sono la barra del task:
- *   • una card in `review` il cui ramo è stato potato da un land RESTA in review;
- *   • il suo contatore dei tentativi non si muove di un'unità;
- *   • un ramo sparito senza atterraggio, sotto un task che dichiara di
- *     lavorarci, si parcheggia ancora — il guasto vero non si è mascherato.
+ * The three lines that have to hold, which are the task's bar:
+ *   • a card in `review` whose branch was pruned by a land STAYS in review;
+ *   • its attempts counter does not move by a single unit;
+ *   • a branch gone with no landing, under a task that declares it is working on
+ *     it, still gets parked - the real fault has not been masked.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -39,31 +39,31 @@ import { gitEnv } from "../../tests/setup/bun-test-preload";
 const PID = "topics-app-live";
 
 /**
- * `git` per i test, con l'ambiente della MACCHINA tenuto fuori.
+ * `git` for the tests, with the MACHINE's environment kept out.
  *
- * `-c core.hooksPath=` (vuoto) disattiva gli hook. Non e' pignoleria: su
- * questa macchina la config globale punta a un hook `prepare-commit-msg` di
- * terze parti che a ogni commit fa due `curl --max-time 2` verso
- * `localhost:3333`. Misurato: 679ms per commit contro 219ms senza. Questi due
- * file fanno 24 commit, quindi l'hook da solo puo' aggiungere una decina di
- * secondi — e quando la porta risponde lenta invece che rifiutare subito,
- * arriva a 4s per commit e i test sforano il timeout.
+ * `-c core.hooksPath=` (empty) disables the hooks. It is not fussiness: on this
+ * machine the global config points at a third-party `prepare-commit-msg` hook
+ * that on every commit makes two `curl --max-time 2` calls to `localhost:3333`.
+ * Measured: 679ms per commit against 219ms without. These two files make 24
+ * commits, so the hook on its own can add some ten seconds - and when the port
+ * answers slowly instead of refusing straight away, it reaches 4s per commit
+ * and the tests blow past the timeout.
  *
- * Il sintomo era un rosso che compariva solo eseguendo la suite intera, mai
- * sui file da soli: sembrava una collisione fra i test, ed era invece il
- * mondo esterno che entrava dentro. Un test su git vero deve portarsi il
- * proprio git, non quello di chi lo esegue.
+ * The symptom was a red that appeared only when running the whole suite, never
+ * on the files alone: it looked like a collision between tests, and it was
+ * instead the outside world coming in. A test on real git has to bring its own
+ * git, not the one belonging to whoever runs it.
  *
- * `commit.gpgsign=false` per la stessa ragione: chi firma i commit non deve
- * vedersi chiedere la passphrase da una suite di test.
+ * `commit.gpgsign=false` for the same reason: whoever signs their commits must
+ * not be asked for the passphrase by a test suite.
  */
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
   const r = Bun.spawnSync(["git", "-C", cwd, ...args], {
     stdout: "pipe",
     stderr: "pipe",
-    // `gitEnv()` porta l'isolamento del preload: senza `env` esplicito
-    // `Bun.spawnSync` NON eredita cio' che il preload ha messo in
-    // `process.env` — misurato, il figlio vede le variabili vuote.
+    // `gitEnv()` carries the preload's isolation: without an explicit `env`,
+    // `Bun.spawnSync` does NOT inherit what the preload put into `process.env`
+    // - measured, the child sees the variables empty.
     env: gitEnv(),
   });
   return { code: r.exitCode, out: new TextDecoder().decode(r.stdout).trim() };
@@ -91,7 +91,7 @@ describe("una card in review che viene landata", () => {
   let db: Database;
   let svc: TaskService;
   let trees: Map<string, GcWorktree>;
-  /** Il task legato a ogni worktree. */
+  /** The task tied to each worktree. */
   let bound: Map<string, string>;
 
   beforeEach(() => {
@@ -118,11 +118,11 @@ describe("una card in review che viene landata", () => {
   });
 
   /**
-   * Una card consegnata: worktree col suo ramo, un commit dentro, lo scatto
-   * della consegna registrato come lo registra la consegna vera, e la card in
-   * `review` con dei tentativi già spesi (per poterli guardare dopo).
+   * A delivered card: a worktree with its branch, a commit inside, the delivery
+   * snapshot recorded the way the real delivery records it, and the card in
+   * `review` with some attempts already spent (so they can be looked at later).
    */
-  function cardConsegnata(id: string, attempts = 1): { taskId: string; wt: GcWorktree } {
+  function deliveredCard(id: string, attempts = 1): { taskId: string; wt: GcWorktree } {
     const branch = `topics/${id}`;
     const absPath = join(root, id);
     expect(git(repo, "worktree", "add", "-q", "-b", branch, absPath, "main").code).toBe(0);
@@ -141,16 +141,16 @@ describe("una card in review che viene landata", () => {
     return { taskId: t.id, wt };
   }
 
-  /** Il land come lo fa il sistema: merge su main e ramo POTATO. */
-  function landa(wt: GcWorktree) {
+  /** The land as the system does it: merge onto main and branch PRUNED. */
+  function land(wt: GcWorktree) {
     expect(git(repo, "merge", "-q", "--no-ff", "-m", `land ${wt.branchName}`, wt.branchName!).code).toBe(0);
     expect(git(repo, "worktree", "remove", "--force", wt.absPath).code).toBe(0);
     expect(git(repo, "branch", "-D", wt.branchName!).code).toBe(0);
   }
 
   /**
-   * Le stesse deps che monta `server.ts`, con dentro le funzioni vere: git per
-   * lo stato dei rami e dei commit, il `TaskService` per lo stato delle card.
+   * The same deps `server.ts` mounts, with the real functions inside: git for
+   * the state of branches and commits, the `TaskService` for the cards' state.
    */
   function deps(over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps {
     return {
@@ -196,41 +196,41 @@ describe("una card in review che viene landata", () => {
   }
 
   test("landata → resta in review, senza timbro e col contatore fermo", async () => {
-    const { taskId, wt } = cardConsegnata("d6baaf5e", 1);
-    const prima = svc.get(taskId)!.task;
-    expect(prima.status).toBe("review");
+    const { taskId, wt } = deliveredCard("d6baaf5e", 1);
+    const before = svc.get(taskId)!.task;
+    expect(before.status).toBe("review");
 
-    landa(wt);
+    land(wt);
     const s = await sweepWorktrees(deps());
 
-    const dopo = svc.get(taskId)!.task;
-    expect(dopo.status).toBe("review");                 // la barra
-    expect(dopo.dispatchAttempts).toBe(prima.dispatchAttempts); // la barra
-    expect(dopo.dispatchState).toBeNull();
-    expect(dopo.dispatchError).toBeNull();
-    expect(dopo.assignedTopicId).toBeNull();
+    const after = svc.get(taskId)!.task;
+    expect(after.status).toBe("review");                 // the bar
+    expect(after.dispatchAttempts).toBe(before.dispatchAttempts); // the bar
+    expect(after.dispatchState).toBeNull();
+    expect(after.dispatchError).toBeNull();
+    expect(after.assignedTopicId).toBeNull();
     expect(s.unbound).toBe(1);
     expect(s.abandoned).toBe(0);
   });
 
   test("il thread spiega l'atterraggio invece di suonare l'allarme", async () => {
-    const { taskId, wt } = cardConsegnata("3bde1ab0");
-    landa(wt);
+    const { taskId, wt } = deliveredCard("3bde1ab0");
+    land(wt);
     await sweepWorktrees(deps());
 
-    const testo = svc.get(taskId)!.comments.map((c) => c.content).join("\n");
-    expect(testo).toContain("atterraggio riuscito");
-    expect(testo).not.toContain("torna in backlog");
-    expect(testo).not.toContain("git fsck");
+    const text = svc.get(taskId)!.comments.map((c) => c.content).join("\n");
+    expect(text).toContain("atterraggio riuscito");
+    expect(text).not.toContain("torna in backlog");
+    expect(text).not.toContain("git fsck");
   });
 
-  // Piu' worktree = piu' git veri: 3 spawn di processo per ognuno, e sotto
-  // una suite che gira in parallelo il default di 5s non basta. Non e' una
-  // pezza sul sintomo: il lavoro qui e' genuinamente il triplo degli altri
-  // test del file, che restano nel budget di default.
+  // More worktrees = more real gits: 3 process spawns for each of them, and
+  // under a suite running in parallel the 5s default is not enough. It is not a
+  // patch on the symptom: the work here is genuinely three times that of the
+  // other tests in the file, which stay within the default budget.
   test("quattro card nella stessa passata: quattro restano in review", async () => {
-    const cards = ["d6baaf5e", "3bde1ab0", "c8ea8173", "5472e584"].map((id) => cardConsegnata(id));
-    for (const c of cards) landa(c.wt);
+    const cards = ["d6baaf5e", "3bde1ab0", "c8ea8173", "5472e584"].map((id) => deliveredCard(id));
+    for (const c of cards) land(c.wt);
 
     const s = await sweepWorktrees(deps());
 
@@ -239,39 +239,39 @@ describe("una card in review che viene landata", () => {
     expect(s.abandoned).toBe(0);
   }, 20_000);
 
-  // IL CONTROLLO CHE IMPEDISCE DI AVER SOLO SPENTO L'ALLARME. Un ramo cancellato
-  // SENZA che il lavoro sia arrivato su main, sotto un task che dichiara di
-  // starci lavorando, è il guasto vero: quello si parcheggia ancora.
+  // THE CHECK THAT STOPS THIS FROM BEING JUST A SILENCED ALARM. A branch
+  // deleted WITHOUT the work having reached main, under a task that declares it
+  // is working on it, is the real fault: that one still gets parked.
   test("ramo cancellato senza land, task attivo → parcheggiato come sempre", async () => {
-    const { taskId, wt } = cardConsegnata("perduta");
+    const { taskId, wt } = deliveredCard("perduta");
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(taskId);
-    // Niente merge: il ramo se ne va e il lavoro con lui.
+    // No merge: the branch goes away and the work with it.
     expect(git(repo, "worktree", "remove", "--force", wt.absPath).code).toBe(0);
     expect(git(repo, "branch", "-D", wt.branchName!).code).toBe(0);
 
     const s = await sweepWorktrees(deps());
 
-    const dopo = svc.get(taskId)!.task;
-    expect(dopo.status).toBe("backlog");
-    expect(dopo.dispatchState).toBe("failed");
+    const after = svc.get(taskId)!.task;
+    expect(after.status).toBe("backlog");
+    expect(after.dispatchState).toBe("failed");
     expect(s.abandoned).toBe(1);
     expect(s.unbound).toBe(0);
   });
 
-  // La stessa perdita sotto una card in review: la card NON scende comunque —
-  // in review aspetta una persona — ma la frase non finge che vada tutto bene.
+  // The same loss under a card in review: the card does NOT go down anyway - in
+  // review it waits for a person - but the sentence does not pretend all is well.
   test("ramo perduto sotto una card in review → resta in review, con l'allarme scritto", async () => {
-    const { taskId, wt } = cardConsegnata("perduta-in-review", 2);
+    const { taskId, wt } = deliveredCard("perduta-in-review", 2);
     expect(git(repo, "worktree", "remove", "--force", wt.absPath).code).toBe(0);
     expect(git(repo, "branch", "-D", wt.branchName!).code).toBe(0);
 
     await sweepWorktrees(deps());
 
-    const dopo = svc.get(taskId)!.task;
-    expect(dopo.status).toBe("review");
-    expect(dopo.dispatchAttempts).toBe(2);
-    const testo = svc.get(taskId)!.comments.map((c) => c.content).join("\n");
-    expect(testo).toContain("il branch NON c'è");
-    expect(testo).toContain("git fsck --lost-found");
+    const after = svc.get(taskId)!.task;
+    expect(after.status).toBe("review");
+    expect(after.dispatchAttempts).toBe(2);
+    const text = svc.get(taskId)!.comments.map((c) => c.content).join("\n");
+    expect(text).toContain("il branch NON c'è");
+    expect(text).toContain("git fsck --lost-found");
   });
 });

@@ -219,10 +219,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // showed the empty state of the app, column blank from y=122 to y=686 and
     // the band hanging off nothing. A band photographed over a deserted column
     // does not show the work.
-    const seminati: string[] = [];
+    const seeded: string[] = [];
     for (const nome of ["Rilascio", "Anteprime", "Presenza"]) {
       const t = await createTopic(request, `${nome} ${Date.now()}`);
-      seminati.push(t.id);
+      seeded.push(t.id);
     }
 
     const ora = Date.now();
@@ -243,34 +243,34 @@ test.describe("presence dell'organizzazione, a schermo", () => {
 
     // The first glyph of each subject: the face, the group mark, the people
     // mark. Their BOX is what has to match, not the ink inside it.
-    const glifi = await fascia.evaluate((el) => {
+    const glyphs = await fascia.evaluate((el) => {
       // `identity-glyph` marks the BOX, not the ink: what has to match is the
       // slot the glyph sits in, and a stroke mark drawn at 10 inside a 14px box
       // is exactly the case a query for "the first svg" would get wrong.
-      const primo = (testId: string): { x: number; y: number; w: number; h: number } | null => {
-        const riga = el.querySelector(`[data-testid="${testId}"]`);
-        const g = riga?.querySelector('[data-testid="identity-glyph"]');
+      const firstGlyph = (testId: string): { x: number; y: number; w: number; h: number } | null => {
+        const row = el.querySelector(`[data-testid="${testId}"]`);
+        const g = row?.querySelector('[data-testid="identity-glyph"]');
         if (!g) return null;
         const r = g.getBoundingClientRect();
         return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
       };
       return {
-        io: primo("identity-row-me"),
-        org: primo("identity-row-orgs"),
-        amici: primo("identity-row-friends"),
+        io: firstGlyph("identity-row-me"),
+        org: firstGlyph("identity-row-orgs"),
+        amici: firstGlyph("identity-row-friends"),
       };
     });
 
-    expect(glifi.io).not.toBeNull();
-    expect(glifi.org).not.toBeNull();
-    expect(glifi.amici).not.toBeNull();
+    expect(glyphs.io).not.toBeNull();
+    expect(glyphs.org).not.toBeNull();
+    expect(glyphs.amici).not.toBeNull();
 
     // ONE box. Sub-pixel layout rounding is the only slack allowed: anything
     // bigger is a second measurement, which is the fault this pins.
-    const scatole = [glifi.io!, glifi.org!, glifi.amici!];
-    for (const s of scatole) {
-      expect(s.w, `box width ${s.w}`).toBe(scatole[0]!.w);
-      expect(s.h, `box height ${s.h}`).toBe(scatole[0]!.h);
+    const boxes = [glyphs.io!, glyphs.org!, glyphs.amici!];
+    for (const s of boxes) {
+      expect(s.w, `box width ${s.w}`).toBe(boxes[0]!.w);
+      expect(s.h, `box height ${s.h}`).toBe(boxes[0]!.h);
     }
 
     // ONE LEFT EDGE, for whoever OPENS a line.
@@ -284,11 +284,11 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     //
     // It was broken for the subject you read first: the "me" chip carried a
     // `-mx-1` that no other did, so it began at x=6 against x=10.
-    const perRiga = new Map<number, number[]>();
-    for (const s of scatole) perRiga.set(s.y, [...(perRiga.get(s.y) ?? []), s.x]);
-    const inizi = [...perRiga.values()].map((xs) => Math.min(...xs));
-    expect(inizi.length, "the band collapsed onto one line: nothing to compare").toBeGreaterThan(1);
-    expect(Math.max(...inizi) - Math.min(...inizi)).toBeLessThanOrEqual(1);
+    const perRow = new Map<number, number[]>();
+    for (const s of boxes) perRow.set(s.y, [...(perRow.get(s.y) ?? []), s.x]);
+    const starts = [...perRow.values()].map((xs) => Math.min(...xs));
+    expect(starts.length, "the band collapsed onto one line: nothing to compare").toBeGreaterThan(1);
+    expect(Math.max(...starts) - Math.min(...starts)).toBeLessThanOrEqual(1);
 
     const box = await fascia.boundingBox();
     if (box) {
@@ -300,15 +300,15 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       // band. A 279px-wide crop proves the measurement but is unrecognisable as
       // a thumbnail, and a thumbnail is how this evidence gets looked at. Ratio
       // below PREVIEW_CARD_MAX_RATIO (0.70).
-      const larghezza = 1000;
-      const altezza = Math.min(680, Math.round(larghezza * 0.66));
+      const width = 1000;
+      const height = Math.min(680, Math.round(width * 0.66));
       await page.screenshot({
         path: join(SHOTS, "fascia-card.png"),
-        clip: { x: 0, y: Math.max(0, Math.round(box.y + box.height + 24 - altezza)), width: larghezza, height: altezza },
+        clip: { x: 0, y: Math.max(0, Math.round(box.y + box.height + 24 - height)), width, height },
       });
     }
 
-    for (const id of seminati) await deleteTopic(request, id).catch(() => {});
+    for (const id of seeded) await deleteTopic(request, id).catch(() => {});
   });
 
   test("PRESENCE-09: la chip dell'identita' porta i NUMERI, non la frase", async ({ page }) => {
@@ -331,13 +331,13 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ openSessions: 12, workingSessions: 3, activeTasks: 2, focusProject: null }) }));
     await page.goto("/");
-    const segnali = page.getByTestId("presence-summary");
-    await expect(segnali).toBeVisible({ timeout: 20000 });
-    await expect(segnali).toContainText("3");
-    await expect(segnali).toContainText("12");
+    const signals = page.getByTestId("presence-summary");
+    await expect(signals).toBeVisible({ timeout: 20000 });
+    await expect(signals).toContainText("3");
+    await expect(signals).toContainText("12");
     // No words: those cost six times the glyph and say the same thing.
-    await expect(segnali).not.toContainText("aperte");
-    await expect(segnali).not.toContainText("lavoro");
+    await expect(signals).not.toContainText("aperte");
+    await expect(signals).not.toContainText("lavoro");
     await page.screenshot({ path: join(SHOTS, "segnali-chip.png") });
     // The review evidence, cropped to the foot of the column: a full 1280px
     // shot shown on a 268px card turns the whole band into four grey pixels.

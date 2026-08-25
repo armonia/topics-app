@@ -7,7 +7,7 @@ const HOUR = 3_600_000;
 const MIN = 60_000;
 const NOW = 1_700_000_000_000;
 
-/** Un file finto: testa (session_meta) + righe di coda. */
+/** A fake file: head (session_meta) + tail lines. */
 function transcript(meta: Record<string, unknown>, tailLines: unknown[]): string {
   const head = JSON.stringify({ type: "session_meta", payload: meta });
   return [head, ...tailLines.map((l) => JSON.stringify(l))].join("\n");
@@ -18,8 +18,8 @@ const WORKING = [{ type: "event_msg", payload: { type: "task_started" } }];
 const FINISHED = [{ type: "event_msg", payload: { type: "task_complete" } }];
 
 /**
- * Un albero finto `sessions/AAAA/MM/GG/file.jsonl`.
- * `files`: percorso relativo -> { contenuto, eta' in ms }.
+ * A fake `sessions/YYYY/MM/DD/file.jsonl` tree.
+ * `files`: relative path -> { content, age in ms }.
  */
 function fakeFs(files: Record<string, { text: string; ageMs: number }>, dirAges: Record<string, number> = {}): CodexFs {
   const root = "/root";
@@ -44,7 +44,7 @@ function fakeFs(files: Record<string, { text: string; ageMs: number }>, dirAges:
       const rel = path.slice(root.length + 1);
       const f = files[rel];
       if (f) return { mtimeMs: NOW - f.ageMs, size: f.text.length };
-      // Una directory: eta' esplicita, altrimenti la piu' fresca che contiene.
+      // A directory: explicit age, otherwise the freshest one it contains.
       if (rel in dirAges) return { mtimeMs: NOW - dirAges[rel]!, size: 0 };
       const inside = Object.entries(files).filter(([k]) => k.startsWith(rel + "/"));
       if (!inside.length) return null;
@@ -86,8 +86,8 @@ describe("scanCodexSessions", () => {
   });
 
   it("task_complete vince sulla freschezza: turno chiuso = fermo", () => {
-    // Il difetto opposto a quello di jcode: senza leggere l'evento di fine
-    // turno, chiudere e restare fermi conta come «al lavoro» per 15 minuti.
+    // The opposite defect to jcode's: without reading the end-of-turn event,
+    // closing and sitting still counts as «at work» for 15 minutes.
     const out = scan({
       "2026/08/23/a.jsonl": { text: transcript(META, FINISHED), ageMs: 1000 },
     });
@@ -130,8 +130,8 @@ describe("scanCodexSessions", () => {
   });
 
   it("il cwd dell'ultimo turno batte quello iniziale", () => {
-    // `session_meta` dice dove la sessione e' NATA; `turn_context` dove sta
-    // lavorando adesso. Attribuire al primo sbaglia progetto dopo un cd.
+    // `session_meta` says where the session was BORN; `turn_context` where it
+    // is working now. Attributing to the first gets the project wrong after a cd.
     const text = transcript(META, [
       { type: "turn_context", payload: { cwd: "/Users/x/Projects/altro" } },
       { type: "event_msg", payload: { type: "task_started" } },
@@ -180,10 +180,10 @@ describe("scanCodexSessions", () => {
   });
 
   it("trova una sessione recente in una cartella datata giorni prima", () => {
-    // Il difetto che i file finti non avevano visto: Codex archivia la
-    // sessione sotto il giorno in cui e' NATA. Misurato sul disco vero,
-    // sessioni scritte 4 ore fa stavano in cartelle di due giorni prima:
-    // potare per data della cartella azzerava il censimento.
+    // The defect the fake files had not caught: Codex files the session under
+    // the day it was BORN. Measured on the real disk, sessions written 4 hours
+    // ago were sitting in folders from two days earlier: pruning by the
+    // folder's date zeroed out the census.
     const out = scan({
       "2026/08/21/vecchia-cartella.jsonl": { text: transcript(META, WORKING), ageMs: 4 * HOUR },
     });
@@ -191,12 +191,12 @@ describe("scanCodexSessions", () => {
   });
 
   it("legge una session_meta piu' grande di 16KB", () => {
-    // La `session_meta` porta le istruzioni di base: ~19KB sul disco vero.
-    // Con una testa troppo corta il JSON arriva troncato, non parsa, e OGNI
-    // sessione Codex sparisce dal censimento senza un errore.
-    const grossa = { ...META, base_instructions: "x".repeat(40_000) };
+    // The `session_meta` carries the base instructions: ~19KB on the real
+    // disk. With too short a head the JSON arrives truncated, does not parse,
+    // and EVERY Codex session vanishes from the census without an error.
+    const oversized = { ...META, base_instructions: "x".repeat(40_000) };
     const out = scan({
-      "2026/08/23/a.jsonl": { text: transcript(grossa, WORKING), ageMs: MIN },
+      "2026/08/23/a.jsonl": { text: transcript(oversized, WORKING), ageMs: MIN },
     });
     expect(out).toHaveLength(1);
     expect(out[0]!.sessionId).toBe("sess-1");

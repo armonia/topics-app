@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ProfilePage, FollowersPage, PrivacyPage } from '../Settings/IdentityPages';
 import { IDENTITY_SECTIONS, SETTINGS_SECTIONS, type SectionId } from '../Settings/sections';
-import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, profiloChiesto, type RichiestaProfilo } from '@/state/profileTarget';
+import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, requestedProfile, type ProfileRequest } from '@/state/profileTarget';
 import { PersonProfile } from './PersonProfile';
 
 /**
@@ -36,22 +36,22 @@ export function ProfilePane() {
   // is read on mount (the pane is `lazy()`: when the request is made this
   // component may not exist yet) and the event covers the opposite case, a pane
   // already open that has to change tab under the click.
-  const richiesta = profiloChiesto();
-  const [pagina, setPagina] = useState<SectionId>(() => richiesta?.pagina ?? 'profile');
+  const requested = requestedProfile();
+  const [pagina, setPagina] = useState<SectionId>(() => requested?.pagina ?? 'profile');
   // The person being looked at, `null` for your own profile. It is state and
   // not a prop because the pane outlives every gesture that changes it.
-  const [personId, setPersonId] = useState<string | null>(() => richiesta?.personId ?? null);
+  const [personId, setPersonId] = useState<string | null>(() => requested?.personId ?? null);
 
   useEffect(() => {
-    const vai = (e: Event) => {
-      const chiesta = (e as CustomEvent<RichiestaProfilo>).detail;
+    const go = (e: Event) => {
+      const chiesta = (e as CustomEvent<ProfileRequest>).detail;
       if (!chiesta?.pagina) return;
       setPagina(chiesta.pagina);
       setPersonId(chiesta.personId ?? null);
       dimenticaPaginaProfilo();
     };
-    window.addEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
-    return () => window.removeEventListener(EVENTO_PAGINA_PROFILO, vai as EventListener);
+    window.addEventListener(EVENTO_PAGINA_PROFILO, go as EventListener);
+    return () => window.removeEventListener(EVENTO_PAGINA_PROFILO, go as EventListener);
   }, []);
 
   return (
@@ -99,7 +99,7 @@ export function ProfilePane() {
 
       <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-5">
         {personId !== null ? (
-          <PersonProfile personId={personId} onIndietro={() => setPersonId(null)} />
+          <PersonProfile personId={personId} onBack={() => setPersonId(null)} />
         ) : (
           <>
             {pagina === 'profile' && <ProfilePage />}

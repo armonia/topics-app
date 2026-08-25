@@ -1485,10 +1485,10 @@ export interface StatistichePersonaClient {
 /* The profile shapes are declared ONCE, in shared/, and re-exported here. A
  * hand-copied interface carries a "keep in sync" promise that no gate can
  * enforce, so the two sides read the same file instead. */
-export type { ProfilePrivacy, ConteggiFollow } from "../../../shared/profile";
-import type { ProfilePrivacy, ConteggiFollow } from "../../../shared/profile";
+export type { ProfilePrivacy, FollowCounts } from "../../../shared/profile";
+import type { ProfilePrivacy, FollowCounts } from "../../../shared/profile";
 
-export interface PersonaConProfilo {
+export interface PersonWithProfile {
   id: string;
   displayName: string;
   email: string | null;
@@ -1498,7 +1498,7 @@ export interface PersonaConProfilo {
   stats: StatistichePersonaClient | null;
   isMe: boolean;
   /** `null` when this person does not publish their followers. */
-  counts: ConteggiFollow | null;
+  counts: FollowCounts | null;
   /** Whether I follow them. The relation is one way, so the other direction is
    *  a separate field and not the same one read backwards. */
   viewerFollows: boolean;
@@ -1510,7 +1510,7 @@ export interface PersonaConProfilo {
 }
 
 /** A row in a followers/following list: enough to draw a face and follow back. */
-export interface PersonaSommaria {
+export interface PersonSummary {
   id: string;
   displayName: string;
   githubLogin: string | null;
@@ -1521,12 +1521,12 @@ export interface PersonaSommaria {
 
 export const peopleApi = {
   /** The directory. Does NOT touch GitHub: the faces come from the server cache. */
-  async list(): Promise<{ people: PersonaConProfilo[] }> {
-    return request<{ people: PersonaConProfilo[] }>('/people');
+  async list(): Promise<{ people: PersonWithProfile[] }> {
+    return request<{ people: PersonWithProfile[] }>('/people');
   },
   /** One person: HERE the server goes and fetches the fresh GitHub profile. */
-  async get(id: string): Promise<PersonaConProfilo> {
-    return request<PersonaConProfilo>(`/people/${id}`);
+  async get(id: string): Promise<PersonWithProfile> {
+    return request<PersonWithProfile>(`/people/${id}`);
   },
   async setGithubLogin(id: string, githubLogin: string | null) {
     return request<{ id: string; githubLogin: string | null; github: ProfiloGitHubClient | null }>(
@@ -1534,17 +1534,17 @@ export const peopleApi = {
       { method: 'PATCH', body: JSON.stringify({ githubLogin }) },
     );
   },
-  async follow(id: string): Promise<{ following: boolean; counts: ConteggiFollow }> {
-    return request<{ following: boolean; counts: ConteggiFollow }>(`/people/${id}/follow`, { method: 'POST' });
+  async follow(id: string): Promise<{ following: boolean; counts: FollowCounts }> {
+    return request<{ following: boolean; counts: FollowCounts }>(`/people/${id}/follow`, { method: 'POST' });
   },
-  async unfollow(id: string): Promise<{ following: boolean; counts: ConteggiFollow }> {
-    return request<{ following: boolean; counts: ConteggiFollow }>(`/people/${id}/follow`, { method: 'DELETE' });
+  async unfollow(id: string): Promise<{ following: boolean; counts: FollowCounts }> {
+    return request<{ following: boolean; counts: FollowCounts }>(`/people/${id}/follow`, { method: 'DELETE' });
   },
-  async followers(id: string): Promise<{ people: PersonaSommaria[] }> {
-    return request<{ people: PersonaSommaria[] }>(`/people/${id}/followers`);
+  async followers(id: string): Promise<{ people: PersonSummary[] }> {
+    return request<{ people: PersonSummary[] }>(`/people/${id}/followers`);
   },
-  async following(id: string): Promise<{ people: PersonaSommaria[] }> {
-    return request<{ people: PersonaSommaria[] }>(`/people/${id}/following`);
+  async following(id: string): Promise<{ people: PersonSummary[] }> {
+    return request<{ people: PersonSummary[] }>(`/people/${id}/following`);
   },
   async privacy(id: string): Promise<{ privacy: ProfilePrivacy }> {
     return request<{ privacy: ProfilePrivacy }>(`/people/${id}/privacy`);

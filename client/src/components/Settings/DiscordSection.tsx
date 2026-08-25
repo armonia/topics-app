@@ -10,24 +10,24 @@ import {
 } from '../../lib/api';
 
 /**
- * DISCORD: cosa dice di te questa app, a chi, e con quanto dettaglio.
+ * DISCORD: what this app says about you, to whom, and in how much detail.
  *
- * ── L'ANTEPRIMA È IL PEZZO IMPORTANTE, NON UN ABBELLIMENTO ──────────────────
- * Un interruttore che dice «mostra la mia attività su Discord» chiede di
- * fidarsi. Qui non serve fidarsi: la card sotto è ciò che vedono gli altri,
- * costruita dalla STESSA funzione del server che pubblica (`buildActivity`),
- * non da una sua imitazione scritta di qua. Cambiando livello cambia
- * l'anteprima, quindi la scelta si fa guardando il risultato.
+ * ── THE PREVIEW IS THE IMPORTANT PIECE, NOT AN ORNAMENT ─────────────────────
+ * A switch that says «show my activity on Discord» asks to be trusted. Here
+ * there is no need to trust: the card below is what the others see, built by
+ * the SAME server function that publishes (`buildActivity`), not by an
+ * imitation of it written over here. Changing the level changes the preview, so
+ * the choice is made by looking at the result.
  *
- * ── SI GUARDA PRIMA DI ACCENDERE ───────────────────────────────────────────
- * Le anteprime arrivano anche a interruttore spento — è il punto. Un pannello
- * che mostra cosa pubblicherà solo DOPO aver pubblicato ha l'ordine invertito.
+ * ── YOU LOOK BEFORE YOU SWITCH ON ──────────────────────────────────────────
+ * The previews arrive with the switch off too — that is the point. A panel that
+ * shows what it will publish only AFTER publishing has the order inverted.
  *
- * ── LO STATO DEL FILO NON È UN PALLINO E BASTA ─────────────────────────────
- * «Discord non è aperto» e «Discord ha rifiutato questa applicazione» hanno lo
- * stesso aspetto (niente presence) e due rimedi opposti: uno si apre, l'altro
- * si configura. Il server li distingue (`no_discord` vs `error`) e qui si
- * distinguono anche a parole, con la ragione in chiaro sotto.
+ * ── THE WIRE'S STATE IS NOT JUST A DOT ─────────────────────────────────────
+ * «Discord is not open» and «Discord refused this application» look the same
+ * (no presence) and have two opposite remedies: one you open, the other you
+ * configure. The server tells them apart (`no_discord` vs `error`) and here
+ * they are told apart in words too, with the reason spelled out below.
  */
 
 const LIVELLI: DiscordDetailLevel[] = ['minimal', 'activity', 'detailed'];

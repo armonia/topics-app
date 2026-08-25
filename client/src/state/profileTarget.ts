@@ -32,7 +32,7 @@ export type PaginaProfilo = Extract<SectionId, 'profile' | 'followers' | 'privac
 export const EVENTO_PAGINA_PROFILO = 'topics:profile-page';
 
 /** What a caller can ask for: a page, a person, or both. */
-export interface RichiestaProfilo {
+export interface ProfileRequest {
   pagina: PaginaProfilo;
   /** `null` = me. Anything else is somebody else's profile, read only. */
   personId: string | null;
@@ -43,9 +43,9 @@ export interface RichiestaProfilo {
  *  it), short enough that nobody can reach it from an unrelated later gesture. */
 const VALIDA_MS = 5_000;
 
-let richiesta: (RichiestaProfilo & { at: number }) | null = null;
+let richiesta: (ProfileRequest & { at: number }) | null = null;
 
-function chiedi(r: RichiestaProfilo, ora: number): void {
+function request(r: ProfileRequest, ora: number): void {
   richiesta = { ...r, at: ora };
   window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'profile' } }));
   window.dispatchEvent(new CustomEvent(EVENTO_PAGINA_PROFILO, { detail: r }));
@@ -57,7 +57,7 @@ function chiedi(r: RichiestaProfilo, ora: number): void {
  * opens every utility.
  */
 export function apriProfilo(pagina: PaginaProfilo, ora = Date.now()): void {
-  chiedi({ pagina, personId: null }, ora);
+  request({ pagina, personId: null }, ora);
 }
 
 /**
@@ -66,8 +66,8 @@ export function apriProfilo(pagina: PaginaProfilo, ora = Date.now()): void {
  * The page is always the overview, because that is what you wanted when you
  * clicked a face.
  */
-export function apriProfiloPersona(personId: string, ora = Date.now()): void {
-  chiedi({ pagina: 'profile', personId }, ora);
+export function openPersonProfile(personId: string, ora = Date.now()): void {
+  request({ pagina: 'profile', personId }, ora);
 }
 
 /**
@@ -81,7 +81,7 @@ export function apriProfiloPersona(personId: string, ora = Date.now()): void {
  * deep link opening the profile on your own first page, which is the exact bug
  * the deep link was written to remove.
  */
-export function profiloChiesto(ora = Date.now()): RichiestaProfilo | null {
+export function requestedProfile(ora = Date.now()): ProfileRequest | null {
   if (!richiesta) return null;
   if (ora - richiesta.at > VALIDA_MS) {
     richiesta = null;
@@ -92,7 +92,7 @@ export function profiloChiesto(ora = Date.now()): RichiestaProfilo | null {
 
 /** Just the page, for callers that do not care whose profile it is. */
 export function paginaProfiloChiesta(ora = Date.now()): PaginaProfilo | null {
-  return profiloChiesto(ora)?.pagina ?? null;
+  return requestedProfile(ora)?.pagina ?? null;
 }
 
 /** Forgets the request. The pane calls it once it has actually shown the page. */

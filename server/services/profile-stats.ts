@@ -1,58 +1,59 @@
 /**
- * Le statistiche del profilo: quanto lavoro è passato di qui davvero.
+ * The profile statistics: how much work really went through here.
  *
- * ── LA REGOLA CHE DECIDE OGNI QUERY DI QUESTO FILE ──────────────────────────
- * Si legge SOLO da tabelle che qualcuno scrive. Sembra ovvio, e invece è il
- * guasto che il cruscotto ha già avuto una volta: metà dei suoi numeri venivano
- * da `usage_records` (unico INSERT in `server/db/seed.ts`, che nessuno chiama),
- * `agent_sessions` (zero INSERT in tutto il server) e `heartbeats` (rotta
- * irraggiungibile). Erano zeri strutturali, e uno zero è la bugia peggiore che
- * un pannello possa dire — «0 sessioni» si legge «non hai lavorato», non «non
- * lo so». La storia per esteso sta in cima a `server/routes/dashboard.ts`.
+ * ── THE RULE THAT DECIDES EVERY QUERY IN THIS FILE ──────────────────────────
+ * We read ONLY from tables that somebody writes. It sounds obvious, and instead
+ * it is the fault the dashboard already had once: half its numbers came from
+ * `usage_records` (a single INSERT in `server/db/seed.ts`, which nobody calls),
+ * `agent_sessions` (zero INSERTs in the whole server) and `heartbeats`
+ * (unreachable route). They were structural zeros, and a zero is the worst lie
+ * a panel can tell - "0 sessions" reads as "you have not worked", not "I do not
+ * know". The story in full is at the top of `server/routes/dashboard.ts`.
  *
- * Le fonti vive, misurate sul DB di sviluppo (11/08: 14.697 messaggi, 1.272
- * task, 737 topic, 8 progetti):
- *   • `topics`   — le sessioni: quante sono, quante ancora aperte;
- *   • `messages` — i turni di chat, i loro token e il loro costo;
- *   • `tasks`    — il lavoro della board: token dell'agente, rilettura di
- *                  cache, millisecondi di esecuzione, esito;
- *   • `projects` — su quante case hai lavorato.
+ * The live sources, measured on the development DB (11/08: 14,697 messages,
+ * 1,272 tasks, 737 topics, 8 projects):
+ *   • `topics`   - the sessions: how many there are, how many still open;
+ *   • `messages` - the chat turns, their tokens and their cost;
+ *   • `tasks`    - the board's work: agent tokens, cache re-reads, execution
+ *                  milliseconds, outcome;
+ *   • `projects` - how many houses you have worked on.
  *
- * ── IL COSTO SI DICHIARA IN DUE PEZZI, NON SI SOMMA ─────────────────────────
- * Stessa disciplina del cruscotto: una riga scritta prima dello scorporo della
- * cache ha un `cost_cents` gonfiato fino a ~10× di un fattore non
- * ricostruibile, perché i token riletti furono tariffati come input fresco.
- * Quelle righe non si sommano e non si nascondono: si CONTANO a parte
- * (`uncertainRows`), e il profilo porta quel numero accanto al totale. Un dato
- * mancante dichiarato è informazione; sommato di nascosto è una bugia.
+ * ── THE COST IS DECLARED IN TWO PIECES, NOT SUMMED ──────────────────────────
+ * Same discipline as the dashboard: a row written before the cache was broken
+ * out has a `cost_cents` inflated by up to ~10x by a factor that cannot be
+ * reconstructed, because the re-read tokens were billed as fresh input. Those
+ * rows are not summed and not hidden: they are COUNTED separately
+ * (`uncertainRows`), and the profile carries that number next to the total. A
+ * declared missing datum is information; secretly summed it is a lie.
  *
- * ── I TOKEN SI SOMMANO, E LA CACHE È GIÀ DENTRO ─────────────────────────────
- * Il consumo vero di un turno agentico è per la maggior parte rilettura di
- * contesto (~60% misurato). Un totale che la esclude descrive un'altra app.
- * Ma per i MESSAGGI non va aggiunta: `usage_prompt_tokens` la CONTIENE già —
- * `readResultUsage` e `readAssistantCallUsage` (`providers/claude/events.ts`)
- * costruiscono l'input come `input_tokens + cache_creation + cache_read`, ed è
- * il contratto scritto anche in `lib/cacheBreakdown.ts` (`prompt = fresco +
- * read + creation`). Sommarla di nuovo la conta due volte: misurato sul DB di
- * produzione, 18,03 miliardi mostrati contro 9,89 veri, cioè 1,82×.
- * Verificato che il contratto vale su ogni riga: `usage_prompt_tokens >=
- * cache_read_tokens` su 1.061 righe su 1.061.
+ * ── THE TOKENS ARE SUMMED, AND THE CACHE IS ALREADY IN ──────────────────────
+ * The real consumption of an agentic turn is for the most part context re-read
+ * (~60% measured). A total that excludes it describes a different app. But for
+ * MESSAGES it must not be added: `usage_prompt_tokens` already CONTAINS it -
+ * `readResultUsage` and `readAssistantCallUsage` (`providers/claude/events.ts`)
+ * build the input as `input_tokens + cache_creation + cache_read`, and it is
+ * the contract written down in `lib/cacheBreakdown.ts` too (`prompt = fresh +
+ * read + creation`). Adding it again counts it twice: measured on the
+ * production DB, 18.03 billion shown against 9.89 real, that is 1.82x.
+ * Verified that the contract holds on every row: `usage_prompt_tokens >=
+ * cache_read_tokens` on 1,061 rows out of 1,061.
  *
- * Per i TASK invece la somma ci vuole, e non è una svista: `tasks.agent_tokens`
- * nasce da `billableTokens`, che è «input+output+cacheWrite» e la rilettura la
- * ESCLUDE per costruzione (`services/dispatch-usage.ts`). Due tabelle, due
- * convenzioni, e la differenza è nel modulo che le riempie.
+ * For TASKS, on the other hand, the sum is needed, and it is not an oversight:
+ * `tasks.agent_tokens` comes from `billableTokens`, which is
+ * "input+output+cacheWrite" and EXCLUDES the re-read by construction
+ * (`services/dispatch-usage.ts`). Two tables, two conventions, and the
+ * difference is in the module that fills them.
  */
 
 import type { Database } from "bun:sqlite";
-// La FORMA sta in `shared/types.ts` perché attraversa il filo: il pannello del
-// profilo la legge dalla stessa dichiarazione, invece di tenerne una copia
-// destinata a divergere (`tests/unit/no-type-mirrors.test.ts`). Qui si
-// ri-esporta, così ogni import storico di questo modulo resta valido.
+// The SHAPE lives in `shared/types.ts` because it crosses the wire: the profile
+// panel reads it from the same declaration, instead of keeping a copy of it
+// doomed to diverge (`tests/unit/no-type-mirrors.test.ts`). Here it is
+// re-exported, so every historical import of this module stays valid.
 import type { ProfileStats } from "../../shared/types";
 export type { ProfileStats };
 
-const VUOTO: ProfileStats = {
+const EMPTY: ProfileStats = {
   sessions: { total: 0, open: 0 },
   messages: { total: 0, assistant: 0 },
   tokens: { total: 0, chat: 0, agents: 0 },
@@ -67,9 +68,9 @@ function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
-/** Una riga sola, con `?? 0` su ogni colonna: una tabella che non esiste
- *  ancora (DB più vecchio della migration che la porta) non deve buttare giù
- *  l'intera scheda del profilo. */
+/** A single row, with `?? 0` on every column: a table that does not exist yet
+ *  (a DB older than the migration that brings it) must not tear down the whole
+ *  profile card. */
 function scalar(db: Database, sql: string, ...args: unknown[]): number {
   try {
     const row = db.query(sql).get(...(args as never[])) as { v?: unknown } | null;
@@ -79,37 +80,37 @@ function scalar(db: Database, sql: string, ...args: unknown[]): number {
   }
 }
 
-/** `YYYY-MM-DD` in UTC, la stessa unità in cui SQLite scrive `date(...)`. */
-function giorno(ms: number): string {
+/** `YYYY-MM-DD` in UTC, the same unit SQLite writes `date(...)` in. */
+function day(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
 /**
- * La serie consecutiva di giorni attivi che arriva fino a ieri o a oggi.
+ * The consecutive run of active days that reaches up to yesterday or today.
  *
- * Pura, e presa in ingresso l'insieme dei giorni: il calcolo di una striscia
- * ha esattamente un caso interessante — il confine — ed è l'unico che si
- * sbaglia. Il DB non serve a provarlo.
+ * Pure, and taking the set of days as input: computing a streak has exactly one
+ * interesting case - the boundary - and it is the only one people get wrong.
+ * The DB is not needed to prove it.
  */
-export function streak(giorniAttivi: Set<string>, oggiMs: number): number {
-  const GIORNO_MS = 86_400_000;
-  // Se oggi non c'è ancora niente si parte da ieri: la giornata in corso non è
-  // una giornata mancata finché non è finita.
-  let cursore = giorniAttivi.has(giorno(oggiMs)) ? oggiMs : oggiMs - GIORNO_MS;
+export function streak(activeDays: Set<string>, todayMs: number): number {
+  const DAY_MS = 86_400_000;
+  // If there is nothing today yet we start from yesterday: the day in progress
+  // is not a missed day until it is over.
+  let cursor = activeDays.has(day(todayMs)) ? todayMs : todayMs - DAY_MS;
   let n = 0;
-  while (giorniAttivi.has(giorno(cursore))) {
+  while (activeDays.has(day(cursor))) {
     n++;
-    cursore -= GIORNO_MS;
+    cursor -= DAY_MS;
   }
   return n;
 }
 
 /**
- * Le statistiche, adesso.
+ * The statistics, right now.
  *
- * Nessuna cache: sono nove query su tabelle indicizzate, il pannello le chiede
- * quando lo apri, e una cache sbagliata su un numero che deve dire «questo sei
- * tu oggi» è un modo elaborato di mostrare ieri.
+ * No cache: they are nine queries on indexed tables, the panel asks for them
+ * when you open it, and a wrong cache on a number that has to say "this is you
+ * today" is an elaborate way of showing yesterday.
  */
 export function computeProfileStats(db: Database, now: number = Date.now()): ProfileStats {
   try {
@@ -129,8 +130,8 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
       "SELECT COALESCE(SUM(agent_tokens + agent_cache_read_tokens), 0) AS v FROM tasks",
     );
 
-    // Il gate di ATTENDIBILITÀ è `cache_read_tokens IS NOT NULL`, non un
-    // dettaglio tecnico: vedi l'intestazione.
+    // The RELIABILITY gate is `cache_read_tokens IS NOT NULL`, not a technical
+    // detail: see the header.
     const measuredCents = scalar(
       db,
       "SELECT COALESCE(SUM(cost_cents), 0) AS v FROM messages WHERE cache_read_tokens IS NOT NULL",
@@ -150,23 +151,23 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
     try {
       const r = db.query("SELECT MIN(timestamp) AS v FROM messages").get() as { v?: string | null } | null;
       firstSeen = r?.v ?? null;
-    } catch { /* schema più vecchio: nessuna data d'inizio */ }
+    } catch { /* older schema: no start date */ }
 
-    // I giorni attivi, e la serie: una lettura sola per entrambi.
-    let giorni: Array<{ date: string; tokens: number }> = [];
+    // The active days, and the streak: a single read for both.
+    let days: Array<{ date: string; tokens: number }> = [];
     try {
-      giorni = db.query(
+      days = db.query(
         `SELECT date(timestamp) AS date,
                 SUM(COALESCE(usage_prompt_tokens, 0) + COALESCE(usage_completion_tokens, 0)) AS tokens
            FROM messages
           WHERE timestamp IS NOT NULL
           GROUP BY date(timestamp)`,
       ).all() as Array<{ date: string; tokens: number }>;
-    } catch { /* niente messaggi: nessuna serie */ }
+    } catch { /* no messages: no series */ }
 
-    const perGiorno = new Map(giorni.map((g) => [g.date, num(g.tokens)]));
-    // I giorni della board contano come attività anche se quel giorno non hai
-    // scritto un messaggio: un agente che ha lavorato tutta la notte è lavoro.
+    const perDay = new Map(days.map((g) => [g.date, num(g.tokens)]));
+    // The board's days count as activity even if you did not write a message
+    // that day: an agent that worked all night is work.
     try {
       const t = db.query(
         `SELECT date(completed_at) AS date,
@@ -175,15 +176,15 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
       ).all() as Array<{ date: string; tokens: number }>;
       for (const r of t) {
         if (!r.date) continue;
-        perGiorno.set(r.date, (perGiorno.get(r.date) ?? 0) + num(r.tokens));
+        perDay.set(r.date, (perDay.get(r.date) ?? 0) + num(r.tokens));
       }
-    } catch { /* schema senza le colonne 040/048 */ }
+    } catch { /* schema without the 040/048 columns */ }
 
-    const GIORNO_MS = 86_400_000;
+    const DAY_MS = 86_400_000;
     const last30: ProfileStats["activity"]["last30"] = [];
     for (let i = 29; i >= 0; i--) {
-      const d = giorno(now - i * GIORNO_MS);
-      last30.push({ date: d, tokens: perGiorno.get(d) ?? 0 });
+      const d = day(now - i * DAY_MS);
+      last30.push({ date: d, tokens: perDay.get(d) ?? 0 });
     }
 
     return {
@@ -196,31 +197,30 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
       agentHours: Math.round((agentMs / 3_600_000) * 10) / 10,
       activity: {
         firstSeen,
-        activeDays: perGiorno.size,
-        streakDays: streak(new Set(perGiorno.keys()), now),
+        activeDays: perDay.size,
+        streakDays: streak(new Set(perDay.keys()), now),
         last30,
       },
     };
   } catch {
-    // Il DB non è pronto (test molto precoci, boot a metà): il profilo si
-    // disegna a zero invece di rispondere 500. Non è un numero inventato — è
-    // la forma vuota, e la scheda lo mostra come «ancora niente».
-    return { ...VUOTO, activity: { ...VUOTO.activity, last30: [] } };
+    // The DB is not ready (very early tests, a half-done boot): the profile is
+    // drawn at zero instead of answering 500. It is not a made-up number - it is
+    // the empty shape, and the card shows it as "nothing yet".
+    return { ...EMPTY, activity: { ...EMPTY.activity, last30: [] } };
   }
 }
 
-// ── Lo stato ADESSO, per la presence ───────────────────────────────────────
+// ── The state RIGHT NOW, for the presence ──────────────────────────────────
 
 /**
- * Quante sessioni sono aperte e quante stanno lavorando in questo momento.
+ * How many sessions are open and how many are working at this moment.
  *
- * È il numero che il daemon sostituito provava a indovinare con `ps` e un
- * campionamento di CPU. Qui non si indovina: `liveTurns` è il conto delle
- * sessioni che stanno producendo adesso — i turni che il server sta
- * TRASMETTENDO (`ctx.activeStreams`, una voce per sessione) più gli agenti che
- * macinano in una tab terminale (`countBusyAgentTerminals`, che il chiamante
- * somma) — e i task al lavoro sono quelli che la board ha dispatchato e non ha
- * ancora chiuso.
+ * It is the number the daemon this replaced tried to guess with `ps` and a CPU
+ * sampling. Here nothing is guessed: `liveTurns` is the count of the sessions
+ * producing right now - the turns the server is STREAMING
+ * (`ctx.activeStreams`, one entry per session) plus the agents grinding in a
+ * terminal tab (`countBusyAgentTerminals`, which the caller adds in) - and the
+ * tasks at work are the ones the board dispatched and has not closed yet.
  */
 export function computePresenceCounts(
   db: Database,
@@ -238,9 +238,10 @@ export function computePresenceCounts(
   const openSessions = scalar(db, "SELECT COUNT(*) AS v FROM topics WHERE archived = 0");
   const activeTasks = scalar(db, "SELECT COUNT(*) AS v FROM tasks WHERE dispatch_state = 'working'");
 
-  // Il progetto in primo piano: quello del task che la board sta eseguendo da
-  // più tempo. Se la board è ferma, quello del topic aggiornato più di recente
-  // — «dove sei adesso» è una domanda che ha una risposta anche senza agenti.
+  // The project in the foreground: the one of the task the board has been
+  // running for the longest. If the board is idle, the one of the most recently
+  // updated topic - "where are you right now" is a question that has an answer
+  // even without agents.
   let focusProject: string | null = null;
   try {
     const r = db.query(
@@ -259,23 +260,23 @@ export function computePresenceCounts(
       ).get() as { v?: string } | null;
       focusProject = s?.v ?? null;
     }
-  } catch { /* schema ridotto: nessun progetto in primo piano */ }
+  } catch { /* reduced schema: no foreground project */ }
 
   return {
     openSessions,
-    // Le sessioni Claude aperte FUORI da Topics (un terminale, un altro
-    // harness): il censimento le conosce gia' e le tiene in cache, ma finora
-    // nessuna delle due superfici le nominava. Restano un numero A PARTE e non
-    // si sommano a `openSessions`: quello conta topic, cioe' contenitori, e
-    // questo conta processi. Sommarli darebbe un totale che non e' ne' l'uno
-    // ne' l'altro.
+    // The Claude sessions open OUTSIDE Topics (a terminal, another harness):
+    // the census already knows them and keeps them cached, but until now
+    // neither of the two surfaces named them. They stay a SEPARATE number and
+    // are not added to `openSessions`: that one counts topics, that is,
+    // containers, and this one counts processes. Summing them would give a
+    // total that is neither one nor the other.
     externalSessions,
-    // Di quelle, quante macinano adesso: senza questo numero una sessione
-    // esterna al lavoro sembra ferma quanto una idle.
+    // Of those, how many are grinding right now: without this number an
+    // external session at work looks as idle as an idle one.
     externalWorking,
-    // Un turno vivo È una sessione al lavoro; i task della board hanno il loro
-    // turno dentro `activeStreams`, quindi NON si risommano qui — sarebbe
-    // contarli due volte, che è il modo in cui un contatore diventa vanteria.
+    // A live turn IS a session at work; the board's tasks have their turn
+    // inside `activeStreams`, so they are NOT summed again here - that would be
+    // counting them twice, which is how a counter turns into bragging.
     workingSessions: Math.max(0, liveTurns),
     activeTasks,
     focusProject,

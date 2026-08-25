@@ -20,7 +20,7 @@
  * number: it is the same choice already written down in `orgPresence.ts`.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { peopleApi, type PersonaConProfilo } from '@/lib/api';
+import { peopleApi, type PersonWithProfile } from '@/lib/api';
 import {
   facceOnline, unisciFacce, presentiOra, gentePresenza, unisciGente,
   type FacciaPresenza, type MembroPresenza, type RigaPresenza,
@@ -53,7 +53,7 @@ export interface PresenzaIdentita {
   /** Everyone you know, present first: the list behind the friends dropdown. */
   amiciTutti: RigaPresenza[];
   /** Me, from the address book: the face and the name on the first row. */
-  io: PersonaConProfilo | null;
+  io: PersonWithProfile | null;
   /** `false` until the first round trip is back, so the rows do not flicker. */
   pronto: boolean;
 }
@@ -90,7 +90,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
       fetch('/api/auth/orgs', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)),
     ]);
 
-    const rubrica: PersonaConProfilo[] = rubricaRes.status === 'fulfilled' ? rubricaRes.value.people : [];
+    const rubrica: PersonWithProfile[] = rubricaRes.status === 'fulfilled' ? rubricaRes.value.people : [];
     const io = rubrica.find((p) => p.isMe) ?? null;
     const orgsRaw: OrgApi[] = orgsRes.status === 'fulfilled' && orgsRes.value
       ? ((orgsRes.value as { orgs?: OrgApi[] }).orgs ?? [])

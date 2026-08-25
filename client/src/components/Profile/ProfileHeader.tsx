@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Building2, Github, Link as LinkIcon, Mail, MapPin } from 'lucide-react';
 import { useT } from '@/hooks/useT';
-import { peopleApi, type PersonaConProfilo } from '@/lib/api';
+import { peopleApi, type PersonWithProfile } from '@/lib/api';
 import { PersonAvatar } from './PersonAvatar';
 
 /**
@@ -35,7 +35,7 @@ import { PersonAvatar } from './PersonAvatar';
  * relationship that does not exist.
  */
 
-function compattoNum(n: number): string {
+function compactNum(n: number): string {
   const a = Math.abs(n);
   if (a >= 1e6) return `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M`;
   if (a >= 1e3) return `${(n / 1e3).toFixed(1).replace(/\.0$/, '')}k`;
@@ -43,11 +43,11 @@ function compattoNum(n: number): string {
 }
 
 /** A blog URL as GitHub prints it: no scheme, no trailing slash, still a link. */
-function etichettaLink(url: string): string {
+function linkLabel(url: string): string {
   return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 }
 
-function hrefLink(url: string): string {
+function absoluteUrl(url: string): string {
   return /^https?:\/\//.test(url) ? url : `https://${url}`;
 }
 
@@ -60,8 +60,8 @@ function Meta({ icon: Icon, children }: { icon: typeof MapPin; children: React.R
   );
 }
 
-function Contatore({ n, etichetta, onClick, testId }: {
-  n: number; etichetta: string; onClick?: () => void; testId: string;
+function Counter({ n, label, onClick, testId }: {
+  n: number; label: string; onClick?: () => void; testId: string;
 }) {
   return (
     <button
@@ -71,59 +71,59 @@ function Contatore({ n, etichetta, onClick, testId }: {
       data-testid={testId}
       className="inline-flex items-baseline gap-1 rounded px-1 py-0.5 text-[12.5px] text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:pointer-events-none coarse:min-h-11"
     >
-      <span className="font-semibold text-app-text tabular-nums">{compattoNum(n)}</span>
-      {etichetta}
+      <span className="font-semibold text-app-text tabular-nums">{compactNum(n)}</span>
+      {label}
     </button>
   );
 }
 
 export interface ProfileHeaderProps {
-  persona: PersonaConProfilo;
+  persona: PersonWithProfile;
   /** Called with the person as the server just returned it, counters included. */
-  onCambiata: (p: PersonaConProfilo) => void;
-  onApriFollower?: () => void;
-  onApriSeguiti?: () => void;
+  onChanged: (p: PersonWithProfile) => void;
+  onOpenFollowers?: () => void;
+  onOpenFollowing?: () => void;
 }
 
-export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSeguiti }: ProfileHeaderProps) {
+export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollowing }: ProfileHeaderProps) {
   const t = useT();
-  const [inCorso, setInCorso] = useState(false);
-  const [modificaLogin, setModificaLogin] = useState(false);
-  const [bozza, setBozza] = useState(persona.githubLogin ?? '');
-  const [errore, setErrore] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [editingLogin, setEditingLogin] = useState(false);
+  const [draft, setDraft] = useState(persona.githubLogin ?? '');
+  const [error, setError] = useState<string | null>(null);
 
   const g = persona.github;
-  const nome = g?.name || persona.displayName;
+  const name = g?.name || persona.displayName;
 
-  const cambiaFollow = useCallback(async () => {
-    if (inCorso) return;
-    setInCorso(true);
-    const prima = persona;
+  const toggleFollow = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+    const before = persona;
     // Optimistic: the label moves now, the counters are corrected by the answer.
-    onCambiata({ ...persona, viewerFollows: !persona.viewerFollows });
+    onChanged({ ...persona, viewerFollows: !persona.viewerFollows });
     try {
       const r = persona.viewerFollows
         ? await peopleApi.unfollow(persona.id)
         : await peopleApi.follow(persona.id);
-      onCambiata({ ...prima, viewerFollows: r.following, counts: prima.counts ? r.counts : null });
+      onChanged({ ...before, viewerFollows: r.following, counts: before.counts ? r.counts : null });
     } catch {
-      onCambiata(prima);
+      onChanged(before);
     } finally {
-      setInCorso(false);
+      setSaving(false);
     }
-  }, [inCorso, persona, onCambiata]);
+  }, [saving, persona, onChanged]);
 
-  const salvaLogin = useCallback(async () => {
-    const valore = bozza.trim();
+  const saveLogin = useCallback(async () => {
+    const value = draft.trim();
     try {
-      await peopleApi.setGithubLogin(persona.id, valore === '' ? null : valore);
-      onCambiata(await peopleApi.get(persona.id));
-      setModificaLogin(false);
-      setErrore(null);
+      await peopleApi.setGithubLogin(persona.id, value === '' ? null : value);
+      onChanged(await peopleApi.get(persona.id));
+      setEditingLogin(false);
+      setError(null);
     } catch {
-      setErrore(t('privacy.failed'));
+      setError(t('privacy.failed'));
     }
-  }, [bozza, persona.id, onCambiata, t]);
+  }, [draft, persona.id, onChanged, t]);
 
   return (
     <div data-testid="profile-header" className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -133,7 +133,7 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h1 data-testid="profile-name" className="truncate text-[20px] font-semibold leading-tight text-app-text">
-              {nome}
+              {name}
             </h1>
             {persona.githubLogin && (
               <a
@@ -156,7 +156,7 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
           {!persona.isMe && (
             <button
               type="button"
-              onClick={() => void cambiaFollow()}
+              onClick={() => void toggleFollow()}
               data-testid="profile-follow"
               aria-pressed={persona.viewerFollows}
               className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-[12.5px] font-medium coarse:min-h-11 ${
@@ -177,8 +177,8 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
           {g?.location && <Meta icon={MapPin}>{g.location}</Meta>}
           {g?.blog && (
             <Meta icon={LinkIcon}>
-              <a href={hrefLink(g.blog)} target="_blank" rel="noreferrer" className="hover:text-primary">
-                {etichettaLink(g.blog)}
+              <a href={absoluteUrl(g.blog)} target="_blank" rel="noreferrer" className="hover:text-primary">
+                {linkLabel(g.blog)}
               </a>
             </Meta>
           )}
@@ -193,17 +193,17 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
 
         {persona.counts && (
           <div className="flex flex-wrap items-center gap-2">
-            <Contatore
+            <Counter
               n={persona.counts.followers}
-              etichetta={t('profile.followers')}
-              onClick={onApriFollower}
+              label={t('profile.followers')}
+              onClick={onOpenFollowers}
               testId="profile-count-followers"
             />
             <span className="text-app-text-tertiary">·</span>
-            <Contatore
+            <Counter
               n={persona.counts.following}
-              etichetta={t('profile.following')}
-              onClick={onApriSeguiti}
+              label={t('profile.following')}
+              onClick={onOpenFollowing}
               testId="profile-count-following"
             />
           </div>
@@ -213,16 +213,16 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
             pages away: the empty space where the face should be is exactly
             where you realise you never set the login. Only on your own. */}
         {persona.isMe && (
-          modificaLogin ? (
+          editingLogin ? (
             <div className="flex items-center gap-2">
               <Github size={13} className="flex-shrink-0 text-app-text-tertiary" />
               <input
                 autoFocus
-                value={bozza}
-                onChange={(e) => setBozza(e.target.value)}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') void salvaLogin();
-                  if (e.key === 'Escape') setModificaLogin(false);
+                  if (e.key === 'Enter') void saveLogin();
+                  if (e.key === 'Escape') setEditingLogin(false);
                 }}
                 placeholder="github login"
                 spellCheck={false}
@@ -231,7 +231,7 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
               />
               <button
                 type="button"
-                onClick={() => void salvaLogin()}
+                onClick={() => void saveLogin()}
                 className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[12px] text-app-text hover:bg-app-hover"
               >
                 {t('common.save')}
@@ -240,7 +240,7 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
           ) : (
             <button
               type="button"
-              onClick={() => { setBozza(persona.githubLogin ?? ''); setModificaLogin(true); }}
+              onClick={() => { setDraft(persona.githubLogin ?? ''); setEditingLogin(true); }}
               data-testid="profile-github-edit"
               className="inline-flex items-center gap-1.5 text-[12px] text-app-text-muted hover:text-primary coarse:min-h-11"
             >
@@ -249,14 +249,14 @@ export function ProfileHeader({ persona, onCambiata, onApriFollower, onApriSegui
             </button>
           )
         )}
-        {errore && <p className="text-[11px] text-red-500">{errore}</p>}
+        {error && <p className="text-[11px] text-red-500">{error}</p>}
       </div>
     </div>
   );
 }
 
 /** The Topics half of the header: the part GitHub has no way of knowing. */
-export function ProfileTopicsStats({ persona }: { persona: PersonaConProfilo }) {
+export function ProfileTopicsStats({ persona }: { persona: PersonWithProfile }) {
   const t = useT();
   if (!persona.stats) {
     return (
@@ -266,10 +266,10 @@ export function ProfileTopicsStats({ persona }: { persona: PersonaConProfilo }) 
     );
   }
   const s = persona.stats;
-  const voci: Array<[string, string]> = [
-    [compattoNum(s.prompts), t('profile.topics.prompts')],
-    [compattoNum(s.inputTokens), t('profile.topics.tokensIn')],
-    [compattoNum(s.outputTokens), t('profile.topics.tokensOut')],
+  const figures: Array<[string, string]> = [
+    [compactNum(s.prompts), t('profile.topics.prompts')],
+    [compactNum(s.inputTokens), t('profile.topics.tokensIn')],
+    [compactNum(s.outputTokens), t('profile.topics.tokensOut')],
   ];
   return (
     <div data-testid="profile-topics-stats">
@@ -277,10 +277,10 @@ export function ProfileTopicsStats({ persona }: { persona: PersonaConProfilo }) 
         {t('profile.topics.title')}
       </h3>
       <dl className="grid grid-cols-3 gap-3">
-        {voci.map(([valore, etichetta]) => (
-          <div key={etichetta} className="min-w-0 rounded-md border border-app-border px-3 py-2">
-            <dd className="text-[17px] font-semibold leading-tight text-app-text tabular-nums">{valore}</dd>
-            <dt className="truncate text-[10.5px] uppercase tracking-wide text-app-text-tertiary">{etichetta}</dt>
+        {figures.map(([value, label]) => (
+          <div key={label} className="min-w-0 rounded-md border border-app-border px-3 py-2">
+            <dd className="text-[17px] font-semibold leading-tight text-app-text tabular-nums">{value}</dd>
+            <dt className="truncate text-[10.5px] uppercase tracking-wide text-app-text-tertiary">{label}</dt>
           </div>
         ))}
       </dl>

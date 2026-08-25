@@ -38,7 +38,7 @@ import {
 const SESSION = "topic:abc123";
 
 /** A handler that records what it was told, so a test can assert on silence too. */
-function spia() {
+function spy() {
   const calls: string[] = [];
   const handler: ChatStreamHandler = {
     onTextDelta: (t) => void calls.push(`delta:${t}`),
@@ -63,8 +63,8 @@ const toolEvent = (runId: string | undefined, phase: string, toolCallId = "t1"):
   }) as GatewayEvent;
 
 describe("stale runs are consumed and dropped", () => {
-  let s: ReturnType<typeof spia>;
-  beforeEach(() => { s = spia(); });
+  let s: ReturnType<typeof spy>;
+  beforeEach(() => { s = spy(); });
   afterEach(() => unregisterSessionHandler(SESSION));
 
   test("an error from a PREVIOUS run never reaches the current handler", () => {
@@ -103,9 +103,9 @@ describe("stale runs are consumed and dropped", () => {
 });
 
 describe("the http: sentinel, and why it is not symmetric", () => {
-  let s: ReturnType<typeof spia>;
+  let s: ReturnType<typeof spy>;
   const SENTINEL = "http:0f7a-4c11";
-  beforeEach(() => { s = spia(); });
+  beforeEach(() => { s = spy(); });
   afterEach(() => unregisterSessionHandler(SESSION));
 
   test("CHAT events are rejected wholesale — the SSE body already carries them", () => {
@@ -136,8 +136,8 @@ describe("the http: sentinel, and why it is not symmetric", () => {
 });
 
 describe("re-registering the same turn does not replay its text", () => {
-  let s: ReturnType<typeof spia>;
-  beforeEach(() => { s = spia(); });
+  let s: ReturnType<typeof spy>;
+  beforeEach(() => { s = spy(); });
   afterEach(() => unregisterSessionHandler(SESSION));
 
   test("the cumulative survives the route's second registration", () => {

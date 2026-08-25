@@ -1,42 +1,39 @@
 /**
- * Le sessioni **Codex** (la CLI dentro ChatGPT.app), per il censimento comune.
+ * The **Codex** sessions (the CLI inside ChatGPT.app), for the shared census.
  *
- * PERCHE' UN TERZO SCANNER
- * Il registro dei provider nasce il 23/08 per far entrare jcode. Codex era il
- * caso di prova di quella promessa: misurato su una macchina vera, tre
- * sessioni toccate nelle ultime 8 ore che nessuna superficie contava. Se
- * aggiungere un provider non fosse costato poco, il registro non sarebbe
- * servito a niente.
+ * WHY A THIRD SCANNER
+ * The provider registry was born on 08/23 to let jcode in. Codex was the test
+ * case for that promise: measured on a real machine, three sessions touched in
+ * the last 8 hours that no surface was counting. If adding a provider had not
+ * been cheap, the registry would have been good for nothing.
  *
- * DOVE CODEX SOMIGLIA A CLAUDE CODE, E DOVE NO
- * Somiglia nella scrittura: un evento JSON per riga, in append. Verificato
- * prima di fidarsi, perche' e' esattamente l'assunzione che jcode aveva
- * smentito: su ogni sessione recente lo scarto fra l'mtime del file e il
- * timestamp dell'ultimo evento e' 0.0s. Quindi qui l'mtime **dice il vero** e
- * la freschezza si legge da li', senza inseguire i processi.
+ * WHERE CODEX RESEMBLES CLAUDE CODE, AND WHERE IT DOES NOT
+ * It resembles it in the writing: one JSON event per line, appended. Verified
+ * before trusting it, because that is exactly the assumption jcode had
+ * disproved: on every recent session the gap between the file's mtime and the
+ * timestamp of the last event is 0.0s. So here the mtime **tells the truth**
+ * and freshness is read from there, without chasing processes.
  *
- * Non somiglia in due punti che cambiano il codice:
+ * It does not resemble it on two points that change the code:
  *
- *  1. **I file stanno in un albero per data** (`sessions/AAAA/MM/GG/`), non in
- *     una cartella piatta per progetto. Si scende ricorsivamente e si filtra
- *     sull'mtime del FILE: la data della cartella, sia come mtime sia come
- *     nome, non dice quando quella sessione ha parlato l'ultima volta. Il
- *     dettaglio sta su `collectFiles`, perche' entrambe le potature sembrano
- *     ovvie e sono state misurate sbagliate.
+ *  1. **The files live in a tree by date** (`sessions/YYYY/MM/DD/`), not in a
+ *     flat folder per project. We descend recursively and filter on the FILE's
+ *     mtime: the folder's date, both as mtime and as name, does not say when
+ *     that session last spoke. The detail is on `collectFiles`, because both
+ *     prunings look obvious and were measured wrong.
  *
- *  2. **Il cwd sta in testa, l'attivita' in coda.** La `session_meta` e' la
- *     prima riga del file e non si ripete; leggere solo la coda — come si fa
- *     con Claude Code — lascia ogni sessione senza progetto. Si legge un
- *     pezzo di testa per sapere DOVE lavora e un pezzo di coda per sapere SE
- *     lavora.
+ *  2. **The cwd is at the head, the activity at the tail.** The `session_meta`
+ *     is the file's first line and never repeats; reading only the tail — the
+ *     way it is done with Claude Code — leaves every session without a
+ *     project. We read a chunk of head to know WHERE it works and a chunk of
+ *     tail to know WHETHER it works.
  *
- * QUANDO UNA SESSIONE E' «AL LAVORO»
- * Codex marca la fine di un turno con un evento `task_complete`. Una sessione
- * il cui ultimo evento e' quello ha finito, per quanto recente sia: resta
- * `idle` anche se il file e' stato scritto un secondo fa. Senza questa
- * lettura, chiudere un turno e restare fermi conterebbe come «al lavoro» per
- * un quarto d'ora — il difetto opposto a quello di jcode, e altrettanto
- * bugiardo.
+ * WHEN A SESSION IS «AT WORK»
+ * Codex marks the end of a turn with a `task_complete` event. A session whose
+ * last event is that one has finished, however recent it may be: it stays
+ * `idle` even if the file was written a second ago. Without this reading,
+ * closing a turn and sitting still would count as «at work» for a quarter of
+ * an hour — the opposite defect to jcode's, and just as much of a lie.
  */
 
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
@@ -51,38 +48,38 @@ import {
 } from "./external-claude-sessions";
 
 /**
- * La testa: deve contenere per intero la `session_meta`, che e' la prima riga.
+ * The head: it must contain the whole `session_meta`, which is the first line.
  *
- * Non e' una riga corta: porta con se' le istruzioni di base della sessione e
- * misura ~19KB sul disco. Con una testa da 16KB il JSON arrivava
- * troncato, non parsava, e OGNI sessione Codex spariva dal censimento senza
- * un errore: 64KB per stare larghi.
+ * It is not a short line: it carries the session's base instructions with it
+ * and measures ~19KB on disk. With a 16KB head the JSON arrived truncated, did
+ * not parse, and EVERY Codex session vanished from the census without an
+ * error: 64KB to stay roomy.
  */
 const HEAD_BYTES = 64 * 1024;
-/** La coda: basta a contenere gli ultimi eventi di turno. */
+/** The tail: enough to hold the last turn events. */
 const TAIL_BYTES = 16 * 1024;
 
 export interface ScanCodexOptions {
-  /** Dove Codex tiene le sessioni. Iniettabile per i test. */
+  /** Where Codex keeps the sessions. Injectable for the tests. */
   sessionsDir?: string;
   now?: number;
-  /** Oltre questa eta' una sessione e' `idle`. */
+  /** Past this age a session is `idle`. */
   activeMs?: number;
-  /** Oltre questa eta' la sessione non compare affatto. */
+  /** Past this age the session does not show up at all. */
   windowMs?: number;
-  /** Le sessioni che Topics gia' possiede restano fuori. */
+  /** The sessions Topics already owns stay out. */
   knownSessionIds?: ReadonlySet<string>;
-  /** Radici di progetto note, per attribuire il cwd. */
+  /** Known project roots, to attribute the cwd. */
   candidatePaths?: string[];
   projectIdFor?: (path: string) => string;
-  /** Quante sessioni al massimo, dalla piu' recente. */
+  /** How many sessions at most, from the most recent one. */
   limit?: number;
   /** Test seam. */
   fs?: CodexFs;
 }
 
 export interface CodexFs {
-  /** I nomi dentro una directory, con il flag «e' una directory». */
+  /** The names inside a directory, with the «is a directory» flag. */
   readdir: (dir: string) => Array<{ name: string; isDir: boolean }>;
   stat: (path: string) => { mtimeMs: number; size: number } | null;
   read: (path: string, bytes: number, from: "head" | "tail") => string;
@@ -113,10 +110,10 @@ const realFs: CodexFs = {
       const st = statSync(path);
       const length = Math.min(bytes, st.size);
       if (length <= 0) return "";
-      const buf = Buffer.alloc(length);
+      const buffer = Buffer.alloc(length);
       fd = openSync(path, "r");
-      readSync(fd, buf, 0, length, from === "head" ? 0 : st.size - length);
-      return buf.toString("utf-8");
+      readSync(fd, buffer, 0, length, from === "head" ? 0 : st.size - length);
+      return buffer.toString("utf-8");
     } catch {
       return "";
     } finally {
@@ -132,34 +129,18 @@ const realFs: CodexFs = {
 };
 
 /**
- * I file di trascrizione sotto `dir`, dovunque siano nell'albero per data.
+ * The transcript files under `dir`, wherever they are in the tree by date.
  *
- * NON si pota per data della cartella, ne' per mtime ne' per nome, e sono due
- * lezioni pagate:
- *  - l'mtime di una directory non si muove quando un file dentro viene
- *    riscritto, quindi la cartella di un file toccato 134 minuti fa risultava
- *    vecchia di 1900;
- *  - il nome mente in modo diverso: una sessione APERTA il 21 e scritta oggi
- *    resta archiviata sotto `2026/08/21`. Misurato: sessioni scritte 4 ore fa
- *    in cartelle di due giorni prima.
- * Si guardano tutti i file e si filtra sull'mtime del file, che e' l'unico
- * dato onesto. Costo misurato: ~11ms per 840 file, sotto la soglia di
- * qualunque cosa succeda una volta al minuto.
- */
-/**
- * I file di trascrizione sotto `dir`, dovunque siano nell'albero per data.
- *
- * NON si pota per data della cartella, ne' per mtime ne' per nome, e sono due
- * lezioni pagate:
- *  - l'mtime di una directory non si muove quando un file dentro viene
- *    riscritto, quindi la cartella di un file toccato 134 minuti fa risultava
- *    vecchia di 1900;
- *  - il nome mente in modo diverso: una sessione APERTA il 21 e scritta oggi
- *    resta archiviata sotto `2026/08/21`. Misurato: sessioni scritte 4 ore fa
- *    in cartelle di due giorni prima.
- * Si guardano tutti i file e si filtra sull'mtime del file, che e' l'unico
- * dato onesto. Costo misurato: ~11ms per 840 file, sotto la soglia di
- * qualunque cosa succeda una volta al minuto.
+ * We do NOT prune by the folder's date, neither by mtime nor by name, and
+ * those are two lessons already paid for:
+ *  - a directory's mtime does not move when a file inside it is rewritten, so
+ *    the folder of a file touched 134 minutes ago looked 1900 minutes old;
+ *  - the name lies in a different way: a session OPENED on the 21st and
+ *    written today stays filed under `2026/08/21`. Measured: sessions written
+ *    4 hours ago in folders from two days earlier.
+ * We look at every file and filter on the file's mtime, which is the only
+ * honest datum. Measured cost: ~11ms for 840 files, below the threshold of
+ * anything that happens once a minute.
  */
 function collectFiles(
   fs: CodexFs,
@@ -185,13 +166,13 @@ function collectFiles(
 }
 
 /**
- * Una riga del rollout, per come ci serve leggerla.
+ * One rollout line, in the shape we need to read it.
  *
- * Non e' lo schema di Codex: e' il sottoinsieme che questo scanner guarda.
- * Dichiararlo invece di usare `any` costa quattro righe e in cambio il
- * compilatore accorge chi scrive `payload.cwdd`.
+ * It is not Codex's schema: it is the subset this scanner looks at. Declaring
+ * it instead of using `any` costs four lines and in exchange the compiler
+ * catches whoever writes `payload.cwdd`.
  */
-interface RigaCodex {
+interface CodexLine {
   type?: string;
   payload?: {
     session_id?: unknown;
@@ -202,16 +183,16 @@ interface RigaCodex {
   };
 }
 
-/** La prima `session_meta` trovata nella testa del file. */
+/** The first `session_meta` found in the file's head. */
 function parseHead(text: string): { sessionId: string | null; cwd: string | null; originator: string | null } {
   for (const line of text.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("{")) continue;
-    let o: RigaCodex | undefined;
+    let o: CodexLine | undefined;
     try {
-      o = JSON.parse(t) as RigaCodex;
+      o = JSON.parse(t) as CodexLine;
     } catch {
-      // La testa tronca l'ultima riga: normale, si prosegue.
+      // The head truncates the last line: normal, we carry on.
       continue;
     }
     if (o?.type !== "session_meta") continue;
@@ -226,20 +207,20 @@ function parseHead(text: string): { sessionId: string | null; cwd: string | null
 }
 
 /**
- * L'ultimo turno e' concluso?
+ * Is the last turn over?
  *
- * Si guarda l'ultimo `event_msg` presente nella coda: se e' `task_complete`,
- * Codex ha finito di rispondere. Le righe successive (`response_item`,
- * `world_state`) non cambiano il verdetto.
+ * We look at the last `event_msg` present in the tail: if it is
+ * `task_complete`, Codex has finished answering. The lines that follow
+ * (`response_item`, `world_state`) do not change the verdict.
  */
 function tailSaysFinished(text: string): boolean {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i]!.trim();
     if (!t.startsWith("{")) continue;
-    let o: RigaCodex | undefined;
+    let o: CodexLine | undefined;
     try {
-      o = JSON.parse(t) as RigaCodex;
+      o = JSON.parse(t) as CodexLine;
     } catch {
       continue;
     }
@@ -249,15 +230,15 @@ function tailSaysFinished(text: string): boolean {
   return false;
 }
 
-/** Il cwd piu' recente: `turn_context` lo riporta a ogni turno. */
+/** The most recent cwd: `turn_context` restates it on every turn. */
 function tailCwd(text: string): string | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i]!.trim();
     if (!t.startsWith("{")) continue;
-    let o: RigaCodex | undefined;
+    let o: CodexLine | undefined;
     try {
-      o = JSON.parse(t) as RigaCodex;
+      o = JSON.parse(t) as CodexLine;
     } catch {
       continue;
     }
@@ -284,7 +265,7 @@ export function scanCodexSessions(opts: ScanCodexOptions = {}): ExternalClaudeSe
   const out: ExternalClaudeSession[] = [];
   for (const f of files.slice(0, limit)) {
     const head = parseHead(fs.read(f.path, HEAD_BYTES, "head"));
-    // Senza id la sessione non e' indirizzabile: nessuna riga inventata.
+    // Without an id the session is not addressable: no invented rows.
     if (!head.sessionId) continue;
     if (known.has(head.sessionId)) continue;
 

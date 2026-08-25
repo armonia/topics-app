@@ -1,14 +1,12 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-21",
+  "generated": "2026-08-25",
   "files": {
     "client/src/App.tsx": [
-      "App",
       "BOOT_TAB_PERMALINK",
       "KeyboardShortcuts",
       "enqueueAndTick",
       "handleStandaloneAddPane",
-      "onTabAck",
       "panelLifecycle",
       "pinnedSpaceForHandoff",
       "unsub"
@@ -27,7 +25,6 @@
     "client/src/components/Auth/PairingGate.tsx": [
       "MotivoPairing",
       "VERSIONE",
-      "__APP_VERSION__",
       "attendi",
       "avvia",
       "corpo",
@@ -83,11 +80,9 @@
     ],
     "client/src/components/Board/FloatingTaskComposer.tsx": [
       "prioBtnRef",
-      "projBtnRef",
-      "todo"
+      "projBtnRef"
     ],
     "client/src/components/Board/KanbanBoardPane.tsx": [
-      "InlineFilters",
       "asgBtnRef",
       "cls",
       "compRect",
@@ -96,11 +91,8 @@
       "oltreQuota",
       "prioBtnRef",
       "progetto",
-      "projBtnRef",
-      "projectlessIds",
       "raf",
       "raf2",
-      "sel",
       "snelliti"
     ],
     "client/src/components/Board/NightModeCard.tsx": [
@@ -123,7 +115,6 @@
     "client/src/components/Board/TaskDetail.tsx": [
       "SubtaskNode",
       "addSubtask",
-      "app",
       "descCard",
       "editCancelled",
       "escGuardRef",
@@ -261,12 +252,10 @@
       "scelte"
     ],
     "client/src/components/Board/useBoardMotion.ts": [
-      "ColumnBox",
       "Istantanea",
       "PREFISSO_COLONNA",
       "anim",
       "atterra",
-      "box",
       "chiuso",
       "daSaltare",
       "gioca",
@@ -279,11 +268,7 @@
     ],
     "client/src/components/Browser/BrowserFavicon.tsx": [
       "BrowserFavicon",
-      "box",
       "showImg"
-    ],
-    "client/src/components/Browser/BrowserToolbar.tsx": [
-      "DownloadsMenuProps"
     ],
     "client/src/components/Browser/DomCoBrowse.tsx": [
       "RrwebEvent",
@@ -294,11 +279,6 @@
       "replayerRef",
       "scrollAccRef",
       "unsubscribe"
-    ],
-    "client/src/components/Browser/DownloadsMenu.tsx": [
-      "DownloadRow",
-      "DownloadsMenu",
-      "DownloadsMenuProps"
     ],
     "client/src/components/Browser/ForgetSiteDialog.tsx": [
       "ForgetSiteDialog",
@@ -317,12 +297,8 @@
     ],
     "client/src/components/Browser/RemoteBrowserPanel.tsx": [
       "cancelled",
-      "clearDownloads",
-      "dismissDownload",
-      "downloads",
       "isSeedableUrl",
       "kbdRef",
-      "streamDownloads",
       "useIframe"
     ],
     "client/src/components/Browser/SelectElementOverlay.tsx": [
@@ -333,28 +309,6 @@
       "mapCoordsToPage",
       "pageBboxToClient",
       "vid"
-    ],
-    "client/src/components/Browser/browserDevTypes.ts": [
-      "IPAD_UA",
-      "IPHONE_UA"
-    ],
-    "client/src/components/Browser/consoleLogModel.test.ts": [
-      "entries"
-    ],
-    "client/src/components/Browser/downloadsModel.test.ts": [
-      "DownloadEntry",
-      "DownloadEventIn"
-    ],
-    "client/src/components/Browser/downloadsModel.ts": [
-      "DownloadEntry",
-      "DownloadEventIn",
-      "DownloadProgressIn",
-      "DownloadState",
-      "MAX_DOWNLOAD_ENTRIES",
-      "applyDownloadEvent",
-      "applyDownloadProgress",
-      "capDownloads",
-      "downloadPercent"
     ],
     "client/src/components/Browser/faviconPlaceholder.ts": [
       "FaviconPlaceholder",
@@ -402,7 +356,6 @@
       "imgFailCount",
       "imgs",
       "lastTypingSentRef",
-      "latestTodo",
       "pre",
       "raf",
       "sendTyping",
@@ -453,19 +406,11 @@
     "client/src/components/Chat/MessageMetaFooter.tsx": [
       "contesto",
       "costo",
-      "inline",
       "parti"
     ],
     "client/src/components/Chat/ProviderModelPicker.tsx": [
-      "entries",
       "matchesProv",
       "popoverPos"
-    ],
-    "client/src/components/Chat/SessionConfigPopover.tsx": [
-      "entries"
-    ],
-    "client/src/components/Chat/TodoStrip.tsx": [
-      "TodoStrip"
     ],
     "client/src/components/Chat/ToolCards.tsx": [
       "ArgsPre",
@@ -473,7 +418,6 @@
       "HighlightedPre",
       "LspCard",
       "ResultPre",
-      "TodoCard",
       "armato"
     ],
     "client/src/components/Chat/ToolInputForm.tsx": [
@@ -494,9 +438,7 @@
     ],
     "client/src/components/Chat/coalesceToolRun.ts": [
       "CACHE_TTL_MS",
-      "carrierEntries",
-      "fondibile",
-      "reusedEntries"
+      "fondibile"
     ],
     "client/src/components/Chat/emptyStateContext.ts": [
       "modello"
@@ -530,30 +472,19 @@
     "client/src/components/Chat/selectLatestTodo.test.ts": [
       "asstWith",
       "conDetailRotto",
-      "conTodo",
       "letture",
       "primo",
       "secondo",
       "senzaTodo",
-      "spia",
-      "todoCall"
+      "spia"
     ],
     "client/src/components/Chat/selectLatestTodo.ts": [
-      "TodoCache",
-      "TodoItem",
-      "TodoSnapshot",
-      "mayCarryTodo",
-      "pieno",
-      "selectLatestTodo",
-      "todoItemsFromCall"
+      "pieno"
     ],
     "client/src/components/Chat/toolCardBody.test.ts": [
       "sempre"
     ],
     "client/src/components/Chat/toolDetail.ts": [
-      "TODO_ITEM_NAMES",
-      "TODO_LIST_NAMES",
-      "TODO_TOOL_NAMES",
       "timeout"
     ],
     "client/src/components/Chat/toolGrouping.test.ts": [
@@ -593,14 +524,6 @@
     "client/src/components/Context/CostProbePanel.tsx": [
       "dollari",
       "milioni"
-    ],
-    "client/src/components/Dashboard/KPICard.tsx": [
-      "KPICard",
-      "KPICardProps"
-    ],
-    "client/src/components/Dashboard/KPICardGrid.tsx": [
-      "KPICardGrid",
-      "KPICardGridProps"
     ],
     "client/src/components/Dashboard/TimeSeriesChart.tsx": [
       "closest",
@@ -680,7 +603,6 @@
     "client/src/components/Layout/PaneTabBar.tsx": [
       "dettaglioProgetto",
       "etichettaTab",
-      "isAppFocused",
       "riduciMovimento",
       "sottotitolo",
       "statoTab",
@@ -691,7 +613,6 @@
       "desc",
       "handleStandaloneUtilityChange",
       "handleUnsoloTopic",
-      "isNativeApp",
       "isPrimaryOfMultiTab",
       "isStandaloneTabDrag",
       "keyPos",
@@ -715,9 +636,6 @@
       "lifecycle",
       "titoloSuperficie",
       "utilType"
-    ],
-    "client/src/components/Layout/StreamingIndicator.tsx": [
-      "box"
     ],
     "client/src/components/Layout/flattenLayout.ts": [
       "singleRowNeedsEqualise"
@@ -813,14 +731,11 @@
       "def",
       "fmt",
       "getTouchDist",
-      "hasInline",
       "hasPreContentRows",
       "hljsReady",
-      "inlineTools",
       "lastTouchDist",
       "newDist",
       "pct",
-      "renderContentWithInlineTools",
       "resto",
       "ripreso",
       "sep",
@@ -846,31 +761,24 @@
       "cancelled",
       "dialogRef"
     ],
-    "client/src/components/Notifications/InAppBanners.tsx": [
-      "InAppBanners"
-    ],
     "client/src/components/Profile/ProfilePane.tsx": [
-      "PaginaProfilo",
       "attiva",
       "chiesta",
       "voce"
     ],
     "client/src/components/Project/FileExplorer.tsx": [
       "DeleteConfirmDialog",
-      "InlineInput",
       "absPath",
       "bandaErrore",
       "cartella",
       "clipboardRef",
       "copyToClipboard",
-      "dirEntries",
       "droppedDirNames",
       "isMultiSelect",
       "isMultiSelected",
       "isRenaming",
       "multiSelectCount",
       "quanti",
-      "readDirectoryEntries",
       "sel",
       "skippedFolders",
       "stato"
@@ -913,10 +821,8 @@
     ],
     "client/src/components/Project/ProjectSidebar.tsx": [
       "altezzaVera",
-      "box",
       "comandi",
       "etichetta",
-      "filesBoxRef",
       "giu",
       "leggiLayout",
       "partenzaSopra",
@@ -930,8 +836,7 @@
     ],
     "client/src/components/Project/ScriptRunner.tsx": [
       "comando",
-      "piuManifest",
-      "scriptEntries"
+      "piuManifest"
     ],
     "client/src/components/Project/diffEndpoints.ts": [
       "DiffEndpoints",
@@ -950,9 +855,7 @@
       "capSezione"
     ],
     "client/src/components/Settings/AIProvidersSection.tsx": [
-      "AppBehaviorSettings",
-      "cmd",
-      "entries"
+      "cmd"
     ],
     "client/src/components/Settings/AccountSection.tsx": [
       "StatoAccount",
@@ -966,8 +869,7 @@
     ],
     "client/src/components/Settings/AgentRuntimeChoice.tsx": [
       "AgentRuntime",
-      "AgentRuntimeChoice",
-      "AppBehaviorSettings"
+      "AgentRuntimeChoice"
     ],
     "client/src/components/Settings/DevicesSection.tsx": [
       "attivi",
@@ -986,18 +888,6 @@
       "livello",
       "stato",
       "vivo"
-    ],
-    "client/src/components/Settings/FriendsSection.tsx": [
-      "Avatar",
-      "PersonaConProfilo",
-      "annullato",
-      "aperto",
-      "apri",
-      "compatto",
-      "fresca",
-      "prossima",
-      "stato",
-      "valore"
     ],
     "client/src/components/Settings/IdentitySection.test.tsx": [
       "Membro",
@@ -1055,10 +945,7 @@
       "rimuovi"
     ],
     "client/src/components/Settings/ProfileStatsSection.tsx": [
-      "AppBehaviorSettings",
       "Cifra",
-      "ProfileStats",
-      "ProfileStatsSection",
       "RelayInfo",
       "Sparkline",
       "compatto",
@@ -1253,7 +1140,6 @@
       "Azione",
       "ChipOrg",
       "Elenco",
-      "FILA",
       "Facce",
       "Ferro",
       "MAX_FACCE",
@@ -1335,12 +1221,8 @@
       "pannello"
     ],
     "client/src/components/Sidebar/SidebarStatusBar.tsx": [
-      "BUILD_APP_VERSION",
       "SOGLIA_DISPOSITIVO_MB",
       "SOGLIA_SERVER_MB",
-      "__APP_VERSION__",
-      "appMemMB",
-      "appVersion",
       "fmtMB",
       "fps",
       "gatewayOnline",
@@ -1355,7 +1237,6 @@
     ],
     "client/src/components/Sidebar/SidebarSystemMenu.tsx": [
       "VOCE",
-      "__APP_VERSION__",
       "vivo"
     ],
     "client/src/components/Sidebar/SystemStatusPanel.tsx": [
@@ -1384,9 +1265,6 @@
       "versoIFissati",
       "vivo"
     ],
-    "client/src/components/Sidebar/VersionPopover.tsx": [
-      "UpdateBox"
-    ],
     "client/src/components/Sidebar/boardProjectChips.test.ts": [
       "RICCO",
       "minimoGarantito",
@@ -1411,7 +1289,6 @@
     ],
     "client/src/components/Sidebar/identityLabel.ts": [
       "EtichettaIdentita",
-      "avatarUrl",
       "etichettaIdentita",
       "ferro",
       "iniziali",
@@ -1458,7 +1335,6 @@
       "unici"
     ],
     "client/src/components/Sidebar/pinnedTileMetrics.test.ts": [
-      "box",
       "cls",
       "larghezza",
       "rientro",
@@ -1478,7 +1354,6 @@
       "tridi"
     ],
     "client/src/components/Sidebar/useProfileIdentity.ts": [
-      "PersonaConProfilo",
       "ProfiloIdentita",
       "iniziali",
       "primo"
@@ -1530,8 +1405,7 @@
     "client/src/contexts/PendingActionContext.tsx": [
       "committed",
       "enqueue",
-      "enqueuePendingAction",
-      "entriesRef"
+      "enqueuePendingAction"
     ],
     "client/src/hooks/appHookTypes.ts": [
       "TerminalOps"
@@ -1636,30 +1510,16 @@
     "client/src/hooks/useBackgroundShell.ts": [
       "dropped"
     ],
-    "client/src/hooks/useBoardFeed.test.ts": [
-      "box"
-    ],
-    "client/src/hooks/useBrowserDownloads.ts": [
-      "BrowserDownloads",
-      "DownloadEntry",
-      "DownloadEventIn",
-      "DownloadProgressIn",
-      "DownloadsState",
-      "entries",
-      "useBrowserDownloads"
-    ],
     "client/src/hooks/useChat.ts": [
       "SEND_LOCK_TIMEOUT_MS",
       "SSE_FAILSAFE_MS",
       "STREAM_TIMEOUT_MS",
       "arr",
       "buf",
-      "cacheEntriesBySize",
       "clearSSEFailsafe",
       "clearStreamTimeout",
       "correnti",
       "durevole",
-      "entries",
       "held",
       "idemKey",
       "liveDeltaRafRef",
@@ -1678,7 +1538,6 @@
       "DOPO",
       "SRV_U1",
       "SRV_U2",
-      "box",
       "frameSeq",
       "savedClearTimeout",
       "savedSetTimeout",
@@ -1762,7 +1621,6 @@
       "MembroPresenza",
       "OrgApi",
       "OrgConPresenza",
-      "PersonaConProfilo",
       "PresenzaIdentita",
       "RigaPresenza",
       "VUOTO",
@@ -1791,7 +1649,6 @@
       "isTypingSurface"
     ],
     "client/src/hooks/useMobile.ts": [
-      "isIOS",
       "isStandalone"
     ],
     "client/src/hooks/useModalDialog.ts": [
@@ -1811,7 +1668,6 @@
       "PRESENCE_TAB_SEP",
       "UsePanelLifecycleArgs",
       "UsePanelLifecycleReturn",
-      "atAppLevel",
       "bctx",
       "closedProjectRec",
       "closingTopic",
@@ -1870,9 +1726,7 @@
       "WEBRTC_RETRY_DELAY_MS",
       "armWebrtcWatchdog",
       "cancelled",
-      "clearDownloads",
       "coords",
-      "dismissDownload",
       "dsf",
       "dsfRef",
       "failWebrtc",
@@ -1881,13 +1735,11 @@
       "img",
       "imgRef",
       "info",
-      "inputAckWaitersRef",
       "inputSeqRef",
       "preload",
       "psf",
       "psfChanged",
       "retryWebrtc",
-      "settleInputAck",
       "startWebrtc",
       "teardownWebrtc",
       "typeBufRef",
@@ -1998,11 +1850,9 @@
     "client/src/hooks/useTauriBrowser.ts": [
       "agentOpsInFlightRef",
       "cancelled",
-      "entries",
       "freezeSeqRef",
       "fwd",
       "gateLoopback",
-      "getNavEntries",
       "info",
       "seq"
     ],
@@ -2051,12 +1901,9 @@
       "unsub"
     ],
     "client/src/lib/api.ts": [
-      "AppBehaviorSettings",
-      "PersonaConProfilo",
       "ProfiloGitHubClient",
       "ScriptProcessInfo",
       "StatistichePersonaClient",
-      "appSettingsApi",
       "obj"
     ],
     "client/src/lib/auth/session.test.ts": [
@@ -2098,11 +1945,9 @@
       "subtaskWorkChip"
     ],
     "client/src/lib/boardFlight.test.ts": [
-      "ColumnBox",
       "colonne"
     ],
     "client/src/lib/boardFlight.ts": [
-      "ColumnBox",
       "rapporto",
       "schermo",
       "scivolate",
@@ -2166,7 +2011,6 @@
       "bNotif",
       "hostname",
       "projSubAgents",
-      "readProjectPaneEntries",
       "standaloneChats",
       "standaloneTerminals",
       "utilType"
@@ -2194,8 +2038,7 @@
       "deps"
     ],
     "client/src/lib/deepLinkClick.ts": [
-      "DeepLinkClickDeps",
-      "openedInApp"
+      "DeepLinkClickDeps"
     ],
     "client/src/lib/devBundleReload.ts": [
       "unsubscribe"
@@ -2288,9 +2131,6 @@
       "sotto",
       "standalone",
       "sulBordo"
-    ],
-    "client/src/lib/effortTiers.test.ts": [
-      "entries"
     ],
     "client/src/lib/fastMode.ts": [
       "applies",
@@ -2401,15 +2241,8 @@
       "rinominato"
     ],
     "client/src/lib/haptics.test.ts": [
-      "IPHONE",
       "cliccato",
       "creati"
-    ],
-    "client/src/lib/haptics.ts": [
-      "iosHapticSwitch",
-      "iosLabel",
-      "iosSwitch",
-      "iosSwitchPulse"
     ],
     "client/src/lib/hoverReveal.test.ts": [
       "cls"
@@ -2494,9 +2327,7 @@
       "MESSAGE_BANNER_COOLDOWN_MS"
     ],
     "client/src/lib/notify/messageBannerClaim.ts": [
-      "MAX_ENTRIES",
-      "TTL_MS",
-      "entries"
+      "TTL_MS"
     ],
     "client/src/lib/notify/muteGate.ts": [
       "proj"
@@ -2522,9 +2353,6 @@
     ],
     "client/src/lib/openTaskLink.ts": [
       "LEGACY_SEP",
-      "openDeepLinkInApp",
-      "openTaskInApp",
-      "openTopicInApp",
       "subscribePopstateTask"
     ],
     "client/src/lib/osOpenPath.test.ts": [
@@ -2578,7 +2406,6 @@
       "spazioSotto"
     ],
     "client/src/lib/popoverRegistry.test.ts": [
-      "openEntries",
       "unregister",
       "unregisterFirst"
     ],
@@ -2587,7 +2414,6 @@
       "unsubFrames"
     ],
     "client/src/lib/push/environment.ts": [
-      "isIosWithoutInstall",
       "standalone"
     ],
     "client/src/lib/reducedMotion.test.ts": [
@@ -2644,7 +2470,6 @@
       "vicino"
     ],
     "client/src/lib/selectionStyles.test.ts": [
-      "box",
       "cls",
       "frazionari",
       "riga",
@@ -2654,15 +2479,12 @@
     "client/src/lib/selectionStyles.ts": [
       "CHROME_BAR_H_VAR",
       "GLYPH_KBD_PADDING",
-      "ROW_ACTION_BOX",
-      "ROW_ACTION_BOX_PX",
       "riposo"
     ],
     "client/src/lib/settings.ts": [
       "syncableSettings"
     ],
     "client/src/lib/shell/app.ts": [
-      "__APP_VERSION__",
       "sel"
     ],
     "client/src/lib/shell/browserLoginState.ts": [
@@ -2699,10 +2521,6 @@
       "orig",
       "rewriting"
     ],
-    "client/src/lib/shell/notificationPermission.test.ts": [
-      "app",
-      "loadApp"
-    ],
     "client/src/lib/shell/tauriBrowserOps.test.ts": [
       "jarCookies"
     ],
@@ -2711,7 +2529,6 @@
       "StorageCookie",
       "cookieCount",
       "cookies",
-      "entries",
       "origUrl",
       "setPaneCookies"
     ],
@@ -2745,20 +2562,10 @@
       "subscribeHighlighter"
     ],
     "client/src/lib/tabLink.test.ts": [
-      "acks",
       "colpi",
       "enc"
     ],
     "client/src/lib/tabLink.ts": [
-      "ACK_SETTLE_MS",
-      "appPaneIdForTarget",
-      "atAppLevel",
-      "cancelAck",
-      "openTabInApp",
-      "openTabInAppWhenHydrated",
-      "pendingAcks",
-      "scheduleOpenAck",
-      "tabAckReleasesIntent",
       "unsub"
     ],
     "client/src/lib/textMorph.test.ts": [
@@ -2799,7 +2606,6 @@
       "LifecycleHandler",
       "WSLifecycleEvent",
       "dispatchLifecycle",
-      "entries",
       "lifecycleHandlers",
       "subscribeLifecycle"
     ],
@@ -2831,7 +2637,6 @@
     ],
     "client/src/state/chatQueue.ts": [
       "enqueueTurn",
-      "entries",
       "isHeld",
       "readback",
       "rec",
@@ -2851,20 +2656,13 @@
       "unsubFrames"
     ],
     "client/src/state/inAppBanner.ts": [
-      "IN_APP_BANNER_TTL_MS",
-      "InAppBanner",
-      "InAppBannerState",
-      "useInAppBannerStore"
+      "IN_APP_BANNER_TTL_MS"
     ],
     "client/src/state/layout/goldenGeometry.test.ts": [
       "EPS"
     ],
     "client/src/state/layout/legacyAdapters.test.ts": [
       "approxGrid"
-    ],
-    "client/src/state/layout/legacyAdapters.ts": [
-      "colEntries",
-      "rowEntries"
     ],
     "client/src/state/messageStore.test.ts": [
       "lasciata",
@@ -2877,7 +2675,6 @@
       "iscritti"
     ],
     "client/src/state/pane/adapters/browserOriginStore.test.ts": [
-      "appLevel",
       "chatRec",
       "closedRec",
       "rec"
@@ -2885,7 +2682,6 @@
     "client/src/state/pane/adapters/browserOriginStore.ts": [
       "enqueueProjectBrowserNavigate",
       "enqueueProjectBrowserReopen",
-      "entries",
       "rec"
     ],
     "client/src/state/pane/adapters/browserTombstoneEvict.test.ts": [
@@ -2895,7 +2691,6 @@
       "rec"
     ],
     "client/src/state/pane/adapters/closedTabRecord.test.ts": [
-      "appBrowser",
       "newest",
       "rec"
     ],
@@ -2918,7 +2713,6 @@
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
       "MAX_RETRIES",
       "__getUnackedProjectSyncKeys",
-      "entries",
       "lastAppliedSeqByKey",
       "seq",
       "unackedJsonByKey",
@@ -2930,10 +2724,8 @@
     "client/src/state/pane/adapters/tombstoneSync.ts": [
       "MAX_RETRIES",
       "__getUnackedTombstoneSyncKeys",
-      "entries",
       "lastAppliedSeq",
       "loc",
-      "parseEntries",
       "seq",
       "unackedJson"
     ],
@@ -2959,10 +2751,7 @@
       "DEFAULT_TTL_MS",
       "TTL_MS",
       "__getLastEmittedServerSeq",
-      "__getPendingAcks",
-      "acks",
-      "lastEmittedServerSeq",
-      "rememberLocalAck"
+      "lastEmittedServerSeq"
     ],
     "client/src/state/pane/middleware/serverHydrated.test.ts": [
       "applicato",
@@ -3022,9 +2811,6 @@
     "client/src/state/pane/reducers/pinnedChatResurrection.test.ts": [
       "closing",
       "seq"
-    ],
-    "client/src/state/pane/reducers/sanitizeSnapshot.test.ts": [
-      "entries"
     ],
     "client/src/state/pane/reducers/spaces.test.ts": [
       "localNewerRename",
@@ -3114,7 +2900,6 @@
     ],
     "client/src/state/taskBrowserTabs.ts": [
       "dst",
-      "entries",
       "maxSeq",
       "neighbourActive",
       "nextSeq",
@@ -3127,18 +2912,12 @@
       "wokenA",
       "wokenB"
     ],
-    "client/src/state/taskWorkspacePreviews.ts": [
-      "entries"
-    ],
     "client/src/state/topicPreviews.test.ts": [
       "corto",
       "mostro",
       "sveglie",
       "sveglieT1",
       "sveglieT2"
-    ],
-    "client/src/state/topicPreviews.ts": [
-      "entries"
     ],
     "client/src/state/turnClock.test.ts": [
       "dopo"
@@ -3157,7 +2936,6 @@
       "unimplemented"
     ],
     "client/src/types/index.ts": [
-      "AppSettings",
       "GitLineStat",
       "TerminalSessionInfo",
       "WSTypingMessage",
@@ -3168,8 +2946,6 @@
       "RIGA_TESTO",
       "Stat",
       "acc",
-      "ackError",
-      "ackMs",
       "buf",
       "copies",
       "listLatencies",
@@ -3185,8 +2961,7 @@
       "PROBE_TIMEOUT_MS",
       "cacheInfo",
       "med",
-      "mss",
-      "openApp"
+      "mss"
     ],
     "scripts/bench/concurrency.ts": [
       "TIMEOUT_MS",
@@ -3233,7 +3008,6 @@
       "WORKDIR",
       "dec",
       "info",
-      "stats",
       "tls"
     ],
     "scripts/board-arms.ts": [
@@ -3249,8 +3023,6 @@
       "xhigh"
     ],
     "scripts/board-baseline.ts": [
-      "COST_STATS_MIN",
-      "Stats",
       "argv",
       "bracketCostUsd",
       "buf",
@@ -3264,7 +3036,6 @@
       "quantile",
       "rng",
       "skipped",
-      "stats",
       "usdPerMRead"
     ],
     "scripts/board-cases.test.ts": [
@@ -3332,13 +3103,11 @@
       "vecchie"
     ],
     "scripts/board-vs-chat.test.ts": [
-      "HistoryStats",
       "agg",
       "brk",
       "noDeps"
     ],
     "scripts/board-vs-chat.ts": [
-      "HistoryStats",
       "MeasureDeps",
       "abs",
       "apcValues",
@@ -3404,10 +3173,8 @@
       "argv",
       "cfg",
       "cmd",
-      "entriesFromPackageScripts",
       "knipPath",
       "readKnipWorkspaces",
-      "scriptEntries",
       "stdout",
       "sym"
     ],
@@ -3436,8 +3203,7 @@
       "committed"
     ],
     "scripts/check-e2e-sleeps.ts": [
-      "SOURCE_EXT",
-      "entries"
+      "SOURCE_EXT"
     ],
     "scripts/check-emdash.test.ts": [
       "proc"
@@ -3451,7 +3217,6 @@
       "SOURCE_EXT",
       "abs",
       "argv",
-      "inline",
       "isJustified"
     ],
     "scripts/check-migration-numbers.ts": [
@@ -3474,7 +3239,6 @@
       "dichiaratoLocale",
       "difetto",
       "esc",
-      "findInlineRefSetters",
       "riga",
       "righe",
       "rossi",
@@ -3649,7 +3413,6 @@
     "scripts/disk-report.ts": [
       "REGEN",
       "classify",
-      "entries",
       "proj",
       "regen"
     ],
@@ -3730,7 +3493,6 @@
     "scripts/gen-migrations-manifest.ts": [
       "EMBEDDED_MIGRATIONS",
       "EmbeddedMigration",
-      "entries",
       "gemello",
       "ident",
       "identOf",
@@ -3872,7 +3634,6 @@
       "buf",
       "cfg",
       "cred",
-      "inline",
       "newest",
       "nota"
     ],
@@ -3912,9 +3673,6 @@
     "scripts/mem-report.ts": [
       "ExtRow",
       "PsInfo",
-      "appPid",
-      "appRows",
-      "backupEntries",
       "buf",
       "cmd",
       "commBatch",
@@ -4048,7 +3806,6 @@
     ],
     "scripts/webcontent-owners.ts": [
       "ProcRow",
-      "appName",
       "cmd",
       "lib",
       "nostri",
@@ -4064,7 +3821,6 @@
       "cdp2",
       "codecs",
       "latencies",
-      "stats",
       "ver"
     ],
     "server/ai-bridge-singleton.test.ts": [
@@ -4073,7 +3829,6 @@
       "stderr"
     ],
     "server/ai-bridge.test.ts": [
-      "ack",
       "atteso",
       "buf",
       "contenuto",
@@ -4107,12 +3862,10 @@
       "thunkCalls"
     ],
     "server/browser-chromium-sidecar.ts": [
-      "app",
       "cdpEndpoint",
       "clearTimeoutFn",
       "linuxCandidates",
       "setTimeoutFn",
-      "userApp",
       "waitForCdpEndpoint"
     ],
     "server/browser-dom-cobrowse.test.ts": [
@@ -4122,15 +3875,13 @@
       "svc"
     ],
     "server/browser-dom-walker.ts": [
-      "box",
       "buf",
       "captureAnnotatedScreenshotOnPage"
     ],
     "server/browser-engine-registry.ts": [
       "ChromiumEngineInfo",
       "cachedEngineInfo",
-      "chromiumEngineInfo",
-      "entries"
+      "chromiumEngineInfo"
     ],
     "server/browser-engine-switch.test.ts": [
       "EngineSwitchDeps",
@@ -4190,12 +3941,6 @@
       "dati",
       "molte"
     ],
-    "server/browser-network-log.ts": [
-      "MAX_NETWORK_ENTRIES"
-    ],
-    "server/browser-network-tool.test.ts": [
-      "entries"
-    ],
     "server/browser-ops-adapter.ts": [
       "BrowserOps",
       "playwrightOps"
@@ -4216,7 +3961,6 @@
       "RRWEB_RECORD_START",
       "RRWEB_STOP",
       "ScreencastOnFrame",
-      "browserDownloadDir",
       "buf",
       "cdp",
       "cdpEndpoint",
@@ -4291,9 +4035,6 @@
       "repl",
       "timeout"
     ],
-    "server/browser-state-store.ts": [
-      "entries"
-    ],
     "server/browser-store-keep-list.test.ts": [
       "troncata"
     ],
@@ -4326,7 +4067,6 @@
     "server/browser-tools-handler.ts": [
       "BrowserOps",
       "buf",
-      "entries",
       "handleBrowserEval",
       "handleBrowserScreenshot",
       "ops",
@@ -4337,7 +4077,6 @@
     "server/context/adapt-dedup.test.ts": [
       "README",
       "conMappaVuota",
-      "inlineEnvelope",
       "normale",
       "nota",
       "nuovo",
@@ -4350,11 +4089,8 @@
     ],
     "server/context/adapt.ts": [
       "CLI_BUILTINS",
-      "adaptInlineSystem",
-      "buildInlineSystemNotes",
       "countEmittedBlocks",
       "emitted",
-      "inlineSlots",
       "isCliBuiltin",
       "skipped",
       "sys",
@@ -4367,8 +4103,7 @@
       "FS_SNAPSHOT_TTL_MS",
       "bytesDropped",
       "currentTopicInfo",
-      "droppedHistoryTurns",
-      "entries"
+      "droppedHistoryTurns"
     ],
     "server/context/history-override.test.ts": [
       "troncato"
@@ -4379,18 +4114,11 @@
       "iniziale"
     ],
     "server/context/inline-sent-state.ts": [
-      "__clearInlineSentStateForTests",
-      "getInlineSentState",
-      "inlineScope",
-      "markInlineSent",
       "oldest",
-      "rekeyInlineSent",
-      "resetInlineSent"
+      "rekeyInlineSent"
     ],
     "server/context/regression.test.ts": [
-      "buildLegacyInlineSystem",
-      "currentTopicInfo",
-      "entries"
+      "currentTopicInfo"
     ],
     "server/context/snapshots.ts": [
       "arr"
@@ -4551,7 +4279,6 @@
       "vuoto"
     ],
     "server/lib/ai-bridge-ack-deadline.test.ts": [
-      "TEST_ACK_MS",
       "buf",
       "errore",
       "listRicevuti",
@@ -4565,8 +4292,6 @@
     "server/lib/ai-bridge-client.ts": [
       "ACK_TIMEOUT_MS",
       "ATTACH_ACK_TIMEOUT_MS",
-      "BridgeAckStalled",
-      "MAX_ACK_WAIT_MS",
       "PONG_TIMEOUT_MS",
       "SPAWN_ACK_TIMEOUT_MS",
       "SessionInfo",
@@ -4725,7 +4450,6 @@
       "omesse",
       "righe",
       "sforano",
-      "stagedEntries",
       "suo",
       "tagliato",
       "testo",
@@ -4842,8 +4566,7 @@
       "proc"
     ],
     "server/lib/git-numstat.test.ts": [
-      "BINARIO",
-      "stats"
+      "BINARIO"
     ],
     "server/lib/git-numstat.ts": [
       "ConConteggi",
@@ -4882,7 +4605,6 @@
       "orig"
     ],
     "server/lib/git-status-cache.ts": [
-      "MAX_ENTRIES",
       "TTL_MS",
       "oldestKey",
       "oldestTs"
@@ -5231,16 +4953,9 @@
       "ico"
     ],
     "server/lib/project-icon.ts": [
-      "ALLOWED_INLINE_CT",
-      "APPS_DIR_SCAN_CAP",
-      "INLINE_MAX_BYTES",
-      "NESTED_APP_DIRS",
-      "appsDir",
       "decodeHtmlEntities",
-      "entries",
       "extractIconHref",
-      "href",
-      "inline"
+      "href"
     ],
     "server/lib/project-ref.test.ts": [
       "slugify"
@@ -5261,7 +4976,6 @@
       "comp",
       "deno",
       "dentro",
-      "inline",
       "lista",
       "parseDenoTasks",
       "parseMakefileTargets",
@@ -5332,9 +5046,6 @@
       "tutte"
     ],
     "server/lib/relocate-pane.ts": [
-      "APP_KEY",
-      "app",
-      "appPanes",
       "seq"
     ],
     "server/lib/ripresa-automatica.test.ts": [
@@ -5369,9 +5080,6 @@
     ],
     "server/lib/serial-queue.ts": [
       "enqueue"
-    ],
-    "server/lib/served-file-headers.ts": [
-      "isInlineSafe"
     ],
     "server/lib/session-control-core.test.ts": [
       "SessionControlDeps",
@@ -5501,10 +5209,7 @@
       "vivo"
     ],
     "server/lib/tab-resolver.ts": [
-      "APP_PANE_KEY",
       "TabResolverDeps",
-      "app",
-      "appPanes",
       "isAddressableProjectPath",
       "rec"
     ],
@@ -5644,9 +5349,6 @@
     ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
-      "JCODE",
-      "describeIfJcode",
-      "makeJcode",
       "rec"
     ],
     "server/providers/acp-provider.test.ts": [
@@ -5707,8 +5409,7 @@
       "AcpToolCallContent",
       "AcpToolCallStatus",
       "AcpTranslateState",
-      "AcpTranslated",
-      "entries"
+      "AcpTranslated"
     ],
     "server/providers/ask-user-detector.ts": [
       "multiSelect",
@@ -5791,7 +5492,6 @@
       "stderr",
       "stdout",
       "timeoutPromise",
-      "topicsAppBaseUrl",
       "useTls"
     ],
     "server/providers/claude-models.ts": [
@@ -5883,7 +5583,6 @@
       "std"
     ],
     "server/providers/index.ts": [
-      "AppSettings",
       "RUNTIME_PROVIDER",
       "resolveAcpAgents",
       "runtimePreferred"
@@ -5896,7 +5595,6 @@
       "turno"
     ],
     "server/providers/native-usage-registry.ts": [
-      "MAX_ENTRIES",
       "oldest"
     ],
     "server/providers/native/abort-cause.test.ts": [
@@ -6061,12 +5759,8 @@
       "pezzi"
     ],
     "server/providers/turn-end-registry.ts": [
-      "MAX_ENTRIES",
       "info",
       "oldest"
-    ],
-    "server/providers/turn-liveness-routing.test.ts": [
-      "jcode"
     ],
     "server/providers/types.ts": [
       "AcpProviderConfig"
@@ -6120,10 +5814,7 @@
       "stato"
     ],
     "server/routes/app-settings.ts": [
-      "AppSettings",
-      "RUNTIMES",
-      "appSettingsRouter",
-      "createAppSettingsRouter"
+      "RUNTIMES"
     ],
     "server/routes/auth.ts": [
       "OrgRole",
@@ -6204,7 +5895,6 @@
       "DipendenzeBilling",
       "PERCORSO_WEBHOOK",
       "POSTI_DEFAULT",
-      "ack",
       "adesso",
       "corpo",
       "esito",
@@ -6287,7 +5977,6 @@
       "outTok",
       "recoverFromSoftTimeout",
       "riprendeDaSolo",
-      "rollbackInlineSent",
       "rowHasWorkDopoMerge",
       "scartata",
       "soloCompattazione",
@@ -6297,7 +5986,6 @@
       "timeoutMsg",
       "toolsDelTurno",
       "uevt",
-      "undoInlineMark",
       "usd",
       "usdFromProvider",
       "verdetto",
@@ -6327,9 +6015,6 @@
     ],
     "server/routes/crashedTurnNotice.test.ts": [
       "giu"
-    ],
-    "server/routes/crashedTurnNotice.ts": [
-      "hasJsonEntries"
     ],
     "server/routes/cron.ts": [
       "broadcastCronList",
@@ -6368,7 +6053,6 @@
       "checkProc",
       "daIndice",
       "diffProc",
-      "entries",
       "esempi",
       "esito",
       "evictOldestBackups",
@@ -6392,7 +6076,6 @@
       "stat",
       "statProc",
       "statText",
-      "stats",
       "statusProc",
       "stderr",
       "stdout",
@@ -6446,9 +6129,6 @@
     ],
     "server/routes/open.ts": [
       "inv"
-    ],
-    "server/routes/openclaw-context.ts": [
-      "entries"
     ],
     "server/routes/people.ts": [
       "DipendenzePeople",
@@ -6522,11 +6202,9 @@
       "compatto",
       "esc",
       "mostraCosto",
-      "sparklineSvg",
-      "stats"
+      "sparklineSvg"
     ],
     "server/routes/push.test.ts": [
-      "IPHONE_UA",
       "byEndpoint",
       "dbCheEsplode",
       "destinatari",
@@ -6551,7 +6229,6 @@
       "lastCronStatus",
       "mtimeMs",
       "proc",
-      "readAppVersion",
       "stderr",
       "stdout",
       "topicCountStmt",
@@ -6576,9 +6253,6 @@
     ],
     "server/routes/task-patch.ts": [
       "expr"
-    ],
-    "server/routes/tasks.backlog-stale-queued.test.ts": [
-      "todoPoiBacklog"
     ],
     "server/routes/tasks.landing.test.ts": [
       "cardConsegnata",
@@ -6617,7 +6291,6 @@
       "senzaSql",
       "svc",
       "testo",
-      "todos",
       "tornata",
       "traccia",
       "troppi",
@@ -6653,7 +6326,6 @@
       "titoloInSottofondo"
     ],
     "server/routes/terminal.ts": [
-      "ackPromise",
       "autoNameOpencodeSession",
       "buf",
       "cbs",
@@ -6666,13 +6338,11 @@
       "sweepAutoNameOpencodeSessions"
     ],
     "server/routes/topics.control.test.ts": [
-      "app",
       "maxSeq"
     ],
     "server/routes/topics.ts": [
       "PREVIEW_CACHE_TTL_MS",
       "abs",
-      "appPort",
       "descOf",
       "detectLocalhostAutoNav",
       "localhostMatch",
@@ -6691,7 +6361,6 @@
     ],
     "server/routes/ui-state.ts": [
       "curSeq",
-      "entries",
       "layoutObj",
       "nextSeq",
       "recObj",
@@ -6775,12 +6444,9 @@
     ],
     "server/services/app-settings.ts": [
       "AgentRuntime",
-      "AppSettings",
-      "getAppSettings",
       "resolveAgentRuntime",
       "resolveOpenaiMaxTokens",
-      "resolveOpenaiModel",
-      "updateAppSettings"
+      "resolveOpenaiModel"
     ],
     "server/services/archive-topic.test.ts": [
       "ArchiveTopicDeps"
@@ -6798,9 +6464,6 @@
     ],
     "server/services/board-protocol-parity.test.ts": [
       "REGOLE_CHE_PARLANO_ALL_AGENTE"
-    ],
-    "server/services/branch-inventory.test.ts": [
-      "entries"
     ],
     "server/services/branch-status.test.ts": [
       "assente",
@@ -6843,7 +6506,6 @@
     ],
     "server/services/claude-tasks-sync.ts": [
       "TopicsTaskUpsert",
-      "entries",
       "fileMtimes",
       "mtime",
       "projDir",
@@ -6884,7 +6546,6 @@
       "passi",
       "riassuntoSvg",
       "righe",
-      "stats",
       "testo"
     ],
     "server/services/discord-activity.test.ts": [
@@ -6893,8 +6554,7 @@
       "vuoto"
     ],
     "server/services/discord-ipc.test.ts": [
-      "IpcSocket",
-      "attivita"
+      "IpcSocket"
     ],
     "server/services/discord-ipc.ts": [
       "DiscordIpcError",
@@ -6916,16 +6576,12 @@
       "attesa",
       "attesa2",
       "dopoPrima",
-      "orologio",
-      "servizio",
-      "svc",
-      "tentativi"
+      "svc"
     ],
     "server/services/discord-presence.ts": [
       "DiscordPresenceDeps",
       "IpcConnector",
-      "IpcSocket",
-      "servizio"
+      "IpcSocket"
     ],
     "server/services/dispatch-capacity.test.ts": [
       "conAttive",
@@ -6963,7 +6619,6 @@
       "vecchio"
     ],
     "server/services/image-shape.test.ts": [
-      "app0",
       "dht",
       "sof0",
       "sof2"
@@ -6973,7 +6628,6 @@
       "isSOF"
     ],
     "server/services/known-project-dirs.test.ts": [
-      "prevApp",
       "vero"
     ],
     "server/services/known-project-dirs.ts": [
@@ -7021,8 +6675,7 @@
       "classifyLandingEsito"
     ],
     "server/services/landing-queue.ts": [
-      "LandingQueueDeps",
-      "entries"
+      "LandingQueueDeps"
     ],
     "server/services/landing-verdict.test.ts": [
       "codice",
@@ -7148,7 +6801,6 @@
       "trimmed"
     ],
     "server/services/profile-banner.test.ts": [
-      "STATS",
       "benFormato",
       "errori",
       "senzaIncerte",
@@ -7165,15 +6817,6 @@
       "GIORNO",
       "messaggio",
       "progetto"
-    ],
-    "server/services/profile-stats.ts": [
-      "GIORNO_MS",
-      "VUOTO",
-      "computeProfileStats",
-      "cursore",
-      "giorni",
-      "giorno",
-      "perGiorno"
     ],
     "server/services/project-path-resolver.test.ts": [
       "deps"
@@ -7444,7 +7087,6 @@
       "righe",
       "rotto",
       "seq",
-      "stats",
       "svc"
     ],
     "server/services/task-dispatcher-heavy-gate.test.ts": [
@@ -7462,7 +7104,6 @@
       "marcate",
       "righe",
       "seedOrfana",
-      "seedTodo",
       "seq",
       "svc"
     ],
@@ -7547,19 +7188,15 @@
       "motivoTetto",
       "nienteDaVedere",
       "nota",
-      "onEnterTodo",
-      "onLeaveTodo",
       "perche",
       "perchePieno",
       "posti",
       "riapertaDaUnUmano",
       "sporchi",
-      "stats",
       "stillTriaging",
       "tappo",
       "timeoutMin",
       "timeoutMs",
-      "todos",
       "unsubscribeHumanHold",
       "untilHHMM",
       "vivi"
@@ -7786,7 +7423,6 @@
       "svc2",
       "testi",
       "testo",
-      "todo",
       "totale",
       "tuttoPieno",
       "upd"
@@ -7884,9 +7520,7 @@
       "attivo",
       "chiuso",
       "deps",
-      "ordine",
-      "sporco",
-      "timbri"
+      "sporco"
     ],
     "server/services/worktree-gc-residue.test.ts": [
       "WorktreeGcDeps",
@@ -7896,12 +7530,8 @@
     "server/services/worktree-gc-review-land.test.ts": [
       "WorktreeGcDeps",
       "absPath",
-      "cardConsegnata",
       "deps",
-      "dopo",
-      "landa",
-      "svc",
-      "testo"
+      "svc"
     ],
     "server/services/worktree-gc-runner.test.ts": [
       "WorktreeGcDeps",
@@ -7957,7 +7587,6 @@
     ],
     "server/services/worktree-slim.ts": [
       "abs",
-      "entries",
       "isSlimmableDirName",
       "proc",
       "toPosix"
@@ -7971,9 +7600,6 @@
     ],
     "server/static-assets.ts": [
       "classifyStaticAsset"
-    ],
-    "server/types.ts": [
-      "AppContext"
     ],
     "server/usage/context-window.test.ts": [
       "NUDO",
@@ -8006,8 +7632,7 @@
     "server/usage/pricing.ts": [
       "MODEL_PRICING",
       "findPricing",
-      "pricing",
-      "sortedEntries"
+      "pricing"
     ],
     "server/usage/store.ts": [
       "enqueue"
@@ -8048,9 +7673,7 @@
       "arr",
       "chiave",
       "chiuse",
-      "createAppContext",
       "deleteMessageSubtree",
-      "entries",
       "eraPermesso",
       "ext",
       "fresche",
@@ -8138,7 +7761,6 @@
       "txt"
     ],
     "shared/browser-ws-messages.ts": [
-      "downloadMessageSchema",
       "frameMetadataSchema",
       "webrtcAnswerMessageSchema",
       "webrtcIceMessageSchema",
@@ -8161,7 +7783,6 @@
       "desc"
     ],
     "shared/element-describe.ts": [
-      "ElementBox",
       "escAttr",
       "escText",
       "txt"
@@ -8215,15 +7836,11 @@
       "conteggi",
       "sys"
     ],
-    "shared/permission-decision.ts": [
-      "entries"
-    ],
     "shared/presence-phrase.test.ts": [
       "fermo",
       "riga"
     ],
     "shared/presence-phrase.ts": [
-      "PRESENCE_APP_NAME",
       "pezzi"
     ],
     "shared/preview-retirement.test.ts": [
@@ -8572,9 +8189,6 @@
       "findNeighbours",
       "tokenizeTaskText"
     ],
-    "shared/task-tab-context.test.ts": [
-      "app"
-    ],
     "shared/task-title.test.ts": [
       "DETTATO",
       "ultimaParola"
@@ -8595,10 +8209,7 @@
     ],
     "shared/tool-call-detail.ts": [
       "ZodInferredToolCallDetail",
-      "lspSchema",
-      "todoItemSchema",
-      "todoItemStatusSchema",
-      "todoSchema"
+      "lspSchema"
     ],
     "shared/tray-board.test.ts": [
       "intero",
@@ -8616,8 +8227,7 @@
       "AcpUsageUpdate",
       "AgentRuntime",
       "Checkpoint",
-      "DEFAULT_AGENT_RUNTIME",
-      "ProfileStats"
+      "DEFAULT_AGENT_RUNTIME"
     ],
     "shared/ws-handshake.ts": [
       "formatZodIssues"
@@ -8629,7 +8239,6 @@
     ],
     "tests/e2e/add-menu.spec.ts": [
       "appPulita",
-      "box",
       "kbds",
       "seq",
       "sovrapposti"
@@ -8647,7 +8256,6 @@
     ],
     "tests/e2e/bench-latency.spec.ts": [
       "PROBE_TIMEOUT_MS",
-      "TODO_CARD",
       "fcp"
     ],
     "tests/e2e/bench-streaming.spec.ts": [
@@ -8663,7 +8271,6 @@
       "cardViaggia",
       "resta",
       "ripristina",
-      "todo",
       "viaggia"
     ],
     "tests/e2e/board-blocked-chip.spec.ts": [
@@ -8714,7 +8321,6 @@
       "visibile"
     ],
     "tests/e2e/board-column-volume.spec.ts": [
-      "TODO_SEEDED",
       "altri"
     ],
     "tests/e2e/board-composer-dictation.spec.ts": [
@@ -8731,23 +8337,18 @@
       "ATTESO",
       "DESCRIZIONE",
       "TITOLO",
-      "box",
       "clipboard",
       "copia",
       "pannello",
       "voce"
     ],
     "tests/e2e/board-created-flash.spec.ts": [
-      "box",
-      "composerBox",
       "guarda",
       "mio",
       "precedente",
       "remoto",
       "restano",
       "scorrimentoFermo",
-      "todoBody",
-      "todoCol",
       "uguali"
     ],
     "tests/e2e/board-diff-review.spec.ts": [
@@ -8758,38 +8359,25 @@
     ],
     "tests/e2e/board-done-flash.spec.ts": [
       "approvato",
-      "box",
       "primo",
       "secondo",
       "vecchio"
     ],
     "tests/e2e/board-drag-frames.spec.ts": [
-      "TODO_SEEDED",
-      "backlogBox",
-      "box",
       "committed",
-      "inProgressBox",
-      "rec",
-      "todoBody",
-      "todoIds"
+      "rec"
     ],
     "tests/e2e/board-drawer-scroll.spec.ts": [
       "CRC_TABLE",
       "approva",
       "approvaBox",
-      "bodyBox",
-      "boxOf",
       "crc",
       "crc32",
-      "drawerBox",
-      "headerBox",
       "ihdr",
       "img",
       "imgBox",
-      "rightBox",
       "scrollableAncestors",
-      "scroller",
-      "sessionBox"
+      "scroller"
     ],
     "tests/e2e/board-drawer-truth.spec.ts": [
       "DESC_FIRST_LINE",
@@ -8811,7 +8399,6 @@
       "marcatore",
       "ricomparsa",
       "testo",
-      "todo",
       "ultimaAttivita"
     ],
     "tests/e2e/board-flash-curve.spec.ts": [
@@ -8830,9 +8417,6 @@
       "aperta",
       "nuova",
       "vecchia"
-    ],
-    "tests/e2e/board-kanban-i18n.spec.ts": [
-      "todo"
     ],
     "tests/e2e/board-labels.spec.ts": [
       "ALTRA",
@@ -8858,17 +8442,13 @@
       "treGiorniFa"
     ],
     "tests/e2e/board-preview-autoplay.spec.ts": [
-      "box",
       "lontane",
       "sopra",
       "sotto",
       "stati"
     ],
     "tests/e2e/board-preview-cap.spec.ts": [
-      "Box",
-      "boxes",
-      "img",
-      "previewBoxes"
+      "img"
     ],
     "tests/e2e/board-project-selector.spec.ts": [
       "PROJ_A",
@@ -8915,7 +8495,6 @@
     ],
     "tests/e2e/board-review-column-mobile.spec.ts": [
       "dopo",
-      "todo",
       "widest"
     ],
     "tests/e2e/board-review-quiet-note.spec.ts": [
@@ -8948,7 +8527,6 @@
     ],
     "tests/e2e/board-task-id-chip.spec.ts": [
       "FACCE",
-      "box",
       "camminatore",
       "dopo",
       "gruppo",
@@ -8981,15 +8559,12 @@
     "tests/e2e/board-topbar-legibility.spec.ts": [
       "agente",
       "bottonePubblica",
-      "box",
       "canale",
       "conteggi",
       "contrasto",
       "dipingi",
       "geometrie",
       "globali",
-      "inlineChips",
-      "nasce",
       "pannello",
       "pausa",
       "piccoli",
@@ -9016,17 +8591,14 @@
       "ALTRO_ID",
       "altro",
       "atteso",
-      "box",
       "colonne",
       "dst",
       "mio",
       "perProgetto",
       "primo",
-      "rowBox",
       "secondo",
       "testo",
       "testoCoda",
-      "todo",
       "vuoto"
     ],
     "tests/e2e/browser-agent-control.spec.ts": [
@@ -9068,7 +8640,6 @@
     ],
     "tests/e2e/browser-mobile-keyboard.spec.ts": [
       "RRWEB_FIELDS",
-      "box",
       "email",
       "kbd",
       "otp"
@@ -9083,14 +8654,12 @@
       "href"
     ],
     "tests/e2e/browser-tab-open.spec.ts": [
-      "oBox",
       "providerInfo"
     ],
     "tests/e2e/browser-ws-streaming.spec.ts": [
       "PERF",
       "PERF_PATH",
       "bandwidthKbps",
-      "box",
       "orig",
       "origSend",
       "origWs",
@@ -9129,7 +8698,6 @@
       "MOCK_CHECKPOINTS",
       "NEW_CHECKPOINT",
       "confirmDialog",
-      "entries",
       "mockCheckpoints"
     ],
     "tests/e2e/chat-compact-drain.spec.ts": [
@@ -9139,7 +8707,6 @@
       "vuote"
     ],
     "tests/e2e/chat-composer-ink-band.spec.ts": [
-      "box",
       "mosso",
       "restSopra",
       "scroller",
@@ -9152,7 +8719,6 @@
     ],
     "tests/e2e/chat-fast-mode.spec.ts": [
       "FAST_SERVIBILE",
-      "box",
       "cls",
       "dichiaraFastMode",
       "textarea"
@@ -9230,17 +8796,13 @@
     ],
     "tests/e2e/chat.spec.ts": [
       "clipboard",
-      "download",
-      "downloadP",
       "eccedenza",
       "scroller",
       "textarea"
     ],
     "tests/e2e/checklist-ui-verify.spec.ts": [
       "bordo",
-      "box",
-      "conOmbra",
-      "handleBox"
+      "conOmbra"
     ],
     "tests/e2e/chrome-bar-continuity.spec.ts": [
       "PROJ",
@@ -9353,15 +8915,9 @@
       "gotoAndWait"
     ],
     "tests/e2e/effort-single-surface.spec.ts": [
-      "box",
-      "boxLow",
-      "boxMedium",
-      "boxPristine",
-      "prov",
-      "rowBox"
+      "prov"
     ],
     "tests/e2e/feature-weight.spec.ts": [
-      "box",
       "chatConMessaggi",
       "conFlotta",
       "figli",
@@ -9401,10 +8957,7 @@
     ],
     "tests/e2e/file-explorer-panels.spec.ts": [
       "breadcrumb",
-      "entries",
-      "readmeItem",
-      "rootEntries",
-      "srcEntries"
+      "readmeItem"
     ],
     "tests/e2e/file-explorer.spec.ts": [
       "breadcrumb",
@@ -9424,7 +8977,6 @@
       "timeout"
     ],
     "tests/e2e/fixtures/dashboard.fixture.ts": [
-      "MOCK_KPIS",
       "MOCK_TIMESERIES"
     ],
     "tests/e2e/fixtures/hermetic.ts": [
@@ -9448,16 +9000,8 @@
       "riga",
       "visti"
     ],
-    "tests/e2e/friend-profiles.spec.ts": [
-      "AVATAR",
-      "riga",
-      "seminaProfiloInCache",
-      "seminaTurni",
-      "sezione"
-    ],
     "tests/e2e/git-changes-ui.spec.ts": [
       "apriGit",
-      "box",
       "casella",
       "dopo",
       "riga",
@@ -9501,7 +9045,6 @@
     "tests/e2e/global-setup.ts": [
       "BUNDLE_FRESH_TIMEOUT_MS",
       "checkpointBaseline",
-      "entries",
       "newest",
       "newestClientSource",
       "runLockHeld",
@@ -9511,10 +9054,7 @@
       "rimasti"
     ],
     "tests/e2e/grid-split.spec.ts": [
-      "box",
-      "dBox",
       "draggableTabs",
-      "mainBox",
       "preDividers"
     ],
     "tests/e2e/group-drop-sources.spec.ts": [
@@ -9562,7 +9102,6 @@
       "voce"
     ],
     "tests/e2e/helpers.ts": [
-      "goToApp",
       "textarea"
     ],
     "tests/e2e/helpers/api-fixtures.ts": [
@@ -9721,8 +9260,6 @@
       "acao"
     ],
     "tests/e2e/layout-edge-cases.spec.ts": [
-      "box0",
-      "box1",
       "chiudiTab",
       "xterm"
     ],
@@ -9752,7 +9289,6 @@
     "tests/e2e/mobile-chrome-bar.spec.ts": [
       "AGGIUNGI",
       "CERCA",
-      "FASCIA_IPHONE",
       "PAVIMENTO_ASSOLUTO",
       "PROFILO",
       "RAGGI",
@@ -9799,10 +9335,8 @@
       "spia"
     ],
     "tests/e2e/mobile-responsive-audit.spec.ts": [
-      "app",
       "expectPulitaComeOggi",
       "fuoriADestra",
-      "openAppAt",
       "perContenuto",
       "pulita",
       "rotta",
@@ -9860,8 +9394,7 @@
       "perfTopics",
       "readLoadCLS",
       "sel",
-      "testid",
-      "waitForAppReady"
+      "testid"
     ],
     "tests/e2e/permission-panel.spec.ts": [
       "dopo",
@@ -9876,7 +9409,6 @@
     "tests/e2e/pinned-tile-action-slot.spec.ts": [
       "CORTO",
       "LUNGO",
-      "box",
       "chiavi",
       "gotoSidebar",
       "mkdirWithIcon",
@@ -9886,10 +9418,8 @@
     ],
     "tests/e2e/plan-approval.spec.ts": [
       "autonomia",
-      "barBox",
       "chiave",
-      "corpo",
-      "inputBox"
+      "corpo"
     ],
     "tests/e2e/preview-slide.spec.ts": [
       "apriBoard",
@@ -9914,7 +9444,6 @@
       "interruttore",
       "scegli",
       "seminaConsumo",
-      "stats",
       "testo"
     ],
     "tests/e2e/project-badge-attributable.spec.ts": [
@@ -9942,7 +9471,6 @@
     "tests/e2e/project-sidebar-auto-height.spec.ts": [
       "VECCHIA_ALTEZZA_PROCESSI",
       "apri",
-      "box",
       "colonna",
       "garantisciAperta",
       "scatola",
@@ -9953,9 +9481,6 @@
       "acceso",
       "aperta",
       "attesa",
-      "barraBox",
-      "boxes",
-      "btnBox",
       "cardAperta",
       "chiusaH",
       "chiusoFont",
@@ -9965,9 +9490,7 @@
       "pastiglia",
       "procRow",
       "riga",
-      "rigaBox",
-      "stripBox",
-      "tabBox"
+      "rigaBox"
     ],
     "tests/e2e/project-sidebar-sections-resize.spec.ts": [
       "PROJ",
@@ -10010,15 +9533,8 @@
     "tests/e2e/provider-snapshot-sync.spec.ts": [
       "origWS"
     ],
-    "tests/e2e/push-one-voice.spec.ts": [
-      "inAppBanner",
-      "shownInApp"
-    ],
     "tests/e2e/real-tool-calls.spec.ts": [
       "TC_MULTI_IDS",
-      "box1",
-      "box2",
-      "box3",
       "img",
       "textarea"
     ],
@@ -10048,7 +9564,6 @@
       "apriDrawer",
       "apriProgetto",
       "atteso",
-      "box",
       "bozza",
       "briciole",
       "cerca",
@@ -10070,14 +9585,6 @@
       "chiavi",
       "dopo",
       "esistenti"
-    ],
-    "tests/e2e/regression-fixes.spec.ts": [
-      "dividerBox",
-      "leftBarBox",
-      "leftBarBoxAfter",
-      "rightBarBox",
-      "rightBarBoxAfter",
-      "searchBox"
     ],
     "tests/e2e/relay-reachability.spec.ts": [
       "PEZZA",
@@ -10128,9 +9635,6 @@
       "rigaDi",
       "varco"
     ],
-    "tests/e2e/screenshot-evidence.spec.ts": [
-      "box"
-    ],
     "tests/e2e/scroll-fluidity.spec.ts": [
       "JANK_UNIFORME_MS",
       "Passata",
@@ -10168,7 +9672,6 @@
     "tests/e2e/settings-mobile.spec.ts": [
       "SCHEDE",
       "apriImpostazioni",
-      "box",
       "cdp",
       "emulaIlDito",
       "lista",
@@ -10264,7 +9767,6 @@
       "apriApp",
       "arrivo",
       "attesa",
-      "box",
       "centro",
       "creati",
       "dito",
@@ -10297,15 +9799,11 @@
       "apertaSopraTutto",
       "attendi",
       "avviso",
-      "bandBox",
       "bersaglio",
       "bordo",
-      "box",
       "boxLarga",
-      "boxOf",
       "boxProj",
       "boxStretta",
-      "boxes",
       "campiona",
       "celle",
       "centri",
@@ -10370,7 +9868,6 @@
       "sbordano",
       "scarti",
       "scarto",
-      "sectionBox",
       "segno",
       "senzaGlifo",
       "senzaIcona",
@@ -10411,7 +9908,6 @@
       "albero",
       "attendiTessereFerme",
       "attesa",
-      "box",
       "cerca",
       "colonna",
       "etichetta",
@@ -10466,12 +9962,10 @@
       "tabSinistra"
     ],
     "tests/e2e/split-screen-sync.spec.ts": [
-      "preDividers",
       "proj"
     ],
     "tests/e2e/sub-chrome-row.spec.ts": [
       "PROJ",
-      "appTab",
       "apri",
       "arrotonda",
       "barraProgetto",
@@ -10493,7 +9987,6 @@
     ],
     "tests/e2e/tab-bar-command-air.spec.ts": [
       "BOX_DITO",
-      "BOX_MOUSE",
       "Comando",
       "Riga",
       "apriDueChat",
@@ -10514,7 +10007,6 @@
     "tests/e2e/tab-close-ring-touch.spec.ts": [
       "TETTO",
       "annulla",
-      "box",
       "cerchio",
       "chiudi",
       "disegnato",
@@ -10568,7 +10060,6 @@
       "GLIFO",
       "Inchiostro",
       "Riquadro",
-      "box",
       "centro",
       "famiglia",
       "glifoDx",
@@ -10584,14 +10075,9 @@
       "supporta"
     ],
     "tests/e2e/task-open-in-workspace.spec.ts": [
-      "appCtx",
-      "appPane",
       "evts",
       "openProj",
       "rec"
-    ],
-    "tests/e2e/terminal-reconnect.spec.ts": [
-      "SLOW_BOX_MS"
     ],
     "tests/e2e/terminal-session-resume.spec.ts": [
       "proc"
@@ -10625,10 +10111,6 @@
       "rigaLavoro",
       "turno"
     ],
-    "tests/e2e/tool-cost-attribution.spec.ts": [
-      "boxAtRest",
-      "boxOnHover"
-    ],
     "tests/e2e/tooltip-app.spec.ts": [
       "primaRiga",
       "righe"
@@ -10646,7 +10128,6 @@
     ],
     "tests/e2e/turn-awaiting-input.spec.ts": [
       "durata",
-      "inlineUsage",
       "primaLettura"
     ],
     "tests/e2e/turn-cost-multiplier.spec.ts": [
@@ -10792,7 +10273,6 @@
     ],
     "tests/integration/helpers/index.ts": [
       "abs",
-      "createTestAppContext",
       "radice"
     ],
     "tests/integration/history-payload-weight.test.ts": [
@@ -10801,8 +10281,6 @@
     ],
     "tests/integration/install-claude-hooks.test.ts": [
       "altrui",
-      "entries",
-      "ourEntries",
       "primo",
       "vecchio"
     ],
@@ -10916,9 +10394,6 @@
       "stmt",
       "suo",
       "tipo"
-    ],
-    "tests/integration/migration-087-output-language.test.ts": [
-      "CREATE_APP_SETTINGS"
     ],
     "tests/integration/migration-088-board-language.test.ts": [
       "stmt"
@@ -11056,9 +10531,7 @@
     ],
     "tests/integration/relocate-pane.test.ts": [
       "TEST_PROJ_CHAT",
-      "TEST_PROJ_SOLO",
-      "app",
-      "seedAppStore"
+      "TEST_PROJ_SOLO"
     ],
     "tests/integration/served-file-headers.test.ts": [
       "vecchio"
@@ -11192,7 +10665,6 @@
     ],
     "tests/unit/deadcode-blindspots.test.ts": [
       "colpevoli",
-      "entries",
       "fantasmi",
       "muti"
     ],
@@ -11382,7 +10854,6 @@
       "testo"
     ],
     "tests/unit/no-shared-tmp-paths.test.ts": [
-      "entries",
       "riga",
       "spiega"
     ],
@@ -11427,9 +10898,6 @@
       "testo",
       "viste",
       "voce"
-    ],
-    "tests/unit/pending-action-sync.test.ts": [
-      "entries"
     ],
     "tests/unit/playwright-core-revision-match.test.ts": [
       "pkg"
@@ -11554,9 +11022,7 @@
     ],
     "tests/unit/ws-contract.test.ts": [
       "defOf",
-      "entries",
-      "innerDef",
-      "todo"
+      "innerDef"
     ],
     "tests/unit/ws-outbound-coverage.test.ts": [
       "emitted",

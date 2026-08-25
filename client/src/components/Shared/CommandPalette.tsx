@@ -301,13 +301,13 @@ export function CommandPalette({
       limit: 40,
     });
     return rows.map((row, i) => {
-      const rec = row.record;
+      const record = row.record;
       const paneType = row.paneType;
       const icon = row.kind === 'page'
         ? <BrowserFavicon url={row.url ?? ''} faviconUrl={row.favicon} size={14} />
-        : rec?.terminal?.sessionType === 'claude-code'
+        : record?.terminal?.sessionType === 'claude-code'
           ? <ClaudeIcon size={14} />
-          : rec?.terminal?.sessionType === 'codex'
+          : record?.terminal?.sessionType === 'codex'
             ? <CodexIcon size={14} />
             : paneType === 'terminal'
               ? <TerminalSquare size={14} />
@@ -326,9 +326,9 @@ export function CommandPalette({
         // thing ⇧⌘T reopens: pinning it on a page row would promise a key that
         // does something else.
         shortcut: i === 0 && row.kind === 'tab' ? '⇧⌘T' : undefined,
-        titleOverride: row.url || rec?.terminal?.cwd || rec?.projectPath || undefined,
+        titleOverride: row.url || record?.terminal?.cwd || record?.projectPath || undefined,
         action: () => {
-          if (row.kind === 'tab' && rec && onReopenClosedTab) onReopenClosedTab(rec);
+          if (row.kind === 'tab' && record && onReopenClosedTab) onReopenClosedTab(record);
           else if (row.url && onOpenHistoryUrl) onOpenHistoryUrl(row.url);
           onClose();
         },

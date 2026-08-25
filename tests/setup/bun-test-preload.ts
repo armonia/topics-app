@@ -87,96 +87,99 @@ setDefaultTimeout(applicato);
 (globalThis as Record<string, unknown>)[TIMEOUT_MARKER] = applicato;
 
 /**
- * GLI HOOK GIT DELLA MACCHINA RESTANO FUORI DAI TEST.
+ * THE MACHINE'S GIT HOOKS STAY OUT OF THE TESTS.
  *
- * Diciassette file di test costruiscono un repo git vero e ci fanno dentro 46
- * commit in tutto. Nessuno di loro passava un ambiente: ereditavano la config
- * globale di chi eseguiva, hook compresi.
+ * Seventeen test files build a real git repo and make 46 commits inside them
+ * in total. None of them passed an environment: they inherited the global
+ * config of whoever was running, hooks included.
  *
- * Non e' teoria. Su questa macchina `core.hooksPath` punta a un
- * `prepare-commit-msg` di terze parti che a ogni commit fa due
- * `curl --max-time 2` verso `localhost:3333` — la porta del server di Topics.
- * Misurato il 24/08: 380ms per commit contro 160ms, cioe' 220ms buttati ogni
- * volta, una decina di secondi a corsa. E quando quella porta risponde lenta
- * invece di rifiutare subito, i 2s di timeout per curl si sommano finche' il
- * test sfora e muore.
+ * This is not theory. On this machine `core.hooksPath` points at a
+ * third-party `prepare-commit-msg` that on every commit fires two
+ * `curl --max-time 2` at `localhost:3333` — the port of the Topics server.
+ * Measured on 24/08: 380ms per commit against 160ms, i.e. 220ms thrown away
+ * every time, about ten seconds per run. And when that port answers slowly
+ * instead of refusing straight away, curl's 2s timeouts add up until the test
+ * overruns and dies.
  *
- * Il sintomo era il peggiore possibile: un rosso che compariva SOLO nella
- * suite intera e mai sui file da soli, con l'errore «this test timed out after
- * 5000ms» su un test diverso ogni volta. Sembrava che i test collidessero fra
- * loro; era invece la macchina che entrava dentro. Un test che gira su git
- * vero deve portarsi il proprio git, non quello di chi lo esegue.
+ * The symptom was the worst one available: a red that showed up ONLY in the
+ * whole suite and never on the files run alone, with the error «this test
+ * timed out after 5000ms» on a different test every time. It looked as though
+ * the tests were colliding with each other; it was the machine getting in.
+ * A test that runs on real git has to bring its own git, not the one belonging
+ * to whoever runs it.
  *
- * UN LIMITE DI BUN, misurato e non aggirabile da qui: `Bun.spawnSync` NON
- * eredita le variabili aggiunte a `process.env` a runtime. Verificato: una
- * variabile scritta qui arriva a `process.env` ma il figlio la vede vuota,
- * mentre passando `env: process.env` alla spawn arriva. Quindi questo preload
- * NON basta da solo: prepara l'ambiente giusto, e chi lancia git deve
- * passarlo. Per non ripetere la stessa riga in diciassette file, si usa
- * `gitEnv()` qui sotto.
+ * A LIMIT OF BUN, measured and not workable around from here: `Bun.spawnSync`
+ * does NOT inherit the variables added to `process.env` at runtime. Verified:
+ * a variable written here reaches `process.env` but the child sees it empty,
+ * while passing `env: process.env` to the spawn does get it through. So this
+ * preload is NOT enough on its own: it prepares the right environment, and
+ * whoever launches git has to pass it. So as not to repeat the same line in
+ * seventeen files, `gitEnv()` below is used.
  *
- * `commit.gpgsign=false` per lo stesso motivo: chi firma i commit non deve
- * vedersi chiedere la passphrase da una suite di test, che poi resta appesa
- * fino al timeout.
+ * `commit.gpgsign=false` for the same reason: whoever signs their commits must
+ * not be asked for the passphrase by a test suite, which then hangs until the
+ * timeout.
  *
- * NON tocca la config dell'utente: sono variabili d'ambiente di questo
- * processo e muoiono con lui.
+ * It does NOT touch the user's config: these are environment variables of this
+ * process and they die with it.
  *
- * COPRE TUTTA LA CORSA, a differenza del timeout qui sopra. Il preload gira
- * una volta sola per corsa: `setDefaultTimeout` vale solo per il file che bun
- * sta caricando in quel momento (vedi il commento del timeout, misurato), ma
- * le variabili d'ambiente si scrivono sul PROCESSO e restano. Verificato su
- * due file nella stessa corsa: entrambi vedono `core.hooksPath` isolato.
+ * IT COVERS THE WHOLE RUN, unlike the timeout above. The preload runs only
+ * once per run: `setDefaultTimeout` applies only to the file bun is loading at
+ * that moment (see the timeout's comment, measured), but environment variables
+ * are written on the PROCESS and they stay. Verified on two files in the same
+ * run: both see `core.hooksPath` isolated.
  *
- * QUI DENTRO NON VA L'IDENTITA' (`user.name` / `user.email`), e la prima
- * versione ci era finita rompendo due test. `server/lib/git-identity.test.ts`
- * simula una macchina SENZA identita' per provare il ripiego che sblocca il
- * land: lo fa con un `GIT_CONFIG_GLOBAL` finto e `user.useConfigOnly`. Le
- * chiavi passate da `GIT_CONFIG_*` battono quel file, quindi un'identita'
- * messa qui rendeva la condizione impossibile da simulare e il test verde
- * diventava rosso — mascherando per giunta un guasto vero, il commit che su
- * un runner senza identita' esce 128.
+ * THE IDENTITY (`user.name` / `user.email`) DOES NOT GO IN HERE, and the first
+ * version had put it there, breaking two tests.
+ * `server/lib/git-identity.test.ts` simulates a machine WITHOUT an identity to
+ * prove the fallback that unblocks the land: it does so with a fake
+ * `GIT_CONFIG_GLOBAL` and `user.useConfigOnly`. The keys passed through
+ * `GIT_CONFIG_*` beat that file, so an identity put here made the condition
+ * impossible to simulate and the green test turned red — masking, on top of
+ * that, a real fault: the commit that on a runner with no identity exits 128.
  *
- * La regola che ne esce: qui si toglie di mezzo cio' che la macchina AGGIUNGE
- * ai test (hook, firma), non si aggiunge cio' che a un test potrebbe servire.
- * Chi ha bisogno di un'identita' se la passa lui, che e' anche l'unico modo di
- * poterne provare l'assenza.
+ * The rule that follows: in here we take out of the way what the machine ADDS
+ * to the tests (hooks, signature), we do not add what a test might need.
+ * Whoever needs an identity passes it themselves, which is also the only way
+ * to be able to prove its absence.
  */
-function isolaGitDaAmbiente(): void {
-  // `GIT_CONFIG_COUNT` + le coppie chiave/valore: la via ufficiale per
-  // imporre config a git senza scrivere su nessun file.
-  const coppie: Array<[string, string]> = [
-    // NON la stringa vuota: git la risolve come percorso RELATIVO al repo e
-    // finisce per usare `<repo>/.git/hooks`, cioe' esattamente gli hook che
-    // volevamo evitare. Verificato con `git config --get core.hooksPath` in un
-    // processo figlio: tornava `/Users/.../topics-app/.git/hooks`. Serve un
-    // percorso assoluto che non esiste: git non trova nulla e non esegue nulla.
+function isolateGitFromEnvironment(): void {
+  // `GIT_CONFIG_COUNT` + the key/value pairs: the official way to impose
+  // config on git without writing to any file.
+  const pairs: Array<[string, string]> = [
+    // NOT the empty string: git resolves it as a path RELATIVE to the repo and
+    // ends up using `<repo>/.git/hooks`, i.e. exactly the hooks we wanted to
+    // avoid. Verified with `git config --get core.hooksPath` in a child
+    // process: it answered `/Users/.../topics-app/.git/hooks`. What is needed
+    // is an absolute path that does not exist: git finds nothing and runs
+    // nothing.
     ["core.hooksPath", "/nonexistent/topics-test-hooks"],
     ["commit.gpgsign", "false"],
   ];
-  // Non si sovrascrive un conteggio gia' impostato da chi ci ha lanciati:
-  // si accoda, altrimenti gli si buttano via le sue chiavi.
-  const gia = Number(process.env.GIT_CONFIG_COUNT ?? "0");
-  const base = Number.isFinite(gia) && gia > 0 ? gia : 0;
-  coppie.forEach(([k, v], i) => {
+  // A count already set by whoever launched us is not overwritten: we append,
+  // otherwise their keys get thrown away.
+  const already = Number(process.env.GIT_CONFIG_COUNT ?? "0");
+  const base = Number.isFinite(already) && already > 0 ? already : 0;
+  pairs.forEach(([k, v], i) => {
     process.env[`GIT_CONFIG_KEY_${base + i}`] = k;
     process.env[`GIT_CONFIG_VALUE_${base + i}`] = v;
   });
-  process.env.GIT_CONFIG_COUNT = String(base + coppie.length);
+  process.env.GIT_CONFIG_COUNT = String(base + pairs.length);
 }
 
-isolaGitDaAmbiente();
+isolateGitFromEnvironment();
 
 /**
- * L'ambiente da passare a un `Bun.spawnSync(["git", ...])` dentro un test.
+ * The environment to pass to a `Bun.spawnSync(["git", ...])` inside a test.
  *
- * Esiste per il limite qui sopra: le variabili impostate dal preload non
- * arrivano da sole ai processi figli. Chi lancia git nei test scrive
- * `{ env: gitEnv() }` e si porta dietro l'isolamento senza doverlo conoscere.
+ * It exists because of the limit above: the variables set by the preload do
+ * not reach child processes on their own. Whoever launches git in the tests
+ * writes `{ env: gitEnv() }` and carries the isolation along without having to
+ * know about it.
  *
- * Accetta aggiunte per i casi che hanno bisogno di una variabile propria,
- * cosi' nessuno e' costretto a ricostruire `process.env` a mano e a perdere
- * per strada le chiavi di git.
+ * It accepts additions for the cases that need a variable of their own, so
+ * nobody is forced to rebuild `process.env` by hand and lose git's keys along
+ * the way.
  */
 export function gitEnv(extra: Record<string, string> = {}): Record<string, string> {
   return { ...(process.env as Record<string, string>), ...extra };

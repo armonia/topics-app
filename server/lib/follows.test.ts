@@ -17,19 +17,19 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  follow, unfollow, conteggiFollow, segue, idFollower, idSeguiti,
-  privacyPersona, impostaPrivacy, PRIVACY_DEFAULTS,
+  follow, unfollow, countFollows, segue, idFollower, idFollowing,
+  privacyPersona, setPrivacy, PRIVACY_DEFAULTS,
 } from "./follows";
 
 /** The two tables these functions touch, and only the columns they read. */
-function schemaCompleto(): Database {
+function fullSchema(): Database {
   const db = new Database(":memory:");
   db.run(`
     CREATE TABLE people (
       id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
-      -- La lapide della 084: la tabella follows non puo' esistere senza, perche'
-      -- quella migration viene molto prima. I contatori la leggono.
+      -- The tombstone of the 084: the follows table cannot exist without it,
+      -- because that migration comes much earlier. The counters read it.
       revoked_at INTEGER,
       rev INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL DEFAULT 0,
@@ -53,7 +53,7 @@ function schemaCompleto(): Database {
 }
 
 /** An installation that has not run the migration: no table, no columns. */
-function schemaVecchio(): Database {
+function oldSchema(): Database {
   const db = new Database(":memory:");
   db.run("CREATE TABLE people (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, rev INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0)");
   db.run("INSERT INTO people (id, display_name, updated_at) VALUES ('ada', 'ada', 0)");
@@ -62,7 +62,7 @@ function schemaVecchio(): Database {
 
 describe("il grafo dei follow", () => {
   let db: Database;
-  beforeEach(() => { db = schemaCompleto(); });
+  beforeEach(() => { db = fullSchema(); });
 
   test("seguire e' asimmetrico: l'altro verso resta vuoto", () => {
     expect(follow(db, "ada", "bea", 10)).toBe(true);
@@ -70,26 +70,26 @@ describe("il grafo dei follow", () => {
     expect(segue(db, "ada", "bea")).toBe(true);
     expect(segue(db, "bea", "ada")).toBe(false);
 
-    expect(conteggiFollow(db, "ada")).toEqual({ followers: 0, following: 1 });
-    expect(conteggiFollow(db, "bea")).toEqual({ followers: 1, following: 0 });
+    expect(countFollows(db, "ada")).toEqual({ followers: 0, following: 1 });
+    expect(countFollows(db, "bea")).toEqual({ followers: 1, following: 0 });
   });
 
   test("seguire due volte e' seguire una volta, e non muove il timestamp", () => {
     follow(db, "ada", "bea", 10);
     follow(db, "ada", "bea", 999);
 
-    const righe = db.query("SELECT created_at AS t FROM follows WHERE follower_id = 'ada'").all() as
+    const rows = db.query("SELECT created_at AS t FROM follows WHERE follower_id = 'ada'").all() as
       Array<{ t: number }>;
-    expect(righe).toHaveLength(1);
+    expect(rows).toHaveLength(1);
     // INSERT OR IGNORE: the second write never happened at all, so the
     // moment the relation was born stays the true one.
-    expect(righe[0]!.t).toBe(10);
-    expect(conteggiFollow(db, "bea").followers).toBe(1);
+    expect(rows[0]!.t).toBe(10);
+    expect(countFollows(db, "bea").followers).toBe(1);
   });
 
   test("seguire se stessi e' rifiutato, e non lascia una riga", () => {
     expect(follow(db, "ada", "ada")).toBe(false);
-    expect(conteggiFollow(db, "ada")).toEqual({ followers: 0, following: 0 });
+    expect(countFollows(db, "ada")).toEqual({ followers: 0, following: 0 });
   });
 
   test("smettere di seguire toglie un verso solo", () => {
@@ -109,7 +109,7 @@ describe("il grafo dei follow", () => {
 
     // Most recent first.
     expect(idFollower(db, "ada")).toEqual(["cy", "bea"]);
-    expect(idSeguiti(db, "ada")).toEqual(["cy"]);
+    expect(idFollowing(db, "ada")).toEqual(["cy"]);
     expect(idFollower(db, "cy")).toEqual(["ada"]);
   });
 
@@ -123,9 +123,9 @@ describe("il grafo dei follow", () => {
     // draws.
     db.run("UPDATE people SET revoked_at = 1 WHERE id = 'bea'");
 
-    expect(conteggiFollow(db, "ada")).toEqual({ followers: 1, following: 0 });
+    expect(countFollows(db, "ada")).toEqual({ followers: 1, following: 0 });
     expect(idFollower(db, "ada")).toEqual(["cy"]);
-    expect(idSeguiti(db, "ada")).toEqual([]);
+    expect(idFollowing(db, "ada")).toEqual([]);
     // The edge is still there: the revocation can be lifted.
     expect(db.query("SELECT COUNT(*) AS n FROM follows").get()).toEqual({ n: 3 });
   });
@@ -137,14 +137,14 @@ describe("il grafo dei follow", () => {
 
     db.run("DELETE FROM people WHERE id = 'ada'");
 
-    expect(conteggiFollow(db, "bea").followers).toBe(1);
+    expect(countFollows(db, "bea").followers).toBe(1);
     expect(idFollower(db, "bea")).toEqual(["cy"]);
   });
 });
 
 describe("le cinque manopole della privacy", () => {
   let db: Database;
-  beforeEach(() => { db = schemaCompleto(); });
+  beforeEach(() => { db = fullSchema(); });
 
   test("i default: tutto aperto tranne l'email", () => {
     expect(privacyPersona(db, "ada")).toEqual({
@@ -158,17 +158,17 @@ describe("le cinque manopole della privacy", () => {
   });
 
   test("la patch e' parziale: tocca cio' che nomina e lascia stare il resto", () => {
-    const dopo = impostaPrivacy(db, "ada", { showStats: false, showEmail: true }, 500);
+    const after = setPrivacy(db, "ada", { showStats: false, showEmail: true }, 500);
 
-    expect(dopo.showStats).toBe(false);
-    expect(dopo.showEmail).toBe(true);
-    expect(dopo.showProfile).toBe(true);
-    expect(dopo.showFollowers).toBe(true);
+    expect(after.showStats).toBe(false);
+    expect(after.showEmail).toBe(true);
+    expect(after.showProfile).toBe(true);
+    expect(after.showFollowers).toBe(true);
     expect(privacyPersona(db, "ada").showStats).toBe(false);
   });
 
   test("una scrittura muove `rev`: una socket aperta deve poter accorgersene", () => {
-    impostaPrivacy(db, "ada", { showProfile: false }, 500);
+    setPrivacy(db, "ada", { showProfile: false }, 500);
     const r = db.query("SELECT rev, updated_at AS u FROM people WHERE id = 'ada'").get() as
       { rev: number; u: number };
     expect(r.rev).toBe(1);
@@ -179,36 +179,36 @@ describe("le cinque manopole della privacy", () => {
     // «"false"» is truthy: coercing it would open a switch somebody had
     // closed, and that is exactly the direction in which a bug here does harm.
     const patch = { showStats: "false", showEmail: 1, showProfile: null } as unknown as
-      Parameters<typeof impostaPrivacy>[2];
-    const dopo = impostaPrivacy(db, "ada", patch, 500);
+      Parameters<typeof setPrivacy>[2];
+    const after = setPrivacy(db, "ada", patch, 500);
 
-    expect(dopo.showStats).toBe(true);
-    expect(dopo.showEmail).toBe(false);
-    expect(dopo.showProfile).toBe(true);
+    expect(after.showStats).toBe(true);
+    expect(after.showEmail).toBe(false);
+    expect(after.showProfile).toBe(true);
     // Nothing to write: not even the revision moved.
     expect((db.query("SELECT rev FROM people WHERE id = 'ada'").get() as { rev: number }).rev).toBe(0);
   });
 
   test("una patch vuota non scrive e restituisce lo stato che c'e'", () => {
-    impostaPrivacy(db, "ada", { showFollowers: false }, 500);
-    const dopo = impostaPrivacy(db, "ada", {}, 900);
-    expect(dopo.showFollowers).toBe(false);
+    setPrivacy(db, "ada", { showFollowers: false }, 500);
+    const after = setPrivacy(db, "ada", {}, 900);
+    expect(after.showFollowers).toBe(false);
     expect((db.query("SELECT rev FROM people WHERE id = 'ada'").get() as { rev: number }).rev).toBe(1);
   });
 });
 
 describe("uno schema anteriore alla migration", () => {
   let db: Database;
-  beforeEach(() => { db = schemaVecchio(); });
+  beforeEach(() => { db = oldSchema(); });
 
   test("nessuna funzione dei follow solleva: la schermata dei profili non cade", () => {
     expect(() => follow(db, "ada", "bea", 10)).not.toThrow();
     expect(follow(db, "ada", "bea", 10)).toBe(false);
     expect(unfollow(db, "ada", "bea")).toBe(false);
     expect(segue(db, "ada", "bea")).toBe(false);
-    expect(conteggiFollow(db, "ada")).toEqual({ followers: 0, following: 0 });
+    expect(countFollows(db, "ada")).toEqual({ followers: 0, following: 0 });
     expect(idFollower(db, "ada")).toEqual([]);
-    expect(idSeguiti(db, "ada")).toEqual([]);
+    expect(idFollowing(db, "ada")).toEqual([]);
   });
 
   test("la privacy cade sui default, e l'email cade CHIUSA", () => {
@@ -220,7 +220,7 @@ describe("uno schema anteriore alla migration", () => {
   });
 
   test("scrivere la privacy non solleva, e non promette di aver scritto", () => {
-    expect(() => impostaPrivacy(db, "ada", { showEmail: true }, 500)).not.toThrow();
-    expect(impostaPrivacy(db, "ada", { showEmail: true }, 500).showEmail).toBe(false);
+    expect(() => setPrivacy(db, "ada", { showEmail: true }, 500)).not.toThrow();
+    expect(setPrivacy(db, "ada", { showEmail: true }, 500).showEmail).toBe(false);
   });
 });

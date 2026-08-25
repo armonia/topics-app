@@ -104,17 +104,17 @@ test.describe("Sidebar — tessere fissate", () => {
     // A PROJECT with an open chat: it is the only tile that really opens
     // (`renderExpanded` answers only for those with tabs), so it is the only
     // way to measure a REAL chevron among the pinned ones.
-    const cartella = `/tmp/e2e-allinea-proj-${Date.now()}`;
-    const figlia = await createTopic(request, `E2E-Allinea-P-${Date.now()}`, { projectPath: cartella });
+    const projectDir = `/tmp/e2e-allinea-proj-${Date.now()}`;
+    const childTopic = await createTopic(request, `E2E-Allinea-P-${Date.now()}`, { projectPath: projectDir });
     // A SECOND project, deliberately NOT pinned: the tree only lists what is
     // not in the pinned block, so pinning the only project would leave no row
     // with an accordion to compare the tile against.
-    const albero = `/tmp/e2e-allinea-albero-${Date.now()}`;
-    const figliaAlbero = await createTopic(request, `E2E-Allinea-T-${Date.now()}`, { projectPath: albero });
-    created.push(a.id, b.id, figlia.id, figliaAlbero.id);
-    const chiaveProj = `project:${cartella}`;
+    const treeDir = `/tmp/e2e-allinea-albero-${Date.now()}`;
+    const treeChildTopic = await createTopic(request, `E2E-Allinea-T-${Date.now()}`, { projectPath: treeDir });
+    created.push(a.id, b.id, childTopic.id, treeChildTopic.id);
+    const chiaveProj = `project:${projectDir}`;
     // Each on its OWN row: row form, that is, the "normal" alignment.
-    await setPins(page, [a.id, b.id, chiaveProj, figlia.id], [[a.id], [b.id], [chiaveProj], [figlia.id]]);
+    await setPins(page, [a.id, b.id, chiaveProj, childTopic.id], [[a.id], [b.id], [chiaveProj], [childTopic.id]]);
     await gotoSidebar(page);
 
     // SETTLED, not immediate. The accordion chevron carries `transition-transform
@@ -125,31 +125,31 @@ test.describe("Sidebar — tessere fissate", () => {
     // gap that nobody can see and that is gone two frames later - a moving
     // target read once. Every geometry here is taken when two consecutive
     // frames agree on it.
-    const fermo = async <T>(prendi: () => Promise<T>): Promise<T> => {
-      let prima = JSON.stringify(await prendi());
+    const settled = async <T>(take: () => Promise<T>): Promise<T> => {
+      let before = JSON.stringify(await take());
       for (let i = 0; i < 40; i++) {
         await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
-        const ora = await prendi();
-        if (JSON.stringify(ora) === prima) return ora;
-        prima = JSON.stringify(ora);
+        const ora = await take();
+        if (JSON.stringify(ora) === before) return ora;
+        before = JSON.stringify(ora);
       }
-      throw new Error(`la geometria non si ferma: ultimo valore ${prima}`);
+      throw new Error(`la geometria non si ferma: ultimo valore ${before}`);
     };
 
     const misura = async (nome: string) => {
       const tile = tileNamed(page, nome);
       await expect(tile).toBeVisible({ timeout: 10000 });
-      return fermo(() => tile.evaluate((el) => {
+      return settled(() => tile.evaluate((el) => {
         const r = el.getBoundingClientRect();
         const testo = el.querySelector('[data-testid="pinned-tile-name"]');
         const slot = el.querySelector('[data-testid="pinned-chevron-slot"]');
-        const glifo = el.querySelector('[data-testid="pinned-expand-hint"]');
+        const glyph = el.querySelector('[data-testid="pinned-expand-hint"]');
         return {
           testo: testo ? +(testo.getBoundingClientRect().left - r.left).toFixed(1) : null,
           slot: slot ? +slot.getBoundingClientRect().width.toFixed(1) : null,
           // The chevron's INK, not its box: that is what one sees, and that
           // is what sat in three different columns.
-          glifo: glifo ? +(glifo.getBoundingClientRect().left - r.left).toFixed(1) : null,
+          glyph: glyph ? +(glyph.getBoundingClientRect().left - r.left).toFixed(1) : null,
         };
       }));
     };
@@ -167,21 +167,21 @@ test.describe("Sidebar — tessere fissate", () => {
 
     // THE ACCORDION COLUMN, on the two surfaces that have one: the pinned
     // tile of a project and the project row in the tree.
-    const tessera = await misura(cartella.split("/").pop()!);
-    expect(tessera.glifo, "la tessera di un progetto con tab si apre, e mostra il chevron").not.toBeNull();
+    const tessera = await misura(projectDir.split("/").pop()!);
+    expect(tessera.glyph, "la tessera di un progetto con tab si apre, e mostra il chevron").not.toBeNull();
 
-    const riga = await fermo(() => page.evaluate(() => {
-      const bottone = document.querySelector<HTMLElement>('[aria-expanded][aria-label^="Expand"], [aria-expanded][aria-label^="Collapse"]');
-      if (!bottone) return null;
-      const card = bottone.parentElement!;
-      const glifo = bottone.querySelector("svg");
-      if (!glifo) return null;
-      return +(glifo.getBoundingClientRect().left - card.getBoundingClientRect().left).toFixed(1);
+    const riga = await settled(() => page.evaluate(() => {
+      const button = document.querySelector<HTMLElement>('[aria-expanded][aria-label^="Expand"], [aria-expanded][aria-label^="Collapse"]');
+      if (!button) return null;
+      const card = button.parentElement!;
+      const glyph = button.querySelector("svg");
+      if (!glyph) return null;
+      return +(glyph.getBoundingClientRect().left - card.getBoundingClientRect().left).toFixed(1);
     }));
     expect(riga, "serve almeno una riga con accordion nell'albero").not.toBeNull();
     expect(
-      Math.abs(riga! - tessera.glifo!),
-      `il chevron della riga parte a ${riga}px dal bordo, quello della tessera a ${tessera.glifo}: stesso comando, due colonne`,
+      Math.abs(riga! - tessera.glyph!),
+      `il chevron della riga parte a ${riga}px dal bordo, quello della tessera a ${tessera.glyph}: stesso comando, due colonne`,
     ).toBeLessThanOrEqual(0.5);
   });
 
@@ -2316,7 +2316,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       const chev = t.querySelector<HTMLElement>('[data-testid="pinned-expand-hint"]')!;
       const slot = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-slot"]')!;
       const c = chev.getBoundingClientRect();
-      const specchio = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-mirror"]');
+      const mirror = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-mirror"]');
       return {
         larghezza: b.width,
         scarto: (img.left + img.right) / 2 - (b.left + b.right) / 2,
@@ -2324,7 +2324,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
         chevronPrecede: c.right - img.left,
         chevronDentro: c.left - b.left,
         slot: +slot.getBoundingClientRect().width.toFixed(1),
-        specchio: specchio ? +specchio.getBoundingClientRect().width.toFixed(1) : null,
+        mirror: mirror ? +mirror.getBoundingClientRect().width.toFixed(1) : null,
       };
     });
     // La fascia E' il soggetto del test: se la griglia cambiasse e la tessera
@@ -2348,7 +2348,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(misura.posizioneChevron, "il chevron resta nel flusso, in testa alla riga").toBe("static");
     expect(misura.chevronPrecede, "il chevron non si sovrappone all'icona").toBeLessThanOrEqual(0);
     expect(misura.chevronDentro, "e resta dentro la tessera").toBeGreaterThanOrEqual(-0.5);
-    expect(misura.specchio, "in coda c'e' lo specchio del chevron, largo uguale").toBe(misura.slot);
+    expect(misura.mirror, "in coda c'e' lo specchio del chevron, largo uguale").toBe(misura.slot);
 
     // ── Il CONTEGGIO non pesa mai: va nell'angolo ──────────────────────────
     // Non si semina un non-letto vero — servirebbe una chat aperta e non
@@ -2358,21 +2358,21 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // sposta l'icona di un pixel.
     const conConteggio = await tessera.evaluate((t: HTMLElement) => {
       const img = t.querySelector("img")!;
-      const prima = img.getBoundingClientRect();
+      const before = img.getBoundingClientRect();
       const finto = document.createElement("span");
       finto.className = "pinned-tile-count flex-shrink-0 min-w-[16px] h-4";
       finto.textContent = "3";
       t.appendChild(finto);
       const b = t.getBoundingClientRect();
       const f = finto.getBoundingClientRect();
-      const dopo = img.getBoundingClientRect();
+      const after = img.getBoundingClientRect();
       // Letta PRIMA di staccarlo: su un nodo fuori dal documento
       // `getComputedStyle` torna vuoto, e l'asserzione non potrebbe fallire.
       const posizione = getComputedStyle(finto).position;
       finto.remove();
       return {
         posizione,
-        spostaIcona: Math.abs((dopo.left + dopo.right) / 2 - (prima.left + prima.right) / 2),
+        spostaIcona: Math.abs((after.left + after.right) / 2 - (before.left + before.right) / 2),
         inAlto: f.top - b.top,
         aDestra: b.right - f.right,
         dentro: f.right <= b.right + 0.5 && f.top >= b.top - 0.5 && f.bottom <= b.bottom + 0.5,
@@ -2405,11 +2405,11 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       // visible one, which is an assertion that cannot fail. The slot is the
       // element that carries the `display`, so it is the one to ask.
       const slot = t.querySelector<HTMLElement>('[data-testid="pinned-chevron-slot"]');
-      const disegnato = slot !== null && getComputedStyle(slot).display !== "none";
+      const drawn = slot !== null && getComputedStyle(slot).display !== "none";
       return {
         larghezza: b.width,
         scarto: (img.left + img.right) / 2 - (b.left + b.right) / 2,
-        posizioneChevron: disegnato ? getComputedStyle(slot!).position : null,
+        posizioneChevron: drawn ? getComputedStyle(slot!).position : null,
       };
     });
     expect(senzaSpazio.larghezza, `sei in riga: sotto la soglia — ${JSON.stringify(senzaSpazio)}`).toBeLessThan(76);
