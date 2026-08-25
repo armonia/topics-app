@@ -143,3 +143,38 @@ diverse.
 #### Scenario: più schede web senza etichetta
 - **GIVEN** socket senza etichetta di finestra
 - **THEN** SHALL restare finestre distinte
+
+### Requirement: PRESENCE-13 — Due superfici, UN numero: non possono divergere per costruzione
+
+La presenza esterna diceva «sedici sessioni aperte» contando righe di argomenti
+non archiviati, che sono CONTENITORI; la barra di stato mostrava le sessioni
+della flotta, che sono PROCESSI con un identificativo. E le sessioni avviate
+FUORI da qui non comparivano in nessuna delle due.
+
+**Nessuno dei due numeri era sbagliato per conto suo**, ed è esattamente per
+questo che nessuna prova poteva prenderlo: ognuno era coerente con sé stesso, e
+solo guardandoli insieme si vedeva che rispondevano a due domande diverse con lo
+stesso nome.
+
+Entrambe le superfici SHALL leggere la STESSA funzione, con gli STESSI ingressi.
+La garanzia SHALL essere STRUTTURALE e non una coincidenza di valori: «oggi i due
+numeri coincidono» si può provare solo accendendo il servizio esterno, mentre
+«non possono divergere» si prova qui.
+
+NESSUN secondo CONTEGGIO degli argomenti aperti SHALL esistere fuori dalla fonte
+comune: è la forma esatta in cui il difetto tornerebbe. Una lettura che non è un
+conteggio — una pulizia che seleziona degli identificativi — NON SHALL essere
+scambiata per un secondo contatore: un cancello che grida sul falso insegna a
+ignorarlo.
+
+I contenitori e i processi SHALL restare due numeri con due nomi, e NON SHALL
+sommarsi: sommare processi a un conteggio di contenitori peggiora una misura
+sbagliata invece di correggerla.
+
+#### Scenario: una superficie smette di leggere la fonte comune
+- **GIVEN** un conteggio locale al posto della chiamata condivisa
+- **THEN** la verifica SHALL fallire
+
+#### Scenario: una pulizia che seleziona argomenti non archiviati
+- **GIVEN** una query che legge senza contare
+- **THEN** NON SHALL essere segnalata come secondo contatore
