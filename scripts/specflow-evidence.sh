@@ -12,6 +12,7 @@
 #   ./scripts/specflow-evidence.sh              # full suite with video + trace, then publish
 #   SKIP_E2E=1 ./scripts/specflow-evidence.sh   # publish the report already on disk (~1-3 min)
 #   SHARDS=1 ./scripts/specflow-evidence.sh     # one shard, for a quiet machine
+#   SKIP_UNIT=1 ./scripts/specflow-evidence.sh  # reuse the JUnit report already on disk
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,6 +38,7 @@ ONLY_ANNOTATED="${ONLY_ANNOTATED:-0}"
 OUT_DIR="${TMPDIR:-/tmp}/topics-e2e-shards"
 MERGED="test-results/uat-report.json"
 MAP="openspec/coverage-map.json"
+JUNIT="test-results/bun-junit.xml"
 
 step() { echo; echo "▸ $*"; }
 since() { echo "  ($(( $(date +%s) - $1 ))s)"; }
@@ -127,9 +129,27 @@ if [ "$RAN" = "1" ] && [ "$EVID" -eq 0 ]; then
   exit 1
 fi
 
+# La suite unitaria e' l'unica prova che 583 requisiti su 742 abbiano MAI girato: il report
+# Playwright non la contiene, e senza questo passo la pagina li chiama tutti «non eseguito qui».
+# Non blocca: un rosso unitario e' un'informazione da pubblicare, non un motivo per non pubblicare.
+if [ "${SKIP_UNIT:-0}" = "1" ]; then
+  step "suite unitaria — SALTATA, si riusa $JUNIT"
+  test -f "$JUNIT" || echo "  ⚠ non c'è: gli esiti unitari mancheranno dalla pagina."
+else
+  step "suite unitaria (per gli esiti che il report Playwright non contiene)"
+  t=$(date +%s)
+  mkdir -p "$OUT_DIR"   # con SKIP_E2E=1 nessuno lo ha creato, e il log finirebbe nel nulla
+  bun test --timeout "${TOPICS_TEST_TIMEOUT_MS:-30000}" --reporter=junit --reporter-outfile="$JUNIT" \
+    ./client/src ./server/ ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli \
+    > "$OUT_DIR/unit.log" 2>&1
+  unit=$?
+  since "$t"
+  [ "$unit" -ne 0 ] && echo "  ⚠ la suite unitaria ha dei rossi (log: $OUT_DIR/unit.log): la pagina li mostrerà."
+fi
+
 step "mappa di copertura (dal cancello che possiede le regole)"
 t=$(date +%s)
-bun run scripts/check-spec-coverage.ts --json "$MAP"
+bun run scripts/check-spec-coverage.ts --json "$MAP" --junit "$JUNIT"
 gate=$?
 since "$t"
 [ "$gate" -ne 0 ] && echo "  ⚠ il cancello di tracciabilità è rosso: la mappa è comunque scritta, ma guardalo."

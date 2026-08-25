@@ -280,6 +280,44 @@ for (const t of fileTest) {
  * It runs alongside the checks, never instead of them, so a map can only be produced by a run
  * that also passed judgement on the same data.
  */
+/**
+ * Esiti per FILE da un report JUnit (`bun test --reporter=junit --reporter-outfile=...`).
+ *
+ * Perche' serve. Il report Playwright non contiene i test unitari, quindi la living-doc leggeva
+ * "coperto, non eseguito qui" su 583 requisiti su 742 — requisiti che in realta' girano a ogni
+ * `bun run test:unit`. Senza questo passaggio la pagina dice che quasi tutto e' fermo, e la cosa
+ * piu' facile da concludere guardandola e' che la suite non esista.
+ *
+ * Il legame resta PER FILE — `bun:test` non ha annotazioni per-test come Playwright — quindi
+ * l'esito dice "i test di questo file sono verdi", non "questo requisito e' provato". La pagina
+ * lo dipinge con un colore suo apposta: prometterne di piu' sarebbe un verde comprato a sconto.
+ */
+function readJUnitOutcomes(path: string): Map<string, { outcome: "passed" | "failed"; tests: number }> {
+  const out = new Map<string, { outcome: "passed" | "failed"; tests: number }>();
+  if (!existsSync(path)) return out;
+  const xml = readFileSync(path, "utf8");
+  // Si contano i <testcase>, non i <testsuite>: bun annida un testsuite per ogni describe, tutti
+  // con lo stesso attributo file=, e sommarli conterebbe lo stesso test piu' volte.
+  const re = /<testcase\b([^>]*?)(\/?)>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) {
+    const attrs = m[1] ?? "";
+    const fileM = /\bfile="([^"]*)"/.exec(attrs);
+    if (!fileM) continue;
+    const file = fileM[1]!.replace(/^\.\//, "").replace(/^\//, "");
+    // Auto-chiuso = passato. Altrimenti il corpo dice se e' <failure> o <skipped>.
+    let failed = false;
+    if (m[2] !== "/") {
+      const end = xml.indexOf("</testcase>", re.lastIndex);
+      const body = end < 0 ? "" : xml.slice(re.lastIndex, end);
+      failed = /<(failure|error)\b/.test(body);
+    }
+    const prev = out.get(file) ?? { outcome: "passed" as const, tests: 0 };
+    out.set(file, { outcome: failed ? "failed" : prev.outcome, tests: prev.tests + 1 });
+  }
+  return out;
+}
+
 function writeCoverageMap(dest: string): void {
   const byId = new Map<string, { file: string; channel: "annotation" | "covers" }[]>();
   for (const t of fileTest) {
@@ -288,17 +326,30 @@ function writeCoverageMap(dest: string): void {
       byId.set(c, [...(byId.get(c) ?? []), { file: t.path.replace(/^\//, ""), channel }]);
     }
   }
-  const requirementsOut: Record<string, { notBuilt: boolean; claims: { file: string; channel: string }[] }> = {};
+  const junitFlag = process.argv.indexOf("--junit");
+  const outcomes = junitFlag >= 0 ? readJUnitOutcomes(process.argv[junitFlag + 1] ?? "") : new Map();
+  type Claim = { file: string; channel: string; outcome?: string; tests?: number };
+  const requirementsOut: Record<string, { notBuilt: boolean; claims: Claim[] }> = {};
   for (const r of [...requirements].sort((a, b) => a.id.localeCompare(b.id))) {
     requirementsOut[r.id] = {
       notBuilt: r.notBuilt,
-      claims: (byId.get(r.id) ?? []).sort((a, b) => a.file.localeCompare(b.file)),
+      claims: (byId.get(r.id) ?? [])
+        .sort((a, b) => a.file.localeCompare(b.file))
+        .map((c): Claim => {
+          const o = outcomes.get(c.file);
+          return o ? { ...c, outcome: o.outcome, tests: o.tests } : { ...c };
+        }),
     };
   }
   writeFileSync(dest, JSON.stringify({ version: 1, requirements: requirementsOut }, null, 2) + "\n");
   const withClaims = Object.values(requirementsOut).filter((r) => r.claims.length).length;
   const perTest = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.channel === "annotation")).length;
   console.log(`mappa di copertura -> ${dest}: ${Object.keys(requirementsOut).length} requisiti, ${withClaims} dichiarati, ${perTest} con una prova per-test`);
+  if (outcomes.size) {
+    const withUnit = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.outcome)).length;
+    const redUnit = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.outcome === "failed")).length;
+    console.log(`  esiti unitari da JUnit: ${outcomes.size} file letti -> ${withUnit} requisiti con un esito${redUnit ? `, ${redUnit} con almeno un file rosso` : ""}`);
+  }
 }
 
 const jsonFlag = process.argv.indexOf("--json");
