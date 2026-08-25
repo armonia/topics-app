@@ -41,36 +41,36 @@ afterEach(() => rmSync(repo, { recursive: true, force: true }));
 
 describe("il ripristino di un checkpoint", () => {
   test("riporta il contenuto del file", () => {
-    const primo = git("rev-parse", "HEAD");
+    const first = git("rev-parse", "HEAD");
     writeFileSync(join(repo, "f.txt"), "dopo\n");
     git("add", "-A");
     git("commit", "-m", "due");
 
-    git("restore", "--source", primo, "--", ".");
+    git("restore", "--source", first, "--", ".");
     expect(readFileSync(join(repo, "f.txt"), "utf8")).toBe("prima\n");
   });
 
   test("e lascia HEAD su un ramo", () => {
     // The whole point. `symbolic-ref` fails on a detached HEAD, so this is the
     // assertion that would have caught the shipped defect.
-    const primo = git("rev-parse", "HEAD");
+    const first = git("rev-parse", "HEAD");
     writeFileSync(join(repo, "f.txt"), "dopo\n");
     git("add", "-A");
     git("commit", "-m", "due");
 
-    git("restore", "--source", primo, "--", ".");
+    git("restore", "--source", first, "--", ".");
     expect(git("symbolic-ref", "HEAD")).toBe("refs/heads/main");
   });
 
   test("`checkout <hash>` invece STACCA la testa: e' il difetto, misurato", () => {
     // Non-vacuity for the two tests above: they only mean something if the old
     // command really did what the docblock says. Asserted rather than trusted.
-    const primo = git("rev-parse", "HEAD");
+    const first = git("rev-parse", "HEAD");
     writeFileSync(join(repo, "f.txt"), "dopo\n");
     git("add", "-A");
     git("commit", "-m", "due");
 
-    git("checkout", primo);
+    git("checkout", first);
     expect(() => git("symbolic-ref", "HEAD"), "se questo NON fallisce, il difetto non esisteva").toThrow();
   });
 

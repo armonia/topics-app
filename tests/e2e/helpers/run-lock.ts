@@ -193,6 +193,28 @@ export function acquireRunLock(port: number, opts: AcquireOptions = {}): LockRec
  * altro (lock scaduto e rilevato), cancellarlo lascerebbe la porta scoperta
  * per una terza run — esattamente il buco che questo file chiude.
  */
+/**
+ * Who holds the lock on this port, if anyone holds it and is alive.
+ *
+ * It exists for one question the teardown could not ask itself: "is this port
+ * MINE?". With no answer, a run refused by the setup still went on to kill
+ * whatever was listening on that port - which is the server of the very run the
+ * lock was protecting. That is the opposite of what the lock exists for, and it
+ * is not hypothetical: `Killed stale processes on port 13334: 45374`, printed by
+ * a run the setup had correctly turned away.
+ */
+export function liveLockHolder(
+  port: number,
+  opts: { fs?: LockFs; isAlive?: (pid: number) => boolean } = {},
+): LockRecord | null {
+  const io2 = opts.fs ?? nodeFs;
+  const alive = opts.isAlive ?? isPidAlive;
+  const holder = parseRecord(io2.read(lockPathForPort(port)));
+  if (!holder) return null;
+  if (holder.pid === process.pid) return null; // mine: it does not protect me from myself
+  return alive(holder.pid) ? holder : null;
+}
+
 export function releaseRunLock(port: number, opts: { fs?: LockFs } = {}): void {
   const fs = opts.fs ?? nodeFs;
   const path = lockPathForPort(port);

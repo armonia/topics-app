@@ -7,7 +7,7 @@
 import { execSync, execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
 import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
-import { releaseRunLock } from "./helpers/run-lock";
+import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
 
 const TEST_PORT = E2E_PORT;
 
@@ -148,6 +148,28 @@ async function globalTeardown() {
   // `-sTCP:LISTEN`: solo chi ASCOLTA. Senza il filtro lsof restituisce anche i
   // socket dei client — i Chromium ancora connessi mentre si smonta — e questo
   // kill li porterebbe via insieme al server.
+  //
+  // BUT FIRST: IS THAT PORT MINE?
+  //
+  // The teardown runs ALWAYS, including when the global-setup REFUSED to start
+  // because another run held the lock. Without this question, the refused run
+  // reached here and killed whatever was listening on the port - which is the
+  // server of the very run the lock was protecting. That is the opposite of
+  // what the lock exists for, and it is not hypothetical: on 2026-08-25 at
+  // 01:37 a refused run printed `Killed stale processes on port 13334: 45374`
+  // and killed another agent's suite mid-run.
+  //
+  // `liveLockHolder` answers `null` when the lock is mine or absent, so the
+  // normal case - my own run tearing itself down - does not change one line.
+  const otherRun = liveLockHolder(TEST_PORT);
+  if (otherRun) {
+    console.log(
+      `[global-teardown] Port ${TEST_PORT} belongs to another live run (PID ${otherRun.pid}, ` +
+        `cwd ${otherRun.cwd}): leaving its processes alone.`,
+    );
+    console.log("[global-teardown] Test server stopped.");
+    return;
+  }
   try {
     const pids = execSync(
       `lsof -ti :${TEST_PORT} -sTCP:LISTEN 2>/dev/null || true`
