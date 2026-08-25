@@ -1,3 +1,6 @@
+/**
+ * @covers ASK-03
+ */
 // La BARRA numero 3: una domanda posta da una sessione figlia arriva nel thread
 // del task padre e la risposta la sblocca, senza aprire nessun tab.
 //

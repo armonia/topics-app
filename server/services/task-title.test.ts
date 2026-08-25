@@ -8,6 +8,8 @@
  * Qui si prova la DECISIONE (quando intervenire) e la GUARDIA sulla risposta
  * (che cosa si accetta come titolo). Il modello è finto: quello che conta è che
  * una risposta storta non peggiori mai la card.
+ *
+ * @covers KANBAN-22
  */
 import { describe, expect, test } from "bun:test";
 import { titoloMigliore, ripulisci } from "./task-title";

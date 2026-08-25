@@ -1,3 +1,6 @@
+/**
+ * @covers ASK-01
+ */
 import { describe, expect, test } from "bun:test";
 import { detectUserInputRequest } from "./ask-user-detector";
 

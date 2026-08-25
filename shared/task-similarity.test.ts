@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-21
+ */
 import { test, expect, describe } from 'bun:test';
 import {
   compareTasks,

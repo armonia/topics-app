@@ -6,6 +6,8 @@
  * disegna con `[&_pre]:overflow-x-auto` — 300 caratteri di italiano su una riga
  * sola, da leggere scorrendo di lato dentro una colonna stretta. Segnalato:
  * «vedo lo scroll orizzontale invece di vedere in verticale».
+ *
+ * @covers ASK-04
  */
 import { describe, test, expect } from 'bun:test';
 import { questionToProse } from './question-prose';

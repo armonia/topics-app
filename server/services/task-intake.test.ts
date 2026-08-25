@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-21
+ */
 import { describe, test, expect } from "bun:test";
 import { proposeLink, tokenize, linkNotes, type IntakeCandidate } from "./task-intake";
 import type { TaskStatus } from "../../shared/board";

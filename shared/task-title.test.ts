@@ -10,6 +10,8 @@
  * Questa funzione è la RETE, non la soluzione: il titolo vero lo ricava il
  * server col modello (`server/services/task-title.ts`). Qui si pretende solo
  * che, quando quello manca, il taglio non spezzi le parole.
+ *
+ * @covers KANBAN-22
  */
 import { describe, expect, test } from "bun:test";
 import { titoloDaTesto, accorcia, TITOLO_MAX } from "./task-title";

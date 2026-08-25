@@ -16,6 +16,8 @@
  * Le gambe sono da 150 ms invece dei 25 s di produzione: la lunghezza la decide
  * il chiamante (`legMs`), quindi il test percorre la stessa strada del vivo a
  * velocità di test.
+ *
+ * @covers ASK-02
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

@@ -18,6 +18,8 @@
  * the same way the live spawn would. Side-stepping the spawn is
  * deliberate — we're testing the higher-level state machine, not the
  * CLI bootstrap.
+ *
+ * @covers ASK-01
  */
 
 import { describe, expect, test } from "bun:test";

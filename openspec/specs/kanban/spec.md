@@ -1204,3 +1204,78 @@ SHALL essere necessario.
 #### Scenario: la scansione non risponde
 - **GIVEN** una scansione che fallisce
 - **THEN** SHALL valere il censimento precedente, e NON SHALL essere dedotto che non c'è nessuno
+
+### Requirement: KANBAN-21 — Un task nuovo propone un legame solo quando il legame è evidente
+
+Alla creazione di un task il sistema SHALL poter proporre un legame con una card
+esistente, e la proposta SHALL essere LESSICALE e deterministica: nessun modello
+decide, e la stessa coppia dà sempre la stessa risposta.
+
+La proposta SHALL viaggiare CON la creazione. Proporre dopo aprirebbe una
+finestra in cui il legame non voluto esiste già.
+
+SHALL essere considerata solo una card APERTA, e mai la card stessa.
+
+La proposta SHALL richiedere DUE condizioni insieme: un numero minimo di termini
+condivisi, e un punteggio sopra una soglia dichiarata. Una parola sola in comune
+NON basta, e sotto soglia il default silenzioso SHALL restare «è un task nuovo».
+
+Il genere del legame SHALL discendere dallo STATO del bersaglio: una card già in
+lavorazione o in revisione rende il nuovo un SEGUITO, altrimenti un
+sottotask.
+
+A parità di punteggio la scelta SHALL essere deterministica — prima il più
+recente, poi l'identificativo — così che l'ordine con cui arrivano i candidati
+non cambi il risultato.
+
+La proposta SHALL portare il PERCHÉ in parole: il testo del bersaglio, il suo
+stato, e i termini che i due hanno in comune.
+
+Il riconoscimento dei DOPPIONI SHALL essere separato dalla proposta e SHALL avere
+una guardia sugli identificatori: due testi molto simili che nominano
+identificatori DIVERSI NON SHALL essere doppioni, per quanto alto sia il
+punteggio. Un testo troppo corto SHALL essere doppione solo se identico.
+
+#### Scenario: una parola in comune
+- **GIVEN** un task nuovo che condivide un solo termine con una card aperta
+- **THEN** NON SHALL essere proposto nessun legame
+
+#### Scenario: candidati in ordine diverso
+- **GIVEN** gli stessi candidati passati in ordine invertito
+- **THEN** la proposta SHALL essere la stessa
+
+#### Scenario: identificatori diversi
+- **GIVEN** due card molto simili che nominano file o simboli diversi
+- **THEN** NON SHALL essere dichiarate doppioni
+
+### Requirement: KANBAN-22 — Il titolo si taglia sulle parole, e un errore non è un titolo
+
+Il titolo di un task SHALL essere ricavato dalla prima riga del testo, e quando
+quella riga è più lunga del massimo SHALL essere accorciata senza MAI spezzare
+una parola: prima su una fine di frase, poi sull'ultimo spazio utile, e solo per
+un testo senza spazi — un indirizzo, per esempio — con un taglio secco.
+
+Il resto del testo SHALL diventare la descrizione, e NON SHALL essere perduto.
+
+Una riscrittura assistita da un modello SHALL essere tentata SOLO quando serve:
+NON SHALL toccare un titolo che non è stato troncato ed è già corto — quello
+l'ha scelto una persona — né quando la descrizione non aggiunge niente.
+
+La risposta del modello SHALL passare una guardia prima di diventare un titolo, e
+la guardia SHALL RIFIUTARE: un testo troppo corto o troppo lungo, una frase
+intera con più periodi, e — nominatamente — un messaggio di ERRORE del
+fornitore. La riga di comando non solleva un'eccezione quando esce male: risolve
+con un testo che comincia per «Error», e senza questo controllo quel testo
+diventa il nome della card. È successo.
+
+Un fallimento qualunque SHALL lasciare il titolo com'era: `null` significa «non
+toccare», mai «cancella».
+
+#### Scenario: una riga lunghissima senza spazi
+- **GIVEN** una prima riga fatta di un solo indirizzo lungo
+- **THEN** SHALL essere troncata con un segno di continuazione, e nessuna parola
+  SHALL risultare spezzata a metà
+
+#### Scenario: il fornitore esce male
+- **GIVEN** una risposta che è un messaggio di errore del fornitore
+- **THEN** NON SHALL diventare un titolo

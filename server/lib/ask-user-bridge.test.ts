@@ -1,3 +1,6 @@
+/**
+ * @covers ASK-02
+ */
 import { describe, expect, test } from "bun:test";
 import {
   waitForAnswer,
