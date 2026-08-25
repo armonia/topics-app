@@ -207,6 +207,17 @@ jobs:
           bun run check:identifier-language
           bun run check:sleeps
           bun run check:spec-coverage
+          # `check:untraced-tests` guarda nella direzione OPPOSTA a
+          # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
+          # parte dai test e cerca il requisito. La direzione mancante e' quella
+          # in cui si perde una funzionalita': in una sola notte tre superfici
+          # vive e coperte da test (la fascia della sidebar, la resa dei tool, il
+          # banco sui leak) non avevano nessun requisito che le nominasse, e
+          # nessun cancello poteva accorgersene. Cricchetto, perche' alla prima
+          # misura 1.043 file su 1.166 non dichiarano niente: nasce assoluto e
+          # nasce rosso, cioe' spento. Risponde a una domanda sola — un test
+          # NUOVO dichiara cosa copre?
+          bun run check:untraced-tests
 
       # `check:spec-coverage` chiude la fila e misura il legame fra i requisiti di
       # `openspec/specs/` e i test che dicono di provarli. Non l'ha inventato:

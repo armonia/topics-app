@@ -59,6 +59,7 @@
     "qa:gate": "./scripts/qa-gate.sh",
     "check:security": "bun run scripts/check-security.ts",
     "check:spec-coverage": "bun run scripts/check-spec-coverage.ts",
+    "check:untraced-tests": "bun run scripts/check-untraced-tests.ts",
     "obscura:check": "bun run scripts/obscura-track.ts check",
     "obscura:status": "bun run scripts/obscura-track.ts status",
     "obscura:build": "bun run scripts/obscura-track.ts build",
