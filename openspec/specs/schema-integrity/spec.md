@@ -183,3 +183,35 @@ la rinomina automatica non toccherà più niente.
 #### Scenario: la riga di partenza non c'è
 - **GIVEN** nessun valore da spostare
 - **THEN** NON SHALL risultare acceso
+
+### Requirement: SCHEMA-07 — Una migration si prova ESEGUENDO il file, e si verifica anche ciò che NON tocca
+
+Ogni migration di rilievo SHALL essere provata ESEGUENDO il file SQL VERO — mai
+una riscrittura — su un database costruito dalle migration precedenti REALI. Una
+copia riscritta prova la copia.
+
+Il banco SHALL verificare anche ciò che la migration NON deve toccare: le righe di
+un'altra forma, i dati storici, l'ordine, i contenuti. È metà del contratto, e la
+metà che si dimentica.
+
+Dove la migration crea un INDICE, SHALL essere verificato che il pianificatore lo
+USI davvero: che esista non basta.
+
+Dove la migration può essere rieseguita, SHALL essere verificato che la seconda
+esecuzione non duplichi né cambi niente.
+
+Ogni migration di bonifica SHALL portare la propria GUARDIA contro il verde a
+vuoto: il conteggio esatto delle righe toccate, o il banco non distingue «ha
+funzionato» da «non ha fatto niente».
+
+Dove il criterio è un confronto sul TESTO, SHALL esistere il caso della CODA
+BUGIARDA: un contenuto che somiglia al criterio senza esserlo NON SHALL essere
+toccato.
+
+#### Scenario: un indice nuovo
+- **GIVEN** la migration applicata
+- **THEN** il pianificatore SHALL usarlo, non solo trovarlo
+
+#### Scenario: un contenuto che somiglia al criterio
+- **GIVEN** una riga che contiene letteralmente il testo cercato senza esserlo
+- **THEN** NON SHALL essere toccata

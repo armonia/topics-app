@@ -1,3 +1,6 @@
+/**
+ * @covers MEDIA-01
+ */
 // La BARRA: nessun file caricato da qualcun altro puo' RENDERSI sull'origine
 // della app.
 //

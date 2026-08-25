@@ -8,6 +8,7 @@
  * il PIANO delle query cambia. Un indice che esiste ma che il planner non
  * sceglie non ha risolto niente, e questo è l'unico modo di accorgersene senza
  * aprire la dashboard e cronometrare a occhio.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -5,6 +5,7 @@
  * spinning up Bun.serve. The token-authed control endpoints
  * (DAEMON-02) ride on the existing listener so they're covered at the
  * e2e level.
+  * @covers RUNTIME-14
  */
 import { describe, expect, test, beforeAll, afterEach } from "bun:test";
 import * as fs from "node:fs";

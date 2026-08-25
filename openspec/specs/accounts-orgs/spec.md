@@ -194,3 +194,31 @@ Le due porte che dichiarano l'identità SHALL parlare della STESSA persona.
 - **GIVEN** una verifica su un indirizzo che appartiene a un'altra riga
 - **THEN** SHALL essere rifiutata, senza agganciarsi lì
 
+
+### Requirement: ORG-INST-02 — La rubrica e il CANCELLO non possono divergere, e i membri si contano allo stesso modo
+
+Le due porte che dichiarano quante persone ci sono SHALL dare lo STESSO numero:
+erano due definizioni diverse sulla stessa organizzazione, e dopo aver tolto
+qualcuno una delle due continuava a contarlo.
+
+La rubrica e il cancello che decide chi può SHALL accettare e rifiutare allo
+STESSO modo: se divergono, si vede una persona che non si può raggiungere, o si
+raggiunge una che non si vede.
+
+L'instradamento di una richiesta NON SHALL essere deciso da un confronto per
+PREFISSO: non sa dove finisce un identificativo, e una modifica ai membri cadeva
+nel ramo della rinomina.
+
+Revocare un GRUPPO SHALL togliere anche la capacità di amministrarlo: le sue
+appartenenze restavano intatte, e chi poteva amministrare continuava a poterlo.
+
+La revoca di una PERSONA SHALL essere SCRIVIBILE da qualche schermata: quella
+colonna era letta in otto punti e scritta in nessuno.
+
+#### Scenario: una persona tolta dal gruppo
+- **GIVEN** un membro rimosso
+- **THEN** entrambe le porte SHALL dichiarare lo stesso numero
+
+#### Scenario: un gruppo revocato
+- **GIVEN** la revoca del gruppo
+- **THEN** NON SHALL restare la capacità di amministrarlo

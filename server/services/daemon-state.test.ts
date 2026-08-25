@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-15
+ */
 import { describe, it, expect } from "bun:test";
 import { join } from "node:path";
 import { worktreeIsolationEnv, worktreeIsolationHome } from "./daemon-state";

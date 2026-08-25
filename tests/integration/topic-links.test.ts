@@ -24,6 +24,7 @@
  * and reorder. So there is deliberately no `@covers` line here: claiming one
  * would be a dangling claim, which `check:spec-coverage` reports as R1. The
  * honest state is "tested surface, undeclared requirement".
+  * @covers TOPIC-LINK-01
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";

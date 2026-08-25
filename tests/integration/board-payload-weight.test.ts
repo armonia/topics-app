@@ -25,6 +25,7 @@
  *     quello che nessun invariante conosce ancora.
  *  3. LO SPECCHIO: lo stesso payload rimesso nella forma di prima deve sfondare
  *     il budget. Una condizione che non si è mai vista fallire è un ornamento.
+  * @covers WIRE-09
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

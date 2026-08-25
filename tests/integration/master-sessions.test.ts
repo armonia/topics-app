@@ -4,6 +4,7 @@
  * against the real PTY bridge using disposable SHELL sessions (free, local, no
  * `claude` / no API cost). It does NOT touch any pre-existing user session: it
  * creates fresh test sessions in an isolated DATA_DIR and deletes them.
+  * @covers TERM-08
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

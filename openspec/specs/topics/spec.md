@@ -426,3 +426,45 @@ senza il percorso.
 #### Scenario: misurato zero
 - **GIVEN** una larghezza misurata pari a zero
 - **THEN** SHALL essere annunciato, non taciuto
+
+### Requirement: TOPIC-LINK-01 — Un collegamento fra discorsi è SIMMETRICO e si scrive ATOMICAMENTE
+
+Un collegamento fra due discorsi SHALL valere da ENTRAMBE le parti, e SHALL essere
+scritto ATOMICAMENTE: un guasto a metà NON SHALL poter lasciare un verso senza
+l'altro.
+
+Ripeterlo NON SHALL duplicarlo. Toglierlo SHALL toglierlo da entrambe le parti, e
+un collegamento verso un discorso SPARITO SHALL comunque potersi togliere.
+
+Una richiesta senza bersaglio SHALL essere rifiutata come malformata; verso un
+discorso inesistente SHALL essere dichiarata assente. Toglierlo da un discorso che
+non esiste SHALL essere dichiarato assente.
+
+#### Scenario: un guasto a metà scrittura
+- **GIVEN** l'interruzione fra i due versi
+- **THEN** NON SHALL restare un collegamento a senso unico
+
+#### Scenario: un bersaglio già cancellato
+- **GIVEN** un collegamento verso un discorso sparito
+- **THEN** SHALL comunque potersi togliere
+
+### Requirement: TOPIC-10 — La fine di un turno non SOVRASCRIVE ciò che è stato scritto DURANTE
+
+La chiusura di un turno NON SHALL riscrivere TUTTE le colonne del discorso a
+partire dall'oggetto letto quando la richiesta è ARRIVATA: ciò che è stato scritto
+a metà turno — il legame con un progetto, per esempio — era ancora vuoto in quella
+fotografia, e la chat si ritrovava fuori dal progetto.
+
+L'istante di ultimo aggiornamento SHALL comunque avanzare.
+
+Il messaggio INIZIALE di un discorso SHALL fare andata e ritorno e SHALL potersi
+azzerare. Oltre una lunghezza massima SHALL essere rifiutato. I caratteri di
+controllo SHALL essere tolti, e gli a-capo e le tabulazioni CONSERVATI.
+
+#### Scenario: un progetto legato a metà turno
+- **GIVEN** una scrittura durante il turno
+- **THEN** SHALL sopravvivere alla chiusura
+
+#### Scenario: un messaggio iniziale con caratteri di controllo
+- **GIVEN** un testo con caratteri non stampabili
+- **THEN** SHALL essere ripulito, conservando a-capo e tabulazioni

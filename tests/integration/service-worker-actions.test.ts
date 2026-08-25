@@ -10,6 +10,7 @@
  *
  * Il gemello lato server (quale tasto, per quale evento) sta in
  * `server/push-triggers.test.ts` e `shared/notify-actions.test.ts`.
+  * @covers PUSH-02
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";

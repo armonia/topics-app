@@ -10,6 +10,7 @@
  * Usa un repo git vero (mkdtemp) per soddisfare le aspettative di
  * WorktreeManager, e registra manualmente un processo `sleep 600` come
  * source:"script" nel registro di processes.ts prima di chiamare delete().
+  * @covers PROCESS-11
  */
 import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import * as fs from "node:fs";

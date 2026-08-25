@@ -204,3 +204,41 @@ Il rifiuto NON SHALL buttare via quello che la persona aveva appena scritto.
 #### Scenario: dopo il rifiuto
 - **GIVEN** del testo appena inserito
 - **THEN** NON SHALL essere cancellato
+
+### Requirement: LICENSE-07 — Chi CONIA e chi VERIFICA si accordano sul byte, e il conio non sposta l'autorità
+
+Lo strumento che CONIA un gettone e il modulo che lo VERIFICA SHALL accordarsi su
+COSA si firma — il segmento codificato, non i byte del contenuto. Firmare l'altra
+cosa produce gettoni che non verificano, e il motivo che esce è indistinguibile da
+una chiave sbagliata.
+
+L'accordo SHALL essere provato ESEGUENDO lo strumento vero, non simulandolo.
+
+Un gettone di un'ALTRA installazione NON SHALL valere qui; una chiave DIVERSA NON
+SHALL verificare; uno scaduto SHALL riportare al piano gratuito senza bloccare
+niente.
+
+Senza la chiave privata lo strumento SHALL RIFIUTARSI invece di inventare, e i
+posti fuori scala SHALL essere rifiutati ALLA FONTE.
+
+Le chiavi usate dal banco NON SHALL essere quelle di produzione, e il banco SHALL
+verificarlo.
+
+Il nome del campo che porta il gettone attraverso il canale di pagamento SHALL
+essere lo STESSO ai due capi: sbagliarlo non rompe nessun banco — chi conia scrive
+in un campo che nessuno legge, il canale risponde che non c'era nessun gettone, e
+chi ha pagato resta sul piano gratuito senza che niente diventi rosso.
+
+Il ciclo SHALL fermarsi al primo giro: l'evento della NOSTRA scrittura NON SHALL
+generarne un altro. Al rinnovo SHALL essere coniato una volta sola.
+
+Il conio automatico NON SHALL spostare l'AUTORITÀ: un gettone inventato dentro un
+evento autentico SHALL restare senza effetto.
+
+#### Scenario: il campo che porta il gettone
+- **GIVEN** un nome diverso ai due capi
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un gettone inventato in un evento autentico
+- **GIVEN** una firma valida e un gettone falso
+- **THEN** la licenza SHALL restare quella di prima

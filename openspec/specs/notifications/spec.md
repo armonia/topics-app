@@ -297,3 +297,36 @@ questo dispositivo: meglio nessuna che quella sbagliata.
 #### Scenario: lo stesso telefono che si riappaia
 - **GIVEN** una revoca seguita da un nuovo appaiamento
 - **THEN** SHALL restare una riga sola
+
+### Requirement: PUSH-02 — Un tasto di notifica CHIAMA, e un percorso rifiutato non chiama niente
+
+I tasti dichiarati in una notifica SHALL diventare i tasti che si vedono, e una
+notifica senza tasti SHALL restare quella di prima. Se NON ci stanno TUTTI NON
+SHALL essere mostrato NESSUNO: mezzi tasti sono peggio di nessuno.
+
+Tasti MALFORMATI NON SHALL arrivare al sistema.
+
+Premere un tasto SHALL CHIAMARE e NON SHALL aprire nulla: un gesto, non due. La
+chiamata SHALL portare le credenziali della sessione, o il cancello la respinge.
+
+Un rifiuto del server, e l'assenza di rete, SHALL ripiegare APRENDO il task —
+dove il motivo si legge — mai su un tasto che sparisce nel vuoto.
+
+Premere il CORPO della notifica SHALL aprire come sempre, senza eseguire niente.
+
+Un percorso RIFIUTATO — fuori dalla bacheca, verso un altro ospite, con una
+risalita, o che non è nemmeno un testo — NON SHALL produrre NESSUNA chiamata. Un
+metodo non previsto nemmeno.
+
+Un tasto premuto SENZA la propria richiesta associata SHALL aprire il task.
+
+Il codice del servizio SHALL essere IDENTICO nelle due copie che ne esistono: una
+copia non rigenerata è una copia che si comporta diversamente.
+
+#### Scenario: un percorso con una risalita
+- **GIVEN** un percorso che tenta di uscire dalla bacheca
+- **THEN** NON SHALL essere fatta nessuna chiamata
+
+#### Scenario: i tasti non ci stanno tutti
+- **GIVEN** più tasti di quanti il sistema ne mostra
+- **THEN** NON SHALL essere mostrato nessuno

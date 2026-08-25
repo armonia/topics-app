@@ -28,6 +28,7 @@
  * un `await` di troppo prima di `updateLastMessage` — il cartello smetterebbe
  * di arrivare su disco e il turno tornerebbe a morire muto. Questo test
  * fallisce se succede.
+  * @covers RT-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

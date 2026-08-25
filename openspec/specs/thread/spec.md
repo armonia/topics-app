@@ -274,3 +274,35 @@ righe a metà non c'è niente da pulire, e quindi niente da chiedere.
 #### Scenario: nessuna riga a metà
 - **GIVEN** un discorso senza righe parziali
 - **THEN** NON SHALL essere fatta nessuna domanda
+
+### Requirement: THREAD-07 — Chi scrive una colonna non PARSA quelle che non possiede
+
+Un mutatore SHALL leggere e riscrivere SOLO le colonne che possiede. Parsare
+megabyte di contenuto per aggiornare un campo che non li riguarda è un costo
+pagato a ogni pezzo di uno stream.
+
+L'UNICO mutatore che ha bisogno dei blocchi SHALL essere quello che li modifica
+davvero, e quello SHALL modificarli per davvero: quando un messaggio ha dei
+blocchi, chi disegna legge QUELLI — scrivere solo l'altra colonna produce una riga
+che nel database dice «aspetta una risposta» mentre a schermo continua a girare.
+
+Le colonne non nominate SHALL essere CONSERVATE dalla scrittura.
+
+Un risultato già presente nel proprio dettaglio NON SHALL essere scritto una
+seconda volta — misurato, quasi un terzo del carico era quella copia — ma un
+risultato che NON compare identico nel dettaglio SHALL arrivare INTERO: la
+riduzione non deve poter perdere niente.
+
+Un turno fatto di soli STRUMENTI NON SHALL essere scartato come vuoto: la lettura
+alleggerita non deve renderlo invisibile. Un segnaposto davvero vuoto SHALL
+continuare a essere scartato.
+
+La riduzione SHALL essere MISURATA sulle righe nuove, non dichiarata.
+
+#### Scenario: un aggiornamento di testo
+- **GIVEN** un messaggio con blocchi molto grandi
+- **THEN** quel mutatore NON SHALL parsarli
+
+#### Scenario: un risultato assente dal dettaglio
+- **GIVEN** un risultato che non compare identico altrove
+- **THEN** SHALL essere scritto per intero

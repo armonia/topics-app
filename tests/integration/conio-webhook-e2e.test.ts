@@ -19,6 +19,7 @@
  * L'ultimo caso è il contrario: Stripe che dice «pagato» con dentro un gettone
  * INVENTATO non concede niente. Il conio automatico non ha spostato l'autorità
  * — la porta resta la firma Ed25519.
+  * @covers LICENSE-07
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";

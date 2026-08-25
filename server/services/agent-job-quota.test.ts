@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-16
+ */
 import { test, expect, describe, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import os from "node:os";

@@ -333,3 +333,34 @@ fuori posto fa risalire fino alla radice del disco.
 #### Scenario: un percorso relativo
 - **GIVEN** un percorso non assoluto
 - **THEN** NON SHALL essere aperto niente
+
+### Requirement: PROJECT-11 — Il confine dei percorsi è l'insieme dei progetti CONOSCIUTI, ricalcolato
+
+Un percorso che arriva dal client SHALL essere accettato solo se sta DENTRO un
+progetto CONOSCIUTO. Il confine SHALL essere l'UNIONE di più sorgenti — i
+discorsi, le copie di lavoro, le cartelle dei terminali, i riferimenti nello stato
+dell'interfaccia, e i progetti enumerati nello spazio di lavoro con il proprio
+MARCATORE.
+
+Troppo stretto fa sparire l'icona di progetti veri; troppo largo permette di
+enumerare il disco.
+
+Una cartella senza marcatore NON SHALL entrare.
+
+Il confine SHALL essere RICALCOLATO: ciò che diventa un progetto DOPO un diniego
+SHALL entrare al giro successivo. Una risposta memorizzata lo terrebbe fuori per
+sempre.
+
+Il confronto SHALL rispettare il SEPARATORE: la cartella stessa e i suoi
+discendenti sì, un fratello che ne condivide il prefisso del nome NO.
+
+Senza uno spazio di lavoro dichiarato SHALL essere dedotto dall'ambiente: le porte
+dei file non lo ricevono.
+
+#### Scenario: una cartella diventata progetto dopo un diniego
+- **GIVEN** un secondo tentativo
+- **THEN** SHALL essere accettata
+
+#### Scenario: un fratello con lo stesso prefisso
+- **GIVEN** una cartella accanto con un nome che comincia uguale
+- **THEN** NON SHALL essere considerata dentro

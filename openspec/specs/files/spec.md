@@ -725,3 +725,26 @@ DICHIARATO e non l'uscita del lettore stesso.
 #### Scenario: un file di un altro formato
 - **GIVEN** un contenuto che non è del formato atteso
 - **THEN** SHALL sollevare, non restituire zero
+
+### Requirement: MEDIA-03 — La forma di un'immagine si legge dai BYTE, non dall'estensione
+
+Le dimensioni di un'immagine SHALL essere lette dalla propria intestazione
+BINARIA, e il FORMATO SHALL uscire dai byte: un file con un'estensione e un
+contenuto di un altro formato SHALL essere misurato lo stesso.
+
+Ogni formato SHALL essere letto secondo le PROPRIE regole: l'ordine dei byte del
+numero, il salto dei segmenti fino a quello che porta le dimensioni, i valori
+memorizzati diminuiti di uno, e la larghezza dedotta da un riquadro quando non è
+dichiarata. Un segmento che NON porta le dimensioni NON SHALL essere scambiato per
+quello che le porta.
+
+Nel dubbio SHALL essere restituito «non lo so»: file assente, formato ignoto,
+dimensioni a zero.
+
+#### Scenario: un file con l'estensione sbagliata
+- **GIVEN** un contenuto di un formato diverso da quello del nome
+- **THEN** SHALL essere misurato secondo il contenuto
+
+#### Scenario: un formato sconosciuto
+- **GIVEN** byte non riconoscibili
+- **THEN** SHALL essere restituito «non lo so»

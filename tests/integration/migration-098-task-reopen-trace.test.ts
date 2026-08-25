@@ -20,6 +20,7 @@
  *   4. una card NON `done` non viene toccata, anche se porta un'approvazione
  *      approvata nello storico (era già stata riaperta: `done_actor` deve
  *      restare NULL, altrimenti il cancello la murerebbe a posteriori).
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -28,6 +28,7 @@
  * Il bridge è finto (un socket unix che parla il protocollo vero e RITARDA
  * l'ack: senza quel ritardo la prima revive finisce prima che la seconda
  * cominci e la corsa non esiste), tutto il resto è codice di produzione.
+  * @covers TERM-08
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";

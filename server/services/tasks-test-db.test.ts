@@ -22,6 +22,7 @@
  * l'orologio che avanza in queue-reason sono scelte che misurano cose diverse,
  * e unificarle vorrebbe dire far mentire i loro test. Lo schema e' un fatto,
  * l'orologio e' un esperimento.
+  * @covers SCHEMA-03
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";

@@ -13,6 +13,7 @@
  * (mezza frase, un ragionamento, una tool call) — quello è lavoro fatto.
  * Il predicato è `shared/empty-turn.ts`, con i suoi test di unità; la prova che
  * la bolla sparisce anche in pagina sta nell'E2E `empty-turn-on-stop.spec.ts`.
+  * @covers CHAT-BUBBLE-03
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

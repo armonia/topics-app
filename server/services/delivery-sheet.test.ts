@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-61
+ */
 import { describe, test, expect } from "bun:test";
 import { renderDeliverySheet, wrapText, deliverySheetPath } from "./delivery-sheet";
 import { isDeliverySheetPath } from "../../shared/media-kind";

@@ -31,6 +31,7 @@
  * The last test is the gate looking at itself in the mirror: it builds the same
  * payload WITHOUT the trimming and demands that the invariant reject it. A
  * condition never seen to fail is not a gate, it is a decoration.
+  * @covers WIRE-09
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

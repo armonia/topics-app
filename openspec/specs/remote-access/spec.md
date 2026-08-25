@@ -278,3 +278,47 @@ successo.
 #### Scenario: un ritentativo
 - **GIVEN** un errore mostrato e un nuovo tentativo
 - **THEN** il messaggio NON SHALL lampeggiare
+
+### Requirement: PAIRING-04 — Chi chiede riceve un codice DA MOSTRARE, e la coda non chiude fuori chi arriva
+
+Chi chiede di appaiarsi SHALL ricevere un codice DA MOSTRARE, non un campo dove
+scriverlo, e il codice NON SHALL contenere caratteri ambigui.
+
+Dallo stesso indirizzo SHALL essere SEMPRE possibile chiedere: oltre il tetto la
+richiesta più VECCHIA lascia il posto, e il suo orologio SHALL SPEGNERSI invece di
+restare armato per sempre. Applicato come RIFIUTO, bastavano pochi indirizzi con
+poche richieste a testa perché da lì in poi non entrasse più NESSUNO — compreso il
+proprietario col proprio telefono.
+
+Il segreto per ritirare SHALL essere obbligatorio, e sbagliarlo SHALL essere
+INDISTINGUIBILE dal non esistere: un identificativo inventato, un segreto
+mancante e uno sbagliato SHALL dare la STESSA risposta. Il segreto NON SHALL MAI
+comparire nel messaggio che annuncia l'appaiamento.
+
+Una condivisione verso un PROPRIETARIO SHALL essere rifiutata — vede già tutto — e
+il ruolo SHALL DISCENDERE dalla persona, mai risalire. Un ospite SHALL ricevere
+SOLO ciò che gli è stato concesso, e l'elenco delle risorse permesse NON SHALL
+contenere la porta che le espone tutte.
+
+Togliere una condivisione SHALL togliere la riga; REVOCARE SHALL marcarla. Sono
+due gesti diversi.
+
+Con il canale remoto SPENTO NON SHALL essere più coniato niente, ma SHALL essere
+ancora possibile REVOCARE: un interruttore che nasconde senza spegnere lascia
+credere che sia chiuso.
+
+La chiave SHALL uscire UNA volta sola, e l'elenco NON SHALL riproporla.
+
+Il proprietario dell'installazione NON SHALL essere cancellabile, e chi ha ancora
+un dispositivo VIVO NON SHALL essere cancellato.
+
+Un membro SHALL dichiarare quando si è fatto vivo l'ultima volta, e un dispositivo
+REVOCATO SHALL azzerare quella presenza.
+
+#### Scenario: la coda delle richieste è piena
+- **GIVEN** molti indirizzi che hanno già chiesto
+- **THEN** una richiesta nuova SHALL comunque entrare, sfrattando la più vecchia
+
+#### Scenario: un segreto sbagliato
+- **GIVEN** un ritiro con il segreto errato
+- **THEN** la risposta SHALL essere identica a quella di un identificativo inesistente

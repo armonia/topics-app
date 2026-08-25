@@ -14,6 +14,7 @@
  *      cioè il comportamento di prima, non una FK verso un'org inesistente;
  *   3. il riempimento con un'org — deve toccare TUTTE le righe esistenti e
  *      nessun'altra colonna.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -293,3 +293,27 @@ col suo tetto dicono cose diverse.
 #### Scenario: un tetto
 - **GIVEN** un conteggio che ha un massimo
 - **THEN** il massimo SHALL essere dichiarato
+
+### Requirement: RES-ATTR-10 — L'autore di un messaggio sopravvive alla riscrittura dell'intera sessione
+
+L'autore di un messaggio — persona e dispositivo — SHALL sopravvivere al ciclo di
+salvataggio che RISCRIVE l'intera sessione. Se chi legge non lo legge, o chi
+scrive non lo riscrive, l'attribuzione viene AZZERATA su TUTTI i messaggi già
+scritti: senza errore, senza traccia.
+
+Senza autore la riga SHALL restare SENZA: NON SHALL essere inventato nessuno.
+
+L'identità della RICHIESTA SHALL diventare l'autore, e un dispositivo IGNOTO NON
+SHALL portare con sé una persona ignota: attribuire alla persona sbagliata è
+peggio che non attribuire.
+
+Ogni porta che crea un messaggio SHALL scrivere l'autore, comprese quelle che
+riscrivono o diramano.
+
+#### Scenario: un salvataggio dell'intera sessione
+- **GIVEN** messaggi con autore
+- **THEN** l'autore SHALL sopravvivere
+
+#### Scenario: un dispositivo sconosciuto
+- **GIVEN** un identificativo che non risolve
+- **THEN** NON SHALL essere attribuita nessuna persona

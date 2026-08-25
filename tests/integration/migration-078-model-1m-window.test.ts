@@ -7,6 +7,7 @@
  * lo storico (un task chiuso registra cosa è girato davvero) e la
  * ri-esecuzione — la migration gira su DB già migrati a mano durante l'indagine,
  * e un secondo giro non deve produrre `claude-opus-5[1m][1m]`.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

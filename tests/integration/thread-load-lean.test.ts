@@ -19,6 +19,7 @@
  * that the lean version says EXACTLY the same things as the full one, minus
  * what the caller said it did not want. Time is measured, not gated: a
  * threshold in milliseconds on a shared machine would be noise.
+  * @covers THREAD-07
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

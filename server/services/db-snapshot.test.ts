@@ -4,6 +4,7 @@
  * proprietà che lo rendono affidabile — "esattamente com'era", comprese le
  * righe aggiunte a tabelle che nella fotografia erano vuote, e comprese le
  * foreign key, che devono tornare coerenti a COMMIT.
+  * @covers E2E-GATE-03
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

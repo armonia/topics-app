@@ -17,6 +17,7 @@
  * La seconda parte misura la spazzata d'avvio sullo stesso scenario, che e'
  * dove il difetto fa piu' male: il registro delle anteprime vive sta in
  * memoria, quindi il server che muore mentre una e' su la perde per sempre.
+  * @covers PROCESS-12
  */
 import { describe, expect, test, afterEach, beforeAll } from "bun:test";
 import * as fs from "node:fs";

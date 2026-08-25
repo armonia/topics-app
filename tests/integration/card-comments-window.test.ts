@@ -25,6 +25,7 @@
  * Qui il testo della query si legge da `server/services/tasks.ts` e si esegue
  * su un database in memoria: se qualcuno cambia la query e non questo file, il
  * test se ne accorge invece di continuare a provare una copia.
+  * @covers KANBAN-27
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

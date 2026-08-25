@@ -16,6 +16,7 @@
  *
  * Il DB è sintetico e in memoria, apposta: i dati veri sono già stati toccati
  * dal watcher.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

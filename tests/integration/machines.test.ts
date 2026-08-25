@@ -2,6 +2,7 @@
  * Phase D · multi-machine integration test.
  * Covers MachineStore upsertLocal idempotence, REST routes, and the FK
  * SET NULL on `topics.machine_id` when a machine is deleted.
+  * @covers MACHINE-01
  */
 import { describe, expect, test, beforeAll, beforeEach } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

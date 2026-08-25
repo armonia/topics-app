@@ -15,6 +15,7 @@
  * entrambi i casi i test delle funzioni pure resterebbero verdi.
  *
  * Qui si guida la route VERA e si legge il DB VERO.
+  * @covers RT-01
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

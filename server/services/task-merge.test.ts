@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-58
+ */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, TaskServiceError, type TaskService } from "./tasks";

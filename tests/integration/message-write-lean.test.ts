@@ -19,6 +19,7 @@
  * colonna la CANCELLEREBBE, quindi dopo ogni mutatore le due colonne grosse
  * devono essere identiche byte per byte a com'erano — tranne quella che il
  * mutatore possiede.
+  * @covers THREAD-07
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

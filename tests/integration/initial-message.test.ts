@@ -1,6 +1,7 @@
 /**
  * Phase C · Initial Message round-trip via REST.
  * Pure integration: no UI, no WS roundtrip needed.
+  * @covers TOPIC-10
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

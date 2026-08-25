@@ -2336,3 +2336,25 @@ Le misure in byte SHALL cambiare unità a soglie coerenti.
 #### Scenario: un corpo oltre il budget
 - **GIVEN** una lunghezza superiore
 - **THEN** SHALL essere tagliato, e la lunghezza vera SHALL restare
+
+### Requirement: CHAT-BUBBLE-03 — Fermare un turno PRIMA che dicesse qualcosa non lascia una bolla vuota
+
+Fermare una risposta PRIMA che il modello abbia prodotto qualcosa SHALL SCARTARE
+il segnaposto creato all'inizio, non finalizzarlo: finalizzato produce una bolla
+VUOTA che sopravvive a ogni ricaricamento — nel database se ne contavano decine
+nei giorni di lavoro intenso.
+
+Mezza frase È lavoro: la bolla SHALL restare, finalizzata. Anche il solo
+RAGIONAMENTO conta, e una chiamata di strumento fatta è roba fatta anche senza una
+parola scritta.
+
+Scartare una RIGENERAZIONE SHALL rimettere il ramo attivo su quello buono: nessun
+puntatore appeso.
+
+#### Scenario: si ferma prima della prima parola
+- **GIVEN** nessun contenuto prodotto
+- **THEN** il segnaposto SHALL essere scartato
+
+#### Scenario: solo una chiamata di strumento
+- **GIVEN** nessun testo ma uno strumento eseguito
+- **THEN** la bolla SHALL restare

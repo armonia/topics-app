@@ -21,6 +21,7 @@
  * La chiave privata di questo file nasce a ogni esecuzione e muore col
  * processo: non è su disco, non è nel repository, non è quella di nessun
  * servizio vero.
+  * @covers LICENSE-02
  */
 import { describe, test, expect } from "bun:test";
 import { Database } from "bun:sqlite";

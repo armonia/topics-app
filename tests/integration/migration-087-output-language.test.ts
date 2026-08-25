@@ -23,6 +23,7 @@
  * di prod dal watcher (`TOPICS_SERVER_WATCH=1`) nel momento in cui il file è
  * stato creato — motivo in più perché questa prova esista contro una copia
  * usa-e-getta invece che contro i dati veri.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

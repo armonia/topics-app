@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-60
+ */
 import { describe, it, expect, beforeEach } from "bun:test";
 import { probeUrl, __clearProbeCacheForTests, type ProbeFetch } from "./url-probe-cache";
 

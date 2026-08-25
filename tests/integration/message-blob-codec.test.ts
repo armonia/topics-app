@@ -9,6 +9,7 @@
  * sia byte-identico all'originale. Su un DB in chiaro (tutto in stringa) la
  * stessa suite è l'identità: nessun comportamento cambia prima della
  * compressione dei dati.
+  * @covers WIRE-10
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

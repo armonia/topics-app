@@ -370,3 +370,27 @@ aperto.
 - **GIVEN** una variabile della vecchia implementazione
 - **THEN** NON SHALL riabilitare i terminali
 
+
+### Requirement: TERM-08 — Risvegliare una sessione è SERIALIZZATO, e un ponte assente non è un rosso
+
+Il risveglio di una sessione dormiente SHALL essere SERIALIZZATO sull'identificativo:
+due client sulla stessa scheda passavano entrambi la lettura dello stato e ne
+creavano DUE sotto la stessa voce.
+
+Il perdente NON SHALL ricevere un rifiuto: sposterebbe il problema sul client, che
+ne conierebbe un SECONDO. Entrambi SHALL ricevere la STESSA sessione.
+
+Un risveglio su una sessione GIÀ VIVA SHALL restituire quella, senza crearne
+un'altra.
+
+Un ponte ASSENTE SHALL avere il proprio codice, DISTINTO da un guasto del ponte:
+senza la distinzione, un checkout senza ponte tinge di rosso una suite sana —
+misurato, l'unico rosso di oltre settemila casi.
+
+#### Scenario: due risvegli concorrenti
+- **GIVEN** due client sulla stessa sessione dormiente
+- **THEN** SHALL essere creata una sola sessione, e entrambi SHALL riceverla
+
+#### Scenario: nessun ponte disponibile
+- **GIVEN** un ambiente senza ponte
+- **THEN** SHALL essere dichiarata l'assenza, non un guasto

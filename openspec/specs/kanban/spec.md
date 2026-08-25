@@ -2164,3 +2164,108 @@ ZERO.
 #### Scenario: un valore zero
 - **GIVEN** un conteggio pari a zero
 - **THEN** il chip NON SHALL comparire
+
+### Requirement: KANBAN-58 — Fondere due card non perde NIENTE, e non crea anelli
+
+La fusione di due card SHALL portare sulla superstite il FILO della card
+assorbita, con l'AUTORE di ogni commento invariato, i SOTTOTASK — e i loro
+discendenti — VIVI: la cascata dell'archiviazione NON SHALL portarseli via.
+
+La card assorbita SHALL essere ARCHIVIATA, non cancellata, ed ENTRAMBE SHALL DIRE
+dove è finito il lavoro.
+
+I puntatori di BLOCCO SHALL passare alla superstite, e il blocco SHALL TENERE:
+archiviare il bloccante lo farebbe contare come finito, e il dipendente
+partirebbe mentre il lavoro è ancora da fare. La superstite NON SHALL diventare
+bloccante di sé stessa, e chi la bloccava NON SHALL ripuntare su di lei: sarebbe
+un anello.
+
+La ricevuta SHALL dire QUANTO è stato spostato, e senza dipendenti NON SHALL
+inventare niente.
+
+NON SHALL essere fusa una card con sé stessa, una di un'altra bacheca, una con un
+agente VIVO — il suo spazio di lavoro resterebbe orfano — una GIÀ archiviata, né
+una superstite che è SOTTOTASK di quella che sparisce.
+
+I possibili doppioni SHALL essere cercati sulla PROPRIA bacheca, e una card
+ARCHIVIATA NON SHALL contare come doppione.
+
+#### Scenario: i sottotask della card assorbita
+- **GIVEN** una fusione
+- **THEN** SHALL restare vivi sotto la superstite
+
+#### Scenario: chi bloccava la superstite
+- **GIVEN** un puntatore di blocco che verrebbe spostato
+- **THEN** NON SHALL ripuntare sulla superstite
+
+### Requirement: KANBAN-59 — Il documento del protocollo e l'envelope dicono le STESSE regole
+
+Il documento che descrive il protocollo della bacheca e il messaggio di apertura
+che un agente riceve SHALL portare le STESSE regole, e il banco SHALL verificarlo
+regola per regola: ne portava la metà, e due — l'ultimo miglio, e non toccare
+l'ambiente di una persona senza il suo consenso — non c'erano proprio.
+
+Il documento NON SHALL promettere PIÙ di quanto l'envelope porti: un documento che
+dice il falso SU SÉ STESSO costa più di un documento assente, perché lo si crede.
+
+#### Scenario: una regola tolta dall'envelope
+- **GIVEN** il documento che la dichiara ancora
+- **THEN** il banco SHALL fallire
+
+#### Scenario: una regola aggiunta al documento
+- **GIVEN** nessuna regola corrispondente nell'envelope
+- **THEN** il banco SHALL fallire
+
+### Requirement: KANBAN-60 — Un collegamento consegnato si SONDA, e il dubbio non lo mostra
+
+Un indirizzo consegnato SHALL essere SONDATO prima di essere mostrato come vivo.
+Una risposta positiva SHALL valere VIVO; un errore del servizio, un rifiuto e
+un'assenza di risposta SHALL valere MORTO — e un collegamento morto NON SHALL
+essere mostrato.
+
+L'esito SHALL essere tenuto in cache per una finestra: indirizzi identici nella
+stessa finestra NON SHALL essere sondati più volte, e indirizzi diversi SHALL
+essere sondati separatamente.
+
+Un indirizzo MAI sondato NON SHALL avere una voce in cache: sarà la prossima sonda
+a valutarlo.
+
+#### Scenario: un servizio che non risponde
+- **GIVEN** nessuna risposta entro il tempo
+- **THEN** il collegamento NON SHALL essere mostrato
+
+#### Scenario: lo stesso indirizzo due volte
+- **GIVEN** due richieste ravvicinate
+- **THEN** SHALL essere sondato una volta sola
+
+### Requirement: KANBAN-61 — La scheda di consegna dice COSA è stato fatto, e non occupa la card per dire che non lo sa
+
+La scheda di consegna SHALL riportare i numeri della consegna quando ci sono, e
+quando NON ci sono NON SHALL mostrare uno zero muto né un rimando: una frase che
+dice che l'informazione è altrove occupava la maggior parte della figura.
+
+Senza codice consegnato SHALL essere scritto COSA è stato fatto quando il filo ha
+una parola, e quando non ce l'ha SHALL essere DETTO, col MOTIVO.
+
+Il testo SHALL andare a capo sulle PAROLE, SHALL dichiarare il troncamento, e una
+parola più lunga della riga SHALL essere TAGLIATA invece di sforare. Un riassunto
+lungo SHALL spezzarsi in righe entro un tetto.
+
+Il rapporto fra altezza e larghezza SHALL restare sotto la soglia della card.
+
+Il testo SHALL essere reso sicuro per il formato: caratteri speciali, a-capo e
+spazi multipli NON SHALL rompere il file né il disegno.
+
+Le etichette mostrate SHALL avere un tetto, e i passi chiusi SHALL comparire solo
+se esistono dei sottotask.
+
+La scheda SHALL riconoscere SÉ STESSA, e non confondersi con un'evidenza
+qualunque.
+
+#### Scenario: nessun codice consegnato
+- **GIVEN** una consegna senza modifiche
+- **THEN** NON SHALL comparire uno zero né un rimando, ma cosa è stato fatto
+
+#### Scenario: un titolo con caratteri speciali
+- **GIVEN** un testo che contiene caratteri del formato
+- **THEN** il file SHALL restare valido

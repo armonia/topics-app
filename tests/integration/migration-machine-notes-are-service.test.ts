@@ -26,6 +26,7 @@
  * cambia, cambia sotto questi casi.
  *
  * @covers THREAD-05
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

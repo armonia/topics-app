@@ -14,6 +14,7 @@
  * ri-eseguibile — un database può già avere l'indice creato a mano — e che il
  * PLANNER lo SCEGLIE. Un indice che esiste e che il planner ignora non ha
  * risolto niente, e senza `EXPLAIN QUERY PLAN` non c'è modo di accorgersene.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

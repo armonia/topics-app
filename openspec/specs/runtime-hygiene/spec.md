@@ -422,3 +422,60 @@ scrive davvero, e il file che aveva il difetto SHALL essere verificato pulito.
 #### Scenario: una funzione già estratta
 - **GIVEN** un riferimento memoizzato
 - **THEN** NON SHALL essere segnalato
+
+### Requirement: RUNTIME-14 — Il lucchetto del processo si recupera, e lo stato non esiste mai a metà
+
+Il processo principale SHALL prendere un LUCCHETTO e scrivere il proprio stato,
+e il file di stato SHALL essere leggibile SOLO dal proprietario: porta un
+segreto.
+
+Un secondo avvio con un lucchetto VIVO SHALL essere rifiutato con un errore
+DISTINTO. Un lucchetto il cui processo è MORTO SHALL essere RECUPERATO, e così
+uno il cui identificativo è VIVO ma PRECEDE l'ultimo avvio della macchina: gli
+identificativi si riciclano.
+
+Rilasciare SHALL togliere ENTRAMBI i file, ed essere IDEMPOTENTE quando non ci
+sono.
+
+La lettura di uno stato ASSENTE o CORROTTO SHALL dare «niente», non sollevare.
+
+La scrittura SHALL essere ATOMICA: nessun file temporaneo SHALL restare dopo.
+
+Gli SNAPSHOT dello stato dell'interfaccia SHALL seguire le stesse regole —
+atomici, leggibili solo dal proprietario, con una RITENZIONE che tiene i più
+recenti e toglie gli altri — e l'elenco SHALL essere ordinato dal più recente.
+
+#### Scenario: un identificativo riciclato
+- **GIVEN** un lucchetto il cui processo è vivo ma precede l'ultimo avvio
+- **THEN** SHALL essere recuperato
+
+#### Scenario: uno stato corrotto
+- **GIVEN** un file illeggibile
+- **THEN** SHALL valere «niente», senza sollevare
+
+### Requirement: RUNTIME-15 — Una copia di lavoro si ISOLA su casa propria e su TUTTE le proprie porte
+
+Un avvio da una copia di lavoro dedicata SHALL isolarsi su una propria cartella e
+su porte proprie. Le variabili già scelte NON SHALL essere toccate.
+
+L'isolamento SHALL coprire TUTTE le porte, non solo la principale: una copia di
+lavoro si isolava sulla prima e si prendeva comunque la seconda, lasciando la
+produzione in un ciclo di riavvii con la porta occupata.
+
+Un checkout NORMALE e il percorso dell'applicazione impacchettata SHALL restare
+sui valori di produzione.
+
+Il riconoscimento NON SHALL essere per SOMIGLIANZA del nome: un progetto che si
+chiama come la cartella delle copie di lavoro, ma sta altrove, NON SHALL essere
+isolato — e la cartella base NON SHALL riconoscere sé stessa.
+
+Senza una porta secondaria configurata NON SHALL essere inventato niente da
+togliere.
+
+#### Scenario: un avvio da una copia di lavoro
+- **GIVEN** un checkout dedicato
+- **THEN** SHALL spostare casa e TUTTE le porte
+
+#### Scenario: un progetto che si chiama come la cartella delle copie
+- **GIVEN** un percorso che somiglia ma sta altrove
+- **THEN** NON SHALL essere isolato

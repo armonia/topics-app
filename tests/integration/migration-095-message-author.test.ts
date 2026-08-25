@@ -12,6 +12,7 @@
  *   2. con DUE proprietari non si scrive niente: sarebbe un'invenzione che poi
  *      si legge come una misura;
  *   3. con NESSUN proprietario nemmeno: nessuna riga da cui prendere l'autore.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -12,6 +12,7 @@
  *  - PATCH con un path inesistente (ma nell'allowlist) torni 400 con la ragione
  *  - PATCH con stringa vuota torni 200 (azzerare e' lecito)
  *  - PATCH con un path esistente torni 200
+  * @covers KANBAN-23
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -14,6 +14,7 @@
  * della deduzione: chi entra, chi resta fuori, e perché.
  *
  * Il test esegue il FILE della migration, non una sua copia.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";

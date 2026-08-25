@@ -23,6 +23,7 @@
  * fra i due lati e non tocca la chiave con cui firmiamo davvero. Nessun gettone
  * coniato qui vale su una macchina vera — e l'ultimo caso lo controlla invece
  * di darlo per scontato.
+  * @covers LICENSE-07
  */
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";

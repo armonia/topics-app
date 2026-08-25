@@ -10,6 +10,7 @@
  *
  * È lo stesso difetto che la 095 esiste per evitare, ma dal lato del codice
  * invece che dello schema.
+  * @covers RES-ATTR-10
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

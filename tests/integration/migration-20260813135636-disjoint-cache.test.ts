@@ -19,6 +19,7 @@
  * cambia, cambia sotto questi casi.
  *
  * @covers USAGE-02
+  * @covers SCHEMA-07
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import * as fs from "node:fs";

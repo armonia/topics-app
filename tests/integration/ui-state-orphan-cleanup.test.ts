@@ -12,6 +12,7 @@
  *   7. A second call on the now-clean DB is a no-op (idempotent).
  *   8. `archived = 1` topic with a project_path is NOT treated as an orphan
  *      (preserves the closedStack for unarchive flows).
+  * @covers TOPIC-PURGE-01
  */
 
 import { describe, expect, test, beforeEach, afterAll } from "bun:test";

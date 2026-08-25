@@ -2,6 +2,7 @@
  * Integration test for the ui-state backup service (post-mortem fix).
  * Verifies the snapshot+retention contract that protects pane-store-v2
  * from being wiped by buggy client PUTs.
+  * @covers RUNTIME-14
  */
 import { describe, expect, test, beforeAll, afterEach, afterAll } from "bun:test";
 import * as fs from "node:fs";

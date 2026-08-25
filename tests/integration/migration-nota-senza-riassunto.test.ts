@@ -17,6 +17,7 @@
  * dati che riproducono i tre casi veri trovati in database.
  *
  * @covers KANBAN-05
+  * @covers SCHEMA-07
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

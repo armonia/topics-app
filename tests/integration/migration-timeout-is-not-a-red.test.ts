@@ -25,6 +25,7 @@
  * non lo fa.
  *
  * Il test esegue il FILE della migration, non una sua copia.
+  * @covers KANBAN-15
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

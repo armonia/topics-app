@@ -5,6 +5,7 @@
  * preview on this machine on 2026-08-21. The blank one sits five times below
  * the lightest real one, and the test exists so a future change to the floor
  * has to argue with the measurement instead of with an opinion.
+  * @covers KANBAN-23
  */
 import { describe, expect, test } from "bun:test";
 import { BLANK_DENSITY_FLOOR, isBlankLikeImage } from "./image-shape";

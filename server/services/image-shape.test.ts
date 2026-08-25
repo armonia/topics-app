@@ -4,6 +4,7 @@
  * I fixture sono costruiti byte per byte: il parser legge SOLO l'header, quindi
  * un header vero è un caso di prova vero. In coda c'è la controprova sul
  * campo — le PNG vere del repo, confrontate con `sips`.
+  * @covers MEDIA-03
  */
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";

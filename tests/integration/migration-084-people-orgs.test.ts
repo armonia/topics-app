@@ -10,6 +10,7 @@
  * La regola di questo repo è che creare `server/db/migrations/NNN-*.sql`
  * APPLICA il file al database VIVO in pochi secondi. Quindi l'ordine è: backup,
  * prova su copia, questo test, e solo alla fine il file.
+  * @covers SCHEMA-07
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -275,3 +275,58 @@ Le scansioni SHALL essere verificate NON VUOTE su entrambi i lati.
 #### Scenario: uno schema che nessuno soddisfa
 - **GIVEN** un carico reale che lo schema rifiuta
 - **THEN** il banco SHALL fallire
+
+### Requirement: WIRE-09 — Un carico ha un BUDGET in byte, e il banco sa andare ROSSO
+
+Le risposte che una persona aspetta SHALL avere un BUDGET in byte PER ELEMENTO,
+verificato su una finzione di prova realistica. Senza, un carico può crescere di
+metà mentre la LATENZA MIGLIORA — misurato: da 1,4 a 2,1 MB (+45%) con il tempo
+sceso da 145 a 34 ms. Il tempo non è il peso.
+
+Nessun testo SHALL viaggiare DUE volte: misurato su un discorso vero, un terzo
+del carico era duplicazione, su oltre mille chiamate di strumento.
+
+Un ELENCO NON SHALL portare i contenuti INTERI che solo un dettaglio disegna:
+l'anteprima e il testo completo insieme sono due volte la stessa cosa, e i
+commenti interi viaggiavano per centinaia di schede quando poche li mostrano.
+Ciò che è stato tolto SHALL restare RECUPERABILE dalla porta del dettaglio, e la
+misura di quanto è stato tolto SHALL essere DICHIARATA.
+
+Il banco SHALL contenere lo SPECCHIO: lo STESSO carico nella forma di PRIMA SHALL
+sfondare il budget. Un budget che nessuno ha visto superare non misura niente.
+
+Il budget SHALL avere anche un PAVIMENTO: un carico crollato a zero è un difetto,
+non un successo.
+
+#### Scenario: il carico nella forma precedente
+- **GIVEN** la stessa finzione senza le riduzioni
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un testo di uno strumento
+- **GIVEN** lo stesso testo in due campi
+- **THEN** SHALL viaggiare una volta sola
+
+### Requirement: WIRE-10 — Una colonna grande si COMPRIME, e ogni lettore sa leggerla in entrambe le forme
+
+Le colonne che portano molto testo SHALL essere COMPRESSE sopra una soglia, e
+lasciate identiche sotto: comprimere pochi byte non toglie niente.
+
+OGNI percorso di lettura SHALL saper leggere ENTRAMBE le forme — quella compressa
+e quella in chiaro — perché un database esistente le contiene tutte e due. Un
+lettore che conosce una forma sola trova il campo vuoto e si comporta come se il
+dato non ci fosse.
+
+Il giro completo SHALL restituire ESATTAMENTE ciò che è entrato. Un valore assente
+SHALL restare assente.
+
+Le decisioni che si prendono LEGGENDO quelle colonne — se una domanda è a schermo,
+se un pannello va dipinto, quale strumento corrisponde a un identificativo — SHALL
+funzionare anche dalla forma compressa.
+
+#### Scenario: un database con entrambe le forme
+- **GIVEN** righe compresse e righe in chiaro
+- **THEN** ogni lettore SHALL leggerle entrambe
+
+#### Scenario: un valore sotto la soglia
+- **GIVEN** un contenuto breve
+- **THEN** NON SHALL essere compresso

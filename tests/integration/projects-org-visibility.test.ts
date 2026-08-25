@@ -11,6 +11,7 @@
  * che copre la regola caso per caso): il difetto che costa non è la regola
  * sbagliata, è il verbo che non la chiama — una PATCH o una DELETE che scavalca
  * il filtro perché il controllo stava solo nel ramo GET.
+  * @covers PROJECT-07
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -287,3 +287,26 @@ viva SHALL essere un fantasma: quella copia non è la sua.
 #### Scenario: uno script già concluso
 - **GIVEN** un processo non più in esecuzione
 - **THEN** NON SHALL essere dichiarato fantasma
+
+### Requirement: PROCESS-12 — Chiudere un'anteprima libera la PORTA, non solo il processo che l'ha avviata
+
+Chiudere un'anteprima SHALL liberare davvero la PORTA. Il comando di
+un'anteprima è un LANCIATORE: chi ascolta è un suo DISCENDENTE. Mandando il
+segnale al solo processo avviato, il lanciatore muore e il server no — la porta
+resta occupata, e con un numero limitato di porte bastano poche consegne per
+lasciare una card in review senza evidenza.
+
+La pulizia all'AVVIO SHALL chiudere un'anteprima rimasta da un server morto, e NON
+SHALL toccare chi ascolta da una cartella che NON è una copia di lavoro nostra.
+
+Il banco SHALL usare un processo che ascolta DAVVERO — non una finzione — e SHALL
+prendere una porta LIBERA invece di una fissa: una porta fissa rende il banco
+verde da solo e rosso in parallelo.
+
+#### Scenario: un lanciatore con un discendente in ascolto
+- **GIVEN** la chiusura dell'anteprima
+- **THEN** la porta SHALL essere libera
+
+#### Scenario: un server di terzi sulla stessa porta
+- **GIVEN** un ascoltatore da una cartella estranea
+- **THEN** NON SHALL essere toccato

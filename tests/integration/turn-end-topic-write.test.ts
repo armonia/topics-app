@@ -12,6 +12,7 @@
  *
  * Si guida la rotta VERA (`POST /api/chat`) con un provider finto: si parte, si
  * lega il topic al progetto mentre il turno è in volo, si chiude il turno.
+  * @covers TOPIC-10
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
