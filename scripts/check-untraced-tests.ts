@@ -1,32 +1,32 @@
 #!/usr/bin/env bun
 /**
- * R6 — UN TEST CHE NON DICHIARA COSA COPRE.
+ * R6 - A TEST THAT DOES NOT DECLARE WHAT IT COVERS.
  *
- * IL BUCO CHE CHIUDE, e non è teorico: in una sola notte la stessa forma è
- * comparsa TRE volte — la status line della sidebar (8 file di test, zero
- * requisiti), la resa delle chiamate a tool, e il banco sui leak di memoria
- * (banco + cancello funzionanti, nessun requisito che li nominasse). Ogni volta:
- * funzionalità viva, coperta da test, e il documento di riferimento in silenzio.
- * Chi legge le spec crede che la feature non esista; chi guarda i test crede che
- * sia descritta; e i due non possono accorgersi l'uno dell'altro.
+ * THE HOLE IT CLOSES, and it is not theoretical: in one night the same shape
+ * turned up THREE times - the sidebar status line (8 test files, zero
+ * requirements), the rendering of tool calls, and the memory-leak bench (bench
+ * and gate both working, and no requirement naming them). Every time: a live
+ * feature, covered by tests, and the reference document silent. Whoever reads
+ * the specs believes the feature does not exist; whoever looks at the tests
+ * believes it is described; and the two cannot notice each other.
  *
- * PERCHÉ `check-spec-coverage` non poteva vederlo. Quel cancello verifica che
- * ogni REQUISITO abbia un test (R2) e che ogni id dichiarato esista (R1).
- * Entrambe partono dalle spec e guardano verso i test. La direzione opposta —
- * dai test verso le spec — non era controllata da niente, ed è esattamente la
- * direzione in cui si perde una funzionalità.
+ * WHY `check-spec-coverage` could not see it. That gate verifies that every
+ * REQUIREMENT has a test (R2) and that every declared id exists (R1). Both start
+ * from the specs and look towards the tests. The opposite direction - from the
+ * tests towards the specs - was checked by nothing, and it is exactly the
+ * direction in which a feature gets lost.
  *
- * PERCHÉ UN CRICCHETTO E NON UN DIVIETO. Alla prima misura, 1.043 file di test
- * su 1.166 non dichiarano niente: l'89%. Un cancello che li accusa tutti è rosso
- * dal primo giorno, e un cancello rosso di default smette di essere letto entro
- * un mese — è la stessa ragione per cui esistono le tolleranze negli altri
- * cancelli di questo repository. Quindi la linea di partenza assorbe l'esistente
- * e questo controllo risponde a UNA domanda sola, che è quella che conta:
+ * WHY A RATCHET AND NOT A BAN. At the first measurement, 1,043 test files out
+ * of 1,166 declare nothing: 89%. A gate that accuses them all is red from day
+ * one, and a gate that is red by default stops being read within a month - the
+ * same reason the other gates in this repository carry tolerances. So the
+ * baseline absorbs what exists and this check answers ONE question, the one
+ * that matters:
  *
- *     un file di test NUOVO dichiara cosa copre?
+ *     does a NEW test file declare what it covers?
  *
- * La linea di partenza scende soltanto. Un file che guadagna una dichiarazione
- * ne esce e non può rientrare.
+ * The baseline only goes down. A file that gains a declaration leaves it and
+ * cannot come back.
  *
  *   bun run scripts/check-untraced-tests.ts
  *   bun run scripts/check-untraced-tests.ts --update-baseline
@@ -42,12 +42,11 @@ const BASELINE = join(ROOT, "scripts", "untraced-tests-baseline.json");
 const DECLARES = /@covers\s+[A-Z]|type:\s*["']spec["']/;
 
 function testFiles(): string[] {
-  // `--others --exclude-standard` include i file NON ANCORA tracciati, ed e'
-  // il caso che conta: un test appena scritto e non ancora committato e'
-  // esattamente quello che questo cancello esiste per prendere. Con il solo
-  // `ls-files` il controllo era cieco proprio prima del commit — misurato,
-  // creando un file di prova che non veniva visto.
-  // allow-italian: descrive il difetto trovato, non e' testo mostrato
+  // `--others --exclude-standard` includes files that are NOT YET tracked, and
+  // that is the case that matters: a test just written and not yet committed is
+  // exactly what this gate exists to catch. With plain `ls-files` the check was
+  // blind right before the commit - measured, by creating a probe file that it
+  // did not see.
   const out = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
     cwd: ROOT,
     encoding: "utf8",
@@ -95,13 +94,13 @@ if (process.argv.includes("--update-baseline")) {
   process.exit(0);
 }
 
-const nuovi = untraced.filter((f) => !known.has(f));
-const risolti = base.filter((f) => !untraced.includes(f));
+const fresh = untraced.filter((f) => !known.has(f));
+const cleared = base.filter((f) => !untraced.includes(f));
 
-if (nuovi.length > 0) {
-  console.log(`[untraced-tests] FAIL: ${nuovi.length} file di test NUOVI non dichiarano cosa coprono:\n`);
-  for (const f of nuovi.slice(0, 20)) console.log(`  ${f}`);
-  if (nuovi.length > 20) console.log(`  … e altri ${nuovi.length - 20}`);
+if (fresh.length > 0) {
+  console.log(`[untraced-tests] FAIL: ${fresh.length} file di test NUOVI non dichiarano cosa coprono:\n`);
+  for (const f of fresh.slice(0, 20)) console.log(`  ${f}`);
+  if (fresh.length > 20) console.log(`  … e altri ${fresh.length - 20}`);
   console.log(`
 Un test che non nomina il requisito che prova e' copertura che le spec non
 vedono. E' successo tre volte in una notte: la fascia della sidebar, la resa
@@ -114,9 +113,9 @@ Se il requisito non esiste ancora, scrivilo: il test lo prova gia'.`);
   process.exit(1);
 }
 
-if (risolti.length > 0) {
-  console.log(`[untraced-tests] debito sceso di ${risolti.length}, rilancia con --update-baseline per fissarlo:`);
-  for (const f of risolti.slice(0, 12)) console.log(`    ${f}`);
+if (cleared.length > 0) {
+  console.log(`[untraced-tests] debito sceso di ${cleared.length}, rilancia con --update-baseline per fissarlo:`);
+  for (const f of cleared.slice(0, 12)) console.log(`    ${f}`);
   process.exit(1);
 }
 

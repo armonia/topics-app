@@ -156,7 +156,19 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
               await runGit(["stash", "push", "-m", "Topics checkpoint rollback auto-stash"], topic.projectPath);
               gitResult.warning = "Uncommitted changes were stashed";
             }
-            await runGit(["checkout", checkpoint.gitHash], topic.projectPath);
+            // `restore --source`, NOT `checkout <hash>`.
+            //
+            // `git checkout <hash>` moves HEAD onto the commit, which leaves the
+            // repository in DETACHED HEAD. That is not a state to drop somebody
+            // into when all they asked for was to step back one turn: the next
+            // commit they make lands on no branch, and `git status` opens with a
+            // paragraph of warning instead of their work. Worse, it is silent
+            // here - the response said `rolled: true` and nothing else.
+            //
+            // `restore --source=<hash> -- .` puts the FILES back and leaves HEAD
+            // exactly where it was. Same outcome for the thing the user wanted,
+            // without the trap.
+            await runGit(["restore", "--source", checkpoint.gitHash, "--", "."], topic.projectPath);
             gitResult.rolled = true;
           } catch (err: any) {
             gitResult.warning = err.message || "Git rollback failed";
