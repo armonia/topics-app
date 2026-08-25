@@ -1,3 +1,6 @@
+/**
+ * @covers SCROLLFLU-01
+ */
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";

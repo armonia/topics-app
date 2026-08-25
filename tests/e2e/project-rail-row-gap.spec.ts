@@ -18,6 +18,7 @@
  *
  * Qui si rimisura sul DOM, che è l'unico posto in cui l'errore era visibile: le
  * costanti erano tutte giuste ognuna per conto suo.
+  * @covers RAILGAP-01
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

@@ -218,3 +218,33 @@ A chat that armed a `Monitor` is not waiting for the user: something is under wa
 - **GIVEN** the client's phase classification
 - **WHEN** `watching` is classified
 - **THEN** it SHALL be one of the active phases, beside `running` and `tool-running`, so a chat under watch does not read as one that stopped answering
+
+### Requirement: TITLE-01 — Il titolo di una sessione esterna si deriva, e la marcatura dell'ospite non lo diventa MAI
+
+Il titolo SHALL preferire l'ULTIMO titolo generato — l'argomento della sessione
+si evolve — poi l'ultimo messaggio inviato, poi il PRIMO messaggio della persona.
+
+I contenuti a blocchi SHALL essere gestiti; gli spazi SHALL essere collassati e
+il titolo TAGLIATO alla lunghezza dichiarata.
+
+Trascrizioni vuote o inutilizzabili SHALL dare NIENTE. Le righe malformate SHALL
+essere ignorate senza impedire di trovare un titolo valido.
+
+**La marcatura dell'ospite NON SHALL MAI diventare un titolo**, e un comando non
+SHALL essere preso come ultimo messaggio: SHALL essere tenuto quello precedente.
+Una trascrizione di sola marcatura SHALL dare NIENTE, non la marcatura. Il PRIMO
+messaggio VERO SHALL vincere su uno di sola marcatura che lo precede.
+
+La derivazione INCREMENTALE SHALL aggiornare il titolo quando un titolo nuovo si
+aggiunge; una riga finale NON TERMINATA SHALL essere usata in modo
+opportunistico e NON consumata; un carattere multi-byte spezzato al confine del
+frammento SHALL sopravvivere; un file RIMPICCIOLITO — ruotato — SHALL essere
+riletto da zero; e un file assente SHALL dare NIENTE.
+
+#### Scenario: una trascrizione di sola marcatura
+- **GIVEN** nessun messaggio vero
+- **THEN** SHALL dare niente
+
+#### Scenario: un carattere multi-byte al confine del frammento
+- **GIVEN** una lettura incrementale che spezza il carattere
+- **THEN** SHALL sopravvivere

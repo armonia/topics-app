@@ -1,3 +1,6 @@
+/**
+ * @covers DRAGFR-01
+ */
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

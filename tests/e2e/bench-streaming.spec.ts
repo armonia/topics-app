@@ -45,6 +45,7 @@
  * burn `µs × transcript-length` microseconds inside the task that parses each
  * arriving chunk — which is exactly the defect the three fixes removed. It is
  * `installOn2Knob` in the probe file, which explains where it lands and why.
+  * @covers STREAMB-03
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";

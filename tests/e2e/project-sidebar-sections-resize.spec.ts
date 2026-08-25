@@ -21,6 +21,7 @@
  *     ciò che sta sopra la coppia (Files) non si muove di un pixel (RESIZE-2);
  *  3. arrivati al minimo ci si ferma, non si sfonda spingendo fuori il vicino
  *     (RESIZE-4).
+  * @covers PRESIZE-01
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";

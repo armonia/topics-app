@@ -1,3 +1,6 @@
+/**
+ * @covers EFFORTUI-01
+ */
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";

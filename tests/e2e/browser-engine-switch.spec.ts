@@ -1,3 +1,6 @@
+/**
+ * @covers ENGSW-02
+ */
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";

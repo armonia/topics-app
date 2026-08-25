@@ -1,3 +1,6 @@
+/**
+ * @covers PERFPANEL-01
+ */
 import { test, expect } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
 

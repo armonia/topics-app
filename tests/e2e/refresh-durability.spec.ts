@@ -1,3 +1,6 @@
+/**
+ * @covers DURAB-CHAT-01
+ */
 import { expect, test } from "@playwright/test";
 import { resolve } from "path";
 import { goToApp, openTestChat } from "./helpers";

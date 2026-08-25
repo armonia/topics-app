@@ -20,6 +20,7 @@
  *    ha una modifica non committata, quindi git deve mostrare 1 senza che
  *    nessuno apra il pannello: GitChanges e lazy e da chiusa non e montato,
  *    quindi il numero puo arrivare solo dallo store condiviso.
+  * @covers PRAIL-01
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

@@ -1,3 +1,6 @@
+/**
+ * @covers IDLE-01
+ */
 import { expect, test, type Page } from "@playwright/test";
 import { goToApp, openTestChat } from "./helpers";
 import {

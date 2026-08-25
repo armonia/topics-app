@@ -1,3 +1,6 @@
+/**
+ * @covers PINTILE-01 @covers PINTILE-02 @covers PINTILE-03
+ */
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import { E2E_BASE } from "./helpers/test-server";

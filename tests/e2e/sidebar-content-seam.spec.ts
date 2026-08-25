@@ -13,6 +13,7 @@
  * L'invariante: un'ombra separa due PIANI, un filo separa due ZONE dello stesso
  * piano. Con le pane flottanti la sidebar sta davvero su un piano suo e l'ombra
  * resta; senza, il confine è un pixel.
+  * @covers SEAMLINE-01
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

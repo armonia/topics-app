@@ -9,6 +9,7 @@
  * modificati lasciavano ~160px di vuoto sotto e quaranta ne mostravano sei. Il
  * difetto non è visibile da una costante: il numero era coerente con sé stesso,
  * era il RAPPORTO col contenuto a non esistere. Quindi si misura il rettangolo.
+  * @covers AUTOH-01
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

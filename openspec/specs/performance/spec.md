@@ -485,3 +485,91 @@ rifiutare un documento valido che non è una misura.
 #### Scenario: una misura senza testimone della lunghezza
 - **GIVEN** nessuna prova che il thread lungo fosse lungo
 - **THEN** SHALL essere rifiutata
+
+### Requirement: LAT-AI-03 — «Quanto è veloce l'AI» si spezza in ciò che è nostro e ciò che non lo è
+
+Questa app non ha un modello: pilota agenti a riga di comando attraverso un
+terminale. Quindi «quanto è veloce l'AI» è una domanda su DUE cose diverse, e
+tenerle insieme produce un numero che nessuno può migliorare.
+
+La misura SHALL separare il costo di INVIO, il costo di CONSEGNA e il tempo del
+MODELLO. I primi due sono nostri e hanno un budget; il terzo non è nostro e NON
+SHALL avere un budget.
+
+#### Scenario: una corsa senza modello
+- **GIVEN** la modalità che non chiama nessun modello
+- **THEN** SHALL essere riportato l'overhead nostro, dichiarando l'assenza del modello
+
+### Requirement: STREAMB-03 — Un token che arriva costa uguale, per quanto lungo sia il trascritto
+
+Le altre misure guardano un trascritto FERMO o cronometrano un gesto. Nessuna
+guarda cosa costa un token MENTRE arriva, e se quel costo cresce con il trascritto
+in cui atterra.
+
+SHALL essere misurato l'assorbimento della STESSA raffica in un trascritto LUNGO
+e in uno CORTO, e il rapporto SHALL essere pubblicato in un rapporto.
+
+#### Scenario: la stessa raffica nelle due lunghezze
+- **GIVEN** un trascritto lungo e uno corto
+- **THEN** SHALL essere misurato l'assorbimento di entrambi
+
+### Requirement: DRAGFR-01 — Il tempo di fotogramma DURANTE un trascinamento si misura, e non è il cancello
+
+Il tempo di fotogramma MENTRE una card viene trascinata attraverso le colonne
+SHALL essere misurato. Questa è la MISURA, non il cancello: il cancello è un
+comando a parte, che legge ciò che questa produce.
+
+#### Scenario: una card trascinata fra le colonne
+- **GIVEN** un trascinamento completo
+- **THEN** SHALL essere prodotta la misura del tempo di fotogramma
+
+### Requirement: IDLE-01 — A riposo NON si chiedono fotogrammi a vuoto
+
+Con l'app ferma e niente che succede NON SHALL esserci una pompa di richieste di
+fotogramma né di osservatori di dimensione.
+
+Una chat aperta e ferma SHALL assestare la lista virtualizzata e poi TACERE. Un
+terminale aperto e fermo NON SHALL chiedere fotogrammi a vuoto.
+
+Nel guscio nativo, a finestra NASCOSTA, i canali della pane browser SHALL
+tacere, e al ritorno SHALL recuperare: tacere per sempre sarebbe il difetto
+opposto.
+
+#### Scenario: una chat aperta e ferma
+- **GIVEN** nessuna attività
+- **THEN** NON SHALL essere chiesto nessun fotogramma dopo l'assestamento
+
+#### Scenario: la finestra nascosta e poi di nuovo visibile
+- **GIVEN** un ciclo nascondi/mostra
+- **THEN** i canali SHALL tacere e poi recuperare
+
+### Requirement: PERFPANEL-01 — Il pannello dice NUMERI, e dice anche quando il numero non c'è
+
+Il pannello SHALL aprirsi dalla barra di stato e mostrare NUMERI, non chiavi.
+
+Quando il grosso dell'impronta è già stato compresso o mandato su disco SHALL
+DIRLO, invece di lasciar credere che l'app tenga tutto in memoria. Sotto
+PRESSIONE vera SHALL dire la cosa OPPOSTA — che conviene chiudere qualcosa —
+perché sono due situazioni che si somigliano nei numeri e chiedono gesti opposti.
+
+La BARRA SHALL dire quanta memoria, senza aprire niente.
+
+**Una misura PARZIALE NON SHALL produrre nessuna riga**, invece di inventarne
+una: una riga con dentro mezzo dato si legge come un dato.
+
+#### Scenario: impronta quasi tutta su disco
+- **GIVEN** la maggior parte compressa o spostata
+- **THEN** il pannello SHALL dirlo
+
+#### Scenario: una misura parziale
+- **GIVEN** solo una metà misurabile
+- **THEN** NON SHALL comparire nessuna riga inventata
+
+### Requirement: SCROLLFLU-01 — I fotogrammi persi scorrendo un trascritto si contano
+
+Scorrendo un trascritto SHALL essere misurato quanti fotogrammi si perdono. È il
+banco della fluidità, e produce il numero su cui il cancello decide.
+
+#### Scenario: uno scorrimento su un trascritto lungo
+- **GIVEN** un trascritto caricato
+- **THEN** SHALL essere prodotto il conteggio dei fotogrammi persi

@@ -11,6 +11,7 @@
  *
  * Le asserzioni sono numeri letti dal DOM (`getBoundingClientRect` +
  * `getComputedStyle`), non impressioni: una regressione si legge come un diff.
+  * @covers SIDETOUCH-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

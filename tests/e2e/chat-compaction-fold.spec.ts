@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-COMPACT-03
+ */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";

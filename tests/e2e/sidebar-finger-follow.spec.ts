@@ -1,3 +1,6 @@
+/**
+ * @covers FINGER-01
+ */
 import { test, expect, type Page } from "@playwright/test";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";

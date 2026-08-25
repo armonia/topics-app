@@ -10,6 +10,7 @@
  * `review_at` è quell'istante, e questi casi difendono le due decisioni che lo
  * rendono utile invece che decorativo: il silenzio sotto l'ora, e i giorni
  * quando i giorni contano.
+  * @covers REVAGE-01
  */
 import { describe, it, expect } from "bun:test";
 import { fmtAttesa } from "../../client/src/components/Board/format";

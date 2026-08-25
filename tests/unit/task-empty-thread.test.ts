@@ -5,6 +5,7 @@
  * differenza fra una card che aspetta te e una che aspetta la macchina, e fino
  * al 16/08 dicevano la stessa identica cosa — «Nessun commento.» — cioè
  * constatavano un'assenza che si vedeva già da sola.
+  * @covers EMPTYTHREAD-01
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

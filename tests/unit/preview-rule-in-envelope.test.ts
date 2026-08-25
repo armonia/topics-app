@@ -16,6 +16,7 @@
  * I due test qui SCANSIONANO IL SORGENTE (come molti altri gate di questo repo)
  * invece di istanziare il servizio: e' la forma piu' diretta per dire
  * «PREVIEW_RULE e' referenziata QUI e il paragrafo NON e' piu' in quel file».
+  * @covers PREVENV-01
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

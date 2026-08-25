@@ -1,3 +1,6 @@
+/**
+ * @covers BUNDLE-TOAST-01
+ */
 import { expect, test } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";

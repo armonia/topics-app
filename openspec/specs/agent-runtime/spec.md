@@ -420,3 +420,17 @@ qualcosa che era già finito.
 #### Scenario: una lingua scelta
 - **GIVEN** la lingua dichiarata
 - **THEN** la direttiva SHALL chiudere il prompt
+
+### Requirement: SNAPSYNC-01 — L'istantanea dei fornitori arriva a TUTTE le finestre, senza interrogare
+
+L'istantanea SHALL essere leggibile con una forma VALIDA, e la richiesta di
+aggiornamento SHALL accettare sia un corpo vuoto sia la scelta di un fornitore.
+
+**Due finestre SHALL ricevere la STESSA istantanea attraverso il canale
+persistente, senza interrogare ripetutamente il server**: due finestre che
+interrogano per conto proprio si disallineano e mostrano due elenchi di modelli
+diversi.
+
+#### Scenario: due finestre aperte
+- **GIVEN** un aggiornamento dell'istantanea
+- **THEN** entrambe SHALL riceverla, senza interrogare

@@ -1,3 +1,6 @@
+/**
+ * @covers TITLE-02
+ */
 import { describe, expect, test } from "bun:test";
 import { extractCodexTitleFromRollout } from "../../server/lib/codex-transcript-title";
 

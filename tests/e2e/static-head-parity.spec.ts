@@ -1,3 +1,6 @@
+/**
+ * @covers HEADPAR-01
+ */
 import { test, expect } from "@playwright/test";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";

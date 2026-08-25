@@ -17,6 +17,7 @@
  * rotte che un test chiama rispondono con un codice». La seconda si verifica
  * una rotta alla volta e lascia scoperta la prossima; la prima è il file
  * intero, comprese le rotte che nessuno ha ancora coperto.
+  * @covers AUTHERR-02
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";

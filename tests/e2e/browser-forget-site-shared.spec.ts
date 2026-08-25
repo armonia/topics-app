@@ -39,6 +39,7 @@
  *
  * La clip di consegna (`videos/clip/browser-forget-site-shared.webm`):
  *     E2E_CLIP=1 ./node_modules/.bin/playwright test browser-forget-site-shared
+  * @covers FORGET-03
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { createServer, type Server } from "http";

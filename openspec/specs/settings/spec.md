@@ -189,3 +189,68 @@ diversi hanno due cose diverse da dire.
 #### Scenario: lo stesso alias letto dieci volte
 - **GIVEN** più letture consecutive
 - **THEN** SHALL essere avvisato una volta sola
+
+### Requirement: EFFORTUI-01 — L'impegno si cambia in UN posto solo, ed è un cursore
+
+L'impegno viveva in DUE superfici — il pannello del modello e quello di sessione
+— con due grafiche e due idee di «predefinito».
+
+Il pannello del MODELLO NON SHALL più offrire quei comandi. Il pannello di
+sessione SHALL avere un CURSORE che scrive l'impegno.
+
+Cambiare l'impegno NON SHALL spostare di un pixel la barra del campo di
+scrittura: un valore che cambia la geometria fa saltare la riga sotto le mani.
+
+La finestra del modello SHALL leggersi in un DISTINTIVO, non in un suffisso
+tagliato a metà.
+
+#### Scenario: il pannello del modello
+- **GIVEN** il pannello aperto
+- **THEN** NON SHALL contenere i comandi dell'impegno
+
+#### Scenario: cambiare l'impegno
+- **GIVEN** un movimento del cursore
+- **THEN** la barra del campo di scrittura NON SHALL spostarsi
+
+### Requirement: SETORG-01 — Le impostazioni parlano italiano, e i gruppi si trovano da lì
+
+Segnalato: le impostazioni non erano ben divise, i gruppi non si vedevano, e nel
+profilo era accorpata la possibilità di aggiungere altre persone — che lì non ha
+senso, perché il profilo è di una persona sola.
+
+Il menu delle impostazioni SHALL essere nella lingua dell'interfaccia.
+
+Il banner da mettere in un documento condiviso SHALL essere copiabile da lì, già
+pronto.
+
+I GRUPPI SHALL trovarsi dalle impostazioni, non dal profilo.
+
+#### Scenario: il menu delle impostazioni
+- **GIVEN** la lingua predefinita
+- **THEN** le voci SHALL leggersi in quella lingua
+
+#### Scenario: i gruppi
+- **GIVEN** le impostazioni aperte
+- **THEN** i gruppi SHALL essere raggiungibili da lì
+
+### Requirement: SETMOB-01 — Sul telefono le impostazioni ci stanno, e non offrono ciò che lì non esiste
+
+Due segnalazioni dal telefono sulla stessa superficie: le impostazioni non erano
+adatte allo schermo, e mostravano voci che su un telefono non servono.
+
+A larghezza di telefono il pannello SHALL stare nello schermo e NON SHALL avere
+bersagli sotto la misura del dito.
+
+NON SHALL comparire nessun elenco a discesa DI SISTEMA nella pagina, e la lingua
+SHALL cambiarsi col menu proprio dell'app: un elenco di sistema apre una
+superficie che non è nostra e non si può misurare.
+
+I comandi sui riquadri NON SHALL comparire dove i riquadri non ci sono.
+
+#### Scenario: a larghezza di telefono
+- **GIVEN** uno schermo stretto
+- **THEN** nessun bersaglio SHALL essere sotto la misura del dito
+
+#### Scenario: i comandi sui riquadri
+- **GIVEN** una superficie senza riquadri
+- **THEN** NON SHALL comparire i loro comandi

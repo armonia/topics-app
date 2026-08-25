@@ -336,3 +336,32 @@ c'è, e falsa per un identificativo sconosciuto e per uno vuoto.
 #### Scenario: un file marcato appena prima dell'accensione
 - **GIVEN** un piccolo scarto negativo di orologio
 - **THEN** SHALL essere accettato
+
+### Requirement: TITLE-02 — Anche l'altro agente deriva il titolo dal messaggio VERO
+
+Il titolo SHALL preferire l'ULTIMO messaggio pulito della persona — è il turno
+corrente — e ripiegare sul primo quando ce n'è uno solo.
+
+SHALL essere usata la forma di EVENTO e non la rappresentazione alternativa dello
+stesso contenuto: sono due copie della stessa cosa e sceglierne una a caso
+produce titoli diversi a parità di sessione.
+
+La marcatura dell'ospite SHALL essere SALTATA, e il primo messaggio VERO SHALL
+vincere su una marcatura che lo precede.
+
+Gli spazi SHALL essere collassati e il titolo tagliato alla lunghezza dichiarata.
+Registrazioni di soli metadati o inutilizzabili SHALL dare NIENTE, e le righe
+malformate SHALL essere ignorate senza impedire di trovare un titolo.
+
+La derivazione INCREMENTALE SHALL aggiornare il titolo su un messaggio aggiunto;
+una riga finale non terminata SHALL essere usata in modo opportunistico e non
+consumata; un file rimpicciolito SHALL essere riletto da zero; e un file assente
+SHALL dare NIENTE.
+
+#### Scenario: la rappresentazione alternativa
+- **GIVEN** lo stesso contenuto in due forme
+- **THEN** SHALL essere usata quella di evento
+
+#### Scenario: un file ruotato
+- **GIVEN** un file diventato più corto
+- **THEN** SHALL essere riletto da zero

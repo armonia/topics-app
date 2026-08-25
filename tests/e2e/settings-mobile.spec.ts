@@ -21,6 +21,7 @@
  * `hasTouch` non è un dettaglio: le soglie da 44px sono dietro la variante
  * `coarse:` (`any-pointer: coarse`), che senza il segnale touch non si accende —
  * la spec misurerebbe la UI da mouse e passerebbe dicendo il falso.
+  * @covers SETMOB-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";

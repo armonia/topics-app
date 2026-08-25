@@ -16,6 +16,7 @@
  *  2. LE ORGANIZZAZIONI CI SONO. `IdentitySection` le gestisce per intero e sta
  *     dentro «Profilo». Il test le trova, così se un domani qualcuno le sposta
  *     di nuovo in fondo a una scheda che parla d'altro, diventa rosso.
+  * @covers SETORG-01
  */
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";

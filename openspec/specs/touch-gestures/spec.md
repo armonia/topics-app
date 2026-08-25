@@ -246,3 +246,109 @@ dedicati.
 #### Scenario: un angolo tondo a filo del bordo
 - **GIVEN** una scatola con angolo tondo sul bordo
 - **THEN** SHALL pagare meno di una con angolo appuntito
+
+### Requirement: HOVERTOUCH-01 — Un comando dietro il passaggio del mouse, col dito NON esiste
+
+Nove file scrivevano a mano la coppia di classi che nasconde un comando finché il
+mouse non ci passa sopra. È una classe che la libreria mette dentro una regola
+condizionata alla presenza di un puntatore: su un dispositivo SENZA puntatore non
+si accende MAI. Quindi il comando non è «meno visibile»: NON ESISTE.
+
+Il contesto della prova SHALL essere davvero SENZA puntatore, o la prova non
+misura niente.
+
+Ogni comando nascosto dietro il passaggio del mouse SHALL essere RAGGIUNGIBILE
+col dito — tenendo premuto, o da un menu.
+
+**Nessun bersaglio INVISIBILE SHALL restare cliccabile**: un elemento a opacità
+zero che riceve i gesti è peggio di uno assente, perché ruba il gesto a ciò che
+sta sotto.
+
+#### Scenario: un dispositivo senza puntatore
+- **GIVEN** il contesto senza puntatore
+- **THEN** ogni comando nascosto SHALL essere raggiungibile col dito
+
+#### Scenario: un elemento a opacità zero
+- **GIVEN** un comando non visibile
+- **THEN** NON SHALL ricevere i gesti
+
+### Requirement: FINGER-01 — Il dito COMANDA: il cassetto sta dove sta il dito
+
+Segnalato dal telefono: il cassetto non seguiva bene lo scorrimento del dito, e
+durante lo scorrimento le tessere fissate facevano scatti.
+
+In APERTURA il bordo del cassetto SHALL essere DOVE È IL DITO, per tutta la
+corsa. In CHIUSURA la colonna SHALL scorrere col dito e andarsene con lui.
+
+AL RILASCIO SHALL decidere il GESTO, non la posizione: una corsa BREVE e LENTA
+NON SHALL aprire niente.
+
+Le tessere fissate NON SHALL scattare mentre la colonna scorre, nemmeno con un
+ridisegno a metà corsa.
+
+#### Scenario: una corsa breve e lenta
+- **GIVEN** un gesto che non esprime l'intenzione di aprire
+- **THEN** il cassetto NON SHALL aprirsi
+
+#### Scenario: un ridisegno durante lo scorrimento
+- **GIVEN** un aggiornamento a metà gesto
+- **THEN** le tessere SHALL restare dove sono
+
+### Requirement: PINDRAG-01 — Col dito si fissa e si sfissa, perché i gesti del mouse lì non esistono
+
+Segnalato dal telefono: non si riusciva a fissare né a sfissare una tessera col
+trascinamento. Non era un difetto solo: su quella piattaforma gli eventi di
+trascinamento del mouse NON vengono MAI emessi da un tocco, quindi il gesto non
+poteva funzionare per costruzione.
+
+Il confine fra la lista e la griglia dei fissati SHALL essere attraversabile COL
+DITO nei due versi: una tessera trascinata sulla lista SHALL perdere il
+fissaggio, e una riga trascinata dentro la griglia SHALL prenderlo.
+
+#### Scenario: una tessera trascinata col dito sulla lista
+- **GIVEN** un gesto tattile
+- **THEN** SHALL perdere il fissaggio
+
+#### Scenario: una riga trascinata col dito nella griglia
+- **GIVEN** un gesto tattile
+- **THEN** SHALL prendere il fissaggio
+
+### Requirement: SIDETOUCH-01 — La colonna, misurata COL DITO
+
+Tutto il resto della suite gira a schermo largo con un mouse: in ogni altra prova
+il contesto NON è tattile, quindi la pressione prolungata, il menu completo, i
+bersagli allargati e la seconda riga sotto il nome non avevano UNA riga di
+copertura.
+
+La colonna, la fascia e il piano delle pane SHALL essere lo STESSO pixel: tre
+superfici che dovrebbero combaciare e non combaciano si vedono come una crepa.
+
+Tutte le righe SHALL avere la STESSA altezza — quella del dito — e lo stesso
+bordo sinistro.
+
+A sessione ferma, sotto il nome, SHALL esserci la seconda riga dichiarata.
+
+Tenendo premuto SHALL aprirsi il menu COMPLETO, non un suo sottoinsieme: un menu
+ridotto col dito è un comando che sparisce su un dispositivo intero.
+
+Col dito il comando dei tre puntini NON SHALL esserci: la pressione prolungata è
+il suo posto.
+
+OGNI bersaglio col dito SHALL colpire SÉ STESSO — un bersaglio allargato che
+copre il vicino è peggio di uno piccolo.
+
+Il gesto SHALL chiedere la micro-vibrazione, senza elementi di servizio nascosti
+nella pagina.
+
+In alto SHALL esserci SOLO il titolo, e i comandi SHALL stare nella fila in
+fondo, dove il pollice arriva.
+
+Tenendo premuto SHALL sollevarsi una tessera, e trascinandola SHALL riordinarsi.
+
+#### Scenario: la pressione prolungata su una riga
+- **GIVEN** il contesto tattile
+- **THEN** SHALL aprirsi il menu completo
+
+#### Scenario: i bersagli allargati
+- **GIVEN** righe adiacenti
+- **THEN** ogni bersaglio SHALL colpire sé stesso

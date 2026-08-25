@@ -15,6 +15,7 @@
  * significa «misurato, non ha prodotto niente». Confonderli fa comparire
  * «0 file +0 -0» su ogni card senza worktree, cioè rumore su una superficie che
  * esiste per essere letta di fretta.
+  * @covers DIFFSTAT-01
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

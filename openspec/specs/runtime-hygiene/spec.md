@@ -614,3 +614,44 @@ prodotto.
 #### Scenario: una raffica di scritture
 - **GIVEN** più scritture ravvicinate che finiscono in un pacchetto nuovo
 - **THEN** SHALL uscire un solo annuncio
+
+### Requirement: BUNDLE-TOAST-01 — Si CHIEDE di ricaricare, non si ricarica
+
+Il percorso della freschezza del pacchetto NON SHALL più ricaricare la finestra
+sotto le mani di chi la usa.
+
+Un segnale di pacchetto vecchio SHALL mostrare un avviso e NON SHALL navigare;
+il gesto sull'avviso SHALL ricaricare.
+
+L'avviso SHALL potersi congedare, e SHALL RIPRESENTARSI a un nuovo segnale: chi
+lo ha chiuso una volta non ha detto «mai più».
+
+#### Scenario: un segnale di pacchetto vecchio
+- **GIVEN** una revisione diversa
+- **THEN** SHALL comparire l'avviso, senza navigare
+
+#### Scenario: l'avviso congedato e un nuovo segnale
+- **GIVEN** un secondo segnale dopo il congedo
+- **THEN** l'avviso SHALL ripresentarsi
+
+### Requirement: SWCACHE-01 — Un riavvio del server NON serve il guscio VECCHIO dalla cache
+
+Il difetto storico: trattare OGNI fallimento di rete come «sono offline», e
+rispondere dalla cache. Un riavvio del server dura mezzo secondo, e in quel mezzo
+secondo l'app serviva il guscio di ieri — che poi restava.
+
+Un RIAVVIO — un mezzo secondo di server giù — SHALL essere cavalcato dai
+tentativi fino al guscio NUOVO, non fatto cadere sulla cache.
+
+Un server giù A OLTRANZA SHALL esaurire i tentativi e ricadere sul guscio in
+cache: l'app installata regge.
+
+Un OFFLINE VERO — rete staccata — SHALL continuare a servire il guscio.
+
+#### Scenario: mezzo secondo di server giù
+- **GIVEN** un riavvio breve
+- **THEN** SHALL essere servito il guscio nuovo
+
+#### Scenario: rete staccata
+- **GIVEN** nessuna connessione
+- **THEN** SHALL essere servito il guscio in cache

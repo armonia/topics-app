@@ -15,6 +15,7 @@
  * qualunque sito l'utente visiti. Non c'è nessun altro punto in cui quel patto è
  * scritto in modo eseguibile — allargare il CORS «per far funzionare la PWA»
  * aprirebbe tutto senza che niente diventi rosso. Questo test è il presidio.
+  * @covers LANGATE-01
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { E2E_BASE } from "./helpers/test-server";

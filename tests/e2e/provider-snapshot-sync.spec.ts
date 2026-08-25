@@ -1,3 +1,6 @@
+/**
+ * @covers SNAPSYNC-01
+ */
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

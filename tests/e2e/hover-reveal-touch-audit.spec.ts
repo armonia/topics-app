@@ -23,6 +23,7 @@
  * viewport resta larga perché il pannello git vive nella barra laterale del
  * progetto, che a 390px è un altro layout: qui si prova il ramo TOUCH, non il
  * ramo MOBILE — sono due domande diverse (vedi `hooks/useMobile.ts`).
+  * @covers HOVERTOUCH-01
  */
 import { expect } from "@playwright/test";
 import { execFileSync } from "child_process";

@@ -317,3 +317,30 @@ riscrivono o diramano.
 #### Scenario: un dispositivo sconosciuto
 - **GIVEN** un identificativo che non risolve
 - **THEN** NON SHALL essere attribuita nessuna persona
+
+### Requirement: RES-ATTR-11 — L'inventario del peso sta sul percorso che si percorre DAVVERO
+
+Il registro, la trasformazione e le stringhe sono tre funzioni giuste — e tre
+funzioni giuste dietro un pannello che non le monta valgono zero.
+
+Il pannello SHALL dire COSA tiene il numero, non solo QUANTO.
+
+Le due NATURE SHALL restare distinte: i conteggi e i megabyte NON SHALL
+mescolarsi in un totale.
+
+Il riepilogo SHALL leggersi anche dalla BARRA, senza aprire niente.
+
+Senza flotta il pannello NON SHALL mostrare una sezione VUOTA di zeri: una
+sezione di zeri si legge come una misura.
+
+Sul consumo per TAB: una chat con messaggi SHALL dire quanti ne tiene, non solo
+cosa non è, e OGNI tab aperta SHALL avere un suggerimento che parla di consumo —
+nessuna SHALL restare muta.
+
+#### Scenario: nessuna flotta
+- **GIVEN** nessun processo da attribuire
+- **THEN** NON SHALL comparire una sezione di zeri
+
+#### Scenario: una tab qualunque
+- **GIVEN** una tab aperta
+- **THEN** SHALL avere un suggerimento che parla di consumo

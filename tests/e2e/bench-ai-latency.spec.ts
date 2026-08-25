@@ -101,6 +101,7 @@
  * They live with the probe they arm, and the third is installed only when
  * non-zero: the route interception it needs costs a driver round-trip per
  * request and would itself be a tax on the baseline.
+  * @covers LAT-AI-03
  */
 import { expect, test } from "@playwright/test";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";

@@ -1,3 +1,6 @@
+/**
+ * @covers DURAB-BOARD-01
+ */
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { goToApp } from "./helpers";

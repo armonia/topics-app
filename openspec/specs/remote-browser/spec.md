@@ -1514,3 +1514,34 @@ Un compagno della NOSTRA build SHALL essere lasciato in vita.
 #### Scenario: un compagno della build corrente
 - **GIVEN** un processo in ascolto della stessa build
 - **THEN** SHALL essere adottato
+
+### Requirement: ENGSW-02 — L'interruttore del motore si vede solo se il motore c'è
+
+L'interruttore fra il motore nativo e quello esterno SHALL essere NASCOSTO quando
+il server dichiara la capacità SPENTA: un interruttore che non può funzionare è
+peggio di un interruttore assente.
+
+Quando la capacità è accesa SHALL mostrare lo stato NATIVO, e il gesto SHALL
+passare al motore esterno — con il distintivo e il rimontaggio del canale — e
+tornare indietro.
+
+#### Scenario: capacità dichiarata spenta
+- **GIVEN** il server senza motore esterno
+- **THEN** l'interruttore NON SHALL comparire
+
+#### Scenario: andata e ritorno
+- **GIVEN** la capacità accesa
+- **THEN** il passaggio SHALL funzionare in entrambi i versi
+
+### Requirement: FORGET-03 — Dalla pane si ARRIVA a «dimentica questo sito», non solo dal server
+
+Il patto del comando è che si ELENCA prima e si cancella dopo esattamente quello
+che è stato elencato. Le prove sulle due rotte lo verificano a metà: dicono che
+il server sa farlo, non che dalla PANE ci si arrivi.
+
+Dalla pane condivisa SHALL essere possibile elencare il silo, premere, e dopo il
+sito NON SHALL più riconoscere chi era entrato.
+
+#### Scenario: il giro completo dalla pane
+- **GIVEN** una sessione attiva su un sito
+- **THEN** dal comando nella pane il sito NON SHALL più riconoscerla

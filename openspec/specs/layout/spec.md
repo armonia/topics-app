@@ -1432,3 +1432,268 @@ decidono cosa viene servito dopo, e fissarli congela il prossimo dispiegamento.
 #### Scenario: un permalink con un punto
 - **GIVEN** una chiave che contiene un punto
 - **THEN** NON SHALL essere trattato come artefatto
+
+### Requirement: RAILGAP-01 — Una barra riservata DUE volte lascia una fascia vuota
+
+«C'era però una riga extra a caso». Non era una riga: era l'altezza della barra
+di chrome riservata DUE volte.
+
+Fra i comandi del progetto e il contenuto NON SHALL restare una fascia vuota.
+
+Da APERTA, fra il comando che apre e la prima voce SHALL passare UN passo solo.
+
+Da APERTA il contenuto NON SHALL risalire SOTTO la barra di vetro: sparire sotto
+una superficie traslucida è peggio che stare troppo in basso.
+
+#### Scenario: la fascia sotto i comandi
+- **GIVEN** i comandi di progetto e il contenuto
+- **THEN** fra i due NON SHALL restare spazio vuoto
+
+#### Scenario: la sezione aperta
+- **GIVEN** una sezione espansa
+- **THEN** il contenuto NON SHALL passare sotto la barra
+
+### Requirement: AUTOH-01 — Le sezioni aperte si adattano al contenuto, fino a un tetto
+
+Le sezioni aperte SHALL adattare la propria altezza al CONTENUTO, con un TETTO
+proporzionale al numero di sezioni.
+
+Con poco contenuto una sezione NON SHALL tenersi più spazio di quanto le serve.
+
+Il tetto SHALL reggere: nessuna sezione SHALL schiacciarne un'altra fino a
+farla sparire.
+
+#### Scenario: una sezione con due righe
+- **GIVEN** poco contenuto
+- **THEN** NON SHALL occupare più dello spazio che le serve
+
+#### Scenario: una sezione con molto contenuto
+- **GIVEN** contenuto oltre il tetto
+- **THEN** SHALL fermarsi al tetto, senza schiacciare le altre
+
+### Requirement: PRAIL-01 — Chiusa, la colonna di progetto NON è una seconda superficie
+
+CHIUSA era una guida verticale stretta con un bordo che scendeva per tutta la
+finestra a contenere tre icone: una SECONDA superficie accanto alla riga di
+chrome, con una tinta sua e un filo suo.
+
+Chiusa, la barra SHALL essere una FILA DI CARD DENTRO la riga delle tab, non una
+colonna a sé.
+
+La riga chiusa SHALL avere il proprio bordo, e la sezione che si apre SHALL
+aprirsi su QUALCOSA — non su un vuoto.
+
+La barra SHALL ridimensionarsi dal bordo, e un doppio gesto SHALL riportarla al
+valore predefinito.
+
+In modalità FLUTTUANTE la maniglia SHALL restare trasparente, e i divisori veri
+NO: una maniglia che si vede dove non c'è niente da dividere è rumore.
+
+#### Scenario: la barra chiusa
+- **GIVEN** la colonna collassata
+- **THEN** SHALL essere una fila di card dentro la riga delle tab
+
+#### Scenario: il doppio gesto sul bordo
+- **GIVEN** una larghezza modificata
+- **THEN** SHALL tornare al valore predefinito
+
+### Requirement: PRESIZE-01 — Tirando un divisore cresce ciò che gli sta SOTTO, e la coppia è CONSERVATA
+
+«Se provo a ridimensionare i processi verso l'alto non si ridimensiona, anzi si
+sposta git.» Il difetto era esattamente quello: il gesto muoveva il vicino
+sbagliato.
+
+Tirando in ALTO un divisore SHALL crescere ciò che gli sta SOTTO; tirando in
+BASSO SHALL succedere l'opposto.
+
+**La coppia SHALL essere CONSERVATA**: la sezione che non partecipa al gesto NON
+SHALL muoversi.
+
+Al MINIMO ci si SHALL FERMARE: nessuno SHALL spingere fuori il vicino.
+
+Contro la sezione di coda il fermo SHALL essere la sezione stessa: NON SHALL
+essere possibile cancellarla tirando.
+
+#### Scenario: tirare in alto il divisore
+- **GIVEN** un divisore fra due sezioni
+- **THEN** SHALL crescere quella sotto, e la terza NON SHALL muoversi
+
+#### Scenario: tirare fino al minimo
+- **GIVEN** una sezione già al minimo
+- **THEN** il gesto SHALL fermarsi
+
+### Requirement: SEAMLINE-01 — Fra colonna e contenuto c'è un FILO, non una sfumatura
+
+Su schermo largo la colonna sta SOPRA il contenuto e proiettava un'ombra larga —
+venticinque pixel di sfumatura stesi sul contenuto. Finché le due superfici
+avevano tinte diverse quella sfumatura si leggeva come profondità; con tinte
+vicine si legge come sporco.
+
+Senza pane fluttuanti la colonna SHALL portare un FILO, non un'ombra.
+
+#### Scenario: nessuna pane fluttuante
+- **GIVEN** il riquadro normale
+- **THEN** la giunzione SHALL essere un filo
+
+### Requirement: HDRGAP-01 — Lo stacco sotto l'intestazione si misura fra due cose DIPINTE
+
+«Sotto la barra della colonna sembra esserci una doppia spaziatura, forse perché
+prima c'era il bordo sotto.» La diagnosi era esatta.
+
+Lo stacco sotto l'intestazione della colonna SHALL essere misurato fra due
+elementi DIPINTI, non fra due scatole: una scatola che non dipinge niente non è
+il bordo che si vede, e misurarla dà un numero che non corrisponde all'occhio.
+
+Lo stacco SHALL essere quello dichiarato a OGNI larghezza.
+
+#### Scenario: più larghezze di finestra
+- **GIVEN** una serie di larghezze
+- **THEN** lo stacco misurato fra elementi dipinti SHALL essere sempre quello dichiarato
+
+### Requirement: PINTILE-01 — Le tessere fissate stanno affiancate, e il click apre SOTTO la loro riga
+
+Le tessere SHALL stare AFFIANCATE e non impilate, e NESSUNA intestazione SHALL
+annunciarle: sono già riconoscibili.
+
+Il gesto su una tessera SHALL aprire una fascia SOTTO la riga GIUSTA, non in
+fondo alla sezione.
+
+La disposizione a più righe SHALL sopravvivere a un ricaricamento, e uno stato
+salvato SENZA disposizione NON SHALL rompere niente.
+
+Togliere il fissaggio SHALL togliere la tessera lasciando le altre DOVE SONO.
+
+La tessera SHALL portare la chiave che apre la propria pane, e quella di un
+progetto SHALL portare il proprio riferimento.
+
+Gli accordion SHALL stare su UNA sola colonna, senza spazio prima, e il comando
+che apre NON SHALL spostare ciò che gli sta accanto — il centraggio NON SHALL
+dipendere dal carattere.
+
+#### Scenario: il gesto su una tessera della prima riga
+- **GIVEN** più righe di tessere
+- **THEN** la fascia SHALL aprirsi sotto quella riga
+
+#### Scenario: uno stato salvato senza disposizione
+- **GIVEN** uno stato di una versione precedente
+- **THEN** NON SHALL rompersi niente
+
+### Requirement: PINTILE-02 — Fissare, sfissare e riordinare: il gesto MOSTRA dove finisce
+
+Trascinare un progetto sui fissati SHALL MOSTRARE dove finirà, e SHALL finirci.
+Lasciare una tessera CHIUSA su un gruppo SHALL portarla DENTRO quel gruppo, e
+lasciare una tab sui fissati SHALL fissarla.
+
+Riordinare dentro una riga SHALL mostrare dove la tessera andrà, in entrambi i
+versi, e le celle SHALL attraversare lo spazio invece di saltare. Chi ha chiesto
+MENO movimento NON SHALL riceverlo.
+
+Spostare una tessera su un'altra riga SHALL mostrarlo sulla riga di PARTENZA —
+che quella tessera se ne sta andando — e lasciarla nello SPAZIO fra due righe
+SHALL aprirne una nuova.
+
+Trascinare una tessera sulla lista SHALL SFISSARLA, mostrando dove finirà; dentro
+il blocco dei fissati il rilascio SHALL restare un RIORDINO e non uno sfissaggio.
+
+Sfissare trascinando NON SHALL ARCHIVIARE: la riga SHALL restare nella lista, e
+il giro completo SHALL potersi rifare.
+
+#### Scenario: rilascio dentro il blocco dei fissati
+- **GIVEN** una tessera trascinata su un'altra tessera
+- **THEN** SHALL essere un riordino, non uno sfissaggio
+
+#### Scenario: sfissare trascinando
+- **GIVEN** una tessera portata sulla lista
+- **THEN** la riga SHALL restare nella lista, non archiviata
+
+### Requirement: PINTILE-03 — Una tessera dice cosa fa, ci sta dentro, e la bacheca è una di loro
+
+Il segno di apertura SHALL stare accanto al titolo, e a zero tab NON SHALL
+esserci. Il comando che crea una tab SHALL stare dal bordo quanto ogni altro
+comando, e respirare quanto la sua riga.
+
+Icona e titolo SHALL stare DENTRO la tessera in ogni sua forma; quando la tessera
+diventa un QUADRATO il titolo SHALL andarsene e NIENTE SHALL dipingersi fuori;
+da quadrata SHALL centrare ciò che le resta; e al ricaricamento il titolo NON
+SHALL lampeggiare prima dell'assestamento.
+
+Senza colore la cornice SHALL esserci comunque, e chiusa SHALL comportarsi come
+dichiarato.
+
+La riga della BACHECA e il filo divisore SHALL stare sulla STESSA colonna delle
+altre. La bacheca SHALL potersi fissare, diventare tessera e mostrare i task PER
+STATO; la sua riga SHALL dire QUANTI task e in QUALE colonna, senza aprire
+niente.
+
+Bacheca, righe di tessere e separatore SHALL stare a UNA sola distanza fra loro.
+
+#### Scenario: una tessera ridotta a quadrato
+- **GIVEN** la tessera alla misura minima
+- **THEN** il titolo SHALL sparire e niente SHALL dipingersi fuori
+
+#### Scenario: la riga della bacheca
+- **GIVEN** la bacheca fra i fissati
+- **THEN** SHALL dire quanti task e in quale colonna
+
+### Requirement: ROWALIGN-01 — Le righe della colonna partono dalla STESSA x
+
+Segnalato: le rotte dovevano essere allineate, e i progetti dovevano avere
+un'icona come le chat.
+
+Il nome di un progetto SENZA icona SHALL partire dalla STESSA coordinata
+orizzontale di uno che ce l'ha: una riga che parte più a sinistra perché le manca
+un'icona fa sembrare storta tutta la colonna, senza che nessuna riga sia
+sbagliata.
+
+#### Scenario: un progetto senza icona
+- **GIVEN** due progetti, uno con icona e uno senza
+- **THEN** i due nomi SHALL partire dalla stessa x
+
+### Requirement: HEADPAR-01 — Il metodo di sola intestazione risponde come quello di lettura
+
+Misurato l'11/08 sul server vivo: una richiesta di sola intestazione su un
+artefatto non rispondeva come la lettura corrispondente.
+
+Il guscio e un artefatto con nome versionato SHALL avere PARITÀ fra i due
+metodi. Una navigazione di client SHALL rispondere alla sola intestazione come
+alla lettura.
+
+**La sola intestazione NON SHALL inventare un successo**: un artefatto
+inesistente SHALL restare «non trovato», come sulla lettura.
+
+#### Scenario: un artefatto inesistente
+- **GIVEN** una richiesta di sola intestazione
+- **THEN** SHALL restare «non trovato»
+
+#### Scenario: il guscio
+- **GIVEN** le due richieste
+- **THEN** SHALL rispondere con le stesse intestazioni, senza corpo
+
+### Requirement: PENDSYNC-01 — La colonna e la barra vedono la STESSA azione in sospeso
+
+Una conferma avviata dalla colonna SHALL essere vista dalla barra, e una avviata
+dalla barra SHALL essere vista dalla colonna: se divergessero, lo stesso gesto
+sembrerebbe in corso da una parte e mai iniziato dall'altra.
+
+Per un ARGOMENTO SHALL contare sia la chiave dell'archiviazione sia quella della
+chiusura della tab; quando entrambe sono in coda SHALL vincere
+l'ARCHIVIAZIONE, che è l'intento più forte. Un argomento GIÀ archiviato NON SHALL
+proporre l'archiviazione, perché il gesto inverso è immediato.
+
+Per un TERMINALE e per un BROWSER SHALL contare le rispettive due chiavi, e SHALL
+vincere quella della colonna.
+
+Le chiavi di UN soggetto NON SHALL essere raccolte da un altro.
+
+La risoluzione per TIPO di pane SHALL essere dichiarata: la chat porta chiusura e
+archiviazione, il terminale chiusura e chiusura sessione, il browser chiusura e
+chiusura contesto, e i tipi senza gesto proprio solo la chiusura. Fra le due
+SHALL vincere quella della barra.
+
+#### Scenario: entrambe le chiavi in coda su un argomento
+- **GIVEN** archiviazione e chiusura tab
+- **THEN** SHALL vincere l'archiviazione
+
+#### Scenario: un argomento già archiviato
+- **GIVEN** lo stato archiviato
+- **THEN** NON SHALL essere proposta l'archiviazione

@@ -1,3 +1,6 @@
+/**
+ * @covers TASKSYNC-01
+ */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";

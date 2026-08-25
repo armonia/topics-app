@@ -15,6 +15,7 @@
  * `PendingActionContext.tsx`.
  *
  * Run with: `bun test tests/unit/pending-action-sync.test.ts`
+  * @covers PENDSYNC-01
  */
 import { describe, expect, test } from 'bun:test';
 

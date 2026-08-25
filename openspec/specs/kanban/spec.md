@@ -2524,3 +2524,150 @@ diventare uno spazio: una riga di menu è una riga.
 #### Scenario: un titolo lungo
 - **GIVEN** un titolo che non ci sta
 - **THEN** SHALL essere tagliato su uno spazio
+
+### Requirement: DURAB-BOARD-01 — Cosa della bacheca sopravvive a un ricaricamento, e DOVE vive
+
+Un ricaricamento NON SHALL far ricominciare da capo il lavoro impostato sulla
+bacheca.
+
+SHALL restare, e restare APPLICATO, il filtro di testo. SHALL restare CHIUSO
+ciò che era chiuso — i pannelli del cassetto, lo spazio di lavoro — e LARGO ciò
+che era largo.
+
+**La bozza del campo di scrittura dei task SHALL restare, e SHALL vivere SUL
+SERVER**, non nel browser: una bozza nel browser si perde cambiando dispositivo,
+ed è esattamente quando serve.
+
+Sezioni e larghezza della colonna di progetto SHALL restare nella STESSA scheda,
+e una SECONDA scheda SHALL EREDITARLE invece di ripartire dal predefinito.
+
+Il file aperto SHALL restare aperto.
+
+#### Scenario: una seconda scheda
+- **GIVEN** la colonna configurata nella prima
+- **THEN** la seconda SHALL ereditarla
+
+#### Scenario: la bozza del campo di scrittura
+- **GIVEN** un ricaricamento
+- **THEN** SHALL restare, e SHALL essere stata scritta sul server
+
+### Requirement: TASKSYNC-01 — La sincronia con l'elenco esterno normalizza, e a parità vince l'esterno
+
+Le voci senza identificativo SHALL essere RIFIUTATE. I sinonimi di stato SHALL
+essere mappati su quelli noti. Le priorità testuali SHALL essere ristrette alla
+scala numerica, e l'assenza SHALL cadere sul valore predefinito dichiarato. Un
+istante fornito SHALL essere preservato nella forma standard.
+
+La risoluzione del conflitto SHALL essere: si prende l'esterno se non esiste
+riga locale; si prende l'esterno se è PIÙ NUOVO; si tiene il locale se è
+STRETTAMENTE più nuovo; e a PARITÀ vince l'ESTERNO — la regola dev'essere
+dichiarata, perché a parità qualcuno deve vincere e il silenzio produce
+comportamenti diversi su due macchine.
+
+L'ingestione SHALL scrivere o aggiornare OGNI voce, SHALL accettare entrambe le
+forme del carico, SHALL TOLLERARE un documento malformato, e SHALL SALTARE le
+voci che perdono il conflitto.
+
+La sorveglianza SHALL ingerire più progetti alla prima scansione, ri-ingerire
+alla modifica di un file, e gestire con grazia una radice assente.
+
+#### Scenario: istanti identici
+- **GIVEN** locale ed esterno con lo stesso istante
+- **THEN** SHALL vincere l'esterno
+
+#### Scenario: un documento malformato
+- **GIVEN** un file illeggibile
+- **THEN** NON SHALL far cadere la sincronia
+
+### Requirement: DIFFSTAT-01 — La review deve dire COSA si sta approvando
+
+Misurato sulla bacheca vera il 16/08: cinque card in revisione, e su tutte e
+cinque il gesto di approvazione senza UN SOLO dato su cosa entrerebbe. Nessun
+file, nessuna riga, nessun esito dei controlli.
+
+Una consegna MISURATA SHALL portare i file e le righe fino al task, e la LISTA
+SHALL portarli — non solo il dettaglio: si decide guardando la colonna.
+
+**Senza misura SHALL restare NIENTE, non zero.** Una consegna VUOTA ma misurata
+SHALL dire zero, e quello zero è un dato.
+
+Una consegna NUOVA NON SHALL ereditare la misura di quella vecchia.
+
+Entrare in revisione SHALL TIMBRARE l'istante, e il timbro SHALL RINNOVARSI a
+ogni ingresso, non solo al primo. Ri-scrivere lo stato su una card che è GIÀ in
+revisione, e restare in revisione, NON SHALL ri-timbrare. Anche questo istante
+SHALL essere portato dalla LISTA.
+
+Con un RIFIUTO la misura e gli esiti dei controlli SHALL CADERE, per entrambe le
+strade che rifiutano, e da qualunque colonna si torni indietro: una misura che
+sopravvive al rifiuto descrive una consegna che non esiste più.
+
+#### Scenario: una consegna non misurata
+- **GIVEN** nessuna misura disponibile
+- **THEN** SHALL restare niente, non zero
+
+#### Scenario: un rifiuto
+- **GIVEN** una consegna rifiutata
+- **THEN** misura ed esiti SHALL cadere
+
+### Requirement: PREVENV-01 — La regola dell'anteprima vive nell'ENVELOPE, non nel thread di chi rivede
+
+Prima, la promozione dell'anteprima scriveva a ogni ingresso in revisione senza
+allegati — cioè nel thread di chi deve DECIDERE, che non è chi deve produrre
+l'anteprima.
+
+La regola SHALL essere referenziata dal messaggio di avvio e da quello di
+ripresa dell'agente — l'envelope è l'unico posto che un agente dispacciato legge
+davvero.
+
+La promozione NON SHALL più scrivere quel testo nel thread.
+
+#### Scenario: un ingresso in revisione senza allegati
+- **GIVEN** una consegna senza anteprima
+- **THEN** NON SHALL essere scritto niente nel thread
+
+#### Scenario: l'avvio di un agente
+- **GIVEN** il messaggio di avvio
+- **THEN** SHALL contenere la regola dell'anteprima
+
+### Requirement: REVAGE-01 — Da quanto una card aspetta una risposta
+
+La colonna della revisione chiedeva di approvare senza dire DA QUANTO quella
+richiesta fosse lì. L'istante di aggiornamento era nascosto apposta, e faceva
+bene: si muove a ogni commento e a ogni etichetta, quindi non dice l'attesa.
+
+L'attesa SHALL essere espressa in ore sotto la giornata, e in GIORNI oltre.
+
+Senza istante NON SHALL essere inventata un'attesa, e un istante nel FUTURO NON
+SHALL diventare un'attesa negativa o enorme.
+
+#### Scenario: nessun istante
+- **GIVEN** una card senza timbro
+- **THEN** NON SHALL essere mostrata un'attesa
+
+#### Scenario: un istante nel futuro
+- **GIVEN** un timbro successivo ad adesso
+- **THEN** NON SHALL produrre un'attesa assurda
+
+### Requirement: EMPTYTHREAD-01 — Il vuoto di un task dice a CHI TOCCA
+
+Fino al 16/08 i thread vuoti dicevano tutti la stessa identica frase, in ogni
+colonna: cioè niente. La differenza che conta è fra una card che aspetta TE e una
+che aspetta la macchina.
+
+Il vuoto SHALL dire a chi tocca la mossa. I quattro stati SHALL avere QUATTRO
+frasi distinte, e uno stato SCONOSCIUTO SHALL tornare alla frase neutra invece di
+inventarne una.
+
+La colonna di partenza SHALL nominare il GESTO che sblocca, non solo lo stato:
+dire dove si è non dice cosa fare.
+
+Ogni chiave SHALL esistere in ENTRAMBE le lingue.
+
+#### Scenario: uno stato sconosciuto
+- **GIVEN** una colonna non prevista
+- **THEN** SHALL comparire la frase neutra
+
+#### Scenario: la colonna di partenza
+- **GIVEN** un task in attesa di essere messo in lavorazione
+- **THEN** SHALL essere nominato il gesto che lo sblocca

@@ -354,3 +354,21 @@ Nessun socket SHALL fare zero.
 #### Scenario: la macchina in secondo piano e un telefono che guarda
 - **GIVEN** i due socket
 - **THEN** il conteggio SHALL essere uno
+
+### Requirement: PRJSHARE-01 — Anche un PROGETTO si condivide, dal menu contestuale
+
+Fino alla migrazione dedicata un progetto NON era una risorsa condivisibile — i
+tipi ammessi erano due e basta — quindi non c'era niente da mostrare col menu
+contestuale su di lui.
+
+Il menu contestuale su un progetto SHALL offrire di condividerlo, e la voce SHALL
+aprire il pannello di condivisione — lo STESSO di sempre, non una superficie
+nuova per un tipo nuovo.
+
+#### Scenario: il menu contestuale su un progetto
+- **GIVEN** un progetto nella colonna
+- **THEN** SHALL comparire la voce di condivisione
+
+#### Scenario: la voce di condivisione
+- **GIVEN** il gesto sulla voce
+- **THEN** SHALL aprirsi il pannello di condivisione consueto

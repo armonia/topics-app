@@ -278,3 +278,26 @@ testo: SHALL esserci comunque una frase di ripiego.
 #### Scenario: un codice sconosciuto all'interfaccia
 - **GIVEN** un codice che l'interfaccia non riconosce
 - **THEN** SHALL comparire comunque una frase, non un pannello vuoto
+
+### Requirement: AUTHERR-02 — Le porte dell'autenticazione rispondono con CODICI, mai con prosa
+
+Il campo dell'errore di quel gruppo di rotte significava DUE cose a seconda della
+rotta: su alcune era un codice che il client traduce, su altre era una frase
+italiana che il client stampava tale e quale — sotto un'intestazione in un'altra
+lingua.
+
+OGNI rifiuto SHALL essere un codice DICHIARATO nel vocabolario condiviso.
+
+Nessun rifiuto SHALL contenere spazi o accenti: sarebbe una frase.
+
+Il file SHALL emettere DAVVERO dei rifiuti — il canale di osservazione deve
+esistere, o il cricchetto è verde su un file che non guarda niente — e un codice
+SCONOSCIUTO SHALL essere VISTO: il controllo SHALL sapere fallire.
+
+#### Scenario: un rifiuto con una frase
+- **GIVEN** un errore che contiene spazi
+- **THEN** la verifica SHALL fallire
+
+#### Scenario: un codice non dichiarato
+- **GIVEN** un codice fuori vocabolario
+- **THEN** SHALL essere segnalato

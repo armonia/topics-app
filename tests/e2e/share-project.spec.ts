@@ -11,6 +11,7 @@
  * progetto, e i suoi task la ereditano. Il gesto e il pannello sono gli stessi
  * di un task e di una chat, perché «con chi è condiviso» dev'essere una domanda
  * sola con una risposta sola.
+  * @covers PRJSHARE-01
  */
 import { expect, test } from "@playwright/test";
 import { goToApp } from "./helpers";

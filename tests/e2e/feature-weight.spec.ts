@@ -1,3 +1,6 @@
+/**
+ * @covers RES-ATTR-11
+ */
 import { test, expect } from '@playwright/test';
 import { tooltipText } from './helpers/tooltip';
 import { hermetic } from './fixtures/hermetic';

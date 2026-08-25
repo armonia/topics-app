@@ -346,3 +346,31 @@ impiega quanto un guasto non è una diagnosi.
 #### Scenario: un server sulla sola forma estesa dell'indirizzo locale
 - **GIVEN** un ascolto su quella forma
 - **THEN** SHALL risultare vivo
+
+### Requirement: LANGATE-01 — Il cancello d'origine si prova sul server VERO, o non si prova affatto
+
+Togliere la barriera di rete locale NON produce nessun rosso nel resto della
+suite: gira tutta su un'origine coerente con l'host, e nessuna prova asseriva un
+rifiuto del cancello. Un cancello che nessuno vede mordere non è un cancello.
+
+Una MUTAZIONE da un'origine ESTRANEA SHALL essere rifiutata; una dalla stessa
+origine SHALL passare.
+
+Una LETTURA senza credenziali e senza origine SHALL passare: nessun rifiuto è
+sopravvissuto su quel ramo, e va dichiarato invece che scoperto.
+
+Una MUTAZIONE senza l'intestazione di origine SHALL passare: chi non la manda non
+è un browser.
+
+Il patto della condivisione fra origini SHALL reggere: una lettura da un'altra
+origine NON SHALL ricevere il permesso di leggerne la risposta.
+
+Un aggiornamento a socket da un'origine estranea SHALL essere rifiutato.
+
+#### Scenario: una mutazione da un'origine estranea
+- **GIVEN** una richiesta con origine diversa
+- **THEN** SHALL essere rifiutata
+
+#### Scenario: una lettura da un'altra origine
+- **GIVEN** una richiesta di sola lettura cross-origine
+- **THEN** NON SHALL ricevere il permesso di leggerne la risposta

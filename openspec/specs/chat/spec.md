@@ -2578,3 +2578,34 @@ L'ORDINE SHALL essere preservato attraverso tutti i filtri.
 #### Scenario: limite ed esclusione dell'ultimo insieme
 - **GIVEN** entrambi richiesti
 - **THEN** SHALL essere prima escluso l'ultimo, poi applicato il limite
+
+### Requirement: CHAT-COMPACT-03 — Il riepilogo si RICHIUDE, e la prosa prima resta visibile
+
+Nell'interfaccia il riepilogo automatico della compattazione SHALL essere
+RICHIUSO, la prosa che lo precede SHALL restare VISIBILE, e il riepilogo SHALL
+espandersi al gesto.
+
+#### Scenario: un messaggio con prosa e riepilogo
+- **GIVEN** un turno che porta entrambi
+- **THEN** la prosa SHALL restare visibile e il riepilogo SHALL essere richiuso
+
+### Requirement: DURAB-CHAT-01 — Cosa sopravvive a un ricaricamento, e cosa DEVE non sopravvivere
+
+Questo repo misura il peso del pacchetto, la latenza delle rotte, i fotogrammi
+chiesti a riposo e i millisecondi fra il gesto e l'inchiostro. Nessuna di quelle
+misure dice se, ricaricando, si ritrova il lavoro dov'era.
+
+Il TESTO non ancora spedito del campo di scrittura SHALL restare, e un ALLEGATO
+SHALL restare insieme al testo che lo accompagna.
+
+**La posizione di scorrimento della chat NON SHALL restare**, ed è una decisione
+dichiarata: ricaricando si torna dove la conversazione è ADESSO, non dove si stava
+leggendo.
+
+#### Scenario: testo e allegato non spediti
+- **GIVEN** un ricaricamento della pagina
+- **THEN** entrambi SHALL essere ancora lì
+
+#### Scenario: la posizione di scorrimento
+- **GIVEN** un ricaricamento
+- **THEN** NON SHALL essere ripristinata

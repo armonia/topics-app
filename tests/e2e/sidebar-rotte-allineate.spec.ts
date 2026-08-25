@@ -20,6 +20,7 @@
  *
  * Si misura la x del NOME rispetto alla riga, che è la sola cosa che l'occhio
  * confronta scorrendo una colonna.
+  * @covers ROWALIGN-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";

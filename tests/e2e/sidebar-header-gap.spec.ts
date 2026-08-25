@@ -20,6 +20,7 @@
  *  · sul telefono il titolo «Topics» era `min-h-7` in una riga da 56 mentre i
  *    suoi vicini sono 44, quindi il suo rialzo finiva 13px sopra il fondo della
  *    riga invece di 6.
+  * @covers HDRGAP-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
