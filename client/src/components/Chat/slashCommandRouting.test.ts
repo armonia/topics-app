@@ -92,6 +92,37 @@ describe("no menu entry leads nowhere", () => {
   });
 });
 
+describe("`/help` cannot fall behind the menu", () => {
+  // It used to be a second hand-written array in `ChatPane`, and the two
+  // drifted: `/help` named ten commands while the menu offered more. The one
+  // place a user goes to ask "what can I type here" gave the shorter, older
+  // answer, and neither list looked incomplete on its own.
+  //
+  // The cure was to DERIVE it, so this test guards against the cure being
+  // undone rather than against the drift — a hand-written list can drift again
+  // the day after anyone syncs it.
+  test("the help text is built from the same array the menu uses", () => {
+    const riga = CHAT_PANE.match(/const SLASH_COMMANDS_HELP\s*=\s*([^;]+);/)?.[1] ?? "";
+    expect(riga, "`/help` is a hand-written list again").toContain("SLASH_COMMANDS.map");
+    expect(CHAT_PANE, "`ChatPane` must import the menu, not copy it").toContain(
+      "import { SLASH_COMMANDS } from './ChatInput'",
+    );
+  });
+});
+
+describe("a command the CLI cannot run does not go to the CLI in silence", () => {
+  // `/rewind` is `supportsNonInteractive: false` in the CLI's own registry — a
+  // TUI screen — and Topics runs the CLI with `--print`. It is nevertheless in
+  // `CLI_BUILTINS`, so the message was delivered faithfully to a process that
+  // discards it: no error, no log, nothing on screen.
+  test("`/rewind` is answered locally instead of being forwarded", () => {
+    expect(
+      /cmd === '\/rewind'/.test(CHAT_PANE),
+      "without a local branch, /rewind reaches a CLI that silently drops it",
+    ).toBe(true);
+  });
+});
+
 describe("the allowlist can be matched at all", () => {
   // `isCliBuiltin` compares the first token AFTER the slash, lowercased, and
   // rejects anything containing a slash. An entry written `"/compact"` or

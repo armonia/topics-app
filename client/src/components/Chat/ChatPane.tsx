@@ -17,6 +17,7 @@ import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
+import { SLASH_COMMANDS } from './ChatInput';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { TodoStrip } from './TodoStrip';
@@ -46,18 +47,16 @@ import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 
-const SLASH_COMMANDS_HELP = [
-  '/status: mostra lo stato della sessione',
-  '/context: uso della finestra di contesto (token, budget, sorgenti)',
-  '/compact: compatta il contesto ora (riassume la storia e libera spazio)',
-  '/clear: svuota la conversazione',
-  '/model: cambia modello (es. /model claude-opus-5[1m])',
-  '/effort: imposta lo sforzo di ragionamento (low|medium|high|xhigh|max)',
-  '/reasoning: accende o spegne il ragionamento (openclaw). Su claude-code usa /effort',
-  "/goal <testo>: dichiara l'obiettivo della chat (sopravvive alla compattazione)",
-  '/goal fatto | basta: chiude l\'obiettivo (raggiunto o abbandonato)',
-  '/help: elenca i comandi disponibili',
-];
+/**
+ * The text `/help` prints, DERIVED from the composer's own menu.
+ *
+ * It used to be a second hand-written array right here, and the two drifted the
+ * way two hand-kept lists always do: `/help` named ten commands while the menu
+ * offered more. The one place a user goes to ask "what can I type here" gave
+ * the shorter, older answer — and there is no way to notice, because both
+ * lists look complete on their own.
+ */
+const SLASH_COMMANDS_HELP = SLASH_COMMANDS.map((c) => `${c.cmd}: ${c.description}`);
 
 /** Extract a human-readable message from an unknown thrown value. */
 function errMessage(err: unknown): string {
@@ -902,6 +901,30 @@ function ChatPaneComponent({
     if (cmd === '/clear') { if (!await confirm({ title: 'Clear conversation?', body: 'A backup will be saved.', confirmLabel: 'Clear' })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
+
+    // `/rewind` is answered here rather than forwarded, because forwarding it
+    // does NOTHING and says nothing about it.
+    //
+    // The CLI marks the command `supportsNonInteractive: false` in its own
+    // registry: it is a TUI screen, and Topics runs the CLI with `--print`. But
+    // `rewind` is in the server's `CLI_BUILTINS` allowlist, so the message was
+    // being delivered faithfully to a process that discards it. No error, no
+    // log — you type `/rewind`, nothing happens, and there is nothing to read
+    // about why.
+    //
+    // Topics has the feature under another name, on screen already: the
+    // checkpoint timeline above the composer. So the honest answer is to point
+    // at it. This does NOT decide what `/rewind` should eventually do — wiring
+    // it to a real rollback is a product call — it only stops the silence.
+    if (cmd === '/rewind' || cmd === '/checkpoint') {
+      setCommandResult({
+        type: 'error',
+        message:
+          "/rewind è uno schermo della TUI, e qui la CLI gira in modalità non interattiva: consegnarglielo non farebbe niente.\n" +
+          "I checkpoint di questa chat sono la striscia sopra il composer: da lì si torna indietro.",
+      });
+      return true;
+    }
 
     // /compact — la compattazione ha un ESITO preciso, quindi merita una UI, non
     // uno spinner generico.

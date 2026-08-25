@@ -226,6 +226,17 @@ lower-case, no slash, no whitespace.
 - **THEN** it is present in `CLI_BUILTINS`
 - **AND** removing it from that list fails the check, because it would silently become prose
 
+#### Scenario: the help text and the menu cannot disagree
+- **GIVEN** `/help`, which is the one place a user asks what can be typed here
+- **THEN** its text is DERIVED from the same array the menu is built from
+- **AND** a hand-written second list fails the check, because two hand-kept lists drift and neither looks incomplete on its own
+
+#### Scenario: a command the CLI cannot run in this mode
+- **GIVEN** a command the CLI's own registry marks `supportsNonInteractive: false` (a TUI screen), such as `/rewind`
+- **WHEN** it is typed in the chat, where the CLI runs with `--print`
+- **THEN** it is answered locally, saying so and naming what to use instead
+- **AND** it is NOT forwarded to a process that discards it without a word
+
 #### Scenario: an allowlist entry that can never match
 - **GIVEN** an entry written with a leading slash, whitespace or an upper-case letter
 - **WHEN** the matcher compares the first token of a message against the list

@@ -37,8 +37,19 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 // the composer's initial bundle and only fetch it the first time the popover opens.
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 
-// Available slash commands
-const SLASH_COMMANDS = [
+/**
+ * The slash commands the composer offers.
+ *
+ * Exported because `/help` is BUILT FROM THIS LIST. It used to be a second
+ * hand-written array in `ChatPane`, and the two drifted exactly the way two
+ * hand-kept lists always do: `/help` named ten commands while the menu offered
+ * more, so the one place a user goes to ask "what can I type here" gave the
+ * shorter, older answer. Derived, they cannot disagree.
+ *
+ * `slashCommandRouting.test.ts` guards the other half: every entry here must
+ * have somewhere to go.
+ */
+export const SLASH_COMMANDS = [
   // `Info` e non un lampo: qui non si accelera niente, si legge uno stato. Il
   // lampo in questa app vuol dire UNA cosa sola — velocità — ed è del Fast Mode.
   { cmd: '/status', label: 'Status', description: 'Show session status', icon: Info },
