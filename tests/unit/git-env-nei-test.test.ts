@@ -39,7 +39,22 @@ function testTracciati(): string[] {
     encoding: "utf-8",
     maxBuffer: 32 * 1024 * 1024,
   });
-  return out.split("\n").filter(Boolean);
+  // QUESTO file resta fuori dalla scansione, e non e' una scorciatoia.
+  //
+  // La prova «lo scanner sa dire di NO» contiene, per forza, un esempio
+  // LETTERALE della forma cattiva: `Bun.spawnSync(["git", ...], { stdout })`
+  // senza `env`. E' la meta' non vacua del cancello — senza, lo scanner
+  // potrebbe smettere di riconoscere la forma e il test passerebbe per sempre
+  // guardando il nulla. Ma quell'esempio e' testo, non una chiamata: nessun
+  // git viene lanciato, nessun hook della macchina entra in un test.
+  //
+  // Scansionando anche se stesso, il cancello si autodenunciava: rosso fisso,
+  // colpevole `tests/unit/git-env-nei-test.test.ts (1)`, e nessun modo di
+  // farlo tornare verde se non cancellando proprio la prova che lo rende
+  // affilato. Un cancello che chiede di disarmarsi per diventare verde ha un
+  // difetto nel perimetro, non nella regola.
+  const questoFile = "tests/unit/git-env-nei-test.test.ts";
+  return out.split("\n").filter(Boolean).filter((f) => f !== questoFile);
 }
 
 /**
