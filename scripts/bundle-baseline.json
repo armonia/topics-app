@@ -86,20 +86,43 @@
     "prezzo, non un import sbagliato: e infatti l'inglese, che e' l'altra meta' del",
     "lavoro, non pesa un byte qui perche' vive nel suo chunk.",
     "Il modo di renderlo piu' economico esiste e non e' applicabile: rendere pigro",
-    "anche l'italiano. Non si puo', e' il ripiego sincrono di `t()`."
+    "anche l'italiano. Non si puo', e' il ripiego sincrono di `t()`.",
+    "",
+    "2026-08-20 -> 2026-08-25: entry eager +40.459 raw / +11.362 gz (+3,3% / +2,9%).",
+    "I soliti tre controlli, tutti puliti:",
+    "  · nessuna dipendenza nuova: `client/package.json` non cambia di una riga",
+    "    fra le due date.",
+    "  · siti `lazy(` 28 -> 30, due in PIU', e l'elenco dei file che erano pigri e",
+    "    non lo sono piu' e' vuoto.",
+    "  · critical_path ancora a 6 file: nessun asset eager in piu' in index.html.",
+    "Comprato con 7.859 righe nette spedite in client/src+shared (le altre 3.950",
+    "sono `.test.ts`, che non spediscono). ~1,45 byte gz per riga spedita, sotto",
+    "ogni giro precedente. Il codice nuovo sta tutto in superfici che sono eager",
+    "PERCHE' sono sempre a schermo: IdentityBlock + PresencePopover nella sidebar,",
+    "BrowserTabChrome nella barra delle tab, TooltipDelegate in App, MorphText.",
+    "Renderle pigre non risparmierebbe: si vedrebbero comparire dopo.",
+    "",
+    "ATTENZIONE A DOVE SI MISURA. Questo giro l'ho misurato su una build fresca in",
+    "una cartella isolata (`bun run build --outDir /tmp/...`), non su `public/`, e",
+    "la differenza non e' un dettaglio: `public/` era fermo al 24/08 15:35 mentre",
+    "i sorgenti erano del 25/08 06:40. Il job launchd `build:watch` e' spento dal",
+    "04/08, quindi NIENTE ricostruisce `public/` da solo: chi lancia `check:bundle`",
+    "senza aver ricostruito misura la build di ieri e non lo sa. Qui i due numeri",
+    "coincidevano a meno di 309 byte per caso — le modifiche del giorno erano",
+    "quasi tutte lato server — e la prossima volta puo' non essere cosi'."
   ],
-  "updated": "2026-08-20",
+  "updated": "2026-08-25",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1238820,
-    "gz": 385559
+    "raw": 1279279,
+    "gz": 396921
   },
   "critical_path": {
-    "raw": 1872413,
-    "gz": 556770,
+    "raw": 1917016,
+    "gz": 568698,
     "files": 6
   },
   "total_assets": {
-    "raw": 8580997
+    "raw": 8655751
   }
 }
