@@ -41,6 +41,20 @@ test.beforeEach(async ({ request }) => {
   await resetPaneStore(request, [topicA.id, topicB.id]);
 });
 
+/**
+ * Titles the removed ClaudePhaseDot used — none must survive anywhere. Used by
+ * PARITY-01 below (moved here from `notification-badge-parity.spec.ts`).
+ */
+const LEGACY_DOT_TITLES = [
+  "Awaiting your approval",
+  "Claude is generating…",
+  "Claude is running a tool",
+  "Claude replied — waiting for you",
+  "Approval timed out — still waiting on you",
+  "Session error",
+  "Finished a turn — click to open",
+];
+
 /** Navigate with both topics pre-opened as panels, B focused */
 async function goWithTwoTabs(page: import("@playwright/test").Page) {
   await page.request.put(`${BASE}/api/ui-state/panels`, {
@@ -220,6 +234,70 @@ test.describe("Tab Notification Badges", () => {
     await expect(badgeANow).toHaveCount(0);
   });
 
+  /**
+   * PARITY-01 — moved here from `notification-badge-parity.spec.ts`.
+   *
+   * It belongs in this file: that spec's own header said it existed only to
+   * cover the half this one misses ("existing tab-notifications.spec only
+   * checks the tab bar"), and it was already a byte-for-byte copy of this
+   * file's harness — same `interceptWebSocket`, same two seeded topics, same
+   * `resetPaneStore` boundary in `beforeEach`. Two files for one contract meant
+   * the tab-bar half and the sidebar half could drift apart unnoticed, which is
+   * exactly the divergence the badge unification exists to prevent.
+   *
+   * It keeps its own navigation instead of calling `goWithTwoTabs`: it asserts
+   * on the SIDEBAR row by topic name, so it needs the pane-store reset to land
+   * before the row is read, and inlining that keeps the sequence visible.
+   */
+  test("PARITY-01: unread badge shows the same count on the tab AND the sidebar row; no Claude phase dot survives", async ({
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "PARITY-01" });
+
+    const ws = await interceptWebSocket(page);
+
+    // Open both topics; focus B so A is inactive on the tab bar AND unfocused
+    // in the sidebar (both surfaces should then show A's badge).
+    await page.request.put(`${BASE}/api/ui-state/panels`, {
+      data: { openPanels: [topicA.id, topicB.id] },
+    });
+    await page.request.put(`${BASE}/api/ui-state/panel-order`, {
+      data: { order: [topicA.id, topicB.id], pinned: [topicA.id, topicB.id] },
+    });
+    // Reset the authoritative pane channel to EXACTLY these two topics — legacy
+    // openPanels is UNIONED with pane-store-v2 on hydrate, so stale panes from
+    // the shared test DB otherwise leak in as extra tabs and shift the badges.
+    await resetPaneStore(page.request, [topicA.id, topicB.id]);
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', {
+      state: "visible",
+      timeout: 15000,
+    });
+    await page.locator(`[data-pane-id="${topicA.id}"]`).waitFor({ state: "visible", timeout: 10000 });
+    await page.locator(`[data-pane-id="${topicB.id}"]`).click();
+
+    // Seed an unread notification on the inactive topic A.
+    ws.send({ type: "unread:updated", topicId: topicA.id, unreadCount: 2 });
+
+    // (1) Tab bar tab A shows badge "2".
+    const tabBadge = page
+      .locator(`[data-pane-id="${topicA.id}"]`)
+      .locator("span")
+      .filter({ hasText: /^2$/ });
+    await expect(tabBadge).toBeVisible({ timeout: 5000 });
+
+    // (2) Sidebar row A shows the SAME badge "2" — the half that used to be missing.
+    const sidebarRow = page.locator(`[role="treeitem"][aria-label="${topicA.name}"]`);
+    await expect(sidebarRow).toBeVisible({ timeout: 5000 });
+    const sidebarBadge = sidebarRow.locator("span").filter({ hasText: /^2$/ });
+    await expect(sidebarBadge).toBeVisible({ timeout: 5000 });
+
+    // (3) No legacy Claude phase dot anywhere on the page.
+    for (const title of LEGACY_DOT_TITLES) {
+      await expect(page.locator(`[title="${title}"]`)).toHaveCount(0);
+    }
+  });
+
   /** Seed an extra non-chat pane (e.g. agents/board) into BOTH the legacy
    *  openPanels endpoint AND the pane-store-v2 snapshot, so the renderer
    *  picks it up regardless of which path App.tsx hydrates from. Idempotent. */
@@ -270,22 +348,5 @@ test.describe("Tab Notification Badges", () => {
     });
   }
 
-  /** Variant of goWithTwoTabs that also pre-seeds an extra non-chat pane and
-   *  navigates with everything in place. Topic B ends up focused (matching
-   *  the existing harness convention), the extra pane is inactive — perfect
-   *  for asserting badge visibility on it. */
-  async function goWithTwoTabsPlusExtra(
-    page: import("@playwright/test").Page,
-    extraPaneId: string,
-    extraPaneType: string,
-  ) {
-    await seedExtraPane(page.request, extraPaneId, extraPaneType, [topicA.id, topicB.id]);
-    await page.goto("/");
-    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await page.locator(`[data-pane-id="${topicA.id}"]`).waitFor({ state: "visible", timeout: 10000 });
-    await page.locator(`[data-pane-id="${topicB.id}"]`).waitFor({ state: "visible", timeout: 10000 });
-    await page.locator(`[data-pane-id="${extraPaneId}"]`).waitFor({ state: "visible", timeout: 10000 });
-    await page.locator(`[data-pane-id="${topicB.id}"]`).click();
-  }
 
 });
