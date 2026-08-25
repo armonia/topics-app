@@ -29,6 +29,13 @@
  *      blocks is REGRESSION against the committed baseline. A new requirement
  *      with no test goes red; already-known debt does not, until it grows.
  *
+ *   R4 NOT UNIQUE — the same scenario id naming two different tests. Always
+ *      blocking, no baseline: it went to zero on 2026-08-25 and there is no
+ *      honest reason for it to come back. `BROWSER-CHAT-04` named five tests in
+ *      one file and `AC-1` named tests in three different files; an id that
+ *      names five things names none, and a green "AC-1" said nothing about
+ *      which of them passed.
+ *
  *   R3 AMBIGUOUS — a requirement id used as a test-title prefix by a test that
  *      does NOT claim it. This is the collision described above. Baselined the
  *      same way, so the gate stops it from growing.
@@ -233,6 +240,24 @@ const risolti = [
 ];
 
 let rosso = false;
+
+// R4 - a scenario id must name exactly ONE test, across the whole suite.
+const perId = new Map<string, string[]>();
+for (const t of fileTest) {
+  for (const { id, testo } of t.titoli) {
+    perId.set(id, [...(perId.get(id) ?? []), `${t.path.replace(/^\//, "")} — ${testo.slice(0, 54)}`]);
+  }
+}
+const nonUnici = [...perId].filter(([, v]) => v.length > 1);
+if (nonUnici.length) {
+  rosso = true;
+  console.log(`\nR4 — lo stesso id nomina piu' di un test (${nonUnici.length}):`);
+  for (const [id, dove] of nonUnici) {
+    console.log(`  ${id}`);
+    for (const d of dove) console.log(`      ${d}`);
+  }
+  console.log("  → la convenzione per una variante dello stesso scenario e' il suffisso (TOPBAR-04 / TOPBAR-04b).");
+}
 
 if (nuoviPenzolanti.length) {
   rosso = true;

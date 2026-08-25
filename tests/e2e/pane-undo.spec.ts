@@ -287,7 +287,7 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
   //     nessuno se n'è accorto: un test rosso-atteso che falliva per un motivo
   //     diverso da quello dichiarato copriva ZERO, mentre l'annotazione diceva
   //     di coprire PANE-03.
-  test("PANE-03: la tab ripristinata torna al suo posto, non in fondo", async ({
+  test("PANE-03b: la tab ripristinata torna al suo posto, non in fondo", async ({
     page,
     request,
   }) => {

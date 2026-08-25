@@ -429,7 +429,7 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
   test.describe("col dito", () => {
     test.use({ hasTouch: true });
 
-    test("IDCHIP-05: il bersaglio del dito è ≥44px pur restando un glifo da 14", async ({ page }) => {
+    test("IDCHIP-05b: il bersaglio del dito è ≥44px pur restando un glifo da 14", async ({ page }) => {
       const g = await measureChip(page, await lowerCardId(page, createdTasks));
       // Se il contesto non è a puntatore grossolano la regola non è nemmeno
       // attiva e il test misurerebbe il vuoto: si ferma qui invece di passare.

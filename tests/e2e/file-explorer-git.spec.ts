@@ -481,7 +481,7 @@ test.describe("File Explorer — Git", () => {
    * ma il testo e' quello vero di git: e' esattamente lo stderr che FILE-17
    * incassava in silenzio.
    */
-  test("EXPLORER-18: un commit rifiutato lascia l'errore nel pannello", async ({
+  test("EXPLORER-18b: un commit rifiutato lascia l'errore nel pannello", async ({
     fileExplorerPage,
     page,
   }) => {

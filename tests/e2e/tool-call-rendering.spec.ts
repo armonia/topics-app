@@ -202,7 +202,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     await page.unroute(HISTORY_ROUTE_PATTERN).catch(() => {});
   });
 
-  test("ATTACH-01 - image lightbox opens on click", async ({ page }) => {
+  test("ATTACH-01b - image lightbox opens on click", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     // Mock the image route so MediaImage renders successfully
     await mockImageRoute(page);

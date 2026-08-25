@@ -150,7 +150,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04: /browser <url> slash command opens browser pane and navigates [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04b: /browser <url> slash command opens browser pane and navigates [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -198,7 +198,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
   });
 
   // W8: split former test 3 into 3a (provider tools) + 3b (overlay direct broadcast).
-  test("BROWSER-CHAT-04 (3a): @browser invokes provider with browserTools registered [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04c (3a): @browser invokes provider with browserTools registered [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -267,7 +267,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04 (3b): agent-controlling-overlay appears+disappears on agent_active=true/false WS broadcast [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04d (3b): agent-controlling-overlay appears+disappears on agent_active=true/false WS broadcast [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -303,7 +303,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04: Take control button releases agent lock + sends WS take_control [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04e: Take control button releases agent lock + sends WS take_control [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -356,7 +356,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04: Cmd+Shift+E enters select-element mode and click populates chat input [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04f: Cmd+Shift+E enters select-element mode and click populates chat input [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // select-element maps against the <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -504,7 +504,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
   // browser-iframe-mode.spec.ts ("non-framable URL → screenshot stream") —
   // li' l'URL e' example.com e si verifica la sonda in generale; qui il punto
   // e' proprio che l'host sia localhost, l'unico che prima scavalcava la sonda.
-  test("BROWSER-CHAT-04: localhost NON e' piu' force-framed — segue la sonda framable [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04g: localhost NON e' piu' force-framed — segue la sonda framable [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // superficie di stream = <video> WebRTC
     await browserProcessPageV2.mockBrowserContexts([]);

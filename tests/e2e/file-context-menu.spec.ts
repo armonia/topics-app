@@ -81,7 +81,7 @@ test.describe("File Context Menu & Script Runner (FILE-03)", () => {
     expect(revealPath).toContain("README.md");
   });
 
-  test("FILE-03-02: context menu shows Show in Finder for folder", async ({ fileExplorerPage, page }) => {
+  test("FILE-03b-02: context menu shows Show in Finder for folder", async ({ fileExplorerPage, page }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-03" });
 
     let revealCalled = false;
@@ -116,7 +116,7 @@ test.describe("File Context Menu & Script Runner (FILE-03)", () => {
     expect(revealPath).toContain("src");
   });
 
-  test("FILE-03-03: script runner lists scripts from package.json", async ({ fileExplorerPage, page }) => {
+  test("FILE-03c-03: script runner lists scripts from package.json", async ({ fileExplorerPage, page }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-03" });
 
     await fileExplorerPage.gotoProject(tmpDir, topicName);

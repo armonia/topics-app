@@ -151,7 +151,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await expect(name).toContainText("Read");
   });
 
-  test("REAL-TC-01: tool call badge expands to show args and result", async ({ page }) => {
+  test("REAL-TC-01b: tool call badge expands to show args and result", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "REAL-TC-01" });
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -168,7 +168,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await expect(result).toContainText('export const app', { timeout: 5_000 });
   });
 
-  test("REAL-TC-01: error tool call renders with error status", async ({ page }) => {
+  test("REAL-TC-01c: error tool call renders with error status", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "REAL-TC-01" });
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -184,7 +184,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await expect(error).toContainText("Permission denied", { timeout: 5_000 });
   });
 
-  test("REAL-TC-01: multiple tool calls render in document order", async ({ page }) => {
+  test("REAL-TC-01d: multiple tool calls render in document order", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "REAL-TC-01" });
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -229,7 +229,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await page.context().unroute(UPLOADS_ROUTE).catch(() => {});
   });
 
-  test("REAL-TC-02: file media renders MediaFile with filename", async ({ page }) => {
+  test("REAL-TC-02b: file media renders MediaFile with filename", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "REAL-TC-02" });
     await goToApp(page);
     await page.keyboard.press("Escape");

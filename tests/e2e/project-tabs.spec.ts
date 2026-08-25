@@ -129,7 +129,7 @@ test.describe("Project Tabs", () => {
     expect(await tabs.count()).toBeGreaterThanOrEqual(1);
   });
 
-  test("PROJECT-TABS-01: add pane via (+) menu adds new tab", async ({
+  test("PROJECT-TABS-01b: add pane via (+) menu adds new tab", async ({
     page,
   }) => {
     test.info().annotations.push({
@@ -175,7 +175,7 @@ test.describe("Project Tabs", () => {
     expect(await tabs.count()).toBeGreaterThanOrEqual(initialCount);
   });
 
-  test("PROJECT-TABS-01: switch between project pane tabs changes content", async ({
+  test("PROJECT-TABS-01c: switch between project pane tabs changes content", async ({
     page,
   }) => {
     test.info().annotations.push({
@@ -214,7 +214,7 @@ test.describe("Project Tabs", () => {
     }
   });
 
-  test("PROJECT-TABS-01: close project pane tab removes it", async ({
+  test("PROJECT-TABS-01d: close project pane tab removes it", async ({
     page,
   }) => {
     test.info().annotations.push({
@@ -339,7 +339,7 @@ test.describe("Project Tabs", () => {
     expect(await restoredTabs.count()).toBeGreaterThanOrEqual(1);
   });
 
-  test("PROJECT-TABS-02: project split layout persists after reload", async ({
+  test("PROJECT-TABS-02b: project split layout persists after reload", async ({
     page,
   }) => {
     test.info().annotations.push({
@@ -467,7 +467,7 @@ test.describe("Project Tabs", () => {
   // snapped to a chat. The fix persists a preview pane that is a group's ACTIVE
   // tab, so whatever the user is looking at (a focused Git/Files tab, or a
   // split-out preview cell) survives the reload.
-  test("PROJECT-TABS-02: focused preview (Files/Git) pane survives reload", async ({
+  test("PROJECT-TABS-02c: focused preview (Files/Git) pane survives reload", async ({
     page,
   }) => {
     test.info().annotations.push({

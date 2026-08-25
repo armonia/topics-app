@@ -103,7 +103,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await expect(dots.nth(2)).toHaveClass(/bg-primary/);
   });
 
-  test("CHAT-05-02: checkpoint bar hidden when no checkpoints", async ({ page }) => {
+  test("CHAT-05b-02: checkpoint bar hidden when no checkpoints", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-05" });
 
     await mockCheckpoints(page, []);
@@ -117,7 +117,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await expect(bar).toHaveCount(0);
   });
 
-  test("CHAT-05-03: clicking bar expands timeline with details", async ({ page }) => {
+  test("CHAT-05c-03: clicking bar expands timeline with details", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-05" });
 
     await mockCheckpoints(page, MOCK_CHECKPOINTS);
@@ -145,7 +145,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await expect(bar.locator("text=Hide")).toBeVisible();
   });
 
-  test("CHAT-05-04: save button creates new checkpoint", async ({ page }) => {
+  test("CHAT-05d-04: save button creates new checkpoint", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-05" });
 
     let postCalled = false;
@@ -189,7 +189,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await expect(page.locator("text=Auto checkpoint")).toBeVisible({ timeout: 5_000 });
   });
 
-  test("CHAT-05-05: rollback shows confirmation and truncates", async ({ page }) => {
+  test("CHAT-05e-05: rollback shows confirmation and truncates", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-05" });
 
     let rollbackCalled = false;
@@ -257,7 +257,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     expect(rollbackCalled).toBe(true);
   });
 
-  test("CHAT-05-06: cancel rollback preserves state", async ({ page }) => {
+  test("CHAT-05f-06: cancel rollback preserves state", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-05" });
 
     await mockCheckpoints(page, MOCK_CHECKPOINTS);

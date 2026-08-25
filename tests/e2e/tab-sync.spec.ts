@@ -58,7 +58,7 @@ test.describe("Tab Sync & Persistence", () => {
     expect(labelsAfter.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("TAB-SYNC-01: closed tab does not reappear after reload", async ({
+  test("TAB-SYNC-01b: closed tab does not reappear after reload", async ({
     page,
     tabSyncPage,
   }) => {
@@ -153,7 +153,7 @@ test.describe("Tab Sync & Persistence", () => {
     expect(await tabSyncPage.getTabLabels()).not.toContain(closedLabel);
   });
 
-  test("TAB-SYNC-01: closed BROWSER tab does not reappear after reload", async ({
+  test("TAB-SYNC-01c: closed BROWSER tab does not reappear after reload", async ({
     page,
     tabSyncPage,
   }) => {
@@ -217,7 +217,7 @@ test.describe("Tab Sync & Persistence", () => {
     }
   });
 
-  test("TAB-SYNC-01: browser tab closed then reloaded IMMEDIATELY (within the countdown) stays closed", async ({
+  test("TAB-SYNC-01d: browser tab closed then reloaded IMMEDIATELY (within the countdown) stays closed", async ({
     page,
     tabSyncPage,
   }) => {
@@ -266,7 +266,7 @@ test.describe("Tab Sync & Persistence", () => {
     }
   });
 
-  test("TAB-SYNC-01: server receives PUT to /api/ui-state when tab state changes", async ({
+  test("TAB-SYNC-01e: server receives PUT to /api/ui-state when tab state changes", async ({
     page,
     tabSyncPage,
   }) => {
@@ -362,7 +362,7 @@ test.describe("Tab Sync & Persistence", () => {
     }
   });
 
-  test("TAB-SYNC-02: tab closed in one context is removed in another", async ({
+  test("TAB-SYNC-02b: tab closed in one context is removed in another", async ({
     browser,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-02" });
@@ -473,7 +473,7 @@ test.describe("Preview Tab Behavior", () => {
     ).toBe(true);
   });
 
-  test("TAB-SYNC-03: preview tab is replaced by next single-click", async ({
+  test("TAB-SYNC-03b: preview tab is replaced by next single-click", async ({
     page,
     tabSyncPage,
   }) => {
@@ -495,7 +495,7 @@ test.describe("Preview Tab Behavior", () => {
     expect(countAfterSecond).toBeLessThanOrEqual(countAfterFirst + 1);
   });
 
-  test("TAB-SYNC-03: double-click pins a preview tab", async ({
+  test("TAB-SYNC-03c: double-click pins a preview tab", async ({
     page,
     tabSyncPage,
   }) => {

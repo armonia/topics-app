@@ -49,7 +49,7 @@ test.describe("la chat vuota dice come risponderà", () => {
     await deleteTopic(request, topicId).catch(() => { /* già andato */ });
   });
 
-  test("EMPTY-01: le scelte del topic si leggono nel vuoto", async ({ page }) => {
+  test("CHATEMPTY-01: le scelte del topic si leggono nel vuoto", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await ensureTopicVisible(page, new RegExp(NOME));
@@ -87,7 +87,7 @@ test.describe("la chat vuota dice come risponderà", () => {
     await page.screenshot({ path: join(SHOTS, "chat-vuota-contesto.png") });
   });
 
-  test("EMPTY-02: sotto i 340px di pane la riga non c'è, sopra sì", async ({ page }) => {
+  test("CHATEMPTY-02: sotto i 340px di pane la riga non c'è, sopra sì", async ({ page }) => {
     // Lo stato ATTUALE, dichiarato: la riga condivide la soglia dei
     // suggerimenti. Le due metà servono entrambe — senza la seconda, il caso
     // passerebbe anche se la riga fosse sparita per sempre.

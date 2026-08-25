@@ -251,7 +251,7 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await card.screenshot({ path: join(SHOTS, "review-quanto-lavoro.png") });
   });
 
-  test("LANDING-00c: i check verdi si DICONO, non si deducono dal silenzio", async ({ page }) => {
+  test("LANDING-00b: i check verdi si DICONO, non si deducono dal silenzio", async ({ page }) => {
     // Prima esisteva solo il chip rosso: una card senza chip poteva voler dire
     // «controlli passati» oppure «nessuno li ha mai fatti girare». Due
     // situazioni opposte davanti allo stesso gesto, e il silenzio non diceva
@@ -282,7 +282,7 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await card.screenshot({ path: join(SHOTS, "review-check-verdi.png") });
   });
 
-  test("LANDING-00d: la card dice da QUANTO aspetta una risposta", async ({ page }) => {
+  test("LANDING-00c: la card dice da QUANTO aspetta una risposta", async ({ page }) => {
     // La data di aggiornamento in review era nascosta apposta, e faceva bene:
     // `updatedAt` si muove a ogni commento, quindi diceva «ora» su una card
     // ferma da giorni. `review_at` e' l'istante dell'INGRESSO, e risponde alla
@@ -316,7 +316,7 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await card.screenshot({ path: join(SHOTS, "review-attesa.png") });
   });
 
-  test("LANDING-00b: senza misura la card non inventa uno zero", async ({ page }) => {
+  test("LANDING-00d: senza misura la card non inventa uno zero", async ({ page }) => {
     // `null` e' «non misurato», zero sarebbe «misurato, non ha prodotto
     // niente»: due frasi diverse, e la seconda su una card senza worktree
     // sarebbe falsa. Un chip «0 file +0 -0» su ogni card e' rumore che si

@@ -76,7 +76,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   });
 
   // AC-1: Timeline view — all items in a single flat list
-  test("AC-1: timeline view shows items in a single list", async ({
+  test("SIDEBAR-1: timeline view shows items in a single list", async ({
     page,
     request,
   }) => {
@@ -129,7 +129,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   // esattamente ciò che diceva anche il pannello del progetto («No chats
   // open»): le due superfici erano d'accordo, non in disaccordo. Il test
   // descrive ora quel contratto e il gesto dell'AC.
-  test("AC-1: l'accordion del progetto elenca le chat aperte dentro, e si chiude e riapre", async ({
+  test("SIDEBAR-1b: l'accordion del progetto elenca le chat aperte dentro, e si chiude e riapre", async ({
     page,
     request,
   }) => {
@@ -245,7 +245,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   // dice più "Vista timeline" ma "Vista per stato". Non è una rottura da aggirare
   // — il ciclo è cambiato di proposito (FASE 2, AC c) — quindi il test percorre
   // ora l'anello intero e verifica che si torni al punto di partenza.
-  test("AC-2: view toggle cicla timeline → per tipo → per stato → timeline", async ({
+  test("SIDEBAR-2: view toggle cicla timeline → per tipo → per stato → timeline", async ({
     page,
     request,
   }) => {
@@ -304,7 +304,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   });
 
   // AC-3: Archive toggle shows/hides archived items
-  test("AC-3: archive toggle shows and hides archived items", async ({
+  test("SIDEBAR-3: archive toggle shows and hides archived items", async ({
     page,
     request,
   }) => {
@@ -357,7 +357,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   // as the search UX changed to use the global command palette.
 
   // AC-8: Controls layout — search + two toggles
-  test("AC-8: sidebar controls are compact with search and toggles", async ({
+  test("SIDEBAR-8: sidebar controls are compact with search and toggles", async ({
     page,
   }) => {
     await goToApp(page);

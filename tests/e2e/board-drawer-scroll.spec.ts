@@ -445,7 +445,7 @@ test.describe("Drawer del task — un solo scroll", () => {
    * prima era impossibile: le due zone alte insieme, e la sessione FUORI dal
    * gruppo di tab (dentro sarebbe la vecchia struttura con un'etichetta nuova).
    */
-  test("DRAWER-03: aperto l'output, la sessione resta sotto gli occhi", async ({ page }) => {
+  test("DRAWER-03b: aperto l'output, la sessione resta sotto gli occhi", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     const task = await seedWorstCaseTask(page.request, previewPath);
 

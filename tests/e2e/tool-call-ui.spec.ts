@@ -335,7 +335,7 @@ test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () =
     }
   });
 
-  test("TOOLROW-02: sub-agent rows never aggregate — they split the run", async ({ page, request }) => {
+  test("TOOLROW-02b: sub-agent rows never aggregate — they split the run", async ({ page, request }) => {
     const fresh = await createTopic(request, "Tool Group Solo " + Date.now());
     const sk = `topic:${fresh.id.slice(0, 8)}`;
     try {

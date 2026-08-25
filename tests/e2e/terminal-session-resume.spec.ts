@@ -110,7 +110,7 @@ test.describe.serial("Terminal Session Resume", () => {
     }
   });
 
-  test("AC-1: new claude-code session gets a claudeSessionId", async ({ request }) => {
+  test("TRESUME-1: new claude-code session gets a claudeSessionId", async ({ request }) => {
     const res = await request.post(`${BASE}/api/terminal/sessions`, {
       data: { cwd: "/tmp", type: "claude-code", name: "E2E-Resume-Claude" },
       ignoreHTTPSErrors: true,
@@ -126,7 +126,7 @@ test.describe.serial("Terminal Session Resume", () => {
     );
   });
 
-  test("AC-1: shell session does NOT get a claudeSessionId", async ({ request }) => {
+  test("TRESUME-1b: shell session does NOT get a claudeSessionId", async ({ request }) => {
     const res = await request.post(`${BASE}/api/terminal/sessions`, {
       data: { cwd: "/tmp", type: "shell", name: "E2E-Resume-Shell" },
       ignoreHTTPSErrors: true,
@@ -139,7 +139,7 @@ test.describe.serial("Terminal Session Resume", () => {
     expect(body.claudeSessionId).toBeNull();
   });
 
-  test("AC-1: claudeSessionId persists in session list", async ({ request }) => {
+  test("TRESUME-1c: claudeSessionId persists in session list", async ({ request }) => {
     const sessions = await listTerminalSessions(request);
     // Look both sessions up by their hoisted ids and assert they persist in the
     // list. The list shape omits claudeSessionId (its value is checked on the
@@ -173,7 +173,7 @@ test.describe.serial("Terminal Session Resume", () => {
     expect(shellSession).toBeTruthy();
   });
 
-  test("AC-2: server restart restores sessions with same claudeSessionId", async ({ request }) => {
+  test("TRESUME-2: server restart restores sessions with same claudeSessionId", async ({ request }) => {
     // Step 1: Create a claude-code session and note its IDs
     const createRes = await request.post(`${BASE}/api/terminal/sessions`, {
       data: { cwd: "/tmp", type: "claude-code", name: "E2E-Resume-Restart" },
@@ -226,7 +226,7 @@ test.describe.serial("Terminal Session Resume", () => {
     expect(restored.type).toBe("claude-code");
   });
 
-  test("AC-5: database has claude_session_id column", async ({ request }) => {
+  test("TRESUME-5: database has claude_session_id column", async ({ request }) => {
     const res = await request.post(`${BASE}/api/terminal/sessions`, {
       data: { cwd: "/tmp", type: "claude-code", name: "E2E-Resume-DBCheck" },
       ignoreHTTPSErrors: true,

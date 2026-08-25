@@ -173,7 +173,7 @@ test.describe.serial("Project Commands", () => {
     await resetPaneStore(request, [topicId]);
   });
 
-  test("AC-7: /project appears in slash command autocomplete", async ({ page }) => {
+  test("PROJCMD-7: /project appears in slash command autocomplete", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopicAnywhere(page, new RegExp(topicName));
@@ -187,7 +187,7 @@ test.describe.serial("Project Commands", () => {
     await expect(projectCmd).toBeVisible({ timeout: 5_000 });
   });
 
-  test("AC-5: /project open with nonexistent path shows error", async ({ page }) => {
+  test("PROJCMD-5: /project open with nonexistent path shows error", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopicAnywhere(page, new RegExp(topicName));
@@ -201,7 +201,7 @@ test.describe.serial("Project Commands", () => {
     await expect(errorMsg).toBeVisible({ timeout: 10_000 });
   });
 
-  test("AC-6: /project with no args shows list when no project bound", async ({ page }) => {
+  test("PROJCMD-6: /project with no args shows list when no project bound", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopicAnywhere(page, new RegExp(topicName));
@@ -214,7 +214,7 @@ test.describe.serial("Project Commands", () => {
     await expect(infoMsg).toBeVisible({ timeout: 10_000 });
   });
 
-  test("AC-1: /project create creates directory and binds to topic", async ({ page }) => {
+  test("PROJCMD-1: /project create creates directory and binds to topic", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopicAnywhere(page, new RegExp(topicName));
@@ -244,7 +244,7 @@ test.describe.serial("Project Commands", () => {
     expect(existsSync(join(testProjectDir, "CLAUDE.md"))).toBe(true);
   });
 
-  test("AC-2: /project create with existing name shows error", async ({ page }) => {
+  test("PROJCMD-2: /project create with existing name shows error", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopicAnywhere(page, new RegExp(topicName), testProjectName);
@@ -256,7 +256,7 @@ test.describe.serial("Project Commands", () => {
     await expect(errorMsg).toBeVisible({ timeout: 10_000 });
   });
 
-  test("AC-6b: /project shows current project when bound", async ({ page }) => {
+  test("PROJCMD-6b: /project shows current project when bound", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopicAnywhere(page, new RegExp(topicName), testProjectName);
@@ -267,7 +267,7 @@ test.describe.serial("Project Commands", () => {
     await expect(currentMsg).toBeVisible({ timeout: 10_000 });
   });
 
-  test("AC-3: /project open binds existing project by name", async ({ page, request }) => {
+  test("PROJCMD-3: /project open binds existing project by name", async ({ page, request }) => {
     // Unbind via API
     await request.patch(`${BASE}/api/topics/${topicId}`, { data: { projectPath: null } });
 
@@ -293,7 +293,7 @@ test.describe.serial("Project Commands", () => {
       .toBe(testProjectDir);
   });
 
-  test("AC-4: /project open binds by absolute path", async ({ page, request }) => {
+  test("PROJCMD-4: /project open binds by absolute path", async ({ page, request }) => {
     // Unbind first
     await request.patch(`${BASE}/api/topics/${topicId}`, { data: { projectPath: null } });
 
