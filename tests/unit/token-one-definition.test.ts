@@ -21,6 +21,8 @@
  * demolita proprio lì: rifatta con le funzioni vere, i due percorsi NON
  * collassavano (398.374 contro 381.471). Qui ogni numero passa dalle stesse
  * funzioni che girano in produzione, e l'uguaglianza è la tesi.
+ *
+ * @covers USAGE-17
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

@@ -325,3 +325,28 @@ NON SHALL mai essere scartato da quel limite.
 #### Scenario: doppio clic
 - **GIVEN** due richieste per lo stesso task, la prima ancora in corso
 - **THEN** la seconda SHALL ricevere il biglietto della prima
+
+### Requirement: LAND-07 — Il verdetto si legge sulla SINGOLA card, e chi lo legge può agirci
+
+Un totale in cima alla board NON SHALL essere l'unico posto in cui compare un
+verdetto di mancato atterraggio: un totale non dice QUALE card. La card in `done`
+SHALL dirlo da sé, e SHALL nominare il ramo su cui il lavoro è rimasto.
+
+Il pannello di dettaglio SHALL ripetere l'avviso in cima E SHALL offrire
+l'AZIONE che lo risolve. Un avviso senza il gesto corrispondente è una diagnosi
+consegnata a chi non può curarla: il bottone che porta il lavoro su `main` era
+recintato dentro lo stato di review, quindi la banda diceva «landa il ramo» e non
+c'era niente da premere.
+
+Una card in `done` il cui lavoro È su `main` NON SHALL portare nessun allarme.
+Questa è la terza asserzione, e senza di lei le prime due passerebbero anche con
+un avviso incollato su OGNI card — una board che grida sempre è l'altro modo di
+mentire.
+
+#### Scenario: lavoro non atterrato
+- **GIVEN** una card in `done` il cui lavoro non è su `main`
+- **THEN** la card SHALL dirlo e nominare il ramo, e il dettaglio SHALL offrire il gesto che risolve
+
+#### Scenario: controllo negativo
+- **GIVEN** una card in `done` il cui lavoro è su `main`
+- **THEN** NON SHALL comparire nessun allarme

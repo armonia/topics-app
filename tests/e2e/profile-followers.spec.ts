@@ -28,6 +28,8 @@ import { openProfilePane } from "./helpers/profile-pane";
  * answers `no_seats_left`. The owner's own profile exercises exactly the same
  * code (the header, the login, the counters, the privacy switch) without
  * inventing a licence that does not exist in production.
+ *
+ * @covers PROFILE-04
  */
 hermetic(test);
 

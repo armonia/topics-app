@@ -3,6 +3,8 @@
  * uscire per un worktree (è la porta che si voleva proteggere), e la stessa
  * cartella deve dare sempre la stessa porta (altrimenti ogni run si porterebbe
  * dietro una `DATA_DIR` nuova e un bundle da ricopiare).
+ *
+ * @covers E2E-LOCK-01
  */
 import { describe, it, expect } from "bun:test";
 import {

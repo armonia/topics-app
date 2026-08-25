@@ -14,6 +14,8 @@
  * dispatcher lanciando N agenti Claude, che qui non si possono far girare. Tutto
  * il resto — pannello, bottoni, route di scelta, potatura dei perdenti — è il
  * codice di produzione.
+ *
+ * @covers KANBAN-13, KANBAN-14
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

@@ -608,3 +608,37 @@ con un'eccezione.
 #### Scenario: un transcript azzerato
 - **GIVEN** una figlia il cui transcript torna un valore più basso di prima
 - **THEN** SHALL valere il valore più alto già letto
+
+### Requirement: USAGE-17 — Due strade, un numero solo
+
+Lo stesso consumo arriva in tabella per DUE strade indipendenti: il trascritto
+che la riga di comando scrive su disco e legge a incrementi (la strada di un
+task della board), e gli eventi del fornitore accumulati sul turno (la strada di
+una chat). Le due SHALL produrre lo STESSO numero a partire dallo stesso
+consumo.
+
+La definizione di «quanti token» SHALL essere UNA e SHALL essere provata
+CONFRONTANDO le due strade sullo stesso ingresso, non verificandole ciascuna
+contro le proprie aspettative. Due strade provate separatamente restano verdi
+mentre divergono.
+
+#### Scenario: lo stesso consumo per le due strade
+- **GIVEN** un consumo fatto passare per il trascritto e per gli eventi
+- **THEN** i due totali SHALL coincidere
+
+### Requirement: USAGE-18 — L'uscita per le macchine è un contratto, non una stampa più ordinata
+
+Lo strumento a riga di comando che riporta il consumo SHALL avere una forma
+destinata a un PROGRAMMA, e quella forma SHALL essere analizzabile PER INTERO:
+una riga di legenda, un colore o un'intestazione di tabella la rendono
+inutilizzabile, e il guasto arriva a valle, dove nessuno lo collega allo
+strumento.
+
+La prova SHALL far girare lo strumento DAVVERO e analizzare tutta la sua uscita,
+non cercare pezzi dentro il testo. I numeri attesi SHALL essere calcolati a mano
+sull'ingresso: senza, lo strumento continua a stampare una forma valida e
+sbagliata.
+
+#### Scenario: uscita per macchina
+- **GIVEN** lo strumento eseguito nella forma destinata ai programmi
+- **THEN** tutta l'uscita SHALL essere analizzabile in una volta sola

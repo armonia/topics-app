@@ -15,6 +15,8 @@
  * The test server runs with HOME=<DATA_DIR>/.home (see
  * scripts/start-test-server.sh), so seeding a transcript under THAT home is
  * exactly what a bare `claude` would write — no mocks, the real scan path.
+ *
+ * @covers KANBAN-20
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";

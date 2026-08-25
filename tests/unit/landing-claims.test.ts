@@ -25,6 +25,8 @@
  * `landing/public/*` is served verbatim and the two pages are the rendered
  * copy, so the file is the artefact. Scanning them as text also catches a claim
  * that reappears on a page nobody thought to check.
+ *
+ * @covers SITE-01
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";

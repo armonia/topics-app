@@ -10,6 +10,8 @@
  * chiamate sono calcolati a mano sul transcript qui sotto, così se un giorno il
  * dedup per `message.id` o la somma fresco+cache cambiano, questo diventa rosso
  * invece di continuare a stampare un JSON ben formato e sbagliato.
+ *
+ * @covers USAGE-18
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";

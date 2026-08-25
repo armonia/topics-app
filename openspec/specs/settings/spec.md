@@ -65,3 +65,21 @@ Un valore che non è un oggetto SHALL essere restituito identico.
 #### Scenario: la stessa forma sotto un'altra chiave
 - **GIVEN** un campo con lo stesso nome sotto una chiave diversa da quella delle impostazioni
 - **THEN** SHALL restare
+
+### Requirement: APPSET-03 — Due voci, due contenuti, e ogni porta arriva alla propria
+
+«Chi sei» e «che macchine hai» SHALL essere DUE voci distinte del pannello, e
+SHALL mostrare contenuti DIVERSI. Erano una sola: l'identificativo diceva
+`devices` mentre l'etichetta diceva «Profilo».
+
+Ogni collegamento diretto SHALL atterrare sulla PROPRIA voce. È il pezzo che era
+rotto — due gesti diversi puntavano entrambi alla stessa — ed è invisibile a
+chiunque non apra tutte e due le porte di fila.
+
+La voce attiva SHALL essere leggibile dalla marcatura di accessibilità che il
+pannello già scrive. Un identificativo aggiunto apposta per la prova
+misurerebbe la prova.
+
+#### Scenario: le due porte
+- **GIVEN** i due collegamenti diretti alle due voci
+- **THEN** ciascuno SHALL attivare la propria, e i due contenuti SHALL differire

@@ -18,6 +18,8 @@ import { E2E_BASE } from "./helpers/test-server";
  * `GET /api/open` è quella query, e `divergences: 0` è l'asserzione che la
  * rende utile: significa che nessuno dei tre registri sta dicendo qualcosa che
  * il fatto smentisce.
+ *
+ * @covers RETIRE-01, RETIRE-02
  */
 hermetic(test);
 

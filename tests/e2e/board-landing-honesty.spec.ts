@@ -23,6 +23,8 @@
  * `POST /api/test/tasks/:id/landing` (armata solo con TOPICS_E2E=1, vedi
  * server/routes/e2e.ts), che chiama gli STESSI verbi del servizio. Il task resta
  * fermo in `done`: qui il contratto sotto esame è quello del client.
+ *
+ * @covers LAND-07
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

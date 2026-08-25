@@ -29,6 +29,8 @@ import { beat, didascalia } from "./helpers/evidence";
  * FRA LORO e verifica ciò che ognuno può dire — `minimal` non nomina niente,
  * `activity` porta i numeri, `detailed` è l'unico che può portare un nome di
  * progetto. È l'invariante di privacy, che è la cosa che deve reggere.
+ *
+ * @covers DISCORD-01
  */
 hermetic(test);
 

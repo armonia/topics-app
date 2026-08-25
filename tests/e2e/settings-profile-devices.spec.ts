@@ -15,6 +15,8 @@
  *
  * The active entry is read from `aria-current="page"`, which the panel already
  * sets: a `data-testid` added on purpose for the test would measure the test.
+ *
+ * @covers APPSET-03
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
