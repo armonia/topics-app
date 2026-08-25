@@ -35,11 +35,25 @@ step() { echo; echo "▸ $*"; }
 since() { echo "  ($(( $(date +%s) - $1 ))s)"; }
 
 rc=0
+RAN=0
 if [ "$SKIP_E2E" != "1" ]; then
-  step "suite E2E — $SHARDS shard, con video e trace"
+  # IL BUNDLE ISOLATO, non `public/`. `global-setup.ts` rifiuta di girare contro un bundle piu'
+  # vecchio dei sorgenti — e ha ragione, la suite proverebbe il codice di prima. Senza questa
+  # riga la catena moriva in 94s con due shard senza verdetto: `public/` appartiene all'app viva
+  # e non si ricostruisce, quindi e' sempre indietro appena si tocca il client.
+  step "bundle isolato (da HEAD, non dalla working tree)"
   t=$(date +%s)
-  E2E_EVIDENCE=1 "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS"
+  BUNDLE_OUT="$("$REPO_ROOT/scripts/e2e-isolated-bundle.sh" 2>&1)" || { echo "$BUNDLE_OUT" >&2; exit 1; }
+  BUNDLE="$(printf '%s\n' "$BUNDLE_OUT" | sed -n 's/.*TOPICS_E2E_BUNDLE_DIR=\([^ ]*\).*/\1/p' | head -1)"
+  [ -d "$BUNDLE" ] || { echo "✗ non ho ricavato il path del bundle da e2e-isolated-bundle.sh" >&2; exit 1; }
+  echo "  $BUNDLE"
+  since "$t"
+
+  step "suite E2E — $SHARDS shard, trace su tutti i test"
+  t=$(date +%s)
+  E2E_EVIDENCE=1 TOPICS_E2E_BUNDLE_DIR="$BUNDLE" "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS"
   rc=$?
+  RAN=1
   since "$t"
 else
   step "suite saltata (SKIP_E2E=1): si pubblica il report già su disco"
@@ -51,20 +65,38 @@ bun run scripts/merge-shard-reports.ts "$OUT_DIR" --out "$MERGED" || {
   exit 1
 }
 
-# La cartella si SVUOTA prima: i collegamenti sono duri e restano, quindi senza questo
-# `publish-uat` continuerebbe a caricare l'evidenza delle corse precedenti per sempre.
 # Il piano degli shard si bilancia su queste durate. Ri-registrarle dopo OGNI corsa con
-# evidenza e' cio' che tiene i quattro shard a finire insieme invece di aspettarne uno:
-# i pesi presi con il video sovrastimano una corsa col solo trace, e non in modo uniforme.
-if [ "$SKIP_E2E" != "1" ]; then
+# evidenza e' cio' che tiene gli shard a finire insieme invece di aspettarne uno: i pesi presi
+# col video sovrastimano una corsa col solo trace, e non in modo uniforme.
+if [ "$RAN" = "1" ]; then
   step "durate per il piano degli shard"
   bun run scripts/e2e-record-durations.ts "$OUT_DIR"/report-*.json || true
 fi
 
 step "evidenza per requisito (e SOLO quella: il resto non e' raggiungibile dalla pagina)"
-find videos -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+# La cartella si svuota SOLO se la suite ha girato: i collegamenti sono duri e restano, quindi
+# senza svuotare si continuerebbe a caricare l'evidenza delle corse vecchie per sempre — ma
+# svuotarla con SKIP_E2E=1 butterebbe l'unica evidenza che c'e'.
+if [ "$RAN" = "1" ]; then
+  find videos -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+fi
 bun run scripts/build-uat-index.ts --report "$MERGED" --by-requirement --only-requirements || exit 1
-echo "  videos/: $(find videos -type f \( -name '*.webm' -o -name '*.zip' \) | wc -l | tr -d ' ') file, $(du -sh videos 2>/dev/null | cut -f1)"
+EVID=$(find videos -type f \( -name '*.webm' -o -name '*.zip' \) | wc -l | tr -d ' ')
+echo "  videos/: $EVID file, $(du -sh videos 2>/dev/null | cut -f1)"
+
+# NON SI PUBBLICA UNA PAGINA SENZA EVIDENZA DOPO UNA CORSA CHE DOVEVA PRODURNE.
+#
+# E' successo, ed e' il motivo per cui queste righe esistono: gli shard sono morti nel setup
+# (bundle piu' vecchio dei sorgenti), la catena e' arrivata in fondo lo stesso e ha sostituito
+# una living-doc con 121 prove con una che non ne aveva nessuna. Un rosso nei test si pubblica,
+# e' la verita'. Una suite che non ha girato non e' una verita' su niente.
+if [ "$RAN" = "1" ] && [ "$EVID" -eq 0 ]; then
+  echo >&2
+  echo "✗ la suite ha girato e non ha prodotto NEMMENO UNA prova pubblicabile." >&2
+  echo "  Non si pubblica: sostituirebbe con il nulla l'evidenza che c'e' online." >&2
+  echo "  Guarda $OUT_DIR/shard-*.log — quasi sempre e' il setup, non i test." >&2
+  exit 1
+fi
 
 step "mappa di copertura (dal cancello che possiede le regole)"
 t=$(date +%s)

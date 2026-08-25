@@ -108,6 +108,8 @@ const EVIDENCE = process.env.E2E_EVIDENCE === "1";
 //
 // Il video resta a un tasto di distanza per quando serve una clip da guardare.
 const VIDEO = process.env.E2E_VIDEO === "1" && process.env.E2E_NO_VIDEO !== "1";
+/** Rimette i fotogrammi nel trace (la striscia di miniature). Vedi il commento su `trace`. */
+const TRACE_SCREENCAST = process.env.E2E_TRACE_SCREENCAST === "1";
 
 // SLOWMO NON È PIÙ ACCESO DALL'EVIDENZA: va chiesto, con `E2E_SLOWMO=1`.
 //
@@ -218,12 +220,23 @@ export default defineConfig({
     // COSA SI PERDE, detto per intero: la striscia di miniature in cima al
     // visualizzatore, quella che scorre nel tempo. La lista delle azioni, il
     // tempo di ognuna, la pagina ricostruita prima/durante/dopo e il pannello
-    // rete ci sono tutti. Chi vuole un filmato ha `E2E_VIDEO=1`, che pesa 72 KB
-    // a test invece di 9 MB.
+    // rete ci sono tutti.
+    //
+    // E SI RIMETTE, quando serve: `E2E_TRACE_SCREENCAST=1`. Non e' ricostruibile
+    // a posteriori — le miniature SONO i fotogrammi, e se non li hai registrati
+    // non li deduci da uno snapshot del DOM — ma rigenerarle costa il tempo di
+    // UN test, non di una suite:
+    //
+    //   E2E_EVIDENCE=1 E2E_TRACE_SCREENCAST=1 npx playwright test <la spec>
+    //
+    // Da tenere spento per la pubblicazione, dove il conto e' per 150 requisiti.
+    // Per un filmato vero e proprio c'e' `E2E_VIDEO=1`, 72 KB a test.
     //
     // `sources: false` toglie la copia dei sorgenti del test, che serve solo alla
     // scheda "Source" e chi guarda la living-doc il repo ce l'ha.
-    trace: EVIDENCE ? { mode: "on", sources: false, screenshots: false, snapshots: true } : "on-first-retry",
+    trace: EVIDENCE
+      ? { mode: "on", sources: false, screenshots: TRACE_SCREENCAST, snapshots: true }
+      : "on-first-retry",
     viewport: { width: 1280, height: 800 },
     launchOptions: SLOWMO ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],
