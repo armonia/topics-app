@@ -588,7 +588,7 @@ without being a command SHALL render no such marker.
 - **WHEN** the topic is opened
 - **THEN** that message SHALL carry no invocation marker
 
-### Requirement: PARITY-01 — Ogni tool che la CLI emette ha una riga leggibile
+### Requirement: TOOL-PARITY-01 — Ogni tool che la CLI emette ha una riga leggibile
 
 Topics rende le chiamate a tool di Claude Code, Codex e OpenClaw traducendole in
 un `ToolCallDetail` tipizzato. Quando un nome non corrisponde a nessun tipo noto

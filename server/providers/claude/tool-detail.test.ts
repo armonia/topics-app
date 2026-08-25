@@ -4,7 +4,7 @@
  * Validates the provider-boundary normalizer that translates raw tool
  * names + args into the typed ToolCallDetail union the renderer
  * branches on. Pure function; trivial to test exhaustively.
- * @covers MONITOR-01, BGSHELL-01, PARITY-01, WEB-01
+ * @covers MONITOR-01, BGSHELL-01, TOOL-PARITY-01, WEB-01
  */
 
 import { describe, expect, test } from "bun:test";

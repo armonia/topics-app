@@ -219,6 +219,30 @@ if (fileTest.length < 50) {
   process.exit(2);
 }
 
+/**
+ * R6 - THE SAME ID DEFINED TWICE IN THE SPECS.
+ *
+ * `new Map(...)` keeps the LAST entry silently, which is how this stayed
+ * invisible: the parse succeeded, the count looked right, and the first of the
+ * two requirements simply stopped existing as far as this file was concerned.
+ *
+ * Measured 2026-08-25: `files/spec.md` defined `FILE-03` twice - "Reveal in
+ * Finder" at :257 and "Process & Script Runner" at :281. One test declared
+ * FILE-03 and BOTH looked covered, so the script runner appeared specified
+ * while nothing pointed at it. Renumbering the second immediately turned the
+ * gate red with "FILE-04 uncovered", which is the proof the duplicate was
+ * hiding a hole rather than being a typo.
+ *
+ * R4 could not catch it: R4 asks whether one id is claimed by more than one
+ * TEST. This asks whether the SPECS define it more than once, which is the
+ * other half and the one that erases a requirement instead of blurring it.
+ */
+const definedTwice = (() => {
+  const seen = new Map<string, string[]>();
+  for (const r of requirements) seen.set(r.id, [...(seen.get(r.id) ?? []), `${r.file}: ${r.title}`]);
+  return [...seen].filter(([, where]) => where.length > 1);
+})();
+
 const requirementById = new Map(requirements.map((r) => [r.id, r]));
 const claimed = new Map<string, string[]>();
 for (const t of fileTest) for (const c of t.covers) claimed.set(c, [...(claimed.get(c) ?? []), t.path]);
@@ -339,6 +363,17 @@ if (newAmbiguous.length) {
     console.log(`  ${" ".repeat(14)} il requisito dice: ${a.requirement}`);
     console.log(`  ${" ".repeat(14)} il test prova:     ${a.scenario}`);
   }
+}
+if (definedTwice.length) {
+  red = true;
+  console.log(`\nR6 — lo stesso id e' definito piu' di una volta nelle spec (${definedTwice.length}):`);
+  for (const [id, where] of definedTwice) {
+    console.log(`  ${id.padEnd(18)} definito ${where.length} volte:`);
+    for (const w of where) console.log(`  ${" ".repeat(18)}   ${w}`);
+  }
+  console.log("  → rinumera il secondo. Un id che nomina due requisiti non si puo' dichiarare");
+  console.log("    onestamente: chi lo dichiara ne copre uno e l'altro sembra coperto.");
+  console.log("  Nessuna linea di partenza qui: e' sempre un errore, e la cura e' di un minuto.");
 }
 if (staleMarkers.length) {
   red = true;
