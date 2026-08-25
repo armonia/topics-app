@@ -204,3 +204,33 @@ senza nessun errore.
 #### Scenario: un solo progetto conosciuto
 - **GIVEN** un solo progetto noto
 - **THEN** la cartella per i nuovi NON SHALL essere dedotta dal suo genitore
+
+### Requirement: PROJECT-07 — Incognito vuol dire NESSUNO, e chi non vede riceve solo l'identificativo
+
+La visibilità di un progetto SHALL essere decisa per OSSERVATORE. Un progetto
+marcato INCOGNITO SHALL essere visibile SOLO a chi l'ha marcato — nemmeno ai
+compagni della stessa organizzazione, e nemmeno al proprietario
+dell'installazione se il progetto appartiene a un'altra persona.
+
+Due identità ASSENTI NON SHALL valere come la stessa persona: il vuoto non è un
+identificativo.
+
+La macchina stessa SHALL vedere tutto, incogniti compresi.
+
+**Chi NON vede un progetto SHALL ricevere un annuncio col SOLO identificativo** —
+niente nome, niente percorso. Un annuncio completo mandato a tutti rivela, con i
+suoi campi, esattamente ciò che l'incognito doveva nascondere. La regola SHALL
+valere su TUTTI gli annunci che riguardano un progetto, quello di creazione
+compreso: proteggere solo la modifica lascia aperta la nascita.
+
+Un progetto senza organizzazione SHALL restare visibile a chi lo possiede e al
+proprietario dell'installazione, com'era prima che esistessero le colonne della
+condivisione.
+
+#### Scenario: un compagno di organizzazione
+- **GIVEN** un progetto incognito e una persona della stessa organizzazione
+- **THEN** NON SHALL vederlo
+
+#### Scenario: annuncio a chi non vede
+- **GIVEN** un annuncio di progetto verso chi non ha visibilità
+- **THEN** SHALL contenere il solo identificativo

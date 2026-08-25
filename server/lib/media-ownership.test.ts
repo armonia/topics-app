@@ -6,6 +6,8 @@ import { attribuisciMedia } from "./media-ownership";
  * in fondo alla risposta due screenshot prodotti da una spec E2E che girava in
  * un'ALTRA sessione. La cartella `~/.topics/media/` è condivisa per contratto,
  * e lo sweep guardava solo l'ora di modifica.
+ *
+ * @covers RES-ATTR-08
  */
 
 const M = "/Users/x/.topics/media";

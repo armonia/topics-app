@@ -95,3 +95,77 @@ The system SHALL provide a remote access panel in the sidebar that displays tunn
 - **THEN** the system SHALL NOT poll for tunnel status
 - **AND** the auto-refresh interval SHALL NOT be started
 
+
+### Requirement: AUTHGATE-01 — Un nome che COMINCIA per «127.» non è il loopback, e il rebinding è la prova
+
+Il riconoscimento dell'indirizzo locale SHALL essere per valore LETTERALE, mai
+per prefisso. Un nome pubblico che comincia con le cifre del loopback, o col nome
+della macchina locale seguito da altro, NON SHALL essere trattato come locale.
+
+Non è teoria: esistono servizi di nomi con jolly gratuiti che risolvono
+`<qualunque-cosa>` su `127.0.0.1`. Con il riconoscimento per prefisso, un sito
+ostile che punta a uno di quei nomi otteneva **200 sul server vivo** su una rotta
+che esegue comandi. La stessa protezione SHALL valere anche sulle LETTURE: chi
+riesce a leggere la risposta ha già ottenuto ciò che voleva.
+
+Un nome ribattezzato sull'indirizzo locale SHALL essere rifiutato **anche con
+un'identità VALIDA**: l'identità dice chi sei, non da dove stai chiamando.
+
+La sentinella interna che rappresenta «locale» NON SHALL poter essere inviata
+come intestazione: un valore che collide con un marcatore interno è un modo di
+entrare.
+
+L'intestazione dell'ospite ASSENTE SHALL passare — chi è già sulla macchina non
+la manda — ma assente INSIEME a un'origine dichiarata, su una richiesta che
+MODIFICA, SHALL essere rifiutata.
+
+Il controllo dell'origine SHALL coprire anche il socket PRIMARIO, non solo i suoi
+sotto-percorsi: è il buco più facile da lasciare, perché il percorso nudo non
+somiglia agli altri.
+
+Un'origine OPACA SHALL essere rifiutata: una pagina che nasconde la propria
+provenienza non ha diritto di scrivere.
+
+I nomi della propria macchina SHALL essere riconosciuti anche SENZA punti e anche
+PIENAMENTE QUALIFICATI col punto finale: sono le due forme che i sistemi di
+scoperta locale producono, e rifiutarle chiude fuori il telefono di casa.
+
+L'elenco delle origini ammesse SHALL essere riletto A OGNI CHIAMATA: metterlo in
+cache al primo uso rende impossibile cambiarlo senza riavviare. E SHALL ammettere
+SOLO ciò che elenca: nessun sosia per suffisso, nessuno schema declassato,
+nessuna porta diversa.
+
+#### Scenario: un nome jolly che risolve sul loopback
+- **GIVEN** una richiesta il cui ospite dichiarato risolve sull'indirizzo locale ma non lo è letteralmente
+- **THEN** SHALL essere rifiutata, anche con un'identità valida
+
+#### Scenario: il socket primario
+- **GIVEN** una connessione al percorso nudo del socket con origine forestiera
+- **THEN** SHALL essere rifiutata
+
+### Requirement: AUTHGATE-02 — Il caricamento accetta solo dentro le radici, e il percorso si risolve PRIMA
+
+Un file caricato SHALL poter atterrare SOLO dentro una radice consentita, e il
+confronto SHALL avvenire sul percorso RISOLTO, non sulla stringa.
+
+Un fratello che condivide il PREFISSO del nome NON SHALL passare: la
+somiglianza testuale non è contenimento. I salti verso l'alto SHALL essere
+normalizzati prima del confronto.
+
+Un collegamento simbolico che a stringa sembra dentro la radice ma RISOLVE fuori
+SHALL essere rifiutato: è il modo con cui una cartella consentita diventa una
+finestra su chiavi private.
+
+**Senza nessuna radice configurata SHALL essere rifiutato TUTTO, non consentito
+tutto.** Una configurazione mancante non è un permesso.
+
+Le radici vuote e la radice assoluta SHALL essere scartate: accettare la radice
+del disco apre l'intero sistema.
+
+#### Scenario: un collegamento che punta fuori
+- **GIVEN** un collegamento dentro la radice che risolve altrove
+- **THEN** SHALL essere rifiutato
+
+#### Scenario: nessuna radice configurata
+- **GIVEN** una configurazione senza radici
+- **THEN** ogni percorso SHALL essere rifiutato

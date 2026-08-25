@@ -1,3 +1,6 @@
+/**
+ * @covers AUTHGATE-01
+ */
 import { describe, expect, it } from "bun:test";
 import {
   evaluateAuth, isLoopbackAddress, isSameSite, isAllowedHost, canonHost, originHost,

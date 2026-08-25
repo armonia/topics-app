@@ -2,6 +2,8 @@
  * I test che contano qui sono i due modi di scavalcare un'allowlist scritta
  * male: il fratello col prefisso giusto e il symlink. Un test che prova solo
  * "dentro passa, fuori no" sarebbe passato anche sulla versione sbagliata.
+ *
+ * @covers AUTHGATE-02
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from "fs";

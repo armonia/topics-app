@@ -235,3 +235,35 @@ portare megabyte maggiori di zero.
 #### Scenario: un ponte che non conosciamo
 - **GIVEN** una radice del server di tipo mai visto
 - **THEN** SHALL comparire col proprio nome, non essere scartata
+
+### Requirement: RES-ATTR-08 — Un allegato è di questo turno solo se il turno l'ha NOMINATO
+
+L'attribuzione di un file prodotto a un turno di lavoro SHALL basarsi su ciò che
+quel turno ha effettivamente NOMINATO nelle proprie chiamate, non su una finestra
+temporale.
+
+Il 7 agosto due immagini prodotte da un'ALTRA sessione, alla stessa ora, sono
+finite allegate a un turno che non le aveva mai viste: la finestra temporale
+attribuisce per coincidenza, e su una macchina con più sessioni vive la
+coincidenza è la norma.
+
+Un turno SENZA nessuna chiamata NON SHALL poter aver prodotto niente: tutti i
+candidati SHALL risultare ALTRUI.
+
+Il riconoscimento SHALL richiedere il percorso ASSOLUTO o un nome abbastanza
+lungo da non essere una coincidenza. Un nome corto NON prova niente.
+
+Il verso dell'errore SHALL essere dichiarato: **meglio PERDERE un allegato che
+RUBARNE uno.** Un allegato perso si ritrova; uno rubato compare nel lavoro di
+qualcun altro e nessuno lo cerca.
+
+Argomenti che non si riescono a serializzare NON SHALL far fallire l'intera
+attribuzione: il singolo caso illeggibile cade da solo.
+
+#### Scenario: un file prodotto da un'altra sessione
+- **GIVEN** un file creato alla stessa ora da un turno diverso, mai nominato da questo
+- **THEN** NON SHALL essere attribuito a questo turno
+
+#### Scenario: un turno senza chiamate
+- **GIVEN** un turno che non ha invocato nessun attrezzo
+- **THEN** nessun candidato SHALL essergli attribuito

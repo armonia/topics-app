@@ -1,3 +1,6 @@
+/**
+ * @covers PROJECT-07
+ */
 import { describe, expect, test } from "bun:test";
 import {
   vedeProgetto, envelopeProgettoPer, visibilitaDi,
