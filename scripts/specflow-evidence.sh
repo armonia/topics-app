@@ -27,6 +27,13 @@ test -d spec-flow || {
 # died and a third of the suite never ran — and a wall clock that short reads like a win.
 SHARDS="${SHARDS:-2}"
 SKIP_E2E="${SKIP_E2E:-0}"
+# `ONLY_ANNOTATED=1`: gira SOLO i file che dichiarano un requisito per-test
+# (`test.info().annotations.push({type:"spec", …})`). Sono gli unici che possono produrre un
+# esito e un trace per-requisito: gli altri restano «coperto, non eseguito qui» comunque, prima
+# e dopo. Su topics-app sono 121 file su 264, cioe' meno della meta' del tempo per la STESSA
+# pagina. Non sostituisce la suite intera — quella dice se qualcosa e' rotto, e va lanciata — ma
+# per aggiornare la living-doc e' il giro giusto.
+ONLY_ANNOTATED="${ONLY_ANNOTATED:-0}"
 OUT_DIR="${TMPDIR:-/tmp}/topics-e2e-shards"
 MERGED="test-results/uat-report.json"
 MAP="openspec/coverage-map.json"
@@ -49,9 +56,18 @@ if [ "$SKIP_E2E" != "1" ]; then
   echo "  $BUNDLE"
   since "$t"
 
-  step "suite E2E — $SHARDS shard, trace su tutti i test"
+  SEL=()
+  if [ "$ONLY_ANNOTATED" = "1" ]; then
+    while IFS= read -r f; do SEL+=("${f}\$"); done < <(
+      /usr/bin/grep -lE 'type:[[:space:]]*["'"'"']spec["'"'"']' tests/e2e/*.spec.ts | sed 's/\./\\./g'
+    )
+    [ ${#SEL[@]} -gt 0 ] || { echo "✗ ONLY_ANNOTATED=1 ma nessun file dichiara un requisito per-test." >&2; exit 1; }
+    step "suite E2E — $SHARDS shard, SOLO i ${#SEL[@]} file con annotazione per-test"
+  else
+    step "suite E2E — $SHARDS shard, trace su tutti i test"
+  fi
   t=$(date +%s)
-  E2E_EVIDENCE=1 TOPICS_E2E_BUNDLE_DIR="$BUNDLE" "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS"
+  E2E_EVIDENCE=1 TOPICS_E2E_BUNDLE_DIR="$BUNDLE" "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS" "${SEL[@]}"
   rc=$?
   RAN=1
   since "$t"
