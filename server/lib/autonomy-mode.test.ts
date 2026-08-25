@@ -7,7 +7,6 @@
 import { describe, test, expect } from "bun:test";
 import {
   permissionModeForAutonomy,
-  describeAutonomy,
   DEFAULT_PERMISSION_MODE,
   planModeFor,
   permissionModeAsks,
@@ -68,17 +67,6 @@ describe("permissionModeForAutonomy", () => {
   });
 });
 
-describe("describeAutonomy", () => {
-  test("ogni livello si spiega con cosa FA, non con il suo nome", () => {
-    expect(describeAutonomy("ask")).toContain("non tocca file");
-    expect(describeAutonomy("auto-apply")).toContain("modifiche ai file");
-    expect(describeAutonomy("yolo")).toContain("senza chiedere");
-  });
-
-  test("anche «nessuna scelta» dice cosa succede", () => {
-    expect(describeAutonomy(null)).toContain("nessun livello scelto");
-  });
-});
 
 describe("planModeFor — il piano ha una leva sola", () => {
   test("l'autonomia «ask» accende il piano da sé", () => {

@@ -124,16 +124,16 @@ export function planModeFor(opts: { turnFlag?: boolean; autonomy?: string | null
   return opts.turnFlag === true || opts.autonomy === "ask";
 }
 
-/** Cosa succede davvero, in una riga — per l'interfaccia e per il registro. */
-export function describeAutonomy(level: string | null | undefined): string {
-  switch (level) {
-    case "ask":
-      return "propone un piano e aspetta il tuo ok: non tocca file né esegue comandi";
-    case "auto-apply":
-      return "applica le modifiche ai file da sé";
-    case "yolo":
-      return "fa tutto senza chiedere";
-    default:
-      return "come «fa tutto senza chiedere» (nessun livello scelto)";
-  }
-}
+/**
+ * `describeAutonomy` used to live here: one sentence per autonomy level, "for
+ * the interface and for the log". It was deleted on 2026-08-25 because it had
+ * ZERO production callers — only its own test — while the sentences a user
+ * actually reads lived, and still live, in three other places:
+ * `Modals/TopicSettingsModal.tsx` (`AUTONOMY_CHOICES`, hand-written),
+ * `Chat/emptyStateContext.ts`, and the `chat.empty.autonomy*` i18n keys.
+ *
+ * Keeping it was worse than useless: a fourth wording that nobody sees, that a
+ * grep for "autonomy" finds first, and that reads as the single source it never
+ * was. Task 46480579 asked for it to go and for a real single source in
+ * `shared/`; this is the first half. The second is still open — see the task.
+ */
