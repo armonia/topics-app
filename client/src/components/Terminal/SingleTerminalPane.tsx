@@ -16,6 +16,8 @@ import { shouldDeclareExpired } from '../../hooks/rosterTrust';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { isWindowAwake } from '../../state/windowAwake';
 import { useT } from '../../hooks/useT';
+import { restartTerminalSession } from '../../lib/terminalReload';
+import { useToast } from '../Shared/Toast';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -165,6 +167,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // refs so the (sessionId-keyed) xterm mount effect never re-runs on a list
   // change.
   const t = useT();
+  // Il rifiuto di un riavvio va DETTO: prima finiva in un `.catch(() => {})`.
+  const toast = useToast();
   const terminalSessions = useTerminalSessions();
   const sessionListed = useMemo(
     () => terminalSessions.some((s) => s.id === sessionId),
@@ -976,9 +980,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               type="button"
               disabled={reloading}
               onClick={() => {
-                signalsActions.markTerminalReloading(sessionId);
-                window.setTimeout(() => signalsActions.clearTerminalReloading(sessionId), 15000);
-                void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' }).catch(() => {});
+                restartTerminalSession(sessionId, toast, t);
               }}
               title={t('terminal.reloadTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
@@ -1041,9 +1043,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               type="button"
               disabled={reloading}
               onClick={() => {
-                signalsActions.markTerminalReloading(sessionId);
-                window.setTimeout(() => signalsActions.clearTerminalReloading(sessionId), 15000);
-                void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' }).catch(() => {});
+                restartTerminalSession(sessionId, toast, t);
               }}
               title={t('terminal.resumeTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"

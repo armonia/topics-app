@@ -56,6 +56,7 @@ import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useToast } from '../Shared/Toast';
+import { restartTerminalSession } from '../../lib/terminalReload';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
@@ -1727,20 +1728,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   // niente. Il tetto dei 15s e' la rete di sicurezza per il
                   // caso in cui la riconnessione non arrivi, non il modo
                   // normale di sapere che e' andata male.
-                  signalsActions.markTerminalReloading(sid);
-                  const rete = window.setTimeout(() => signalsActions.clearTerminalReloading(sid), 15000);
-                  const arreso = (motivo: string) => {
-                    window.clearTimeout(rete);
-                    signalsActions.clearTerminalReloading(sid);
-                    toast.error(motivo);
-                  };
-                  void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}/reload`, { method: 'POST' })
-                    .then(async (res) => {
-                      if (res.ok) return;
-                      const detta = await res.text().catch(() => '');
-                      arreso(detta.trim() || tr('tab.restartSessionFailed'));
-                    })
-                    .catch(() => arreso(tr('tab.restartSessionUnreachable')));
+                  restartTerminalSession(sid, toast, tr);
                 }
                 setCtxMenu(null);
               }}

@@ -223,6 +223,10 @@ landing/.shots/
 # Generated UAT artifacts (videos & report) — produced by Playwright + spec-flow
 uat.html
 videos/**/*.webm
+# I trace Playwright viaggiano accanto ai video con lo stesso nome (li carica publish-uat,
+# li produce build-uat-index --by-requirement). Senza questa riga comparirebbero a decine
+# fra i non tracciati dopo ogni corsa con evidenza.
+videos/**/*.zip
 videos/INDEX.md
 
 # Session-local .env backups

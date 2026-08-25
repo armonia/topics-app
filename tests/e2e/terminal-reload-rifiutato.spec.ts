@@ -17,29 +17,54 @@
  *
  * Il rifiuto si INIETTA (`page.route`) invece di provocarlo: un 409 vero
  * richiederebbe due reload in corsa, che e' una gara e non una prova.
+ *
+ * La shell si APRE davvero, con la stessa procedura di `terminal.spec.ts`: la
+ * prima stesura dava per scontata una tab terminale gia' a schermo, e in un'app
+ * pulita non ce n'e' nessuna — trenta secondi di attesa e un timeout che
+ * parlava del setup, non del gesto.
  */
-import { test, expect } from "@playwright/test";
-import { goToApp } from "./helpers";
-import { hermetic } from "./fixtures/hermetic";
+import { expect } from "@playwright/test";
+import { test } from "./fixtures/terminal.fixture";
+import {
+  seedTerminalTopic,
+  cleanupTerminalTopic,
+  resetTerminalWorkspace,
+  navigateAndOpenTerminal,
+} from "./helpers/terminal-workspace";
 
-hermetic(test);
+test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () => {
+  let topicId = "";
+  let topicName = "";
 
-test.describe("Ricarica di una tab terminale · il rifiuto si vede", () => {
-  test("un rifiuto del server toglie SUBITO «Riavvio…» e dice il motivo", async ({ page }) => {
+  test.beforeAll(async ({ request }) => {
+    ({ topicId, topicName } = await seedTerminalTopic(request, "reload-rifiutato"));
+  });
+  test.beforeEach(async ({ request }) => {
+    await resetTerminalWorkspace(request, topicId);
+  });
+  test.afterAll(async ({ request }) => {
+    await cleanupTerminalTopic(request, topicId);
+  });
+
+  test("un rifiuto del server toglie SUBITO «Riavvio…» e dice il motivo", async ({ page, terminalPage }) => {
+    test.info().annotations.push({ type: "spec", description: "RESTART-SAY-01" });
     const MOTIVO = "Reload already in progress for this session";
 
     await page.route("**/api/terminal/sessions/*/reload", (route) =>
       route.fulfill({ status: 409, contentType: "text/plain", body: MOTIVO }),
     );
 
-    await goToApp(page);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
-    // Una tab terminale qualunque: il gesto vive nel suo menu contestuale.
+    // Il gesto vive nel menu contestuale della tab terminale appena aperta.
     const tab = page.locator('[data-pane-id^="terminal:"]').first();
-    await expect(tab, "serve una tab terminale su cui provare il gesto").toBeVisible({ timeout: 30_000 });
+    await expect(tab, "serve una tab terminale su cui provare il gesto").toBeVisible({ timeout: 15_000 });
     await tab.click({ button: "right" });
 
-    const ricarica = page.getByRole("button", { name: /Ricarica/ });
+    // DENTRO il menu contestuale: la barra di stato della sidebar ha un suo
+    // «Ricarica» (ricarica l'app), e un locator che li prende entrambi fallisce
+    // in strict mode invece di provare il gesto.
+    const ricarica = page.getByRole("menu").getByRole("button", { name: /Ricarica/ });
     await expect(ricarica).toBeVisible({ timeout: 10_000 });
     await ricarica.click();
 
