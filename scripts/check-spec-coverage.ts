@@ -271,8 +271,9 @@ if (modo === "report") {
     for (const id of conMotivo) console.log(`  ${id.padEnd(14)} ${base.motivi[id]}`);
   }
   console.log(`Scoperti senza motivo: ${senzaMotivo.length} — sono debito, non deroghe.`);
-  // I penzolanti non sono una cosa sola, e trattarli come tale nasconde che la
-  // cura e' diversa per ognuno dei tre gruppi.
+  // Dangling claims are not one thing, and treating them as one hides that the
+  // cure differs per group: promote the requirement, build the feature, or stop
+  // declaring an id that was never a requirement.
   const gruppi = new Map<string, string[]>();
   for (const k of chiaviPenzolanti) {
     const id = k.split("@")[0]!;

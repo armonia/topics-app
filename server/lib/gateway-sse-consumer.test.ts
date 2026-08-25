@@ -10,9 +10,9 @@
  *
  * @covers CHAT-REL-01, CHAT-REL-02
  *
- * CHAT-REL-01 (risposta vuota rilevata) e' coperto per intero. CHAT-REL-02
- * (propagazione dell'errore di stream) e' parziale: qui c'e' il lato consumer,
- * non la risalita fino alla bolla in chat.
+ * CHAT-REL-01 (empty response detected) is covered in full. CHAT-REL-02 (stream
+ * error propagation) is partial: the consumer side is here, not the path up to
+ * the bubble in chat.
  */
 
 import { describe, expect, test, mock } from "bun:test";

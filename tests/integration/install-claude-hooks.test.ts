@@ -15,9 +15,9 @@
  *
  * @covers CCS-06
  *
- * L'idempotenza dell'installatore di hook. Prova forte: gira lo script vero
- * come sottoprocesso con un HOME temporaneo, cioe' lo stesso percorso che fa
- * una persona. Parziale sul ramo di disinstallazione.
+ * Hook installer idempotency. Strong proof: it runs the real script as a
+ * subprocess with a temporary HOME, i.e. the same path a person takes. Partial
+ * on the uninstall branch.
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";

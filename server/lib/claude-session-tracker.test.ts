@@ -1,9 +1,9 @@
 /**
  * @covers CCS-02, CCS-05
  *
- * CCS-02 (sicurezza e idempotenza dell'endpoint hook) e' parziale: qui c'e' il
- * lato tracker, il gate localhost-only sta nella rotta. CCS-05 (contratto di
- * broadcast `session:state`, con la coalescenza dei burst) e' coperto.
+ * CCS-02 (hook endpoint security and idempotency) is partial: the tracker side
+ * is here, the localhost-only gate lives in the route. CCS-05 (the
+ * `session:state` broadcast contract, including burst coalescing) is covered.
  */
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';

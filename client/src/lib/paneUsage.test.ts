@@ -8,9 +8,9 @@
  *
  * @covers RES-ATTR-04, RES-ATTR-05
  *
- * RES-ATTR-04: l'attribuzione non moltiplica il costo del campionamento.
- * RES-ATTR-05: una pane senza processo proprio si DICHIARA tale invece di
- * ricevere una quota inventata con l'aria di una misura.
+ * RES-ATTR-04: attribution does not multiply the cost of sampling.
+ * RES-ATTR-05: a pane with no process of its own is DECLARED as such instead of
+ * being handed an invented share with the air of a measurement.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {

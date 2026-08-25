@@ -5,8 +5,7 @@
     "AGENT-01": "La feature non esiste: il roster agenti e' uscito il 05/08 insieme alle pane che lo mostravano (vedi tests/unit/ws-outbound-coverage.test.ts). La spec va archiviata, non coperta.",
     "AGENT-02": "Come AGENT-01: descrive un pannello di gestione agenti rimosso. Cio' che oggi vive sotto «agents» e' l'orchestratore sub-agent, 5 rotte, coperte da topics-mcp-server.test.ts.",
     "AGENT-03": "Come AGENT-01: l'editor di profili agente non esiste piu'.",
-    "WEBHOOK-01": "Il CRUD /api/webhooks descritto dalla spec non esiste: nessuna rotta, nessuna tabella, nessun handler. L'unico webhook nel codice e' quello Stripe in routes/billing.ts, che e' altra cosa ed e' testato.",
-    "CMD-02": "Push notification: client/src/hooks/usePushNotifications.ts non e' importato da nessun test. Buco vero, non fantasma — da coprire."
+    "WEBHOOK-01": "Il CRUD /api/webhooks descritto dalla spec non esiste: nessuna rotta, nessuna tabella, nessun handler. L'unico webhook nel codice e' quello Stripe in routes/billing.ts, che e' altra cosa ed e' testato."
   },
   "motiviPenzolanti": {
     "CCPROV": "PROMUOVERE: il requisito esiste in una change ARCHIVIATA e non e' mai stato portato in openspec/specs. Il test lo prova gia': e' il documento di riferimento a essere indietro.",
@@ -42,7 +41,6 @@
     "CHAT-TOOL-02",
     "CHAT-TOOL-03",
     "CHAT-TOOL-04",
-    "CMD-02",
     "CTX-DEDUP-01",
     "CTX-DEDUP-02",
     "CTX-DEDUP-03",

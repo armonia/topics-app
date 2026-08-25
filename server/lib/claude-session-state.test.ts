@@ -1,8 +1,8 @@
 /**
  * @covers CCS-03, CCS-04
  *
- * La derivazione della fase dagli hook (CCS-03) e il reaper delle fasi rimaste
- * indietro (CCS-04): sono le due meta' della macchina a stati, entrambe qui.
+ * Phase derivation from hooks (CCS-03) and the stale-phase reaper (CCS-04):
+ * the two halves of the state machine, both here.
  */
 import { describe, expect, it } from 'bun:test';
 import {

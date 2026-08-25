@@ -11,9 +11,9 @@
  *
  * @covers CMD-03, CMD-04
  *
- * Riaprire l'ultima tab chiusa (CMD-03) e il fatto che tutte le superfici
- * passino dalla stessa porta (CMD-04). Parziali: la durabilita' e i limiti
- * della cronologia sono CMD-05, in closedStack.test.ts.
+ * Reopening the most recently closed tab (CMD-03) and every surface going
+ * through the same single entry point (CMD-04). Partial: durability and the
+ * bound on the history are CMD-05, in closedStack.test.ts.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";

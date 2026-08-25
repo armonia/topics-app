@@ -1,13 +1,13 @@
 /**
  * @covers CTX-01
  *
- * Gli id `CTX-01..07` di questo file SEMBRANO uno scontro con il requisito
- * omonimo e non lo sono: sono le sue PARTI. `CTX-01` elenca in una frase sola
- * l'inspector con i conteggi di token, la barra del budget, l'interruttore per
- * sorgente, le pillole nel composer e il CRUD della memoria — e qui c'e' un
- * test per ciascuna di quelle cose, numerato nell'ordine in cui il requisito le
- * nomina. La dichiarazione qui sopra e' cio' che rende la cosa leggibile a
- * `check:spec-coverage` invece di lasciarla somigliare a un'ambiguita'.
+ * The `CTX-01..07` ids in this file LOOK like a collision with the requirement
+ * of the same name, and they are not: they are its PARTS. CTX-01 lists in one
+ * sentence the inspector with token counts, the budget bar, the per-source
+ * toggle, the context pills and memory CRUD, and there is one test for each,
+ * numbered in the order the requirement names them. Declaring it here is what
+ * makes that legible to `check:spec-coverage` instead of leaving it looking
+ * like an ambiguity.
  */
 import path from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";

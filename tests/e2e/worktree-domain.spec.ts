@@ -14,8 +14,8 @@
  *
  * @covers PROJECT-02
  *
- * Parziale: la compatibilita' con i vecchi `project_path` come stringa, vista
- * dal dominio worktree. Il lato di lettura pura sta in
+ * Partial: backward compatibility with legacy `project_path` strings, seen from
+ * the worktree domain. The pure read side is in
  * tests/integration/project-worktree-domain.test.ts.
  */
 import { test, expect } from "@playwright/test";

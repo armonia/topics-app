@@ -5,6 +5,15 @@
  * la PWA installata» producono lo stesso silenzio, e finora si vedevano uguali.
  * Qui si misura che sono TRE stati distinti, con tre rimedi distinti, e che
  * l'interruttore compare solo dove premerlo fa qualcosa.
+ *
+ * @covers CMD-02
+ *
+ * Partial, with a sharp boundary. CMD-02 has eleven scenarios: the first four
+ * are STATES (unsupported, denied, default with no subscription, already
+ * subscribed) and they are here; the environment sensing that produces them is
+ * in `environment.test.ts`. The remaining seven are the subscribe/unsubscribe
+ * FLOWS — VAPID key exchange, registering with the server, unsubscribing —
+ * which live in the hook and are not proven yet.
  */
 import { describe, expect, test } from 'bun:test';
 import { describePushState, type PushEnvironment } from './pushStatus';

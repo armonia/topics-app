@@ -1,7 +1,7 @@
 /**
  * @covers RES-ATTR-01
  *
- * Il server attribuisce ogni processo alla sessione che lo ospita.
+ * The server attributes every process to the session hosting it.
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import {

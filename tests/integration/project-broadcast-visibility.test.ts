@@ -20,8 +20,8 @@
  *
  * @covers PROJECT-03
  *
- * Parziale: l'igiene dei broadcast WebSocket sul progetto. Lo schema dei
- * messaggi in uscita e' fissato a parte in tests/unit/ws-outbound-schema.test.ts.
+ * Partial: WebSocket broadcast hygiene on a project. The shape of the outbound
+ * messages is pinned separately in tests/unit/ws-outbound-schema.test.ts.
  */
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import * as fs from "node:fs";

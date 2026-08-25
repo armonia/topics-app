@@ -1,8 +1,8 @@
 /**
  * @covers CMD-05
  *
- * La cronologia dei chiusi e' durevole e limitata: e' il modello puro dietro
- * il gesto che tests/e2e/reopen-closed-tab.spec.ts prova dall'interfaccia.
+ * The recently-closed history is durable and bounded: the pure model behind the
+ * gesture that tests/e2e/reopen-closed-tab.spec.ts exercises from the UI.
  */
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";

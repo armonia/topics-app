@@ -13,7 +13,7 @@
  *
  * @covers RES-ATTR-03
  *
- * Ogni scheda mostra il proprio consumo al passaggio del mouse.
+ * Every pane shows its own consumption on hover.
  */
 import { test, expect } from "@playwright/test";
 import { goToApp, openTestChat } from "./helpers";

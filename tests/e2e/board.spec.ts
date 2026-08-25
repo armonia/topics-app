@@ -13,9 +13,9 @@
  *
  * @covers KANBAN-02
  *
- * Parziale, e va detto: qui stanno filtri, impostazioni della board e il giro
- * delle colonne. Le APPROVAZIONI e l'assegnazione agente dello stesso requisito
- * vivono altrove (board-review-*.spec.ts, board-card-*.spec.ts).
+ * Partial, and worth stating: filters, board settings and the column round trip
+ * live here. The APPROVALS and agent-assignment half of the same requirement is
+ * elsewhere (board-review-*.spec.ts, board-card-*.spec.ts).
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
