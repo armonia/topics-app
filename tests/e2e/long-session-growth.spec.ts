@@ -10,6 +10,8 @@ hermetic(test);
 
 /**
  * long-session-growth.spec.ts - THE BENCH for what a session accumulates.
+ *
+ * @covers LEAK-01
  * It is not the gate: the gate is `scripts/check-session-growth.ts`.
  *
  * WHY. The goal asks for no meaningful progressive heap, DOM node, listener or

@@ -76,3 +76,62 @@ The system SHALL load within acceptable time thresholds and SHALL NOT block the 
 - **GIVEN** the app is loaded
 - **WHEN** user interacts
 - **THEN** no long tasks (>50ms) block the main thread during normal interaction
+
+### Requirement: LEAK-01 — Una sessione lunga non accumula, e c'è un cancello che se ne accorge
+
+Topics è una sessione lunga per costruzione: resta aperta per giorni, le pane si
+aprono e si chiudono, i topic si cambiano, i messaggi arrivano in streaming. Un
+leak è una **derivata**, e ogni altro cancello di questo repository misura un
+punto — i byte del bundle a build time, la latenza di un gesto, i frame di uno
+scroll. Per costruzione nessuno di loro può vederlo.
+
+Il sistema DEVE:
+
+1. **liberare le strutture per-socket alla chiusura.** Le due mappe dei client
+   WebSocket (`wsClients`, `browserWsClients`) perdono la loro voce nel gestore
+   di `close`, e la voce esterna della mappa sparisce quando il suo insieme si
+   svuota;
+2. **non dipendere solo da `close`.** Una rottura TCP semi-aperta (laptop che
+   dorme, rete che cade) non fa scattare `close`: un heartbeat DEVE mietere i
+   socket senza pong, altrimenti la pulizia non gira mai;
+3. **annullare i timer che ha creato** — il timer di riconnessione
+   dell'EventSource del browser remoto, e i tre timer di stream (soft, grace,
+   hard);
+4. **misurare la crescita nel tempo** su un banco che ripete cicli di
+   interazione, e giudicarla contro un budget per heap, nodi DOM e listener.
+
+Il cancello DEVE poter diventare rosso: un banco che non ha mai fallito non è un
+banco.
+
+> Nota su cosa esisteva già, perché questo requisito non introduce
+> comportamento. Il banco (`tests/e2e/long-session-growth.spec.ts`) e il cancello
+> (`scripts/check-session-growth.ts`) erano scritti, funzionanti e **senza
+> requisito che li nominasse** — la terza volta che questa forma compare in una
+> sola notte. Verificato il 25/08/2026: sulla misura registrata la sessione resta
+> piatta (heap x1.32 su budget x1.51, DOM x1.13 su x1.3, listener x1.10 su x1.2),
+> e su una misura sintetica con un leak il cancello esce rosso nominando heap e
+> listener.
+
+#### Scenario: un socket chiuso non lascia la sua voce
+
+- **GIVEN** un client WebSocket registrato in una delle due mappe
+- **WHEN** il socket si chiude
+- **THEN** la sua voce è rimossa, e la voce esterna sparisce se l'insieme si svuota
+
+#### Scenario: un socket semi-aperto viene mietuto
+
+- **GIVEN** un socket che non risponde al ping oltre la soglia
+- **WHEN** l'heartbeat gira
+- **THEN** il socket è rimosso dalla mappa e chiuso
+
+#### Scenario: la crescita oltre il budget è rossa e dice dove guardare
+
+- **GIVEN** una misura in cui heap o listener crescono oltre il budget
+- **WHEN** il cancello la giudica
+- **THEN** esce non-zero, nomina la grandezza sfondata e indica dove cercare
+
+#### Scenario: una sessione sana resta piatta
+
+- **GIVEN** una misura di cicli ripetuti entro i budget
+- **WHEN** il cancello la giudica
+- **THEN** esce zero
