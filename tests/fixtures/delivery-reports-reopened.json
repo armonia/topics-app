@@ -1,0 +1,64 @@
+{
+ "fa7550fe": {
+  "title": "Deep-link ai task: aggiungi il nome del progetto all'URL per leggibili",
+  "reports": [
+   "```question\nAnalizzo il formato URL deep-link attuale (`?task=projectId~taskId`). Propongo di estendere a `?task=projectName~projectId~taskId` per renderlo human-readable. Cosa preferisci: includiamo il nome+hash, oppure riprogetti tu il formato?\n- Nome + hash + taskId\n- Solo nome + taskId\n- Altro format, ti consulto\n```",
+   "```question\n**Piano:** Aggiungere projectName all'URL: `?task=projectName~projectId~taskId`. Aggiorna `openTaskLink.ts` (builder + parser con 2 `~`), passa il nome da KanbanBoardPane al copy, update tests.\n- Approva il piano\n- Da rivedere\n```"
+  ]
+ },
+ "b7aaa015": {
+  "title": "Audit memory leak su Topics — cleanup WebSocket, stream timer, event l",
+  "reports": [
+   "```question\n## Piano: Audit memory leak Topics  **Tre fasi:** (1) Server — Map browserWsClients/wsClients cleanup, EventSource reconnect timer, stream timer abort, browser context destroy; (2) Client — Event listener senza cleanup, Effect hook senza return, WebSocket handler; (3) Verifica audit 2026-07-06 (useMobile listener, activity buffer, poll guard, Tauri observer già fixati?)\n- Approva il piano\n- Da rivedere\n```",
+   "```question\nIdentificati 6 leak principali: reconnectTimer race (gateway-ws), cleanupTimer/autosave interval leak (browser-service), page listeners senza cleanup, wsHeartbeatTimer mai cleared, EventSource timer. Creati 5 subtask sequenziali; procedo con fix dopo approvazione.\n- Approva il piano\n- Da rivedere\n```",
+   "Tutti i 6 memory leak fixati: reconnectTimer race (gateway-ws), page listeners cleanup (browser-service), EventSource timer ref (useActivity), wsHeartbeatTimer cleanup verificato. Committato (4925fa03), typecheck 0 errors. Pronto per merge.",
+   "✅ Verificato da triage: diff surgico (4925fa03) — timer ref in useActivity, cleanup listener/interval in browser-service, guardia race sul reconnect in gateway-ws, wsHeartbeatTimer verificato già coperto. Typecheck 0. Approve → merge + rebuild client + restart server automatici."
+  ]
+ },
+ "d916d229": {
+  "title": "Filtri board: campo token con autocomplete (stessi componenti dell'inp",
+  "reports": [
+   "Refactor completato: SuggestionMenu generico estratto, TokenPill generico creato, TokenInputFilter implementato per priority/assignee/project. Build success, commit su branch. Pronto al review.",
+   "✅ Verificato da triage: commit b804e291 sul branch, worktree pulito. SuggestionMenu generico + TokenPill + TokenInputFilter per priorità/assegnatario/progetto. Il chip \"serve te\" è stantìo: la consegna c'è. Approve → merge + rebuild client automatici, poi hard refresh e provi i filtri token."
+  ]
+ },
+ "29451376": {
+  "title": "Dispatcher: niente taglio a timer dei turni — stall detector + judge",
+  "reports": [
+   "Fatto (commit `6dc39750`): nessun taglio a timer — un turno finisce solo se l'agent chiude, con lo stop umano, o se lo stall detector lo giudica incastrato. Silenzio ≥ `dispatchIdleMin` (nuovo, default 5, migration 054) → judge haiku sulla coda del transcript; solo \"incastrato\" ricicla (commento + abort → resume stessa sessione, quickDeath/backoff preservati). Dove guardare: `stall-judge.ts`, il watcher in `task-dispatcher.ts`, wiring in `server.ts`. Test verdi; i 2 fail concurrency/priority sono pre-esistenti (flaky, falliscono anche su base).",
+   "✅ Verificato da triage: design fedele al requisito (nessun kill a timer, judge su idle con default \"vivo\", migration 054, quickDeath/backoff preservati), typecheck 0. I 2 test rossi visti nel worktree preesistono su main (fixati dalla carta \"Test dispatcher\"). Nota: al merge possibile conflitto con main su server.ts/test — se capita il sistema lo rimanda all'agent che lo risolve da solo. Approve → restart server automatico."
+  ]
+ },
+ "f9cf765e": {
+  "title": "open_browser_pane: warning quando la porta localhost è di un altro pro",
+  "reports": [
+   "Fatto (commit eac6a699). `open_browser_pane` su URL loopback con porta ora incrocia la porta col registry processi: se la porta è di un ALTRO progetto → warning prominente in testa al risultato del tool (\"⚠️ :5173 is served by a DIFFERENT project — <nome>…\", con page title); se nulla è in ascolto → lo segnala. Non blocca. Resolver puro `attributePortOwner` in routes/processes.ts con 6 test + propagazione MCP testata. `typecheck:server` 0 errori, unit verdi.",
+   "✅ Verificato da triage: commit eac6a699, worktree pulito. Il warning porta↔progetto chiude il caso visto oggi (pane DanceRooms dentro topics-app). Approve → merge + restart server automatico (tocca le route)."
+  ]
+ },
+ "ddac566a": {
+  "title": "Post-approve: proponi il deploy su board senza automerge (deployComman",
+  "reports": [
+   "Fatto (commit 60a4f44). Board setting `deployCommand` (migration 054, vuoto=off): all'approve il sistema PROPONE il deploy con commento di sistema, mai automatico; conferma via bottone \"Deploya ora\" nel drawer → POST /deploy esegue nel checkout main (fire-and-forget, esito commentato). Se manca il comando ma c'è uno script `deploy` in package.json, il settings lo suggerisce. Test verdi (task-deploy + flusso proposta/conferma), typecheck server 0 errori; l'unico rosso è pre-esistente sul branch base.",
+   "Requisito emerso dal caso reale cliente: il deployCommand spesso richiede credenziali (es. SSHPASS) che NON devono mai stare nell'env dell'agent. Il deploy proposto va eseguito nel CONTESTO DELL'UTENTE — es. comando lanciato dal sistema con l'env della macchina/keychain dell'umano dopo il suo quick-reply di conferma, oppure il pannello mostra il comando pronto da copiare nel terminale. Mai chiedere/passare credenziali via thread o env di dispatch.",
+   "Fix applicati (commit cffc7a1). (1) Migration rinumerata 054→055 per non collidere con la carta watchdog (dispatchIdleMin). (2) Credenziali mai via env/thread: il pannello mostra SEMPRE il comando pronto da copiare (code block + bottone copia) accanto a \"Deploya ora\", e in caso di fallimento il commento di sistema restituisce il comando esatto da lanciare dal terminale dell'umano, spiegando che il server non ha SSHPASS/keychain. Test verdi + typecheck server 0 errori; client builda.",
+   "✅ VERIFICA INDIPENDENTE OK — commit 60a4f445+cffc7a13, worktree pulito, migration rinumerata 055 (niente collisione con watchdog), 48/49 test pass (l'unico rosso è pre-esistente: fallisce identico su main), tsc client+server 0 errori. Credenziali mai in env/thread: pannello con comando copiabile + commento d'esito col comando esatto se il server non ha SSHPASS. APPROVABILE."
+  ]
+ },
+ "273bfe3c": {
+  "title": "Aggiungi Kimi Code come agente terminale in Topics (menu \"New\")",
+  "reports": [
+   "Fatto (commit 39931015). Kimi Code (v0.27.0) installato in ~/.kimi-code/bin/kimi e aggiunto come agente terminale: appare nel menu \"+/New\" (glyph Moon indigo) accanto a Claude Code / Codex / opencode, spawna il PTY come codex. Server: resolver kimi-bin + spawn/env + migration 055 (CHECK type). Client: registry, PaneAddMenu, union types, sanitizer. Typecheck server 0 / client 0, test terminalAgents+sanitize verdi, migration+resolver verificati. Smoke test finale: click su \"Kimi Code\" nel menu new dell'app (richiede rebuild+riavvio Topics).",
+   "```question\nCodice completo e committato (39931015), tree pulito, client buildato; typecheck/test verdi. Non lo vedi perché vive solo in questo worktree isolato: l'app in esecuzione serve prod. Comparirà con merge+rebuild (approva) oppure con un deploy live. Dimmi \"deploya live\" se vuoi lo smoke test subito.\n- Approva (merge+rebuild)\n- Deploya live per smoke test\n```",
+   "Pronto al merge: branch = main + 1 commit, ZERO conflitti (merge-tree ok), tree pulito, build/test verdi. Non ho fatto il merge a mano per non collidere con l'automerge del board (main non è in checkout, prod gira su un altro branch). Premi Approve sulla card → il board fa automerge+rebuild e Kimi Code compare nel menu New."
+  ]
+ },
+ "1fe87606": {
+  "title": "Giro di sonda 15 min: verificare che gli &lt;svg&gt; siano piatti a sc",
+  "reports": [
+   "```question\nDomanda a meta' turno:  Il giro di sonda richiede di armare devHeapProbe sull'istanza LIVE di Topics su https://localhost:3333 (quella che stai usando ora), ricaricare quella finestra e lasciarla FERMA 15 minuti per raccogliere 31 campioni. Confermi che posso farlo ora?\n- Si, procedi\n- No, non toccare l'app live\n- Usa un dev server separato\n```",
+   "Verificato: il fix di fee32d7e (matchMedia) e lo strumento domCensus/devHeapProbe (31 campioni × 30s = 15') sono già nel worktree e nel main checkout (commit 3a9ac0f90, ancestor dell'HEAD attuale) — non serve rebuild. Il giro di sonda vero richiede però di armare la sonda sull'istanza LIVE dell'app (localhost:3333), ricaricare quella finestra e lasciarla ferma 15': azione sull'ambiente dell'umano, per cui ho chiesto conferma esplicita (vedi sottotask \"Chiedere ok umano...\") e sono in attesa di risposta prima di procedere.",
+   "In attesa: Server isolato del worktree pronto e sonda gia' armata su http://localhost:53553, ma il pane browser di questa sessione non naviga (testato anche su example.com: resta about:blank, 0 richieste). Serve che il sottosistema browser torni a rispondere prima di poter aprire il tab e lasciarlo fermo 15 minuti.. Rilascio lo slot, il task torna in coda e riprovo tra ~10 min."
+  ]
+ }
+}

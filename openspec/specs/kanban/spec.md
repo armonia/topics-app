@@ -654,3 +654,72 @@ periodico: un turno già ripreso non viene mai raddoppiato.
 - **GIVEN** un task appena ripreso con il turno ancora in corso
 - **WHEN** la riconciliazione periodica rigira
 - **THEN** nessun secondo turno parte per quel task
+
+### Requirement: KANBAN-11 — Le rivendicazioni di un rapporto di consegna SI VERIFICANO
+
+Un audit di tutti i task `done` raggiungibili (2026-08-25) ha trovato **14 carte
+chiuse senza che il lavoro esistesse**, con una firma che si ripete: migration
+"rinumerate" su slot occupati da altre feature, commit di consegna che rispondono
+`fatal: bad object`, e verifiche indipendenti che confermano nel dettaglio cose
+che non ci sono. La causa non è che l'agente non abbia lavorato: è che **nessun
+punto del flusso apre un file per controllare**.
+
+Il sistema DEVE poter verificare meccanicamente le rivendicazioni contenute in un
+rapporto di consegna, senza esprimere giudizi sulla qualità del lavoro:
+
+1. ogni sha citato DEVE risolvere a un commit esistente in un qualsiasi ref;
+2. ogni migration citata DEVE esistere, e il suo contenuto DEVE nominare almeno
+   uno dei simboli che il rapporto dichiara di aver scritto — il solo numero non
+   basta, perché lo slot può appartenere a un'altra feature;
+3. ogni percorso citato DEVE esistere, e una riga citata (`file:riga`) DEVE
+   contenere almeno uno dei simboli dichiarati;
+4. almeno uno dei simboli dichiarati DEVE comparire in un commit di tutta la
+   storia (`git log --all -S`).
+
+Un rapporto che non cita **niente di verificabile** NON DEVE essere trattato come
+un rapporto che ha superato i controlli: "niente da controllare" e "controllato e
+a posto" sono fatti diversi, e confonderli è il modo in cui un cancello diventa
+decorazione.
+
+I controlli NON DEVONO esprimersi su completezza, qualità o significato dei test.
+Rispondono a una domanda sola: **l'evidenza che il rapporto cita esiste?**
+
+> Nota sul banco: la barra di questo requisito non è un esempio inventato. I
+> rapporti di consegna storici delle carte riaperte sono conservati in
+> `tests/fixtures/rapporti-consegna-riaperte.json`, testualmente come furono
+> scritti, e il controllo deve bocciarli tutti.
+
+#### Scenario: un commit citato che non esiste viene rilevato
+
+- **GIVEN** un rapporto che dichiara "Fatto (commit 6dc39750)"
+- **AND** quello sha non risolve in nessun ref del repository
+- **WHEN** il rapporto viene verificato
+- **THEN** il rilievo nomina lo sha e dice che non esiste
+
+#### Scenario: una migration esistente ma di un'altra feature viene rilevata
+
+- **GIVEN** un rapporto che dichiara "migration rinumerata 054→055" insieme a un
+  simbolo che afferma di aver introdotto
+- **AND** `055-*.sql` esiste ma non nomina quel simbolo
+- **WHEN** il rapporto viene verificato
+- **THEN** il rilievo dice che lo slot è occupato da un'altra feature
+
+#### Scenario: un simbolo mai comparso in nessun commit viene rilevato
+
+- **GIVEN** un rapporto che dichiara di aver introdotto uno o più simboli
+- **AND** nessuno di essi compare in un commit di tutta la storia
+- **WHEN** il rapporto viene verificato
+- **THEN** il rilievo dice che nessun simbolo dichiarato è mai stato scritto
+
+#### Scenario: un rapporto senza rivendicazioni non passa in silenzio
+
+- **GIVEN** un rapporto che dice soltanto "Fatto, tutto verde"
+- **WHEN** il rapporto viene verificato
+- **THEN** il rilievo dichiara che non c'era niente da verificare
+
+#### Scenario: una consegna onesta non viene accusata
+
+- **GIVEN** un rapporto che cita un commit esistente, un file esistente e un
+  simbolo presente nella storia
+- **WHEN** il rapporto viene verificato
+- **THEN** non viene prodotto nessun rilievo
