@@ -18,6 +18,8 @@ import { join } from "node:path";
  * Qui il daemon è FINTO, così i due casi si possono separare a comando:
  *  · parla ma tarda  → l'attesa NON deve morire;
  *  · è muto davvero  → deve morire, ma solo dopo aver RIPROVATO.
+ *
+ * @covers RUNTIME-06
  */
 
 const SOCK = join(tmpdir(), `ai-bridge-stall-${process.pid}.sock`);

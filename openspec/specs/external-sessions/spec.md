@@ -226,3 +226,85 @@ errore.
 #### Scenario: liberare una sessione già libera
 - **GIVEN** una sessione già al livello libero
 - **THEN** NON SHALL essere salvata né annunciata di nuovo
+
+### Requirement: EXTSESS-07 — Il trascritto si trova dove il provider lo scrive, e la ripresa può FORKARE
+
+Il trascritto di una sessione SHALL essere localizzato costruendo il percorso
+esattamente come lo costruisce il provider: OGNI carattere non alfanumerico della
+cartella di lavoro SHALL diventare un separatore, uno per carattere. Non solo la
+barra e il punto — anche il trattino basso, che la cartella temporanea di questo
+sistema contiene: trascurarlo faceva leggere ZERO sessioni.
+
+Cifre e maiuscole SHALL sopravvivere intatte.
+
+Il trascritto è il registro DUREVOLE di una sessione: sopravvive al riavvio e
+vive più a lungo della riga che la descrive. Quindi «questa sessione dormiente si
+può ancora riprendere?» SHALL ridursi a «il suo trascritto esiste?».
+
+Una sessione APPENA nata il cui trascritto non è ancora stato scritto SHALL
+essere TENUTA: esiste una finestra di grazia, o si cancella ciò che sta per
+nascere. Senza identificativo o senza cartella di lavoro la domanda è
+indecidibile e la riga SHALL essere TENUTA.
+
+**La ripresa può FORKARE.** Il provider può aprire un file NUOVO, ricopiarci
+dentro la storia del precedente e proseguire lì: il vecchio smette di crescere e
+chi lo segue resta fermo per sempre.
+
+Il riaggancio SHALL avvenire sui DATI, non su una convenzione di nomi: il figlio
+copia le righe del padre con i loro identificativi, quindi «il file che continua
+questa sessione» è un trascritto PIÙ RECENTE, nella stessa cartella, che contiene
+gli identificativi già consumati. Il punto in cui la copia finisce è il punto da
+cui riprendere.
+
+SHALL essere IGNORATO: un trascritto estraneo anche se è il più recente della
+cartella; un file PIÙ VECCHIO anche se condivide gli identificativi; un
+trascritto già seguito da un altro topic. Fra due candidati SHALL vincere quello
+che ricopia DI PIÙ.
+
+SHALL essere contato solo ciò che sta DENTRO i byte già consumati, e la riga
+parziale in coda NON SHALL entrare nel punto di ripresa. Senza byte consumati non
+c'è storia nota e NON SHALL essere agganciato niente; con il trascritto corrente
+sparito NON SHALL essere indovinato niente.
+
+La lettura SHALL FERMARSI dopo una lunga corsa di righe sconosciute — è
+divergenza, non copia — e i candidati troppo grandi da scandire SHALL essere
+scartati. Un candidato già rifiutato e non modificato NON SHALL essere
+riesaminato.
+
+#### Scenario: il trattino basso nel percorso
+- **GIVEN** una cartella di lavoro che contiene un trattino basso
+- **THEN** SHALL essere codificato come tutti gli altri caratteri non alfanumerici
+
+#### Scenario: due candidati per la ripresa
+- **GIVEN** due trascritti più recenti che ricopiano quantità diverse di storia
+- **THEN** SHALL essere scelto quello che ricopia di più
+
+### Requirement: EXTSESS-08 — La storia importata rimette insieme domanda, risposta e attrezzo
+
+L'importazione della storia di una sessione adottata SHALL ricostruire i turni di
+entrambe le parti, il ragionamento, e le chiamate di attrezzo CON il loro
+risultato riappaiato.
+
+Il riappaiamento SHALL funzionare anche quando chiamata e risultato cadono in
+BLOCCHI DI LETTURA DIVERSI: il trascritto si legge a pezzi, e un attrezzo la cui
+risposta arriva nel pezzo successivo resterebbe altrimenti senza esito per
+sempre. Un risultato in ERRORE SHALL essere marcato tale, anche fra un blocco e
+l'altro.
+
+SHALL essere SCARTATO ciò che non è conversazione: le diramazioni dei
+sotto-agenti, le righe di servizio, i tipi non riconosciuti e le righe vuote. Un
+turno vuoto NON SHALL produrre una riga.
+
+La catena dei messaggi SHALL partire dal punto indicato da chi importa; senza
+indicazione il primo messaggio SHALL essere una radice.
+
+La lettura SHALL essere PURA — testo in, righe fuori — così da essere verificabile
+senza toccare il disco.
+
+#### Scenario: attrezzo e risultato in blocchi diversi
+- **GIVEN** una chiamata di attrezzo in un blocco e il suo risultato in quello dopo
+- **THEN** SHALL essere riappaiati
+
+#### Scenario: una diramazione di sotto-agente
+- **GIVEN** righe appartenenti a una diramazione
+- **THEN** NON SHALL entrare nella storia della chat

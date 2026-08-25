@@ -135,3 +135,111 @@ Il testo prima e dopo il recinto SHALL essere conservato.
 #### Scenario: un blocco di codice vero
 - **GIVEN** un commento che contiene un blocco di codice di un linguaggio
 - **THEN** SHALL essere restituito invariato
+
+### Requirement: PERM-01 — Un permesso si risolve per corrispondenza SCRITTA, mai indovinando
+
+Una richiesta di permesso SHALL essere identificata dalla coppia sessione più
+identificativo della chiamata, MAI dalla sola sessione: la riga di comando emette
+più richieste nello stesso turno — misurate a **170 ms** di distanza — e una
+chiave per sessione le confonderebbe.
+
+Rispondere a una richiesta NON SHALL rispondere a un'altra.
+
+**Un identificativo sconosciuto NON SHALL risolversi MAI, nemmeno quando c'è una
+sola richiesta aperta.** L'euristica «ce n'è una sola, quindi è quella» è
+esattamente ciò che è vietato: un sì dato al posto di un altro è il peggiore
+degli errori possibili qui dentro. Una corrispondenza SCRITTA invece SHALL
+risolversi — perché è una corrispondenza, non un indovinello — e SHALL morire
+insieme alla propria richiesta.
+
+L'attesa SHALL essere fatta di tratti brevi che si richiamano, perché una
+richiesta ferma a zero byte muore lato client per inattività e nessuna pazienza
+lato server la salva. Una decisione arrivata PRIMA che qualcuno si metta in
+attesa NON SHALL perdersi; una decisione consegnata senza nessuna richiesta
+aperta NON SHALL essere messa da parte per nessuno.
+
+Il tratto che scade SHALL essere normale amministrazione, non la fine della
+richiesta. Ma i tratti successivi NON SHALL rimettere a zero l'orologio della
+RICHIESTA, o l'interrogazione periodica la terrebbe viva per sempre — e l'età
+esposta SHALL essere quella della più VECCHIA, o l'esenzione dalle reti di
+sicurezza non finirebbe mai.
+
+Passare la sessione a un regime libero SHALL sbloccare TUTTE le richieste aperte
+di QUELLA sessione, dicendo quali, e SHALL riportare anche gli identificativi
+delle righe a schermo — altrimenti il pannello resta disegnato su una richiesta
+che non esiste più. NON SHALL toccare le altre sessioni.
+
+L'annullamento di una sessione SHALL sbloccare tutte le sue attese con un errore
+LEGGIBILE; l'annullamento singolo SHALL toccare solo la propria.
+
+#### Scenario: un identificativo che non conosciamo
+- **GIVEN** una decisione per un identificativo sconosciuto, con una sola richiesta aperta
+- **THEN** NON SHALL essere risolta
+
+#### Scenario: due richieste nello stesso turno
+- **GIVEN** due richieste di permesso aperte insieme
+- **THEN** rispondere a una NON SHALL rispondere all'altra
+
+### Requirement: PERM-02 — Nel dubbio il pannello SI DISEGNA, e il bersaglio si giudica sul bersaglio
+
+Il pannello del permesso SHALL essere disegnato sulla riga che gli corrisponde, e
+in caso di dubbio SHALL essere RIDISEGNATO. Il verso è dichiarato: **un pannello
+in più è visibile e si corregge; uno in meno è una richiesta che nessuno vedrà
+mai.**
+
+Quando l'identificativo non corrisponde a nessuna riga, SHALL essere usata
+l'ULTIMA riga in attesa con lo STESSO nome di attrezzo, e la corrispondenza SHALL
+essere SCRITTA come alias. Una riga già CONCLUSA NON SHALL essere un bersaglio, e
+un attrezzo DIVERSO in attesa NON SHALL attirare il pannello.
+
+«Già disegnato» SHALL essere giudicato sul BERSAGLIO, non sull'identificativo di
+partenza: dopo un alias sono due cose diverse.
+
+Il contenuto strutturato della riga SHALL avere la precedenza sull'elenco più
+vecchio quando entrambi esistono, in ENTRAMBE le direzioni: sia per ridisegnare
+sia per non ridisegnare. Quando il contenuto strutturato non copre la riga SHALL
+essere usato l'elenco.
+
+Un contenuto illeggibile, di forma inattesa o vuoto NON SHALL far cadere niente:
+SHALL portare a ridisegnare.
+
+#### Scenario: la riga è già conclusa
+- **GIVEN** una riga con lo stesso nome di attrezzo ma già terminata
+- **THEN** NON SHALL essere usata come bersaglio
+
+#### Scenario: dati illeggibili
+- **GIVEN** un contenuto della riga che non si riesce a interpretare
+- **THEN** il pannello SHALL essere ridisegnato
+
+### Requirement: PERM-03 — Un piano si fa approvare, e approvare non è preselezionato
+
+Quando un turno in modalità di pianificazione si conclude avendo prodotto un
+PIANO, il sistema SHALL chiedere di approvarlo.
+
+Con più piani nello stesso turno SHALL vincere l'ULTIMO: il modello riscrive il
+piano dopo aver letto altro, e approvare una versione superata è approvare
+qualcosa che nessuno ha proposto.
+
+NON SHALL essere chiesto: fuori dalla modalità di pianificazione — lì un piano
+scritto è una nota di lavoro — su un turno INTERROTTO o in errore (non ha
+proposto, ha smesso), e su un piano VUOTO, che non è una domanda.
+
+La richiesta SHALL essere una domanda ORDINARIA, resa dal pannello che esiste
+già: introdurre una superficie parallela per questo caso significherebbe
+mantenerne due.
+
+**Approvare SHALL essere consigliato ma NON preselezionato**: l'approvazione non
+deve poter avvenire senza un gesto. L'opzione SHALL dichiarare che l'autonomia
+cambia — non deve succedere di nascosto.
+
+Approvare e rifiutare SHALL essere distinguibili. La risposta a un'ALTRA domanda
+NON SHALL essere letta come una decisione sul piano, e nemmeno una risposta di
+testo libero.
+
+#### Scenario: due piani nello stesso turno
+- **GIVEN** un turno che ha prodotto due piani
+- **THEN** SHALL essere proposto l'ultimo
+
+#### Scenario: un turno interrotto
+- **GIVEN** un turno in pianificazione terminato per interruzione
+- **THEN** NON SHALL essere chiesta nessuna approvazione

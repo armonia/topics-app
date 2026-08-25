@@ -5,6 +5,8 @@
  * figlio ricopia le righe del padre con i loro uuid, ma intercala righe nuove
  * (`attachment`, `file-history-*`) e righe di servizio senza uuid
  * (`mode`, `ai-title`, `queue-operation`). Il riconoscimento deve reggerle.
+ *
+ * @covers EXTSESS-07
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync, utimesSync, statSync } from 'fs';

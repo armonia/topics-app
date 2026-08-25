@@ -1,3 +1,6 @@
+/**
+ * @covers EXTSESS-07
+ */
 import { describe, it, expect } from "bun:test";
 import { claudeProjectDirName, claudeTranscriptPath, isTranscriptOrphaned } from "./claude-transcript-path";
 import { homedir } from "os";

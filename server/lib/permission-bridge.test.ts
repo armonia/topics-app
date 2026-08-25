@@ -105,6 +105,8 @@ describe("due richieste insieme — il motivo per cui la chiave non è la sessio
  * quella è già chiusa). Riusando gli id, il caso successivo che aspetta un
  * `cancelled` su `SK/T1` si vedrebbe servire l'`allow` di qui — un rosso che
  * parla di un'altra cosa.
+ *
+ * @covers PERM-01
  */
 const F1 = "toolu_free_1";
 const F2 = "toolu_free_2";

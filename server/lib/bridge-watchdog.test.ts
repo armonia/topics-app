@@ -3,6 +3,8 @@
  * getting it wrong are silent for a while and then very loud:
  * recycling a live bridge kills PTYs mid-turn (31 times before 2026-08-21), and
  * never recycling leaves a hung daemon wedged with no cure.
+ *
+ * @covers RUNTIME-07
  */
 import { describe, expect, it } from "bun:test";
 import { bridgeWatchdogStep, BRIDGE_ESCALATE_MS, BRIDGE_MUTE_MS } from "./bridge-watchdog";

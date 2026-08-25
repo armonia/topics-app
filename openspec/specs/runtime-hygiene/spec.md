@@ -183,3 +183,78 @@ portare via l'attesa di qualcun altro.
 #### Scenario: l'attesa scade
 - **GIVEN** un'attesa che raggiunge il proprio tetto
 - **THEN** SHALL essere un esito valido con il punto raggiunto, non un errore
+
+### Requirement: RUNTIME-06 — «Lento» e «morto» si distinguono, e la differenza è il moltiplicatore
+
+Un ponte che RISPONDE LENTAMENTE NON SHALL essere dichiarato morto. La distinzione
+SHALL richiedere DUE silenzi insieme: nessuna risposta al battito E nessun byte
+in arrivo. Un byte recente — anche di un'ALTRA sessione sullo stesso canale — dice
+che il ponte è occupato, non guasto.
+
+Confonderli non costa un errore: costa una RAFFICA. In produzione ha prodotto
+**104 scadenze in 9 raffiche, la più grossa di 51 di fila** su topic diversi.
+Misurato: sei sessioni con un archivio da 7 MB che si riagganciano insieme mettono
+in coda ~44 MB su UN canale, e le risposte escono a scaletta fino a oltre cinque
+secondi — nessuna delle due parti è bloccata, è il canale che è pieno. Riciclarlo
+lì è ciò che moltiplica il guasto invece di curarlo.
+
+I tempi di attesa SHALL essere DIVERSI secondo il lavoro richiesto: interrogare un
+elenco è un giro dentro il processo, mentre avviare un processo nuovo sotto carico
+supera la stessa soglia senza che niente sia guasto.
+
+SHALL esistere comunque un TETTO ASSOLUTO: «occupato per sempre» va chiuso lo
+stesso. Ma il fallimento per tetto assoluto, arrivato MENTRE i byte scorrevano,
+NON SHALL essere ritentato — ritentare un trasferimento da megabyte lo raddoppia.
+
+Un risveglio in ritardo del proprio ciclo NON SHALL essere contato contro il
+ponte: racconta noi fermi, non lui.
+
+Un errore APPLICATIVO del processo remoto NON SHALL essere ritentato: si
+ripeterebbe identico. Un canale CADUTO invece SHALL riagganciarsi subito, senza
+pagare l'attesa; e un canale che sembra sano ma rifiuta la scrittura SHALL essere
+buttato e riprovato.
+
+Il secondo tentativo SHALL essere SICURO: un avvio ripetuto SHALL RIPRENDERE il
+processo esistente, mai duplicarlo.
+
+Gli avvii SHALL avere un tetto per finestra di tempo. Senza, il 13/08/2026 sono
+stati prodotti **1.612 processi su un solo canale in dodici minuti: 36 GB di
+scambio su disco e una macchina inutilizzabile.**
+
+Chiudere il client mentre una richiesta è in volo NON SHALL avviare un processo
+nuovo e staccato: è la classe di processi randagi già trovata **28 volte su una
+sola macchina, alcuni vecchi di tre giorni.**
+
+#### Scenario: pong vecchio, byte recenti
+- **GIVEN** nessuna risposta al battito ma byte ancora in arrivo
+- **THEN** il canale NON SHALL essere riciclato
+
+#### Scenario: tetto assoluto durante un trasferimento
+- **GIVEN** un'attesa che supera il tetto mentre i byte scorrevano
+- **THEN** NON SHALL essere ritentata
+
+### Requirement: RUNTIME-07 — Prima la cura economica, poi quella cara — e chi rinviene si ferma
+
+La sorveglianza del ponte SHALL agire per GRADI: al primo silenzio completo SHALL
+essere reimpostato il CANALE, non terminato il processo.
+
+L'ordine importa e ha un prezzo misurato: fare per prima la cura cara ha pagato il
+secondo costo per il primo problema **31 volte** prima del 21/08/2026 — e quella
+cura uccide ogni terminale a metà turno.
+
+Fra la cura economica e quella cara SHALL passare del tempo: un reset ha bisogno
+di funzionare prima di essere dichiarato inutile.
+
+La cura cara SHALL essere applicata SOLO se il silenzio persiste dopo il reset:
+non applicarla mai lascerebbe un processo bloccato senza rimedio.
+
+Una sorveglianza già armata che ricomincia a sentire byte SHALL FERMARSI: chi
+rinviene non si termina.
+
+#### Scenario: primo silenzio completo
+- **GIVEN** un ponte muto per la prima volta
+- **THEN** SHALL essere reimpostato il canale, non terminato il processo
+
+#### Scenario: rinviene dopo l'armamento
+- **GIVEN** una sorveglianza armata e byte che tornano ad arrivare
+- **THEN** NON SHALL essere terminato niente

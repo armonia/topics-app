@@ -5,6 +5,8 @@
  * `~/.claude/plans/<slug>.md` viene normalizzato a `detail.type = 'plan'`
  * (vedi `shared/plan-file.ts`), perché da quando la CLI non espone più
  * `ExitPlanMode` quello è l'unico canale rimasto al modello.
+ *
+ * @covers PERM-03
  */
 
 import { describe, expect, test } from "bun:test";

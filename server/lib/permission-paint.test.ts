@@ -1,3 +1,6 @@
+/**
+ * @covers PERM-02
+ */
 import { describe, it, expect } from "bun:test";
 import { decidePermissionPaint } from "./permission-paint";
 

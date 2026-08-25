@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-06
+ */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
