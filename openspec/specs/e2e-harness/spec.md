@@ -368,3 +368,78 @@ Un solo shard SHALL ricevere tutto.
 #### Scenario: i due file più lenti
 - **GIVEN** più shard disponibili
 - **THEN** NON SHALL finire nello stesso
+
+### Requirement: E2E-ISO-01 — Il server di prova NON scrive nella cartella VIVA
+
+L'isolamento del banco vale solo se copre TUTTO lo stato mutabile, non il solo
+database. Misurato il 25/08/2026: la variabile che sposta il database era
+impostata, quella che sposta il resto NO — due nomi per la stessa idea, e uno
+dei due non lo leggeva nessuno tranne il database.
+
+Il risultato: i server di prova scrivevano l'elenco degli argomenti, lo stato di
+lettura, gli ALLEGATI CARICATI, i file di contesto, i messaggi e i consumi
+DENTRO la cartella che usa anche il server di produzione. Prova: fra gli allegati
+vivi c'erano tre file con l'ora esatta di tre corse del banco.
+
+Ogni percorso di stato mutabile del server di prova SHALL cadere sotto la SUA
+cartella per porta, e NESSUNO SHALL cadere sulla cartella del repository.
+
+La verifica SHALL essere che la cartella viva NON CAMBIA durante una corsa —
+non che non compaia un errore: l'assenza di un errore era vera anche mentre la
+perdita c'era.
+
+#### Scenario: una corsa del banco
+- **GIVEN** la suite completa eseguita
+- **THEN** la cartella viva NON SHALL essere modificata
+
+#### Scenario: più shard insieme
+- **GIVEN** quattro server di prova su quattro porte
+- **THEN** ciascuno SHALL avere la propria cartella di stato
+
+### Requirement: USAGE-TMP-01 — Orfano vuol dire VECCHIO, non «di qualcun altro»
+
+La pulizia dei file temporanei all'avvio cancellava OGNI file che contenesse il
+marcatore, e il temporaneo della scrittura atomica porta nel nome il processo e
+l'istante. Con più processi sulla stessa cartella, la pulizia di uno CANCELLAVA
+la scrittura in volo di un altro: il rinomina usciva «non esiste», e il 25/08 ha
+ucciso un server al boot e con lui 253 test mai eseguiti.
+
+Un temporaneo SHALL essere considerato orfano quando è PROPRIO — lasciato lì
+morendo — oppure quando è provabilmente VECCHIO oltre una soglia dichiarata. Un
+temporaneo APPENA scritto da un ALTRO processo NON SHALL essere toccato.
+
+**Ciò che non si riesce a DATARE SHALL essere TENUTO**: i due errori non costano
+uguale — qualche kilobyte fermo contro una scrittura viva distrutta. Un istante
+VUOTO NON SHALL essere convertito in zero, che si leggerebbe come «scritto
+all'inizio dei tempi», cioè sempre abbastanza vecchio da cancellare.
+
+Un file che NON è un temporaneo NON SHALL essere toccato, per quanto il nome
+somigli.
+
+La regola SHALL valere per qualunque file della cartella: il nome davanti al
+marcatore non conta.
+
+#### Scenario: un temporaneo appena scritto da un altro processo
+- **GIVEN** un file scritto un istante fa da un altro processo
+- **THEN** NON SHALL essere cancellato
+
+#### Scenario: un istante illeggibile
+- **GIVEN** un nome che non porta un istante valido
+- **THEN** il file SHALL essere tenuto
+
+### Requirement: BOOT-NONFATAL-01 — Un file di COMODO non decide se l'app parte
+
+La ricostruzione del riassunto dei consumi è un file che si RIGENERA dai
+giornalieri a ogni avvio, e chi lo legge ha già la propria ricaduta. Farla cadere
+sul percorso di avvio significa che un file cosmetico decide se il server parte —
+ed è esattamente com'è morto il server del 25/08.
+
+Le operazioni di avvio che producono un artefatto RIGENERABILE NON SHALL essere
+FATALI: SHALL essere registrate e SHALL lasciare proseguire l'avvio.
+
+Il fallimento SHALL essere DETTO, non ingoiato: un avvio che nasconde ciò che non
+è riuscito è come il difetto torna senza essere visto.
+
+#### Scenario: la ricostruzione del riassunto fallisce
+- **GIVEN** un errore di scrittura sul riassunto
+- **THEN** il server SHALL partire lo stesso, dichiarando il fallimento

@@ -13,21 +13,49 @@ function enqueue(fn: () => void): Promise<void> {
   return writeQueue;
 }
 
+/** A temp file is orphaned when it is OURS, or when it is provably OLD. */
+export const ORPHAN_TMP_AGE_MS = 60_000;
+
+/**
+ * `atomicWrite` names its temp `<file>.tmp.<pid>.<epochMs>`, so the name says
+ * both who wrote it and when. Anything we cannot date is KEPT: leaving a few
+ * stale kilobytes costs nothing, deleting a live write cost 253 tests.
+ */
+export function isOrphanTmp(name: string, myPid: number, now: number): boolean {
+  const marker = name.indexOf(".tmp.");
+  if (marker < 0) return false;
+  const [pid, stamp] = name.slice(marker + ".tmp.".length).split(".");
+  if (/^\d+$/.test(pid ?? "") && Number(pid) === myPid) return true;
+  // `Number("")` is 0, not NaN — and a zero stamp reads as "written in 1970",
+  // i.e. always old enough to delete. The shape has to be checked, not coerced.
+  if (!/^\d+$/.test(stamp ?? "")) return false;
+  return now - Number(stamp) >= ORPHAN_TMP_AGE_MS;
+}
+
 export function initUsageStore(baseDir: string) {
   USAGE_DIR = join(baseDir, "data", "usage");
   SUMMARY_FILE = join(USAGE_DIR, "summary.json");
   mkdirSync(USAGE_DIR, { recursive: true });
 
-  // Clean up orphaned .tmp files from previous crashes
+  // Clean up orphaned .tmp files from previous crashes.
+  //
+  // ORPHANED means OLD, not "belongs to someone else". This loop used to
+  // delete every `.tmp.` file in the directory, and `atomicWrite` names its
+  // temp `<file>.tmp.<pid>.<now>` — so a second process booting here would
+  // delete a temp file another process had written one statement earlier, and
+  // that process's `renameSync` failed with ENOENT. Measured on 2026-08-25:
+  // four e2e shards sharing this directory, one server dead at boot, 253 tests
+  // never run. The directory is no longer shared (see start-test-server.sh),
+  // but a production restart racing a worktree server still can be, and a
+  // cleanup that destroys a live write is wrong on its own terms.
   try {
-    const files = readdirSync(USAGE_DIR);
-    for (const f of files) {
-      if (f.includes(".tmp.")) {
-        try {
-          unlinkSync(join(USAGE_DIR, f));
-          console.log(`[usage] Cleaned up orphaned tmp file: ${f}`);
-        } catch {}
-      }
+    const now = Date.now();
+    for (const f of readdirSync(USAGE_DIR)) {
+      if (!isOrphanTmp(f, process.pid, now)) continue;
+      try {
+        unlinkSync(join(USAGE_DIR, f));
+        console.log(`[usage] Cleaned up orphaned tmp file: ${f}`);
+      } catch {}
     }
   } catch {}
 }

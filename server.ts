@@ -506,7 +506,15 @@ const browserService = await createBrowserService({
 
 // Init usage tracking (still uses JSON files — will be migrated in a future phase)
 initUsageStore(ctx.STATE_DIR);
-rebuildSummary();
+// @covers BOOT-NONFATAL-01
+// `summary.json` è un file di COMODO: si ricostruisce dai giornalieri a ogni
+// avvio, e chi lo legge ha già la sua ricaduta. Farlo cadere qui significa che
+// un file cosmetico decide se l'app parte — ed è successo il 25/08: un ENOENT
+// sul rename di un temporaneo ha ucciso il server al boot, e 253 test di uno
+// shard non sono mai partiti. Si logga e si va avanti: il riassunto si
+// ricostruisce al giro dopo.
+try { rebuildSummary(); }
+catch (e) { console.error("[usage] rebuildSummary failed at boot (non-fatal):", e); }
 
 // Claude Code session tracker — canonical lifecycle state for every Claude
 // CLI session spawned via Topics (topic chats persist in the DB; topic-less
