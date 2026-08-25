@@ -53,6 +53,14 @@ bun run scripts/merge-shard-reports.ts "$OUT_DIR" --out "$MERGED" || {
 
 # La cartella si SVUOTA prima: i collegamenti sono duri e restano, quindi senza questo
 # `publish-uat` continuerebbe a caricare l'evidenza delle corse precedenti per sempre.
+# Il piano degli shard si bilancia su queste durate. Ri-registrarle dopo OGNI corsa con
+# evidenza e' cio' che tiene i quattro shard a finire insieme invece di aspettarne uno:
+# i pesi presi con il video sovrastimano una corsa col solo trace, e non in modo uniforme.
+if [ "$SKIP_E2E" != "1" ]; then
+  step "durate per il piano degli shard"
+  bun run scripts/e2e-record-durations.ts "$OUT_DIR"/report-*.json || true
+fi
+
 step "evidenza per requisito (e SOLO quella: il resto non e' raggiungibile dalla pagina)"
 find videos -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
 bun run scripts/build-uat-index.ts --report "$MERGED" --by-requirement --only-requirements || exit 1

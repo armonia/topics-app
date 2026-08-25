@@ -10,8 +10,14 @@
  * (`e2e-plan-shards.ts`) porta gli shard a pochi secondi l'uno dall'altro.
  *
  * COME SI USA
- *   bun run scripts/e2e-record-durations.ts test-results/shard-*\/results.json
- *   bun run scripts/e2e-record-durations.ts test-results/results.json
+ *   bun run scripts/e2e-record-durations.ts "$TMPDIR"/topics-e2e-shards/report-*.json
+ *   bun run scripts/e2e-record-durations.ts test-results/uat-report.json
+ *
+ * ATTENZIONE AL PERCORSO. Fino al 25/08 questa riga diceva
+ * `test-results/shard-*\/results.json`, che `e2e-shards.sh` non scrive piu' — ma
+ * quei file ESISTONO ANCORA, vecchi di giorni. Seguire la vecchia riga non
+ * fallisce: ribilancia il piano su misure di un'altra corsa, e lo sbilanciamento
+ * che ne esce sembra rumore della macchina.
  *
  * Scrive `scripts/e2e-durations.json`, che è COMMITTATO: senza, il piano
  * ripartirebbe da zero a ogni checkout e il primo che lancia la suite pagherebbe
@@ -58,7 +64,7 @@ const inputs = process.argv.slice(2);
 if (inputs.length === 0) {
   console.error(
     "uso: bun run scripts/e2e-record-durations.ts <results.json> [results.json …]\n" +
-      "     (tipicamente test-results/shard-*/results.json dopo ./scripts/e2e-shards.sh)",
+      "     (tipicamente $TMPDIR/topics-e2e-shards/report-*.json dopo ./scripts/e2e-shards.sh)",
   );
   process.exit(2);
 }

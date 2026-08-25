@@ -203,12 +203,27 @@ export default defineConfig({
     // In evidenza il trace si accende SU TUTTI, anche sui verdi: e' quello che
     // si pubblica. Fuori dall'evidenza resta al primo ritentativo, dove serve a
     // diagnosticare e non a raccontare.
-    // `sources: false`: il trace NON si porta dietro una copia dei sorgenti del
-    // test. Servono solo alla scheda "Source" del visualizzatore, e chi guarda la
-    // living-doc il repo ce l'ha; la linea del tempo, gli screenshot per azione,
-    // il DOM e la rete restano tutti. Misurato su add-menu.spec.ts (10 test):
-    // 1956 KB -> 1608 KB, cioe' il 18% in meno su tutto quello che si pubblica.
-    trace: EVIDENCE ? { mode: "on", sources: false, screenshots: true, snapshots: true } : "on-first-retry",
+    // LA FORMA DEL TRACE E' UNA SCELTA, E COSTA 61 VOLTE.
+    //
+    // `screenshots` non sono gli scatti per azione: sono un FILMATO a fotogrammi
+    // ravvicinati, e sono praticamente tutto il peso. `snapshots` sono i DOM per
+    // azione, da cui il visualizzatore RICOSTRUISCE la pagina a ogni passo — che
+    // e' la cosa per cui il trace esiste.
+    //
+    // Misurato su board-flash-curve.spec.ts, una delle piu' pesanti:
+    //   screencast + DOM   9300 KB
+    //   solo DOM           152 KB      ← 61x, e dentro restano 144 azioni con i
+    //                                    loro tempi, 68 snapshot del DOM e la rete
+    //
+    // COSA SI PERDE, detto per intero: la striscia di miniature in cima al
+    // visualizzatore, quella che scorre nel tempo. La lista delle azioni, il
+    // tempo di ognuna, la pagina ricostruita prima/durante/dopo e il pannello
+    // rete ci sono tutti. Chi vuole un filmato ha `E2E_VIDEO=1`, che pesa 72 KB
+    // a test invece di 9 MB.
+    //
+    // `sources: false` toglie la copia dei sorgenti del test, che serve solo alla
+    // scheda "Source" e chi guarda la living-doc il repo ce l'ha.
+    trace: EVIDENCE ? { mode: "on", sources: false, screenshots: false, snapshots: true } : "on-first-retry",
     viewport: { width: 1280, height: 800 },
     launchOptions: SLOWMO ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],
