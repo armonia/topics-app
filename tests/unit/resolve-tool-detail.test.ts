@@ -8,6 +8,8 @@
  * instead of crashing or rendering broken UI.
  *
  * Run with: `bun test tests/unit/resolve-tool-detail.test.ts`
+ *
+ * @covers TOOL-PARITY-01
  */
 import { describe, expect, test } from 'bun:test';
 import { resolveToolDetail } from '../../client/src/components/Chat/toolDetail';

@@ -9,6 +9,8 @@
  *   - The Zod-inferred type and the canonical TS `ToolCallDetail` are
  *     structurally equal — drift breaks this file's TypeScript compile.
  *   - Variant-count snapshot (NORM-01 contract guard).
+ *
+ * @covers TOOL-PARITY-01
  */
 import { describe, expect, test } from 'bun:test';
 import type { ToolCallDetail } from '../../server/types';

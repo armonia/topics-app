@@ -7,6 +7,8 @@
  * defensive fallback for legacy rows / providers without server-built detail.
  * Both must agree, and a server-built detail must survive `resolveToolDetail`
  * (schema validation) instead of being dropped back to the generic view.
+ *
+ * @covers TOOL-PARITY-01
  */
 
 import { describe, expect, test } from 'bun:test';

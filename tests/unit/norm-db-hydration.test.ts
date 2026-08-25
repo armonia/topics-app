@@ -11,6 +11,8 @@
  * when `tc.detail` is absent, so dropping the detail is the safe choice.
  *
  * Run with: `bun test tests/unit/norm-db-hydration.test.ts`
+ *
+ * @covers TOOL-PARITY-01
  */
 import { describe, expect, test } from 'bun:test';
 import { parseToolCallDetail } from '../../shared/tool-call-detail';

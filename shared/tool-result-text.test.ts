@@ -4,6 +4,8 @@
  * I payload qui sotto non sono inventati: vengono dai risultati salvati nel DB
  * di questa macchina (dove il 14,6% mostrava l'array JSON al posto del testo) e
  * da una registrazione reale di `claude --output-format stream-json`.
+ *
+ * @covers TOOL-PARITY-01
  */
 
 import { describe, expect, test } from 'bun:test';
