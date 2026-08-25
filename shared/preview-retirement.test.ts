@@ -1,3 +1,6 @@
+/**
+ * @covers RETIRE-04
+ */
 import { describe, expect, test } from "bun:test";
 import { isPreviewRetirementNote, isSupersededPreviewNote } from "./preview-retirement";
 

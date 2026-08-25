@@ -3,6 +3,8 @@
  *
  * Schema minimo in `:memory:` (stesso pattern di `tab-resolver.test.ts`): le
  * colonne che compaiono qui SONO il contratto di questo servizio.
+ *
+ * @covers RETIRE-07
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

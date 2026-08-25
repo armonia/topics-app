@@ -2,6 +2,8 @@
  * task-tab-persist.test — la tab che l'agente apre su un task dispatchato deve
  * esistere ANCHE se nessun client è connesso: il reducer è un mirror di quello
  * del client (idempotente per contextId) e la scrittura passa dal db.
+ *
+ * @covers RETIRE-07
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

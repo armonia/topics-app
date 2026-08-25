@@ -7,6 +7,8 @@
  * che l'utente stava usando, e quella e' una conversazione persa. Quindi la
  * meta' dei casi qui sotto e' «NON ritirare»: assenza senza tombstone, pane
  * ancora viva, riga gia' processata.
+ *
+ * @covers RETIRE-02
  */
 import { describe, expect, test } from "bun:test";
 import { computeCascade } from "./pane-retirement-cascade";

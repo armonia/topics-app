@@ -5,6 +5,9 @@
  * risposta, che le divergenze fra il fatto e i registri vengano dette invece
  * che sospettate, e che il riconcilio le chiuda nella direzione giusta — un
  * riconcilio che riapre una chat archiviata sarebbe peggio del guasto.
+ *
+ * @covers RETIRE-01
+ * @covers RETIRE-03
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

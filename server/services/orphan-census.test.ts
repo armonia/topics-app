@@ -3,6 +3,8 @@
  * l'unica cosa che questo modulo aggiunge — l'UNIONE fra le righe di `ui_state`
  * — e si prova nel verso in cui sbagliare fa danno: una sessione referenziata da
  * UNA sola riga deve essere risparmiata.
+ *
+ * @covers RETIRE-05
  */
 import { describe, test, expect } from "bun:test";
 import { censusOnce, formatCensus, createOrphanCensusRunner, type CensusDeps } from "./orphan-census";

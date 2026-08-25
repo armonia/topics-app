@@ -10,6 +10,8 @@
  *
  * Qui si semina come lo semina l'agente (nessun client in ascolto, il server
  * scrive da sé), si archivia come archivia la board, e si guarda il db.
+ *
+ * @covers RETIRE-07
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
