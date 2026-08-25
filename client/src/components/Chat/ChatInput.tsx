@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Play, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useTopicLoading } from '../../state/signals';
@@ -61,9 +61,15 @@ const SLASH_COMMANDS = [
   { cmd: '/effort', label: 'Effort', description: 'Set reasoning effort (low|medium|high|xhigh|max)', icon: Brain },
   { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning (openclaw) / → /effort on claude-code', icon: Brain },
   { cmd: '/agents', label: 'Agents', description: 'List agent profiles', icon: Users },
-  { cmd: '/pause', label: 'Pause', description: 'Pause agent (@name)', icon: Pause },
+  // `/pause` and `/assign` used to sit around this one, offering "Pause agent
+  // (@name)" and "Assign task (@name task)". Neither had a destination: no
+  // handler in `ChatPane`, and not in the server's `CLI_BUILTINS` allowlist
+  // either, so choosing one from the menu sent the literal text to the model as
+  // prose — with the whole context preamble in front of it. A menu entry that
+  // does nothing is worse than no entry, because it also spends the user's
+  // trust in the menu. `slashCommandRouting.test.ts` now makes the class
+  // impossible: every entry here must be handled or allowlisted.
   { cmd: '/resume', label: 'Resume', description: 'Resume agent (@name)', icon: Play },
-  { cmd: '/assign', label: 'Assign', description: 'Assign task (@name task)', icon: UserPlus },
   { cmd: '/project', label: 'Project', description: 'Create or open a project', icon: FolderOpen },
   { cmd: '/browser', label: 'Browser', description: 'Open browser tab and navigate (e.g. /browser https://example.com)', icon: Globe },
   { cmd: '/goal', label: 'Goal', description: "Obiettivo della chat: /goal <testo> · /goal fatto · /goal basta", icon: Target },

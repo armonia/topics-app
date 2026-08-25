@@ -199,6 +199,38 @@ The system SHALL provide a command palette accessible via keyboard shortcut for 
 - **THEN** category headers such as ACTIONS, TOPICS, FILES, and MESSAGES group the results
 - **AND** each result appears under its appropriate category
 
+### Requirement: CMD-06 — Every offered slash command has a destination
+
+The composer's slash-command menu SHALL only offer commands that resolve
+somewhere: either a client-side handler in the chat pane, or membership in the
+server's `CLI_BUILTINS` allowlist, which delivers the message to the CLI
+unmodified. A command in neither reaches the model as ordinary prose, carrying
+the context preamble in front of it, and nothing happens.
+
+Entries of the allowlist SHALL be matchable by the matcher that reads it:
+lower-case, no slash, no whitespace.
+
+> Written from the defect. On 2026-08-25 `/pause` ("Pause agent (@name)") and
+> `/assign` ("Assign task (@name task)") were offered in the menu and existed
+> nowhere — no handler, not allowlisted. Both were removed, and
+> `client/src/components/Chat/slashCommandRouting.test.ts` now makes the class
+> impossible rather than fixing the two instances.
+
+#### Scenario: a command offered without a destination
+- **GIVEN** an entry in the composer's `SLASH_COMMANDS` list
+- **WHEN** it is neither handled in the chat pane nor present in `CLI_BUILTINS`
+- **THEN** the check fails and names it
+
+#### Scenario: a command that relies only on the allowlist
+- **GIVEN** an offered command with no client-side handler (`/compact`, `/clear`, `/model`, `/status`, `/context`, `/help`)
+- **THEN** it is present in `CLI_BUILTINS`
+- **AND** removing it from that list fails the check, because it would silently become prose
+
+#### Scenario: an allowlist entry that can never match
+- **GIVEN** an entry written with a leading slash, whitespace or an upper-case letter
+- **WHEN** the matcher compares the first token of a message against the list
+- **THEN** that entry can never match, and the check fails instead of leaving it there reading as coverage
+
 ### Requirement: CMD-02 — Push Notifications
 
 The system SHALL support browser push notification subscription management with VAPID key exchange, subscribe and unsubscribe flows, permission state handling, and graceful degradation for unsupported browsers.
