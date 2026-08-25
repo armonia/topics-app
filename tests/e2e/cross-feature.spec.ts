@@ -12,10 +12,9 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
-// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
-// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+// Confine ermetico: riparte dalla baseline del globalSetup, non dallo stato
+// lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
-
 const BASE = E2E_BASE;
 
 test.describe("Cross-Feature Interactions", () => {
@@ -322,7 +321,11 @@ test.describe("Cross-Feature Interactions", () => {
         const idx = await collectVisibleIndices();
         expect(idx.some((i) => i >= 1000)).toBe(true);
         bottomIndices = idx;
-      }).toPass({ timeout: 15_000 });
+      // 30 s, not 15. The inner attempt already re-tries; under load what is
+      // missing is only the TIME to do it enough times — green with two shards,
+      // "Timeout 15000ms exceeded" with four, same list and same code. A
+      // virtual list that stopped mounting the right band would still fail.
+      }).toPass({ timeout: 30_000 });
 
       // Scroll a una frazione dell'altezza e aspetta che Virtuoso ci porti
       // davvero le righe di quella zona.
@@ -374,7 +377,9 @@ test.describe("Cross-Feature Interactions", () => {
           const idx = await collectVisibleIndices();
           expect(idx.some(matches)).toBe(true);
           campione = idx;
-        }).toPass({ timeout: 15_000 });
+        // 30 s, not 15 — same reason as above: under load the repeatable
+        // inner attempt needs the TIME to run enough times.
+        }).toPass({ timeout: 30_000 });
         return campione;
       }
 

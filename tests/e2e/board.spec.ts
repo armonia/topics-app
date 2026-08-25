@@ -812,6 +812,62 @@ test.describe("Kanban board", () => {
 async function dragCard(page: Page, from: string, to: string) {
   const src = page.locator(`[data-task-card="${from}"]`);
   const dst = page.locator(to);
+  // BOTH ends of the gesture must be on screen, and the grab is VERIFIED, not
+  // calculated.
+  //
+  // The board is a scroll-snap carousel (`Card.tsx`: "a scroll-snap carousel at
+  // EVERY breakpoint") wider than the window: at the chromium project's 1280
+  // viewport, `in_progress` measured x=1093..1379 — geometric centre at 1236,
+  // right edge off screen. The mouse cannot go where the screen ends, so the
+  // drop landed on another column: the test read `review` where it expected
+  // `todo`, green on its own and red in the full run depending on where the
+  // carousel had come to rest.
+  //
+  // But scrolling the DESTINATION into view moves the row, and with it the
+  // source card: measured, after the scroll there was no card left at the grab
+  // point at all, the drag never started, and the task stayed where it was — a
+  // test that failed saying "the redirect rule does not work" while the gesture
+  // had never begun.
+  //
+  // So: destination first, then source, and the grab is confirmed by asking the
+  // DOM who is under that point.
+  //
+  // Between a scroll and reading the boxes, wait for the row to COME TO REST,
+  // not for a duration: `scroll-smooth` plus scroll-snap animate, and a box read
+  // mid-travel is already stale by the time the mouse gets there. The real
+  // condition is "`scrollLeft` stops changing"; a `waitForTimeout` would be the
+  // sleep `check:sleeps` forbids, and rightly (on a loaded machine it would not
+  // be enough, on an idle one it would be wasted).
+  const scrollSettled = async () => {
+    await page.waitForFunction(
+      () => {
+        const row = document.querySelector<HTMLElement>(".snap-x.overflow-x-auto");
+        if (!row) return true;
+        const w = window as unknown as { __lastScrollLeft?: number; __stillFor?: number };
+        const cur = row.scrollLeft;
+        if (w.__lastScrollLeft === cur) {
+          w.__stillFor = (w.__stillFor ?? 0) + 1;
+        } else {
+          w.__lastScrollLeft = cur;
+          w.__stillFor = 0;
+        }
+        // Three identical consecutive samples, one per frame: the inertial
+        // scroll has finished, not merely slowed down.
+        return (w.__stillFor ?? 0) >= 3;
+      },
+      undefined,
+      { timeout: 5_000, polling: "raf" },
+    );
+    await page.evaluate(() => {
+      const w = window as unknown as { __lastScrollLeft?: number; __stillFor?: number };
+      w.__lastScrollLeft = undefined;
+      w.__stillFor = undefined;
+    });
+  };
+  await dst.scrollIntoViewIfNeeded();
+  await scrollSettled();
+  await src.scrollIntoViewIfNeeded();
+  await scrollSettled();
   const a = (await src.boundingBox())!;
   const b = (await dst.boundingBox())!;
   await page.mouse.move(a.x + a.width / 2, a.y + 12);

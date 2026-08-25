@@ -111,16 +111,21 @@ for i in $(seq 1 "$SHARDS"); do
     shard_args=("--shard=$i/$SHARDS")
     modo="--shard"
   fi
-  # In modalita' evidenza serve il report JSON: gli esiti della pagina UAT
-  # vengono da li', non dal testo del reporter `line`.
-  if [ "${E2E_EVIDENCE:-}" = "1" ]; then
-    E2E_PORT="$port" PLAYWRIGHT_JSON_OUTPUT_FILE="$OUT_DIR/report-$i.json" \
-      npx playwright test "${shard_args[@]}" --reporter=json "$@" \
-      > "$OUT_DIR/shard-$i.log" 2>&1 &
-  else
-    E2E_PORT="$port" npx playwright test "${shard_args[@]}" --reporter=line "$@" \
-      > "$OUT_DIR/shard-$i.log" 2>&1 &
-  fi
+  # IL REPORT JSON SI SCRIVE SEMPRE, non solo in modalita' evidenza.
+  #
+  # In evidenza serve per la pagina UAT (gli esiti vengono da li', non dal testo
+  # del reporter). Ma serve anche SENZA, per un motivo che si e' visto sul
+  # campo: e' l'unica fonte da cui `e2e-record-durations.ts` puo' rileggere
+  # quanto e' costato ogni file, e senza durate fresche il piano bilancia sui
+  # numeri sbagliati. Misurato: i pesi registrati CON video+trace usati per
+  # pianificare una corsa SENZA li sovrastimano di 2,46x — e non in modo
+  # uniforme, quindi il piano sbilancia proprio dove pesa.
+  #
+  # `--reporter=line,json` da' tutte e due: la riga da leggere mentre gira e il
+  # file da cui imparare per la prossima volta. Costa un file per shard.
+  E2E_PORT="$port" PLAYWRIGHT_JSON_OUTPUT_FILE="$OUT_DIR/report-$i.json" \
+    npx playwright test "${shard_args[@]}" --reporter=line,json "$@" \
+    > "$OUT_DIR/shard-$i.log" 2>&1 &
   pids="$pids $!"
   echo "  shard $i/$SHARDS  porta $port  pid $!  ($modo)"
 done

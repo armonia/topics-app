@@ -250,18 +250,39 @@ test.describe("Mute gate + app badge", () => {
 
     const badge = () =>
       page.evaluate(() => (window as unknown as { __badge: number | null }).__badge ?? 0);
+
+    // Wait for the SIGNAL, not for a duration.
+    //
+    // What is needed is that focus has LEFT the chats: it is the app-level blur
+    // (`App.tsx`) that tells the server. The frame fires when the active pane is
+    // not a chat, so that is exactly the observable condition — no
+    // `waitForTimeout`, which here would be the sleep `check:sleeps` forbids and
+    // which on a loaded machine would not be enough anyway.
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-pane-id="__board__"]');
+        return !!el && el.getAttribute("data-active") === "true";
+      },
+      undefined,
+      { timeout: 10_000, polling: "raf" },
+    );
+
     ws.send({ type: "unread:updated", topicId: mutedTopic.id, unreadCount: 0 });
     ws.send({ type: "unread:updated", topicId: loudTopic.id, unreadCount: 0 });
-    // The real condition, not a duration: wait until the badge STOPS MOVING, so
-    // the baseline below is a settled number rather than a snapshot taken
-    // mid-flight. Its VALUE is not asserted — other panes contribute to it and
-    // this test is about the delta, not the total.
-    let prev = -1;
+    // The reset has landed once the badge settles on a value: two equal reads
+    // in a row, not a wait on the clock.
+    let base = -1;
     await expect
-      .poll(async () => { const v = await badge(); const stable = v === prev; prev = v; return stable; },
-        { message: "il badge non si e' fermato dopo i due zeri", timeout: 5000 })
+      .poll(
+        async () => {
+          const a = await badge();
+          const b = await badge();
+          if (a === b) { base = a; return true; }
+          return false;
+        },
+        { message: "il badge non si e' fermato prima della misura", timeout: 10_000 },
+      )
       .toBe(true);
-    const base = await badge();
 
     // The FIRST pane opened: the one the bug left marked as "being read".
     ws.send({ type: "unread:updated", topicId: mutedTopic.id, unreadCount: 1 });

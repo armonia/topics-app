@@ -71,20 +71,55 @@ const NIGHTLY_ONLY_SPECS = [
 ].map((name) => `**/${name}.spec.ts`);
 
 // ── Velocità vs. evidenza ────────────────────────────────────────────────────
-// Il default è VELOCE. La modalità "guardabile" (slowMo + video su OGNI test)
-// serve a produrre le clip di consegna richieste dal protocollo board, non a
-// ogni verifica: si attiva con E2E_EVIDENCE=1.
+// Il default è VELOCE. `E2E_EVIDENCE=1` accende trace e video su OGNI test, per
+// produrre le clip di consegna richieste dal protocollo board — non serve a ogni
+// verifica.
 //
-// `slowMo` mette una pausa davanti a OGNI azione del protocollo. A 300 ms, con
-// ~845 azioni statiche nella suite (click/fill/press/…), sono >4 minuti di sleep
-// puro per passata prima ancora di contare loop e helper condivisi: il singolo
-// costo più grosso della suite. Non è un meccanismo di stabilità — un test che
-// regge solo grazie a slowMo sta nascondendo una race che va risolta con
-// un'attesa condizionale, non con una pausa fissa.
+// NON accende più `slowMo`: quello ha il suo interruttore (`E2E_SLOWMO=1`, più
+// sotto) perché è il pezzo che costa, e il perché è misurato lì.
 //
 // `video: "on"` registra e SALVA una clip anche per i test verdi, che nessuno
 // guarda; "retain-on-failure" tiene solo quelle diagnosticamente utili.
 const EVIDENCE = process.env.E2E_EVIDENCE === "1";
+
+// I TRE PEZZI DELL'EVIDENZA SI PAGANO SEPARATAMENTE, perché costano in modo
+// molto diverso e servono a cose diverse.
+//
+//   trace   la sessione riproducibile: DOM, rete, console, e uno screenshot per
+//           ogni azione. È ciò che si apre per capire COSA è successo, ed è
+//           anche la fonte da cui si può ricavare un filmato dopo, quando
+//           serve davvero (`npx playwright show-trace`).
+//   video   la clip .webm. Bella da guardare, ma in buona parte una copia di
+//           ciò che il trace ha già: gli screenshot per azione ci sono.
+//   slowMo  300 ms davanti a OGNI azione. Non è una prova, è un rallentatore
+//           perché il filmato sia guardabile da un umano.
+//
+// `E2E_NO_VIDEO=1` toglie la clip e tiene il trace. `E2E_NO_SLOWMO=1` toglie la
+// pausa. Servono a rispondere con una misura, invece che a occhio, alla domanda
+// «quanto ci costa l'evidenza e quale pezzo».
+const NO_VIDEO = process.env.E2E_NO_VIDEO === "1";
+
+// SLOWMO NON È PIÙ ACCESO DALL'EVIDENZA: va chiesto, con `E2E_SLOWMO=1`.
+//
+// Misurato due volte sullo stesso campione di 31 test, questa macchina:
+//
+//   senza evidenza                     68s / 69s
+//   evidenza SENZA slowMo (trace+video) 75s / 76s   <- +10%: quasi gratis
+//   evidenza com'era (con slowMo)      211s         <- 3,1x
+//
+// Il video e il trace insieme costano il 10%. Lo slowMo da solo vale 136 dei
+// 143 secondi di sovrapprezzo, cioè il 95%: sono 300 ms davanti a OGNI azione,
+// e con ~845 azioni statiche nella suite fanno oltre quattro minuti di pausa
+// pura per passata, prima ancora di contare i cicli negli helper.
+//
+// E non è una prova: è un rallentatore perché la clip sia guardabile da un
+// umano. Il trace registra comunque uno screenshot per azione, quindi ciò che
+// è successo si vede lo stesso — e se serve un filmato a velocità umana lo si
+// rigenera dopo, sul singolo test, invece di pagarlo su tutti e 1120.
+//
+// Il valore vecchio resta a un tasto di distanza (`E2E_SLOWMO=1`) per quando
+// una clip va davvero girata per un umano.
+const SLOWMO = process.env.E2E_SLOWMO === "1";
 
 export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
@@ -147,11 +182,11 @@ export default defineConfig({
     actionTimeout: 15_000,
 
     baseURL: E2E_BASE,
-    video: EVIDENCE ? "on" : "retain-on-failure",
+    video: EVIDENCE && !NO_VIDEO ? "on" : "retain-on-failure",
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     viewport: { width: 1280, height: 800 },
-    launchOptions: EVIDENCE ? { slowMo: 300 } : {},
+    launchOptions: SLOWMO ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],
     // Lingua del BROWSER fissata all'italiano.
     //

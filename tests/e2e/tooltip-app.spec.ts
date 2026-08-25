@@ -82,7 +82,48 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
      * microtask non gliela concede mai. Un test che pretende l'istante misura
      * la fortuna; questo misura il fatto. La prova che il nativo resti muto
      * sta nel caso «uscendo, il title TORNA», dove l'attributo e' fermo. */
-    await expect.poll(async () => await el.getAttribute('data-tip'), { timeout: 10_000 }).not.toBeNull();
+    /* THE HOVER REPEATS UNTIL IT TAKES, and that is not fussiness.
+     *
+     * The delegate lives on a capturing `mouseover` on the document
+     * (`TooltipDelegate.tsx`): for it to write `data-tip`, that event has to
+     * arrive AFTER the listener is registered and on the right element. A
+     * single `hover()` gives one chance, and under load that is a dice roll:
+     * the component underneath re-renders every frame (it carries the fps), so
+     * the node the mouse entered can be replaced right after — the pointer
+     * stays where it is, no new `mouseover` fires, and the attribute never
+     * arrives.
+     *
+     * Measured: green at load 5.5, red at load 10.7 and above — same suite,
+     * same code, with four shards instead of two. The 10s poll was waiting for
+     * an event that was never coming again.
+     *
+     * Moving the mouse away and back on every round makes each attempt produce
+     * a NEW `mouseover`: if the first lands in the wrong window, the next one
+     * repairs it. On an idle machine it takes on the first try and nothing
+     * changes. */
+    await expect
+      .poll(
+        async () => {
+          const already = await el.getAttribute('data-tip');
+          if (already !== null) return already;
+          // Out and back in: it is the RETURN that produces a fresh
+          // `mouseover`, which is what is needed when the previous node was
+          // replaced by a re-render while the pointer already sat on it.
+          await page.mouse.move(0, 0);
+          await el.hover();
+          // Then wait for the ATTRIBUTE, not a duration: `data-tip` is written
+          // in the `mouseover` handler, so either it lands within a few frames
+          // or that `mouseover` never arrived and another round is needed.
+          return await el
+            .getAttribute('data-tip', { timeout: 2_000 })
+            .catch(() => null);
+        },
+        {
+          message: 'il delegato non ha preso questo elemento: `data-tip` mai scritto',
+          timeout: 20_000,
+        },
+      )
+      .not.toBeNull();
     expect(await el.getAttribute('data-tip')).toContain('Topics');
   });
 
@@ -140,10 +181,36 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
     const el = page.locator(CON_TITLE).first();
     await expect(el).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => (await el.getAttribute('title')) ?? '', { timeout: 15_000 }).not.toBe('');
-    await el.hover();
 
     const tip = page.locator('[data-testid="app-tooltip"]');
-    await expect(tip).toBeVisible({ timeout: 5_000 });
+    /* Repeated hover, BUT WITH THE PAUSE.
+     *
+     * The delegate opens after 350 ms of the mouse held STILL over the element
+     * (`TooltipDelegate.tsx`): a loop that enters and leaves continuously
+     * resets that timer every round and the box never appears — the first
+     * hardening attempt did exactly that, and failed saying "the tooltip never
+     * appeared" precisely because it never gave it time to appear.
+     *
+     * So: re-enter (to generate a fresh `mouseover`, needed when the node
+     * underneath was replaced by a re-render) and THEN stay still past the
+     * threshold. The poll re-checks, and under load the next round repairs
+     * it. */
+    await expect
+      .poll(
+        async () => {
+          if (await tip.isVisible()) return true;
+          await page.mouse.move(0, 0);
+          await el.hover();
+          // `toBeVisible` ALREADY waits: the 350 ms opening delay fits inside
+          // it with no need to sleep. If it times out, the `mouseover` did not
+          // take and the next poll round re-enters from scratch.
+          return await expect(tip)
+            .toBeVisible({ timeout: 2_000 })
+            .then(() => true, () => false);
+        },
+        { message: 'il tooltip non e\' mai comparso', timeout: 20_000 },
+      )
+      .toBe(true);
     const righe = (await tip.innerText()).split('\n').map(r => r.trim()).filter(Boolean);
 
     // Piu' di due righe: il nativo non ci arriverebbe.

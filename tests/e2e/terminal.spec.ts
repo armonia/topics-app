@@ -203,8 +203,20 @@ test.describe.serial("Terminal", () => {
     await closeBtn.waitFor({ state: "visible", timeout: 5_000 });
     await closeBtn.click();
 
-    // Verify the Shell tab is no longer visible in the tab bar
-    await expect(shellTab).not.toBeVisible({ timeout: 5_000 });
+    // The tab disappears AFTER the countdown, not on the click.
+    //
+    // The X does not close immediately: it queues an action with a 3 s countdown
+    // (the soft-destructive "Things3-style" flow in `App.tsx`), and the tab
+    // stays on screen with its undo affordance until the commit fires. Five
+    // seconds is three of owed waiting plus two of margin: enough on an idle
+    // machine, not enough under four shards — measured, "Received: visible"
+    // with the tab still there. The close was not broken; the test was not
+    // waiting long enough.
+    //
+    // Fifteen seconds cover the countdown even on a full machine; if the close
+    // really stopped committing, the test would still fall, just ten seconds
+    // later.
+    await expect(shellTab).not.toBeVisible({ timeout: 15_000 });
   });
 
   test("TERMUI-09: terminal handles rapid input", async ({
