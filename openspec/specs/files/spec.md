@@ -278,7 +278,7 @@ The system SHALL allow users to reveal any file or folder in macOS Finder direct
 - **WHEN** the user selects "Show in Finder"
 - **THEN** the system SHALL open macOS Finder with the directory selected and highlighted
 
-### Requirement: FILE-03 — Process & Script Runner
+### Requirement: FILE-04 — Process & Script Runner
 
 The system SHALL list scripts from the project's package.json, allow starting and stopping script execution with live status indicators, display running process information with session details, support spawning new agents via a dialog, and show port links for running scripts.
 

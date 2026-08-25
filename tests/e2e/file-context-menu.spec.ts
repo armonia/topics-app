@@ -9,7 +9,7 @@ import { initGitRepo } from "./helpers/file-project";
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
-test.describe("File Context Menu & Script Runner (FILE-03)", () => {
+test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
   let topicId: string;
   const tmpDir = `/tmp/e2e-ctx-menu-${Date.now()}`;
   const topicName = `e2e-ctx-menu-${Date.now()}`;
@@ -116,8 +116,13 @@ test.describe("File Context Menu & Script Runner (FILE-03)", () => {
     expect(revealPath).toContain("src");
   });
 
-  test("FILE-03c-03: script runner lists scripts from package.json", async ({ fileExplorerPage, page }) => {
-    test.info().annotations.push({ type: "spec", description: "FILE-03" });
+  test("FILE-04-01: script runner lists scripts from package.json", async ({ fileExplorerPage, page }) => {
+    // FILE-04, not FILE-03. The two requirements shared one id in the spec
+    // until 2026-08-25 - "Reveal in Finder" and "Process & Script Runner" were
+    // both written as `FILE-03` - so declaring one covered both, and the runner
+    // looked specified when nothing pointed at it. Renumbering the second made
+    // this line necessary, which is the proof the duplicate was hiding a gap.
+    test.info().annotations.push({ type: "spec", description: "FILE-04" });
 
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 

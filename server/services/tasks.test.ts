@@ -1,3 +1,8 @@
+/**
+ * The task service: create/list, the human delivery gate, the atomic claim and
+ * board settings the dispatcher reads, and the nested-subtask rules.
+ * @covers KANBAN-01, KANBAN-05, KANBAN-07, KANBAN-08, KANBAN-09
+ */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";

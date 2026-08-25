@@ -615,6 +615,52 @@ commento passivo mentre il chip dice "serve te".
 - **AND** con T in lavorazione il nuovo step atterra nell'albero e il resume prompt
   istruisce A a rileggere il task (get_task) prima di riprendere
 
+### Requirement: KANBAN-09 — L'anteprima del risultato nel pannello di review
+
+Una card può portare un `outputUrl`: l'indirizzo di ciò che il lavoro ha
+prodotto, mostrato **dentro un iframe** nel pannello di review, così che chi
+approva veda il risultato invece di doverselo andare a cercare.
+
+Il sistema DEVE accettare **solo** schemi `http` e `https`. Il valore finisce in
+un iframe, quindi non è un campo di testo qualunque: `file://` sarebbe una
+lettura di file locale, `javascript:` sarebbe esecuzione di codice nella pagina
+della board. Un valore che non è un URL http(s) DEVE essere rifiutato con un
+errore che dice perché.
+
+Una stringa vuota (o `null`) DEVE cancellare il campo, non salvare la stringa
+vuota: «nessuna anteprima» è l'assenza del riquadro, non un iframe su niente.
+
+Il valore DEVE sopravvivere alla lettura: quello che torna da `get()` è quello
+che è stato scritto.
+
+> Nota su come questo requisito è stato ritrovato. Non era stato mai scritto —
+> era stato **tolto**: `server/services/tasks.test.ts` contiene
+> `describe("outputUrl (KANBAN-09 review panel)")` e la spec saltava da
+> `KANBAN-08` a `KANBAN-10`. Il test ha continuato a provarlo per tutto il
+> tempo. È emerso il 25/08/2026 dalla passata di tracciabilità che lega i test
+> ai requisiti, ed è il caso limite di ciò che quel lavoro cerca: non una
+> funzionalità senza requisito, ma un requisito **cancellato** sotto un test
+> ancora vivo.
+
+#### Scenario: un URL http(s) si salva e si rilegge
+
+- **GIVEN** una card
+- **WHEN** le si assegna `outputUrl` = `http://localhost:5173/preview`
+- **THEN** il valore torna identico dalla lettura della card
+
+#### Scenario: uno schema diverso da http(s) viene rifiutato
+
+- **GIVEN** una card
+- **WHEN** le si assegna `file:///etc/passwd`, `javascript:alert(1)`, `ftp://x`
+  o una stringa che non è un URL
+- **THEN** la scrittura fallisce e l'errore nomina http(s)
+
+#### Scenario: la stringa vuota cancella l'anteprima
+
+- **GIVEN** una card con un `outputUrl` impostato
+- **WHEN** le si assegna la stringa vuota
+- **THEN** il campo torna nullo
+
 ### Requirement: KANBAN-10 — Ripresa del dispatch al riavvio del server
 
 Un riavvio del server (deploy, hot-reload, crash) SHALL essere trasparente per i task in
