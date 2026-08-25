@@ -2,17 +2,47 @@
 /**
  * Riepilogo unico degli shard E2E.
  *
- * Ogni shard di `e2e-shards.sh` scrive il suo `results.json`; qui li si rilegge
+ * Ogni shard di `e2e-shards.sh` scrive il suo report JSON; qui li si rilegge
  * tutti e si stampa UNA lista dei falliti. Serve perché l'esito di un run
  * Playwright, letto dal terminale, è inaffidabile: l'exit code confonde
  * "test rosso" con "teardown andato storto", e il riepilogo finale viene mangiato
  * dalle sequenze ANSI del reporter `line`. Il JSON no: dice esattamente quale
  * test, in quale file, con quale errore.
+ *
+ * DUE MODI DI LEGGERE UNA CORSA CHE NON C'È, entrambi visti:
+ *
+ * 1. Il posto sbagliato. Fino al 25/08 questo script apriva
+ *    `test-results/shard-N/results.json`, che `e2e-shards.sh` non scrive più:
+ *    leggeva file di CINQUE GIORNI prima e ne riportava i rossi con la stessa
+ *    sicurezza di un verdetto fresco. Misurato: «500 passati, 1 fallito» su una
+ *    corsa che ne aveva appena eseguiti 1113 e nessun rosso.
+ * 2. Il file sopravvissuto. `$TMPDIR/topics-e2e-shards/` NON si svuota fra una
+ *    corsa e l'altra: uno shard che muore prima di scrivere lascia in piedi il
+ *    report della corsa PRECEDENTE, e quello si legge come suo. Da qui il
+ *    confronto sulle date: un report molto più vecchio del più recente non è un
+ *    verdetto, è un residuo, e va contato fra gli shard rotti.
  */
 
 export {}; // top-level await → il file dev'essere un modulo
 
 const shards = Number(process.argv[2] || 4);
+/** Dove `e2e-shards.sh:41` scrive. UNA sola sorgente, e senza ripieghi: un ripiego sul vecchio
+ *  `test-results/shard-N/results.json` e' esattamente come si legge una corsa di cinque giorni fa
+ *  credendola di adesso. Meglio dire «nessun report» che rispondere con l'archivio. */
+const OUT_DIR = process.env.E2E_SHARDS_OUT_DIR ?? `${process.env.TMPDIR ?? "/tmp"}/topics-e2e-shards`;
+/** Oltre questo scarto dal report più recente, un file è di un'altra corsa. */
+const STALE_MS = 30 * 60_000;
+
+async function shardReport(i: number): Promise<{ path: string; mtimeMs: number } | null> {
+  const path = `${OUT_DIR}/report-${i}.json`;
+  const f = Bun.file(path);
+  return (await f.exists()) ? { path, mtimeMs: f.lastModified } : null;
+}
+
+const found = await Promise.all(
+  Array.from({ length: shards }, (_, k) => shardReport(k + 1)),
+);
+const newest = Math.max(0, ...found.filter(Boolean).map((f) => f!.mtimeMs));
 
 type Spec = {
   title: string;
@@ -65,12 +95,22 @@ let passed = 0;
 let skipped = 0;
 
 for (let i = 1; i <= shards; i++) {
-  const path = `test-results/shard-${i}/results.json`;
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    brokenShards.push({ shard: i, why: `nessun results.json (${path}) — morto prima di scriverlo` });
+  const hit = found[i - 1];
+  if (!hit) {
+    brokenShards.push({ shard: i, why: `nessun report in ${OUT_DIR}/report-${i}.json — non ancora scritto, o morto prima` });
     continue;
   }
+  if (newest - hit.mtimeMs > STALE_MS) {
+    const eta = Math.round((newest - hit.mtimeMs) / 60_000);
+    brokenShards.push({
+      shard: i,
+      why: `report di un'ALTRA corsa (${eta} min più vecchio del più recente) — questo shard non ha scritto`,
+      detail: hit.path,
+    });
+    continue;
+  }
+  const path = hit.path;
+  const file = Bun.file(path);
   const report = (await file.json()) as { suites?: Suite[]; errors?: Array<{ message?: string }> };
 
   // Errori a livello di report: non sono test rossi, sono lo shard che non è mai
@@ -135,7 +175,7 @@ if (brokenShards.length) {
   for (const { shard, why, detail } of brokenShards) {
     console.log(`  · shard ${shard}: ${why}`);
     if (detail) console.log(`    ${detail}`);
-    console.log(`    log: test-results/shard-${shard}/log.txt`);
+    console.log(`    log: ${OUT_DIR}/shard-${shard}.log`);
   }
   console.log(
     "\n  Quasi sempre è contesa fra shard sulla stessa macchina (server di test oltre\n" +

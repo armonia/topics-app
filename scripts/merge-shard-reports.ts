@@ -8,15 +8,21 @@
  * identical to a suite that was never launched.
  *
  * The merge is a concatenation of top-level suites, which is safe because the shard planner gives
- * each shard a DISJOINT set of files: no spec can appear twice. That is asserted, not assumed —
- * a duplicated spec would mean the plan overlapped and the counts below would quietly double.
+ * each shard a DISJOINT set of FILES. That is asserted, not assumed: the same spec turning up in
+ * two shards means the plan overlapped, and every count downstream is inflated by that much.
+ *
+ * The identity of a spec is its Playwright `id`, NOT file:line:title. This config has five
+ * projects (chromium, chromium-touch, chromium-phone, chromium-touch-wide, webkit), so one test
+ * legitimately appears once PER PROJECT at the very same file, line and column — and a key that
+ * ignores the project calls that an overlap. Measured on the first real run: 7 false alarms,
+ * all of them chromium/webkit pairs of the same test.
  *
  * Usage:  bun run scripts/merge-shard-reports.ts [dir] --out test-results/uat-report.json
  */
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
-type Spec = { title: string; file?: string; line?: number };
+type Spec = { id?: string; title: string; file?: string; line?: number; column?: number };
 type Suite = { specs?: Spec[]; suites?: Suite[] };
 type Report = { suites?: Suite[]; stats?: Record<string, number>; errors?: unknown[] } & Record<string, unknown>;
 
@@ -45,6 +51,7 @@ function collect(s: Suite, out: Spec[] = []): Spec[] {
 const merged: Report = { config: undefined, suites: [], errors: [], stats: {} };
 const seen = new Map<string, string>();
 let duplicates = 0;
+const overlapping = new Set<string>();
 const perShard: string[] = [];
 
 for (const f of files) {
@@ -59,9 +66,12 @@ for (const f of files) {
   if (!merged.config) merged.config = rep.config;
   const specs = (rep.suites ?? []).flatMap((s) => collect(s));
   for (const sp of specs) {
-    const key = `${sp.file ?? "?"}:${sp.line ?? 0}:${sp.title}`;
-    if (seen.has(key)) duplicates++;
-    else seen.set(key, f);
+    // `id` carries the project; the positional fallback deliberately does not, so on a report
+    // without ids a same-shard project pair is counted once rather than flagged as an overlap.
+    const key = sp.id ?? `${sp.file ?? "?"}:${sp.line ?? 0}:${sp.column ?? 0}:${sp.title}`;
+    const from = seen.get(key);
+    if (from === undefined) seen.set(key, f);
+    else if (from !== f) { duplicates++; overlapping.add(`${sp.file ?? "?"} › ${sp.title}`); }
   }
   merged.suites!.push(...(rep.suites ?? []));
   merged.errors = [...(merged.errors as unknown[]), ...((rep.errors as unknown[]) ?? [])];
@@ -77,8 +87,9 @@ writeFileSync(OUT, JSON.stringify(merged));
 for (const line of perShard) console.log(`  ${line}`);
 console.log(`merge-shard-reports -> ${OUT}: ${files.length} shard, ${seen.size} spec distinte.`);
 if (duplicates > 0) {
-  // Non e' un dettaglio: due shard che hanno eseguito lo stesso file significa che il piano si e'
+  // Non e' un dettaglio: due SHARD che hanno eseguito lo stesso test significa che il piano si e'
   // sovrapposto, e ogni conteggio a valle e' gonfiato di quel tanto.
-  console.error(`merge-shard-reports: ${duplicates} spec presenti in PIU' shard — il piano si e' sovrapposto, i conteggi non sono affidabili.`);
+  console.error(`merge-shard-reports: ${duplicates} spec eseguite da PIU' shard — il piano si e' sovrapposto, i conteggi non sono affidabili.`);
+  for (const d of [...overlapping].slice(0, 10)) console.error(`  - ${d}`);
   process.exit(1);
 }
