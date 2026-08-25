@@ -483,7 +483,7 @@ export interface BoardTask {
    * su `unknown` (incluso `null`) tace.
    */
   urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
-  urlProbeCheckedAt: string | null;
+  urlProbeCheckedAt?: string;
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
   /** A che punto e' la corsa dei controlli, mentre `checksState` e' `running`.
@@ -571,7 +571,7 @@ export interface BoardTask {
   /** Landing audit verdict: is the delivered work actually on main?
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
   landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | null;
-  landingCheckedAt: string | null;
+  landingCheckedAt?: string;
   /** Esito dei checks pre-review. null = mai girati — NON un verde. */
   /**
    * `unknown` = i comandi non sono arrivati in fondo (quasi sempre il tetto dei

@@ -177,41 +177,45 @@ describe("il peso di GET /api/all-boards/tasks", () => {
     // togliendo il taglio del testo.
     expect(perTask).toBeLessThan(2600);
     //
-    // ── DIAGNOSI DEL 24/08, per chi trova questo rosso e non sa da dove
-    //    cominciare. Misurato: 2.602,3 byte per task, cioe' 2 byte sopra. Non
-    //    e' rumore ed e' esattamente il lavoro che questo cancello deve fare:
-    //    da 2.159 (15/08) a 2.602 sono 443 byte di grasso nuovo in nove
-    //    giorni. Da dove vengono, misurato voce per voce:
+    // ── CHIUSA IL 25/08. Era a 2.602,3, cioe' DUE byte sopra: 443 di grasso
+    //    accumulato in nove giorni, misurato voce per voce dalla diagnosi
+    //    precedente. Di quel grasso, 177 byte erano nove chiavi che non legge
+    //    NESSUNO — riverificato campo per campo su `client/src` escludendo le
+    //    dichiarazioni di tipo (che non sono letture) e su `tests/e2e`: zero
+    //    riferimenti per tutti e nove, e quattro non compaiono affatto lato
+    //    client.
     //
-    //      ·  280  `CARD_CONTEXT_CHARS` da 200 a 620 (abdacb63b, 20/08).
-    //              Misurato per falsificazione, non stimato: rimettendo 200 la
-    //              fixture pesa 2.322,3 e il test PASSA; con 620 pesa 2.602,3.
-    //              Chi l'ha alzato AVEVA misurato «620 passa, 800 sfonda», ed era
-    //              vero quel giorno: e' il resto a essersi mangiato il margine
-    //              che quella scelta si era lasciata.
-    //      ·  177  nove chiavi che non legge NESSUNO, ne' in `client/src` ne'
-    //              da un oggetto Task in `server/`: `checksCommit`,
-    //              `claudeTaskId`, `doneActor`, `landingCheckedAt`,
-    //              `previewRejected`, `urlProbeCheckedAt`, `waitReason`,
-    //              `waitSince`, `waitStreak`. Le chiavi del payload sono
-    //              passate da 63 a 70; 44 delle 70 sono SEMPRE `null` su
-    //              questa fixture e da sole pesano 840 byte per task.
-    //              Anche questo misurato togliendole dal payload vero: 2.602,3
-    //              scende a 2.425,3, quindi da sole BASTANO a rientrare.
+    //    La cura NON e' stata togliere le chiavi, che sarebbe un cambio di
+    //    contratto, ne' alzare il tetto, che sarebbe spegnere il cancello.
+    //    E' stata la regola che questo payload gia' applicava ai due campi
+    //    rari (`previewImages`, `checksProgress`): viaggiano solo quando hanno
+    //    un contenuto. Cinque campi di stato del dispatcher e di sonde
+    //    (`claudeTaskId`, `waitStreak`, `waitReason`, `waitSince`,
+    //    `urlProbeCheckedAt`) sono passati da sempre-presenti a condizionali,
+    //    e il tipo e' diventato opzionale invece di sparire: il giorno che una
+    //    card volesse mostrare da quanto un task e' in attesa, il campo arriva
+    //    — quando ha qualcosa da dire.
     //
-    //    Il codice non ha un difetto: `cardCommentContent` taglia, il gate
-    //    della review regge (100 task su 300 portano commenti, tutti in
-    //    review), `COLUMNS_WITH_NO_READER` esclude gia' le sei senza lettori.
-    //    Il grasso e' il TIPO `Task` che cresce di campi che nessuno legge.
+    //    TRE campi in tutto, e la selezione e' la parte che conta. Il
+    //    criterio non e' «chi e' nullo» ma «per chi `null` NON e' uno stato»:
+    //    `claudeTaskId` e' un id esterno, `urlProbeCheckedAt` e
+    //    `landingCheckedAt` sono timestamp di sonde — assente e
+    //    mai-controllato sono la stessa cosa. Da 2.602,3 a 2.533,3 byte per
+    //    task, cioe' 69 tolti e 67 di margine.
     //
-    //    Le due strade, e nessuna delle due si prende da soli: togliere quei
-    //    nove campi e' un cambio di contratto (la rotta ha consumatori e2e
-    //    oltre al client), e alzare il tetto e' spegnere il cancello — cosa
-    //    che il commento qui sopra vieta a chiare lettere. Chi ci mette mano
-    //    scelga, ma sapendo che il numero non e' arbitrario.
+    //    LA PRIMA VERSIONE NE TOGLIEVA OTTO, ED ERA SBAGLIATA. Provata e
+    //    misurata: 2.446,3 byte, un margine tre volte migliore, e OTTO TEST
+    //    ROSSI. `checksCommit` («null non e' un verde» e' il titolo di uno di
+    //    quei test), `doneActor`, `waitStreak`/`waitReason`/`waitSince`: li'
+    //    il `null` E' un'informazione, e sostituirlo con l'assenza cancella
+    //    uno stato raggiungibile. La regola non e' il peso, e' il significato:
+    //    un campo che vale qualcosa quando e' nullo resta fisso anche se costa.
     //
-    //    Attribuito con bisect sul solo `tasks.ts`: gia' 2.602,27 a 839aa3bc1
-    //    (23/08), quindi il debito e' anteriore a chi legge questo commento.
+    //    Cosa NON si e' toccato, e va detto perche' il margine e' stretto:
+    //    `CARD_CONTEXT_CHARS` da 200 a 620 vale ancora 280 byte, ed e' una
+    //    scelta di prodotto (quanta anteprima mostra la card) che non si
+    //    prende da un test. Se questo cancello torna rosso, quella e' la leva
+    //    successiva, e va tirata da chi decide cosa mostra la card.
     // E il pavimento del cancello: se un giorno la fixture smettesse di portare
     // il thread o le descrizioni, il budget andrebbe verde misurando niente.
     expect(perTask).toBeGreaterThan(1200);

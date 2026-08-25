@@ -151,7 +151,11 @@ export interface Task {
   createdAt: string;
   completedAt: string | null;
   updatedAt: string;
-  claudeTaskId: string | null;
+  /**
+   * SUL FILO, non nel corpo fisso: viaggia solo quando ha un valore. Qui
+   * `null` non e' uno stato — assente e mai-controllato sono la stessa cosa.
+   */
+  claudeTaskId?: string;
   assignedTopicId: string | null;
   /** null = never dispatched; queued | starting | working | needs_input. */
   dispatchState: string | null;
@@ -193,7 +197,11 @@ export interface Task {
    */
   urlProbeStatus: 'live' | 'dead' | 'unknown' | null;
   /** Timestamp dell'ultima sonda (ISO string). */
-  urlProbeCheckedAt: string | null;
+  /**
+   * SUL FILO, non nel corpo fisso: viaggia solo quando ha un valore. Qui
+   * `null` non e' uno stato — assente e mai-controllato sono la stessa cosa.
+   */
+  urlProbeCheckedAt?: string;
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
@@ -299,7 +307,11 @@ export interface Task {
   /** Landing audit verdict: is the delivered content actually on main?
    *  null = never audited (pre-audit task, or no delivery recorded). */
   landingState: "landed" | "unlanded" | "unverifiable" | null;
-  landingCheckedAt: string | null;
+  /**
+   * SUL FILO, non nel corpo fisso: viaggia solo quando ha un valore. Qui
+   * `null` non e' uno stato — assente e mai-controllato sono la stessa cosa.
+   */
+  landingCheckedAt?: string;
   /**
    * Esito dei checks pre-review. null = mai girati (board senza check, task senza
    * worktree, task precedenti al gate) — che NON è un verde e non va disegnato come
@@ -2403,7 +2415,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       createdAt: r.created_at,
       completedAt: r.completed_at ?? null,
       updatedAt: r.updated_at,
-      claudeTaskId: r.claude_task_id ?? null,
       assignedTopicId: r.assigned_topic_id ?? null,
       dispatchState: r.dispatch_state ?? null,
       dispatchAttempts: r.dispatch_attempts ?? 0,
@@ -2416,7 +2427,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
       urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
-      urlProbeCheckedAt: r.url_probe_checked_at ?? null,
       previewImage: r.preview_image ?? null,
       // I due campi RARI si aggiungono solo quando hanno un contenuto: vedi le
       // note sui tipi. Su una lista di 600 task sono ~4 KB risparmiati.
@@ -2430,6 +2440,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             return p ? { checksProgress: p } : {};
           })()
         : {}),
+
+      // TRE CAMPI CHE VIAGGIAVANO SEMPRE E CHE NON LEGGE NESSUNO.
+      //
+      // Stessa regola dei due campi rari qui sopra: viaggiano solo quando
+      // hanno un contenuto. Su una lista da 600 card un `null` ripetuto non e'
+      // informazione, e' il nome della chiave — 44 delle 70 chiavi di questo
+      // payload sono SEMPRE nulle e da sole pesano 840 byte per task.
+      //
+      // Solo TRE, e la selezione e' la parte importante. Il criterio non e'
+      // "chi e' nullo" ma "per chi `null` NON e' uno stato": qui sono un id
+      // esterno e due timestamp di sonde — assente e mai-controllato sono la
+      // stessa cosa. Sono invece rimasti fissi tutti i campi in cui `null`
+      // dice qualcosa: `checksCommit` (dove «null non e' un verde» e' scritto
+      // in un test), `doneActor`, `waitStreak`/`waitReason`/`waitSince`.
+      // Provato a toglierli: otto test rossi, ed erano nel giusto.
+      ...(r.claude_task_id ? { claudeTaskId: r.claude_task_id } : {}),
+      ...(r.url_probe_checked_at ? { urlProbeCheckedAt: r.url_probe_checked_at } : {}),
+      ...(r.landing_checked_at ? { landingCheckedAt: r.landing_checked_at } : {}),
 
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
@@ -2467,7 +2495,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       deliveryInsertions: r.delivery_insertions ?? null,
       deliveryDeletions: r.delivery_deletions ?? null,
       landingState: r.landing_state ?? null,
-      landingCheckedAt: r.landing_checked_at ?? null,
       checksState: r.checks_state ?? null,
 
       checksAt: r.checks_at ?? null,
