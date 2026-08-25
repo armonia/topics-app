@@ -27,9 +27,8 @@
  * same function.
  *
  * What had NOT landed is one line: the chip went out and its REASON stayed.
- * `dispatch_error` is the sentence the badge says out loud, and a row carrying
- * "tetto agenti pieno" with no queue behind it is the same lie in smaller
- * print. That is the only behavioural change this file guards that main did
+ * `dispatch_error` is the sentence the badge says out loud, and a row still
+ * carrying it with no queue behind it is the same lie in smaller print. That is the only behavioural change this file guards that main did
  * not already have — and without running the tests against the un-fixed code,
  * the whole file would have been re-landed as a duplicate that proves nothing.
  *
@@ -66,11 +65,11 @@ describe("il chip «in coda» non sopravvive all'uscita da Todo", () => {
     s.setDispatchState({ taskId: t.id, state: "queued", error: "tetto agenti pieno" });
     expect(s.get(t.id)!.task.dispatchState).toBe("queued");
 
-    const dopo = mv(s, t.id, "backlog");
+    const after = mv(s, t.id, "backlog");
     // In the task the write RETURNS, not "at the next reconcile": that is what
     // the client draws right after the drag.
-    expect(dopo.dispatchState).toBeNull();
-    expect(dopo.dispatchError).toBeNull();
+    expect(after.dispatchState).toBeNull();
+    expect(after.dispatchError).toBeNull();
     expect(s.get(t.id)!.task.dispatchState).toBeNull();
   });
 
@@ -109,7 +108,7 @@ describe("il chip «in coda» non sopravvive all'uscita da Todo", () => {
     s.setDispatchState({ taskId: t.id, state: "queued" });
     // A PATCH that touches something else and passes the same status through
     // must not drain the queue: the dispatcher is still watching that row.
-    const dopo = s.update({ taskId: t.id, actor: "agent", by: "agent", patch: { status: "todo" as never } });
-    expect(dopo.dispatchState).toBe("queued");
+    const after = s.update({ taskId: t.id, actor: "agent", by: "agent", patch: { status: "todo" as never } });
+    expect(after.dispatchState).toBe("queued");
   });
 });

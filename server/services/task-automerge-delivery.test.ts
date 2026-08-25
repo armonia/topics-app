@@ -1,3 +1,6 @@
+/**
+ * @covers LAND-03
+ */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge, landFallout } from "./task-automerge";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "fs";

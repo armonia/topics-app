@@ -4,6 +4,8 @@
  *   • it must SHOUT once, on the edge into `unlanded` (not every 30 minutes);
  *   • it must never shout when it doesn't know (a pruned commit, an unreadable
  *     repo, a git error) — a false alarm burns the signal as fast as a miss.
+ *
+ * @covers LAND-05
  */
 import { describe, it, expect } from "bun:test";
 import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingAuditDeps, type LandingState } from "./landing-audit";

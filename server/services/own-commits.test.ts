@@ -1,3 +1,6 @@
+/**
+ * @covers LAND-02
+ */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import {
   commitIsIn,

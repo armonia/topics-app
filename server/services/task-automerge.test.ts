@@ -1,3 +1,6 @@
+/**
+ * @covers LAND-04
+ */
 import { describe, test, expect } from "bun:test";
 import { chooseMergeTarget, createTaskAutoMerge, landFallout, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
 

@@ -1,3 +1,6 @@
+/**
+ * @covers LAND-05
+ */
 import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";

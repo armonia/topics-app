@@ -8,6 +8,8 @@
  * Separato da `tasks-delivery.test.ts` perche' e' un'altra domanda: li' «cosa ha
  * prodotto e come lo provo», qui «e' davvero su main, e cosa succede se torna
  * indietro». Banco di prova condiviso in `tasks-test-db.ts`.
+ *
+ * @covers LAND-05
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

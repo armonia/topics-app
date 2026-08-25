@@ -2,6 +2,8 @@
  * Il ripiego che tiene in vita la fotografia della consegna quando la catena
  * `task → topic → worktree` si spezza, e il limite oltre il quale NON deve
  * andare: mai la punta di un ramo indovinato, mai un ramo che non esiste più.
+ *
+ * @covers LAND-03
  */
 import { describe, test, expect } from "bun:test";
 import {

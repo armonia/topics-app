@@ -16,6 +16,8 @@
  * Qui si monta un repo git vero, come in `landing-audit-recovery.test.ts`: la
  * domanda «e' su main?» la devono reggere i comandi git, non un doppio che
  * risponde quello che voglio io.
+ *
+ * @covers LAND-05
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";

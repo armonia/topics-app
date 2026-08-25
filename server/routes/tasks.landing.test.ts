@@ -1,6 +1,5 @@
 /**
- * APPROVARE E ATTERRARE SONO DUE COSE.
- *
+ * APPROVARE E ATTERRARE SONO DUE COSE.  @covers LAND-05
  * L'approvazione e' una decisione umana sulla card; l'atterraggio e' un merge su
  * main che puo' fallire per ragioni che con la decisione non c'entrano — il ramo
  * indietro, un worktree sporco, un conflitto. Tenerle insieme faceva chiudere

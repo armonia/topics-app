@@ -2,6 +2,8 @@
  * La riga che conta è quella ORFANA: un ramo senza task è quello che nessuno
  * reclamerà, e se l'abbinamento lo nasconde dentro un task sbagliato l'elenco
  * smette di servire proprio nel caso per cui esiste.
+ *
+ * @covers LAND-03
  */
 import { describe, test, expect } from "bun:test";
 import { buildBranchInventory, summarizeInventory } from "./branch-inventory";

@@ -19,6 +19,8 @@
  * Qui si monta un repo vero e si percorre la catena intera, perché sono i
  * comandi git a doverla reggere: un doppio di test proverebbe solo che so
  * scrivere il doppio.
+ *
+ * @covers LAND-05
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";

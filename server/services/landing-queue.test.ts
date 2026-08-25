@@ -1,3 +1,6 @@
+/**
+ * @covers LAND-06
+ */
 import { describe, expect, it } from "bun:test";
 import { createLandingQueue } from "./landing-queue";
 

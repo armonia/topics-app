@@ -11,6 +11,8 @@
  * tasto «Landa su main» rifiutava per sempre. Due difetti in fila — il cancello
  * migration leggeva i nomi a timestamp come se il numero fosse «202», e nessuno
  * riallineava il ramo.
+ *
+ * @covers LAND-04
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { execFileSync } from "child_process";

@@ -6,6 +6,8 @@
  * guasto: un ramo che eredita i commit di un'altra sessione, un land per merge,
  * un land per cherry-pick con il ramo potato. La gamma che esce viene poi data a
  * `git diff --name-only`, e l'asserzione è sui FILE che il reviewer vedrebbe.
+ *
+ * @covers LAND-02
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
