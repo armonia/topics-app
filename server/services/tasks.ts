@@ -21,6 +21,8 @@
  * optional injectable `now`/`uuid`, so tests run on a deterministic `:memory:`
  * DB without booting the server.
  */
+import { checkReport as checkDeliveryReport } from "./deliveryReportChecks";
+import { repoProbe } from "./deliveryReportProbe";
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -133,7 +135,7 @@ export interface Task {
   description: string | null;
   /**
    * I primi caratteri di `description`, ed è ciò che la CARD disegna: il
-   * riquadro la taglia a due righe, e il feed ne spediva 470 KB interi (su
+   * riquadro la taglia a due lines, e il feed ne spediva 470 KB interi (su
    * 1,4 MB) perché il client la ricevesse per accorciarla.
    *
    * Sempre presente, anche quando `description` c'è: il percorso `list` lo
@@ -517,7 +519,7 @@ export interface ListTasksInput {
   /**
    * CON la `description` intera. Spento di default: la lista porta
    * `descriptionPreview` e basta, perché è quello che la card disegna (il
-   * riquadro la taglia a due righe) — erano 470 KB sui 1,4 MB del feed.
+   * riquadro la taglia a due lines) — erano 470 KB sui 1,4 MB del feed.
    *
    * L'interruttore è rimasto perché due letture leggono davvero il testo
    * intero e non un'anteprima: la proposta di collegamento in ingresso
@@ -645,7 +647,7 @@ export { projectIdForPath } from "../../shared/board";
 /**
  * Per quanto una rivendicazione di interruzione tiene il campo.
  *
- * Tre minuti, e la misura viene dal disco: le quattro righe che hanno motivato
+ * Tre minuti, e la misura viene dal disco: le quattro lines che hanno motivato
  * questo cancello stavano dentro tre minuti (tre «Server ripartito a metà
  * turno» a quindici secondi l'una dall'altra, poi «ripreso in diretta»), mentre
  * due interruzioni DAVVERO distinte sullo stesso task distano quanto il tetto a
@@ -725,7 +727,7 @@ export interface TaskService {
    * La dedupe normale ha una finestra di 10 secondi e serve contro i retry. Non
    * morde su chi riscrive perche' la condizione dura: il GC dei worktree ripassa
    * ogni 30 minuti e, finche' un worktree resta sporco, riscrive la stessa frase
-   * da 244 caratteri. Misurato il 18/08: 108 righe identiche su 12 card in
+   * da 244 caratteri. Misurato il 18/08: 108 lines identiche su 12 card in
    * quattro ore, dieci-dodici copie byte-per-byte sulla stessa card, e il thread
    * cresce di una ogni mezz'ora finche' nessuno tocca quel worktree — cioe' per
    * giorni. `once` toglie la finestra: stesso autore, stesso testo, stessa card
@@ -1336,7 +1338,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
   /**
    * L'ULTIMO RAMO, quello che non puo' fallire: se la card non ha evidenza, la
-   * si DISEGNA con i fatti che stanno gia' in colonna (ramo, file, righe,
+   * si DISEGNA con i fatti che stanno gia' in colonna (ramo, file, lines,
    * passi, etichette).
    *
    * Idempotente: si rigenera solo sopra il vuoto o sopra una scheda precedente,
@@ -1532,7 +1534,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const readGlobalDispatch = (): boolean => {
     // `app_settings` e non piu' la riga '*' di `board_settings`: e' una
     // preferenza di MACCHINA, e stava in una tabella per progetto solo per
-    // ragioni storiche. Finche' e' stata li', lo zero di default sulle righe
+    // ragioni storiche. Finche' e' stata li', lo zero di default sulle lines
     // per-progetto ha avuto l'aria di una scelta e ha prodotto due diagnosi
     // sbagliate (11/08 e 15/08). Vedi la migration
     // 20260816112635-board-settings-drop-dead-auto-dispatch.
@@ -1640,7 +1642,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `recentComments`). La card ne DISEGNA due — l'ultima parola e la richiesta
    * umana che risponde — ma per trovare la seconda deve guardare indietro oltre
    * la prima: `selectCardComments` risale il thread finché non trova una
-   * richiesta, e con due sole righe una risposta in due tempi («ci provo» +
+   * richiesta, e con due sole lines una risposta in due tempi («ci provo» +
    * l'esito) lasciava la card senza contesto.
    */
   const CARD_COMMENTS_DEPTH = 3;
@@ -1665,7 +1667,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * Serve alla finestra, e per una ragione misurata: `CARD_COMMENTS_DEPTH` ne
    * porta tre, e su una card viva le note della macchina si accumulano DOPO
    * l'ultima cosa che ho detto. Su `a41af39a` (20/08) fra il mio messaggio e la
-   * cima c'erano 26 righe, su `235afe11` 17, su `b673a253` 16: il mio messaggio
+   * cima c'erano 26 lines, su `235afe11` 17, su `b673a253` 16: il mio messaggio
    * stava in posizione SETTE e alla card non arrivava mai — non perche' il
    * client lo scartasse, ma perche' il server non glielo mandava.
    *
@@ -1693,14 +1695,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * ── PERCHÉ IL CONTESTO NON È PIÙ 200 ──────────────────────────────────────
    * Erano 200 quando quella riga era «una riga sola tagliata con `truncate`»,
    * e allora bastavano. Non lo è più da un pezzo: il client la ripiega su tre
-   * righe con un «mostra di più» che scatta a 190 caratteri
+   * lines con un «mostra di più» che scatta a 190 caratteri
    * (`RICHIESTA_PIEGA_CHARS`), e la sua doc promette «il testo c'è tutto,
    * basta un click».
    *
    * Quella promessa era falsa, e di molto. Misurati i messaggi umani su questa
-   * macchina: 1.215 righe, mediana 520 caratteri, p90 1.776 — il 76% sopra i
+   * macchina: 1.215 lines, mediana 520 caratteri, p90 1.776 — il 76% sopra i
    * 200. Il bottone «mostra di più» apriva su un testo che il SERVER aveva già
-   * buttato: tre righe e poi il vuoto, senza che niente lo dicesse.
+   * buttato: tre lines e poi il vuoto, senza che niente lo dicesse.
    *
    * Ora il contesto tiene 620, che è `COMMENTO_PIEGA_CHARS` del client: la
    * soglia oltre la quale la card offre «mostra di più». Sotto quel numero il
@@ -1715,12 +1717,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * 2.600), e 1.200 sfonda di brutto (2.968). Alzare il tetto per far entrare
    * la mia scelta sarebbe stato spegnere il cancello invece di rispettarlo.
    *
-   * Cosa compra: i messaggi umani interi passano dal 24% al 54% (1.215 righe su
+   * Cosa compra: i messaggi umani interi passano dal 24% al 54% (1.215 lines su
    * questa macchina). Il resto arriva tagliato ma con il pieghevole che ha
    * qualcosa da aprire, che è il contratto che il client dichiara.
    *
-   * Il costo in righe è misurato e trascurabile (vedi `cardCommentsFor`: 84
-   * righe in più su 1.980, query invariata a 57 ms su 18.579 commenti).
+   * Il costo in lines è misurato e trascurabile (vedi `cardCommentsFor`: 84
+   * lines in più su 1.980, query invariata a 57 ms su 18.579 commenti).
    *
    * Il dettaglio del task porta il thread intero: qui basta ciò che si legge su
    * una scheda.
@@ -1777,7 +1779,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    *
    * 800 e non 5.000: il tetto esiste perche' la lista non trasporti le
    * descrizioni intere (misurate p90 2.131 caratteri, massimo 5.186, su 1.147
-   * righe), che e' la ragione per cui `substr` sta in SQL. Copre un cappello
+   * lines), che e' la ragione per cui `substr` sta in SQL. Copre un cappello
    * lungo piu' l'elenco che segue, senza riaprire la porta che quel taglio
    * chiudeva.
    */
@@ -1840,7 +1842,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    *
    * Misurato il 15/08 su `GET /api/all-boards/tasks` (467 radici, 1.435.735
    * byte): `description` pesava 470 KB e `checks_json` altri 217 KB, cioè metà
-   * della risposta. La card taglia la descrizione a due righe e i `checks` li
+   * della risposta. La card taglia la descrizione a due lines e i `checks` li
    * disegna solo il dettaglio, che passa da `svc.get` e legge `SELECT *`.
    *
    * L'elenco si CHIEDE al DB invece di scriverlo a mano: una migration che
@@ -1906,7 +1908,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * confronto: le due `COUNT` erano il conto degli elementi PRIMA e DOPO questa
    * chiave, che è esattamente ciò che il lower/upper bound restituisce.
    *
-   * Le righe con la STESSA coppia (priorità, creazione) non sono né davanti né
+   * Le lines con la STESSA coppia (priorità, creazione) non sono né davanti né
    * dietro, come prima: `countBehind` chiedeva `created_at > ?`, quindi la
    * parità era già esclusa da entrambi i versi e l'`id != ?` era ridondante.
    */
@@ -1933,7 +1935,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     ).all(UNASSIGNED_PROJECT_ID, nowIso) as Array<{ priority: number; created_at: string }>;
     // Il confronto in JS è lo stesso di SQLite: `created_at` è ISO-8601 ASCII e
     // la collazione di default è BINARY, quindi `<` sulle stringhe ordina come
-    // l'`ORDER BY` che ha appena prodotto queste righe.
+    // l'`ORDER BY` che ha appena prodotto queste lines.
     const bound = (p: number, c: string, orEqual: boolean): number => {
       let lo = 0; let hi = rows.length;
       while (lo < hi) {
@@ -1959,7 +1961,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * 651 MB): da 4 a 7 statement per riga — etichette, bloccante, topic per
    * modello ed effort, dipendenti, stato del padre, impostazioni della board, e
    * per ogni `todo` i due COUNT della fila — cioè ~1.500 statement e 145 ms per
-   * una lista sola. Qui sono ~10, indipendenti dal numero di righe.
+   * una lista sola. Qui sono ~10, indipendenti dal numero di lines.
    *
    * `rowToTask` resta la porta UNICA (ci passano anche update, claim e release,
    * che il server ribalta sul WS): è implementata come un lotto da una riga, così
@@ -2024,14 +2026,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    *
    * Senza questi la board apriva un `GET /api/tasks/:id` pieno per ogni card in
    * review solo per sapere cosa c'era scritto in fondo al thread — e quel
-   * dettaglio si porta dietro l'INTERO thread (`svc.get`), non tre righe.
+   * dettaglio si porta dietro l'INTERO thread (`svc.get`), non tre lines.
    *
    * Viaggiano su OGNI payload, non solo su `list`/`get`, per la stessa ragione
    * di `waitingOnCount` e `blockedBy`: le scritture escono sul WS come
    * `task:updated`, e un campo riempito solo in lettura si spegnerebbe a ogni
    * giro di WS fino al fetch successivo.
    *
-   * Escono come `CardComment` — tre campi, testo tagliato — e non come righe
+   * Escono come `CardComment` — tre campi, testo tagliato — e non come lines
    * intere del thread: chiamati solo per le schede che li disegnano
    * (`drawsCardComments`) e ridotti a ciò che la card legge, sono 731 KB di
    * feed che non partono più.
@@ -2039,11 +2041,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `kind` 'status' e 'service' restano fuori: sono cronologia delle transizioni
    * e contabilità del dispatcher, non le parole di nessuno — lo stesso taglio di
    * `isThreadSpeech`, che è il predicato con cui il client sceglie la coppia da
-   * mostrare. `COALESCE` perché le righe scritte prima che `kind` esistesse lo
+   * mostrare. `COALESCE` perché le lines scritte prima che `kind` esistesse lo
    * hanno NULL, e `NULL NOT IN (…)` è NULL: senza, sparivano tutte.
    *
    * L'ordine finale è `rn DESC`, non `created_at ASC`: dentro lo stesso secondo
-   * (o dentro lo stesso istante di un orologio finto) due righe hanno lo STESSO
+   * (o dentro lo stesso istante di un orologio finto) due lines hanno lo STESSO
    * `created_at`, e ordinare su quello lascia decidere a SQLite. `rn` viene
    * dalla finestra, che il `rowid` lo usa già come spareggio: qui si legge al
    * contrario e la coda del thread esce sempre nello stesso ordine.
@@ -2055,7 +2057,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     try {
       // LA FINESTRA NON BASTA: SERVE UNA GARANZIA.
       //
-      // `rn <= DEPTH` prende le ultime tre righe parlate, e il client poi
+      // `rn <= DEPTH` prende le ultime tre lines parlate, e il client poi
       // scarta le note di macchina per trovare la parola vera. Funziona finche'
       // le note dopo una consegna sono meno di tre. Non lo sono: dopo ogni
       // ingresso in review ne arrivano di norma TRE — l'esito dei checks, la
@@ -2115,17 +2117,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // parola vera scendendo dal più recente, e la nota solo se non c'è altro.
     // Due regole diverse sullo stesso fatto sono la forma esatta del difetto
     // già pagato con `hasMetaRow`.
-    // `typeof rows` e non un `any[]` nuovo: le righe sono le stesse, e il
+    // `typeof rows` e non un `any[]` nuovo: le lines sono le stesse, e il
     // cricchetto degli `any` conta ogni occorrenza scritta a mano.
     const perTask = new Map<string, typeof rows>();
     for (const r of rows) {
       const l = perTask.get(r.task_id);
       if (l) l.push(r); else perTask.set(r.task_id, [r]);
     }
-    for (const [taskId, righe] of perTask) {
-      // `rn` numera dal più recente, e le righe arrivano `ORDER BY rn DESC`:
+    for (const [taskId, lines] of perTask) {
+      // `rn` numera dal più recente, e le lines arrivano `ORDER BY rn DESC`:
       // la più recente è l'ultima. Fra quelle, la prima che non è una nota.
-      const dalPiuRecente = [...righe].reverse();
+      const dalPiuRecente = [...lines].reverse();
       // STESSA REGOLA DEL CLIENT, e stavolta per intero: contorno non e' solo
       // la `review-note`. Le NOTIFICHE DI STATO del sistema (`author:
       // 'system'`, `kind: 'comment'`) sono 3984 nel db, la specie piu'
@@ -2147,7 +2149,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         return !c.content.includes("```question");
       };
       const scelta = dalPiuRecente.find((r) => !contorno(r)) ?? dalPiuRecente[0];
-      for (const r of righe) {
+      for (const r of lines) {
         const full = rowToComment(r);
         // `rowToComment` normalizza `kind` (una riga scritta prima che la
         // colonna esistesse vale 'comment'): il taglio dei campi viene DOPO, o
@@ -2534,7 +2536,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    *
    * Entrambe le aggregazioni sono LEGATE AGLI ID IN MANO. Erano due scansioni
    * intere e senza filtro, su ogni lista e su ogni opening di task: quella su
-   * `task_comments` (11.994 righe il 15/08, la tabella che cresce più in fretta)
+   * `task_comments` (11.994 lines il 15/08, la tabella che cresce più in fretta)
    * non aveva nemmeno un indice utilizzabile — `idx_task_comments_task` è su
    * `task_id` soltanto, quindi il filtro su autore e tipo era comunque una
    * scansione. L'indice che la copre è
@@ -2924,7 +2926,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * sua ragione (`done→in_progress · il land…`), il contenuto non finisce più
    * con lo stato — e la LIKE avrebbe pescato un turno PRECEDENTE, cioè avrebbe
    * riaperto in silenzio proprio il buco che quel gate chiude (una consegna muta
-   * sbloccata da un commento vecchio). Le righe di stato di un task sono poche:
+   * sbloccata da un commento vecchio). Le lines di stato di un task sono poche:
    * si leggono e si spacchettano con l'unico parser.
    */
   function lastTurnStart(taskId: string): string | null {
@@ -2952,6 +2954,70 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * `true` = il turno ha prodotto almeno un commento dell'agente = consegna non
    * muta. `false` = nessuna parola fresca = annotare.
    */
+  /**
+   * ANNOTATES a delivery with whichever of its claims do not hold up.
+   *
+   * IT DOES NOT BLOCK, and that is a choice rather than a lack of nerve. An
+   * audit of `done` tasks found 14 cards closed with no work behind them, and
+   * the four mechanical checks (`deliveryReportChecks.ts`) catch them. But the
+   * check can be wrong: in its first hour of life it accused 20 paths that all
+   * existed, because reports cite files by short name. A gate that blocks an
+   * honest delivery gets switched off, and then it is not there for the
+   * dishonest one either.
+   *
+   * So: it writes a review note the human reads before approving. `replaces`
+   * keeps it in ONE slot rather than a pile, because this runs on every
+   * transition into review.
+   *
+   * Best-effort throughout: any error here is swallowed. A missing note must
+   * never stop a finished turn from delivering.
+   */
+  function annotateDeliveryClaims(
+    taskId: string,
+    projectId: string | undefined,
+    /** The service's `addComment`: passed in rather than reached, because this
+     *  function lives outside the object that exposes it. */
+    emit: (a: { taskId: string; author: string; content: string; kind: "review-note"; projectId?: string; replaces?: string }) => unknown,
+  ): void {
+    try {
+      const turnStart = lastTurnStart(taskId);
+      const rows = db.prepare(
+        `SELECT content FROM task_comments
+          WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
+            AND (? IS NULL OR created_at >= ?)
+          ORDER BY created_at DESC LIMIT 3`,
+      ).all(taskId, turnStart, turnStart) as Array<{ content: string }>;
+      if (rows.length === 0) return;
+
+      const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", repoProbe));
+      // "Nothing to check" is not a finding worth showing: that is a report
+      // written in prose, which is legitimate. Only what was LOOKED UP and not
+      // found gets annotated.
+      const real = findings.filter((f) => f.code !== "nothing-to-check");
+      if (real.length === 0) return;
+
+      const lines = [...new Set(real.map((f) => `- ${f.detail}`))].slice(0, 8);
+      emit({
+        taskId,
+        author: "verifier",
+        kind: "review-note",
+        ...(projectId ? { projectId } : {}),
+        replaces: DELIVERY_CLAIM_SLOT,
+        content:
+          `${DELIVERY_CLAIM_SLOT} ${lines.length} rivendicazione/i del rapporto non si verificano:\n` +
+          lines.join("\n") +
+          "\n\nNon blocca l'approvazione: e' un controllo meccanico e puo' sbagliare. " +
+          "Ma ognuna di queste si controlla in due secondi, ed e' esattamente cio' che nessuno " +
+          "faceva sulle 14 carte chiuse senza lavoro.",
+      });
+    } catch {
+      // See the docblock: a missing note is not a delivery failure.
+    }
+  }
+
+  /** Slot prefix: `replaces` uses it to empty before filling. */
+  const DELIVERY_CLAIM_SLOT = "[consegna]";
+
   function hasFreshAgentComment(taskId: string): boolean {
     const turnStart = lastTurnStart(taskId);
     const c = (db.prepare(
@@ -2997,7 +3063,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * LA RICHIESTA DI APPROVAZIONE SI CHIUDE CON LA CARD, da qualunque porta esca.
    *
    * Era scritta a mano in due punti e mancava negli altri due. Misurate il 13/08:
-   * 13 righe `pending` su 48 appese, 9 delle quali su card già `done` — la
+   * 13 lines `pending` su 48 appese, 9 delle quali su card già `done` — la
    * migration 068 aveva già dovuto ripulire esattamente questa perdita. Landare e
    * archiviare sono le due strade che restavano scoperte: la prima chiude la card
    * a SQL grezzo (`settleLanded`), la seconda la toglie dalla board senza passare
@@ -3244,7 +3310,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //    una regola di sicurezza, non di lettura.
       //
       // L'archivio per primo perché è una VISTA diversa, non il feed: quando si
-      // guardano le righe archiviate, un padre chiuso non è un orfano da
+      // guardano le lines archiviate, un padre chiuso non è un orfano da
       // ripescare, è il contesto di ciò che si sta guardando.
       if (input.rootsOnly) {
         clauses.push(
@@ -3259,7 +3325,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // Etichette in AND. Un JOIN sull'indice `idx_task_labels_label`, non una
       // `LIKE '%bugfix%'` su una stringa: `bugfix-ui` non matcha `bugfix`, ed è
-      // esattamente il motivo per cui le etichette sono righe e non una colonna.
+      // esattamente il motivo per cui le etichette sono lines e non una colonna.
       const wantedLabels = (input.labels ?? []).filter(isTaskLabel);
       if (wantedLabels.length) {
         clauses.push(
@@ -3389,6 +3455,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
               "post a delivery summary for THIS turn first. Use comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason), THEN set status='review'",
             );
           }
+          // The report is there. Now we look at whether what it says holds up.
+          annotateDeliveryClaims(taskId, projectId ?? row.project_id, (a) => this.addComment(a));
           db.prepare(
             `INSERT INTO approvals (id, task_id, requested_by, approval_type, from_status, to_status, status, created_at)
              VALUES (?, ?, ?, 'review', ?, 'done', 'pending', ?)`,
@@ -4023,7 +4091,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // L'archiviazione passa dalla stessa cascata di `archive()`, e per
         // questo l'ordine qui sopra NON è negoziabile: i sottotask si staccano
         // PRIMA, altrimenti la cascata li archivia e finiscono sotto la
-        // superstite già invisibili. Invertire le due righe fa diventare rosso
+        // superstite già invisibili. Invertire le due lines fa diventare rosso
         // «i sottotask passano sotto la superstite, VIVI».
         archiveSubtree(taskId, ts);
         // Il PERDENTE del merge esce dalla board: la sua richiesta di
@@ -4249,7 +4317,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // + single-process, so this read-then-CAS is atomic w.r.t. other claims.
       //
       // La popolazione contata sta in `agent-census.ts` e comprende le SESSIONI
-      // FIGLIE dei task dispatchati. Contare solo le righe `tasks` reggeva
+      // FIGLIE dei task dispatchati. Contare solo le lines `tasks` reggeva
       // finché un task era un processo; col modello del coordinatore una card
       // vale N processi, e un tetto che non li vede lascia partire un altro
       // task su una macchina già piena. Il claim e la rotta di spawn leggono la
@@ -4994,22 +5062,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (c.status === "review") settleReviewApproval(c.id, "expired", "system", ts);
         }
         if (archiviati.length > 0 || ereditati.length > 0) {
-          const righe: string[] = [`Sessione cambiata (topic \`${oldTopicId}\` -> \`${topicId}\`).`];
+          const lines: string[] = [`Sessione cambiata (topic \`${oldTopicId}\` -> \`${topicId}\`).`];
           if (archiviati.length > 0) {
-            righe.push(
+            lines.push(
               `${archiviati.length} ${archiviati.length === 1 ? "sottotask completato archiviato" : "sottotask completati archiviati"}: ` +
                 `segnavano lavoro del tentativo precedente, che non esiste piu'.`,
             );
           }
           if (ereditati.length > 0) {
-            righe.push(
+            lines.push(
               `${ereditati.length} ${ereditati.length === 1 ? "sottotask incompleto ereditato" : "sottotask incompleti ereditati"} ` +
                 `dal nuovo agente: rimessi in todo, sono il piano che il tentativo precedente lascia.`,
             );
-            righe.push(ereditati.map((c) => `- ${c.text}`).join("\n"));
+            lines.push(ereditati.map((c) => `- ${c.text}`).join("\n"));
           }
           try {
-            this.addComment({ taskId, author: "system", content: righe.join("\n") });
+            this.addComment({ taskId, author: "system", content: lines.join("\n") });
           } catch { /* best-effort: la nota non blocca il bind */ }
         }
       }
@@ -5280,7 +5348,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // rather than leave a stale "landed" on top of fresh, unlanded commits.
       // La TESTIMONIANZA cade con lui: era su un'altra consegna.
       //
-      // E CADE ANCHE LA MISURA. Il conteggio di file e righe descrive UNA
+      // E CADE ANCHE LA MISURA. Il conteggio di file e lines descrive UNA
       // consegna: lasciarlo su una consegna nuova non misurata farebbe leggere
       // sulla card i numeri del lavoro di prima, che è peggio del non saperlo.
       // Per questo `stat` assente scrive NULL invece di lasciare il valore
@@ -5553,7 +5621,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // autoDispatch e' l'interruttore GLOBALE: si scrive in `app_settings`, cosi'
       // ribaltarlo da una board qualsiasi (o dalla board globale) lo ribalta
       // ovunque. Prima finiva sulla riga riservata '*' di questa stessa tabella,
-      // ed e' quella convivenza che rendeva credibile lo zero delle altre righe.
+      // ed e' quella convivenza che rendeva credibile lo zero delle altre lines.
       if (patch.autoDispatch !== undefined) {
         try { db.prepare("UPDATE app_settings SET auto_dispatch = ?").run(patch.autoDispatch ? 1 : 0); } catch { /* schema minimo: vedi readGlobalDispatch */ }
         // La riga '*' si materializza lo stesso, e non e' un residuo: e' dove

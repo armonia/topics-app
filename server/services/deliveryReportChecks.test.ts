@@ -47,6 +47,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { extractClaims, checkReport, type RepoProbe } from "./deliveryReportChecks";
+import { repoProbe } from "./deliveryReportProbe";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -245,5 +246,42 @@ describe("cosa il cancello dice di se stesso", () => {
     // fourth check turns into noise on honest work.
     const c = extractClaims("Ho lanciato `git` e `bun` e ho scritto `mioSimbolo`.");
     expect(c.filter((x) => x.kind === "simbolo").map((x) => (x as { name: string }).name)).toEqual(["mioSimbolo"]);
+  });
+});
+
+/**
+ * The REAL probe, and the distinction that nearly made all of this useless.
+ *
+ * `deliveryReportProbe.ts` is the impure half: it shells out to git. Its first
+ * version caught every exception and returned `true` - fail open, so a machine
+ * without git would not accuse anyone. But `git cat-file -e <sha>` exiting
+ * non-zero IS the answer "that commit does not exist", and it arrives as an
+ * exception too. The most important check in the module was therefore dead in
+ * production: every invented sha came back as existing.
+ *
+ * The bench never saw it, and could not: the bench injects its own probe. It
+ * took wiring the thing into the service, and a test asserting a note appears,
+ * for the defect to surface at all. That is the argument for these four
+ * assertions living here rather than only in the pure bench.
+ */
+describe("la sonda vera distingue «no» da «non lo so»", () => {
+  test("uno sha inventato non esiste, e lo dice", () => {
+    expect(repoProbe.shaExists("0000000deadbee1")).toBe(false);
+  });
+
+  test("uno sha vero esiste", () => {
+    const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+    expect(repoProbe.shaExists(head)).toBe(true);
+  });
+
+  test("un simbolo mai scritto non compare nella storia", () => {
+    expect(repoProbe.symbolInHistory("simboloCheNessunoHaMaiScrittoQui" + "12345")).toBe(false);
+  });
+
+  test("un percorso citato per nome corto si risolve", () => {
+    // The false positive that accused 20 existing paths: reports cite files
+    // the way people talk about them, not from the repository root.
+    expect(repoProbe.fileMatches("tasks.ts")).toBe(true);
+    expect(repoProbe.fileMatches("questo/file/non/esiste.ts")).toBe(false);
   });
 });
