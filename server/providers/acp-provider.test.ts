@@ -5,6 +5,8 @@
  * test attraversa spawn, env, framing su stdio e morte del figlio — cioè i
  * pezzi che in un'integrazione su stdio si rompono davvero. Un peer in-process
  * proverebbe solo la parte che già sappiamo giusta.
+ *
+ * @covers THINK-01
  */
 import { describe, expect, test, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";

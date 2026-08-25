@@ -1,3 +1,9 @@
+/**
+ * The latest-TodoWrite selector: which call carries a plan, and what it costs to
+ * ask on every streaming frame.
+ *
+ * @covers TODO-01, TODO-02, TODO-03
+ */
 import { describe, expect, test } from 'bun:test';
 import { selectLatestTodo } from './selectLatestTodo';
 import { TODO_TOOL_NAMES, deriveToolDetail } from './toolDetail';

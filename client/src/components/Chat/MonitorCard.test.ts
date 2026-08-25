@@ -15,6 +15,7 @@
  * `renderToStaticMarkup` e non un DOM: jsdom/happy-dom non sono dipendenze di
  * questo progetto (scelta dichiarata in `ThreadRuns.test.tsx` e altrove), e per
  * quello che c'è da provare — quali parole compaiono e quando — basta il markup.
+ * @covers MONITOR-01
  */
 import { describe, expect, test } from 'bun:test';
 import { createElement } from 'react';

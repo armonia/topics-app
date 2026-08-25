@@ -11,6 +11,7 @@
  * Questo test lo prova con processi VERI: un `bash` padre che lascia due figli
  * in background, poi lo si ammazza (come farebbe l'uscita del CLI) e si verifica
  * che lo sweep chiuda i figli sopravvissuti.
+ * @covers BGSHELL-04
  */
 
 import { describe, expect, it } from "bun:test";

@@ -4,6 +4,8 @@
  * Sono due scritture della stessa decisione, e due scritture divergono: qui la
  * divergenza diventa rossa. Il confronto gira su SQLite vero, non su una
  * simulazione della sua aritmetica.
+ *
+ * @covers USAGE-05
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -6,6 +6,7 @@
  * pena. La prima è ovvia, la seconda è quella che si dimentica, la terza è
  * quella che romperebbe il riavvio del server scrivendo in chat la risposta di
  * un turno di ieri.
+ * @covers MONITOR-02
  */
 
 import { describe, expect, test } from "bun:test";

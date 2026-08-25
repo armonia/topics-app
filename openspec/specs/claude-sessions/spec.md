@@ -171,3 +171,50 @@ The system SHALL provide a script that installs Topics App hook wrappers into `~
 - **THEN** the Topics App hook entries are removed from `~/.claude/settings.json`
 - **AND** the user's own hooks remain intact
 - **AND** `~/.claude/topics-hooks/` is deleted
+
+### Requirement: MONITOR-04 — While a Monitor is armed the chat reads as watching, not as finished
+
+A chat that armed a `Monitor` is not waiting for the user: something is under watch and the answer will arrive by itself (`MONITOR-02`, `MONITOR-03` in `chat`). The system SHALL remember that a background watch is open across the end-of-turn `Stop`, park the session in a `watching` phase instead of `awaiting-user`, and clear it when the watch delivers or the session restarts.
+
+> The flag is deliberately not persisted: it only means anything for a live process.
+
+#### Scenario: Starting a Monitor arms the watch without changing the phase
+- **GIVEN** a session with `phase = 'running'`
+- **WHEN** a `PreToolUse` hook arrives with `tool_name = 'Monitor'`
+- **THEN** `phase = 'tool-running'` as for any other tool
+- **AND** `monitorArmed = true`, because this tool leaves something behind when it ends
+
+#### Scenario: The end of the turn parks the chat in watching
+- **GIVEN** a session that armed a Monitor during the turn
+- **WHEN** the tool's `PostToolUse` and then the turn's `Stop` arrive
+- **THEN** `phase = 'watching'` rather than `awaiting-user`
+- **AND** `monitorArmed` is still true
+
+#### Scenario: Only a watch-arming tool arms the watch, and later work does not disarm it
+- **GIVEN** a session with `phase = 'running'`
+- **WHEN** a `PreToolUse` for `Bash` arrives
+- **THEN** `monitorArmed` SHALL stay unset — an indicator that is always on says nothing, exactly like one that never lights
+- **AND** a second tool in the same turn after a Monitor SHALL NOT disarm it: the following `Stop` still parks in `watching`
+
+#### Scenario: The delivery closes the watch
+- **GIVEN** a session parked in `watching` because a Monitor is armed
+- **WHEN** the server sees the CLI open a turn on its own and notes the watch as delivered
+- **THEN** `monitorArmed` SHALL be cleared
+- **AND** the `Stop` of that woken turn SHALL return the chat to `awaiting-user` instead of relighting a watch that is over
+
+#### Scenario: A new session does not inherit an old watch
+- **GIVEN** a session in `watching` with the flag set
+- **WHEN** a `SessionStart` hook arrives
+- **THEN** `phase = 'starting'` and `monitorArmed` SHALL be cleared
+
+#### Scenario: The legacy Monitor hooks keep working
+- **GIVEN** a CLI old enough to emit `MonitorArmed` and `MonitorClosed`, which the current one does not
+- **WHEN** `MonitorArmed` arrives
+- **THEN** the phase SHALL move to `watching` with the flag set and the last tool cleared
+- **AND** `MonitorArmed` SHALL NOT override `awaiting-approval` — a pending permission outranks a background watch — while still arming the flag
+- **AND** `MonitorClosed` from `watching` SHALL return to `awaiting-user` clearing the flag, while from a live phase it SHALL only clear the flag and leave the phase alone
+
+#### Scenario: Watching counts as an active phase, not a resting one
+- **GIVEN** the client's phase classification
+- **WHEN** `watching` is classified
+- **THEN** it SHALL be one of the active phases, beside `running` and `tool-running`, so a chat under watch does not read as one that stopped answering

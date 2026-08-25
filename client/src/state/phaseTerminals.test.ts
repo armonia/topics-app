@@ -4,6 +4,7 @@
  * heuristic is SUPPRESSED (so a freshly-opened session's TUI startup paint
  * doesn't flash "loading"). pty still drives shells and sessions whose phase
  * isn't known yet, so real work is never hidden when hooks are silent.
+ * @covers MONITOR-04
  */
 import { describe, test, expect } from "bun:test";
 import { derivePhaseTerminals, terminalLoadingFrom, NOTABLE_CLAUDE_PHASES, ACTIVE_CLAUDE_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";

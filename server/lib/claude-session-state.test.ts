@@ -3,6 +3,7 @@
  *
  * Phase derivation from hooks (CCS-03) and the stale-phase reaper (CCS-04):
  * the two halves of the state machine, both here.
+ * @covers MONITOR-04
  */
 import { describe, expect, it } from 'bun:test';
 import {

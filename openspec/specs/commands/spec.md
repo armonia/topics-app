@@ -390,3 +390,113 @@ rewrite matching ids inside the stack records, including `tabOrderSnapshot`.
 - **WHEN** a `PANE_ID_REMAP` from `A` to `B` is dispatched
 - **THEN** the record's id and any `tabOrderSnapshot` entry equal to `A` become `B`
 
+
+### Requirement: SKILL-01 — The user's own commands and skills are discovered from known folders
+
+The system SHALL offer, alongside the built-in slash commands, the commands and
+skills the user authored on disk: `<name>.md` files under the command folders
+(the user's home folder first, then the project's), and `<name>/SKILL.md`
+directories under the skill folders. Each entry SHALL declare which of the two it
+is, so the interface can tell a command from a skill. A name SHALL appear once
+even when several folders hold it, and a folder that does not exist SHALL be
+skipped rather than failing the listing.
+
+#### Scenario: Commands and skills are listed together, each declaring its kind
+- **GIVEN** a command in the user's folder, a command in the project's folder, and a skill directory
+- **WHEN** the available commands are listed
+- **THEN** all three SHALL be present
+- **AND** the skill SHALL be declared a skill, not a command
+
+#### Scenario: A name appears once
+- **GIVEN** the same name present in more than one folder
+- **WHEN** the list is built
+- **THEN** it SHALL appear exactly once
+
+#### Scenario: The HTTP listing declares the kind of every entry
+- **GIVEN** the slash-command listing endpoint
+- **WHEN** it is called
+- **THEN** it SHALL answer with a list
+- **AND** every entry SHALL carry a name and a kind that is either command or skill
+
+### Requirement: SKILL-02 — A command's body is read from disk behind a path-containment gate
+
+The system SHALL be able to show the BODY of an invoked command, read from the
+file it lives in. The name arrives from the client, so it SHALL be admitted only
+when made of letters, digits, `-`, `_` and `:`, starting with a letter and no
+longer than 128 characters; and the RESOLVED path SHALL be verified to fall
+inside one of the known folders AFTER resolution, so a symlink cannot lead out.
+The body SHALL be truncated at a size limit rather than loading an arbitrarily
+large file.
+
+#### Scenario: Real names pass and everything that could escape does not
+- **GIVEN** names such as `recap`, `opsx:propose` and `jarvis-custom-skills:master`
+- **WHEN** they are validated
+- **THEN** they SHALL be admitted
+- **AND** a name containing `..`, a slash, a backslash, a space, a leading digit, or one absurdly long SHALL be refused
+
+#### Scenario: An existing command's body is read
+- **GIVEN** a command file in the user's folder, a project command, and a skill directory
+- **WHEN** each is resolved by name
+- **THEN** the body SHALL be the file's content
+- **AND** the kind SHALL say whether it came from a command file or a skill directory
+
+#### Scenario: A traversal name reads nothing
+- **GIVEN** names shaped like `../../../etc/passwd` or `a/../../b`
+- **WHEN** they are resolved
+- **THEN** nothing SHALL be returned
+
+#### Scenario: A symlink pointing outside is not followed
+- **GIVEN** a file with an admitted name, inside a known folder, that is a link to a file outside every known folder
+- **WHEN** it is resolved
+- **THEN** nothing SHALL be returned, even though the NAME was admissible
+
+#### Scenario: The body is truncated instead of loaded whole
+- **GIVEN** a command file larger than the configured limit
+- **WHEN** its body is read
+- **THEN** the returned body SHALL be exactly the limit in length
+
+#### Scenario: The route asks the gate before touching the disk
+- **GIVEN** encoded escape shapes that survive URL normalisation (`..%2F..%2F`, `%2e%2e%2f`, `%2Fetc%2F`, a NUL byte)
+- **WHEN** each is requested through the command-source endpoint
+- **THEN** every one SHALL be refused with a client error
+- **AND** a well-formed name that simply does not exist SHALL answer not-found instead, so the refusal is the gate's judgement and not a blanket denial
+
+### Requirement: SKILL-03 — A message that IS a slash invocation is recognised, and nothing else is
+
+Since the CLI expands a slash command BEFORE the turn — nothing on the wire says
+a command ran — the user's own message is the only honest record of it. The
+system SHALL recognise a single-line message that begins with a slash followed by
+a plausible command name, with optional arguments, as an invocation, and SHALL
+recognise nothing else as one: mislabelling an ordinary message is worse than
+labelling none.
+
+#### Scenario: A bare command, and a command with arguments
+- **GIVEN** the messages `/recap`, `  /vai  ` and `/vai solo il bug X`
+- **WHEN** they are parsed
+- **THEN** the first two SHALL yield the command with no arguments
+- **AND** the third SHALL yield the command with its arguments separated
+
+#### Scenario: Marketplace names with colons and dashes are commands
+- **GIVEN** `/jarvis-custom-skills:master` and `/opsx:propose`
+- **WHEN** they are parsed
+- **THEN** each SHALL yield its full name as the command
+
+#### Scenario: A path is not a command
+- **GIVEN** a message that is a filesystem path beginning with a slash
+- **WHEN** it is parsed
+- **THEN** it SHALL NOT be treated as an invocation
+
+#### Scenario: Prose beginning with a slash is not a command
+- **GIVEN** messages such as `/ ciao`, `//commento` and `/2 volte`
+- **WHEN** they are parsed
+- **THEN** none SHALL be treated as an invocation
+
+#### Scenario: More than one line is a message, not a command
+- **GIVEN** a message whose first line is a command and which continues on another line
+- **WHEN** it is parsed
+- **THEN** it SHALL NOT be treated as an invocation
+
+#### Scenario: Empty and non-string input do not throw
+- **GIVEN** an empty string, or a value that is not a string
+- **WHEN** it is parsed
+- **THEN** the result SHALL be no invocation, and nothing SHALL be thrown

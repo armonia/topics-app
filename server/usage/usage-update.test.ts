@@ -6,6 +6,8 @@
  * token contati qui li conterebbero due volte) e che il blocco sul filo sia
  * l'oggetto ACP letterale — `sessionUpdate` incluso — e non una sua parafrasi
  * che il giorno di 3.2 andrebbe tradotta.
+ *
+ * @covers USAGE-06, USAGE-07, USAGE-08
  */
 import { describe, it, expect } from "bun:test";
 import {

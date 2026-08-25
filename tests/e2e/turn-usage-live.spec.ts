@@ -52,6 +52,7 @@ test.describe("Consumo del turno, live", () => {
   });
 
   test("i token crescono durante il turno, e il client non li somma", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "USAGE-12" });
     const ws = await interceptWebSocket(page);
     await goToApp(page);
     await page.keyboard.press("Escape");

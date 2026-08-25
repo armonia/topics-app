@@ -1,3 +1,6 @@
+/**
+ * @covers SUBAGENT-04
+ */
 import { describe, it, expect } from "bun:test";
 import { formatSubAgentExitBody, formatSubAgentExitMessage } from "./subagent-exit";
 

@@ -5,6 +5,7 @@
  * agent events into the parent's actions[] log. The tracker is a pure
  * in-memory state machine; no I/O, no spawned processes — easy to test
  * exhaustively.
+ * @covers SUBAGENT-01
  */
 
 import { describe, expect, test } from "bun:test";

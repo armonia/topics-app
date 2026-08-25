@@ -9,6 +9,7 @@
  *
  * Il provider finto NON è `openclaw`, così il recapito prende la strada del
  * risultato grezzo e nessun test tocca la rete.
+ * @covers SUBAGENT-06
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync, renameSync } from "fs";

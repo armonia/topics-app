@@ -1,3 +1,6 @@
+/**
+ * @covers SUBAGENT-05
+ */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "fs";
 import { join } from "path";

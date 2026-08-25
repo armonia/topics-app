@@ -31,6 +31,7 @@
  * E le tre esclusioni che tengono la sveglia onesta: durante una riadozione
  * (che rilegge di proposito turni già finiti), quando un handler c'è già, e per
  * gli eventi che non sono contenuto.
+ * @covers MONITOR-02
  */
 
 import { describe, expect, test, afterEach } from "bun:test";

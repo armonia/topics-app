@@ -26,6 +26,8 @@
  * well-formed name that simply does not exist is 404 (the gate let it through
  * and the lookup came back empty). Two different answers prove the rejection
  * is the gate's judgement and not a blanket refusal.
+ *
+ * @covers SKILL-01, SKILL-02
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";

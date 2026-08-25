@@ -11,6 +11,8 @@
  *
  * Qui si blinda che: (a) esca solo il testo dell'assistente, (b) il corpo della
  * skill finisca sulla RIGA del tool che l'ha chiesto, (c) il resto sparisca.
+ *
+ * @covers THINK-01, THINK-02
  */
 
 import { describe, expect, test } from "bun:test";

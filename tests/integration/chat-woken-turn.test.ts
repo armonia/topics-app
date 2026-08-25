@@ -14,6 +14,7 @@
  * sul filo della CLI e non arrivava da nessuna parte, perché nasce come turno
  * NUOVO dopo un `result` e dopo un `result` nessuno ascolta. Traccia misurata
  * il 20/08/2026 accanto a `onWokenTurn` in providers/claude-code.ts.
+ * @covers MONITOR-03
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

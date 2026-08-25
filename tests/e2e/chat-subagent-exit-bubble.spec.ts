@@ -85,6 +85,7 @@ test.describe("Un sotto-agente che esce non ruba la bolla del turno", () => {
   }
 
   test("il rapporto è una riga sua, e il turno continua nella propria", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "SUBAGENT-07" });
     const send = await apri(page, chatPage);
     const assistenti = page.locator('[data-testid="chat-message"][data-role="assistant"]');
     const turno = page.locator(`[data-testid="chat-message"][data-message-id="${TURNO_ID}"]`);
@@ -111,6 +112,7 @@ test.describe("Un sotto-agente che esce non ruba la bolla del turno", () => {
   });
 
   test("la riga che CHIUDE il turno si fonde nella bolla viva, non se ne apre un'altra", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "SUBAGENT-07" });
     // Il controllo dell'altra metà: quando l'id È quello del turno, il contenuto
     // deve ATTERRARE nella bolla che c'è già. È il caso per cui quel ramo esiste,
     // e non è un caso di laboratorio: le delta di contenuto viaggiano solo agli
@@ -135,6 +137,7 @@ test.describe("Un sotto-agente che esce non ruba la bolla del turno", () => {
   });
 
   test("una anteprima troncata non accorcia quello che la finestra ha già ricevuto", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "SUBAGENT-07" });
     // L'errore opposto: `message:new` può portare un `preview` tagliato, e
     // riempire alla cieca sostituirebbe il testo intero con il suo troncone.
     //

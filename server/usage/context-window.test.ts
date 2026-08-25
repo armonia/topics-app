@@ -3,6 +3,8 @@
  *  • un nome di modello vero (con data e suffissi) trova la sua finestra;
  *  • un modello sconosciuto non mente: cade sul default e lo dichiara;
  *  • le soglie sono UNA sola scala, condivisa fra colore e preavviso.
+ *
+ * @covers USAGE-07, USAGE-08, USAGE-09
  */
 import { describe, it, expect } from "bun:test";
 import { hasLongWindowMarker } from "../../shared/context-window";

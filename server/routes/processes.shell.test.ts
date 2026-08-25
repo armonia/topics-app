@@ -8,6 +8,7 @@
  *
  * Ogni caso usa una sessionKey sua: il registro è un singleton di processo, e
  * due test che si contendono la stessa chiave si romperebbero a vicenda.
+ * @covers BGSHELL-02
  */
 
 import { describe, expect, it } from "bun:test";

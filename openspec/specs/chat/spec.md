@@ -786,3 +786,590 @@ When a live chat turn uses a tool, the system SHALL render the tool card in real
 - **WHEN** the live tool-call check runs
 - **THEN** it SHALL skip with the annotation "Gateway unavailable"
 - **AND** SHALL NOT report a failure
+
+### Requirement: MONITOR-01 — An armed Monitor reads as an open watch, not a finished tool call
+
+Claude Code's `Monitor` tool returns immediately — its result is the receipt of the arming (`Monitor started (task …)`), not the outcome of the watch — and the turn closes a moment later. The system SHALL render that tool call as a watch that is STILL OPEN: naming what is under watch, saying the outcome will arrive as a separate message, and dropping that claim once an outcome is attached.
+
+> Companion requirements: `MONITOR-02` (the turn the CLI opens by itself), `MONITOR-03` (where that answer lands), `MONITOR-04` in `claude-sessions` (the session phase while a watch is armed).
+
+#### Scenario: A Monitor invocation derives a monitor tool detail
+- **GIVEN** a `Monitor` tool call whose input carries `description`, `ws.url` and `persistent: true`
+- **WHEN** the tool detail is derived from the tool name and input
+- **THEN** the detail type SHALL be `monitor`
+- **AND** it SHALL carry the description, the websocket url and the persistent flag
+- **AND** a `Monitor` armed with a `command` and no `ws` SHALL carry that command as its source instead
+
+#### Scenario: An armed card says it is listening and that the answer arrives by itself
+- **GIVEN** a Monitor card with a description and no result, rendered during a live turn
+- **WHEN** the card renders
+- **THEN** it SHALL state that it is listening
+- **AND** it SHALL state that the outcome will arrive as a new message
+- **AND** the description of what is under watch SHALL remain visible
+
+#### Scenario: A delivered outcome closes the watch
+- **GIVEN** a Monitor card whose tool result carries a delivered outcome
+- **WHEN** the card renders
+- **THEN** it SHALL NOT claim to be listening
+- **AND** it SHALL show the outcome
+
+#### Scenario: The pulse belongs to a live turn only
+- **GIVEN** a Monitor card rendered while the turn is in flight
+- **WHEN** the card renders
+- **THEN** the status dot SHALL pulse
+- **AND** the same card rendered with no turn in flight SHALL still state that it is listening but SHALL NOT pulse
+
+### Requirement: MONITOR-02 — A turn the CLI opens by itself is adopted, not dropped
+
+An armed `Monitor` does not deliver its event inside the turn that armed it: that turn ended at its `result`, and after a `result` nobody is listening to the session, so every event of the delivery fell one by one. The system SHALL recognise a turn opened with no listener, wake exactly one adoption for it, hold the events that arrive while the adoption is being set up, and deliver them in order to whoever adopts.
+
+#### Scenario: Content with nobody listening is a turn nobody asked for
+- **GIVEN** a stream line whose kind is `content` or `partial`, no stream handler is registered, and no replay is in progress
+- **WHEN** the line is classified
+- **THEN** it SHALL be treated as the start of a woken turn
+
+#### Scenario: A closing line, noise and compaction do not open a turn
+- **GIVEN** the same conditions but a line of kind `result`, `noise`, `compaction` or `unknown`
+- **WHEN** the line is classified
+- **THEN** it SHALL NOT be treated as a woken turn
+
+#### Scenario: A live handler means the turn was asked for
+- **GIVEN** a content line while a stream handler is already registered
+- **WHEN** the line is classified
+- **THEN** it SHALL NOT be treated as a woken turn
+- **AND** the events SHALL reach the registered handler as any ordinary turn
+
+#### Scenario: A re-adoption replay wakes nothing
+- **GIVEN** a content line arriving during a replay scan (`replayMute` or `replaySilent`), which deliberately re-reads turns that already finished
+- **WHEN** the line is classified
+- **THEN** it SHALL NOT be treated as a woken turn, so a server restart never rewrites yesterday's answer into the chat
+
+#### Scenario: The wake fires once per turn, not once per event
+- **GIVEN** a session with no handler
+- **WHEN** three successive assistant content events arrive
+- **THEN** the wake SHALL be called exactly once for that session
+
+#### Scenario: Events held during adoption are delivered in order
+- **GIVEN** a woken turn whose adoption has not completed yet, and text, a tool use and more text arriving meanwhile
+- **WHEN** a handler adopts the turn
+- **THEN** all held events SHALL be delivered to it, in arrival order
+- **AND** the adopted turn SHALL then close normally: its `result` reaches `onDone` and the handler is released
+
+#### Scenario: Adopting with one's own handler already registered succeeds
+- **GIVEN** an adopter that registered its stream handler just before adopting, as the route does
+- **WHEN** it adopts the woken turn
+- **THEN** the adoption SHALL succeed
+- **AND** the held events SHALL be delivered to it exactly once
+
+#### Scenario: Adopting a session somebody else drives, or a dead one, is refused
+- **GIVEN** a woken turn whose session is already driven by another handler
+- **WHEN** a second handler tries to adopt
+- **THEN** the adoption SHALL be refused, the incumbent handler SHALL stay in place, and the challenger SHALL receive no events
+- **AND** adopting a session whose process is no longer alive SHALL likewise be refused
+
+#### Scenario: With no observer registered nothing breaks
+- **GIVEN** no wake observer is armed at all
+- **WHEN** a content event arrives on a session with no handler
+- **THEN** handling SHALL NOT throw and no handler SHALL be installed
+
+### Requirement: MONITOR-03 — The woken answer lands in chat as its own row, marked as unrequested
+
+The answer produced by a woken turn SHALL be written to the conversation as a row of its own, carrying a banner that says the user did not ask for it and what was under watch — and a woken turn with nothing to say SHALL leave no row at all.
+
+#### Scenario: The answer is written to its own finished row
+- **GIVEN** a topic whose provider supports adoption
+- **WHEN** `POST /api/chat` is called with `mode: "woken"` and the adopted turn streams text and completes
+- **THEN** the response SHALL be a 200 stream
+- **AND** exactly one assistant row SHALL hold that text, not marked partial
+
+#### Scenario: The woken row does not inherit the previous turn
+- **GIVEN** a conversation whose last assistant row already holds a tool call and text
+- **WHEN** a woken turn is adopted and produces its own text
+- **THEN** the previous row SHALL stay exactly as it was
+- **AND** the new row SHALL hold only its own content, with nothing of the previous turn merged into it
+
+#### Scenario: A woken turn with nothing to say leaves no row
+- **GIVEN** a woken turn whose only output is the CLI's no-content sentinel
+- **WHEN** the turn completes
+- **THEN** the number of rows in the conversation SHALL be unchanged
+
+#### Scenario: No user message is fabricated to start the turn
+- **GIVEN** a woken turn adopted with an empty message list
+- **WHEN** the turn completes
+- **THEN** no user row SHALL exist for that session
+- **AND** the provider's ordinary send path SHALL NOT be called
+
+#### Scenario: A turn no longer adoptable leaves nothing behind, and no error banner
+- **GIVEN** a session that stopped being adoptable between the wake and the call — the user wrote in the meantime, or the child died
+- **WHEN** the woken request is served
+- **THEN** the response SHALL still be a 200 stream, the failure travelling on the wire rather than as an HTTP code
+- **AND** no partial assistant row SHALL be left for the next re-adoption to reuse
+- **AND** no failure notice SHALL be written into the conversation, because the real answer is arriving on the other turn
+
+#### Scenario: A provider that cannot adopt is refused, never redirected to a normal send
+- **GIVEN** a topic bound to a provider with no adoption support
+- **WHEN** `POST /api/chat` is called with `mode: "woken"`
+- **THEN** the response SHALL be `501` with code `woken_unsupported`
+- **AND** the conversation SHALL be left untouched
+
+#### Scenario: The banner says where the answer came from
+- **GIVEN** an assistant row whose blocks open with a `woken` block carrying a label
+- **WHEN** the message renders
+- **THEN** a woken banner SHALL be shown carrying that label
+- **AND** the body of the answer SHALL render below it
+
+#### Scenario: A banner with no label still declares the provenance
+- **GIVEN** a `woken` block with no label
+- **WHEN** the message renders
+- **THEN** the banner SHALL still be shown, stating that the answer was not requested
+
+#### Scenario: The banner appears once, and only on woken rows
+- **GIVEN** an ordinary assistant message with no `woken` block
+- **WHEN** it renders
+- **THEN** no banner SHALL appear
+- **AND** on a woken row the label SHALL appear exactly once, the banner being rendered above the bubble and skipped in the block timeline
+
+### Requirement: BGSHELL-01 — A background shell is recognised from the CLI's own answer
+
+`Bash(run_in_background: true)`, `BashOutput` and `KillShell` are answered by the CLI in prose and tags, not in a structured field. The system SHALL read those answers permissively and SHALL return nothing rather than guess: an unrecognised shell stays invisible, while a wrongly recognised one would aim a Stop button at something else.
+
+> Companion requirements: `BGSHELL-03` (the live card), and in `processes`: `BGSHELL-02` (the registry) and `BGSHELL-04` (the orphan sweep).
+
+#### Scenario: The id is read from the sentence the CLI actually writes
+- **GIVEN** a background `Bash` result reading `Command running in background with ID: bash_1`
+- **WHEN** the id is parsed
+- **THEN** it SHALL be `bash_1`
+- **AND** a JSON form carrying `shell_id` or `bash_id` SHALL be read too
+- **AND** a bare `bash_42` with no label SHALL be read as a last resort
+
+#### Scenario: No id is invented from nothing
+- **GIVEN** an empty, missing or unrelated result
+- **WHEN** the id is parsed
+- **THEN** the result SHALL be null, on the server, and undefined in the card's own stricter parse
+
+#### Scenario: A background Bash that failed leaves nothing behind
+- **GIVEN** a background `Bash` tool result flagged as an error
+- **WHEN** the result is classified for its effect on the registry
+- **THEN** no shell SHALL be started
+
+#### Scenario: The reported status is read, and a non-zero exit outranks the label
+- **GIVEN** a `BashOutput` result carrying `<status>` and optionally `<exit_code>`
+- **WHEN** the status is parsed
+- **THEN** `running` and `in_progress` SHALL read as running; `killed` and `terminated` as killed; `failed` and `error` as failed
+- **AND** `completed` with a non-zero exit code SHALL read as FAILED, because the code says what the label does not
+
+#### Scenario: Silence is not a finished shell
+- **GIVEN** a result that says nothing about status, or an unknown status word
+- **WHEN** the status is parsed
+- **THEN** the result SHALL be null, so the caller keeps what it already knew instead of inventing a completion
+
+#### Scenario: The output shown is what the shell printed
+- **GIVEN** a `BashOutput` result mixing `<status>`, `<timestamp>`, `<stdout>` and `<stderr>`
+- **WHEN** the output is extracted
+- **THEN** the metadata tags and their contents SHALL be gone
+- **AND** both channels SHALL be unwrapped into plain lines
+- **AND** a result with no tags at all SHALL pass through unchanged
+
+#### Scenario: The three shell tools derive their own details
+- **GIVEN** a `Bash` invocation with `run_in_background: true`, a `BashOutput` carrying `bash_id`, and `KillShell`/`KillBash`/`kill_shell`
+- **WHEN** their tool details are derived
+- **THEN** the Bash detail SHALL carry a `background` flag, absent on a foreground Bash
+- **AND** the `BashOutput` detail SHALL be of type `bash_output` carrying the shell id
+- **AND** all the kill spellings SHALL be of type `kill_shell` carrying the shell id
+
+### Requirement: BGSHELL-03 — The chat card of a background shell is live, not a memory
+
+A background shell is not a tool that finished: it is a process that stays. The card SHALL follow it in the process registry and change on its own — new output, then the exit code — without the page being reloaded, and SHALL fall back to the static transcript text when the shell cannot be identified.
+
+#### Scenario: The card finds its own shell, never another chat's
+- **GIVEN** two sessions that each named their first shell `bash_1`
+- **WHEN** the card looks its shell up with its session key and id
+- **THEN** it SHALL match the entry whose process key combines BOTH
+- **AND** with no session key and two candidates it SHALL match nothing, preferring a mute card to another chat's output
+- **AND** with a session key that matches no entry it SHALL match nothing rather than fall back to the id alone
+- **AND** with no session key and a single candidate it SHALL match that one
+- **AND** at equal key the running entry SHALL win over the finished one
+- **AND** entries that are not shells, and a lookup with no shell id, SHALL match nothing
+
+#### Scenario: Output arrives in the card while the page sits still
+- **GIVEN** a topic whose transcript holds a background `Bash` card, and a shell alive in the registry before the chat is opened
+- **WHEN** the row is opened and the registry is then moved three times with no further action on the page
+- **THEN** the live status SHALL read `running`
+- **AND** each new chunk of output SHALL appear in the card's tail
+- **AND** the earlier output SHALL still be there: the tail accumulates rather than being replaced
+
+#### Scenario: The card says how it ended instead of staying in progress
+- **GIVEN** the same live card
+- **WHEN** the shell is moved to a failed status with exit code 1
+- **THEN** the live status SHALL read `ended`
+- **AND** the card SHALL show the exit code
+
+### Requirement: SUBAGENT-01 — A sub-agent's own work is logged onto the parent Task call
+
+Sub-agent (`Task` tool) events arrive on the SAME stream as the parent, marked by `parent_tool_use_id`. The system SHALL flatten each invocation into a growing action log on the parent call — one row per child emission — rather than attributing the child's tools to the parent or dropping them.
+
+> `CHAT-02` covers how the sub-agent CARD renders. This requirement covers what the card is fed.
+
+#### Scenario: An unknown parent is inert
+- **GIVEN** a tracker with no parent registered for a given tool-use id
+- **WHEN** it is asked about that id, or child text, tool use or tool result are recorded against it
+- **THEN** every call SHALL report nothing, and no state SHALL be created
+
+#### Scenario: A registered parent captures what it spawned
+- **GIVEN** a `Task` invocation carrying `subagent_type` and `description`
+- **WHEN** the parent is registered
+- **THEN** the snapshot SHALL carry both, with an empty action list, empty text and not finished
+- **AND** registering the same id again SHALL NOT overwrite what was captured first
+
+#### Scenario: Child text accumulates and is logged
+- **GIVEN** a registered parent
+- **WHEN** the sub-agent emits assistant text
+- **THEN** the text SHALL be appended to the parent's accumulated text
+- **AND** a `text` action SHALL be appended to the log
+
+#### Scenario: A child tool call is summarised by its most informative input
+- **GIVEN** a child tool use
+- **WHEN** it is recorded
+- **THEN** the action SHALL carry the tool name and a summary drawn from the input — the command, the file path, the pattern, the query, the url, the description — and an MCP tool name with no usable input SHALL fall back to its namespace
+- **AND** the action SHALL start as running
+
+#### Scenario: A child tool result patches its own action
+- **GIVEN** a recorded child tool use
+- **WHEN** its result arrives
+- **THEN** the matching action SHALL move to success, or to error when the result is flagged as one
+- **AND** the first line of the result SHALL be appended to that action's summary when there is room
+- **AND** a result whose child id was never registered SHALL be a no-op
+
+#### Scenario: The log is bounded and the snapshot is safe to hold
+- **GIVEN** a sub-agent that keeps emitting
+- **WHEN** the log passes 200 actions, or a summary passes 160 characters
+- **THEN** the log SHALL stay bounded and the summary SHALL be truncated with an ellipsis
+- **AND** a snapshot SHALL be a copy: mutating it SHALL NOT change the tracker's state
+
+#### Scenario: Finishing, deleting and clearing
+- **GIVEN** a registered parent
+- **WHEN** it is finished with a final result
+- **THEN** the returned snapshot SHALL be marked finished, using the final result as its text when the sub-agent produced none
+- **AND** finishing an unknown parent SHALL report nothing
+- **AND** deleting a parent SHALL drop its child mappings too, and clearing SHALL wipe everything
+
+#### Scenario: The still-running parents can be listed
+- **GIVEN** several registered parents
+- **WHEN** the pending list is read — the keep-alive loop's only input
+- **THEN** it SHALL name the registered parents that are not finished
+- **AND** SHALL exclude the finished and the deleted ones
+- **AND** an empty tracker SHALL yield an empty list
+
+### Requirement: SUBAGENT-02 — A burst of sub-agent activity is coalesced, and the final state still arrives
+
+Each sub-agent action used to trigger a deep copy, a database write and a broadcast of the WHOLE action list — quadratic in something the user sees as a list growing. Because the payload is a snapshot and the renderer collapses by call id, intermediate frames are discardable; the last one, and any finished one, are not.
+
+#### Scenario: A burst does not produce one send per action
+- **GIVEN** a sub-agent emitting fifty actions in a tight loop
+- **WHEN** each one asks for an update
+- **THEN** a single update SHALL leave, the rest collapsing into one queued send
+- **AND** that frame SHALL carry real actions, not an empty list
+
+#### Scenario: The last state always lands
+- **GIVEN** a first burst that sends immediately and a second that is queued
+- **WHEN** the coalescing window elapses
+- **THEN** the last update SHALL carry the full count of actions recorded by then
+
+#### Scenario: The snapshot is taken when the frame is sent, not when it is queued
+- **GIVEN** an update queued while one action exists and four more recorded before the window elapses
+- **WHEN** the queued frame leaves
+- **THEN** it SHALL carry all five, so no stale state is broadcast and no skipped frame is ever copied
+
+#### Scenario: A finished sub-agent skips the window and leaves nothing behind
+- **GIVEN** a sub-agent marked finished
+- **WHEN** its update is emitted
+- **THEN** it SHALL be sent immediately rather than waiting for the window, carrying the finished flag
+- **AND** the per-parent coalescing slot SHALL be forgotten, so no timer survives the sub-agent
+
+### Requirement: SUBAGENT-04 — A sub-agent that exits reports its real result to the chat that delegated
+
+A sub-agent spawned from a topic chat SHALL report its exit into that conversation, so the chat that promised an update reaches an end instead of hanging on a promise nobody can keep. The report SHALL prefer the child's own final text and SHALL distinguish a failure from a clean but silent finish.
+
+#### Scenario: The child's own words are the body
+- **GIVEN** an exit carrying the child's final assistant text
+- **WHEN** the body is formatted
+- **THEN** it SHALL be that text, trimmed
+- **AND** it SHALL be used even when the exit code is non-zero
+
+#### Scenario: No output, and the exit code says why
+- **GIVEN** an exit with empty or whitespace-only output and a non-zero exit code
+- **WHEN** the body is formatted
+- **THEN** it SHALL be an italic note naming that exit code and saying no output was recovered
+
+#### Scenario: A clean but silent finish gets the neutral note
+- **GIVEN** an exit with no output and an exit code of zero, or an unknown exit code
+- **WHEN** the body is formatted
+- **THEN** it SHALL be the neutral "finished with no output" note, not a failure
+
+#### Scenario: The report names the sub-agent above its body
+- **GIVEN** a formatted exit for a named sub-agent
+- **WHEN** the chat message is composed
+- **THEN** it SHALL open with a bold header naming that sub-agent, with the body below it
+- **AND** with no result the status note SHALL be embedded in the same shape
+
+### Requirement: SUBAGENT-05 — The child's real transcript is found, not the one it was assigned
+
+A sub-agent spawned as its own CLI does not honour the session id pre-assigned to it: it mints its own and writes the transcript under THAT name, so a read keyed by the assigned id finds no file and the parent is woken with an empty body. The system SHALL find the child's transcript by content, and SHALL prefer finding none to finding the parent's.
+
+#### Scenario: The child is told apart from a parent sharing its working directory
+- **GIVEN** a project directory holding both the parent's transcript, actively appended, and the child's
+- **WHEN** the child's transcript is looked up by its working directory and the opening snippet of its spawn prompt
+- **THEN** the child's own session id SHALL be returned, not the parent's newer file
+
+#### Scenario: An isolated working directory needs no content match
+- **GIVEN** a single recent transcript in a directory with no parent or sibling to confuse
+- **WHEN** the lookup runs
+- **THEN** that transcript SHALL be returned even without a content match
+- **AND** with two or more recent files and no content match, nothing SHALL be returned rather than the parent's
+
+#### Scenario: Time and working directory bound the match
+- **GIVEN** a transcript older than the spawn beyond the tolerated skew
+- **WHEN** the lookup runs
+- **THEN** it SHALL be ignored
+- **AND** a file stamped just before the spawn SHALL still be accepted, small negative clock skew being tolerated
+- **AND** a content match whose recorded working directory differs from the spawn's SHALL be rejected
+
+#### Scenario: A missing project directory is not an error
+- **GIVEN** a project directory that does not exist
+- **WHEN** the lookup runs
+- **THEN** it SHALL return nothing
+
+#### Scenario: The prompt fingerprint is stable
+- **GIVEN** a spawn prompt with irregular whitespace and mixed case
+- **WHEN** its snippet is normalised
+- **THEN** whitespace SHALL be collapsed, the text lowercased and truncated to the fixed length the matcher compares against
+
+### Requirement: SUBAGENT-06 — Each sub-agent completion is delivered to the parent chat exactly once
+
+Gateway-side sub-agents announce their completion inside the PARENT session's transcript. The system SHALL watch that file incrementally and deliver each completion once — surviving a half-written line, a truncation, a rotation and a repeated announcement — and SHALL stop watching a session after its window elapses.
+
+#### Scenario: The watch starts at the end of the file
+- **GIVEN** a transcript that already holds a completion event
+- **WHEN** the session starts being watched and a poll runs
+- **THEN** nothing SHALL be delivered: history is not re-delivered
+
+#### Scenario: A completion written after the watch began is delivered
+- **GIVEN** a watched session
+- **WHEN** a completion event is appended and a poll runs
+- **THEN** one message SHALL be appended to that session carrying the child's result and its task
+- **AND** the topic's unread count SHALL be bumped
+
+#### Scenario: What has been read is not read again
+- **GIVEN** a completion already delivered
+- **WHEN** a second poll runs with nothing new
+- **THEN** nothing further SHALL be delivered
+- **AND** the SAME completion announced twice SHALL be delivered once, deduplicated by the child's session key
+
+#### Scenario: A half-written last line is rewound
+- **GIVEN** a poll that catches the last line mid-write
+- **WHEN** the line is later completed
+- **THEN** the delivery SHALL happen then, and not before
+
+#### Scenario: Truncation and rotation restart the cursor
+- **GIVEN** a transcript that shrinks below the cursor, or is replaced by a new file
+- **WHEN** the next poll runs
+- **THEN** reading SHALL restart from the beginning of the file rather than from a cursor that no longer means anything
+
+#### Scenario: Lines that are not completions are ignored quietly
+- **GIVEN** ordinary transcript lines
+- **WHEN** a poll runs
+- **THEN** nothing SHALL be delivered and no error SHALL be raised
+
+#### Scenario: The watch is bounded and not duplicated
+- **GIVEN** a watched session
+- **WHEN** its watch window elapses
+- **THEN** the session SHALL stop being watched
+- **AND** asking to watch the same session twice SHALL NOT watch it twice
+
+#### Scenario: The child's text is extracted from whatever shape it arrives in
+- **GIVEN** a completion whose content is a plain string, or a list of blocks of which only some are text
+- **WHEN** the text is extracted
+- **THEN** a string SHALL pass through, a block list SHALL yield only its text blocks concatenated
+- **AND** any other shape SHALL yield an empty string rather than throwing
+
+### Requirement: SUBAGENT-07 — A sub-agent's exit report is its own row and does not swallow the live turn
+
+The exit report is persisted and broadcast as an ordinary new message while the PARENT's turn is still open. The client SHALL place it by identity — the id announced when the turn started — and never by position, so the report does not take over the live bubble and the rest of the answer keeps landing in its own.
+
+#### Scenario: The report lands beside the live turn, which keeps filling
+- **GIVEN** a turn that announced its id and has already streamed part of its text
+- **WHEN** a persisted assistant message with a DIFFERENT id arrives
+- **THEN** it SHALL appear as a second bubble, the live one keeping the text it already had
+- **AND** the deltas that follow SHALL land in the live bubble, not appended to the report
+
+#### Scenario: The row that CLOSES the turn merges into the live bubble
+- **GIVEN** a window that received the turn's start but no content deltas — the case of a window not subscribed to the topic
+- **WHEN** a persisted assistant message arrives carrying the turn's OWN id
+- **THEN** it SHALL merge into the existing bubble, which SHALL then hold the full text
+- **AND** exactly one assistant bubble SHALL exist, bearing that id
+
+#### Scenario: A truncated preview does not shorten what the window already has
+- **GIVEN** a bubble filled from the catch-up frame with the whole text of the turn
+- **WHEN** a persisted message for that same id arrives carrying a shorter preview
+- **THEN** the text already displayed SHALL NOT be shortened
+
+### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
+
+The system SHALL keep the most recent todo list written by the agent
+(`TodoWrite`) available as a snapshot of the current plan: the items, how many
+are completed, how many there are, and which one is in progress. "Most recent"
+SHALL be read newest-first across the transcript AND newest-first within a single
+message, since one message can carry several writes. A session with no todo, and
+a latest list that is EMPTY, SHALL both pin nothing — an empty checklist is not a
+plan worth showing.
+
+#### Scenario: A session with no todo pins nothing
+- **GIVEN** an empty transcript, or one containing only user messages
+- **WHEN** the latest todo is selected
+- **THEN** nothing SHALL be pinned
+
+#### Scenario: The most recent write wins, with its counts and its active item
+- **GIVEN** two todo writes in the transcript, the second listing three items of which one is completed and one in progress
+- **WHEN** the latest todo is selected
+- **THEN** the snapshot SHALL report three items and one completed
+- **AND** the item in progress SHALL be the active one, carrying its active wording
+
+#### Scenario: Within one message the newest call wins
+- **GIVEN** a single assistant message carrying two todo writes
+- **WHEN** the latest todo is selected
+- **THEN** the snapshot SHALL be the second write's list
+
+#### Scenario: An empty latest list pins nothing
+- **GIVEN** the most recent todo write carrying no items
+- **WHEN** the latest todo is selected
+- **THEN** nothing SHALL be pinned, rather than an empty strip
+
+#### Scenario: Tool calls that are not todos are ignored
+- **GIVEN** a transcript whose only tool call is an ordinary shell command
+- **WHEN** the latest todo is selected
+- **THEN** nothing SHALL be pinned
+
+### Requirement: TODO-02 — What counts as a todo, when the server's own label disagrees
+
+A tool call SHALL be treated as carrying a todo when the server's typed detail
+says so — whatever the tool is called, since a provider may name it anything — or
+when its NAME is one of the names known to produce a todo. When the server's
+detail is present but MALFORMED, the system SHALL fall back to deriving the
+detail from the name, so a schema drift does not silently remove the plan while
+the transcript still draws its card. A well-formed detail of a different type
+SHALL remain authoritative and SHALL pin nothing. The list of todo-bearing names
+and the deriver that recognises them SHALL agree in both directions: every listed
+name SHALL actually produce a todo, and no unlisted name SHALL.
+
+#### Scenario: The server's label wins over the name
+- **GIVEN** a tool call named after something else, carrying a well-formed detail of type todo
+- **WHEN** the latest todo is selected
+- **THEN** the detail's items SHALL be pinned
+
+#### Scenario: A malformed detail falls back to the name
+- **GIVEN** a todo-named call whose detail fails validation — a wrong shape, or a type that does not exist
+- **WHEN** the latest todo is selected
+- **THEN** the list SHALL be rebuilt from the call's name and arguments
+- **AND** the active item's wording SHALL be preserved
+
+#### Scenario: A valid detail of another type stays the truth
+- **GIVEN** a todo-named call carrying a well-formed detail of a different type
+- **WHEN** the latest todo is selected
+- **THEN** nothing SHALL be pinned
+
+#### Scenario: Every name in the list really produces a todo
+- **GIVEN** each name in the set of todo-bearing tool names, with plausible arguments
+- **WHEN** the latest todo is selected for each
+- **THEN** each SHALL produce a list
+- **AND** the same SHALL hold for the CamelCase spellings the CLI writes
+
+#### Scenario: A name outside the list produces nothing, in either direction
+- **GIVEN** a corpus of plausible tool names, listed and unlisted
+- **WHEN** the detail is derived for each
+- **THEN** a name outside the list SHALL not be pinned
+- **AND** any name whose derivation DOES yield a todo SHALL be in the list
+
+### Requirement: TODO-03 — Selecting the plan is cheap and stable across streaming frames
+
+The selection runs on every streaming frame over the whole transcript, so it
+SHALL NOT validate a tool call's detail unless that call could carry a todo, and
+it SHALL reuse the previous answer for the unchanged prefix of the transcript,
+rescanning only the tail. When the answer has not changed it SHALL be the SAME
+value as before, so the pinned strip does not repaint token by token. A change in
+the PREFIX SHALL invalidate the reuse rather than return a stale answer.
+
+#### Scenario: Without a todo, nothing is parsed
+- **GIVEN** a transcript whose tool calls are all non-todo
+- **WHEN** the latest todo is selected
+- **THEN** nothing SHALL be pinned
+- **AND** no call's arguments SHALL have been read
+
+#### Scenario: An unchanged prefix yields the identical answer
+- **GIVEN** a transcript already selected once, extended with a message carrying nothing
+- **WHEN** the latest todo is selected again
+- **THEN** the result SHALL be the very same value as before
+
+#### Scenario: A newer todo in the tail beats one in the prefix
+- **GIVEN** a transcript already selected, extended with a new todo write
+- **WHEN** the latest todo is selected again
+- **THEN** the snapshot SHALL be the new list
+
+#### Scenario: Changing the head does not return a stale answer
+- **GIVEN** a transcript whose head is replaced so that the todo it carried is gone
+- **WHEN** the latest todo is selected
+- **THEN** the transcript SHALL be rescanned and nothing SHALL be pinned
+
+### Requirement: THINK-01 — Reasoning travels on its own channel, never inside the reply
+
+Providers that emit extended thinking SHALL deliver it through the reasoning
+channel and SHALL NOT let it reach the assistant's transcript text. The two are
+different things: the reply is what the model said, the reasoning is how it got
+there, and merging them puts the model's scratchpad in the middle of its answer.
+
+#### Scenario: Thinking reaches the reasoning channel and not the reply
+- **GIVEN** a turn whose stream carries a thinking block before the reply
+- **WHEN** the turn is consumed
+- **THEN** the thinking SHALL be delivered as a reasoning delta
+- **AND** it SHALL NOT appear in the turn's text
+
+### Requirement: THINK-02 — Only the assistant's own reasoning counts
+
+Reasoning SHALL be surfaced only from the assistant's own events. A thinking
+block appearing in an event the CLI INJECTS on the user's side is not the model
+reasoning, and SHALL be discarded rather than shown.
+
+#### Scenario: Injected thinking is discarded, the assistant's is kept
+- **GIVEN** a thinking block inside an injected user event, followed by a thinking block inside an assistant event
+- **WHEN** both are consumed
+- **THEN** only the assistant's SHALL be delivered as reasoning
+
+### Requirement: THINK-03 — A thinking block sent back to the API carries only what its type admits
+
+When a turn's blocks are returned to the API, a thinking block SHALL be rebuilt
+by CONSTRUCTION from the fields that type admits — its text and, when there is
+one, its signature — rather than passed through with the scaffolding the streamer
+added to accumulate deltas. A missing signature SHALL NOT be sent as an empty
+one: an empty signature is a wrong signature, not an absent one. A redacted
+thinking block SHALL carry only its encrypted body. Text and tool-use blocks
+SHALL keep passing through whole.
+
+#### Scenario: The thinking block loses the scaffolding and keeps the signature
+- **GIVEN** a thinking block as the streamer builds it, carrying accumulation scaffolding alongside its text and signature
+- **WHEN** it is prepared for the API
+- **THEN** it SHALL contain exactly its type, its text and its signature
+- **AND** the scaffolding fields the API rejects SHALL be absent
+
+#### Scenario: A missing signature is not invented empty
+- **GIVEN** a thinking block with no signature
+- **WHEN** it is prepared for the API
+- **THEN** the signature field SHALL be absent, not empty
+
+#### Scenario: A redacted block carries only its encrypted body
+- **GIVEN** a redacted thinking block
+- **WHEN** it is prepared for the API
+- **THEN** it SHALL carry its type and its encrypted data and nothing else
+
+#### Scenario: Text and tool-use blocks are unaffected
+- **GIVEN** a text block and a tool-use block from the same turn
+- **WHEN** they are prepared for the API
+- **THEN** each SHALL keep its own fields intact

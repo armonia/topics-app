@@ -17,6 +17,8 @@
  * ── Cosa misura questo file ────────────────────────────────────────────────
  * Che la ripulitura sia per COSTRUZIONE e non per sottrazione: si riscrive il
  * blocco con i campi ammessi, invece di sperare che non ne arrivino di nuovi.
+ *
+ * @covers THINK-03
  */
 import { describe, expect, test } from "bun:test";
 import { forApi, type Block } from "./agent-loop";

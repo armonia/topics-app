@@ -4,6 +4,8 @@
  * Il nome arriva dal CLIENT: senza controllo, un `../` o una barra leggerebbero
  * qualunque file della macchina — la stessa classe di difetto già trovata sulle
  * rotte dei file. Metà di questi test provano che NON si può uscire.
+ *
+ * @covers SKILL-01, SKILL-02
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

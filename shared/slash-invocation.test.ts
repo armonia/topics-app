@@ -2,6 +2,8 @@
  * Riconoscere il messaggio che È un comando — e NON riconoscere quello che non
  * lo è, che è la metà che conta: un'etichetta falsa su un messaggio normale è
  * peggio di nessuna etichetta.
+ *
+ * @covers SKILL-03
  */
 
 import { describe, expect, test } from 'bun:test';

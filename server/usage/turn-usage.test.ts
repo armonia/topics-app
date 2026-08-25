@@ -5,6 +5,8 @@
  * poteva arrivarci: un segno sbagliato, una quota dimenticata o una somma doppia
  * si sarebbero visti solo come un numero storto nella UI, e solo se qualcuno
  * fosse stato a guardare mentre un turno girava.
+ *
+ * @covers USAGE-03, USAGE-04
  */
 import { describe, expect, test } from "bun:test";
 import {

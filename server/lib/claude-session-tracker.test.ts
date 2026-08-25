@@ -4,6 +4,7 @@
  * CCS-02 (hook endpoint security and idempotency) is partial: the tracker side
  * is here, the localhost-only gate lives in the route. CCS-05 (the
  * `session:state` broadcast contract, including burst coalescing) is covered.
+ * @covers MONITOR-04
  */
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';

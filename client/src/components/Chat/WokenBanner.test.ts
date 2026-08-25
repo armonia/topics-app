@@ -10,6 +10,7 @@
  * Il cartello risponde a due cose: CHE non l'hai chiesta tu, e COSA era sotto
  * sorveglianza (la `description` che l'agente ha dato al Monitor). Si rende in
  * cima alla bolla, come il verdetto d'errore, non nella cronologia dei blocchi.
+ * @covers MONITOR-03
  */
 import { describe, expect, test } from 'bun:test';
 import { createElement } from 'react';

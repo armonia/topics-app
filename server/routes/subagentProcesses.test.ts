@@ -17,6 +17,7 @@
  *     treated as active leaves a spinner turning forever.
  *  3. `completedAt` exists only for what has finished. On a live process it is
  *     not a smudge: it is the panel saying a thing has also ended.
+ * @covers SUBAGENT-03
  */
 import { describe, expect, test } from "bun:test";
 import { processiSubagente, type SessionePerProcessi } from "./subagentProcesses";

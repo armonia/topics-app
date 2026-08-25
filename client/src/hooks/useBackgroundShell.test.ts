@@ -1,3 +1,6 @@
+/**
+ * @covers BGSHELL-01, BGSHELL-03
+ */
 import { describe, expect, test } from 'bun:test';
 import { pickShellEntry, parseShellIdFromStartResult } from './useBackgroundShell';
 

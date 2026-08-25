@@ -136,3 +136,110 @@ The system SHALL provide script management capabilities including listing packag
 - **WHEN** the ScriptRunner component mounts
 - **THEN** the component SHALL render nothing (return null)
 
+
+### Requirement: BGSHELL-02 — A background shell of the agent is one row in the process registry
+
+`Bash(run_in_background: true)` leaves a process behind, and its only trace used to be the card in the transcript — a memory, not a state: it scrolled away, it was not counted, and it could not be killed. Such a shell SHALL be registered as a live process alongside Topics' own scripts (`PROCESS-01`), and SHALL stay ONE row through re-announcement, output and exit.
+
+> This is NOT `PROCESS-01`: that is Topics' own `package.json` script runner. Companions in `chat`: `BGSHELL-01` (reading the CLI's answer) and `BGSHELL-03` (the live card).
+
+#### Scenario: A started shell becomes a running process row
+- **GIVEN** a background shell announced with its session key, topic, id, command and working directory
+- **WHEN** it is registered
+- **THEN** a running row SHALL exist carrying the command, a shortened label and the topic
+- **AND** its pid SHALL be null until the process is located in the tree — a row without a pid still being worth more than no row
+
+#### Scenario: Re-announcing the same shell does not wipe its output
+- **GIVEN** a registered shell with output already recorded
+- **WHEN** the same shell is registered again, as after a re-attach
+- **THEN** the recorded output SHALL still be there and the row SHALL still be running
+
+#### Scenario: Output is appended without closing the shell
+- **GIVEN** a running registered shell
+- **WHEN** an output report arrives with status running
+- **THEN** the new output SHALL be appended and the row SHALL stay running
+
+#### Scenario: A terminal status carries the shell to its outcome
+- **GIVEN** a running registered shell
+- **WHEN** a completed status with exit code 0 arrives
+- **THEN** the row SHALL move to done carrying that exit code
+- **AND** a failed status with a non-zero code SHALL move it to error carrying that code, a failure never reading as a conclusion
+
+#### Scenario: A killed shell is closed as terminated
+- **GIVEN** a running registered shell
+- **WHEN** it is closed as killed
+- **THEN** the row SHALL move to error and its log SHALL say it was terminated
+
+#### Scenario: An outcome already recorded is not rewritten
+- **GIVEN** a shell already closed as completed with exit code 0
+- **WHEN** it is closed a second time, as killed
+- **THEN** the first outcome SHALL stand
+
+#### Scenario: An unknown id invents nothing
+- **GIVEN** an id that was never registered
+- **WHEN** output is reported for it, or it is closed
+- **THEN** no row SHALL come into existence
+
+#### Scenario: The broadcast snapshot carries the keys the card looks a shell up by
+- **GIVEN** a registered background shell
+- **WHEN** the scripts snapshot is built — the frame that arrives FIRST, the HTTP poll being up to fifteen seconds behind
+- **THEN** the row SHALL be keyed by its process key and SHALL carry the shell id, the topic and the source `shell`
+- **AND** a finished shell SHALL stay in the snapshot with its status and exit code
+- **AND** a process that is not a shell SHALL carry no shell id
+
+#### Scenario: The process key is composed identically on both sides
+- **GIVEN** a session key and a shell id, the one written by the server and the one recomposed by the card
+- **WHEN** the process key is built
+- **THEN** it SHALL combine both parts, sanitised of the characters a process id cannot hold
+- **AND** two different sessions using the SAME shell id SHALL produce different keys
+
+#### Scenario: The registry's own log header is not shown twice
+- **GIVEN** a shell log opening with the registry's header line, which exists to give the process row a content before the agent reads anything
+- **WHEN** the log is prepared for the chat card, where the id is already written above it
+- **THEN** the header SHALL be stripped when the log starts with it, a header-only log becoming empty
+- **AND** a log that does not start with it, or that starts with ANOTHER shell's header, SHALL be left untouched
+
+### Requirement: BGSHELL-04 — The orphans of a dead background shell are swept
+
+When a background shell dies — the CLI exits, the shell takes a SIGTERM — the children it spawned do NOT die with it: they are re-parented, holding ports and memory, with no Stop button attached to them any more. The process tree is already broken by then, so the system SHALL capture the shell's subtree WHILE IT IS ALIVE and use that snapshot as the only remaining handle.
+
+#### Scenario: The subtree captured alive closes the survivors
+- **GIVEN** a shell that left two children running in the background
+- **WHEN** its subtree is captured while alive, the shell is then killed, and the sweep runs
+- **THEN** the surviving children SHALL be closed
+
+#### Scenario: A recycled pid is not touched
+- **GIVEN** a captured pid that the operating system has since reassigned to another process
+- **WHEN** the sweep runs
+- **THEN** that process SHALL be left alone: the start time has to match, not just the number
+
+#### Scenario: How a shell that is gone is recorded
+- **GIVEN** a running shell row being reconciled against the machine
+- **WHEN** its own process is gone
+- **THEN** the outcome SHALL be completed, however the parent fared
+- **AND** when only the owning CLI is gone while the shell was still running, the outcome SHALL be killed — it was interrupted
+- **AND** when neither is gone, nothing SHALL be closed
+
+### Requirement: SUBAGENT-03 — The sub-agent process panel tells the truth about what is running
+
+`GET /api/processes` is the only view Topics has of sub-agents AS PROCESSES. The mapping from a provider's session list SHALL keep only the sub-agents, SHALL treat `active` as the only status meaning running, and SHALL carry a completion time only for what has finished.
+
+#### Scenario: Only sub-agents reach the panel
+- **GIVEN** a provider session list holding sub-agent sessions, a topic session and a terminal session
+- **WHEN** the panel's processes are derived
+- **THEN** only the sessions whose key names them sub-agents SHALL be kept, in order — widening this fills the panel with every session the provider knows, presented as running under the chat
+- **AND** an entry with no session key SHALL be skipped without raising
+- **AND** an empty list SHALL yield an empty panel, not an error
+
+#### Scenario: Running means active, and nothing else
+- **GIVEN** a session whose status is `active`
+- **WHEN** it is mapped
+- **THEN** it SHALL be running, and SHALL carry no completion time
+- **AND** any other status — done, exited, failed, unknown, empty or absent — SHALL be done and SHALL carry a completion time, so an unfamiliar status never leaves a spinner turning forever
+
+#### Scenario: A readable label and an honest clock
+- **GIVEN** a sub-agent session with no label of its own
+- **WHEN** it is mapped
+- **THEN** the label SHALL be the LAST segment of its key, never the whole key and never an empty string
+- **AND** a real label SHALL win over that fallback
+- **AND** a missing start time, or a missing end time on a finished process, SHALL fall back to the current time rather than to an empty string

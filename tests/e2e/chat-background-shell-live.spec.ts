@@ -73,6 +73,8 @@ test.describe("Shell in background: la card cresce dal vivo", () => {
   });
 
   test("output nuovo e codice d'uscita arrivano nella card senza ricaricare", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BGSHELL-03" });
+
     // La shell è viva PRIMA che la chat si apra: è il caso normale — il turno
     // che l'ha avviata è finito da un pezzo e la card viene riaperta dopo.
     await shell(request, { command: "bun run dev:server", topicId, output: "in ascolto su :3333" });

@@ -1,3 +1,8 @@
+/**
+ * Model pricing: the table, the fallbacks, and the cache rates.
+ *
+ * @covers USAGE-01, USAGE-02
+ */
 import { describe, test, expect } from "bun:test";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "./pricing";
 

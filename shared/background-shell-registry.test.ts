@@ -5,6 +5,7 @@
  * Sono due dettagli minuscoli che però tengono insieme due lati: il server
  * scrive, la card della chat rilegge. Se la ripulitura della chiave diverge, la
  * card non trova più la sua shell e torna muta — senza errori, senza rossi.
+ * @covers BGSHELL-02
  */
 
 import { describe, expect, it } from "bun:test";

@@ -34,6 +34,8 @@
  * misura, «320k» era un anello). Uno scarto sotto il 10% dice che i due conti
  * parlano della stessa cosa; sotto l'1% direbbe solo che ho scritto il test
  * dopo aver visto il risultato.
+ *
+ * @covers USAGE-10, USAGE-11
  */
 
 import { describe, expect, test } from "bun:test";

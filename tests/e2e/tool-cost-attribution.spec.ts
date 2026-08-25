@@ -100,6 +100,7 @@ test.describe.serial("Costo per-azione sulle righe di tool", () => {
   });
 
   test("ogni riga mostra il SUO costo, il gruppo somma le sue azioni", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USAGE-14" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -130,6 +131,7 @@ test.describe.serial("Costo per-azione sulle righe di tool", () => {
   });
 
   test("i numeri a consuntivo si accendono solo sotto il puntatore", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USAGE-14" });
     // Durata e costo di un'azione FINITA sono una nota a margine: ripetuti su
     // ogni riga di ogni turno disegnavano una colonna di cifre lungo tutta la
     // chat. Restano al loro posto — lo spazio è riservato, la riga non salta —

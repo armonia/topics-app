@@ -12,6 +12,7 @@
  * e mostra sempre l'ultimo stato — quindi i fotogrammi intermedi sono scartabili
  * per costruzione. Ciò che NON è scartabile: l'ultimo stato, e uno stato
  * `finished`.
+ * @covers SUBAGENT-02
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";

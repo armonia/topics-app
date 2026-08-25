@@ -100,6 +100,7 @@ test.describe("Il moltiplicatore del costo", () => {
   });
 
   test("cresce a ogni chiamata mentre il turno lavora, e l'ispettore ne dà il conto", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "USAGE-13" });
     const ws = await interceptWebSocket(page);
 
     // La sonda di una topic appena creata è a zero (nessun messaggio): l'atto 2

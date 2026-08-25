@@ -1,3 +1,6 @@
+/**
+ * @covers BGSHELL-01
+ */
 import { describe, expect, it } from "bun:test";
 import {
   parseBackgroundShellId,
