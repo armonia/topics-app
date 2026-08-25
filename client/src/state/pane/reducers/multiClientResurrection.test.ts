@@ -10,6 +10,8 @@ import type { PaneState, Pane } from "../types";
  * and the other hydrates it as HYDRATE_FROM_SNAPSHOT with a monotonic
  * server_seq. Reproduces the "closed tab reappears" bug in the presence of a
  * live second client whose state is stale.
+ *
+ * @covers TAB-SYNC-01, TAB-SYNC-02
  */
 
 const blank = (): PaneState => ({

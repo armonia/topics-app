@@ -10,6 +10,8 @@ import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL } from '../../../../shared/p
  * che il server mette in attesa con lo schema di approvazione) e la PROSA (il
  * piano scritto e basta, senza nessuna riga a cui appendere la domanda). Qui si
  * fissa quale delle due vince, e soprattutto quando NON si chiede niente.
+ *
+ * @covers CHAT-02
  */
 
 // Il formato che l'app stessa ordina in plan mode (`planModeContent()`).

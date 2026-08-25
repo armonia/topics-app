@@ -1,3 +1,11 @@
+/**
+ * The server side of the pane store (`/api/ui-state`): every write stamps
+ * `payload_version` and a monotonic, gap-free `server_seq` even under concurrent
+ * PUTs, the all-keys read keeps the legacy shape beside the new envelope, and the
+ * endpoint validates its body (null refused, oversize capped).
+ *
+ * @covers LAYOUT-01
+ */
 import { test, expect } from "./fixtures/test-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";

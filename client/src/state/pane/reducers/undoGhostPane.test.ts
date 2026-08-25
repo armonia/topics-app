@@ -21,6 +21,8 @@ import { blankPaneState as blank } from "../testSupport";
  * la contiene, uscire lascia il record consumato (è già stato `pop`-ato) e la
  * pane senza posto: invisibile allo store, visibile alla UI attraverso
  * `openPanels`, e appesa in fondo invece che al suo indice.
+ *
+ * @covers CMD-03
  */
 
 const chat = (id: string): Pane => ({ id, type: "chat", title: id, topicId: id });

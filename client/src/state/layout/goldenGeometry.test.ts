@@ -16,6 +16,8 @@
  * difference.
  *
  * Only flip the P2 flag's render path on for real once this is green.
+ *
+ * @covers LAYOUT-01
  */
 import { test, expect, describe } from 'bun:test';
 import { gridRowsToTree, groupRowsToTree, buildShallowGridTree } from './legacyAdapters';

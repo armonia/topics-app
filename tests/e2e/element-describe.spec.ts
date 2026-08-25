@@ -8,6 +8,8 @@
  *
  * Copre quello che il test unitario non può: potatura del markup, filtro dello
  * stile calcolato e selettore risalente.
+ *
+ * @covers BROWSER-CHAT-04
  */
 import { test, expect } from "@playwright/test";
 import { DESCRIBE_ELEMENT_FN } from "../../shared/element-describe";

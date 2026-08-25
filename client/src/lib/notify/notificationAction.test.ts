@@ -1,3 +1,8 @@
+/**
+ * What the app does when a notification is acted on.
+ *
+ * @covers CMD-02
+ */
 import { describe, test, expect } from 'bun:test';
 import { runNotificationAction, type NotificationActionDeps } from './notificationAction';
 import { buildNotifyActions } from '../../../../shared/notify-actions';

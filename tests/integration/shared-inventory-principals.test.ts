@@ -21,6 +21,8 @@
  *
  * Qui si fissa che i due coincidano, e si guarda anche il caso ORGANIZZAZIONE —
  * il secondo salto, quello che una condivisione «al team» produce.
+ *
+ * @covers GUEST-06
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

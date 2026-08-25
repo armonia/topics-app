@@ -22,6 +22,8 @@
  * ripristinato, una riga potata da una manutenzione. Quindi si toglie QUEL topic
  * dalla risposta di `GET /api/topics`: non si finge la UI, si mette in scena il
  * mondo in cui quel topic non c'è. Vedi `client/src/lib/taskSession.ts`.
+ *
+ * @covers KANBAN-07
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";

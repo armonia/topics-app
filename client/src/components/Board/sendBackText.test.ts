@@ -24,6 +24,8 @@
  * `ThreadRuns.test.tsx` per la sua, e con lo stesso patto: il giorno che
  * qualcuno rimette il gemello o toglie l'argomento, questo file diventa rosso
  * prima che lo scopra una persona davanti allo schermo.
+ *
+ * @covers KANBAN-05
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

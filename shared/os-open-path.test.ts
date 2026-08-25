@@ -1,3 +1,9 @@
+/**
+ * The path handed to the operating system when a file or folder is revealed
+ * from the tree.
+ *
+ * @covers FILE-03
+ */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

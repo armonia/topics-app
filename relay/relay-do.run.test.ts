@@ -22,6 +22,8 @@
  * bolletta, non il comportamento. Qui si controlla la CONSEGUENZA che invece si
  * osserva: nessuno stato in un campo, l'identità letta dai tag, l'accettazione
  * fatta passare dallo stato e mai dalla socket.
+ *
+ * @covers RELAY-E2E-04
  */
 import { describe, expect, it } from "bun:test";
 import { SessioneRelay } from "./src/relay-do";

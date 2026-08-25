@@ -9,6 +9,8 @@ import type { PaneState, Pane } from "../types";
  * store without `spaces`/`activeSpaceId`; these exercise the close→reload and
  * multi-client union paths for panes that carry a `spaceId` and for a window
  * whose active space is non-default.
+ *
+ * @covers TAB-SYNC-01, TAB-SYNC-02
  */
 
 const blank = (activeSpaceId = "space:default"): PaneState => ({

@@ -5,6 +5,8 @@
  * POST /api/command), and the result renders in the command-result BANNER
  * (a `font-mono` row that auto-dismisses after ~5s) — NOT as a `.message-content`
  * chat message. No AI mocking is needed; we test against the real server.
+ *
+ * @covers PROJECT-01
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";

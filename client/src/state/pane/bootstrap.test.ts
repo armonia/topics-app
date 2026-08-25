@@ -5,6 +5,8 @@
  * dispatch (e.g. an early `OPEN_PANE`). Now the gate is the
  * `hasReceivedServerHydrate()` module flag, which flips only when syncWS
  * processes a real server frame OR the fallback GET itself completes.
+ *
+ * @covers TAB-SYNC-01
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { blankPaneState } from "./testSupport";

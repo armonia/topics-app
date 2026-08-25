@@ -5,6 +5,8 @@
  * alla card (che disegna il corpo) e alla riga (che disegna il gesto per
  * aprirlo): finché la card tornava `null` per conto suo, il chevron restava lì
  * e apriva il vuoto.
+ *
+ * @covers CHAT-02
  */
 
 import { describe, expect, test } from 'bun:test';

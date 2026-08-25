@@ -21,6 +21,8 @@
  *    live in the same directory and are addressed by paths that overlap
  *    (`/api/memory/global` vs `/api/memory/:topicId`), a routing change is
  *    enough to make one swallow the other.
+ *
+ * @covers CTX-01
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";

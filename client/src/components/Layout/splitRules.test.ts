@@ -1,3 +1,8 @@
+/**
+ * Which panes can be split, and onto which surface a standalone grid key maps.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 

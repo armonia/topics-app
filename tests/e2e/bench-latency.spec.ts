@@ -59,6 +59,8 @@
  * inside every `pointerdown`. That is the shape of a real boot regression (work
  * per frame while the app comes up), so every number here has to move. It is the
  * falsification lever `scripts/bench/latency.ts --stall` drives.
+ *
+ * @covers PERF-02
  */
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";

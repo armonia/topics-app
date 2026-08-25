@@ -10,6 +10,8 @@
  *    Topics project by name and emits pane:focus-suggest (open + nest).
  *  - adopting a gateway session opens it as a first-class interactive,
  *    openclaw-backed Topics chat (idempotent).
+ *
+ * @covers PROJECT-01
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";

@@ -18,6 +18,8 @@
  * A check on the SOURCE, with the same method and the same reason as
  * `Card.test.ts`: `ProjectFilterPicker.tsx` imports by the `@/` alias, which
  * `bun test` does not resolve, so the component does not mount here.
+ *
+ * @covers KANBAN-12
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

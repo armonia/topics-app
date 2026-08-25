@@ -29,6 +29,8 @@
  * grezzi nel file che scrive e trasmette: chi ha bisogno di quelle quote passa
  * da `turnUsageWire` (per la riga e per il filo) o da `turnUsageParts` (per il
  * prezzo).
+ *
+ * @covers USAGE-04
  */
 
 import { describe, expect, test } from 'bun:test';

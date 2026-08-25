@@ -11,6 +11,8 @@
  * Questa spec semina esattamente quella forma — un messaggio per azione, senza
  * prosa — e pretende UNA riga di gruppo. È il caso che i test puri non possono
  * vedere, perché il difetto non era nella funzione: era in ciò che le arrivava.
+ *
+ * @covers CHAT-TOOL-02
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";

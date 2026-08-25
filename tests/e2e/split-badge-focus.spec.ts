@@ -20,6 +20,8 @@
  * versione faceva ricomparire il badge su TUTTE le tab attive all'avvio.
  * TAB-BADGE-07 lo prova sulla superficie a gruppo unico; qui si prova che la
  * convenzione regge anche con due celle.
+ *
+ * @covers TAB-BADGE-07
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

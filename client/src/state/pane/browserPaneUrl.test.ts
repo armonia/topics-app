@@ -3,6 +3,8 @@
  * chat tab restores its conversation. That requires pane.url to survive the
  * full persistence chain: UPDATE_PANE writes it, sanitizeSnapshot preserves it
  * on hydrate, and selectSyncableSnapshot keeps it on the outbound server PUT.
+ *
+ * @covers BROWSER-CHAT-01
  */
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./reducers/panes";

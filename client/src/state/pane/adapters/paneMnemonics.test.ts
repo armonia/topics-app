@@ -12,6 +12,8 @@ import { TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
  * è congelata invece di essere calcolata: se una lettera cambia di posto o ne
  * compaiono due uguali nello stesso menu, la funzione diventa peggio che
  * assente — l'utente preme e succede la cosa sbagliata.
+ *
+ * @covers LAYOUT-02
  */
 
 /** L'etichetta con cui la riga viene DAVVERO dipinta (stessa fonte del menu). */

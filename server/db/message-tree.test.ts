@@ -3,6 +3,7 @@
  * quello che veniva dopo il punto di ripristino. Qui si inchioda il confine:
  * cosa muore (il sottoalbero appeso al taglio) e cosa deve sopravvivere
  * (tutti i fratelli che divergono più in alto).
+ * @covers CHAT-CONV-02
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

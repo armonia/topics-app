@@ -6,6 +6,8 @@
  *
  * L'unica differenza VOLUTA è il confine con i milioni, che era sbagliato in
  * tre copie su cinque.
+ *
+ * @covers CTX-01
  */
 import { describe, expect, test } from 'bun:test';
 import { formatTokens } from './formatTokens';

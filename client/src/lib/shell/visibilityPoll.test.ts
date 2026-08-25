@@ -13,6 +13,8 @@
  * it: a fake clock, a fake visibility state, a fake subscription. What is left
  * for the source-level guard is only "every poll in the hook goes through this
  * function", which is a claim about wiring and is checked as one.
+ *
+ * @covers LEAK-01
  */
 import { describe, expect, test } from 'bun:test';
 import { startVisibilityGatedPoll, type PollEnv } from './visibilityPoll';

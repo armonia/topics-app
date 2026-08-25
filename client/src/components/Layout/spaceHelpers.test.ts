@@ -1,3 +1,9 @@
+/**
+ * How many tabs each pane group holds, and whether the tab-bar chrome is drawn
+ * at all: an empty group is not enough, unless it is a window of its own.
+ *
+ * @covers LAYOUT-02
+ */
 import { describe, test, expect } from 'bun:test';
 import { tabsPerSpace, groupChromeActive } from './spaceHelpers';
 import { DEFAULT_SPACE_ID, type Pane, type SpaceMeta } from '../../state/pane/types';

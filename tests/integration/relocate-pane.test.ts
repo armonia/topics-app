@@ -15,6 +15,8 @@
  * `projectPath`. La chat non entrava in `openChatTopicIds` e il suo pannello
  * browser restava nello store standalone — un tab orfano di una chat che da
  * quella superficie era sparita.
+ *
+ * @covers LAYOUT-01
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

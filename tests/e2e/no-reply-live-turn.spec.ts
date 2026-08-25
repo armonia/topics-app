@@ -54,6 +54,8 @@ const BASE = E2E_BASE;
  * funziona. Le due domande si somigliano abbastanza da confondersi, e la
  * seconda ha una sola risposta onesta — rimettere il difetto e guardare quale
  * test diventa rosso. Qui è questo, e solo questo.
+ *
+ * @covers CHAT-REL-01
  */
 test.describe.serial("Il banner tace su un turno vivo", () => {
   let topicId: string;

@@ -1,3 +1,9 @@
+/**
+ * The composer's provider/model picker: the pair chosen there is the pair that
+ * travels in the body of the chat request.
+ *
+ * @covers CHAT-DEF-03
+ */
 import { expect, type Route } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";

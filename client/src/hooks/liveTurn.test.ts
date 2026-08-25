@@ -7,6 +7,8 @@ import type { ChatMessage } from '../types';
  * fill actually landing in the transcript) is in `useChatLiveTurn.test.ts`,
  * which drives the real hook: a module that is right on its own proves nothing
  * about a caller that never calls it.
+ *
+ * @covers CHAT-01, SUBAGENT-07
  */
 
 function msg(p: Partial<ChatMessage>): ChatMessage {

@@ -7,6 +7,7 @@
  * the log says why. Too shy and nothing changes: the dead preview port keeps
  * costing an 8s timeout on every context creation. The rule needs BOTH halves,
  * so both halves are tested on their own.
+ * @covers BROWSER-CHAT-01
  */
 import { describe, expect, it } from "bun:test";
 import { shouldForgetLastUrl } from "./browser-state-store";

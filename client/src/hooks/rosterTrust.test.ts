@@ -6,6 +6,8 @@ import { decideRosterTrust, shouldDeclareExpired } from './rosterTrust';
  * La regola esiste per un bug preciso: "Sessione scaduta" su un terminale VIVO.
  * Questi test guardano la sola cosa che conta — quando un roster vuoto ha il
  * diritto di far dichiarare morta una pane, e quando no.
+ *
+ * @covers TERM-01
  */
 
 function s(id: string): TerminalSessionInfo {

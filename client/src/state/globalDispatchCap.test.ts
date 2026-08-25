@@ -12,6 +12,8 @@
  * `fetch` è finto: qui si misura lo store, non il server. Il contratto del
  * filo (PATCH /api/all-boards/settings, frame `board:global-cap`) è coperto
  * dalle sue prove altrove.
+ *
+ * @covers KANBAN-07, KANBAN-12
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {

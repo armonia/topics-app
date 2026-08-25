@@ -1,3 +1,10 @@
+/**
+ * The persistence side of a canonical Claude Code session: load by session_key
+ * or by claude_session_id, round-trip the full state, list the active phases,
+ * and survive malformed stored JSON.
+ *
+ * @covers CCS-01
+ */
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { readFileSync, readdirSync } from 'fs';

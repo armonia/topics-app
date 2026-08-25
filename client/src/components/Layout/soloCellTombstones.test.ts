@@ -1,3 +1,9 @@
+/**
+ * Tombstones that let a reopened topic return to the cell and slot it was
+ * closed from, including when the whole cell dissolved, and that expire.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   recordSoloTombstones,

@@ -1,3 +1,8 @@
+/**
+ * The colour and the word each git status gets in the file tree.
+ *
+ * @covers FILE-02
+ */
 import { test, expect, describe } from 'bun:test';
 import { gitStatusTextClass, gitStatusLabel } from './gitStatusColors';
 

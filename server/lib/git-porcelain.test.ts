@@ -3,6 +3,11 @@
  * `git status --porcelain -z` su un repo costruito apposta (rename, accento,
  * untracked), catturato con `tr '\0' '|'`. Il formato dei rename, nuovo prima
  * e vecchio dopo in due campi, e esattamente cio che il vecchio parse sbagliava.
+ *
+ * This parse is where the M / U / D / conflict status of every file in the
+ * git panel comes from.
+ *
+ * @covers FILE-02
  */
 import { test, expect } from "bun:test";
 import { parsePorcelainZ, isConflicted, scopeToPrefix, statusOfPrefix } from "./git-porcelain";

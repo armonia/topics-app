@@ -1,3 +1,9 @@
+/**
+ * The layout tree itself: constructors, normalization, queries and the
+ * rectangle geometry every split and resize is computed from.
+ *
+ * @covers LAYOUT-01
+ */
 import { test, expect, describe } from 'bun:test';
 import {
   leaf,

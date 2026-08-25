@@ -11,6 +11,8 @@ import { DND_TYPES, paneTabScopeType } from './dndTypes';
  * bisogno, e SOLO per quello. Una trascinata di file dal Finder o una riga
  * della sidebar non atterrano mai dentro il corpo di una pane, quindi qui non
  * devono entrare.
+ *
+ * @covers LAYOUT-02
  */
 describe('isPaneTabDrag', () => {
   it('la trascinata di una TAB accende (tipo + gruppo, come li scrive PaneTabBar)', () => {

@@ -10,6 +10,8 @@
  *     and the not-yet-confirmed `starting` phase do NOT;
  *   - a topic with no sessionKey, or whose session isn't in the map, is ignored;
  *   - the set holds TOPIC ids, keyed via each topic's sessionKey.
+ *
+ * @covers STATUSLINE-01
  */
 import { describe, test, expect } from "bun:test";
 import { deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics, derivePhaseTerminals, visibleTopicSignalCount, attentionTierForPhase, AWAITING_FEEDBACK_PHASES, AWAITING_INPUT_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";

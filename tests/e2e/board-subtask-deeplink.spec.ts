@@ -16,6 +16,8 @@
  *
  * È anche la clip di consegna: due stati, non uno screenshot — l'albero che
  * naviga, e la URL nuda che apre lo stesso step dopo un reload.
+ *
+ * @covers KANBAN-08
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

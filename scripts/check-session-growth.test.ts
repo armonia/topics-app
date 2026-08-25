@@ -20,6 +20,8 @@ import {
  *
  * The fixtures are synthetic ON PURPOSE. `judge`'s job is to decide, not to
  * measure.
+ *
+ * @covers LEAK-01
  */
 
 const BASELINE = JSON.parse(

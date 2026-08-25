@@ -1,3 +1,8 @@
+/**
+ * Protocol contract of the browser pane socket for the two native-grade
+ * streaming variants: `resize` (client to server) and `download` (server to client).
+ * @covers BROWSER-CHAT-02
+ */
 import { describe, it, expect } from 'bun:test';
 import { parseBrowserWsMessage } from '../shared/browser-ws-messages';
 

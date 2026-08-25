@@ -11,6 +11,8 @@
  *
  * Qui si misura la sola cosa osservabile — quante tab `browser:*` esistono dopo
  * due click sulla stessa voce — su ENTRAMBE le barre.
+ *
+ * @covers BROWSER-CHAT-04
  */
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

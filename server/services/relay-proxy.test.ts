@@ -14,6 +14,7 @@
  * proxy cominciasse a dipendere da un campo che il formato non promette,
  * l'ospite finto smetterebbe di capirlo — che è l'unico modo perché il formato
  * abbia una definizione fuori da chi lo usa.
+ * @covers RELAY-E2E-04, RELAY-E2E-05, RELAY-E2E-07
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { creaRelayClient } from "./relay-client";

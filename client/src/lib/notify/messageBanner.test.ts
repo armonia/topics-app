@@ -1,3 +1,8 @@
+/**
+ * Every gate a completion banner has to pass before it interrupts anyone.
+ *
+ * @covers MUTE-01
+ */
 import { describe, expect, it } from 'bun:test';
 import { decideMessageBanner, MESSAGE_BANNER_COOLDOWN_MS, type MessageBannerInput } from './messageBanner';
 

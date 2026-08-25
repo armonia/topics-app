@@ -4,6 +4,8 @@
  * `page.evaluate` e asserivano l'incollatura — sarebbero rimasti verdi anche
  * cancellando l'implementazione vera. Qui si testa `groupOps.ts`, cioè il
  * codice che l'app esegue davvero, e senza avviare un browser.
+ *
+ * @covers LAYOUT-01
  */
 import { describe, expect, test } from 'bun:test';
 import type { PaneGroup } from '../../../types';

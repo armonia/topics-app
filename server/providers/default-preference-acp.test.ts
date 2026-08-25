@@ -9,6 +9,7 @@
  *
  * La regola giusta è più semplice di com'era: la lista è l'ordine dei NOTI, chi
  * non c'è cade dopo i noti e prima dell'ultimo ripiego.
+ * @covers CHAT-DEF-02
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import {

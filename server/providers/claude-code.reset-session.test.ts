@@ -11,6 +11,7 @@
  * `provider.sendToSession?.(…, "/clear")` — metodo che claude-code non ha. Un
  * no-op silenzioso: la chat spariva dallo schermo e il modello ricordava tutto.
  * (task 2.4 della change chat-claude-code-parity)
+ * @covers CCS-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";

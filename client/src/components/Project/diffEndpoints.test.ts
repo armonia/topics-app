@@ -1,3 +1,9 @@
+/**
+ * Which two sides the diff viewer compares for Staged, Changes and a commit,
+ * which name each side uses across a rename, and how the end is labelled.
+ *
+ * @covers FILE-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { diffEndpoints, endLabel } from './diffEndpoints';
 

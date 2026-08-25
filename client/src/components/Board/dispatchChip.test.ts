@@ -11,6 +11,8 @@
  * Perciò l'elenco qui sotto è scritto a mano di proposito: è il contratto, non
  * una derivazione. Chi aggiunge uno stato lato server deve toccare due posti, e
  * questo test è il secondo.
+ *
+ * @covers KANBAN-07
  */
 import { describe, test, expect } from 'bun:test';
 import { DISPATCH_CHIP } from './constants';

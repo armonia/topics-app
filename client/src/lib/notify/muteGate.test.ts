@@ -1,3 +1,9 @@
+/**
+ * Whether a topic is muted — the one gate that decides the interruption and
+ * never the count.
+ *
+ * @covers MUTE-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { isTopicMuted } from './muteGate';
 import type { Topic } from '../../types';

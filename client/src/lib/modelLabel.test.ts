@@ -6,6 +6,8 @@
  * riusava `friendlyModelLabel`, che è claude-only, e `gpt-5.4-mini` diventava
  * «Gpt 5.4.mini» — un id che non esiste, mostrato sul controllo che dice quale
  * modello stai per usare.
+ *
+ * @covers CHAT-DEF-03
  */
 import { describe, expect, test } from 'bun:test';
 import { splitModelId } from './modelLabel';

@@ -19,6 +19,8 @@
  *
  * bun:test non ha DOM: qui sotto ci sono uno storage in memoria, un `window`
  * minimo per gli eventi e una `fetch` che registra le chiamate.
+ *
+ * @covers CMD-01
  */
 import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import {

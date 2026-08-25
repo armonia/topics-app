@@ -13,6 +13,7 @@
  * chiede un tool, uno che chiude) e si guarda QUANDO l'uso viene consegnato.
  * Niente rete e niente credenziali vere: la `HOME` del test contiene un token
  * finto ma fresco, che è tutto ciò che serve per non passare dal rinnovo.
+ * @covers USAGE-03
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

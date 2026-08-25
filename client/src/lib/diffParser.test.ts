@@ -1,3 +1,9 @@
+/**
+ * Parsing the diff blocks out of an assistant message so they can render as
+ * apply/reject cards instead of as prose.
+ *
+ * @covers CHAT-02
+ */
 import { describe, expect, it } from "bun:test";
 import { parseMessageWithDiffs } from "./diffParser";
 

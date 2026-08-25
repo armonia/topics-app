@@ -6,6 +6,8 @@
  * qualcuno aggiungesse un campo in chiaro «tanto serve per il log», il test
  * sull'involucro fallisce — che è l'unico modo perché una promessa di
  * riservatezza resti vera nel tempo.
+ *
+ * @covers RELAY-E2E-04
  */
 import { describe, expect, it } from "bun:test";
 import {

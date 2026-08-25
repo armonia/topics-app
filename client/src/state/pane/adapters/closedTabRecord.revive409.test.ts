@@ -20,6 +20,8 @@
  * invece di ricevere il 409 — sta in `tests/integration/terminal-revive-race.test.ts`.
  * Questo file copre il client contro un server più vecchio, e contro qualunque
  * altra strada che risponda 409 su quell'id.
+ *
+ * @covers CMD-03
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { reopenClosedTab, type ClosedTabRecord } from './closedTabRecord';

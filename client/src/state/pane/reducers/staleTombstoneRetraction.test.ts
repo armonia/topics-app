@@ -33,6 +33,8 @@ import type { PaneState, Pane } from "../types";
  * La ritrattazione avviene su entrambe le metà dell'idratazione:
  *   - strip half: lo snapshot in arrivo (LWW più nuovo) elenca la pane aperta;
  *   - union half: la pane viva locale è più avanti del marcatore in arrivo.
+ *
+ * @covers TAB-SYNC-02
  */
 
 const T_OPEN_OLD = 1_000_000; // original open, long ago

@@ -5,6 +5,8 @@
  * tutti i casi in cui chiedere sarebbe una bugia. Il costo di sbagliare non è
  * simmetrico: un invito mancato si recupera dalle impostazioni, un permesso
  * negato per riflesso no.
+ *
+ * @covers CMD-02
  */
 import { describe, expect, test } from 'bun:test';
 import { shouldOfferPush } from './pushAsk';

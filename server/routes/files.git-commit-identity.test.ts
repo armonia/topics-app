@@ -23,6 +23,7 @@
  *
  * Rosso misurato: nightly del 16/08, FILE-17 «git commit rifiutato dal server:
  * Author identity unknown … fatal: empty ident name (for <runner@…>) not allowed».
+ * @covers FILE-02
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

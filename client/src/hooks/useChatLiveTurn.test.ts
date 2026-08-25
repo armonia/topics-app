@@ -17,6 +17,8 @@
  *    `addMessage` matched it and returned early, so a window that never receives
  *    the content chunks (its `openTopicIds` does not list the topic) kept an
  *    EMPTY bubble: the closing persisted row was its only chance to be filled.
+ *
+ * @covers CHAT-01, SUBAGENT-07
  */
 import { describe, expect, test } from 'bun:test';
 import * as React from 'react';

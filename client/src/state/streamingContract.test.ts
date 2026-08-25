@@ -28,6 +28,8 @@
  * SERVER emetta davvero questi valori sta scritto in `server/routes/topics.ts`
  * (il tipo dichiarato di `sessions`), ed è verificato dal typecheck del server,
  * non da qui.
+ *
+ * @covers CHAT-REL-01
  */
 import { describe, expect, test } from 'bun:test';
 

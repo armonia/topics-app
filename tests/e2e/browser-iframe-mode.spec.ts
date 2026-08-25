@@ -20,6 +20,8 @@ hermetic(test);
  * AND no agent is driving it; otherwise it falls back to the server-side
  * screenshot stream. The framability decision comes from GET
  * /api/browsers/framable?url=… (mocked here).
+ *
+ * @covers BROWSER-01
  */
 async function mountBrowserPane(
   page: import("@playwright/test").Page,

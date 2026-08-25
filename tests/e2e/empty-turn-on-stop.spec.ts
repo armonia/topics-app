@@ -25,6 +25,8 @@ const BASE = E2E_BASE;
  * Il lato server (riga cancellata + contabilità dei rami riparata) sta in
  * `tests/integration/empty-turn-discard.test.ts`; la regola di cosa sia "vuoto"
  * è una sola, `shared/empty-turn.ts`, con i suoi test di unità.
+ *
+ * @covers CHAT-01
  */
 test.use({ video: "on" });
 

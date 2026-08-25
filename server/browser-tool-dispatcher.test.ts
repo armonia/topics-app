@@ -10,6 +10,7 @@
  *   - browser_open delegates to service.navigate(contextId, url)
  *   - invalid args throw a descriptive error
  *   - unknown tool names return a structured { error } object
+ * @covers BROWSER-CHAT-03
  */
 import { describe, test, expect } from "bun:test";
 import type { BrowserService } from "./browser-service";

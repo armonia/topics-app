@@ -12,6 +12,7 @@
  *
  * Lo stesso conto è già stato pagato due volte, con `blockedBy` e con
  * `waitingOnCount`.
+ * @covers KANBAN-07
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

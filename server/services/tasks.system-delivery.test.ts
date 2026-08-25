@@ -26,6 +26,7 @@
  * prima di chiamare `deliverToReviewBySystem`, e quando quel campo e' zero
  * `reviewEvidence()` risponde `kind: 'uncommitted'` -- il chip sulla card.
  * Il test (c) qui sotto verifica quella catena a livello di servizio.
+ * @covers KANBAN-05
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { type Database } from "bun:sqlite";

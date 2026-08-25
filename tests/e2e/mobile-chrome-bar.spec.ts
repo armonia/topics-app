@@ -31,6 +31,8 @@
  * che in una `env()` nuda — `env()` non si può sovrascrivere, e una riga
  * impossibile da provare fuori da un telefono è una riga che si sbaglia a occhi
  * chiusi.
+ *
+ * @covers LAYOUT-02
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

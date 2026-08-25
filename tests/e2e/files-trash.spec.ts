@@ -11,6 +11,8 @@
  * sovrascrivono, il .trashinfo c'e') lo provano i test unitari di
  * `server/lib/trash.ts`, dove la radice si puo' scegliere. Da qui non si puo':
  * su macOS leggere `~/.Trash` richiede Full Disk Access.
+ *
+ * @covers FILE-01
  */
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";

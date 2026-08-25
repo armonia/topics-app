@@ -20,6 +20,8 @@
  * Il padre nasce SENZA ramo consegnato: è ciò che fa uscire l'approvazione
  * (`task-choice-accept`) invece di «Landa su main», che è un'altra chiamata e un
  * altro rifiuto.
+ *
+ * @covers KANBAN-08
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

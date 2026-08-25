@@ -7,6 +7,8 @@
  * second device (or a forgotten PWA) with the topic focused was enough to kill
  * the badge for EVERYONE. This test pins the new single-policy behaviour: a
  * message to a topic that ANOTHER client holds focused still badges HERE.
+ *
+ * @covers TAB-BADGE-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

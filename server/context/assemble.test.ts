@@ -8,6 +8,7 @@
  * - Build a minimal `AppContext` mock exposing only the methods/properties
  *   `assembleTopicContext` actually consumes.
  * - Each test owns its own tmpdir; cleanup in `afterAll`.
+ * @covers CTX-GOAL-01
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";

@@ -17,6 +17,7 @@
  * Prima del 2026-08-16 non si vedeva, perché gli agenti dispacciati erano tutti
  * claude-code. Col runtime `jcode` di default ogni sessione dispacciata è di un
  * altro provider, quindi il ramo passa da «impossibile» a «sempre».
+ * @covers KANBAN-10
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";

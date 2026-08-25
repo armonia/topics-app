@@ -7,6 +7,7 @@ import { turnWatchdogDecision } from "./claude-code";
  * breaks that assumption: the child is blocked on the bridge's JSON-RPC
  * response and streams nothing until the human clicks the panel, so the idle
  * clock is measuring how long the HUMAN took. These cases pin the difference.
+ * @covers CHAT-REL-03
  */
 
 const WINDOW = 30 * 60 * 1000;

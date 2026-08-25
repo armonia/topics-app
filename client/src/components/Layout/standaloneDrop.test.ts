@@ -1,3 +1,10 @@
+/**
+ * Dragging a tab across groups in the standalone grid: a drop onto another
+ * split cell merges into it at the indicated index instead of collapsing it,
+ * and a drop onto the main pool un-splits the dragged tab.
+ *
+ * @covers LAYOUT-01, LAYOUT-02
+ */
 import { describe, test, expect } from 'bun:test';
 import { resolveStandaloneCrossGroupDrop as resolve } from './standaloneDrop';
 

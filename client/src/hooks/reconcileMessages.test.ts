@@ -11,6 +11,8 @@ const msg = (id: string, content: string, extra: Partial<ChatMessage> = {}): Cha
 } as ChatMessage);
 
 /** Ricostruisce l'oggetto passando da JSON, come fa la storia che torna dal
+ *
+ * @covers CHAT-01
  *  server rispetto a quella riletta dalla cache locale. */
 const roundTrip = (m: ChatMessage): ChatMessage => JSON.parse(JSON.stringify(m)) as ChatMessage;
 

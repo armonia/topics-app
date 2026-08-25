@@ -5,6 +5,8 @@
  * file che ci sono dentro, collassa tutto in `?? match-compass/`. Il pannello
  * mostrava «1 modifica» con una riga senza nome, e accanto le branch e i remote
  * del repo di sopra, che sembravano di questa cartella.
+ *
+ * @covers FILE-02
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

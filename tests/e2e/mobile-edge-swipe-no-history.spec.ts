@@ -44,6 +44,8 @@ import { hermetic } from "./fixtures/hermetic";
  * `dispatchEvent` costruito in pagina: gli eventi sintetici non passano dalla
  * pipeline di input del browser, quindi non potrebbero ne' innescare ne'
  * escludere una navigazione.
+ *
+ * @covers LAYOUT-02
  */
 
 hermetic(test);

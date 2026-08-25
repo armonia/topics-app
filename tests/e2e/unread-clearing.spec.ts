@@ -1,3 +1,10 @@
+/**
+ * The unread badge of a topic in the sidebar: it appears while the topic is not
+ * focused, it clears when the topic is opened, and it SURVIVES a selection that only
+ * passed through — below the dwell threshold nothing was actually seen.
+ *
+ * @covers TOPIC-02
+ */
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

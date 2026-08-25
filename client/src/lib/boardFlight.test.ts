@@ -11,6 +11,8 @@
  *     escluso per costruzione (le posizioni sono DENTRO la colonna);
  *  3. una card NATA e una card appena trascinata non si animano: la prima non
  *     arriva da nessuna parte, la seconda e' gia' arrivata col dito.
+ *
+ * @covers KANBAN-01
  */
 import { describe, test, expect } from 'bun:test';
 

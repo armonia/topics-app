@@ -25,6 +25,8 @@ const BASE = E2E_BASE;
  * Restano attese fisse SOLO dove si osserva che qualcosa NON accade: per un
  * evento che non deve arrivare non esiste condizione da pollare, serve una
  * finestra. Sono segnate una per una.
+ *
+ * @covers CHAT-01
  */
 const AT_BOTTOM_TOLERANCE_PX = 150; // = AT_BOTTOM_TOLERANCE_PX in scrollAuthority.ts
 // Soglia di ACCENSIONE della freccia «torna in fondo» (= ARROW_SHOW_PX in

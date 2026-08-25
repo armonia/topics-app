@@ -1,3 +1,10 @@
+/**
+ * What the pane says when a navigation fails: who did not answer and why, a
+ * dead loopback port told apart from a real host, and an unknown code that
+ * keeps the engine's own words instead of hiding them.
+ *
+ * @covers BROWSER-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from './navErrorMessage';
 

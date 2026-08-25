@@ -1,3 +1,9 @@
+/**
+ * Stacking pane groups inside one grid column: where a new group lands
+ * relative to the target, the depth cap, and the heights of the stack.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, it, expect } from 'bun:test';
 import type { GroupLayoutRow } from '../../types';
 import {

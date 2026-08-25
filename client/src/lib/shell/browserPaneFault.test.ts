@@ -1,3 +1,8 @@
+/**
+ * Recognising a browser pane that has faulted, and recreating it.
+ *
+ * @covers BROWSER-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import {

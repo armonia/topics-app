@@ -8,6 +8,7 @@
  *   1) una chiamata → la sua azione (e la somma delle azioni ≤ totale del turno);
  *   2) gli eventi CLI sono cumulativi → un'azione già contata non si ri-attribuisce;
  *   3) le sotto-sessioni (sidechain) non gonfiano il conto del genitore.
+ * @covers USAGE-14
  */
 
 import { describe, expect, test } from "bun:test";

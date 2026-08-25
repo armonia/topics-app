@@ -1,6 +1,11 @@
 /**
  * Tests for pty-activity — the cosmetic-repaint classifier that stops an
  * animated TUI statusline from pinning a session "busy" forever.
+ *
+ * A frame that is only a repaint must not count as PTY activity: it is that
+ * signal the tracker uses to demote a `running` session with a silent PTY.
+ *
+ * @covers CCS-04
  */
 import { describe, test, expect } from "bun:test";
 import { visibleSignature, classifyFrame, countsAsActivity, isInputEcho, INPUT_ECHO_WINDOW_MS, isResizeRepaint, RESIZE_REPAINT_WINDOW_MS } from "./pty-activity";

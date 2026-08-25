@@ -22,6 +22,8 @@ hermetic(test);
  *
  * Ogni test si semina lo stato che gli serve: dipendere dal test precedente
  * renderebbe il secondo rosso solo perché è rosso il primo.
+ *
+ * @covers CTX-GOAL-01
  */
 test.describe("Obiettivo della chat", () => {
   let topicId: string;

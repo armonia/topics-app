@@ -8,6 +8,11 @@ import { armTurnDeadline } from "./turn-deadline";
  * without advancing the clock means "the timer went off but not an instant has
  * passed", and there the cap must re-arm rather than cut. Modelling the timers
  * without modelling the clock made the correct behaviour look broken.
+ *
+ * The turn's hard cap: it fires on silence, never on a live process, and it
+ * re-arms while a question is on screen.
+ *
+ * @covers CHAT-REL-03
  */
 function fakeTimers() {
   let seq = 0;

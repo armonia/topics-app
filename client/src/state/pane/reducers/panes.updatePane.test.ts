@@ -10,6 +10,8 @@
  * uno diverso nella stessa patch — che è la forma in cui gli aggiornamenti
  * veri arrivano davvero (`persistBrowserPaneTitle` manda title + titleSource
  * insieme, e nel caso comune uno dei due è già a posto).
+ *
+ * @covers TAB-SYNC-01
  */
 import { describe, test, expect } from 'bun:test';
 import { paneReducer } from './index';

@@ -8,6 +8,8 @@
  * lista a schermo, sfrattarne una occupata BUTTA lavoro (i messaggi in memoria
  * sono più freschi di quelli sul server), e sfrattare troppo presto trasforma
  * ogni ritorno indietro in una fetch.
+ *
+ * @covers LEAK-01
  */
 import { describe, expect, test } from 'bun:test';
 import {

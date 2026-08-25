@@ -19,6 +19,8 @@
  *   1. browser SOPRA browser → una cella sola, due tab (il caso di Attilio);
  *   2. TIPI DIVERSI → si raggruppano lo stesso (la decisione, scritta);
  *   3. il ritorno: una tab tolta dal gruppo torna una pane a sé.
+ *
+ * @covers LAYOUT-01
  */
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import type { Page } from "@playwright/test";

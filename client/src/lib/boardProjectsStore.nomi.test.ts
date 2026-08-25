@@ -13,6 +13,8 @@ import { projectNameFromId, resolveProjectRefs, UNKNOWN_PROJECT_NAME } from './b
  * Misurato sui dati veri prima di toccare il codice: quindici `projectId` nei
  * task, uno dei quali un UUID assente dall'indice dei progetti. Non un caso di
  * scuola, il progetto che si vedeva a schermo.
+ *
+ * @covers KANBAN-02
  */
 describe('un id non è un nome', () => {
   test('un id di board perde il suffisso: quello un nome ce l\'ha dentro', () => {

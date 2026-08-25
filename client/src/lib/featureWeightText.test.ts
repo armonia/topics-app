@@ -1,3 +1,4 @@
+/** @covers RES-ATTR-06 */
 import { describe, it, expect } from 'bun:test';
 import { rigaVoce, bloccoTooltip, vociPerNatura, quantitaBreve, fmt, RIGHE_NEL_TOOLTIP } from './featureWeightText';
 import type { VocePeso } from './featureWeight';

@@ -23,6 +23,8 @@ hermetic(test);
  * il suo lavoro dipende dalla CLI a valle (il client non intercetta `/compact`,
  * lo lascia passare come fa il bottone). Quello che qui si pretende è che il
  * comando si trovi — perché è esattamente la parte che mancava.
+ *
+ * @covers CMD-06
  */
 test.describe("Chat /compact — il comando si trova", () => {
   let topicId: string;

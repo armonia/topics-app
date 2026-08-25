@@ -17,6 +17,8 @@
  * (stessa scelta di lib/haptics.test.ts e lib/openTaskLink.test.ts).
  * `TopicShareAction` non usa hook e non tocca il documento, quindi è una funzione
  * pura di props: la si chiama e si guarda l'albero che restituisce.
+ *
+ * @covers GUEST-07
  */
 import { describe, test, expect } from 'bun:test';
 

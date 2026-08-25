@@ -4,6 +4,8 @@
  * silenzio — un task «senza progetto» finito in una riga sua, o un `done`
  * contato fra gli aperti — e sullo schermo si vedrebbe solo come un numero
  * plausibile ma sbagliato.
+ *
+ * @covers KANBAN-06
  */
 import { describe, test, expect } from 'bun:test';
 import { projectTaskCounts, countsSummary } from './projectTaskCounts';

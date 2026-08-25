@@ -26,6 +26,8 @@
  * DB in coda non sostituisce le asserzioni sul DOM: le CONFRONTA, perché una
  * board che disegna la card giusta sopra una riga ancora archiviata sarebbe
  * verde qui e rotta al prossimo reload.
+ *
+ * @covers KANBAN-01
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

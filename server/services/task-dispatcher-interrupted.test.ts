@@ -15,6 +15,7 @@
  * Qui si misurano le tre righe: il conteggio dello spegnimento, il conteggio
  * del riavvio, e la nota che dice «qui non passera' nessuno» - una volta sola,
  * e solo alle card che il server ha davvero tagliato.
+ * @covers KANBAN-10
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

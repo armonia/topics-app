@@ -17,6 +17,8 @@
  *
  * Il video serve: la differenza è un fondo blu che respira e poi smette, e uno
  * screenshot statico non prova un comportamento.
+ *
+ * @covers PROJECT-TABS-03
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

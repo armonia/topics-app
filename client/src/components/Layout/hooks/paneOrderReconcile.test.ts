@@ -1,3 +1,9 @@
+/**
+ * One tab per pane identity in the tab bar: duplicates collapse, ids with no
+ * pane in the store get no tab, and an unchanged order keeps its reference.
+ *
+ * @covers LAYOUT-02
+ */
 import { describe, test, expect } from 'bun:test';
 import { reconcilePaneOrder } from './paneOrderReconcile';
 

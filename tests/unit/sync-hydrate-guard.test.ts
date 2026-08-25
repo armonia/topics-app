@@ -15,6 +15,8 @@
  * runtime. Pulling that into bun:test requires DOM shims. The guard is a
  * single boolean check, so we test it via the exported `serverHydrated`
  * lifecycle module.
+ *
+ * @covers TAB-SYNC-01
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 

@@ -11,6 +11,8 @@ import { blankPaneState as blankState } from "./testSupport";
  * ma spegneva ogni controllo — se `SpaceMeta` cambiasse forma, questi due test
  * continuerebbero a compilare passando un oggetto che il codice vero non
  * accetterebbe mai.
+ *
+ * @covers TAB-SYNC-01
  */
 const spaceRegistry = (id: string, name: string): Record<string, SpaceMeta> => ({
   [id]: { id, name, order: 0, updatedAt: 1 },

@@ -1,3 +1,9 @@
+/**
+ * Whether a task still has a live agent session behind it, whether its tab can
+ * be opened, and when the absence has to be explained rather than hidden.
+ *
+ * @covers KANBAN-07
+ */
 import { describe, expect, test } from 'bun:test';
 import {
   canOpenTaskSession,

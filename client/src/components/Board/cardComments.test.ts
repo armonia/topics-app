@@ -1,3 +1,10 @@
+/**
+ * Which comment a review card shows: the agent's last word, paired with the
+ * human request it answers. A delivery is never mute, so the card must never
+ * fall back to a status row or a system note in place of it.
+ *
+ * @covers KANBAN-05
+ */
 import { describe, test, expect } from 'bun:test';
 import { cardCommentsFromRow, cardDetailNeed, selectCardComments, isHumanComment, isMachineVoice, showsCardThread, type CardThreadRow } from './cardComments';
 import { NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, noteParkedChildrenResolved } from '../../../../shared/board';

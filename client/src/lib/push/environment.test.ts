@@ -17,6 +17,8 @@
  * The globals get replaced and put back: `bun test` runs the files in the same
  * process, and a fake `navigator` left lying around would change the world out
  * from under the files that follow.
+ *
+ * @covers CMD-02
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { pushCapable, pushDeviceId, readPushEnvironment } from "./environment";

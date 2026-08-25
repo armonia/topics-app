@@ -1,3 +1,9 @@
+/**
+ * The sentence an empty voice note gets, carrying the two numbers that say
+ * whether the microphone opened at all.
+ *
+ * @covers CHAT-04
+ */
 import { describe, it, expect } from "bun:test";
 import { messaggioNotaVuota } from "./stt";
 

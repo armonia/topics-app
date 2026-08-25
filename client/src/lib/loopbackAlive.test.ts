@@ -28,6 +28,8 @@ describe('loopbackAlive', () => {
    * La proprietà che conta. Un falso «è morta» parcheggia una scheda VIVA e fa
    * sembrare rotto il pannello; un falso «è viva» al massimo ci fa provare a
    * caricare, che è il comportamento di sempre. Nel dubbio si prova.
+ *
+ * @covers BROWSER-01
    */
   test('server irraggiungibile, 500 o risposta senza il campo ⇒ si prova comunque', async () => {
     stubFetch(() => { throw new Error('offline'); });

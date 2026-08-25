@@ -1,3 +1,9 @@
+/**
+ * Whether a task in review is waiting on an answer or just on approval — read
+ * from the payload when it carries the question, asked only when it cannot.
+ *
+ * @covers KANBAN-07
+ */
 import { describe, test, expect } from 'bun:test';
 import { resolveReviewQuestion, type ReviewQuestionDeps } from './reviewQuestion';
 import { buildNotifyActions } from '../../../../shared/notify-actions';

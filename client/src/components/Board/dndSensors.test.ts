@@ -17,6 +17,8 @@
  *
  * Ogni sensore ha la sua porta d'ingresso, quindi una cura sola non basta: ogni
  * porta va provata. È il motivo per cui questi test esistono per tutte e tre.
+ *
+ * @covers KANBAN-01
  */
 import { describe, expect, test } from 'bun:test';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';

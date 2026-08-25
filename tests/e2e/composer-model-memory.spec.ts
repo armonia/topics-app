@@ -25,6 +25,8 @@ hermetic(test);
  * (b) la chat nuova SUCCESSIVA parte gia' con quel modello.
  * Sono le due frasi della richiesta: «deve conservarsi per la chat e per le
  * chat nuove successive».
+ *
+ * @covers CHAT-DEF-04
  */
 test.describe.serial("Composer — memoria del modello sulle chat nuove", () => {
   async function openNewChat(page: import("@playwright/test").Page) {

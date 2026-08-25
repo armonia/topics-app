@@ -6,6 +6,7 @@
  * in silenzio. Un test che guardi solo `archived === true` sarebbe passato
  * anche prima. Quindi qui si asserisce lo stato finale COMPLETO — flag, unread,
  * ui_state — perché è quello che la parzialità rompeva.
+ * @covers TOPIC-01
  */
 import { describe, it, expect } from "bun:test";
 import { archiveTopicFully, type ArchiveTopicDeps } from "./archive-topic";

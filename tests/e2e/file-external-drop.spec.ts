@@ -1,3 +1,10 @@
+/**
+ * Dragging a file from OUTSIDE the browser onto the explorer tree: the node under
+ * the pointer highlights, the drop uploads the file into that directory (or into the
+ * parent of a file node), and sibling nodes do not flash while the drag passes over.
+ *
+ * @covers FILE-01
+ */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";

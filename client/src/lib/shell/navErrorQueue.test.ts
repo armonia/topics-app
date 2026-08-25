@@ -15,6 +15,8 @@
  * covers the first, `pickNavError(events, {requested, view})` the second — the
  * pre-fix implementation is `events[events.length - 1]`, and every case below
  * that passes a basis fails against it.
+ *
+ * @covers BROWSER-01
  */
 import { describe, expect, test } from 'bun:test';
 import { pickNavError } from './navErrorQueue';

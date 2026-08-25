@@ -23,6 +23,7 @@
  *  2. «Ferma» su una card senza agente vivo risponde 409 `invalid_transition`,
  *     cioè un RIFIUTO che il client disegna accanto al bottone premuto — non
  *     un 200 che non muove niente.
+ * @covers KANBAN-07
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";

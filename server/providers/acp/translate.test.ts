@@ -4,6 +4,7 @@
  * È il pezzo che un agente ACP nuovo mette alla prova per primo, ed è puro: un
  * payload letterale entra, degli eventi escono. Se questi test reggono, aggiungere
  * un agente non richiede di spawnare niente per sapere se la chat lo disegnerà.
+ * @covers USAGE-06
  */
 import { describe, expect, test } from "bun:test";
 import {

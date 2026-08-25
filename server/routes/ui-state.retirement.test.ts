@@ -7,6 +7,7 @@
  * ciò che `server.ts` esegue all'avvio, e l'unico modo di provare che una
  * chiusura le cui conseguenze si erano perse viene onorata dopo, invece di
  * restare per un mese come le 11 sessioni misurate il 03/08.
+ * @covers TAB-SYNC-01
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -2,6 +2,8 @@
  * Tests for shouldKeepRestoredTerminalPane — the guard that stops a refresh /
  * hot-reload from deleting a project's restored Claude Code tabs while the
  * server session roster is momentarily empty or incomplete.
+ *
+ * @covers TERM-01
  */
 import { describe, test, expect } from "bun:test";
 import { shouldKeepRestoredTerminalPane } from "./terminalReconcile";

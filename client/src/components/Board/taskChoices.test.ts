@@ -1,3 +1,9 @@
+/**
+ * Which actions a card offers, and with which words: review (land / approve /
+ * send back), a live turn (stop / deliver what you have), a blocked task.
+ *
+ * @covers KANBAN-05, KANBAN-07
+ */
 import { describe, it, expect } from 'bun:test';
 import { choiceForText, taskChoices, taskChoiceState, usableQuestionOptions, VERDICT_CHOICES, type TaskChoiceId } from './taskChoices';
 import { acceptWord, drawerSurfaceLabels, landWord, redoWord, reviewDecisionButtons, sendBackWord, stopWord, taskActionWord, unblockWord } from './taskActionWords';

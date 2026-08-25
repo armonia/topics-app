@@ -6,6 +6,8 @@
  * Pure module — no DB, no fs, no spawn — so unit-style testing is the right
  * fit. Per CLAUDE.md "Unit tests allowed for pure modules: bun:test is
  * permitted for pure logic modules" this is the canonical example.
+ *
+ * @covers WORKTREE-02
  */
 import { describe, expect, test } from "bun:test";
 import {

@@ -15,6 +15,8 @@
  * Due stati che le API pubbliche non sanno costruire — la finestra d'attesa e
  * il budget dei tentativi esaurito — arrivano dal verbo di setup della suite
  * (`POST /api/test/tasks/:id/dispatch-gate`), che passa dal servizio vero.
+ *
+ * @covers KANBAN-07
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

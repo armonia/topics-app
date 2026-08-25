@@ -13,6 +13,8 @@ hermetic(test);
  * ("… not supported by this provider") — the reason "the slash commands don't
  * work". They now persist the per-topic spawn flag (model/effort) and respawn,
  * and /reasoning points to /effort instead of erroring.
+ *
+ * @covers CMD-06
  */
 test.describe("Chat slash commands (claude-code)", () => {
   let topicId: string;

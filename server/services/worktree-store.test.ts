@@ -1,3 +1,8 @@
+/**
+ * Deleting a worktree row: the topics bound to it forget the Claude session that
+ * lived in the reaped checkout and degrade to their project path, still working.
+ * @covers WORKTREE-03
+ */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createWorktreeStore } from "./worktree-store";

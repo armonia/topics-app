@@ -1,3 +1,9 @@
+/**
+ * The dispatch chip key of a delivery: a system move is not an agent delivery,
+ * and a card with no branch, commit or file behind it is not a delivery at all.
+ *
+ * @covers KANBAN-07
+ */
 import { describe, expect, test } from 'bun:test';
 import { chipKey, taskHasWork } from './chipKey';
 import { DISPATCH_CHIP } from './constants';

@@ -2,6 +2,8 @@
  * BRW-REL-01 — browserSingletonReducer must never "steal" (rebind) another
  * context's browser pane when an explicit contextId is given: one browser
  * pane per context. Legacy context-less opens keep the old singleton reuse.
+ *
+ * @covers BROWSER-CHAT-04
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { browserSingletonReducer, groupClaimsBrowserNavigate } from './usePaneOrdering';

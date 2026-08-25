@@ -6,6 +6,8 @@ import { describe, test, expect, beforeEach } from "bun:test";
  * `panes` useState seed consults getBrowserTombstones()), so it can't resurrect
  * from the persisted `nonChatPanes` snapshot after a reload. Mirrors the
  * terminal-session tombstone the project terminal-sync effect already relies on.
+ *
+ * @covers CD-CLOSE-01, CD-CLOSE-02
  */
 
 // Minimal window + localStorage polyfill installed BEFORE importing the module,

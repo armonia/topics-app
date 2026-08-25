@@ -25,6 +25,8 @@
  *
  * DUE STATI, e servono entrambi: la nota COMPARE nel thread, e la card RESTA
  * dove sta. Uno solo dei due non dice niente.
+ *
+ * @covers KANBAN-05
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

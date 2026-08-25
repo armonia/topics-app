@@ -65,6 +65,8 @@ describe("serverHydrated", () => {
    *
    * Questo test riproduce quell'ordine: se la notifica tornasse sincrona,
    * `visto` sarebbe `[]`.
+ *
+ * @covers TAB-SYNC-01
    */
   test("il listener gira DOPO il lavoro sincrono che segue il mark (l'ordine di syncWS)", async () => {
     const applicato: string[] = [];

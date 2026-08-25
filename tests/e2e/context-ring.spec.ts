@@ -25,6 +25,8 @@ hermetic(test);
  * senza leggere. Adesso è una pastiglia DENTRO il bottone dell'anello — stesso
  * bersaglio, nessun layout shift — e le vie d'uscita stanno nell'ispettore, a
  * un click da lì.
+ *
+ * @covers USAGE-09
  */
 test.describe.serial("Context ring — contesto reale + avviso accanto all'anello", () => {
   let topicId: string;

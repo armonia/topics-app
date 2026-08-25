@@ -6,6 +6,8 @@
  * divider adjacent to that invisible cell — a zero-width grab strip laid over
  * the neighbouring real divider's band, which made the real resizer read as
  * "lost" (unhittable). gapHasDivider is the pure predicate that suppresses it.
+ *
+ * @covers LAYOUT-01
  */
 import { describe, expect, it } from "bun:test";
 import { gapHasDivider } from "./splitDivider";

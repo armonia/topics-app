@@ -1,3 +1,10 @@
+/**
+ * The card prints the comment it picked, whole: the pick and the clamp read
+ * the SAME comment, so a review card never shows a truncated summary of a
+ * different row.
+ *
+ * @covers KANBAN-05
+ */
 import { describe, test, expect } from 'bun:test';
 import { selectCardComments } from './cardComments';
 

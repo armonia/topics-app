@@ -1,3 +1,10 @@
+/**
+ * The system note a dying agent run leaves on its card ("the session died, I am
+ * resuming the task"): it is written only while the card is still working, so a
+ * card already delivered to review never gets a sentence that is false.
+ *
+ * @covers KANBAN-07
+ */
 import { describe, expect, test } from "bun:test";
 import { shouldAnnounceResume } from "./dead-run-note";
 

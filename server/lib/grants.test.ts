@@ -1,3 +1,10 @@
+/**
+ * The three allowlists a guest's traffic is filtered through: which HTTP paths
+ * it may reach, which methods, and which WebSocket frame types may leave
+ * towards it (plus which socket is confined at all).
+ *
+ * @covers GUEST-01, GUEST-02, GUEST-04
+ */
 import { describe, expect, it } from "bun:test";
 import {
   isGuestAllowedPath, isGuestSafeFrameType, frameResource, isResourceType, RESOURCE_TYPES,

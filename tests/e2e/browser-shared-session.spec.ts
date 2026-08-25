@@ -29,6 +29,8 @@ test.afterAll(async ({ request }) => {
  * the WS control channel (the state fan-out), not the WebRTC video transport, so
  * it needs no sidecar/ICE. Navigates to a SERVER-LOCAL url so it never depends on
  * outbound internet in CI.
+ *
+ * @covers BROWSER-CHAT-02
  */
 test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
   /**

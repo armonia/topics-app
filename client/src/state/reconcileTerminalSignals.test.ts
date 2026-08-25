@@ -5,6 +5,8 @@
  * This is the backbone of the "stuck in progress" fix: incremental
  * terminal:activity deltas can be lost (server hot-reload, WS reconnect,
  * dropped message), so loading state must be reconcilable from the roster.
+ *
+ * @covers TERM-01
  */
 import { describe, test, expect } from "bun:test";
 import { reconcileTerminalSignals, type TerminalRosterEntry } from "./signals";

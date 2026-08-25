@@ -20,6 +20,8 @@
  * Si guida la route VERA (`POST /api/chat`) con un provider finto che consegna
  * il proprio `StreamHandler`, poi si preme stop dalla route vera
  * (`POST /api/chat/abort`) e si legge la riga dal database vero.
+ *
+ * @covers CHAT-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

@@ -23,6 +23,7 @@
  * Il test vivo contro il binario e' `acp-jcode-model.integration.test.ts` («un
  * modello inesistente non fa fallire il turno»), che si salta dove `jcode` non
  * e' installato. Questi casi sono la stessa regola senza binario.
+ * @covers KANBAN-07
  */
 import { describe, it, expect } from "bun:test";
 import { modelIsKnown, parseModelOptions, currentModelFrom } from "./config-options";

@@ -5,6 +5,7 @@
  * ma non era scorribile, quindi l'attribuzione delle risorse copriva le sole
  * sessioni PTY: su una macchina dove si lavora in chat il tooltip diceva sempre
  * «non misurato» pur essendoci un albero di processi da contare.
+ * @covers RES-ATTR-01
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import { setSessionCliPid, clearSessionCliPid, listSessionCliPids, getSessionCliPid } from "./session-pids";

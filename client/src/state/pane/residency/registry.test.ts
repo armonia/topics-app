@@ -18,6 +18,8 @@ import {
  * in ordine. Serve perché due delle tre regole del registro sono temporali
  * (dwell, ritardo di sfratto) e testarle con `await sleep()` renderebbe la suite
  * lenta e intermittente.
+ *
+ * @covers LEAK-01
  */
 function fakeClock() {
   let t = 1_000_000;

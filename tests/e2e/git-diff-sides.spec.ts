@@ -16,6 +16,8 @@
  * HEAD:<nuovo>` esce non-zero e la rotta risponde 200 con corpo vuoto. Lato
  * sinistro bianco, file intero in verde: un rename con una riga cambiata si
  * presentava come il file intero aggiunto.
+ *
+ * @covers FILE-02
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";

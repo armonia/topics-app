@@ -4,6 +4,8 @@
  * La regola che questi casi difendono: la riga risponde a «con chi sto
  * lavorando», non a «quante sessioni ci sono». È la differenza fra un numero
  * utile e un contatore, e si vede tutta nel primo caso — te stesso non conti.
+ *
+ * @covers STATUSLINE-01
  */
 import { describe, it, expect } from "bun:test";
 import { presentiOra, PRESENZA_MS } from "../../client/src/components/Sidebar/orgPresence";

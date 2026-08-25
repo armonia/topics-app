@@ -10,6 +10,8 @@ import { encodeNotifyTarget, decodeNotifyTarget, openNotifyToken } from './notif
  *
  * Ambiente senza DOM, come nel gemello `openTaskLink.test.ts`: si stubba la
  * finestra minima che il modulo tocca (location, dispatchEvent, history).
+ *
+ * @covers CMD-02
  */
 type StubWindow = {
   location: { origin: string; href: string; pathname: string; search: string };

@@ -19,6 +19,8 @@ import type { PaneState, Pane } from "../types";
  *     remote one).
  *   - re-opening the same id via OPEN_PANE retracts the tombstone so a genuine
  *     reopen survives the next hydrate (⇧⌘T / persistBrowserPane re-entry).
+ *
+ * @covers TAB-SYNC-01, TAB-SYNC-02
  */
 
 const blank = (): PaneState => ({

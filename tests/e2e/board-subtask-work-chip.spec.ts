@@ -13,6 +13,8 @@
  * sono DUE STATI sulla stessa riga: il padre lavora → «nel turno del padre»; il
  * padre molla il turno → «nessuno la lavora», in rosso, senza ricaricare niente.
  * Uno screenshot proverebbe metà del comportamento.
+ *
+ * @covers KANBAN-08
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

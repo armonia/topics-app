@@ -5,6 +5,8 @@
  * un modo per rendersene conto: un percorso che sceglie un'altra destinazione,
  * un'intestazione che dichiara chi sei, un valore che spezza in due la riga a
  * valle.
+ *
+ * @covers RELAY-E2E-01
  */
 import { describe, expect, it } from "bun:test";
 import {

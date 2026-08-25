@@ -1,3 +1,8 @@
+/**
+ * Counting the agents that are alive against the board's cap: a card's child
+ * sessions count too, and they are reaped with the parent that opened them.
+ * @covers KANBAN-07
+ */
 // La BARRA numero 1: una card che lancia due sessioni figlie non fa mai salire
 // il numero di agenti vivi sopra il tetto della board.
 //

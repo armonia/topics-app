@@ -17,6 +17,8 @@
  *
  * La terza: il relay non deve poter leggere niente di tutto questo. Credito e
  * canali stanno dentro `payload`, e l'involucro resta quello di prima.
+ *
+ * @covers RELAY-E2E-03
  */
 import { describe, expect, it } from "bun:test";
 import {

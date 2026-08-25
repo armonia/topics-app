@@ -21,6 +21,7 @@
  * Le due situazioni devono restare DISTINGUIBILI, ed è il punto di questi test:
  * padre vivo ⇒ la colonna conta UNO (lo step sta nella checklist); padre chiuso
  * ⇒ lo step riappare, perché non è la checklist di nessuno.
+ * @covers KANBAN-08
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

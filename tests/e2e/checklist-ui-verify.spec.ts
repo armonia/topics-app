@@ -18,6 +18,8 @@
  *     surface exists on web to assert against.
  *   - The native browser pane (point 11) is Tauri-only; on web only the
  *     placeholder renders, so modal-over-native-pane z-order is manual on Tauri.
+ *
+ * @covers LAYOUT-02
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";

@@ -14,6 +14,8 @@
  * colonna qui non si monta. Tornare a `tasks.map` è una modifica di una parola,
  * e non fa rumore da nessuna parte: la board resta corretta, diventa solo
  * lentissima di nuovo.
+ *
+ * @covers KANBAN-01
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

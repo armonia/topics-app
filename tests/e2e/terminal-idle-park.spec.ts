@@ -34,6 +34,8 @@ hermetic(test);
  * carico, e questo lascia il margine per una macchina piu' lenta senza
  * trasformare un test appeso in cinque minuti di attesa. Se un giorno un caso
  * qui dentro impiega davvero 75 secondi, il problema non e' il tetto.
+ *
+ * @covers TERM-01
  */
 test.describe.configure({ timeout: 75_000 });
 

@@ -3,6 +3,8 @@ import { boardTabCounts, SUMMARY_STATUSES } from './boardTabCounts';
 import type { BoardTask, TaskStatus } from './board';
 
 /** Solo i due campi che la funzione legge: un finto completo sarebbe trenta
+ *
+ * @covers KANBAN-06
  *  righe di rumore che non partecipano a nessuna asserzione. */
 function task(projectId: string, status: TaskStatus): BoardTask {
   return { projectId, status } as BoardTask;

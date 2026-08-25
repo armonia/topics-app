@@ -8,6 +8,7 @@
  * web pane (handleBrowserScreenshot) and the native Tauri pane (dispatcher
  * interception) must now persist the image to disk and hand back a PATH, never a
  * base64 blob.
+ * @covers BROWSER-CHAT-01
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, existsSync, rmSync, statSync } from "node:fs";

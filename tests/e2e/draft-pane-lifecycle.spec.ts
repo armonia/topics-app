@@ -17,6 +17,8 @@
  * La 3 ha un gemello che vale il doppio: la bozza con dentro del testo NON si
  * chiude. Una chiusura automatica che si porta via quello che avevi scritto
  * sarebbe peggio del difetto che ripara.
+ *
+ * @covers LAYOUT-02
  */
 import { expect, test } from "@playwright/test";
 import { goToApp, ensureTopicVisible } from "./helpers";

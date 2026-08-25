@@ -1,3 +1,8 @@
+/**
+ * The board routes end to end: task CRUD, the human delivery gate that keeps an
+ * agent out of `done`, board settings, the pre-review checks and intake.
+ * @covers KANBAN-05
+ */
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

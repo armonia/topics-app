@@ -1,3 +1,9 @@
+/**
+ * Merging the browser storage state kept per topic, so restoring a context
+ * never signs out the session the other side already held.
+ *
+ * @covers BROWSER-CHAT-01
+ */
 import { test, expect } from 'bun:test';
 import { mergeStorageState, type StorageState } from './browser-login-state';
 

@@ -25,6 +25,8 @@
  *   · le superfici generali si misurano a 24px, il minimo di WCAG 2.2 AA. E' la
  *     soglia che gia' usa `chat-layout-audit.spec.ts`, e cambiare metro fra due
  *     audit dello stesso repo renderebbe i due numeri non confrontabili.
+ *
+ * @covers LAYOUT-02
  */
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "fs";

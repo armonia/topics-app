@@ -1,3 +1,9 @@
+/**
+ * Flattening a nested pane grid into rows of equal height, chunked at the max
+ * columns per row, with duplicate pane keys deduped and stacks dissolved.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, it, expect } from 'bun:test';
 import type { GroupLayoutRow } from '../../types';
 import { flattenGroupRows } from './flattenLayout';

@@ -11,6 +11,8 @@
  * gli strumenti veri (`make -pRrq`, `deno task`, `cargo metadata`). Qui si
  * prova il resto: che arrivino allo schermo, che si lancino, e che quando non
  * c'e niente la sezione lo DICA.
+ *
+ * @covers PROCESS-01
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

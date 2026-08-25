@@ -1,6 +1,8 @@
 /**
  * Il percorso che vale come piano — verificato contro i due file veri prodotti
  * dalla CLI in plan mode (uno dal turno dell'utente, uno da un probe).
+ *
+ * @covers CHAT-02
  */
 import { describe, expect, test } from 'bun:test';
 import { isPlanFile } from './plan-file';

@@ -10,6 +10,8 @@ import { desiredInterval } from "./useGitStatus";
  * risposta giusta e' li' un attimo dopo. Con il vecchio calcolo
  * (`base * 2^streak`) il primo errore portava il ritentativo a 30 secondi, e
  * si guardava un pannello in errore per mezzo minuto senza motivo.
+ *
+ * @covers FILE-02
  */
 describe("desiredInterval", () => {
   test("senza errori e' il passo normale", () => {

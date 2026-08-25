@@ -27,6 +27,8 @@ hermetic(test);
  * Sono le due cose che l'utente vede; la migrazione alla promozione è coperta
  * dal typecheck del ramo `wasDraft && isNowReal` in ChatPane, dove vive già la
  * stessa migrazione per gli altri tre.
+ *
+ * @covers CHAT-DEF-04
  */
 test.describe.serial("Composer — autonomia su una chat nuova", () => {
   test("scegliere «Libero» su una bozza non dà errore e resta scelto", async ({ page }) => {

@@ -7,6 +7,11 @@
  * sullo stesso id rispondeva `200`. Qui si fissa che la risposta è UNA, e
  * `tests/integration/auth-routes.test.ts` fissa che le due rotte la usano
  * entrambe.
+ *
+ * It is the same answer `GET /api/auth/subjects` gives, i.e. which subjects
+ * the owner's address book may offer.
+ *
+ * @covers GUEST-06
  */
 import { describe, test, expect } from "bun:test";
 import { Database } from "bun:sqlite";

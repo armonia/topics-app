@@ -2,6 +2,8 @@
  * La regola «dove finisce un file che apro» viveva incollata in tre punti
  * (`handleOpenFile`, `handleOpenDiff`, `handleOpenProcessLog`) e non aveva un
  * test: per eseguirla serviva un ProjectWindow montato. Qui è un array.
+ *
+ * @covers LAYOUT-01, TAB-SYNC-03
  */
 import { describe, expect, test } from 'bun:test';
 import type { Pane, PaneGroup } from '../../../types';

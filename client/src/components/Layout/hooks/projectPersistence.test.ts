@@ -1,3 +1,10 @@
+/**
+ * Which panes of a project window are written to the server so the reload
+ * restores the same arrangement — and which ones (chat tabs, the wrapper
+ * pane, a preview nobody is looking at) deliberately are not.
+ *
+ * @covers LAYOUT-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { selectNonChatPanesToPersist } from './projectPersistence';
 import { createPaneId } from '../../../state/pane/adapters';

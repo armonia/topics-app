@@ -1,3 +1,9 @@
+/**
+ * What the client is allowed to wipe when a session is stopped, and why it
+ * may not before it has hydrated.
+ *
+ * @covers CHAT-01
+ */
 import { describe, expect, test } from "bun:test";
 import { decideClientWipeOnStop } from "./stopSessionPolicy";
 import type { AssistantTurnShape } from "../../../shared/empty-turn";

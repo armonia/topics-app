@@ -9,6 +9,8 @@
 //     secondi, e un discendente nato dentro quella finestra non riceveva nessun
 //     segnale. È esattamente la finestra in cui i discendenti nascono: si spegne
 //     un dev server proprio mentre sta finendo di tirare su i suoi lavoratori.
+//
+// @covers BGSHELL-04
 import { test, expect, describe, afterEach } from "bun:test";
 import {
   getDescendantPids,

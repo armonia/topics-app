@@ -7,6 +7,7 @@
  * `npm run` is ever launched. The happy path (actual spawn) is intentionally
  * not covered here to keep the suite side-effect free; it reuses the same
  * startScriptProcess as the long-standing UI endpoint.
+ * @covers PROCESS-01
  */
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";

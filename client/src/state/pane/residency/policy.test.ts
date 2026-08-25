@@ -1,3 +1,10 @@
+/**
+ * Who stays mounted and who is evicted when a long session keeps opening
+ * panes: cost classes, per-class budgets, the floors that protect what is on
+ * screen or held, and the minimum dwell that stops thrashing.
+ *
+ * @covers LEAK-01
+ */
 import { describe, expect, test } from 'bun:test';
 import {
   computeResident,

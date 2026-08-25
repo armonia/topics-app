@@ -16,6 +16,8 @@ import {
  * We use short real delays (50 ms) + a slightly longer wait (120 ms) to
  * avoid depending on bun's fake-timer flag. Test runtime stays well
  * under a second overall.
+ *
+ * @covers CMD-03, CMD-04
  */
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

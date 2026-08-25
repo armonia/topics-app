@@ -11,6 +11,8 @@
  *
  * Qui si fissa la politica, che è pura e quindi provabile senza store né WS:
  * quanto deve durare lo sguardo, e quando un "visto" torna a valere zero.
+ *
+ * @covers TAB-BADGE-02, TAB-BADGE-07
  */
 import { describe, test, expect } from 'bun:test';
 import {

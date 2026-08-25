@@ -12,6 +12,8 @@
  * server deve averla registrata ferma e con `planFirst`, e il chip deve tornare
  * al suo default dopo l'invio. È anche la clip di consegna: la scelta di una
  * colonna è un comportamento a più stati, non uno screenshot.
+ *
+ * @covers KANBAN-07
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

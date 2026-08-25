@@ -1,3 +1,9 @@
+/**
+ * What a persisted snapshot must be cleaned of before it becomes state: group
+ * references with no pane record, duplicate identities, malformed entries.
+ *
+ * @covers TAB-SYNC-01
+ */
 import { describe, test, expect } from "bun:test";
 import { sanitizeSnapshot, KNOWN_PANE_TYPES } from "./sanitizeSnapshot";
 import { TERMINAL_AGENT_TYPES } from '../../../../../shared/terminal-session-types';

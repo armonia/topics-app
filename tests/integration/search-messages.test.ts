@@ -5,6 +5,8 @@
  * scanned the legacy gateway JSONL transcripts, so messages written by the
  * current chat pipeline (SQLite `messages` table) were unfindable — the
  * palette's "Messaggi" section stayed empty for any fresh conversation.
+ *
+ * @covers CMD-01
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

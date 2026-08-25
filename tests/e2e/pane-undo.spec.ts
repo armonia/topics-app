@@ -17,6 +17,8 @@
  *
  * Strategy: state-injection for panel setup + UI-driven close/undo.
  * Topics are pre-seeded with messages so the chat container is scrollable.
+ *
+ * @covers CMD-03
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";

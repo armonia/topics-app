@@ -35,6 +35,8 @@ const BASE = E2E_BASE;
  * Il gemello che tiene in piedi il caso opposto — «primo turno mai partito, si
  * butta» — è `empty-turn-on-stop.spec.ts`; il predicato ha i suoi test di unità
  * in `shared/clear-messages-policy.test.ts` e `stopSessionPolicy.test.ts`.
+ *
+ * @covers CHAT-01
  */
 test.use({ video: "on" });
 

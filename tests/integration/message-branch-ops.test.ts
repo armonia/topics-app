@@ -7,6 +7,8 @@
  *    happy-path needs a live provider, exercised via the chat E2E env).
  *  · createBranchPartialMessage — allocates the NEXT branch index and
  *    activates it (was hardcoded 0: fine for edit, colliding for regenerate).
+ *
+ * @covers CHAT-CONV-01, CHAT-CONV-02
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";

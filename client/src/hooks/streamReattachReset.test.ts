@@ -5,6 +5,8 @@
  * has: a reattach after a restart (still open) and a spontaneous turn picking
  * up the «no answer» headstone (already closed). Getting either wrong shows
  * the same thing on screen — the same turn twice.
+ *
+ * @covers CHAT-01
  */
 import { describe, it, expect } from 'bun:test';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';

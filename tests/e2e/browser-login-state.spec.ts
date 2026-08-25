@@ -4,6 +4,8 @@
  * the /agent/save-state + /agent/load-state REST routes through the real server
  * + BrowserService (web-fallback Playwright path). The page is the app's own
  * origin so cookies/localStorage are real (data: URLs can't hold them).
+ *
+ * @covers BROWSER-02
  */
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";

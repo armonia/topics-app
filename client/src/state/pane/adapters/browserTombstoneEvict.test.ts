@@ -8,6 +8,8 @@ import { __evictRemotelyClosedBrowserPanesForTests as evict } from "./tombstoneS
  * open pane live (not just block a future resurrection) — the "l'ho chiusa da
  * app, ma sta ancora su pwa" bug. Guards: a pane re-opened after the close
  * survives (causal), and only a recent close evicts (TTL).
+ *
+ * @covers CD-CLOSE-01, CD-CLOSE-02
  */
 
 const dispatch = (a: Parameters<ReturnType<typeof usePaneStore.getState>["dispatch"]>[0]) =>

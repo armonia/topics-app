@@ -1,3 +1,9 @@
+/**
+ * The solo-cell model behind merging topic tabs into one grid cell: moving,
+ * extracting, pruning, re-keying and reordering, with the primary pinned.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, test, expect } from 'bun:test';
 import {
   soloCellKey, flattenSoloCells, removeTopicFromCells, extractToOwnCell,

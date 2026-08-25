@@ -1,3 +1,9 @@
+/**
+ * Dragging a divider: pixels converted into a weight delta, and the resize
+ * that keeps the untouched siblings in proportion.
+ *
+ * @covers LAYOUT-01
+ */
 import { test, expect, describe } from 'bun:test';
 import { pxToWeightDelta, resizeWeights } from './splitController';
 

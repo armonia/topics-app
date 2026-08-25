@@ -1,3 +1,10 @@
+/**
+ * Who decides where the transcript is anchored: sending re-anchors and pins,
+ * a starting turn never drags back someone reading history, and the guard
+ * tells a user scroll apart from a re-measure jitter.
+ *
+ * @covers CHAT-01
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   AT_BOTTOM_TOLERANCE_PX,

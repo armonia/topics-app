@@ -1,3 +1,9 @@
+/**
+ * The pane store's device-local scroll setter, and the sequence number that
+ * only ever moves forward so a late frame cannot rewind the state.
+ *
+ * @covers TAB-SYNC-01, TAB-SYNC-02
+ */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { usePaneStore } from "./store";
 import { DEFAULT_SPACE_ID } from "./types";

@@ -1,3 +1,10 @@
+/**
+ * System & infrastructure smoke: the WebSocket connects and its status is shown, the
+ * status bar carries server info, the REST endpoints answer, and an invalid route or
+ * API call recovers instead of taking the app down.
+ *
+ * @covers SYSTEM-01
+ */
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

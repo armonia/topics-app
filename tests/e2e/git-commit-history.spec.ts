@@ -8,6 +8,8 @@
  * Si carica a strati e i test seguono gli strati: la lista quando apri la
  * sezione, i file quando apri un commit. Un `git show` per ogni commit in
  * lista sarebbe stato il modo piu' rapido di rendere lento il pannello.
+ *
+ * @covers FILE-02
  */
 import { test, expect, type Locator } from "@playwright/test";
 import { goToApp } from "./helpers";

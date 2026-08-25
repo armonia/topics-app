@@ -11,6 +11,8 @@
  * Il test fissa le due cose che si possono sbagliare in silenzio: la chiave con
  * cui si guarda un item nei Set (il SOGGETTO, non la chiave di render) e la
  * conservazione dell'ordine dentro il bucket.
+ *
+ * @covers TOPIC-02
  */
 import { describe, test, expect } from 'bun:test';
 import {

@@ -6,6 +6,11 @@
  * quindi non possano più rispondere cose diverse. Divergevano davvero, due
  * volte, e in entrambi i casi la strada sbagliata era quella che nessuno
  * guarda — il WebSocket e il tunnel.
+ *
+ * No cookie is nobody and stays confined; a cookie matching no device opens
+ * nothing.
+ *
+ * @covers GUEST-03
  */
 import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

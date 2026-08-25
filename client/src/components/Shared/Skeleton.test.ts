@@ -21,6 +21,8 @@
  * Perché sul SORGENTE e non montando: `Skeleton.tsx` importa `@/lib/…` e
  * `bun test` non risolve quell'alias (stesso motivo, e stesso metodo, di
  * `GlobalCapControl.test.tsx` e `ThreadRuns.test.tsx`).
+ *
+ * @covers PERF-01
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync, readdirSync, statSync } from 'node:fs';

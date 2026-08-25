@@ -12,6 +12,8 @@ hermetic(test);
  * `/context` is the CLI-parity command that surfaces the context-window usage
  * (tokens / budget / top sources) in a result banner — proves the command
  * dispatch + `/api/context/analyze` wiring end-to-end.
+ *
+ * @covers CMD-06
  */
 test.describe("Chat /context command", () => {
   let topicId: string;

@@ -19,6 +19,8 @@
  * that is not connected to anything.
  *
  * Under `E2E_CLIP=1` the same path also records the delivery clip (helpers/clip).
+ *
+ * @covers BROWSER-01
  */
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "http";

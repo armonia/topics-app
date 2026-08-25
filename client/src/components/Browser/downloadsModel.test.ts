@@ -1,3 +1,10 @@
+/**
+ * The downloads model behind the pane's toolbar menu: a start opens one entry,
+ * a repeated poll does not duplicate it, a done closes or fails its own entry,
+ * progress only moves a live one, and dismissing the last entry empties the list.
+ *
+ * @covers BROWSER-CHAT-02
+ */
 import { describe, expect, test } from 'bun:test';
 import {
   applyDownloadEvent,

@@ -14,6 +14,8 @@ hermetic(test);
  *   ↓/↑ move the highlight, Enter selects, Esc closes.
  * The highlight is exposed via the `data-active="true"` attribute on the
  * focused model row.
+ *
+ * @covers CHAT-DEF-03
  */
 test.describe.serial("Provider/Model picker keyboard navigation", () => {
   let topicId: string;

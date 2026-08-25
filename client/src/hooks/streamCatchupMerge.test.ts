@@ -1,3 +1,9 @@
+/**
+ * Merging a catch-up payload into the partial assistant message a stream had
+ * already started, with and without a bubble to merge into.
+ *
+ * @covers CHAT-01
+ */
 import { describe, expect, test } from "bun:test";
 import { isClientGeneratedMessageId, mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder } from "./streamCatchupMerge";
 import type { ChatMessage, ContentBlock, ToolCall } from "../types";

@@ -15,6 +15,8 @@
  *
  * Il test gira il FILE della migration, non una sua copia riscritta qui, e su
  * dati che riproducono i tre casi veri trovati in database.
+ *
+ * @covers KANBAN-05
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

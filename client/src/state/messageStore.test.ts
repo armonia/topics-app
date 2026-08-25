@@ -20,6 +20,8 @@ import {
  * durante uno streaming.
  *
  * Questi test guardano proprio quello: chi viene svegliato, e chi no.
+ *
+ * @covers LEAK-01
  */
 
 afterEach(() => {

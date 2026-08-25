@@ -3,6 +3,8 @@
  * drop in main, project tabs only within the same project": each tab drag tags
  * itself with a scope-derived dataTransfer TYPE, and every drop target accepts
  * only drags carrying its own scope marker.
+ *
+ * @covers LAYOUT-02
  */
 import { describe, test, expect } from "bun:test";
 import { paneTabScopeType, dragMatchesScope, DND_TYPES } from "./dndTypes";

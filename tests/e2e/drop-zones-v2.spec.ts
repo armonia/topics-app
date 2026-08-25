@@ -16,6 +16,8 @@
  * a DataTransfer carrying the PANE_TAB mime + the hashed standalone scope
  * marker, dispatch a real dragover, assert the overlay DOM. No drop is ever
  * dispatched — these tests only exercise the preview contract.
+ *
+ * @covers LAYOUT-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

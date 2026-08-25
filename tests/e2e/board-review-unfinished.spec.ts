@@ -15,6 +15,8 @@
  *
  * È anche la clip di consegna: si vedono le due card affiancate e poi il drawer
  * della non consegnata, dove il verde non è più «Approva».
+ *
+ * @covers KANBAN-07
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

@@ -7,6 +7,8 @@ import type { UnreadData } from '../types';
  * ritorno. `unreadData` scende in tutto l'albero, quindi ogni oggetto nuovo è un
  * render globale: le asserzioni `toBe(prev)` sono la parte che conta davvero,
  * `toEqual` è il contorno.
+ *
+ * @covers TAB-BADGE-01, TAB-BADGE-02, TAB-BADGE-08
  */
 
 const data = (counts: Record<string, number>): UnreadData =>

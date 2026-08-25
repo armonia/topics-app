@@ -15,6 +15,7 @@
  * sono quelli veri. Finto è solo il `BrowserService` (`navigate`,
  * `getOrCreate`, `listContexts`, `destroyContext`), così le asserzioni cadono
  * sul contextId che il ponte ha SCELTO, non su un mock del ponte stesso.
+ * @covers BROWSER-CHAT-03
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

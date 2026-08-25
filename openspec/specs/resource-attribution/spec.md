@@ -146,3 +146,58 @@ renderer — SHALL essere considerata un numero inventato e NON SHALL essere mos
 - **WHEN** l'uso di risorse viene riportato
 - **THEN** la prima SHALL avere un valore, la seconda SHALL risultare "non misurata", la terza "senza processo proprio"
 - **AND** i tre stati NON SHALL essere collassati in un unico "0" o "—"
+
+### Requirement: RES-ATTR-06 — L'inventario del peso per feature: i conteggi sono ESATTI, i byte sono stime dichiarate
+
+Topics mostra quanto pesa ciascuna feature: quante code, quante tab di task,
+quante anteprime, e quanti byte occupano. Le due grandezze NON hanno lo stesso
+valore di verità, e il sistema DEVE trattarle come due promesse diverse:
+
+1. **I conteggi DEVONO essere esatti.** Sono l'unica cosa che questo inventario
+   può promettere. Una coda vuota non è una coda; un task idratato senza tab non
+   è una tab; una tab parcheggiata resta nel totale **proprio perché** non si
+   vede da nessun'altra parte — sparire dal conto la renderebbe invisibile due
+   volte.
+2. **I byte SONO stime, e DEVONO dichiararsi tali.** Misurare l'occupazione
+   reale di una struttura in memoria non è possibile dal client; una stima
+   presentata come misura è peggio di nessun numero.
+
+Il sistema DEVE nominare la **fonte** di ogni riga dell'inventario, così che un
+numero sospetto si possa risalire allo store che lo produce invece di doverlo
+indovinare.
+
+> Perché questo requisito esiste, e come è stato ritrovato. Il docblock di
+> `client/src/state/featureWeightCounts.test.ts` dice testualmente: «La spec
+> (RES-ATTR-06) chiede che i conteggi siano ESATTI proprio perche' sono l'unica
+> cosa che questo inventario puo' promettere». **RES-ATTR-06 non esisteva**: la
+> capability si fermava a `-05`. È lo stesso caso di `KANBAN-09` — un test che
+> ricorda un requisito che il documento non ha — ed è emerso il 25/08/2026 dalla
+> passata di tracciabilità.
+>
+> Il difetto che il punto 1 previene è invisibile per costruzione: un conteggio
+> sbagliato non rompe niente. Compare, sembra una misura, e nessuno ha modo di
+> accorgersene guardandolo.
+
+#### Scenario: una coda vuota non è una coda
+
+- **GIVEN** una coda di invio senza turni dentro
+- **WHEN** l'inventario conta le code
+- **THEN** quella non entra nel totale
+
+#### Scenario: un task idratato senza tab non è una tab
+
+- **GIVEN** un task ripreso dallo store senza nessuna tab browser
+- **WHEN** l'inventario conta le tab di task
+- **THEN** quel task non contribuisce
+
+#### Scenario: una tab parcheggiata resta nel conto
+
+- **GIVEN** una tab browser parcheggiata, non visibile in nessuna pane
+- **WHEN** l'inventario conta le tab
+- **THEN** è inclusa: è l'unico posto in cui compare
+
+#### Scenario: i byte si dichiarano come stima
+
+- **GIVEN** una riga dell'inventario con un peso in byte
+- **WHEN** viene mostrata
+- **THEN** il numero è presentato come stima, non come misura

@@ -15,6 +15,8 @@
  * sul SORGENTE — che è comunque il posto in cui si romperebbe: qualcuno
  * aggiunge un `task.dispatchAttempts >= 2 ? 'tentativi finiti' : …` e nessuno
  * se ne accorge finché una card non mente.
+ *
+ * @covers KANBAN-07
  */
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';

@@ -16,6 +16,8 @@
  * PROVA ANCHE IL CONTRATTO, non solo l'assenza di eccezioni: una sorgente che
  * tornasse `{entries: NaN}` non lancerebbe, e NaN attraversa tutto l'inventario
  * fino a comparire a schermo.
+  *
+ * @covers RES-ATTR-06
  */
 import { describe, test, expect, afterEach } from 'bun:test';
 import { registerFeatureWeightSources } from './featureWeightSources';

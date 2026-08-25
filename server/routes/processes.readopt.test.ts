@@ -13,6 +13,7 @@
  * La corsa vera non si fabbrica (non si ricicla un pid a comando), quindi il
  * verdetto e' puro e la sonda si passa. Il caso «stesso pid, lstart diverso» E'
  * il pid riciclato.
+ * @covers PROCESS-01
  */
 import { describe, expect, test } from "bun:test";
 import { readoptVerdict } from "./processes";

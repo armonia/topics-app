@@ -1,3 +1,10 @@
+/**
+ * A terminal session that runs the Claude Code CLI carries a `claudeSessionId`: it is
+ * minted for a claude-code session and not for a plain shell, it is reported in the
+ * session list, and it is still there after the server has been restarted.
+ *
+ * @covers TERM-01
+ */
 import { expect, test } from "@playwright/test";
 import {
   deleteTerminalSession,

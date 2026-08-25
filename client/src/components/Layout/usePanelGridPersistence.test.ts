@@ -1,3 +1,10 @@
+/**
+ * Reading a persisted grid row back: a malformed or stale shape is rejected
+ * rather than rendered, widths and stack heights are renormalized, and
+ * deleting a space clears only that space's storage key.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, test, expect } from "bun:test";
 import { sanitizeRow, panelGridStorageKey, clearPanelGridStorage } from "./usePanelGridPersistence";
 import { DEFAULT_SPACE_ID } from "../../state/pane/types";

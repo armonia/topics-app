@@ -21,6 +21,7 @@
  * intera sotto carico un timeout che scatta direbbe «il passaggio è rotto»
  * quando il fatto è «la macchina era occupata». Stesso motivo di
  * browser-dom-cobrowse.test.ts.
+ * @covers BROWSER-CHAT-01
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

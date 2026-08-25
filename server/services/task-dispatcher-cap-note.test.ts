@@ -11,6 +11,7 @@
  * ferme), e arriva UNA volta per episodio — la stessa disciplina del freno del
  * pesante, perché un reconcile ogni 10s riempirebbe il thread della stessa
  * frase.
+ * @covers KANBAN-07
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

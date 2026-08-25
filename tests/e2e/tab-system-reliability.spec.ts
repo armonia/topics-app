@@ -5,6 +5,8 @@
  *   3. Active-on-drop: dropped tab becomes active in its group
  *   4. user_abort stream:end does not increment unread count
  *   5. Auto-solo: new terminal gets its own grid cell
+ *
+ * @covers LAYOUT-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

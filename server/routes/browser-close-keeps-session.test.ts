@@ -11,6 +11,7 @@
  * 7fb737a9) che rendeva la chiusura simmetrica sulla politica VECCHIA
  * (disconnetti sempre). Con la politica nuova è il difetto: va tolto, e
  * questo test lo blocca se torna.
+ * @covers BROWSER-CHAT-01
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createBrowserRouter } from "./browser";

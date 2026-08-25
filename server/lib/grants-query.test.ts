@@ -7,6 +7,12 @@
  * della query, che non è una fisima: questa domanda gira dentro il ciclo dei
  * broadcast, per ogni socket e per ogni frame. Una scansione lì non è lenta, è
  * un'altra categoria di programma.
+ *
+ * The single door every grant check goes through: a resource is readable by
+ * id when one of the asking device's principals holds a grant on it, or on
+ * the project that contains it.
+ *
+ * @covers GUEST-01, GUEST-06
  */
 import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

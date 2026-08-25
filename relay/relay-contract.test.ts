@@ -5,6 +5,8 @@
  * difetti che presidiano sono **invisibili a runtime**: il codice funziona
  * benissimo in tutti e due i casi. Cambia solo la bolletta, e la si scopre a
  * fine mese.
+ *
+ * @covers RELAY-E2E-04
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

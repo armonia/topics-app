@@ -3,6 +3,11 @@
  * risposta attesa e' quella che ha dato lo STRUMENTO su questa macchina
  * (`make -pRrq`, `deno task`, `cargo metadata`). E' cosi' che e' saltato fuori
  * il binario implicito di Cargo, che nel TOML non e' scritto da nessuna parte.
+ *
+ * This detection is what the script runner lists — including the case where
+ * a project has no runnable script at all.
+ *
+ * @covers PROCESS-01
  */
 import { test, expect, describe } from "bun:test";
 import {

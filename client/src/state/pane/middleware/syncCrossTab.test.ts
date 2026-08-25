@@ -1,3 +1,9 @@
+/**
+ * Cross-tab sync inside one browser: each tab gets its own id and suppresses
+ * the frames it published itself.
+ *
+ * @covers TAB-SYNC-02
+ */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
 type StorageListener = (event: {

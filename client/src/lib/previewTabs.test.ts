@@ -1,3 +1,9 @@
+/**
+ * Preview tabs: the markers that survive a restore, and the replace primitive
+ * that swaps one preview for the next instead of stacking them.
+ *
+ * @covers TAB-SYNC-03
+ */
 import { describe, test, expect } from "bun:test";
 import {
   markTabRestored,

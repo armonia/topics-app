@@ -1,3 +1,9 @@
+/**
+ * The weight a project column carries in the grid, the registry that holds
+ * those weights, and the change notifications that trigger a rebalance.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, test, expect } from 'bun:test';
 import { computeProjectGridWeight, setProjectGridWeight, getProjectGridWeight, clearProjectGridWeight, subscribeProjectGridWeights } from './projectGridWeights';
 import type { GroupLayoutRow } from '../types';

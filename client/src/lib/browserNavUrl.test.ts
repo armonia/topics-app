@@ -1,3 +1,9 @@
+/**
+ * What the address bar does with what was typed into it: a url, a search, a
+ * local file, and the navigate request a topic can send from outside.
+ *
+ * @covers BROWSER-01
+ */
 import { describe, it, expect, afterEach } from 'bun:test';
 import { resolveBrowserNavigateUrl, normalizeUrl, displayUrl, toNavigableUrl, httpsFirstUrl, prettyUrl } from './browserNavUrl';
 

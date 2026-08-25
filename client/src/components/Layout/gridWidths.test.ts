@@ -1,3 +1,9 @@
+/**
+ * Column widths across split, append, normalize, equalize and leaf-weighted
+ * resize: the columns a gesture does not touch keep their proportions.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, test, expect } from 'bun:test';
 import { splitColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths, weightedWidths, chooseSplitOrientation } from './gridWidths';
 

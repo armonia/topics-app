@@ -22,6 +22,8 @@
  *   - the per-key `server_seq` gate drops a stale/duplicate remote frame but
  *     accepts a newer one, and the merge is UNION-only (add, never remove) —
  *     the anti-resurrection invariant this whole module exists for.
+ *
+ * @covers TAB-SYNC-01, TAB-SYNC-02
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 

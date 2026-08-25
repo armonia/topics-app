@@ -19,6 +19,8 @@
  * La copertura end-to-end esiste già ed è quella giusta per l'altro caso:
  * `empty-turn-on-stop.spec.ts` prova che dopo uno STOP il banner compare e dice
  * la cosa giusta.
+ *
+ * @covers CHAT-REL-01
  */
 import { describe, expect, test } from 'bun:test';
 import { turnLooksUnanswered } from './turnError';

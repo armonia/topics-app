@@ -3,6 +3,8 @@
  * `useEffect`: la regola che decide DOVE finisce una pane appena creata non
  * aveva un solo test, perché per eseguirla serviva montare un ProjectWindow.
  * Estratta in `groupPaneReconcile.ts`, si prova con quattro pane e un array.
+ *
+ * @covers LAYOUT-01, TAB-SYNC-03
  */
 import { describe, expect, test } from 'bun:test';
 import type { Pane, PaneGroup } from '../../../types';

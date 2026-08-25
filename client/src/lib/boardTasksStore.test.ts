@@ -1,3 +1,9 @@
+/**
+ * The task feed store: not-yet-read is not the same as empty, patching one
+ * task in place, and the feed having exactly one owner.
+ *
+ * @covers KANBAN-06
+ */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { BoardTask } from './board';
 import {

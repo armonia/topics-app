@@ -15,6 +15,8 @@
  * essere rotto è lo scoping o il pannello. Qui l'evento è quello vero
  * (`GitChanges` dispatcha esattamente questo detail) e ad ascoltarlo sono i
  * listener veri delle due finestre montate.
+ *
+ * @covers FILE-02
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

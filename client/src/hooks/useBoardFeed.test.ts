@@ -30,6 +30,8 @@ import { useBoardFeed, type BoardFeed } from './useBoardFeed';
  * che importano `@/lib/…` — un alias che `bun test` non risolve (stessa ragione
  * dichiarata in `Board/Card.test.ts` e `GlobalCapControl.test.tsx`), quindi
  * quelle superfici qui non si montano.
+ *
+ * @covers KANBAN-06
  */
 const dir = dirname(fileURLToPath(import.meta.url));
 const src = (rel: string) => readFileSync(join(dir, rel), 'utf8');

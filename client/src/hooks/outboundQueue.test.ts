@@ -3,6 +3,8 @@
  * messaggio scritto dall'umano sparisce e nessuno se ne accorge. Non c'è modo di
  * beccarle guardando la UI — la chat mostra il messaggio, semplicemente non
  * arriva mai — quindi vanno inchiodate qui.
+ *
+ * @covers CHAT-01
  */
 import { describe, it, expect } from 'bun:test';
 import {

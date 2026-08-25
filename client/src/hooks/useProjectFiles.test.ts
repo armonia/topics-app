@@ -9,6 +9,8 @@ import type { FileNode } from '../types';
  * `useSyncExternalStore`) è comportamento di browser e sta negli E2E:
  * `file-explorer-cache.spec.ts` prova il gesto vero — apri, chiudi, riapri —
  * che è la cosa che l'utente ha segnalato.
+ *
+ * @covers FILE-01
  */
 
 const dir = (path: string, children?: FileNode[]): FileNode =>

@@ -8,6 +8,8 @@ import {
  * Il test guarda l'ORDINE, che è la cosa che si rompe in silenzio: invertire le
  * due righe non fallisce niente su un Mac, e su Windows e Linux fa tornare il
  * purge a essere un no-op muto. Vedi il commento del modulo.
+ *
+ * @covers BROWSER-01
  */
 describe('teardownNativeBrowserPane', () => {
   function record() {

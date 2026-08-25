@@ -1,3 +1,9 @@
+/**
+ * The effort scale the server accepts, and which provider actually serves a
+ * turn: an explicit override first, then the topic's, then the registry default.
+ *
+ * @covers CHAT-DEF-02
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   EFFORT_TIERS,

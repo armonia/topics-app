@@ -1,3 +1,8 @@
+/**
+ * Which of the five drop regions a pointer is in, relative to the target cell.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { detectDropZone } from './dropZone';
 

@@ -14,6 +14,8 @@
  * (`POST /api/topics/:id/browser/open-pane`, cioè il tool MCP), con la
  * precondizione esatta del guasto: topic senza progetto + pane di progetto
  * aperta nello stesso gruppo.
+ *
+ * @covers BROWSER-CHAT-04
  */
 import { test, expect } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

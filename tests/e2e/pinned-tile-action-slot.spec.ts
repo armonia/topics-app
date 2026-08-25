@@ -31,6 +31,8 @@ import { clipDiConsegna, isClipRun } from "./helpers/clip";
  * Si misura con `getBoundingClientRect`, non leggendo le classi: `shrink-[9999]`
  * è un valore arbitrario di Tailwind, e una regola che smettesse di essere
  * emessa lascerebbe il sorgente identico e lo schermo diverso.
+ *
+ * @covers LAYOUT-02
  */
 
 hermetic(test);

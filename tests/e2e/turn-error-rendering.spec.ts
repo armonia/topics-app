@@ -22,6 +22,8 @@ hermetic(test);
  * Nel DB di produzione erano 45 righe: turni interi, leggibili, incorniciati di
  * giallo senza motivo. Il verdetto ora è un blocco suo (`kind: 'error'`) e si
  * rende come una riga in cima al contenuto — con il turno, intatto, sotto.
+ *
+ * @covers CHAT-02
  */
 test.describe.serial("Il verdetto di un turno finito male", () => {
   let topicId: string;

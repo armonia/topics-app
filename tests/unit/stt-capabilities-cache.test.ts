@@ -17,6 +17,8 @@
  * Ricordare il sì e dimenticare il no costa al massimo una fetch in più per
  * pannello mentre il dispositivo non è ancora dentro. Il contrario costa la
  * funzione, in silenzio, fino al prossimo ricarico.
+ *
+ * @covers CHAT-04
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { fetchSttCapabilities, forgetSttCapabilities } from "../../client/src/lib/stt";

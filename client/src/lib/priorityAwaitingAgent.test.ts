@@ -7,6 +7,8 @@
  * passato, e nel frattempo nasconde il valore in vigore.
  *
  * La priorità ordina la CODA. Dopo il dispatch non ordina più niente.
+ *
+ * @covers KANBAN-07
  */
 import { describe, expect, test } from 'bun:test';
 import { priorityAwaitingAgent } from './board';

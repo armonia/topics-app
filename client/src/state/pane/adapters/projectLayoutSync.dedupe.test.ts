@@ -36,6 +36,8 @@
  * storia, ed è giusto così: vedi il terzo test), oppure più CHIAVI di progetto
  * diverse che nella sonda sembravano la stessa. Entrambe si distinguono
  * guardando il corpo E la chiave dei PUT consecutivi, a macchina scarica.
+ *
+ * @covers TAB-SYNC-01, LAYOUT-02
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 

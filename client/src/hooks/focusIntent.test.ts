@@ -5,6 +5,8 @@
  * uno. Il guasto che questi test recintano è quello riportato dall'utente:
  * «sono su board, apro un progetto dalla sidebar, faccio una chat nuova e mi
  * riporta a board».
+ *
+ * @covers LAYOUT-02
  */
 import { describe, expect, test } from 'bun:test';
 import {

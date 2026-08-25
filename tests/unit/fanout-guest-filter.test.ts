@@ -29,6 +29,8 @@
  * comportamento, da fuori). Prova una cosa sola: che non esista una fan-out che
  * il filtro non lo nomina proprio. È il difetto che non si vede rileggendo,
  * perché per vederlo bisogna sapere che le altre tre fanno diversamente.
+ *
+ * @covers GUEST-04, GUEST-05
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

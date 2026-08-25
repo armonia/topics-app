@@ -17,6 +17,8 @@ hermetic(test);
  * mirror ITSELF is the input surface: clicks and keystrokes captured inside the
  * iframe relay back as `input` messages, while text selection stays native and
  * local (the whole point of DOM mode over a pixel stream).
+ *
+ * @covers BROWSER-CHAT-02
  */
 const RRWEB_EVENTS = JSON.parse(
   readFileSync(resolvePath(__dirname, "fixtures/rrweb-sample.json"), "utf-8"),

@@ -3,6 +3,8 @@
  * dalle proprie ref — corretto, ma verificabile solo montando l'albero: nessun
  * test copriva «chiudere una colonna non azzera le larghezze delle sorelle»,
  * che è esattamente il tipo di regola che si rompe in silenzio.
+ *
+ * @covers LAYOUT-01
  */
 import { describe, expect, test } from 'bun:test';
 import type { GroupLayoutRow, PaneGroup } from '../../../types';

@@ -12,6 +12,7 @@
  * Il numero c'era gia' (`runAgentTurn` lo misura e lo restituisce); a mancare
  * era il posto dove depositarlo. Cio' che questi casi sorvegliano non e' la
  * somma — e' banale — ma le tre scelte che la rendono utilizzabile.
+ * @covers USAGE-03, USAGE-04
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { recordTurnUsage, readNativeUsage, resetNativeUsage } from "./native-usage-registry";

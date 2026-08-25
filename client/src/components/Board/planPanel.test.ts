@@ -1,3 +1,9 @@
+/**
+ * Which comment is the plan of a `plan_first` task: the explicit pointer wins,
+ * and neither a human nor a system comment is ever mistaken for the plan.
+ *
+ * @covers KANBAN-07
+ */
 import { describe, expect, test } from 'bun:test';
 import { pickPlanComment } from './planPanel';
 import type { TaskComment } from '../../lib/board';

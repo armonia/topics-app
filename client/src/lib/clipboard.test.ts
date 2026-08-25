@@ -1,3 +1,9 @@
+/**
+ * The single door every copy action goes through, and every way the browser
+ * can refuse it without throwing.
+ *
+ * @covers CHAT-03
+ */
 import { describe, test, expect, afterEach } from 'bun:test';
 import { copyText } from './clipboard';
 

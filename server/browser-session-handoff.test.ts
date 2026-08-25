@@ -1,3 +1,8 @@
+/**
+ * Handing a browser session between the native pane and the shared server
+ * context: the storage state is merged, never zeroed, and the wait gives up in time.
+ * @covers BROWSER-CHAT-01
+ */
 import { test, expect } from "bun:test";
 import { seedSharedFromNative, seedNativeFromShared, HANDOFF_TIMEOUT_MS } from "./browser-session-handoff";
 import { createNativeDelegateRegistry } from "./browser-native-delegate";

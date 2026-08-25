@@ -50,6 +50,8 @@
  * del progetto: il test moriva sul locator, senza mai eseguire il gesto. Qui si
  * semina quindi la tab della CHAT del progetto — che fa comparire la riga —
  * lasciando la pane del progetto CHIUSA, così il click la apre davvero.
+ *
+ * @covers LAYOUT-02
  */
 import { expect, test, type Page } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";

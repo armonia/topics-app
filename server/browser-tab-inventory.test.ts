@@ -2,6 +2,7 @@
  * Unit: the pure tab-inventory logic (union/dedupe, label resolution, on-demand
  * metadata with timeout fallback, own-first sort) driven entirely through
  * injected deps — no server, DB, or live pane.
+ * @covers BROWSER-CHAT-03
  */
 import { test, expect } from "bun:test";
 import {

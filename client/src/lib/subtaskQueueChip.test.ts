@@ -15,6 +15,8 @@
  * chip, la checklist si riempirebbe di colore e la riga davvero ferma
  * sparirebbe dentro il rumore, cioe' la visibilita' sarebbe comprata col
  * rumore che doveva togliere.
+ *
+ * @covers KANBAN-08
  */
 import { describe, expect, test } from 'bun:test';
 import { subtaskQueueChip, subtaskOpenable, type BoardTask } from './board';

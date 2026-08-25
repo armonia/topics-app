@@ -1,3 +1,9 @@
+/**
+ * Whether a dispatched agent is still working, and which of its turns are
+ * noise that must not interrupt anyone.
+ *
+ * @covers MUTE-01
+ */
 import { describe, test, expect } from 'bun:test';
 import { isAgentTurnNoise } from './dispatchedTopic';
 import { ACTIVE_DISPATCH_STATES, isAgentWorking } from '../board';

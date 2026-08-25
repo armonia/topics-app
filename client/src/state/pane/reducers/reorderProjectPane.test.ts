@@ -1,3 +1,9 @@
+/**
+ * A project pane survives the store-to-React reorder bridge instead of being
+ * dropped by it.
+ *
+ * @covers LAYOUT-02
+ */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { usePaneStore } from "../store";
 import { DEFAULT_SPACE_ID } from "../types";

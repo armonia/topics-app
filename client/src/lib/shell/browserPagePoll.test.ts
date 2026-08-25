@@ -1,3 +1,9 @@
+/**
+ * Reading the page state the shell reports — url, title, loading — with the
+ * two polls agreeing on what they read.
+ *
+ * @covers BROWSER-01
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   buildReadJs,

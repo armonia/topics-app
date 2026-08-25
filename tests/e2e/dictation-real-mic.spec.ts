@@ -28,6 +28,8 @@
  * COME SI LANCIA (serve un motore STT raggiungibile dal server di test):
  *   WHISPER_MODEL_PATH=~/whisper-models/ggml-small.bin npx playwright test dictation-real-mic
  *   ELEVENLABS_API_KEY=… STT_PROVIDER=elevenlabs npx playwright test dictation-real-mic
+ *
+ * @covers CHAT-04
  */
 import { readFileSync } from "fs";
 import { resolve } from "path";

@@ -1,6 +1,7 @@
 /**
  * Unit tests for the vendored ref-based snapshot engine (pure half).
  * serialize() + diff() have no Playwright dependency, so they run under bun:test.
+ * @covers BROWSER-CHAT-03
  */
 import { describe, expect, it } from "bun:test";
 import { serialize, diff, type Snapshot, type SnapElement } from "./browser-snapshot";

@@ -26,6 +26,8 @@
  * Il bridge è finto (un socket unix che risponde a `list` e spinge frame), ma
  * tutto il resto è il codice di produzione: il router terminali, il router
  * topics, il tracker vero su un DB migrato vero.
+ *
+ * @covers CCS-01, CCS-03
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";

@@ -7,6 +7,8 @@ import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered } from './turnError';
  * Due domande diverse, e confonderle costa: la prima accende il cartello, la
  * seconda il bottone che RIMANDA il messaggio. Su un turno che ha risposto e poi
  * è inciampato, rimandare non ripara niente — ne fa un secondo, a pagamento.
+ *
+ * @covers CHAT-REL-01
  */
 
 const testo = (t: string) => ({ kind: 'text' as const, text: t });

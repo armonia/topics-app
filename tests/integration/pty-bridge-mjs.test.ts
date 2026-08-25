@@ -8,6 +8,8 @@
 // e la mette allo stesso modo (un daemon vero, un socket vero, i frame veri):
 // il protocollo è l'unica superficie che il server conosce, e una prova che non
 // passi di lì non prova niente su ciò che il server vedrà.
+//
+// @covers TERM-01
 import { test, expect, describe, beforeAll, afterAll, afterEach } from "bun:test";
 import net from "node:net";
 import fs from "node:fs";

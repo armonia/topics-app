@@ -23,6 +23,8 @@ import { reviewEvidence } from './reviewEvidence';
  * Il secondo e il terzo caso si vedevano IDENTICI, ed è la ragione per cui una
  * colonna piena sembra vuota. Questa funzione li separa: non inventa una
  * misura che non c'è, dice PERCHÉ non c'è.
+ *
+ * @covers KANBAN-11
  */
 describe('cosa mostra una card in review', () => {
   const base = { status: 'review' as const, deliveryBranch: null, deliveryFilesChanged: null, assignedTopicId: null };

@@ -22,6 +22,8 @@
  * quindi si guarda subito dopo il gesto, e la sua scadenza fa anche da orologio
  * condition-based per l'asserzione «la board NON si è mossa» (dopo 2,4 s uno
  * scorrimento morbido sarebbe finito da un pezzo).
+ *
+ * @covers KANBAN-01
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

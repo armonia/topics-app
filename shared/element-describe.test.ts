@@ -1,3 +1,9 @@
+/**
+ * The description of a page element picked in the browser pane, as it reaches
+ * the chat.
+ *
+ * @covers BROWSER-CHAT-04
+ */
 import { describe, expect, test } from "bun:test";
 import { formatElementContext, type ElementDescription } from "./element-describe";
 

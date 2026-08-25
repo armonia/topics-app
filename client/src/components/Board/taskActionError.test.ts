@@ -1,3 +1,9 @@
+/**
+ * The server's 409s translated for a human: open subtasks block the close, and
+ * Stop with no agent behind it. Never an empty error band.
+ *
+ * @covers KANBAN-07, KANBAN-08
+ */
 import { describe, it, expect } from 'bun:test';
 import { taskActionErrorMessage } from './taskActionError';
 

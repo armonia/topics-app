@@ -15,6 +15,8 @@
  *    icone, multi-selezione che NON chiude il menu a ogni clic.
  *  - PROJSEL-04 a 390px il bottone Invia resta dentro il composer invece di
  *    finire oltre il bordo di un `overflow-hidden`.
+ *
+ * @covers KANBAN-12
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";

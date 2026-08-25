@@ -3,6 +3,8 @@
  * Il numero che scrive finisce dentro un cerchietto da 14px e nel tooltip, e
  * l'unico modo di sbagliarlo è arrotondare male ai bordi (999 → "1k" quando
  * ancora non lo è, 1M che diventa "1000k").
+ *
+ * @covers CTX-01
  */
 import { describe, it, expect } from 'bun:test';
 import { formatTokens } from './useRealContext';

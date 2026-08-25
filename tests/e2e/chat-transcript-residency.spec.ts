@@ -34,6 +34,8 @@ hermetic(test);
  * più: `window.__topicsMessageSweep` è lo stesso identico codice, con le soglie
  * passate da fuori. L'invariante di sicurezza NON è forzabile, ed è appunto ciò
  * che il primo test dimostra.
+ *
+ * @covers LEAK-01
  */
 
 const BASE = E2E_BASE;

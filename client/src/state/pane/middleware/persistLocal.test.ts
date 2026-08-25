@@ -10,6 +10,8 @@
  *
  * Resta vivo `pane.scrollOffset` IN MEMORIA: serve all'undo di una pane chiusa,
  * che se lo porta dietro in `ClosedPaneRecord`.
+ *
+ * @covers TAB-SYNC-01
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 

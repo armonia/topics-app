@@ -1,3 +1,9 @@
+/**
+ * Recognising the client's own writes coming back over the socket, so a
+ * broadcast it caused does not overwrite what it already has.
+ *
+ * @covers TAB-SYNC-02
+ */
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
   rememberLocalAck,

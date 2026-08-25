@@ -38,6 +38,8 @@
  * nodo fuori dal viewport torna VUOTA solo li', ed e' il difetto da cui nasce
  * il contratto. Il progetto `webkit` di `playwright.config.ts` fa girare questo
  * file, e solo questo, nel motore del guscio.
+ *
+ * @covers LAYOUT-01
  */
 import { test, expect, type JSHandle, type Locator, type Page } from "@playwright/test";
 import { existsSync } from "fs";

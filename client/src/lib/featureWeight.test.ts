@@ -1,3 +1,4 @@
+/** @covers RES-ATTR-06 */
 import { describe, it, expect, beforeEach } from 'bun:test';
 import {
   registerFeatureWeight,

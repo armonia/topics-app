@@ -12,6 +12,8 @@
  * Il ramo della resa è quindi l'unico posto che vede il fallimento e copre
  * tutti e tre i chiamanti. Qui si presidia che quel ramo ci arrivi davvero (e
  * non prima del tempo: un fallimento transitorio si ritenta ancora).
+ *
+ * @covers BROWSER-CHAT-04
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

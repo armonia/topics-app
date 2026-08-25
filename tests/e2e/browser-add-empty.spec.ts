@@ -14,6 +14,8 @@ hermetic(test);
  * fresh client showing the Welcome screen, the header "+" palette's Browser
  * entry was a silent no-op — the pending pane request had no standalone group
  * to land in and the Welcome screen stayed.
+ *
+ * @covers BROWSER-CHAT-04
  */
 test.describe.serial("Add pane → Browser on an empty client", () => {
   test("opens a browser pane from the welcome screen", async ({ page, request }) => {

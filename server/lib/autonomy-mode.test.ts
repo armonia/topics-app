@@ -3,6 +3,11 @@
  * l'utente ha chiesto (una chat «chiedi prima» che scrive sul disco), e
  * bloccare una chat che prima funzionava (un valore sconosciuto che diventa una
  * modalità che in `--print` resta appesa).
+ *
+ * `planModeFor` is the server-side lever: plan mode comes from the autonomy
+ * level, never from a per-turn client flag.
+ *
+ * @covers FAST-MODE-03
  */
 import { describe, test, expect } from "bun:test";
 import {

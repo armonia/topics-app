@@ -1,3 +1,9 @@
+/**
+ * The board's own vocabulary: which board a path belongs to, the five task
+ * statuses, and reading the question block an agent leaves when it needs you.
+ *
+ * @covers KANBAN-01, KANBAN-07
+ */
 import { test, expect, describe } from 'bun:test';
 import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
 

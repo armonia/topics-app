@@ -24,6 +24,8 @@ hermetic(test);
  * Più il debito che li rendeva possibili: il menu non passava dalla primitiva
  * `Menu`, quindi niente `role="menu"`, niente fuoco nel pannello, niente
  * frecce — e senza fuoco nel pannello le lettere non sarebbero intercettabili.
+ *
+ * @covers LAYOUT-02
  */
 
 /**

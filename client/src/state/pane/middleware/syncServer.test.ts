@@ -4,6 +4,8 @@
  * Scope: verify that launching a new PUT for the same key aborts any prior
  * inflight PUT (including its retry chain), and that the retry chain respects
  * AbortSignal so a stale chain can't "win" against a newer snapshot.
+ *
+ * @covers TAB-SYNC-01
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 

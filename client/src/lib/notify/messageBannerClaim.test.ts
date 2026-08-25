@@ -8,6 +8,8 @@ import {
 } from './messageBannerClaim';
 
 /** Uno storage vero quanto basta: una mappa. Rappresenta il `localStorage`
+ *
+ * @covers MUTE-01
  *  CONDIVISO fra le finestre, quindi due "finestre" del test lo condividono. */
 function sharedStorage(): ClaimStorage & { raw(): string | null } {
   const m = new Map<string, string>();

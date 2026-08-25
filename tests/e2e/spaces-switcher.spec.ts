@@ -13,6 +13,8 @@
  * Superfici: `SpaceGroups` (data-testid="sidebar-groups", riga aperta
  * "space-row-active", righe chiuse "space-row", contenuto "space-content") e il
  * menu contestuale delle tab ("Sposta nel gruppo" / "Nuovo gruppo").
+ *
+ * @covers LAYOUT-02
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

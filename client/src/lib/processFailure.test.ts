@@ -1,3 +1,9 @@
+/**
+ * When a finished process counts as failed: a non-zero exit inside the window,
+ * told apart from a deliberate stop and from a server reload.
+ *
+ * @covers PROCESS-01
+ */
 import { test, expect } from 'bun:test';
 import { isRecentFailure, lastFailureByScript, FAILURE_WINDOW_MS } from './processFailure';
 import type { ScriptProcessInfo } from './api';

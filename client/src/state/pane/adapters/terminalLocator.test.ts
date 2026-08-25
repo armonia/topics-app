@@ -7,6 +7,8 @@ import {
 import { projectPanesLocalKey } from './projectLayoutSync';
 
 /** In-memory ProjectPanesStore backed by a plain object, mirroring the
+ *
+ * @covers TERM-01
  *  `topics-project-panes-<hash>` localStorage channel. */
 function makeStore(entries: Record<string, unknown>): ProjectPanesStore {
   const map = new Map<string, string>();

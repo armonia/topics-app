@@ -4,6 +4,7 @@
  *  • una misura impossibile non entra;
  *  • se la scrittura non può riuscire, il turno non ne risente — il ring è
  *    un'informazione, non una transazione.
+ * @covers USAGE-06
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

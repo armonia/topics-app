@@ -1,3 +1,9 @@
+/**
+ * The provider, model and effort the composer remembers for a topic, so the
+ * choice made once survives the next turn.
+ *
+ * @covers CCPROV-05
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   effortKey,

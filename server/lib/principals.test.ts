@@ -4,6 +4,11 @@
  * Il caso che vale più di tutti è quello che non si vede: OGNI ramo deve cadere
  * verso MENO poteri. Sbagliare verso qui non produce un errore — produce un
  * ospite che vede tutto, e nessuno se ne accorge finché non è tardi.
+ *
+ * Device to person to organizations: the chain that makes a grant written
+ * for a PERSON confine exactly like one written for the device.
+ *
+ * @covers GUEST-06
  */
 import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

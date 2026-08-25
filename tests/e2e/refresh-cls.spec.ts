@@ -37,6 +37,8 @@ hermetic(test);
  * L'artefatto finisce in `test-results/cls/<label>-<viewport>.json` così che
  * PRIMA e DOPO siano due file confrontabili riga per riga.
  * Si lancia:  E2E_CLS_LABEL=prima npx playwright test refresh-cls
+ *
+ * @covers PERF-01
  */
 
 /** Il tetto contrattuale di `performance/spec.md`: CLS ≤ 0.1 sul render iniziale. */

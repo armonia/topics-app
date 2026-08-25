@@ -18,6 +18,8 @@
  *      volte (stessa convenzione di `usage/pricing.ts`).
  *   3. il fresco è il RESTO, non un dato — è la sola definizione che fa tornare i
  *      conti a `prompt` anche quando il provider arrotonda fra chiamate.
+ *
+ * @covers USAGE-02, USAGE-04
  */
 import { describe, test, expect } from 'bun:test';
 import { cacheBreakdown, costBreakdown } from './cacheBreakdown';

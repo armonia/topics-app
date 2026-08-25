@@ -15,6 +15,7 @@
  * dipendere da un campo che il formato non promette, l'ospite finto
  * smetterebbe di capirlo — che è l'unico modo perché il formato abbia una
  * definizione fuori da chi lo usa.
+ * @covers RELAY-E2E-03, RELAY-E2E-05
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ServerWebSocket } from "bun";

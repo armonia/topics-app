@@ -15,6 +15,8 @@
  * `shellKind` è una costante di caricamento del modulo (`lib/shell/index`), per
  * questo si passa da `mock.module` prima dell'import: è l'unico modo di vedere
  * il ramo nativo da `bun test`, dove il guscio è sempre 'web'.
+ *
+ * @covers CMD-02
  */
 import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 

@@ -28,6 +28,8 @@ import {
  * Il finto e' pero' ONESTO nella parte che conta: `appendChild` attacca davvero
  * e `remove()` stacca davvero, cosi' "il nodo c'e'" e "il nodo non c'e' piu'"
  * restano fatti osservabili e non finzioni.
+ *
+ * @covers LAYOUT-02
  */
 
 interface NodoFinto {

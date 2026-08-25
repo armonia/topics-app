@@ -1,3 +1,8 @@
+/**
+ * Where a finished turn deposits its reason and the dispatcher withdraws it:
+ * one withdrawal per turn, so an old ending is never read as the new one.
+ * @covers KANBAN-07
+ */
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
   recordTurnEnd,

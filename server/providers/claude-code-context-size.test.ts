@@ -9,6 +9,7 @@
  * moment it was cut down. Each `assistant` event instead carries the usage of
  * the ONE call that produced it, so `input + cache_read + cache_creation` there
  * is the honest size of the prompt the model just saw.
+ * @covers USAGE-06
  */
 
 import { describe, expect, test } from "bun:test";

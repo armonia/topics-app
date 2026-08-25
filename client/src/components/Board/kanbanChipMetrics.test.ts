@@ -22,6 +22,8 @@
  * change that KEEPS the rule; reading the new one keeps asking the question the
  * fault asked. The topbar is checked too, so the literals cannot come back
  * there.
+ *
+ * @covers KANBAN-12
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

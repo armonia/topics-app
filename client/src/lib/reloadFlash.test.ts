@@ -14,6 +14,8 @@ import { findReloadSites, countByOwner, codeOnlyLines } from "./reloadSites";
  *     app_reload_all): se le due stringhe divergono, tutto compila, tutto gira,
  *     e il toast semplicemente non appare mai — il silenzio è esattamente il
  *     difetto che questo codice esiste per togliere.
+ *
+ * @covers PERF-01
  */
 
 const RUST_SRC = new URL("../../../desktop-tauri/src-tauri/src/", import.meta.url).pathname;

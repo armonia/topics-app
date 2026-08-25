@@ -32,6 +32,8 @@ hermetic(test);
  *
  * Video acceso: è un comportamento, e uno screenshot non prova un
  * comportamento.
+ *
+ * @covers CMD-01
  */
 test.use({ video: "on" });
 

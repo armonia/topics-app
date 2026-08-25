@@ -7,6 +7,8 @@
  * so closing a terminal tab left its sidebar row behind. They are now gated on
  * an open tab exactly like standalone terminals and project chats, so closing
  * the tab removes the row.
+ *
+ * @covers TOPIC-02
  */
 import { describe, test, expect } from "bun:test";
 import {

@@ -1,3 +1,10 @@
+/**
+ * The verdict a silent stream gets: nothing, one-shot resync, extend, finalize.
+ * A live child is never ended by a clock; a dead one is finalized on the first
+ * stale tick.
+ *
+ * @covers CHAT-REL-03
+ */
 import { describe, expect, test } from "bun:test";
 import { staleStreamVerdict } from "./stale-stream-verdict";
 

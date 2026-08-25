@@ -6,6 +6,8 @@
  * quindi «una tool call, testo vuoto, blocks NULL» ripetuto ottantacinque
  * volte su centodiciassette. `toolGrouping` era giusto e restava verde: il
  * difetto era che gli arrivava sempre un array di lunghezza uno.
+ *
+ * @covers CHAT-TOOL-02
  */
 import { describe, it, expect } from 'bun:test';
 import { coalesceToolRuns, isWorkOnlyAssistant, blocksOf } from './coalesceToolRun';

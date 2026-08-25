@@ -10,6 +10,7 @@
  *
  * The gate is OPT-IN: a PUT without `base` behaves exactly as before, so test
  * fixtures, server-internal writes and older clients are untouched.
+ * @covers LAYOUT-02
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

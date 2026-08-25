@@ -24,6 +24,7 @@
  * rispondere e' «quali campi conosce il servizio, e quali ne nomina la rotta».
  * Stessa forma di `tests/unit/card-meta-row-completeness.test.ts`, e per la
  * stessa ragione: cio' che manca non lascia tracce.
+ * @covers KANBAN-02
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";

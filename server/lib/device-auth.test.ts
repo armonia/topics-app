@@ -1,3 +1,11 @@
+/**
+ * The credential layer under the identity axis: session tokens and their hash,
+ * the pairing code, the cookie, and `evaluateIdentity` — which is what answers
+ * 401 to a remote peer that presents nothing, a revoked device or an expired
+ * session.
+ *
+ * @covers GUEST-03
+ */
 import { describe, expect, it } from "bun:test";
 import {
   SESSION_COOKIE, SESSION_TTL_MS,

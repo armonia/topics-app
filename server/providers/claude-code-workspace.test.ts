@@ -8,6 +8,7 @@
  * the topic's real working dir — a ready worktree's absPath first, else the
  * project checkout — and fall back to null (→ caller uses HOME) only when
  * nothing is bound or the path is missing.
+ * @covers CCPROV-05
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";

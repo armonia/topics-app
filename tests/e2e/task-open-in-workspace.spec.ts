@@ -10,6 +10,8 @@
  * (projectPath del task, url = output_url, contextId presente). L'apertura del
  * pane è comportamento Topics già esistente (stesso path di `/browser`); il video
  * registrato dalla suite mostra il pane che compare nel workspace.
+ *
+ * @covers BROWSER-CHAT-04
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

@@ -24,6 +24,8 @@
  * spiegabile» — ed è per questo che vive in un test e non in un commento: le due
  * metà (rollup puro in `signals.ts`, soppressione nel JSX di `PaneTabBar`) non si
  * incontrano mai in uno unit test.
+ *
+ * @covers PROJECT-TABS-03
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

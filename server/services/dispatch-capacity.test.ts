@@ -1,3 +1,8 @@
+/**
+ * The concurrency cap the dispatcher claims against: the global switch row,
+ * the effective cap right now, and the structural capacity of the machine.
+ * @covers KANBAN-07
+ */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
 import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";

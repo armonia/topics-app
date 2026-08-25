@@ -17,6 +17,8 @@
  * aggiunge la colonna. Si aggiunge, tutto continua a funzionare, e l'argomento
  * che regge il modello è caduto senza che nessuno lo sappia. Quando questo test
  * fallisce, la risposta giusta non è cancellarlo: è rifare il conto da capo.
+ *
+ * @covers GUEST-06
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";

@@ -1,3 +1,8 @@
+/**
+ * The per-context browser storage state on disk: where it is written, what a
+ * cold read gets back, and the last-URL half of the same store.
+ * @covers BROWSER-CHAT-01
+ */
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { existsSync, rmSync, readFileSync } from "fs";
 import { join } from "path";

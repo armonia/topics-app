@@ -1,3 +1,9 @@
+/**
+ * Merging session-state frames under the revision guard, and re-verifying a
+ * phase that looks phantom instead of trusting it.
+ *
+ * @covers CCS-01
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   mergeSessionState,

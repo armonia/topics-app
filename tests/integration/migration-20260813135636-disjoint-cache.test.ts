@@ -17,6 +17,8 @@
  *
  * Il test esegue il FILE della migration, non una sua copia: se il predicato
  * cambia, cambia sotto questi casi.
+ *
+ * @covers USAGE-02
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import * as fs from "node:fs";

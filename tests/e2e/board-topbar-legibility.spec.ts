@@ -71,6 +71,8 @@ hermetic(test);
  * quiet — not a stopwatch. This used to be spelled out inline with a fixed
  * 120 ms nap inside the poll, and guessed at with a flat 400 ms before the
  * layout audit; both are the same condition, so it lives in one place now.
+ *
+ * @covers KANBAN-12
  */
 async function chipsSettled(page: import("@playwright/test").Page): Promise<number> {
   let previous = -1;

@@ -8,6 +8,8 @@
  * proprietà da cui dipende il picker adesso che mostra un numero per ogni
  * modello: che un modello sconosciuto non menta, e che `[1m]` valga più della
  * famiglia.
+ *
+ * @covers USAGE-07
  */
 import { describe, expect, test } from 'bun:test';
 import { contextWindowFor, formatContextWindow } from './context-window';

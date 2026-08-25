@@ -1,3 +1,8 @@
+/**
+ * Normalising the agent a terminal session runs, and the body that opens it.
+ *
+ * @covers TERM-01
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   normalizeTerminalAgent,

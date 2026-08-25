@@ -4,6 +4,8 @@
  * when the feature is broken (they used to take screenshots and assert nothing —
  * the "green-but-empty" anti-pattern the audit flagged). Each screenshot is now
  * backed by a behavioral expect().
+ *
+ * @covers LAYOUT-02
  */
 import { test, expect } from '@playwright/test';
 import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';

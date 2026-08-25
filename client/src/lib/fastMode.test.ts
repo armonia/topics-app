@@ -1,3 +1,9 @@
+/**
+ * Whether the composer may offer the Fast Mode toggle at all, and the sentence
+ * that explains a blocking reason.
+ *
+ * @covers FAST-MODE-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { fastModeUi, fastModeReasonText } from './fastMode';
 import type { ProvidersSnapshot } from '../types';

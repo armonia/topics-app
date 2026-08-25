@@ -21,6 +21,8 @@ hermetic(test);
  * solo la tab del progetto o una chat che vi appartiene. Dentro un progetto il
  * fuoco finisce quasi subito su una pane interna (terminale, git, file), che
  * non è né l'una né l'altra — quindi il progetto spariva e ⌘F non rispondeva.
+ *
+ * @covers CMD-01
  */
 
 const PROJECT_DIR = "/tmp/e2e-search-shortcuts";

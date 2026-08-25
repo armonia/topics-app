@@ -18,6 +18,8 @@
  *
  * (jsdom/happy-dom are not dependencies of this project, as
  * `ThreadRuns.test.tsx` says: the mounting is `renderToStaticMarkup`.)
+ *
+ * @covers KANBAN-07, KANBAN-12
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { readFileSync } from 'node:fs';

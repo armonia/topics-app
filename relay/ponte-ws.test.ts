@@ -19,6 +19,8 @@
  * li si travasa. L'ordine è quello vero (una socket consegna in ordine) e
  * nessuna asserzione dipende da un tempo — si pompa finché la cosa attesa non
  * è arrivata, e se non arriva ci si SOLLEVA invece di restare appesi.
+ *
+ * @covers RELAY-E2E-08, RELAY-E2E-09
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ServerWebSocket } from "bun";

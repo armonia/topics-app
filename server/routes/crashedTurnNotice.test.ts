@@ -1,3 +1,8 @@
+/**
+ * The notice a crashed turn leaves in the chat: the real error without the
+ * code frame, and written only when the row carries no work of its own.
+ * @covers CHAT-REL-02
+ */
 import { describe, expect, test } from "bun:test";
 import { crashedTurnNotice, rowCarriesWork, sendFailureNotice, shortErrorDetail } from "./crashedTurnNotice";
 

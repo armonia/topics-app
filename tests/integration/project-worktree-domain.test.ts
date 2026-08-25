@@ -16,6 +16,8 @@
  * to /tmp before importing utils.ts, which is when the singleton db is
  * resolved. Each describe block resets the directories so tests don't
  * cross-contaminate.
+ *
+ * @covers PROJECT-01, PROJECT-03, WORKTREE-01, WORKTREE-02, WORKTREE-03, TOPIC-WT-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

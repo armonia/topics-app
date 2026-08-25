@@ -17,6 +17,8 @@ hermetic(test);
  * Two tests: the detached window must never PUT; a NORMAL window doing the
  * same thing MUST PUT (proves the interception pattern actually matches the
  * write, so the zero-count in the first test is meaningful).
+ *
+ * @covers LAYOUT-01
  */
 
 /** Dispatch the open-and-navigate event until the pane claims it (the handler

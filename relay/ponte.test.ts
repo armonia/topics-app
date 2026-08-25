@@ -14,6 +14,8 @@
  * Non c'è nessuna rete: i messaggi restano in due code e li si travasa a mano,
  * finché la richiesta non è finita. Vuol dire che l'ordine è quello vero (una
  * socket consegna in ordine) e che nessun test dipende da un tempo.
+ *
+ * @covers RELAY-E2E-06, RELAY-E2E-07, RELAY-E2E-09
  */
 import { describe, expect, it } from "bun:test";
 import worker from "./src/worker";

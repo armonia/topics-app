@@ -26,6 +26,8 @@
  * It is the falsification lever: it makes the app genuinely slow, so the gate
  * can be seen going red for the reason it exists rather than because a
  * comparison operator was checked against an invented number.
+ *
+ * @covers PERF-02
  */
 import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";

@@ -15,6 +15,8 @@
  *   · review senza ramo  → «Approva» (la card chiude)
  *   · in corso           → «Ferma» (l'agente si stacca, la card si parcheggia)
  *   · bloccata           → «Sblocca: <bloccante>» (il legame cade, la card parte)
+ *
+ * @covers KANBAN-02
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

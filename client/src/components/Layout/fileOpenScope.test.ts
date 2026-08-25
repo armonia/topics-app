@@ -1,3 +1,9 @@
+/**
+ * Which window handles an open-file / open-diff event when the grid is split:
+ * exactly one, chosen by explicit target first and focus second, never all.
+ *
+ * @covers LAYOUT-01
+ */
 import { describe, test, it, expect } from 'bun:test';
 import { shouldHandleOpenFile, shouldHandleOpenDiff } from './fileOpenScope';
 

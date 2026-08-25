@@ -32,6 +32,8 @@ import type { PaneState, Pane } from "../types";
  *   - the pane reducer's HYDRATE handles the (lossy) tombstone.
  * The key assertion: with the durable archive signal, the chat stays closed
  * even when the tombstone is entirely absent everywhere.
+ *
+ * @covers TAB-SYNC-01
  */
 
 const CHAT = "11111111-1111-4111-8111-111111111111"; // UUID-like → a chat id

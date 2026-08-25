@@ -7,6 +7,8 @@
  * sbagliata non era distrazione — era l'unica conclusione possibile guardando
  * `ps`, perché tutti i WebContent del sistema hanno la stessa identica riga di
  * comando.
+ *
+ * @covers RES-ATTR-02
  */
 import { describe, it, expect } from "bun:test";
 import { appName, byOwner, responsiblePid, type ProcRow } from "../../scripts/webcontent-owners";

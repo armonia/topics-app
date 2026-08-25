@@ -12,6 +12,8 @@
  * parte che conta di più — che `health` risponde a UNA domanda sola: **i banner
  * arrivano?** Non «siamo autorizzati». Un canale che consegna non prende
  * un'icona d'allarme solo perché consegna per vie traverse.
+ *
+ * @covers CMD-02
  */
 import { describe, test, expect } from 'bun:test';
 import { describeNativeNotifications } from './notificationStatus';

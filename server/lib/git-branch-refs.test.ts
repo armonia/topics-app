@@ -3,6 +3,11 @@
  * `git branch -a --format=…` su un clone con DUE remote (`origin` e
  * `upstream`), catturato mentre si cercava perché cliccare un ramo remoto
  * staccasse HEAD. È il caso che nessuno prova a mano.
+ *
+ * This parse is where the branch indicator, its upstream and the name a
+ * switch is performed with come from.
+ *
+ * @covers FILE-02
  */
 import { test, expect } from "bun:test";
 import { parseBranchLine, parseBranchLines } from "./git-branch-refs";

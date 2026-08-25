@@ -1,3 +1,9 @@
+/**
+ * The pane reducer: opening is idempotent (one identity per pane), closing
+ * takes exactly one pane, and a group left empty is cleaned up.
+ *
+ * @covers LAYOUT-02, TAB-SYNC-01
+ */
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import type { PaneState, ClosedPaneRecord } from "../types";

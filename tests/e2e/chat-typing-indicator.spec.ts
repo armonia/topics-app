@@ -11,6 +11,8 @@
  * Copre anche il secondo difetto dello stesso punto — il proprio eco accendeva
  * l'indicatore — iniettando un frame col `clientId` di un ALTRO client e poi uno
  * col proprio: il primo deve accenderlo, il secondo no.
+ *
+ * @covers PERF-01
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp, openTopic } from "./helpers";

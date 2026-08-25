@@ -1,3 +1,10 @@
+/**
+ * The one definition of a token: cost weighs a cache read at a tenth, context
+ * weighs it whole, and the SQL table and the TypeScript one agree on the same
+ * consumption, including the rows a column was never written on.
+ *
+ * @covers USAGE-05
+ */
 import { describe, expect, test } from "bun:test";
 import {
   CACHE_READ_WEIGHT,

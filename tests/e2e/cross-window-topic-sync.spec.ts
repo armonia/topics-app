@@ -31,6 +31,8 @@ const BASE = E2E_BASE;
  * Mirrors the user's bug report:
  *   "apro una chat all'interno di un progetto come nuova tab; aprendola
  *    sull'applicazione Electron non la vedo poi da browser".
+ *
+ * @covers TOPIC-01
  */
 test.describe.serial("Cross-window topic + message sync", () => {
   const projectPath = E2E_DATA_DIR;

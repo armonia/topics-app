@@ -1,3 +1,9 @@
+/**
+ * When the diff viewer refuses to render a body: a binary file on either side,
+ * bytes that only look like text, and the 100 KB cap told apart from a 404.
+ *
+ * @covers FILE-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { isBinaryForDiff, looksBinary, isTooLarge } from './diffGuards';
 import { ApiError } from '../../lib/api';

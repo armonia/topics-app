@@ -8,6 +8,8 @@
  *   - a project rolls up its children, excludes lead (Master) topics, and so
  *     produces the SAME number regardless of whether it's handed the full topic
  *     map (tab bar) or the lead-filtered one (sidebar).
+ *
+ * @covers MUTE-01, PARITY-01
  */
 import { describe, test, expect } from "bun:test";
 import {

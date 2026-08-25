@@ -9,6 +9,7 @@
  *    rumore su un ritentativo che si auto-guarisce. È l'unica riga che separa
  *    "ti avviso quando serve" da "ti avviso a ogni ritentativo": i siti che
  *    rilasciano con `requeue: !exhausted` passano di qui a ogni tentativo.
+ * @covers KANBAN-07
  */
 import { describe, test, expect } from "bun:test";
 import { parkedEdgeEvent } from "./task-dispatcher";

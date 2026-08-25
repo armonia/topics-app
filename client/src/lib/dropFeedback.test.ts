@@ -6,6 +6,8 @@
  *   - `fullWidth` spans the whole container (the "full-width row" tell);
  *   - `gutterInset` lifts a region's bottom so it clears the full-row gutter;
  *   - a caret is a thin solid bar, never a filled region.
+ *
+ * @covers LAYOUT-01
  */
 import { describe, test, expect } from "bun:test";
 import {

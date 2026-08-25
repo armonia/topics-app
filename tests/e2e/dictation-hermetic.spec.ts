@@ -22,6 +22,8 @@
  *      intatti attorno.
  *   4. ⌘⇧R registra una nota vocale: il testo arriva nella bolla, non il
  *      percorso del file.
+ *
+ * @covers CHAT-04
  */
 import { resolve } from "path";
 import type { Page } from "@playwright/test";

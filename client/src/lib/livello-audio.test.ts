@@ -6,6 +6,8 @@
  * si prova a mano nella app; qui si prova cio' che sbaglierebbe in silenzio: la
  * scelta fra le due diagnosi, e il fatto che entrambe le superfici la chiedano
  * allo stesso posto.
+ *
+ * @covers CHAT-04
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

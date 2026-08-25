@@ -33,6 +33,8 @@ hermetic(test);
  * su iPhone e in Chromium non esiste. Per quello vale l'invariante dei 16px —
  * la soglia documentata che lo fa scattare — più la misura della scala qui
  * sotto, che tiene il contratto onesto su ogni motore che la implementa.
+ *
+ * @covers BROWSER-CHAT-02
  */
 const RRWEB_FIELDS = JSON.parse(
   readFileSync(resolvePath(__dirname, "fixtures/rrweb-fields.json"), "utf-8"),

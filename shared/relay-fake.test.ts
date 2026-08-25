@@ -6,6 +6,8 @@
  * ordine che il protocollo non garantisce, questi casi resterebbero verdi e
  * quello si romperebbe — ed è esattamente il segnale che serve per sapere che
  * il trasporto è ancora sostituibile.
+ *
+ * @covers RELAY-E2E-04
  */
 import { describe, expect, it } from "bun:test";
 import { creaCapoTubo, creaOspiteWs, creaRelayFinto } from "./relay-fake";

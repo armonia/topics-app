@@ -29,6 +29,8 @@ import { blankPaneState as blank } from "../testSupport";
  *
  * Questi test bloccano il timbro in ENTRAMBE le strade dell'undo — la pane
  * ancora nei `panes` (resuscitata da un hydrate) e quella da reinserire.
+ *
+ * @covers CMD-03
  */
 
 

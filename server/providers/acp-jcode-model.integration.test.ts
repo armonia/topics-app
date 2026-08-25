@@ -30,6 +30,7 @@
  * Su questa macchina si lancia quando si tocca `acp.ts` o il modello per task:
  *
  *     bun run test:agents
+ * @covers KANBAN-07
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";

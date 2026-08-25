@@ -1,3 +1,9 @@
+/**
+ * How a column is ordered and grouped, and the slice of it that is actually
+ * drawn on the two columns that grow without bound.
+ *
+ * @covers KANBAN-01
+ */
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask } from './board';
 import {

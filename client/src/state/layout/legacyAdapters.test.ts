@@ -1,3 +1,9 @@
+/**
+ * Adapting the legacy row shapes into the layout tree and back without losing
+ * a pane, a width or a stack — the fidelity that lets both live side by side.
+ *
+ * @covers LAYOUT-01
+ */
 import { test, expect, describe } from 'bun:test';
 import { gridRowsToTree, groupRowsToTree, treeToGridRows, treeToGroupRows } from './legacyAdapters';
 import { leaf, split, leafIds, computeRects, isLeaf, isSplit, type LayoutNode, type SplitNode, type LeafRect, type Rect } from './layoutTree';

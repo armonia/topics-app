@@ -17,6 +17,8 @@
  * card that showed "Fan-out closed: 3 attempts" instead of a summary.
  *
  * The two messages below are the real ones from `topic:85561235`.
+ *
+ * @covers KANBAN-05
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

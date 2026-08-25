@@ -17,6 +17,8 @@
  * sempre (è la casa delle tab senza gruppo, ed è il bersaglio su cui si lascia
  * cadere una tab per tirarla FUORI da un gruppo), e un gruppo che vive in una
  * finestra sua resta anche a zero (è da lì che lo si porta davanti).
+ *
+ * @covers LAYOUT-02
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

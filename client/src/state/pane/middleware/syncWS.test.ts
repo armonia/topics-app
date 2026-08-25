@@ -14,6 +14,8 @@
  * fake `window`/`localStorage` so the transitive imports load under bun:test,
  * and a stubbed `usePaneStore.getState` so we can observe every dispatch
  * without spinning up the real reducer.
+ *
+ * @covers TAB-SYNC-02
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 

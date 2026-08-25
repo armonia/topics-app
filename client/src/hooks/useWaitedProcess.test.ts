@@ -1,3 +1,9 @@
+/**
+ * Which process-registry row a wait belongs to: the process id is the strongest
+ * key, a live entry wins over a recent one, and a shell id resolves to its key.
+ *
+ * @covers BGSHELL-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { pickWaitedEntry } from './useWaitedProcess';
 import { shellProcessKey } from '../../../shared/background-shell-registry';

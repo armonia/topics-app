@@ -1,3 +1,9 @@
+/**
+ * The index from topic to task: only dispatched tasks enter it, and the last
+ * row of the feed wins when two tasks name the same topic.
+ *
+ * @covers KANBAN-07
+ */
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask } from './board';
 import { buildTopicTaskIndex } from './taskTopicIndex';

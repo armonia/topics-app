@@ -1,3 +1,8 @@
+/**
+ * Can a third-party origin frame this response? It is the decision behind the
+ * web pane's iframe-vs-stream choice and behind the `framable` probe.
+ * @covers BROWSER-CHAT-04
+ */
 import { describe, it, expect } from 'bun:test';
 import { isFramable, isPrivateIpv4, isPrivateIpv6, isSafePublicUrl, type HeaderGetter } from './browser-framing';
 

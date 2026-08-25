@@ -20,6 +20,8 @@
  *    e solo trasparente (`opacity-0`), accanto al conteggio delle righe: ogni
  *    riga della lista portava un buco per tutta la vita del pannello. Ora
  *    conteggio e azioni condividono una cella e si scambiano.
+ *
+ * @covers FILE-02
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";

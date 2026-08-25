@@ -1,3 +1,8 @@
+/**
+ * Mapping a click on the rendered page surface back to page coordinates.
+ *
+ * @covers BROWSER-02
+ */
 import { describe, it, expect } from 'bun:test';
 import { mapCoordinates } from './browserCoords';
 

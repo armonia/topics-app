@@ -7,6 +7,8 @@
  * What gets proven here is what that file could not prove while the phrase
  * lived inside it: that the bar's line is made of the SAME pieces, and not of
  * a second writing that one day will say something else.
+ *
+ * @covers STATUSLINE-01
  */
 
 import { describe, expect, test } from "bun:test";

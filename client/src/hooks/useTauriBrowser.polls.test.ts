@@ -21,6 +21,8 @@
  * Qui resta l'unica affermazione che riguarda QUESTO file e che un test
  * eseguibile non può fare: che i poll di questo hook siano cablati là dentro e
  * che nessuno ne apra uno a mano di fianco.
+ *
+ * @covers LEAK-01
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

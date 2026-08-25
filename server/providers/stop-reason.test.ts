@@ -1,3 +1,8 @@
+/**
+ * Why a turn ended, in the vocabulary the board dispatcher acts on: which
+ * endings consume an attempt, which ones resume, and which ones need a human.
+ * @covers KANBAN-07
+ */
 import { describe, it, expect } from "bun:test";
 import {
   ACP_STOP_REASONS,

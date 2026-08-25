@@ -1,3 +1,9 @@
+/**
+ * The context warning level: the percentage boundary is inclusive, and the
+ * absolute-token threshold speaks on its own even when the window is barely used.
+ *
+ * @covers USAGE-09
+ */
 import { describe, expect, it } from "bun:test";
 import {
   CONTEXT_CRITICAL_PERCENT,

@@ -4,6 +4,8 @@ import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type Termi
 /**
  * Orologio finto: i timer non partono davvero, li facciamo scadere noi. Serve a
  * verificare la cadenza senza aspettare 250ms veri per ogni asserzione.
+ *
+ * @covers TERM-01
  */
 function fakeClock() {
   let next = 1;

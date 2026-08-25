@@ -1,3 +1,9 @@
+/**
+ * Line-level review notes on a delivery diff, and the message they become when
+ * the human sends the task back: a reject carries a comment the agent can act on.
+ *
+ * @covers KANBAN-05
+ */
 import { describe, it, expect } from 'bun:test';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, formatReviewNotes, type DiffNote } from './reviewNotes';
 

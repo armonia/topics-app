@@ -19,6 +19,8 @@
  * I drag qui sono col MOUSE VERO (down/move/up), non `DragEvent` sintetici: è
  * l'unico modo per accorgersi se un antenato mangia il gesto, se la sorgente
  * non è `draggable`, o se il drop cade nel vuoto.
+ *
+ * @covers LAYOUT-01
  */
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

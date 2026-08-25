@@ -11,6 +11,7 @@
  * The HTTP layer is exercised via a tiny stub `fetch` so we don't have to
  * spin up the topics-app server. callOpenBrowserPane accepts the fetchImpl
  * as a parameter precisely to make this test possible.
+ * @covers KANBAN-06
  */
 import { describe, test, expect } from "bun:test";
 import {

@@ -16,6 +16,7 @@
  * turno che ne è costati **925.774** (5,29×) e scriveva in DB `cost_cents=2280`
  * ($22,80) invece di $3,66. Ed è il numero che l'utente vedeva «salire a
  * milioni» durante lo streaming.
+ * @covers USAGE-03
  */
 import { describe, expect, test } from "bun:test";
 import { readAssistantCallUsage, readAssistantMessageId } from "./events";

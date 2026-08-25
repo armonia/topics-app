@@ -6,6 +6,11 @@
  * è proprietario senza credenziale. Messo davanti così com'è, un tunnel non
  * estende il perimetro — lo rovescia, e chiunque su Internet entra come il
  * padrone di casa.
+ *
+ * Arriving on the tunnel listener must not confer ownership, even though the
+ * peer address the server sees is loopback.
+ *
+ * @covers GUEST-03
  */
 import { describe, expect, it } from "bun:test";
 import {

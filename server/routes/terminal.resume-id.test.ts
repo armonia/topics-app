@@ -9,6 +9,7 @@ import { resumeIdForNewSession } from "./terminal";
  * passava `undefined` come decimo argomento. Effetto: riaprire una tab Claude
  * Code chiusa faceva ripartire una sessione VUOTA con lo stesso aspetto, e non
  * esisteva il verso "apri questa sessione come pane terminale".
+ * @covers CMD-03
  */
 const UUID = "7b1e2a1f-2cf2-453c-a77b-5dc95d66e890";
 

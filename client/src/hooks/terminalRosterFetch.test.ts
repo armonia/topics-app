@@ -26,6 +26,8 @@
  * risponde alla stessa domanda in modo diretto — ed e' lo stesso mestiere che
  * fanno gia' `card-meta-row-completeness` e `board-settings-passthrough`: cio'
  * che manca non lascia tracce a runtime.
+ *
+ * @covers TERM-01
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

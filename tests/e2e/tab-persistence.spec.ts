@@ -3,6 +3,8 @@
  *
  * Verifies that topic tabs survive page reloads and that
  * archived topics are still cleaned up correctly.
+ *
+ * @covers TAB-SYNC-01
  */
 import { test, expect } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

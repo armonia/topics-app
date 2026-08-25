@@ -9,6 +9,8 @@
  * sotto `bun test` `document` e' `undefined`. Il finto qui sotto implementa
  * esattamente i quattro pezzi che `domCensus` tocca, il che rende anche
  * esplicito quanto poco della DOM API serva davvero.
+ *
+ * @covers LEAK-01
  */
 import { describe, test, expect } from 'bun:test';
 import { domCensus } from './devHeapProbe';

@@ -22,6 +22,8 @@
  * THE IMAGE IS THE DELIVERABLE. It is cropped to the three columns instead of
  * the whole window: a board preview is read at 268px wide on a task card, and
  * at that scale the app chrome is what eats the pixels the cards need.
+ *
+ * @covers KANBAN-01
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

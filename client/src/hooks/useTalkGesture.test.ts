@@ -7,6 +7,8 @@ import { talkGestureReducer, HOLD_TO_TALK_MS, type TalkEvent, type TalkPhase, ty
  * Quello che si rompe in silenzio non è il singolo passaggio, è la SEQUENZA:
  * un rilascio che arriva quando non deve riapre un microfono appena chiuso, e
  * la dettatura seguente parte da sola senza che nessuno l'abbia chiesta.
+ *
+ * @covers CHAT-04
  */
 function run(events: TalkEvent[]): { actions: TalkAction[]; phase: TalkPhase } {
   let phase: TalkPhase = 'idle';

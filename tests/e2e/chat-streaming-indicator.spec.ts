@@ -17,6 +17,8 @@ const BASE = E2E_BASE;
  * turn timer) replaces the old three bouncing dots and the "Streaming..." row,
  * and a user-sent message must always snap the view to the bottom. Record video
  * so the indicator + timer + snap are durable evidence, not just a green tick.
+ *
+ * @covers CHAT-01
  */
 test.use({ video: "on" });
 

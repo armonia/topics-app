@@ -10,6 +10,8 @@
  * veri. Qui si prova il resto: che la lista dei blocchi arrivi fino allo
  * schermo, che il bottone agisca su QUEL blocco, e che il file su disco non
  * venga toccato da uno stage.
+ *
+ * @covers FILE-02
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";

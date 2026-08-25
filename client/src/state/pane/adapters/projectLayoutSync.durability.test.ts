@@ -13,6 +13,8 @@
  *   - a teardown flush (pagehide) beacons every not-yet-durable value out;
  *   - a WS reconnect retries the un-acked set;
  *   - a successful PUT clears the un-acked entry (no perpetual re-send).
+ *
+ * @covers TAB-SYNC-01, LAYOUT-02
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 

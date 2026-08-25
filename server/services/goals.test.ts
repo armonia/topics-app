@@ -3,6 +3,7 @@
  * cose che rendono un goal affidabile restino vere: che ce ne sia UNO solo
  * attivo per topic (imposto dal DB, non dal codice) e che i passi si
  * sostituiscano in blocco senza che nessun lettore veda mezzo piano.
+ * @covers CTX-GOAL-01
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";

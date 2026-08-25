@@ -18,6 +18,8 @@
  *
  * Real backend via interceptWebSocket passthrough; the two frames are injected
  * exactly as bindTopicToProject emits them. No waitForTimeout.
+ *
+ * @covers PROJECT-01
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp } from "./helpers";

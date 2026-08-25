@@ -16,6 +16,8 @@
  * Ora albero, cartelle aperte e sottoalberi comprati pigramente vivono in uno
  * store per `projectPath` (`hooks/useProjectFiles.ts`) che sopravvive al
  * pannello. `loading` significa «non ho dati», mai «sto chiedendo».
+ *
+ * @covers FILE-01
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";

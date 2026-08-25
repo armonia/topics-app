@@ -1,3 +1,9 @@
+/**
+ * Which terminal phases are worth a banner, when a tab counts as actually
+ * visible, and the key that stops the same event ringing twice.
+ *
+ * @covers MUTE-01
+ */
 import { describe, test, expect } from "bun:test";
 import {
   decideTerminalBanner,

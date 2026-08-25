@@ -1,6 +1,8 @@
 /**
  * Una voce sola per evento — la regola che impedisce il doppione dal giorno in
  * cui un dispositivo si iscrive davvero al push.
+ *
+ * @covers CMD-02
  */
 import { describe, expect, test } from 'bun:test';
 import { inPageBannerAllowed, PUSH_COVERED_EVENTS, type NotifyEventKind } from './pushVoice';

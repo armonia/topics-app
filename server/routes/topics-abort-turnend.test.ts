@@ -17,6 +17,7 @@
  * Qui si guida l'handler vero contro un contesto finto con UNO stream vivo, e si
  * legge il registro. Il provider è registrato ma disconnesso, così la prova sta
  * sul deposito della route e non su cosa farebbe il provider.
+ * @covers KANBAN-07
  */
 import { describe, expect, test, beforeEach, afterAll } from "bun:test";
 import { createTopicsRouter } from "./topics";

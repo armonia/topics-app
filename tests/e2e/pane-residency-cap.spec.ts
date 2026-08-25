@@ -27,6 +27,8 @@ hermetic(test);
  * NON è un test di memoria travestito: è un test sul contratto "il numero di
  * pane montate ha un tetto", che è la cosa che il codice promette e l'unica
  * verificabile qui.
+ *
+ * @covers LEAK-01
  */
 
 const BASE = E2E_BASE;

@@ -5,6 +5,8 @@ import { fuzzyScore, rankPaths } from './fuzzyScore';
  * I casi qui sotto non sono inventati: sono le query che l'audit del 2026-08-06
  * ha misurato contro l'albero vero di questo repo, dove il vecchio filtro senza
  * punteggio le sbagliava tutte.
+ *
+ * @covers CMD-01
  */
 
 const TREE = [

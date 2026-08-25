@@ -10,6 +10,8 @@
  *
  * Here we look at the pixel: the row exists, it shows the right people, and it
  * says nothing when there is nobody.
+ *
+ * @covers STATUSLINE-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";

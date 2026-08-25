@@ -14,6 +14,8 @@ hermetic(test);
  * the same topic stay aligned without polling. The picker becomes a thin
  * reflection of `topic.provider` + `topic.model`; updates flow over the
  * existing `topic:updated` broadcast.
+ *
+ * @covers CHAT-DEF-03
  */
 test.describe.serial("Topic model persistence + cross-window sync", () => {
   let topicId: string;

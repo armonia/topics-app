@@ -1,3 +1,9 @@
+/**
+ * A running script's output buffer: the line folding, the size cap that keeps
+ * it circular, and the offset cursor a client reads from.
+ *
+ * @covers PROCESS-01
+ */
 import { test, expect } from "bun:test";
 import { emptyLogBuffer, appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "./log-cursor";
 

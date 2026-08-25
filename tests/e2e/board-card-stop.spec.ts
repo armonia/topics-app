@@ -25,6 +25,8 @@
  * produzione. Che il turno venga davvero TAGLIATO (`abortTurn` su ogni sessione
  * ancora viva, tentativi compresi) è asserito dove è osservabile:
  * `server/routes/tasks.test.ts`.
+ *
+ * @covers KANBAN-07
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

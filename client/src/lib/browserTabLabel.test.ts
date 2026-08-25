@@ -1,3 +1,8 @@
+/**
+ * How a browser tab labels itself, and what its subtitle says.
+ *
+ * @covers BROWSER-CHAT-04
+ */
 import { describe, it, expect } from 'bun:test';
 import { browserTabLabel, browserTabSubtitle } from './browserTabLabel';
 

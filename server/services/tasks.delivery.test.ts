@@ -13,6 +13,7 @@
  * Nate il 18/08 dallo spacco di `tasks.test.ts` (3.378 righe, oltre il cancello
  * di dimensione). Il taglio segue le giunture che c'erano gia': nessun test e'
  * stato riscritto, e il conto prima/dopo e' identico — 229 test, 693 asserzioni.
+ * @covers KANBAN-05
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

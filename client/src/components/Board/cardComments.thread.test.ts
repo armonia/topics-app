@@ -1,3 +1,10 @@
+/**
+ * A review card renders the thread the server sent it, even with no agent
+ * session behind it, and never lets a system notification take the place of
+ * the agent's delivery word.
+ *
+ * @covers KANBAN-05
+ */
 import { describe, test, expect } from 'bun:test';
 import { showsCardThread, cardCommentsFromRow, selectCardComments } from './cardComments';
 
