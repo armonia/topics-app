@@ -851,3 +851,103 @@ reintrodurre per sbaglio, perché niente, nel codice, dice che era voluta.
 - **GIVEN** le larghezze massime dichiarate in `ProjectFilterPicker.tsx`
 - **WHEN** sono zero, oppure sono più di una e diverse fra loro
 - **THEN** il vincolo è violato
+
+### Requirement: KANBAN-13 — Il fan-out apre N strade sullo stesso task, e nessuna delle N è privilegiata
+
+Quando la board lo chiede, il sistema SHALL far partire fino a `MAX_FANOUT`
+tentativi PARALLELI sullo stesso task, ciascuno con il proprio worktree e la
+propria chat, e tutti sulla stessa card. Un tentativo è un'ALTERNATIVA, non un
+pezzo: sono mutuamente esclusivi, e per questo non sono dei sottotask — una
+checklist va completata tutta, e renderebbe il task non approvabile per
+costruzione.
+
+Tutti i tentativi di un fan-out SHALL girare sullo STESSO modello. Variarlo
+renderebbe il confronto un esperimento su due variabili insieme: il fan-out
+confronta STRADE, non fornitori.
+
+Il contratto di un tentativo SHALL vietargli di scrivere sul filo condiviso e di
+muovere lo stato della card, e il divieto SHALL essere scritto nel suo primo
+messaggio. Il contratto normale e quello del fan-out sono opposti, e due
+contratti nello stesso prompt fanno scegliere al modello quello che gli pare.
+
+Mentre un tentativo è vivo, il filo e lo stato della card SHALL essere CHIUSI
+anche agli agenti, e il rifiuto SHALL dire perché.
+
+Il fan-out NON SHALL partire quando manca ciò che gli serve — nessun registro
+dei tentativi, nessuna creazione di worktree — e in quel caso il dispatch SHALL
+comportarsi ESATTAMENTE come un lancio singolo. Su una board che lavora IN
+PLACE, il fan-out SHALL essere rifiutato e la card SHALL dirlo.
+
+Quando il tetto di concorrenza STRINGE un fan-out senza azzerarlo, il sistema
+SHALL dichiarare i due numeri: quanti erano chiesti, quanti ne partono, e quale
+tetto ha deciso.
+
+Un giro nuovo SHALL potare worktree e chat del giro precedente PRIMA di aprirne
+altri.
+
+La fotografia di un tentativo SHALL essere scattata SEMPRE, fallimento e timeout
+compresi: un turno andato in timeout può aver committato lavoro buono.
+
+Quando NESSUN tentativo ha prodotto un commit, il fan-out SHALL essere raccolto
+per intero e la card SHALL tornare in coda dicendo che nessuno ha prodotto
+modifiche committate — non SHALL arrivare in review.
+
+#### Scenario: un ospite senza registro dei tentativi
+- **GIVEN** un host senza il registro dei tentativi o senza creazione di worktree
+- **THEN** SHALL partire un agente solo, e il comportamento SHALL essere quello
+  di prima byte per byte
+
+#### Scenario: una board in place
+- **GIVEN** una board che non usa worktree e un fan-out maggiore di uno
+- **THEN** SHALL partire un agente solo, e la card SHALL portarne la nota
+
+#### Scenario: la card è chiusa mentre si corre
+- **GIVEN** un tentativo ancora in corsa
+- **WHEN** un agente prova a commentare o a muovere lo stato
+- **THEN** SHALL essere rifiutato, e il rifiuto SHALL nominare il fan-out vivo
+
+#### Scenario: nessuno ha committato
+- **GIVEN** un fan-out i cui tentativi finiscono tutti senza un commit
+- **THEN** i worktree e le chat SHALL essere raccolti
+- **AND** la card SHALL tornare in coda, non in review
+
+### Requirement: KANBAN-14 — Il vincitore lo sceglie una persona, e la scelta è definitiva
+
+La scelta fra i tentativi SHALL essere UMANA. Il confronto che il sistema
+presenta SHALL essere senza punteggio, senza «consigliato» e senza vincitore
+suggerito: ordinare per righe cambiate o per velocità darebbe a un numero
+l'autorità di un giudizio di merito.
+
+Un tentativo SHALL vivere in uno di cinque stati — `running`, `delivered`,
+`failed`, `selected`, `discarded` — e SHALL passare da `running` a `delivered` o
+`failed` alla fine del turno, e da lì a `selected` o `discarded` per mano di chi
+sceglie.
+
+`selected` e `discarded` SHALL essere TERMINALI: un turno zombie che si sveglia
+dopo la decisione NON SHALL poterne riscrivere l'esito, altrimenti il fan-out si
+riaprirebbe dopo che una persona ha già deciso.
+
+Scegliere SHALL essere una transazione sola: un vincitore e tutti gli altri
+scartati insieme. Una seconda scelta SHALL poter ribaltare la prima, e in nessun
+istante SHALL esistere due vincitori.
+
+Scegliere SHALL essere RIFIUTATO mentre un tentativo lavora ancora, su un
+tentativo che non è mai partito, e su un tentativo che appartiene a un'altra
+card.
+
+Ai perdenti SHALL essere tolto il worktree e archiviata la chat: restano la loro
+riga e la loro fotografia, non le loro risorse.
+
+#### Scenario: il confronto non consiglia
+- **GIVEN** più tentativi conclusi
+- **THEN** il testo del confronto NON SHALL contenere un punteggio, un
+  «consigliato», un «migliore» o un «vincitore»
+
+#### Scenario: uno zombie dopo la decisione
+- **GIVEN** un tentativo già scelto o già scartato
+- **WHEN** il suo turno prova a chiudersi
+- **THEN** lo stato SHALL restare quello deciso
+
+#### Scenario: si sceglie a corsa finita
+- **GIVEN** un tentativo ancora in corsa
+- **THEN** la scelta SHALL essere rifiutata

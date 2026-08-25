@@ -7,6 +7,8 @@
  * consegna, land, reap) viaggia già su quella indirezione, quindi se la scelta
  * la sposta bene non serve altra idraulica — e se un giorno qualcuno la
  * "ottimizza" via, qui diventa rosso.
+ *
+ * @covers KANBAN-13
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

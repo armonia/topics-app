@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-14
+ */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";

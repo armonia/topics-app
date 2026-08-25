@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-14
+ */
 import { test, expect, describe } from "bun:test";
 import {
   ATTEMPT_STATES,

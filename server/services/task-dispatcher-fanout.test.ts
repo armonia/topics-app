@@ -7,6 +7,8 @@
  * definizione, quindi qui i turni sono una MAPPA per sessionKey e si chiudono
  * uno alla volta, che è anche l'unico modo di provare quello che conta: il
  * confronto si scrive quando ha finito l'ULTIMO, non il primo.
+ *
+ * @covers KANBAN-13
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
