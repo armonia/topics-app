@@ -1,3 +1,6 @@
+/**
+ * @covers WIRE-04
+ */
 import { describe, test, expect } from "bun:test";
 import { clientReceivesTopicDelta } from "./ws-topic-routing";
 

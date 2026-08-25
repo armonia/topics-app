@@ -1,3 +1,6 @@
+/**
+ * @covers GESTURE-01
+ */
 import { describe, expect, it } from 'bun:test';
 import { edgeSwipeVerdict } from './edgeSwipeGuard';
 

@@ -258,3 +258,27 @@ rinviene non si termina.
 #### Scenario: rinviene dopo l'armamento
 - **GIVEN** una sorveglianza armata e byte che tornano ad arrivare
 - **THEN** NON SHALL essere terminato niente
+
+### Requirement: RUNTIME-08 — Il binario si risolve per percorso ASSOLUTO, e ciò che è dichiarato ma non esiste non si crede
+
+Il programma esterno da eseguire SHALL essere risolto per percorso ASSOLUTO,
+provando le disposizioni note dei vari modi di installarlo: NESSUNA di esse sta
+nel percorso scarno di un processo lanciato dal sistema all'avvio, e affidarsi al
+nome nudo significa fallire proprio nella configurazione di produzione.
+
+Una scelta ESPLICITA SHALL vincere su tutto — ma solo se punta a un file che
+ESISTE. Un percorso dichiarato e inesistente NON SHALL essere creduto sulla
+parola: SHALL essere ignorato e SHALL proseguire la ricerca, altrimenti una
+variabile stantia in un ambiente spegne una funzione che avrebbe funzionato.
+
+Il percorso restituito, quando NON è nullo, SHALL esistere davvero sul disco: una
+risoluzione che restituisce un candidato non verificato sposta il guasto dal
+punto in cui si può spiegare al punto in cui non si può.
+
+#### Scenario: una variabile che punta al vuoto
+- **GIVEN** una scelta esplicita verso un file inesistente
+- **THEN** SHALL essere ignorata e la ricerca SHALL proseguire
+
+#### Scenario: qualcosa è stato risolto
+- **GIVEN** un percorso restituito non nullo
+- **THEN** SHALL esistere sul disco

@@ -624,3 +624,36 @@ l'originale.
 #### Scenario: due regole in conflitto
 - **GIVEN** una regola che esclude e una successiva che riapre
 - **THEN** SHALL valere la seconda
+
+### Requirement: TRASH-01 — Cancellare vuol dire spostare nel cestino, e due file con lo stesso nome non si sovrascrivono
+
+Cancellare dall'interfaccia SHALL significare SPOSTARE NEL CESTINO del sistema,
+mai rimuovere dal disco. Il contenuto SHALL essere ancora lì dopo l'operazione: è
+la differenza fra un errore recuperabile e un lavoro perso.
+
+La regola SHALL valere per TUTTI i punti di chiamata, incluso lo scarto di un
+file NON TRACCIATO: sta accanto allo scarto di un file tracciato, dietro lo
+stesso comando, e per quello il sistema di versione è la rete di sicurezza —
+per questo NON c'è nessun'altra rete.
+
+La destinazione SHALL essere quella prevista dal sistema in uso. Senza una
+cartella personale NON SHALL essere inventato un percorso: SHALL essere un
+errore.
+
+Su COLLISIONE di nome il file SHALL essere numerato PRIMA dell'estensione, e il
+conteggio SHALL proseguire finché non trova posto: due file con lo stesso nome
+NON SHALL sovrascriversi dentro il cestino. Un nome senza estensione NON SHALL
+guadagnarne una.
+
+Un file che NON ESISTE SHALL essere un errore, non un successo silenzioso: «l'ho
+cestinato» detto su niente nasconde il vero motivo per cui il file non c'è più.
+
+Una CARTELLA SHALL arrivare intera, con dentro il suo contenuto.
+
+#### Scenario: due file con lo stesso nome
+- **GIVEN** un file il cui nome esiste già nel cestino
+- **THEN** SHALL essere numerato prima dell'estensione, e nessuno dei due SHALL essere perso
+
+#### Scenario: un file che non c'è
+- **GIVEN** un percorso inesistente
+- **THEN** SHALL essere un errore, non un successo silenzioso

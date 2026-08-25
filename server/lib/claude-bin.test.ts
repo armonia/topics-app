@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-08
+ */
 import { test, expect, afterEach } from "bun:test";
 import { existsSync, mkdtempSync, writeFileSync, chmodSync } from "fs";
 import { join } from "path";

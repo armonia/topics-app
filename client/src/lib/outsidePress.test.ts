@@ -1,3 +1,6 @@
+/**
+ * @covers GESTURE-02
+ */
 import { describe, it, expect } from 'bun:test';
 import { swallowNextClick, type PressHost, type SwallowableEvent } from './outsidePress';
 

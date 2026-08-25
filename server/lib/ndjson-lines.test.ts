@@ -1,3 +1,6 @@
+/**
+ * @covers WIRE-01
+ */
 import { describe, test, expect } from "bun:test";
 import { createLineFolder } from "./ndjson-lines";
 

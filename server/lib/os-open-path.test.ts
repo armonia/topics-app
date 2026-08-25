@@ -1,3 +1,6 @@
+/**
+ * @covers PROJECT-10
+ */
 import { describe, it, expect } from "bun:test";
 import { resolveOsOpenPath, type OsOpenProbe } from "./os-open-path";
 

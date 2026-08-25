@@ -1,3 +1,6 @@
+/**
+ * @covers WIRE-03
+ */
 import { describe, expect, test } from "bun:test";
 import { shouldCompressFrame, MIN_COMPRESS_BYTES } from "./ws-compression";
 

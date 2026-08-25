@@ -298,3 +298,38 @@ Una cartella qualunque SHALL dare NIENTE, non un'icona inventata.
 #### Scenario: un manifesto rotto
 - **GIVEN** un manifesto che non si riesce a interpretare
 - **THEN** la ricerca SHALL proseguire con le fonti successive
+
+### Requirement: PROJECT-10 — Aprire un percorso dal sistema: una cartella è un progetto, un file è il progetto che lo contiene
+
+Un percorso consegnato dal sistema operativo SHALL essere risolto in una scheda:
+una CARTELLA SHALL diventare un progetto; un FILE SHALL aprire il progetto che
+lo CONTIENE, con quel file a fuoco.
+
+La regola SHALL essere PURA e condivisa fra i due lati: la sonda che tocca il
+disco SHALL essere separata dalla decisione, o la decisione non si può verificare
+senza un disco.
+
+Dentro un insieme di pacchetti SHALL vincere la RADICE che porta il marcatore del
+sistema di versione, non il pacchetto più vicino al file.
+
+Un progetto GIÀ APERTO SHALL vincere sui marcatori: aprire lo stesso lavoro due
+volte con due radici diverse è come nascono i doppioni.
+
+Un file SCIOLTO — senza nessuna radice sopra di sé — SHALL aprire la cartella che
+lo contiene.
+
+La forma con cui il gestore di file del sistema consegna un percorso SHALL
+passare dalla STESSA porta: due strade producono due comportamenti.
+
+Un percorso che NON ESISTE, e un percorso RELATIVO, NON SHALL aprire niente.
+
+La risalita verso l'alto SHALL fermarsi a un tetto di antenati: senza, un file
+fuori posto fa risalire fino alla radice del disco.
+
+#### Scenario: un file dentro un insieme di pacchetti
+- **GIVEN** un file dentro un pacchetto, sotto una radice col marcatore
+- **THEN** SHALL essere aperta la radice, col file a fuoco
+
+#### Scenario: un percorso relativo
+- **GIVEN** un percorso non assoluto
+- **THEN** NON SHALL essere aperto niente

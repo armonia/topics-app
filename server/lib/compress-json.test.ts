@@ -1,3 +1,6 @@
+/**
+ * @covers WIRE-02
+ */
 import { describe, expect, test } from "bun:test";
 import { compressJson, shouldCompress, MIN_COMPRESS_BYTES } from "./compress-json";
 

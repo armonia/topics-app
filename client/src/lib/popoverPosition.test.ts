@@ -1,3 +1,6 @@
+/**
+ * @covers GESTURE-05
+ */
 import { describe, test, expect } from 'bun:test';
 import { computeMenuPosition } from './popoverPosition';
 

@@ -6,6 +6,7 @@
  *    (`pointer-events-none` nel ramo touch, non fuori dal ternario);
  *  · le classi `group-hover/*` devono essere LETTERALI nel sorgente, o
  *    Tailwind non le genera e la regola muore senza dirlo.
+  * @covers GESTURE-03
  */
 import { describe, expect, it } from 'bun:test';
 import { hoverRevealClass, HOVER_REVEAL_HIDDEN } from './hoverReveal';

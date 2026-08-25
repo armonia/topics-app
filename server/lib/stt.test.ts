@@ -7,6 +7,7 @@
  * si verifica che la cascata scenda davvero il gradino successivo, che dica CHI
  * ha trascritto, e che quando cadono tutti l'errore contenga il perché di
  * ciascuno invece di «STT failed».
+  * @covers STT-01 @covers STT-02 @covers STT-03
  */
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

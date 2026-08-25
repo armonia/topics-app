@@ -1736,7 +1736,6 @@
     "tests/e2e/mobile-chrome-bar.spec.ts": 161,
     "tests/e2e/mobile-edge-swipe-no-history.spec.ts": 62,
     "tests/e2e/mobile-responsive-audit.spec.ts": 75,
-    "tests/e2e/mute-and-badge.spec.ts": 1,
     "tests/e2e/no-reply-live-turn.spec.ts": 56,
     "tests/e2e/notification-history.spec.ts": 72,
     "tests/e2e/pane-error-isolation.spec.ts": 49,

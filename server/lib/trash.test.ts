@@ -1,3 +1,6 @@
+/**
+ * @covers TRASH-01
+ */
 import { test, expect, describe } from "bun:test";
 import { homeTrashDir, uniqueTrashName, moveToTrash, moveToTrashDir } from "./trash";
 import { mkdtempSync, writeFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "fs";

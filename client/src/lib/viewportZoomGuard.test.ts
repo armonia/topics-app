@@ -9,6 +9,7 @@
  *
  * Quindi qui si presidia che la sostituzione sia chirurgica. Il comportamento
  * vero di iOS (la scala che torna a 1) non è simulabile: si misura sul telefono.
+  * @covers GESTURE-04
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
