@@ -31,6 +31,13 @@ import {
   resetTerminalWorkspace,
   navigateAndOpenTerminal,
 } from "./helpers/terminal-workspace";
+import { hermetic } from "./fixtures/hermetic";
+
+// Il confine ermetico si dichiara anche qui, come in terminal.spec.ts: usare la fixture del
+// terminale non lo porta con se'. Il presidio tests/unit/e2e-hermetic-coverage.test.ts esiste
+// perche' dimenticarlo non rompe NIENTE in questo file — il conto arriva quaranta test piu'
+// avanti, su una spec che trova un workspace che nessuno le ha promesso.
+hermetic(test);
 
 test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () => {
   let topicId = "";
