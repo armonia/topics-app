@@ -110,6 +110,26 @@ only the interruption; the badge rides the attention rollup, which never consult
 - **WHEN** the user activates the muted topic's pane and its unread is reported as 0
 - **THEN** the app badge falls back by exactly one, keeping the still-backgrounded topic's share
 
+### Requirement: MUTE-02 — Il fuoco che ESCE da una chat va detto al server, non solo quello che entra
+
+Quando il fuoco lascia una chat per una pane che NON è una chat — la board, un
+terminale, un browser — il sistema SHALL dirlo al server. L'ingresso in una chat
+era già annunciato; l'uscita no, e il gemello esisteva in un punto solo, dentro
+una finestra di progetto.
+
+Non è simmetria per il gusto della simmetria. Senza l'annuncio dell'uscita, per
+il server l'ultima chat guardata resta quella davanti: dopo la soglia di
+permanenza entra fra quelle «in lettura», e da lì OGNI suo conteggio di non
+letti maggiore di zero viene RI-MARCATO letto al volo, sul ramo «è arrivato un
+messaggio mentre stavi già leggendo». Il risultato è che **un turno che finisce
+su una chat in secondo piano non lascia traccia sul badge**, e quale chat perda
+il conto dipende da quale scheda è stata aperta per prima.
+
+#### Scenario: due chat aperte, il fuoco sulla board
+- **GIVEN** due chat aperte e il fuoco spostato su una pane che non è una chat
+- **WHEN** entrambe ricevono un messaggio
+- **THEN** ENTRAMBE SHALL contare sul badge
+
 ### Requirement: PARITY-01 — Same count on the tab bar and the sidebar row
 
 The system SHALL show the same unread count for a topic on its pane tab and on its

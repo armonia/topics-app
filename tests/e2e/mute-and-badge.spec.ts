@@ -28,7 +28,7 @@ const TS = Date.now();
 const BASE = E2E_BASE;
 
 /** The server-assigned `sessionKey` of a topic (the notifier keys on it).
- *  Letta dall'elenco: non esiste un GET per singolo topic. */
+ *  Read from the list: there is no GET for a single topic. */
 async function sessionKeyOf(page: import("@playwright/test").Page, topicId: string): Promise<string> {
   const res = await page.request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
   const body = (await res.json()) as { topics?: Record<string, { id: string; sessionKey?: string }> };
@@ -182,4 +182,100 @@ test.describe("Mute gate + app badge", () => {
     ws.send({ type: "unread:updated", topicId: mutedTopic.id, unreadCount: 0 });
     await expect.poll(badge, { timeout: 5000 }).toBe(base + 1);
   });
+
+  // REGRESSION: the focus that LEAVES a chat must reach the server.
+  //
+  // `sendFocusTopic` fires when a chat becomes active; its twin `sendBlur` only
+  // existed inside `ProjectWindow`. At app level, moving from a chat to a
+  // non-chat pane (board, terminal, browser) sent nothing: for the server the
+  // last chat looked at stayed in front, and after `SEEN_DWELL_MS` it landed in
+  // `seenTopicRef` — from there every `unread:updated{n>0}` about it was
+  // re-marked read on the spot and never reached the badge.
+  //
+  // Measured before the fix: with two chats open and focus on the board, the
+  // FIRST chat never raised the badge (delta 0) and the second did (delta 1).
+  // After: 1 and 1, and the `focus{topicId: null}` frame that was missing shows
+  // up between the frames.
+  //
+  // The test watches the COUNT, not the frame: the wrong badge is the thing the
+  // user actually sees.
+  test("MUTE-02: una chat non guardata conta sul badge anche col fuoco altrove", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "MUTE-02" });
+    await page.addInitScript(() => {
+      const w = window as unknown as { __badge: number | null };
+      w.__badge = null;
+      const nav = navigator as unknown as {
+        setAppBadge: (n?: number) => Promise<void>;
+        clearAppBadge: () => Promise<void>;
+      };
+      nav.setAppBadge = (n?: number) => { w.__badge = n ?? 0; return Promise.resolve(); };
+      nav.clearAppBadge = () => { w.__badge = 0; return Promise.resolve(); };
+    });
+    await page.clock.install();
+    const ws = await interceptWebSocket(page);
+    const AGENTS = "__board__";
+    await page.request.put(`${BASE}/api/ui-state/panels`, {
+      data: { openPanels: [mutedTopic.id, loudTopic.id, AGENTS] },
+    });
+    await page.request.put(`${BASE}/api/ui-state/panel-order`, {
+      data: {
+        order: [mutedTopic.id, loudTopic.id, AGENTS],
+        pinned: [mutedTopic.id, loudTopic.id, AGENTS],
+      },
+    });
+    await resetPaneStore(page.request, [mutedTopic.id, loudTopic.id, AGENTS]);
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await page.locator(`[data-pane-id="${AGENTS}"]`).waitFor({ state: "visible", timeout: 10000 });
+    await page.locator(`[data-pane-id="${AGENTS}"]`).click();
+    // THE DWELL IS MOVED, NOT WAITED FOR.
+    //
+    // This step is load-bearing and that was measured, not assumed: taking it
+    // out entirely makes the test pass on a build WITHOUT the fix — vacuously
+    // green, the worst outcome a regression test can have.
+    //
+    // But it cannot be an ordinary wait-for-condition either. `isSeen`
+    // (client/src/state/signals.ts) is a PREDICATE over `focusedSince` compared
+    // against `Date.now()`: no timer fires, no request goes out. "The dwell has
+    // elapsed" has no positive observable — and on the FIXED build it never
+    // becomes true at all, because the blur resets `focusedSince`, which is the
+    // very thing under test. A condition that only exists on the broken build
+    // cannot be what the good build waits for.
+    //
+    // So the clock moves instead: `page.clock` advances what `Date.now()`
+    // returns, buying the same fact a 2500 ms sleep bought against a 1200 ms
+    // dwell, without spending the seconds. Verified both ways after the change
+    // — green with the fix, red without it.
+    await page.clock.fastForward(2500);
+
+    const badge = () =>
+      page.evaluate(() => (window as unknown as { __badge: number | null }).__badge ?? 0);
+    ws.send({ type: "unread:updated", topicId: mutedTopic.id, unreadCount: 0 });
+    ws.send({ type: "unread:updated", topicId: loudTopic.id, unreadCount: 0 });
+    // The real condition, not a duration: wait until the badge STOPS MOVING, so
+    // the baseline below is a settled number rather than a snapshot taken
+    // mid-flight. Its VALUE is not asserted — other panes contribute to it and
+    // this test is about the delta, not the total.
+    let prev = -1;
+    await expect
+      .poll(async () => { const v = await badge(); const stable = v === prev; prev = v; return stable; },
+        { message: "il badge non si e' fermato dopo i due zeri", timeout: 5000 })
+      .toBe(true);
+    const base = await badge();
+
+    // The FIRST pane opened: the one the bug left marked as "being read".
+    ws.send({ type: "unread:updated", topicId: mutedTopic.id, unreadCount: 1 });
+    await expect
+      .poll(badge, {
+        message: "la chat in secondo piano deve contare: era delta 0 prima del blur",
+        timeout: 5000,
+      })
+      .toBe(base + 1);
+
+    ws.send({ type: "unread:updated", topicId: loudTopic.id, unreadCount: 1 });
+    await expect
+      .poll(badge, { message: "e la seconda pure", timeout: 5000 })
+      .toBe(base + 2);
+  });
+
 });

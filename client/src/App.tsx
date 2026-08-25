@@ -63,6 +63,7 @@ const isTauriMac = isTauri && typeof navigator !== 'undefined' && /Mac/i.test(na
 import { useAnimationPause } from './hooks/useAnimationPause';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle';
+import { sendBlur } from './lib/focusMessaging';
 import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
@@ -1190,6 +1191,35 @@ function App() {
     if (boardInFront) setSidebarCollapsed(false);
     else { handleOpenBoard(); setSidebarCollapsed(true); }
   }, [boardInFront, handleOpenBoard, setSidebarCollapsed]);
+
+  // THE FOCUS THAT LEAVES A CHAT MUST REACH THE SERVER, not only the one that
+  // enters it.
+  //
+  // `sendFocusTopic` fires when a chat BECOMES active (ChatPanel, ChatPane), and
+  // `sendBlur` lived in exactly one place: inside a project, when the active
+  // pane is not a chat (`ProjectWindow`). At app level that twin was missing, so
+  // moving from a chat to a top-level NON-chat pane — the board, a terminal, a
+  // browser — sent nothing, and for the server the last chat looked at was still
+  // the one in front.
+  //
+  // This is not cosmetic. After `SEEN_DWELL_MS` that chat enters `seenTopicRef`,
+  // and from there every `unread:updated{n>0}` about it is RE-MARKED READ on the
+  // spot (`useWebSocket`, the "a message arrived while you were already reading"
+  // branch). Measured with two chats open and focus moved to the board: the
+  // first chat never raises the badge (delta 0), the second does (delta 1). So a
+  // turn finishing on a chat you are not watching can leave no trace on the
+  // dock, and WHICH chat loses the count depends on which tab was opened first.
+  //
+  // It is also what turned MUTE-01 red on the full run: the test sends two
+  // unreads and sees one arrive — "expected 5, received 4".
+  //
+  // The condition is the same one `ProjectWindow` uses: active pane is not a chat
+  // => blur. Project panes stay with the inner handler, which knows which chat is
+  // active INSIDE the project and sends its focus.
+  const focusedIsChat = !!focusedPanelId && !!topics[focusedPanelId];
+  useEffect(() => {
+    if (focusedPanelId && !focusedIsChat && !focusedProjectPath) sendBlur(sendWS);
+  }, [focusedPanelId, focusedIsChat, focusedProjectPath, sendWS]);
 
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects}>
