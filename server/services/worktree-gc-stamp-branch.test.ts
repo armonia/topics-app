@@ -10,6 +10,8 @@
  * `delivery_commit IS NOT NULL`).
  *
  * Soluzione: `setDeliveryBranch(taskId, branch)` scrive SOLO `delivery_branch`.
+ *
+ * @covers WORKTREE-10
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

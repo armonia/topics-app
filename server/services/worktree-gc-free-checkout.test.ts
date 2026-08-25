@@ -15,6 +15,8 @@
  * The land is forced to `skipped`: it is the NORMAL case since `03ca44c3` (the
  * land refuses a branch carrying commits from another session) and it is exactly
  * the scenario that kept 77 worktrees alive for 33.9 GB.
+ *
+ * @covers WORKTREE-10
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "fs";

@@ -26,6 +26,8 @@
  * la chiami, che sia best-effort, e che non parta dove non serve. Il resto e'
  * lettura del sorgente per la stessa ragione degli altri cancelli di questo
  * tipo: montare un worktree vero in un test costa secondi e una cartella.
+ *
+ * @covers WORKTREE-07
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

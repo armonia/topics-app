@@ -21,6 +21,8 @@
  *   • its attempts counter does not move by a single unit;
  *   • a branch gone with no landing, under a task that declares it is working on
  *     it, still gets parked - the real fault has not been masked.
+ *
+ * @covers WORKTREE-12
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";

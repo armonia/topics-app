@@ -1,3 +1,6 @@
+/**
+ * @covers WORKTREE-08
+ */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { resolveWorktreeBaseRef } from "./worktree-base-ref";
 import type { GitRunResult } from "./own-commits";

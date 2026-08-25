@@ -3,6 +3,8 @@
  * verificato. Il caso «branch assente» è la regressione del task `5770b9de` —
  * la riga vecchia giurava «è INTATTO (nessun commit perso)» su un ref che non
  * esisteva, e questi test devono diventare rossi se quella formula torna.
+ *
+ * @covers WORKTREE-12
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";

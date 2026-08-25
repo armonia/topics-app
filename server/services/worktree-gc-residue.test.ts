@@ -16,6 +16,8 @@
  *   • senza il mezzo per salvare → la cartella resta (la vecchia risposta);
  *   • con un conflitto aperto    → la cartella resta (sigillare è peggio);
  *   • orfano con branch vivo     → il checkout se ne va, i commit no.
+ *
+ * @covers WORKTREE-11
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "fs";

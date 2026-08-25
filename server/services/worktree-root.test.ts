@@ -10,6 +10,8 @@
  * `e2e-naming-…`, `e2e-rename-…`, `e2e-archive-…`. Il database dei test era
  * confinato, i loro checkout no, e nessun registro li conosceva — quindi la
  * potatura non poteva nemmeno vederli.
+ *
+ * @covers WORKTREE-06
  */
 import { describe, test, expect } from "bun:test";
 import { homedir } from "node:os";

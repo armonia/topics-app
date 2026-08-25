@@ -13,6 +13,8 @@
  * typecheck — si vede a runtime, la prima volta che il timer scatta, cioe' due
  * minuti dopo il boot in produzione. Questo test e' il posto in cui si vede
  * subito.
+ *
+ * @covers WORKTREE-09
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";

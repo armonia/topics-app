@@ -2,6 +2,8 @@
  * The worktree-GC safety contract. The decision function must NEVER return a
  * destructive action when there is anything to lose; the sweep must honour a
  * live turn and degrade to keep on a landing that can't complete.
+ *
+ * @covers WORKTREE-09
  */
 import { describe, test, it, expect } from "bun:test";
 import { decideGhostRow, decidePostLandReap, decideWorktreeReap, normalizeKeepReason, shouldSlimOnKeep, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";

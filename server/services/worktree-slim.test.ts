@@ -6,6 +6,8 @@
  * repo git VERO con un worktree vero — perché la promessa che conta («l'albero
  * resta pulito, il ramo resta») è una promessa su git, non su una lista di
  * stringhe, e si verifica solo chiedendola a git.
+ *
+ * @covers WORKTREE-07
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import {
