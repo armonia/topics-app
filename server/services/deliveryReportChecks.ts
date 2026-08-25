@@ -200,6 +200,12 @@ export function extractClaims(report: string): Claim[] {
   for (const m of report.matchAll(/`([A-Za-z_][\w]{2,})`/g)) {
     const n = m[1]!;
     if (EXTENSIONS.test(n) || NOT_SYMBOLS.has(n)) continue;
+    // A BACKTICKED SHA IS NOT A SYMBOL, and the same extractor above already
+    // reads it as a commit. Left in, it becomes a symbol nobody ever wrote, and
+    // check 2 then asks whether a migration file "names `a73f2f5d`" — a
+    // question with no true answer. Measured: it is what accused `775ec1d6`,
+    // a card whose work is verified on main.
+    if (/^[0-9a-f]{7,40}$/i.test(n) && /[0-9]/.test(n) && /[a-f]/i.test(n)) continue;
     push({ kind: "simbolo", name: n });
   }
   return out;
@@ -226,6 +232,8 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   //    The number alone is the check that failed: 054 and 055 both exist, as
   //    two other features, and three reports claimed them.
   const migrations = probe.migrations();
+  /** The migration files the report cites, judged TOGETHER further down. */
+  const cited: string[] = [];
   for (const c of claims) {
     if (c.kind !== "migrazione") continue;
     const file = migrations.find((f) => f.startsWith(`${c.number}-`));
@@ -248,12 +256,32 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
       continue;
     }
     if (symbols.length === 0) continue; // nothing to compare against: no accusation
-    const body = probe.readMigration(file);
-    if (!symbols.some((s) => body.includes(s))) {
+    cited.push(file);
+  }
+
+  /**
+   * A report that names TWO migrations is not claiming both.
+   *
+   * The symbols are matched against ALL the cited migrations at once, and one
+   * hit anywhere clears them. Checking each file on its own accused every
+   * report that mentions a second number to CONTRAST with its own, which is the
+   * commonest sentence in this repo's delivery reports:
+   *
+   *     la mia migration resta 098, main nel frattempo ha preso 097 e 099   allow-italian: a real report line, quoted as evidence
+   *     `check:migrations` ok (090 vs 089-retirements)                      allow-italian: idem
+   *
+   * Measured before the change: of the 5 cards this check accused, 3 had
+   * `landing_state='landed'` — their work verified on main — and all three were
+   * this exact shape: the symbols were in the migration they DID write, and the
+   * accusation named the one they were comparing against.
+   */
+  if (cited.length > 0 && symbols.length > 0) {
+    const migrationText = cited.map((f) => probe.readMigration(f));
+    if (!symbols.some((sym) => migrationText.some((b) => b.includes(sym)))) {
       findings.push({
         code: "migration-belongs-elsewhere",
         detail:
-          `${file} non nomina niente di quello che il report dice di aver scritto ` +
+          `${cited.join(", ")} non nomina niente di quello che il report dice di aver scritto ` +
           `(${symbols.slice(0, 4).join(", ")}): lo slot e' occupato da un'altra feature`,
       });
     }

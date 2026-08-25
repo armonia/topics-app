@@ -327,6 +327,36 @@ describe("l'estrattore non scambia il rumore per una dichiarazione", () => {
     expect(migs("migration renumbered 054->055")).toEqual(["054", "055"]);
   });
 
+  test("uno sha fra apici non e' anche un simbolo", () => {
+    // The same extractor already reads it as a commit. Left as a symbol too, it
+    // becomes something nobody ever wrote, and check 2 then asks whether a
+    // migration file "names `a73f2f5d`" — a question with no true answer.
+    // Measured: it is what accused `775ec1d6`, whose work is verified on main.
+    const symbolsIn = (t: string) =>
+      extractClaims(t).filter((c) => c.kind === "simbolo").map((c) => (c as { name: string }).name);
+    expect(symbolsIn("il peso e' in `a73f2f5d` (migration 089, NULL = light)")).toEqual([]);
+    // And a real identifier that happens to be hex-ish keeps its place: this one
+    // has no digit, so it is a word, not a sha.
+    expect(symbolsIn("il campo `decade` resta")).toEqual(["decade"]);
+  });
+
+  test("due migration citate si giudicano INSIEME, non una per una", () => {
+    // A report that names a second number to CONTRAST with its own is the
+    // commonest sentence in this repo's delivery reports («migration 098, la
+    // 097 e' gia' presa»). Judging each file on its own accused all of them.
+    const probe = {
+      shaExists: () => true,
+      migrations: () => ["097-altro.sql", "098-mio.sql"],
+      readMigration: (f: string) => (f === "098-mio.sql" ? "ALTER TABLE tasks ADD COLUMN done_actor TEXT" : "ALTER TABLE x ADD y"),
+      fileMatches: () => true,
+      readLine: () => null,
+      symbolInHistory: () => true,
+    };
+    const codes = checkReport("migration 098 (la migration 097 e' gia' presa): `done_actor`", probe)
+      .map((f) => f.code);
+    expect(codes, "il simbolo sta in una delle due: nessuna accusa").not.toContain("migration-belongs-elsewhere");
+  });
+
   test("i due pezzi di un UUID non sono due commit", () => {
     // Two per worktree hand-over, and the hand-over is written by the system
     // on every card that changes one.
