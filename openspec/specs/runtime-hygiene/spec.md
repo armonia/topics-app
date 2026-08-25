@@ -307,3 +307,93 @@ SHALL essere uno di quelli.
 #### Scenario: il codice, non il caso
 - **GIVEN** una nuova ricerca opzionale scritta con la forma che solleva
 - **THEN** il banco SHALL fallire
+
+### Requirement: RUNTIME-10 — La cache locale ha un TETTO, e non riscrive ciò che è già uguale
+
+La cache dei messaggi SHALL avere un TETTO in BYTE sulla voce SERIALIZZATA, non
+sul numero di messaggi. Superare la quota dello spazio locale fa fallire OGNI
+scrittura dell'applicazione — compresa la coda dei messaggi scritti e non ancora
+consegnati.
+
+Un singolo messaggio più grande del tetto NON SHALL essere scritto: la voce SHALL
+essere TOLTA. Senza niente in cache NON SHALL essere toccato il disco. Con molti
+messaggi enormi, nemmeno la coda da uno SHALL essere scritta. Il ciclo che accorcia
+la coda NON SHALL scrivere comunque quando è sceso all'ultimo elemento.
+
+La coda SHALL essere accorciata finché entra, e ciò che entra SHALL essere scritto
+INTERO. Nessun messaggio SHALL produrre una lista VUOTA, non l'elenco intero: è la
+trappola di un taglio con indice zero.
+
+Un contenuto IDENTICO a quello già in cache NON SHALL essere riscritto — e
+l'identità SHALL essere valutata sul carico DOPO la potatura, non sull'elenco di
+partenza. Un solo messaggio in più, o un byte cambiato nell'ultimo, SHALL far
+partire la scrittura.
+
+La potatura per rientrare nel budget SHALL buttare le voci GROSSE e tenere le
+piccole, SHALL buttarne QUANTE SERVONO, e una voce più grande del budget intero
+SHALL andarsene.
+
+Il guadagno SHALL essere MISURATO da un banco comparativo, non dichiarato.
+
+#### Scenario: la stessa storia idratata venti volte
+- **GIVEN** venti idratazioni identiche
+- **THEN** SHALL essere scritta una volta sola
+
+#### Scenario: venti turni che crescono
+- **GIVEN** venti scritture realmente diverse
+- **THEN** SHALL essere scritte tutte
+
+### Requirement: RUNTIME-11 — Gli orologi girano SOLO quando la finestra è viva, e una vista figlia non li ferma
+
+Gli orologi e le letture periodiche SHALL girare quando la finestra è VISIBILE e
+A FUOCO, e SHALL dormire quando non lo è.
+
+Una vista FIGLIA che ha preso il fuoco NON SHALL contare come «la finestra non è
+a fuoco»: un clic dentro una superficie nativa rende figlia la vista, e il
+documento ospite legge di non avere il fuoco ESATTAMENTE mentre la persona sta
+usando l'applicazione — senza questo ramo tutti i terminali visibili
+precipitavano a un quarto della loro cadenza.
+
+Una figlia viva NON SHALL sovrascrivere un documento NASCOSTO: nascosto vince su
+a-fuoco.
+
+L'assenza degli strumenti per saperlo — un contenitore vecchio, un contesto senza
+documento — SHALL fallire APERTO.
+
+#### Scenario: un clic dentro una vista figlia
+- **GIVEN** il fuoco su una vista figlia viva
+- **THEN** gli orologi SHALL continuare a girare
+
+#### Scenario: la finestra nascosta
+- **GIVEN** il documento nascosto e una figlia viva
+- **THEN** gli orologi SHALL dormire
+
+### Requirement: RUNTIME-12 — Il polso della connessione si misura sulla RISPOSTA, non sull'invio
+
+Il controllo di vitalità della connessione SHALL guardare la RISPOSTA, non solo
+mandare la richiesta: mandarla senza mai guardare l'esito lascia viva una
+connessione mezza-aperta — nessun evento scatta, la chiusura non arriva, e la
+ripresa non parte mai.
+
+Senza risposta entro la finestra la connessione SHALL essere CHIUSA e la ripresa
+SHALL ripartire. Una risposta ricevuta SHALL far RIPARTIRE il conto: è il tempo
+dalla RISPOSTA che conta, non quello dall'apertura. La risposta SHALL contare come
+segno di vita anche se la validazione la scartasse.
+
+L'orologio scaduto SHALL SPEGNERSI: nessuna raffica di chiusure sulla stessa
+connessione.
+
+Chiudere NON BASTA: lo stato dichiarato SHALL LASCIARE «collegato» anche se
+l'evento di chiusura non arriva MAI — misurato staccando la rete, la connessione
+resta in chiusura e l'evento non scatta, quindi l'indicatore di assenza di rete
+non compariva e la coda in uscita non si svuotava.
+
+Una connessione NUOVA SHALL nascere col polso AZZERATO, non già scaduta.
+
+#### Scenario: la rete staccata
+- **GIVEN** una chiusura che non completa mai
+- **THEN** lo stato SHALL comunque lasciare «collegato»
+
+#### Scenario: una risposta ricevuta
+- **GIVEN** un segno di vita
+- **THEN** il conto SHALL ripartire da lì

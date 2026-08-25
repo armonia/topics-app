@@ -2141,3 +2141,198 @@ Le violazioni gravi di accessibilità SHALL essere ZERO.
 #### Scenario: la controprova
 - **GIVEN** difetti iniettati di proposito
 - **THEN** il misuratore SHALL segnalarli tutti
+
+### Requirement: CHAT-DOOR-01 — Un turno concorrente si ferma alla PORTA, prima di scrivere in chat
+
+Una seconda richiesta di turno sulla STESSA sessione SHALL essere fermata con un
+CONFLITTO alla porta, PRIMA che il messaggio venga scritto in chat. Senza il
+cancello entrambe arrivano ad aprire uno stream, il secondo SOVRASCRIVE la voce
+del primo, e la chiusura del primo turno chiude il secondo.
+
+Una sessione LIBERA SHALL passare, e uno stream su un'ALTRA sessione NON SHALL
+bloccare questa.
+
+La forma di RIADOZIONE SHALL essere ESENTE dal cancello e SHALL entrare con
+l'elenco dei messaggi VUOTO: è il suo formato, non un errore. Rifiutarla come
+malformata produce un corpo strutturato che chi chiama consuma come se fosse uno
+stream, riportando un turno mai iniziato come finito bene — misurato: nove turni
+FABBRICATI, pagati, e la risposta vera mai arrivata. Un elenco vuoto SENZA
+riadozione SHALL restare un rifiuto.
+
+Una riadozione su un fornitore che NON sa riadottare SHALL essere dichiarata NON
+IMPLEMENTATA, e NESSUN messaggio SHALL essere inviato.
+
+Una chiave di messaggio RIPETUTA SHALL essere un conflitto DICHIARATO come
+duplicato, e la riga NON SHALL raddoppiarsi. Chiavi diverse SHALL restare
+messaggi diversi, e senza chiave il comportamento SHALL restare quello di prima.
+
+#### Scenario: due invii sulla stessa sessione
+- **GIVEN** un turno già in volo
+- **THEN** il secondo SHALL essere respinto senza scrivere in chat
+
+#### Scenario: una riadozione senza messaggi
+- **GIVEN** una richiesta di riadozione con l'elenco vuoto
+- **THEN** SHALL essere accettata
+
+### Requirement: CHAT-BUBBLE-02 — Riadottare FONDE: non si perde ciò che c'era, e il verdetto vince
+
+La ricomposizione di una riga dopo una riadozione SHALL FONDERE ciò che arriva
+con ciò che c'era, e SHALL DICHIARARE se è arrivato qualcosa di nuovo.
+
+Una ritrasmissione MUTA — la coda già chiusa — SHALL restituire il testo e
+LASCIARE gli strumenti di prima: il fornitore ri-consegna solo il risultato
+finale, chi ascolta non vede nessuno strumento, e la riga svuotata resterebbe
+senza la domanda a schermo.
+
+Una ritrasmissione COMPLETA SHALL far vincere gli strumenti NUOVI, senza
+doppioni; una che ha PERSO gli strumenti NON SHALL sostituire quella di prima. Un
+elenco ILLEGGIBILE SHALL essere CONSERVATO: nel dubbio non si butta.
+
+La decisione «questa riga è vuota» SHALL essere presa DOPO la fusione, non prima:
+un turno con decine di strumenti e molti blocchi di testo è stato etichettato
+come chiuso senza produrre niente.
+
+Il VERDETTO del turno SHALL sopravvivere anche quando si tengono i blocchi
+vecchi: è l'unica cosa che spiega un fallimento della riadozione, e tenendo solo
+i blocchi di prima veniva buttato. A metà strada SHALL restare il testo intero di
+prima; raggiunto e superato SHALL vincere quello nuovo; alla FINE SHALL vincere il
+verdetto anche se è più corto.
+
+#### Scenario: una ritrasmissione muta
+- **GIVEN** una coda già chiusa
+- **THEN** gli strumenti di prima SHALL restare
+
+#### Scenario: la riga sembra vuota
+- **GIVEN** una riga svuotata prima della fusione
+- **THEN** il giudizio SHALL essere dato dopo la fusione
+
+### Requirement: CHAT-CONV-04 — Rigenerare porta le PROVE, o il modello inventa le azioni
+
+Il percorso di rigenerazione gira SENZA strumenti su entrambi i motori, mentre il
+prompt continua a descriverli: il risultato è una risposta INVENTATA, con dentro
+le chiamate scritte come testo e gli esiti immaginati — nessuno di quei comandi è
+mai girato.
+
+La rigenerazione SHALL passare al modello un blocco di PROVE: le azioni davvero
+eseguite col loro nome, il loro ingresso e il loro ESITO.
+
+Un'azione SENZA esito registrato SHALL essere DICHIARATA muta, e il blocco SHALL
+dire di NON darne per scontato il risultato. L'esito SHALL essere cercato anche
+nella copia secondaria prima di dichiararlo assente. Un'azione FALLITA SHALL
+leggersi come fallita.
+
+Gli argomenti lunghi SHALL essere TAGLIATI dicendolo; oltre un tetto di azioni
+SHALL essere detto QUANTE restano fuori, e il TOTALE SHALL restare dichiarato.
+
+Anche SENZA prove SHALL restare la dichiarazione esplicita che il modello NON ha
+strumenti in questo giro, e con le prove il VINCOLO SHALL venire PRIMA di esse.
+SHALL essere detto esplicitamente di non FINGERE una chiamata.
+
+#### Scenario: un'azione senza esito registrato
+- **GIVEN** una chiamata di cui non si conosce l'esito
+- **THEN** SHALL essere dichiarata muta, non data per riuscita
+
+#### Scenario: nessuna azione da riportare
+- **GIVEN** un turno senza strumenti
+- **THEN** SHALL restare la dichiarazione che non ce ne sono
+
+### Requirement: CHAT-STREAM-01 — Uno stream ORFANO si spegne da solo, e non tocca chi è vivo
+
+Un turno il cui segnale di fine NON è mai arrivato — la connessione è caduta in
+mezzo — SHALL essere riconosciuto e SPENTO: senza, l'indicatore resta acceso fino
+al guardiano dei minuti lunghi o a un ricaricamento.
+
+La riconciliazione SHALL richiedere PIÙ mancanze CONSECUTIVE, non una sola: una
+sola assenza è una corsa, non una diagnosi. Uno stream che RIAPPARE SHALL azzerare
+il conto.
+
+Una sessione che il server dichiara ancora viva NON SHALL MAI essere considerata
+orfana, e un invio LOCALE ancora in volo NON SHALL essere toccato nemmeno se il
+server non lo conosce.
+
+#### Scenario: la prima mancanza
+- **GIVEN** un solo giro senza lo stream
+- **THEN** NON SHALL essere spento
+
+#### Scenario: un invio locale in volo
+- **GIVEN** un invio non ancora noto al server
+- **THEN** NON SHALL essere toccato
+
+### Requirement: CHAT-SCROLL-01 — Il bersaglio di un salto SCADE, e un contesto parziale non lo fa esplodere
+
+Il bersaglio di un salto a un messaggio SHALL poter essere LETTO senza
+consumarlo, e CONSUMATO esplicitamente. Registrare di nuovo SHALL sostituire il
+bersaglio precedente di quel discorso.
+
+Il bersaglio SHALL SCADERE dopo un tempo; una volta RAGGIUNTO SHALL sopravvivere
+una finestra di grazia breve e poi sparire, e un secondo raggiungimento NON SHALL
+estendere quella finestra.
+
+Il modulo SHALL funzionare anche con un ambiente PARZIALE: verificare che un
+oggetto globale esista non basta, perché altri banchi ne installano versioni
+incomplete — il risultato dipendeva da QUALI file giravano insieme, con la suite
+intera verde e un sottoinsieme rosso.
+
+#### Scenario: un contesto senza il metodo che serve
+- **GIVEN** un ambiente parziale
+- **THEN** la registrazione SHALL riuscire senza sollevare
+
+#### Scenario: un bersaglio già raggiunto
+- **GIVEN** un secondo raggiungimento
+- **THEN** la finestra di grazia NON SHALL essere estesa
+
+### Requirement: CHAT-WAIT-02 — Il numero grande è il LAVORO, e mentre aspetta sta FERMO
+
+Il numero mostrato come durata di un turno SHALL essere il LAVORO, cioè il turno
+MENO le attese: dieci minuti di turno di cui nove e mezzo di pausa erano un numero
+vero e inutile — scorreva mentre si legge una domanda, mettendo fretta senza
+informare.
+
+Mentre si aspetta il numero NON SHALL crescere. A domanda chiusa SHALL tornare al
+lavoro con le attese SOTTRATTE, e più attese nello stesso turno SHALL SOMMARSI,
+compresa quella aperta. Un'attesa più lunga del turno SHALL dare lavoro ZERO, mai
+negativo. Numeri sporchi NON SHALL produrre numeri sporchi.
+
+Un turno che va avanti da molto SHALL dichiararlo: l'istante dell'ultimo strumento
+si azzera a ogni chiamata, e da solo diceva pochi secondi a un turno che durava
+da venti minuti. Quando l'inizio del turno NON è noto — il server è ripartito a
+metà — il numero SHALL essere dichiarato APPROSSIMATO: è un MINIMO, non la verità.
+
+Sotto il minuto i SECONDI sono l'informazione: un pavimento a un minuto mostrava
+un minuto a un turno di tre secondi, proprio dove il numero serve più preciso.
+Sopra il minuto SHALL tornare il formato compatto, e NON SHALL essere mostrato
+uno zero.
+
+L'istante attuale SHALL arrivare come ARGOMENTO: è ciò che impedisce a queste
+funzioni di congelarsi, e le tre copie che hanno sostituito lo leggevano dentro il
+disegno.
+
+Per ogni soggetto SHALL esserci UNA sola voce di tempo: o lavora, o ha finito.
+
+#### Scenario: mezz'ora di attesa dentro il turno
+- **GIVEN** un turno lungo con una lunga attesa
+- **THEN** il numero SHALL essere il solo lavoro
+
+#### Scenario: l'inizio del turno non è noto
+- **GIVEN** un server ripartito a metà turno
+- **THEN** il numero SHALL essere dichiarato approssimato
+
+### Requirement: CHAT-TOOL-05 — Un corpo lungo si taglia DICENDOLO, e la misura resta quella vera
+
+Il corpo di una scheda di strumento SHALL essere TAGLIATO oltre un budget, e il
+taglio SHALL essere DICHIARATO. La lunghezza REALE SHALL restare disponibile: è
+la differenza fra «questo è tutto» e «questo è quanto te ne mostro».
+
+Un corpo ESATTAMENTE al budget NON SHALL essere considerato in eccesso.
+
+Chi chiama SHALL poter imporre il proprio budget.
+
+Le misure in byte SHALL cambiare unità a soglie coerenti.
+
+#### Scenario: un corpo esattamente al budget
+- **GIVEN** una lunghezza pari al limite
+- **THEN** NON SHALL essere dichiarato tagliato
+
+#### Scenario: un corpo oltre il budget
+- **GIVEN** una lunghezza superiore
+- **THEN** SHALL essere tagliato, e la lunghezza vera SHALL restare

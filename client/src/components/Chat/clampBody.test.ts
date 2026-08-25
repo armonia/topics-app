@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-TOOL-05
+ */
 import { describe, expect, test } from 'bun:test';
 import { clampBody, formatBytes, CLAMP_CHARS } from './clampBody';
 

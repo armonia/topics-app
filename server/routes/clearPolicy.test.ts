@@ -1,3 +1,6 @@
+/**
+ * @covers CMD-09
+ */
 import { describe, test, expect } from "bun:test";
 import { clearActionFor } from "./clearPolicy";
 import { ClaudeCodeProvider } from "../providers/claude-code";

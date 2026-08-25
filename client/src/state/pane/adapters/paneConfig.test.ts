@@ -1,3 +1,6 @@
+/**
+ * @covers PANE-02
+ */
 import { describe, test, expect } from "bun:test";
 import type { Pane } from "../../../types";
 import {

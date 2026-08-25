@@ -1,3 +1,6 @@
+/**
+ * @covers STT-02
+ */
 import { describe, it, expect } from "bun:test";
 import { createVoiceRouter } from "./voice";
 

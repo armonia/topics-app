@@ -287,3 +287,142 @@ Il sistema DEVE:
 - **GIVEN** il chip dei segnali con più candidati che posti
 - **WHEN** un conteggio a zero prende un posto
 - **THEN** il vincolo è violato
+
+### Requirement: TOPIC-PREVIEW-01 — Le due gemelle della potatura hanno UNA testata sola
+
+La potatura del testo di anteprima esiste su DUE lati — quello che scrive e
+quello che disegna — e SHALL produrre lo STESSO risultato. Finché solo una delle
+due aveva un banco, potevano divergere in silenzio: un caso corretto di là e non
+di qua, e la stessa conversazione diceva due cose diverse a seconda di quale
+canale l'aveva riempita.
+
+SHALL sparire ciò che è impalcatura e non messaggio: i blocchi di codice — anche
+una recinzione APERTA, cioè un turno tagliato a metà, che SHALL portarsi via la
+coda — i marcatori di struttura, il grassetto, il corsivo, le immagini, e il
+contesto iniettato.
+
+NON SHALL sparire ciò che è CONTENUTO: gli underscore dentro una parola, una
+moltiplicazione, l'etichetta di un collegamento.
+
+Gli a-capo SHALL diventare UNA riga con gli spazi compressi. Una riga
+ORIZZONTALE NON SHALL diventare il primo carattere che si legge.
+
+Un messaggio di solo codice NON SHALL lasciare niente.
+
+Il taglio SHALL avvenire a una lunghezza massima, puntini compresi, senza
+superarla; un testo corto NON SHALL essere toccato.
+
+La potatura SHALL essere IDEMPOTENTE: il secondo lato ripassa su ciò che il primo
+ha già potato.
+
+#### Scenario: una recinzione di codice aperta
+- **GIVEN** un turno tagliato a metà dentro un blocco di codice
+- **THEN** la coda SHALL essere rimossa
+
+#### Scenario: una moltiplicazione
+- **GIVEN** un testo con dei simboli che somigliano a formattazione
+- **THEN** NON SHALL essere trattati come formattazione
+
+### Requirement: TOPIC-CTRL-01 — I comandi di sessione distinguono «non c'è» da «c'è ma è archiviata», e non legano MAI la radice
+
+Gli endpoint che una sessione usa per governare sé stessa SHALL distinguere i
+modi di fallire: un bersaglio ARCHIVIATO SHALL essere un rifiuto DIVERSO da uno
+INESISTENTE — confonderli manda a cercare qualcosa che c'è.
+
+Creare un progetto il cui nome ESISTE GIÀ SHALL essere un CONFLITTO dichiarato,
+che NOMINA la collisione, e NON SHALL legare in silenzio la cartella esistente:
+creare non è un ri-aggancio idempotente. Il conflitto SHALL reggere da OGNI
+strada, e NON SHALL sovrascrivere l'impalcatura né spostare niente.
+
+Un riferimento fatto di soli caratteri non ammessi NON SHALL MAI legare la
+sessione alla RADICE dello spazio di lavoro: uno slug che si svuota, unito alla
+cartella base, restituisce la cartella base.
+
+I percorsi grezzi proposti da un agente NON SHALL essere fidati.
+
+Aprire un progetto SHALL essere IDEMPOTENTE: la stessa superficie spostata due
+volte nello stesso progetto SHALL lasciare UNA sola appartenenza.
+
+Un comando rivolto a una sessione di TERMINALE SHALL arrivare fino alla sua
+superficie. Un rifiuto SHALL essere STRUTTURATO e SHALL nominare il comando
+giusto da usare al posto di quello sbagliato. Una funzione assente nella build
+SHALL essere dichiarata come tale, non come una rotta inesistente, e un endpoint
+sconosciuto NON SHALL essere ingoiato da un ramo generico.
+
+#### Scenario: un progetto che esiste già
+- **GIVEN** una creazione con un nome in collisione
+- **THEN** SHALL essere un conflitto dichiarato, senza legare né sovrascrivere
+
+#### Scenario: un riferimento di soli caratteri non ammessi
+- **GIVEN** un riferimento che si svuota
+- **THEN** NON SHALL essere legata la radice dello spazio di lavoro
+
+### Requirement: TOPIC-PURGE-01 — Una chat rimossa sparisce da OGNI forma dello stato, e lascia una LAPIDE
+
+Una chat archiviata o cancellata SHALL essere rimossa da OGNI forma in cui lo
+stato dell'interfaccia è conservato, compresa quella GLOBALE che NON ha il campo
+degli elenchi aperti: la vecchia pulizia la saltava in silenzio, e restava una
+scheda fantasma che ricompariva sugli altri dispositivi.
+
+SHALL essere riconosciuta anche la forma in cui la superficie porta un
+identificativo composto.
+
+Per ogni superficie rimossa SHALL essere lasciata una LAPIDE DUREVOLE: senza,
+la pulizia viene ANNULLATA dal client, che all'idratazione unisce le proprie
+superfici locali con quelle in arrivo. La mappa delle lapidi SHALL avere un
+TETTO.
+
+Il registro di ANNULLAMENTO della chiusura NON SHALL essere cancellato: SHALL
+essere marcato con una lapide invece. La catena è: si chiude la scheda, il
+riduttore crea il registro dell'annullamento, la cascata del ritiro archivia il
+discorso — e il registro appena creato spariva.
+
+L'operazione SHALL essere un NON-FARE dichiarato quando il discorso non c'è, e
+NON SHALL sollevare su ingressi che non sono oggetti.
+
+Il ritiro SHALL essere il ROVESCIO esatto: archiviare marca, ripristinare
+ritira, e i vicini SHALL restare intatti.
+
+#### Scenario: lo stato globale delle superfici
+- **GIVEN** una chat presente solo nello snapshot globale
+- **THEN** SHALL essere rimossa, e SHALL restare una lapide
+
+#### Scenario: il registro dell'annullamento
+- **GIVEN** una chiusura appena annullabile
+- **THEN** il registro NON SHALL essere cancellato
+
+### Requirement: STATUSLINE-02 — Quel che si disegna non sborda MAI dallo spazio misurato
+
+I riquadri dei progetti e i conteggi per colonna SHALL stare DENTRO lo spazio
+MISURATO della riga, a QUALUNQUE larghezza: l'invariante SHALL essere verificata
+su tutto l'intervallo, non su un caso.
+
+Un conteggio SHALL contare il lavoro APERTO: ciò che è chiuso non si annuncia.
+
+«Non ancora misurato» e «misurato ZERO» SHALL essere DUE cose: il primo TACE del
+tutto; il secondo SHALL ANNUNCIARSI — nessun riquadro, ma il riepilogo dice che ne
+mancano. Appiccicare l'ultima larghezza buona rimetterebbe il silenzio.
+
+O la coppia icona-conteggio si vede INTERA, o il riquadro NON SHALL essere
+disegnato: un'icona senza il suo numero non si mostra. Il predicato di
+leggibilità SHALL essere UNO, non ricopiato.
+
+Il riepilogo «più N» SHALL prendersi il proprio posto PRIMA di contare quanti ne
+restano. La CODA SHALL arrotolarsi e la TESTA restare: si perde ciò che è
+lontano, mai ciò su cui si decide. Lo spazio minimo dei riquadri SHALL essere
+riservato PRIMA: sono i CONTEGGI a cedere — con più colonne aperte i conteggi si
+prendevano tutto e ai progetti restava meno di uno, cioè ZERO progetti senza
+nemmeno un riepilogo a dirlo. Un conteggio SOLO NON SHALL arrotolarsi mai.
+
+Senza riquadri da mostrare NON SHALL essere riservato nessuno spazio minimo.
+
+Un progetto che l'indice non conosce SHALL restare CONTATO, col nome ripulito e
+senza il percorso.
+
+#### Scenario: quattro colonne aperte su una riga stretta
+- **GIVEN** lo spazio misurato di una colonna stretta
+- **THEN** SHALL restare almeno un progetto, e il resto SHALL essere dichiarato
+
+#### Scenario: misurato zero
+- **GIVEN** una larghezza misurata pari a zero
+- **THEN** SHALL essere annunciato, non taciuto

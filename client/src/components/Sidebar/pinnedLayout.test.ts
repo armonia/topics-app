@@ -1,3 +1,6 @@
+/**
+ * @covers LAYOUT-20
+ */
 import { describe, expect, test } from 'bun:test';
 import {
   PINNED_ROW_MAX,

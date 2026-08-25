@@ -1,3 +1,6 @@
+/**
+ * @covers SHEET-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { sheetSettle } from './useSheetDrag';
 

@@ -16,6 +16,7 @@
  * modo sbagliato sarebbe stato invisibile: una coda vuota contata come coda, un
  * task idratato senza tab contato come task, una tab parcheggiata che sparisce
  * dal totale proprio perche' non si vede da nessun'altra parte.
+  * @covers RES-ATTR-09
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { __setQueueStorage, enqueueTurn, getQueue, clearQueue, queueCount } from './chatQueue';

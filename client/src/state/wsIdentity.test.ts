@@ -12,6 +12,7 @@
  * La scelta che questi test fissano è quella asimmetrica: nel dubbio il frame è
  * ALTRUI. Mostrare un indicatore di troppo per una frazione di secondo è un
  * fastidio; non mostrare mai l'attività di un altro utente rompe la funzione.
+  * @covers WIRE-05
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { getWsClientId, isOwnFrame, setWsClientId } from './wsIdentity';

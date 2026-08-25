@@ -5,6 +5,7 @@
  * router contract (route matching, response shapes, error paths). The
  * deep semantics of the envelope and adapter are exercised in their own
  * suites — here we just verify the wiring.
+  * @covers CTX-PREVIEW-01
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";

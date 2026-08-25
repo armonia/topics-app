@@ -7,6 +7,7 @@
  *    land, quando il worktree è stato potato;
  *  · quando un diff non c'è, il `code` dice PERCHÉ — «verificato: nessun codice»,
  *    «non ricostruibile» e «non dispatchato» erano lo stesso silenzio.
+  * @covers KANBAN-43
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";

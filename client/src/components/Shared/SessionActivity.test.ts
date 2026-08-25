@@ -16,6 +16,7 @@
  * jsdom/happy-dom non sono dipendenze di questo progetto e
  * `renderToStaticMarkup` non ha un secondo render — e questo è un guasto che
  * vive solo nei render successivi al primo.
+  * @covers CHAT-WAIT-02
  */
 import { describe, test, expect, beforeEach, afterEach, jest } from 'bun:test';
 import { createElement } from 'react';

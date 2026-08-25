@@ -83,3 +83,87 @@ misurerebbe la prova.
 #### Scenario: le due porte
 - **GIVEN** i due collegamenti diretti alle due voci
 - **THEN** ciascuno SHALL attivare la propria, e i due contenuti SHALL differire
+
+### Requirement: APPSET-04 — Lo stato dell'interfaccia è chiave→valore, non chiave→oggetto
+
+La scrittura di una singola chiave dello stato dell'interfaccia SHALL accettare
+qualunque valore rappresentabile — un booleano, una stringa, un numero, un elenco
+— e SHALL rileggerlo IDENTICO. La guardia «deve essere un oggetto», ereditata da
+una fase precedente, le rifiutava: il tema non è MAI stato conservato lato
+server, e una preferenza booleana era ferma all'ultima scrittura precedente al
+vincolo — in silenzio, perché chi scrive ignora l'errore.
+
+Il valore diffuso agli altri SHALL essere il valore PRIMITIVO, non un
+involucro.
+
+Un valore NULLO SHALL essere rifiutato: non sarebbe rileggibile. Un corpo non
+interpretabile SHALL restare un rifiuto.
+
+La scrittura MASSIVA SHALL mantenere il vincolo di oggetto: è il canale di
+un'altra cosa.
+
+#### Scenario: una preferenza booleana
+- **GIVEN** una scrittura di un booleano
+- **THEN** SHALL essere riletta identica
+
+#### Scenario: un valore nullo
+- **GIVEN** una scrittura di nulla
+- **THEN** SHALL essere rifiutata
+
+### Requirement: APPSET-05 — Le voci delle impostazioni sono voci di PRIMO livello, tradotte davvero
+
+Le pagine dell'identità — profilo, chi segue, riservatezza, organizzazione —
+SHALL essere voci di PRIMO livello. C'erano già tutte, dentro una voce chiamata
+altrimenti, come riquadri di una colonna che si scorre: chi le cercava non le
+trovava, e «non le trovo» si racconta come «non ci sono».
+
+La pagina del profilo NON SHALL più portare l'organizzazione.
+
+Nessuna voce SHALL essere ripetuta, e ognuna SHALL avere la propria etichetta.
+
+Nella seconda lingua le voci SHALL essere TRADOTTE DAVVERO, non ripiegate sulla
+prima, e la verifica SHALL usare il criterio che sa distinguere «assente»
+da «uguale».
+
+L'interruttore a TRE stati — automatico, acceso, spento — SHALL fare andata e
+ritorno senza collassare: scegliere «spento» SHALL scrivere un valore esplicito
+che batte l'ambiente, e scegliere «automatico» SHALL CANCELLARE la scelta, non
+scriverne una.
+
+#### Scenario: la seconda lingua
+- **GIVEN** le voci nella seconda lingua
+- **THEN** NON SHALL essere ripiegate sulla prima
+
+#### Scenario: «automatico»
+- **GIVEN** la scelta automatica
+- **THEN** SHALL cancellare la scelta, non scriverne una
+
+### Requirement: APPSET-06 — Ogni codice di rifiuto ha una frase VERA, in entrambe le lingue
+
+OGNI codice che il server può mandare SHALL avere una frase nel dizionario, in
+ENTRAMBE le lingue, e la verifica SHALL usare il criterio che rileva l'ASSENZA —
+non la funzione di traduzione, che su una chiave presente nella prima lingua e
+assente nella seconda non può dire niente.
+
+Un codice che l'interfaccia NON conosce, o assente, NON SHALL lasciare il
+pannello muto: SHALL cadere su una frase generica.
+
+Ogni motivo SHALL avere una chiave PROPRIA: nessuno SHALL cadere su quella di un
+altro.
+
+Un rifiuto ARRIVATO NON SHALL diventare «non riesco a contattare»: sono due
+diagnosi opposte, e la seconda manda a controllare la rete quando il problema è
+una regola. Una richiesta che NON torna SHALL restare «non riesco a contattare».
+Un corpo senza codice, o illeggibile, SHALL cadere sulla frase generica: la
+prosa da sola NON è un codice.
+
+Le attese fra un tentativo e l'altro SHALL crescere, SHALL avere un TETTO, e
+NESSUNA SHALL essere zero.
+
+#### Scenario: un rifiuto del servizio
+- **GIVEN** una risposta di rifiuto arrivata
+- **THEN** NON SHALL essere raccontata come irraggiungibilità
+
+#### Scenario: un codice sconosciuto
+- **GIVEN** un codice che l'interfaccia non conosce
+- **THEN** SHALL comparire la frase generica

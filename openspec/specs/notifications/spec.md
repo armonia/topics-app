@@ -250,3 +250,50 @@ sempre.
 #### Scenario: una del gruppo
 - **GIVEN** una notifica di un gruppo dichiarata vista
 - **THEN** il contatore del gruppo SHALL tornare a zero
+
+### Requirement: PUSH-01 — Un dispositivo si iscrive davvero, e una revoca cancella SOLO le righe giuste
+
+L'iscrizione di un dispositivo SHALL scrivere una riga: il meccanismo era
+completo in ogni suo pezzo e NESSUN dispositivo si era mai iscritto.
+
+La riga SHALL portare il proprio dispositivo, e — quando chi si iscrive è
+APPAIATO — la sua IDENTITÀ, non l'identificativo che il corpo della richiesta
+dichiara. Un'iscrizione senza identità SHALL continuare a ricevere.
+
+Un'iscrizione senza chiavi SHALL essere un rifiuto, non una riga muta. Un
+recapito RUOTATO SHALL SPOSTARE il dispositivo, non raddoppiarlo. Un dispositivo
+inesistente SHALL essere dichiarato assente, non un successo che non ha fatto
+niente.
+
+Le preferenze SHALL essere PER DISPOSITIVO: spegnere il telefono NON SHALL
+spegnere il computer, e una nuova iscrizione NON SHALL riaccendere un dispositivo
+spento.
+
+Revocare un DISPOSITIVO SHALL togliergli le iscrizioni; il filtro SHALL stare
+nella richiesta, così anche una riga sopravvissuta non riceve. Lo stesso telefono
+che si RIAPPAIA dopo una revoca SHALL restare UNA riga sola: l'identificativo
+locale sopravvive alla revoca, l'identità appaiata no, e restringere la potatura
+alla sola identità produrrebbe una violazione di unicità.
+
+Cancellare un GRUPPO NON SHALL cancellare le iscrizioni dei suoi membri, e
+TOGLIERE un membro nemmeno: la funzione che elenca i dispositivi di un soggetto
+restituisce per costruzione solo quelli VIVI, ed è da lì che passava il difetto.
+Revocare quel dispositivo SHALL continuare a cancellarle — il controllo positivo.
+
+Le righe scritte PRIMA che l'identità esistesse SHALL potervi essere attribuite,
+e il timbro NON SHALL rubare le righe di un ALTRO dispositivo.
+
+Una colonna assente SHALL essere SILENZIO; un errore VERO SHALL essere
+registrato. Una revoca NON SHALL fallire per colpa della tabella delle notifiche.
+
+L'elenco SHALL dire QUALE dispositivo sei: senza, due telefoni uguali sono
+indistinguibili. Senza identificativo NESSUNA riga SHALL essere marcata come
+questo dispositivo: meglio nessuna che quella sbagliata.
+
+#### Scenario: cancellare un gruppo
+- **GIVEN** un gruppo cancellato
+- **THEN** le iscrizioni dei suoi membri NON SHALL essere cancellate
+
+#### Scenario: lo stesso telefono che si riappaia
+- **GIVEN** una revoca seguita da un nuovo appaiamento
+- **THEN** SHALL restare una riga sola

@@ -10,6 +10,7 @@
  *
  * Niente DOM: jsdom non è una dipendenza del progetto (stessa scelta di
  * `IdentitySection.test.tsx`). L'elenco delle voci è un DATO, quindi si legge.
+  * @covers APPSET-05
  */
 import { describe, test, expect } from 'bun:test';
 import { SETTINGS_SECTIONS, IDENTITY_SECTIONS } from './sections';

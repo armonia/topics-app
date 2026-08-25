@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-43
+ */
 import { describe, test, expect } from 'bun:test';
 import { buildFileRows, splitPatch } from './diffFileRows';
 import type { DiffFileStat } from '../../lib/board';

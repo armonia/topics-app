@@ -267,3 +267,29 @@ attribuzione: il singolo caso illeggibile cade da solo.
 #### Scenario: un turno senza chiamate
 - **GIVEN** un turno che non ha invocato nessun attrezzo
 - **THEN** nessun candidato SHALL essergli attribuito
+
+### Requirement: RES-ATTR-09 — I CONTEGGI dell'inventario sono esatti, o l'inventario non promette niente
+
+I conteggi dell'inventario delle risorse SHALL essere ESATTI: i byte sono stime
+DICHIARATE, i conteggi no — sono l'unica cosa che questo inventario può
+promettere, ed è il punto in cui può mentire senza che nulla lo dica.
+
+Una voce SHALL esistere solo quando c'è davvero qualcosa: una conversazione
+SVUOTATA SHALL smettere di contare invece di restare a zero, e una LETTA e trovata
+vuota NON SHALL diventare una voce.
+
+Ciò che è PARCHEGGIATO SHALL restare nel totale e SHALL essere contato A PARTE:
+sono due informazioni diverse.
+
+Elementi ripetuti sullo stesso soggetto SHALL contare UNA volta sola.
+
+Dove esiste un TETTO SHALL essere DICHIARATO: un numero da solo e lo stesso numero
+col suo tetto dicono cose diverse.
+
+#### Scenario: una conversazione svuotata
+- **GIVEN** una coda che si azzera
+- **THEN** la voce SHALL sparire, non restare a zero
+
+#### Scenario: un tetto
+- **GIVEN** un conteggio che ha un massimo
+- **THEN** il massimo SHALL essere dichiarato

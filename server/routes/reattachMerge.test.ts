@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-BUBBLE-02
+ */
 import { describe, expect, test } from "bun:test";
 import { rowCarriesWork } from "./crashedTurnNotice";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";

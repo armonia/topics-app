@@ -6,6 +6,7 @@
  * This is the self-heal for a MISSED stream:end (WS dropped between
  * stream:start and stream:end): the spinner would otherwise stick true until
  * the 3-min watchdog or a reload.
+  * @covers CHAT-STREAM-01
  */
 import { describe, test, expect } from "bun:test";
 import { reconcileOrphanStreams } from "./signals";

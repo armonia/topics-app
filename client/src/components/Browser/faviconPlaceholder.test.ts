@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-FAVICON-01
+ */
 import { describe, expect, it } from 'bun:test';
 import { faviconHost, faviconPlaceholder, faviconPlaceholderColor } from './faviconPlaceholder';
 

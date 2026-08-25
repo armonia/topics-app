@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-11
+ */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { isWindowAwake } from './windowAwake';
 import { markBrowserViewDead, markBrowserViewLive } from '../lib/shell/nativeBrowserRoster';

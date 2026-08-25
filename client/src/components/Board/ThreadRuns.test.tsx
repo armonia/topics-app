@@ -25,6 +25,7 @@
  * (jsdom/happy-dom are deliberately not dependencies of this project - same
  * choice as `Shared/Select.test.tsx` - so the mount is `renderToStaticMarkup`.
  * The click-and-look-at-it path is E2E's job.)
+  * @covers THREAD-05
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

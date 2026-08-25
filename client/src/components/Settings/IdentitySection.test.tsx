@@ -20,6 +20,7 @@
  * `Modals/TopicSettingsModal.test.tsx`). `splitMembri` e `membriDaRisposta`
  * stanno in `./membri` e sono funzioni; `TolliQueue` non usa hook e riceve `t`
  * come prop, quindi la si chiama e si guarda l'albero che restituisce.
+  * @covers PROFILE-07
  */
 import { describe, test, expect } from 'bun:test';
 import type { ReactElement, ReactNode } from 'react';

@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-COMPACT-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { partitionMarkers } from './partitionMarkers';
 import type { ChatMessage, CompactionMarker } from '../../types';

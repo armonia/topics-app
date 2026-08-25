@@ -18,6 +18,7 @@
  * No renderer and no DOM: jsdom/happy-dom are not dependencies of this project
  * (same choice as `lib/haptics.test.ts` and `Settings/IdentitySection.test.tsx`).
  * The judgement lives in pure functions, so the test calls them.
+  * @covers APPSET-06
  */
 import { describe, test, expect } from 'bun:test';
 

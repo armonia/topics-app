@@ -1,3 +1,6 @@
+/**
+ * @covers STATUSLINE-02
+ */
 import { describe, expect, test } from 'bun:test';
 import {
   boardProjectChips, fitProjectChips, fitStatusCounts, fitBoardRow, countWidth, countsSpan,

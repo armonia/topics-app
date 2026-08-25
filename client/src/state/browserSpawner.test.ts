@@ -4,6 +4,7 @@
  * The store is module-level singleton state, so each test needs to reset it
  * via clearBrowserSpawner. We can't re-import to get a clean instance because
  * sessionStorage is checked once at module load.
+  * @covers BROWSER-STATE-02
  */
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 

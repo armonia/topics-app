@@ -18,6 +18,7 @@
  *
  * I timer sono finti e `Date.now` pure: l'orologio lo muove il test, cosi' le
  * soglie si provano in millisecondi invece che in minuti.
+  * @covers RUNTIME-12
  */
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import * as React from 'react';

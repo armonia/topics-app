@@ -6,6 +6,7 @@
  *   - consume drops the target;
  *   - a later register for the same topic overwrites the earlier one;
  *   - targets expire after the TTL (stale hits can't hijack later visits).
+  * @covers CHAT-SCROLL-01
  */
 import { describe, test, expect, beforeEach, afterEach, setSystemTime } from 'bun:test';
 import {

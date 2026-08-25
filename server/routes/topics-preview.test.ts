@@ -1,3 +1,6 @@
+/**
+ * @covers TOPIC-PREVIEW-01
+ */
 import { describe, test, expect } from "bun:test";
 import { topicPreviewText } from "./topics";
 

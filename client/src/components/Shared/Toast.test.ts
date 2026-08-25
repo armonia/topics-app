@@ -23,6 +23,7 @@
  * (jsdom/happy-dom non sono dipendenze di questo progetto — stessa scelta di
  * `Shared/Select.test.tsx` — e `renderToStaticMarkup` monta una volta sola,
  * quindi non puo' vedere un guasto che vive nel SECONDO render.)
+  * @covers RUNTIME-01
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { createElement, type ReactNode } from 'react';

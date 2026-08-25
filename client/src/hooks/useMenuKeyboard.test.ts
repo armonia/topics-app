@@ -1,3 +1,6 @@
+/**
+ * @covers GESTURE-05
+ */
 import { describe, expect, it } from 'bun:test';
 import { mnemonicMatch } from './useMenuKeyboard';
 

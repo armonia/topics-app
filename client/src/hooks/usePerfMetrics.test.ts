@@ -10,6 +10,7 @@
  *
  * Ora `null` è l'unico "non misurato" (lo decide lo shell, che sa se aveva una
  * baseline) e questo formatter tiene visibile una misura reale ma minuscola.
+  * @covers SYSTEM-01
  */
 import { describe, test, expect } from 'bun:test';
 import { formatCpuPercent } from './usePerfMetrics';

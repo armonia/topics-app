@@ -1,3 +1,6 @@
+/**
+ * @covers PANE-04
+ */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { recordAction, subscribe, getRing, clearRing } from "./mutationLog";
 

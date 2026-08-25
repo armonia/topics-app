@@ -243,3 +243,22 @@ When a background shell dies — the CLI exits, the shell takes a SIGTERM — th
 - **THEN** the label SHALL be the LAST segment of its key, never the whole key and never an empty string
 - **AND** a real label SHALL win over that fallback
 - **AND** a missing start time, or a missing end time on a finished process, SHALL fall back to the current time rather than to an empty string
+
+### Requirement: PROCESS-10 — Il rilevamento rallenta quando non cambia niente, e riparte a piena cadenza al primo cambiamento
+
+Ogni passata di rilevamento dei processi lancia più comandi di sistema. A cadenza
+FISSA sono decine di migliaia di avvii al giorno per riscoprire lo STESSO elenco,
+anche quando nessuno sta guardando il pannello.
+
+Senza cambiamenti l'intervallo SHALL RADDOPPIARE, fermandosi a un TETTO. Un
+cambiamento SHALL riportare SEMPRE alla cadenza piena.
+
+Il risparmio a riposo SHALL essere MISURATO, non dichiarato.
+
+#### Scenario: niente cambia
+- **GIVEN** più passate consecutive identiche
+- **THEN** l'intervallo SHALL raddoppiare fino al tetto
+
+#### Scenario: qualcosa cambia
+- **GIVEN** un cambiamento nell'elenco
+- **THEN** l'intervallo SHALL tornare a quello pieno

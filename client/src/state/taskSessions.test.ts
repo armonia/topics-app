@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-56
+ */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import {
   __resetTaskSessions,

@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-WAIT-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { turnClock } from './turnClock';
 

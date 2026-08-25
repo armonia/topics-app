@@ -192,3 +192,34 @@ Fra due richieste in successione SHALL vincere l'ULTIMA.
 #### Scenario: passata la finestra
 - **GIVEN** una richiesta più vecchia della finestra di validità
 - **THEN** SHALL essere nulla, e restare nulla
+
+### Requirement: PROFILE-07 — Chi è stato TOLTO resta visibile, in una coda a parte
+
+Una persona revocata SHALL restare VISIBILE in una coda separata: la colonna che
+la marca era letta in cinque punti e nessuna schermata poteva scriverla, quindi
+una persona invitata per sbaglio restava nel database per sempre, fuori da ogni
+elenco.
+
+Chi è tolto SHALL stare SOLO fra i tolti e chi è presente SOLO fra i presenti:
+nessuna sovrapposizione, nessuna sparizione. Con nessun tolto la coda SHALL
+essere vuota; con tutti tolti l'elenco vivo SHALL essere vuoto e NESSUNO SHALL
+sparire.
+
+I tolti SHALL SOPRAVVIVERE alla lettura della risposta del server: un filtro
+applicato lì li faceva non arrivare affatto. Una risposta senza elenco, o
+assente, NON SHALL essere un errore: è un elenco vuoto.
+
+Ogni persona tolta SHALL avere il proprio gesto di cancellazione, sulla persona
+GIUSTA. Senza nessun tolto NON SHALL essere disegnata né la coda né un titolo che
+annuncia una sezione vuota.
+
+Il motivo di un rifiuto SHALL comparire, e durante un'operazione i gesti SHALL
+essere disabilitati.
+
+#### Scenario: tutti tolti
+- **GIVEN** nessuna persona viva
+- **THEN** nessuno SHALL sparire
+
+#### Scenario: nessun tolto
+- **GIVEN** nessuna persona revocata
+- **THEN** NON SHALL essere disegnato nessun titolo

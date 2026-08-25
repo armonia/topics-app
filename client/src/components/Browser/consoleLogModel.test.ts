@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-CONSOLE-01
+ */
 import { describe, expect, test } from 'bun:test';
 import {
   CONSOLE_FILTERS,

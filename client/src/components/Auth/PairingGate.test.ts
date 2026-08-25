@@ -24,6 +24,7 @@
  * them and the defect returns, and it returns in silence. Nothing breaks,
  * nothing fails, and it only shows on a small phone with the bar open. That is
  * exactly the family of defect that deserves a guard.
+  * @covers PAIRING-03
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'fs';

@@ -247,3 +247,30 @@ prima che su ciò che cambia.
 #### Scenario: contabilità con le parole dell'agente appese
 - **GIVEN** una nota di consegna seguita dalle ultime parole dell'agente
 - **THEN** NON SHALL essere piegata
+
+### Requirement: THREAD-06 — «Sta ancora scrivendo?» si chiede a CHI TIENE IL PROCESSO, non a una mappa in memoria
+
+Prima di ripulire le righe a metà di un discorso SHALL essere chiesto se il turno
+è ancora vivo, e la domanda SHALL poter arrivare a CHI TIENE IL PROCESSO. Farla
+solo a una mappa IN MEMORIA significa che dopo un riavvio del server quella mappa
+è vuota anche per una sessione il cui processo è vivissimo: un ricaricamento
+bastava a buttare via il turno, sostituendo il pannello col cartello di una
+risposta mai arrivata.
+
+Uno stream presente in memoria SHALL bastare: è la strada di sempre, e SHALL
+evitare la domanda.
+
+Una risposta «fermo» SHALL essere una risposta VERA: il turno è finito e si
+pulisce. Una risposta «non lo so» NON SHALL bloccare la pulizia, o col ponte
+spento resterebbe bloccata per sempre.
+
+La domanda SHALL essere fatta SOLO quando c'è davvero qualcosa da perdere: senza
+righe a metà non c'è niente da pulire, e quindi niente da chiedere.
+
+#### Scenario: dopo un riavvio del server
+- **GIVEN** nessuno stream in memoria e un processo vivo
+- **THEN** il turno NON SHALL essere ripulito
+
+#### Scenario: nessuna riga a metà
+- **GIVEN** un discorso senza righe parziali
+- **THEN** NON SHALL essere fatta nessuna domanda

@@ -6,6 +6,7 @@
  * sulle porte in ascolto, un secondo `lsof` per i cwd e una tabella dei
  * processi. A cadenza fissa di 4s sono ~43.000 spawn al giorno per riscoprire lo
  * stesso elenco, anche con nessuno che guarda il pannello.
+  * @covers PROCESS-10
  */
 
 import { describe, expect, test } from "bun:test";

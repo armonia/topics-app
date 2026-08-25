@@ -1,3 +1,6 @@
+/**
+ * @covers TERM-07
+ */
 // Standalone-mode gate for the PTY bridge.
 //
 // The 2026-07-02 incident: a compiled server sidecar sharing the repo cwd hashed to

@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-52
+ */
 import { describe, expect, it } from 'bun:test';
 import { bucketSessionMsgs, sessionPaneRows, type SessionBoundary, type SessionMsg } from './sessionBuckets';
 

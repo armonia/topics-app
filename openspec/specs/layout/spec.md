@@ -648,3 +648,240 @@ Il segno SHALL valere UNA volta sola.
 #### Scenario: un secondo ricaricamento
 - **GIVEN** nessun segno nuovo
 - **THEN** NON SHALL comparire niente
+
+### Requirement: LAYOUT-20 — Le tessere fissate stanno in RIGHE, e nessun gesto perde o duplica una tessera
+
+La disposizione delle tessere fissate SHALL essere a RIGHE, e OGNI operazione —
+spostare, inserire una riga, riordinare dentro una riga, fondere ciò che arriva
+da un altro dispositivo — SHALL essere INVARIANTE sull'insieme delle chiavi:
+nessuna persa, nessuna duplicata, a nessun indice.
+
+La riconciliazione SHALL essere IDEMPOTENTE anche quando l'elenco dei fissati
+arriva con un DOPPIONE: il ramo dei mancanti lo accodava due volte e solo il giro
+dopo lo raddrizzava, cioè la funzione dichiarata idempotente non lo era.
+
+Uno spostamento verso DESTRA dentro la stessa riga NON SHALL scavalcare di uno, e
+l'anteprima mostrata durante il gesto SHALL coincidere con il risultato del
+rilascio. L'UNICA tessera di una riga, rilasciata sulla PROPRIA riga, NON SHALL
+muoversi: togliendola prima, la riga svuotata spariva e l'indice puntava a quella
+dopo — rimetterla dov'era FONDEVA due righe, in modo persistente e senza
+annullamento.
+
+Una tessera che occupa GIÀ una riga intera NON SHALL avere come bersaglio una
+riga nuova sopra o sotto. Ogni bersaglio PERMESSO SHALL cambiare davvero
+qualcosa: nessun bersaglio che accetta il rilascio e non fa niente.
+
+La fusione con ciò che arriva da fuori SHALL rimettere ogni tessera NASCOSTA
+accanto al vicino con cui stava, e una riga interamente nascosta SHALL rinascere
+al suo posto, non in coda. Un riordino fatto con un filtro attivo SHALL RESTARE:
+bastava riordinare due tessere con una ricerca attiva per appiattire su una riga
+sola una disposizione fatta a mano, senza annullamento.
+
+Le larghezze di una riga SHALL restare EQUE: una tessera aggiunta a una riga
+equa NON SHALL nascere più stretta delle altre, e togliere una tessera SHALL
+lasciare le altre uguali fra loro. Una riga arrivata STORTA da un client vecchio
+SHALL essere raddrizzata. Le proporzioni salvate NON SHALL essere conservate:
+nessuno può averle volute, non esiste un gesto per ridimensionare una tessera.
+
+Il rilascio SHALL posare la tessera nella CELLA indicata, non in coda, e su una
+riga NUOVA esattamente dove è stato lasciato.
+
+#### Scenario: la tessera unica della sua riga
+- **GIVEN** un rilascio sulla propria riga
+- **THEN** NON SHALL succedere niente, e le righe NON SHALL fondersi
+
+#### Scenario: un riordino con un filtro attivo
+- **GIVEN** una ricerca che nasconde alcune tessere
+- **THEN** la disposizione fatta a mano SHALL sopravvivere
+
+### Requirement: LAYOUT-21 — Una tessera è alta quanto una riga, e l'aria del comando la lascia il CENTRAGGIO
+
+Una tessera fissata SHALL essere alta ESATTAMENTE quanto una riga, su ENTRAMBI i
+modi d'uso: l'invariante ha retto finora per INTERVENTO MANUALE — quando il
+riquadro del comando è cresciuto, lo spazio interno è stato schiacciato a mano per
+tenere ferma la tessera.
+
+Il rientro del comando SHALL essere DERIVATO — la metà della differenza fra
+tessera e comando — non SCELTO, e SHALL essere INTERO: un valore che produce mezzo
+pixel è già stato un difetto. Lo spazio riservato SHALL essere largo quanto il
+comando che vi si appoggia, e il rientro SHALL essere POSITIVO su entrambi i
+rami, o i tre spazi coincidono e l'invariante smette di dire qualcosa.
+
+I valori dichiarati nelle classi SHALL corrispondere ai numeri usati per il
+calcolo: un valore scritto a mano da una parte e non dall'altra è come la riga è
+diventata di un'altra misura senza che la tessera lo sapesse.
+
+#### Scenario: la misura del comando cambia
+- **GIVEN** un riquadro di comando più grande
+- **THEN** il rientro SHALL riderivarsi, e la tessera SHALL restare alta come la riga
+
+#### Scenario: un rientro frazionario
+- **GIVEN** una differenza dispari
+- **THEN** il banco SHALL fallire
+
+### Requirement: LAYOUT-22 — Il tetto di una sezione si DERIVA dal numero di sezioni
+
+Il tetto di altezza di una sezione di colonna SHALL essere DERIVATO dal numero di
+sezioni che la colonna monta davvero, non scritto come frazione fissa: aggiungerne
+una lasciando il tetto fermo darebbe a tre sezioni piene tutto lo spazio e
+all'ultima zero.
+
+Il tetto SHALL essere una PERCENTUALE del contenitore, non dell'altezza della
+finestra: richiede un contenitore con un'altezza definita, ed è quello il
+contratto.
+
+#### Scenario: una sezione in più
+- **GIVEN** un numero di sezioni diverso
+- **THEN** il tetto SHALL cambiare di conseguenza
+
+#### Scenario: l'unità del tetto
+- **GIVEN** il valore calcolato
+- **THEN** SHALL essere relativo al contenitore, non alla finestra
+
+### Requirement: PANE-02 — L'identificativo di una superficie si COSTRUISCE, e ciò che è indirizzabile lo dichiara
+
+L'identificativo di una superficie SHALL essere costruito dal suo TIPO e dalla sua
+chiave, in forma STABILE dove una chiave esiste, e con un valore sorteggiato solo
+dove non esiste. Ogni forma SHALL avere il proprio riconoscitore e il proprio
+estrattore, e i due SHALL fare andata e ritorno.
+
+Una chiave che porta un percorso SHALL essere CODIFICATA nell'identificativo e
+GREZZA nella chiave di fissaggio: fissare nel contratto la forma codificata era
+fissare il difetto per cui la colonna non trovava mai il progetto fissato da una
+scheda. La normalizzazione SHALL essere IDEMPOTENTE e NON SHALL esplodere su una
+codifica illeggibile.
+
+La chiave di SESSIONE di una chat NON SHALL essere l'identificativo nudo: era
+proprio quello a farsi passare per una sessione. Un discorso SCONOSCIUTO SHALL
+dare «niente», non l'identificativo nudo.
+
+Ciò che compare nei menu di creazione SHALL essere deciso da una DICHIARAZIONE
+sull'ambito, non da un filtro scritto a mano nel menu: perdendolo, una superficie
+comparirebbe anche dove il suo motore non c'è e aprirebbe una superficie vuota. I
+tipi FISSI NON SHALL comparire mai, e un tipo singolo già presente SHALL essere
+escluso.
+
+L'indirizzabilità SHALL essere DICHIARATA: i tipi il cui identificativo è
+sorteggiato a ogni apertura NON SHALL essere indirizzabili, e quel «niente» È il
+cancello della voce di menu. Per una differenza il progetto SHALL essere quello
+del CONTENUTO, non quello della finestra che lo ospita: altrimenti il collegamento
+copiato ricompone un percorso che non esiste.
+
+Un tipo senza una propria configurazione SHALL ricadere su quella predefinita.
+
+#### Scenario: un progetto fissato da una scheda
+- **GIVEN** la chiave di fissaggio
+- **THEN** SHALL essere la forma grezza, non quella codificata
+
+#### Scenario: una differenza ospitata da un altro progetto
+- **GIVEN** un file di un progetto aperto dentro un altro
+- **THEN** l'indirizzo SHALL portare il progetto del file
+
+### Requirement: PANE-13 — Lo scorrimento ripristinato si CLAMPA dentro ciò che è davvero scorribile
+
+Un offset di scorrimento ripristinato SHALL essere limitato all'intervallo
+REALMENTE disponibile: un dispositivo che aveva più contenuto lascia un valore che
+sull'altro non esiste.
+
+Un valore assente, negativo o non finito SHALL valere zero. Un contenuto più
+corto della finestra SHALL dare zero, non un valore negativo.
+
+#### Scenario: contenuto più corto della finestra
+- **GIVEN** nessuno scorrimento possibile
+- **THEN** l'offset SHALL essere zero
+
+#### Scenario: un offset più grande del massimo
+- **GIVEN** un valore ripristinato troppo grande
+- **THEN** SHALL essere limitato al massimo
+
+### Requirement: PANE-04 — Il registro delle mutazioni è un anello LIMITATO che avvisa tutti
+
+Le azioni sul deposito delle superfici SHALL essere registrate in ORDINE, in un
+anello di dimensione LIMITATA: oltre il tetto escono le più vecchie.
+
+Ogni registrazione SHALL avvisare OGNI iscritto, e l'iscrizione SHALL restituire
+il modo per disdirsi.
+
+#### Scenario: oltre il tetto
+- **GIVEN** più azioni della capacità
+- **THEN** SHALL restare le più recenti, in ordine
+
+#### Scenario: più iscritti
+- **GIVEN** più ascoltatori
+- **THEN** SHALL essere avvisati tutti
+
+### Requirement: PANE-05 — Uno Spazio cancellato NON RESUSCITA, e lo spazio predefinito non è un record
+
+Gli Spazi SHALL essere creati, rinominati e cancellati in modo SOFT — con una
+lapide DENTRO il record — e le superfici che vi appartenevano SHALL tornare al
+predefinito.
+
+Lo spazio PREDEFINITO NON SHALL MAI essere un record: l'appartenenza a esso SHALL
+essere codificata come ASSENZA, e la creazione o la cancellazione del predefinito
+SHALL essere rifiutata. Un'appartenenza assente vuol dire PREDEFINITO, non
+«ignoto»: riaprire una superficie NON SHALL teletrasportarla nello spazio attivo
+solo perché quello è attivo.
+
+Cancellare lo spazio ATTIVO SHALL riportare la finestra al predefinito.
+Cancellare uno spazio che localmente non si conosce SHALL comunque coniare una
+lapide, o la cancellazione non si propaga.
+
+La fusione fra dispositivi SHALL essere PER IDENTIFICATIVO, mai in blocco:
+creazioni DISGIUNTE da due dispositivi SHALL sopravvivere ENTRAMBE. Fra due
+versioni dello stesso vince la più recente — ma la CANCELLAZIONE è ASSORBENTE: una
+rinomina con un istante PIÙ ALTO, per corsa o per orologio sfasato, NON SHALL
+resuscitare uno spazio cancellato.
+
+Il conteggio che governa il tetto SHALL ignorare le lapidi, o dopo abbastanza
+cicli di creazione e cancellazione il comando di creazione sparirebbe per sempre.
+
+Uno spazio ignoto, cancellato o assente SHALL risolversi sul predefinito. Lo
+spazio ATTIVO SHALL restare locale al dispositivo: l'idratazione NON SHALL
+toccarlo.
+
+#### Scenario: una rinomina che corre con la cancellazione
+- **GIVEN** una rinomina con un istante più alto della lapide
+- **THEN** lo spazio NON SHALL resuscitare
+
+#### Scenario: molti cicli di creazione e cancellazione
+- **GIVEN** più cicli del tetto
+- **THEN** il comando di creazione SHALL restare disponibile
+
+### Requirement: LAYOUT-23 — La disposizione del navigatore di un task si riconcilia con le schede vere
+
+La disposizione a gruppi, righe e colonne delle schede del navigatore di un task
+SHALL essere RICONCILIATA con le schede realmente aperte: una scheda nuova SHALL
+essere accodata al gruppo a fuoco e attivata; una tolta SHALL sparire dal suo
+gruppo; chiudere quella attiva SHALL dare il fuoco a una superstite; un gruppo che
+si svuota SHALL sparire con la sua colonna.
+
+La riconciliazione SHALL essere IDEMPOTENTE e SHALL restituire lo STESSO oggetto
+quando non cambia niente.
+
+Le divisioni SHALL comportarsi come dichiarato: a destra una seconda colonna con
+la larghezza dimezzata, in basso una pila, a riga intera una riga che si estende
+con le altezze divise. Dividere l'ULTIMA superficie di un gruppo solo SHALL essere
+un non-fare.
+
+Una superficie ORFANA SHALL poter prendere il posto attivo solo se è del tipo
+giusto: una che non lo è NON SHALL rubarlo.
+
+Il banco SHALL esercitare la regola VERA, non una copia riscritta a mano: quella
+prova la riconciliazione e non prova la regola.
+
+Quando il server ha CANCELLATO la riga, la scrittura ancora in coda SHALL essere
+ANNULLATA: senza, la riga torna in vita qualche centinaio di millisecondi dopo —
+ed è così che questi record diventavano immortali. Il caso di CONTROLLO — senza
+l'annullamento la scrittura parte davvero — SHALL esistere, o il banco non
+potrebbe fallire.
+
+Un carico malformato SHALL essere rifiutato, e uno valido SHALL fare andata e
+ritorno.
+
+#### Scenario: il server ha cancellato la riga
+- **GIVEN** una scrittura ancora in coda
+- **THEN** SHALL essere annullata
+
+#### Scenario: una superficie orfana di un altro tipo
+- **GIVEN** un'orfana che non è del tipo atteso
+- **THEN** NON SHALL prendere il posto attivo

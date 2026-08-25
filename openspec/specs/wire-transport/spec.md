@@ -158,3 +158,53 @@ SHALL ricevere niente.
 #### Scenario: una connessione che non ha dichiarato niente
 - **GIVEN** una connessione senza insieme dichiarato
 - **THEN** SHALL ricevere tutto
+
+### Requirement: WIRE-05 — Chi ha mandato questo fotogramma sono IO? La risposta non è mai «forse»
+
+Il fotogramma di benvenuto porta l'identificativo del client da sempre, e non lo
+leggeva nessuno: ogni messaggio diffuso sembrava venire da un altro, e con lo
+stesso discorso aperto in più finestre l'attività propria si mostrava come
+altrui.
+
+L'identificativo SHALL essere REGISTRATO all'arrivo, e una RICONNESSIONE SHALL
+SOSTITUIRLO, non affiancarlo. Una stringa VUOTA SHALL valere sconosciuto, non
+identificativo valido.
+
+Finché l'identificativo NON è noto, un fotogramma SHALL essere considerato
+ALTRUI, mai proprio: sopprimere l'attività altrui prima di sapere chi si è
+produrrebbe silenzio. Un fotogramma SENZA identificativo SHALL essere altrui.
+
+Due sconosciuti NON SHALL equivalersi: un confronto ingenuo fra due assenze le
+dichiara uguali e zittisce il client.
+
+#### Scenario: il benvenuto non è ancora arrivato
+- **GIVEN** un fotogramma diffuso prima di conoscere il proprio identificativo
+- **THEN** SHALL essere considerato altrui
+
+#### Scenario: due assenze
+- **GIVEN** un fotogramma senza identificativo e nessun identificativo noto
+- **THEN** NON SHALL essere considerato proprio
+
+### Requirement: WIRE-06 — Il primo fotogramma non porta ciò che serve a POCHI
+
+Lo snapshot iniziale dello stato dell'interfaccia SHALL ESCLUDERE le chiavi
+PER-TASK del navigatore: viaggiavano verso OGNI client a OGNI riconnessione —
+misurato sul database vivo, novantuno righe su centosettantadue e circa un terzo
+del carico.
+
+L'esclusione SHALL essere per PREFISSO, non per sottostringa: un task che si
+CHIAMA come il prefisso senza esserlo SHALL restare nello snapshot.
+
+Il filtro SHALL essere del SOLO snapshot: la lettura di una singola chiave e la
+lettura di TUTTE le chiavi SHALL restare COMPLETE.
+
+La regola scritta nella richiesta al database e quella scritta nel codice SHALL
+essere GEMELLE, e il banco SHALL verificarlo.
+
+#### Scenario: un database senza chiavi per-task
+- **GIVEN** nessuna chiave esclusa presente
+- **THEN** lo snapshot SHALL essere invariato
+
+#### Scenario: la lettura di una singola chiave
+- **GIVEN** una chiave esclusa dallo snapshot
+- **THEN** SHALL essere servita com'era

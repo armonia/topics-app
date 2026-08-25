@@ -1,3 +1,6 @@
+/**
+ * @covers LAYOUT-22
+ */
 import { describe, expect, test } from 'bun:test';
 import { SEZIONI, capSezione } from './projectSidebarHeights';
 

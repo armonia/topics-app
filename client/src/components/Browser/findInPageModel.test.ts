@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-FIND-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { stepMatchIndex, formatMatchCounter } from './findInPageModel';
 

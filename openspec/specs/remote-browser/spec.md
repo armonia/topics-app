@@ -469,3 +469,264 @@ sola, due strade per riempirla.
 #### Scenario: il dito su un bottone
 - **GIVEN** un tocco su un elemento che non scrive
 - **THEN** NON SHALL essere applicato nessun profilo di tastiera
+
+### Requirement: BROWSER-FORGET-01 — Si cancella ESATTAMENTE ciò che è stato mostrato
+
+Fra il «cosa cancello» che una persona ha LETTO e il «cancella» che ha premuto NON
+SHALL infilarsi un secondo confronto: la cancellazione SHALL passare al servizio
+ESATTAMENTE i nomi elencati, senza ricavarli di nuovo dall'indirizzo.
+
+L'elenco SHALL essere PRECISO: un sottodominio è un contenitore SUO e NON SHALL
+finire dentro quello del dominio padre.
+
+Un motore che NON è il nostro SHALL essere DICHIARATO tale, invece di elencare
+zero contenitori — che si legge come «non c'è niente da cancellare».
+
+Senza l'elenco la richiesta SHALL essere RIFIUTATA, e il servizio NON SHALL essere
+chiamato. Le voci che non sono nomi SHALL essere SCARTATE invece di essere passate
+giù. Un elenco VUOTO SHALL essere una richiesta valida che non cancella niente.
+
+#### Scenario: un sottodominio
+- **GIVEN** un contenitore di un sottodominio
+- **THEN** NON SHALL essere cancellato insieme al dominio padre
+
+#### Scenario: nessun elenco
+- **GIVEN** una richiesta senza i nomi da cancellare
+- **THEN** SHALL essere rifiutata senza chiamare il servizio
+
+### Requirement: BROWSER-CHROME-01 — I toni dei segnali usano i valori MISURATI, e ogni tono nomina entrambi i temi
+
+I toni di stato SHALL usare i valori di colore MISURATI sopra la propria tinta di
+fondo, non una sfumatura grezza: misurate nel tema chiaro, due delle sfumature
+usate stavano sotto la soglia di leggibilità, e solo una la superava.
+
+NESSUN tono SHALL reintrodurre una sfumatura che quella misura ha bocciato, e il
+tono attivo NON SHALL ricadere sul colore del marchio non misurato nel tema
+chiaro.
+
+OGNI valore di colore SHALL nominare una sfumatura per ENTRAMBI i temi, e nessuno
+SHALL inchiodare bianco o nero. Ogni tono SHALL portare un fondo E un colore di
+testo.
+
+#### Scenario: il tema chiaro
+- **GIVEN** un tono sopra la propria tinta
+- **THEN** SHALL superare la soglia di leggibilità
+
+#### Scenario: un tono nuovo
+- **GIVEN** un valore che nomina una sola sfumatura
+- **THEN** il banco SHALL fallire
+
+### Requirement: BROWSER-DEV-01 — La modalità dispositivo si legge dall'IDENTIFICATIVO che la vista sta servendo
+
+La modalità di emulazione SHALL essere DEDOTTA dall'identificativo che la vista
+sta REALMENTE servendo, non da uno stato tenuto a parte: ogni volta che quello si
+desincronizzava il selettore tornava a dire una cosa mentre il sito ne vedeva
+un'altra.
+
+Le due modalità che emulano SHALL portare un identificativo; quelle che NON
+emulano NON SHALL portarne, né una misura.
+
+Le due modalità che emulano NON SHALL essere confuse fra loro pur condividendo
+parte del testo.
+
+NON SHALL essere dichiarata una modalità che la pagina non può riportare.
+
+Nessuna preimpostazione SHALL portare campi che nessuno legge.
+
+#### Scenario: un identificativo di telefono
+- **GIVEN** la vista che serve quell'identificativo
+- **THEN** la modalità SHALL essere quella del telefono
+
+#### Scenario: un identificativo qualunque
+- **GIVEN** un identificativo non riconosciuto
+- **THEN** SHALL valere la modalità che non emula
+
+### Requirement: BROWSER-CONSOLE-01 — La console raggruppa le ripetizioni, e il filtro decide cosa si copia
+
+Voci CONSECUTIVE identiche SHALL diventare UNA riga con il proprio moltiplicatore:
+una scrittura dentro un ciclo di disegno riempiva la console di centinaia di copie
+finché l'errore che si stava cercando usciva dal registro.
+
+Lo stesso testo con LIVELLO diverso NON SHALL fondersi. Due identiche separate da
+una TERZA SHALL restare due; separate solo da una riga FILTRATA VIA SHALL fondersi
+— il raggruppamento avviene DOPO il filtro. Il gruppo SHALL portare istante,
+identificativo e sorgente della PRIMA occorrenza.
+
+I contatori per livello SHALL contare ciò che la RICERCA ha lasciato passare, e
+NON SHALL restringersi quando si sceglie un livello.
+
+La ricerca SHALL ignorare maiuscole e minuscole, SHALL guardare anche la
+SORGENTE, e gli spazi agli ESTREMI NON SHALL far sparire tutto.
+
+L'istante SHALL avere una larghezza FISSA anche quando manca: un segnaposto della
+stessa misura, non una riga che si accorcia.
+
+Il modulo NON SHALL modificare le voci che riceve.
+
+La copia SHALL portare SOLO ciò che si vede, e niente da copiare SHALL essere una
+stringa vuota, non una riga bianca.
+
+#### Scenario: cinquecento copie della stessa riga
+- **GIVEN** voci consecutive identiche
+- **THEN** SHALL diventare una riga con il moltiplicatore
+
+#### Scenario: la copia con un filtro attivo
+- **GIVEN** un filtro che nasconde parte delle righe
+- **THEN** SHALL essere copiato solo ciò che si vede
+
+### Requirement: BROWSER-FIND-01 — Il contatore «n su m» non esce mai di scala, e cicla in entrambi i versi
+
+La ricerca nella pagina non dice quante corrispondenze ci sono né su quale si è:
+l'indice lo teniamo NOI, e SHALL poter sbagliare solo in modi visibili.
+
+Da fermo il primo passo AVANTI SHALL essere la PRIMA corrispondenza, il primo
+passo INDIETRO l'ULTIMA. Dopo l'ultima SHALL RICOMINCIARE, e prima della prima
+SHALL andare all'ULTIMA. Con UNA sola corrispondenza SHALL restare su quella nei
+due versi.
+
+Con ZERO risultati nessun passo SHALL alzare l'indice sopra lo zero.
+
+Un indice FUORI SCALA — il totale è cambiato sotto la barra — SHALL ripartire dal
+bordo verso cui si sta andando, non restare fuori scala.
+
+Numeri non finiti NON SHALL produrre un valore illeggibile a schermo. Un totale
+che c'è senza che nessuno abbia ancora premuto SHALL leggersi come zero su quel
+totale, e niente da trovare come zero su zero.
+
+#### Scenario: il totale cambia sotto la barra
+- **GIVEN** un indice oltre il nuovo totale
+- **THEN** SHALL ripartire dal bordo verso cui si va
+
+#### Scenario: dopo l'ultima
+- **GIVEN** l'ultima corrispondenza e un passo avanti
+- **THEN** SHALL tornare alla prima
+
+### Requirement: BROWSER-FAVICON-01 — Il segnaposto di un sito è deterministico e leggibile
+
+Il segnaposto dell'icona di un sito SHALL essere il MONOGRAMMA dell'ospite quando
+un ospite c'è, e un simbolo generico quando non c'è: uno schema senza ospite, un
+percorso locale, un indirizzo numerico.
+
+L'ospite SHALL essere normalizzato — minuscole, senza il prefisso comune — e una
+riga scritta a mano nella barra SHALL essere accettata.
+
+La tinta SHALL essere DETERMINISTICA e derivata dall'ospite, e SHALL restare
+entro una luminosità che garantisce la leggibilità su TUTTA la ruota dei colori.
+
+#### Scenario: un indirizzo numerico
+- **GIVEN** un ospite senza lettere
+- **THEN** SHALL essere disegnato il simbolo generico
+
+#### Scenario: lo stesso sito due volte
+- **GIVEN** lo stesso ospite
+- **THEN** la tinta SHALL essere la stessa
+
+### Requirement: BROWSER-STATE-01 — Le schede di un task si chiudono in modo MORBIDO, e una chiusura remota arriva VIVA
+
+Chiudere una scheda del navigatore di un task SHALL PARCHEGGIARLA — resta come
+anteprima — non distruggerla, e il fuoco SHALL andare alla vicina VIVA allo stesso
+posto. Chiudere una già parcheggiata SHALL essere un non-fare; riaprirla SHALL
+essere un gesto proprio, distinto dall'attivazione. Una CANCELLAZIONE dura SHALL
+esistere ed essere distinta.
+
+Una riapertura decisa da un agente SHALL RISVEGLIARE la parcheggiata invece di
+crearne una nuova.
+
+Un titolo scelto dalla PERSONA NON SHALL essere sovrascritto da un titolo
+automatico.
+
+Una chiusura arrivata da un ALTRO dispositivo SHALL essere APPLICATA alla vista
+viva, non solo scritta: applicarla solo in scrittura è il difetto per cui una
+scheda chiusa altrove restava aperta qui.
+
+Le chiavi per-task NON arrivano più nello snapshot iniziale, quindi alla
+riconnessione i task IN CACHE SHALL essere RILETTI per applicare le chiusure perse
+mentre si era via. Un task MAI aperto NON SHALL essere chiesto — lo copre la
+lettura pigra all'apertura. Una scrittura ancora IN CODA SHALL VINCERE: niente
+rilettura, l'edit locale resta. Un server vecchio che manda ancora la chiave nello
+snapshot NON SHALL far ri-chiedere niente. Una chiave SPARITA dal server NON SHALL
+svuotare la cache.
+
+Dimenticare un task SHALL svuotare la cache, avvisare, e ANNULLARE la scrittura in
+coda.
+
+Un carico malformato NON SHALL toccare la cache, e un valore IDENTICO NON SHALL
+produrre un risveglio.
+
+#### Scenario: una chiusura arrivata da un altro dispositivo
+- **GIVEN** una scheda chiusa altrove
+- **THEN** SHALL sparire dalla vista viva
+
+#### Scenario: una scrittura ancora in coda
+- **GIVEN** una modifica locale non ancora consegnata
+- **THEN** NON SHALL essere sovrascritta da una rilettura
+
+### Requirement: BROWSER-STATE-02 — Chi ha aperto cosa, e da dove si riapre
+
+Il legame fra una superficie di navigazione e ciò che l'ha aperta SHALL essere
+tenuto nei DUE VERSI, e cambiarne uno SHALL togliere il reciproco vecchio: senza,
+il comando che riporta all'origine resta stantio.
+
+Un identificativo di terminale SHALL risolversi alla superficie che ha aperto; in
+assenza di traccia SHALL ricadere su sé stesso.
+
+Un navigatore fissato DENTRO un progetto SHALL poter riaprirsi in QUEL progetto
+con il suo indirizzo, indipendentemente dal registro limitato delle chiusure
+recenti: SHALL esistere un deposito DUREVOLE del suo punto d'origine.
+
+Il deposito NON SHALL essere sporcato da una superficie MORTA: un indirizzo vuoto
+o di pagina bianca NON SHALL sovrascrivere un'origine buona. Una scrittura di solo
+indirizzo SHALL conservare il titolo precedente.
+
+Il deposito durevole SHALL VINCERE sul registro delle chiusure; in sua assenza
+SHALL essere usato il registro; un fissaggio nudo senza nessuna delle due fonti
+SHALL essere dichiarato irrecuperabile. La corrispondenza SHALL essere per
+identificativo ESATTO della superficie, non per collisione di contesto.
+
+Le code di apertura differita SHALL essere ISOLATE per progetto, SHALL essere
+svuotate UNA sola volta, e SHALL DEDUPLICARE — un doppio clic non accoda due
+volte.
+
+#### Scenario: un navigatore fissato in un progetto
+- **GIVEN** il suo registro delle chiusure già sfrattato
+- **THEN** SHALL riaprirsi comunque nel progetto giusto
+
+#### Scenario: una superficie morta
+- **GIVEN** una scrittura con un indirizzo vuoto
+- **THEN** NON SHALL sovrascrivere l'origine buona
+
+### Requirement: BROWSER-STATE-03 — La cronologia dei siti è FRECENZA, e la griglia racconta il presente
+
+La griglia delle destinazioni SHALL essere ordinata combinando FRESCHEZZA e
+FREQUENZA: un sito di ieri visitato poche volte SHALL stare davanti a uno di mesi
+fa visitato molte, o la griglia racconta il passato invece del presente. A parità
+di freschezza SHALL decidere il numero di visite. Un sito antico NON SHALL valere
+zero: resta in coda, non sparisce.
+
+L'ospite SHALL essere NORMALIZZATO, e ciò che non è una destinazione — pagine
+interne, errori, file locali — NON SHALL entrare.
+
+Ricaricare lo stesso indirizzo entro una finestra breve NON SHALL essere una
+visita nuova; lo stesso indirizzo molto DOPO sì. Navigare DENTRO un sito SHALL
+contare, e il riquadro SHALL puntare all'ULTIMA pagina.
+
+I due tetti — pagine e siti — SHALL sfrattare il PEGGIORE, non l'ultimo arrivato.
+
+I dati che arrivano DOPO — titolo, icona — SHALL attaccarsi alla pagina CORRENTE e
+NON SHALL essere una visita; il titolo di una pagina che il sito ha GIÀ lasciato
+NON SHALL essere scritto.
+
+Dimenticare un sito SHALL portare via anche le sue pagine; svuotare la cronologia
+delle pagine SHALL lasciare in piedi i siti.
+
+Lo stato di chrome di una superficie SHALL essere pubblicato PER SUPERFICIE, e una
+superficie che cambia NON SHALL toccare l'identità della vicina. Una scheda il cui
+pannello non è mai stato montato SHALL leggere «niente», e non è un errore.
+
+#### Scenario: un ricarico
+- **GIVEN** lo stesso indirizzo entro la finestra
+- **THEN** NON SHALL contare come visita nuova
+
+#### Scenario: una superficie che cambia
+- **GIVEN** l'aggiornamento di una sola superficie
+- **THEN** l'oggetto della vicina NON SHALL essere ricreato

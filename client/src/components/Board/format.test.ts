@@ -11,6 +11,7 @@
  * («1 file», «3 file»).
  *
  * L'inglese si prova a parte, perché lì il plurale esiste davvero.
+  * @covers KANBAN-53
  */
 import { describe, test, expect } from 'bun:test';
 import { attemptStat, descSummary, fmtCount, taskCopyText } from './format';

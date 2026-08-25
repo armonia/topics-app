@@ -1,3 +1,6 @@
+/**
+ * @covers LAYOUT-21
+ */
 import { describe, expect, test } from 'bun:test';
 import { ROW_ACTION_BOX, ROW_H } from '../../lib/selectionStyles';
 import {

@@ -158,3 +158,32 @@ motore e l'impronta, e il resto resta leggibile.
 #### Scenario: un tempo scaduto
 - **GIVEN** una prova terminata per tempo scaduto
 - **THEN** SHALL contare come fallimento
+
+### Requirement: E2E-GATE-03 — Le rotte di azzeramento NON ESISTONO senza il flag, e la fotografia sopravvive al riavvio
+
+La rotta che AZZERA il database svuota OGNI tabella: l'unica cosa che le impedisce
+di esistere sul server vero è il suo cancello, quindi il CANCELLO è la cosa da
+verificare — se cede, cede in un posto dove non c'è nessun banco ad accorgersene.
+
+Senza il flag le rotte NON SHALL ESISTERE AFFATTO: non una risposta di rifiuto,
+proprio nessuna rotta. Il flag SHALL essere riconosciuto SOLO nella sua forma
+esatta.
+
+La fotografia di partenza SHALL vivere sotto la cartella dei dati, cioè PER
+FRAMMENTO di esecuzione, e SHALL SOPRAVVIVERE a un riavvio del server — una spec
+lo riavvia a metà corsa.
+
+Il ripristino SHALL riportare i contatori di versione SOPRA il massimo corrente: il
+client applica l'ultimo-che-scrive-vince su quel numero, e senza il salto
+scarterebbe proprio l'idratazione dell'azzeramento.
+
+Un azzeramento SENZA fotografia SHALL essere un CONFLITTO dichiarato, non un
+successo che finge di aver ripulito.
+
+#### Scenario: il flag assente
+- **GIVEN** nessun flag di banco
+- **THEN** le rotte NON SHALL esistere
+
+#### Scenario: nessuna fotografia
+- **GIVEN** un azzeramento senza punto di partenza registrato
+- **THEN** SHALL essere un conflitto dichiarato

@@ -361,3 +361,91 @@ esiste nessuna riga di strumento a cui appendere la domanda.
 #### Scenario: approvare
 - **GIVEN** un piano approvato
 - **THEN** l'autonomia SHALL essere alzata
+
+### Requirement: PERM-06 — Il canale umano taglia corto sulle NOSTRE mani, e la decisione trova la richiesta anche per NOME
+
+Una richiesta di permesso su uno strumento PROPRIO di Topics SHALL essere
+consentita SUBITO, senza aprire nessun appuntamento e senza dipingere nessun
+pannello: per mostrare un pannello servirebbe il permesso di mostrare un
+pannello.
+
+Una riga già DIPINTA come in attesa NON SHALL essere ridipinta; una NON dipinta
+SHALL essere marcata e SHALL far partire il fotogramma del pannello.
+
+La decisione SHALL ritrovare la propria richiesta anche quando torna con
+l'identificativo della RIGA invece che quello dello strumento: senza l'alias
+scritto al momento dell'attesa, il clic cade nel vuoto.
+
+Una decisione non riconosciuta SHALL essere un rifiuto di richiesta, non un sì
+per inerzia; un pannello senza più nessuno sotto SHALL essere un conflitto
+dichiarato, non un successo muto. Un rifiuto SHALL essere consegnato COM'È e
+SHALL restare scritto sulla riga.
+
+«Passa a libero» SHALL consentire ORA senza far vedere quella decisione a chi ha
+chiesto, SHALL alzare l'autonomia della sola sessione corrente, SHALL lasciare
+una TRACCIA con chi e quando, SHALL essere REVERSIBILE, e NON SHALL lasciare
+appesi altri pannelli già aperti.
+
+Una regola SHALL richiedere un modello; un carattere jolly NUDO NON SHALL essere
+una regola. Un percorso che non appartiene a questo canale NON SHALL essere
+rivendicato.
+
+#### Scenario: uno strumento nostro
+- **GIVEN** una richiesta di permesso su uno strumento di Topics
+- **THEN** SHALL essere consentita subito, senza pannello
+
+#### Scenario: la decisione torna con l'identificativo della riga
+- **GIVEN** un clic che porta l'identificativo della riga
+- **THEN** la richiesta SHALL essere ritrovata
+
+### Requirement: ASK-07 — La bozza di una risposta è PER DOMANDA, scade, e la corruzione non rompe il pannello
+
+Ciò che si scrive in un pannello prima di rispondere SHALL sopravvivere a un
+ricaricamento, e SHALL essere conservato PER DOMANDA, non per sessione: la bozza
+di una domanda NON SHALL comparire sotto un'altra.
+
+Rispondere SHALL cancellare la bozza. Svuotare tutto SHALL cancellare, non
+lasciare un registro vuoto.
+
+Una bozza VECCHIA NON SHALL riapparire mesi dopo sotto una domanda nuova: SHALL
+esistere una scadenza, e una pulizia che toglie le scadute lasciando le vive.
+
+Un contenuto CORROTTO NON SHALL rompere il pannello.
+
+Un avanzamento senza risposta NON SHALL contare come una risposta a metà.
+
+#### Scenario: due domande diverse
+- **GIVEN** una bozza scritta su una domanda
+- **THEN** NON SHALL comparire sotto un'altra
+
+#### Scenario: uno storage corrotto
+- **GIVEN** un contenuto illeggibile
+- **THEN** il pannello SHALL aprirsi lo stesso
+
+### Requirement: ASK-08 — Il testo libero vale come risposta SOLO quando non c'è niente da indovinare
+
+Il testo scritto in chat SHALL valere come risposta a una domanda SOLO se la
+domanda è UNA e la sua forma lo permette.
+
+Il testo NON SHALL essere agganciato a un'opzione: rispondere con la prima
+quando qualcuno ha scritto «boh, la prima» è un indovinello.
+
+Per un'APPROVAZIONE il testo libero NON SHALL MAI valere: fra due opzioni
+esatte, «vai» e «no direi» sono un indovinello — e indovinare male ESEGUE un
+piano che si voleva rifiutare. Il gesto è il pulsante, e il campo di scrittura non
+deve promettere il contrario.
+
+Con PIÙ domande, o con una forma che richiede una struttura, SHALL restare il
+pannello: la prosa non riempie uno schema.
+
+Una domanda in attesa rimasta appesa in un turno PRECEDENTE NON SHALL essere
+considerata aperta: è il fantasma di uno stream perso, e mandarle una risposta la
+farebbe sparire nel nulla. Un testo VUOTO NON SHALL essere una risposta.
+
+#### Scenario: un'approvazione
+- **GIVEN** una domanda di approvazione e del testo scritto
+- **THEN** il testo NON SHALL valere come risposta
+
+#### Scenario: una domanda appesa da un turno precedente
+- **GIVEN** un'attesa rimasta da un turno finito
+- **THEN** NON SHALL essere considerata aperta

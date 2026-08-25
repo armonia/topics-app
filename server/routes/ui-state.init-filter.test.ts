@@ -11,6 +11,7 @@
  * Si pinna anche il contorno: `GET /api/ui-state` (all-keys) resta COMPLETO —
  * è una porta di servizio, non il broadcast — e il GET singolo continua a
  * servire la chiave identica, che è la strada da cui il client la prende.
+  * @covers WIRE-06
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

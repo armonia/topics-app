@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-DEV-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { DEVICE_PRESETS, deviceModeFromUserAgent, type DeviceMode } from './browserDevTypes';
 

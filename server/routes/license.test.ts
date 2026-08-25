@@ -6,6 +6,7 @@
  * chiede «cosa posso fare» riceve un `4xx` — indistinguibile, per chi guarda,
  * da una macchina rotta. Qui `GET` risponde `200` in ogni caso, e ciò che
  * cambia è il CONTENUTO.
+  * @covers LICENSE-04
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";

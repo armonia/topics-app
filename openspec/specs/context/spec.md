@@ -397,3 +397,24 @@ tolti — oppure TUTTO.
 #### Scenario: uno scatto senza discorso
 - **GIVEN** uno scatto con identificativo vuoto
 - **THEN** NON SHALL essere conservato sotto nessuna chiave
+
+### Requirement: CTX-PREVIEW-01 — L'anteprima del contesto e l'anello degli scatti sono raggiungibili dall'esterno
+
+Il contesto di un discorso SHALL essere ISPEZIONABILE dall'esterno: la busta
+canonica E il carico che il fornitore riceverà.
+
+Un discorso SCONOSCIUTO SHALL essere dichiarato assente.
+
+L'anello degli scatti SHALL essere leggibile per discorso — vuoto all'inizio, con
+dentro ciò che è stato registrato — e SHALL essere SVUOTABILE per discorso.
+
+I percorsi che non appartengono a questa superficie SHALL essere LASCIATI PASSARE,
+o un instradatore a catena si mangia le rotte di quelli dopo.
+
+#### Scenario: un discorso sconosciuto
+- **GIVEN** un identificativo che non esiste
+- **THEN** SHALL essere dichiarato assente
+
+#### Scenario: un percorso di qualcun altro
+- **GIVEN** una richiesta non di questa superficie
+- **THEN** SHALL essere lasciata passare

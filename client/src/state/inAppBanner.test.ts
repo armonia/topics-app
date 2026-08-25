@@ -5,6 +5,7 @@
  * guardare — la stessa regola che il `tag` impone alle notifiche di sistema — e
  * senza questa sostituzione una chat lunga lascerebbe in pagina una colonna di
  * cartelli identici.
+  * @covers PRESENCE-11
  */
 import { describe, expect, test, beforeEach } from 'bun:test';
 import { useInAppBannerStore } from './inAppBanner';

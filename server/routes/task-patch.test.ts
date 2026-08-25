@@ -3,6 +3,7 @@
  * SQLite: il messaggio (`CHECK constraint failed: <espressione>`) è un dettaglio
  * del motore, e una stringa scritta a mano nel test proverebbe solo che il test
  * e il codice sono d'accordo fra loro. Qui l'errore lo produce il DB.
+  * @covers KANBAN-51
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -3,6 +3,7 @@
  * richiude. Il contratto è «automatico si richiude, a mano resta»: qui si
  * verifica la metà automatica (registrazione, uscita, tetto) e che un task mai
  * registrato — cioè aperto col bottone — non restituisca niente da chiudere.
+  * @covers KANBAN-55
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import {

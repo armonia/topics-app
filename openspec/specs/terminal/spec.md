@@ -343,3 +343,30 @@ dare uno schermo vuoto, non un errore.
 #### Scenario: righe vuote in mezzo
 - **GIVEN** uno schermo con righe vuote fra due righe piene
 - **THEN** quelle in mezzo SHALL restare
+
+### Requirement: TERM-07 — Un guscio dichiarato AUTONOMO non apre MAI il socket del ponte
+
+Quando l'installazione è dichiarata autonoma, la funzione che assicura il ponte
+NON SHALL MAI aprire un socket. L'incidente per cui esiste: un secondo server
+che condivideva la stessa cartella di lavoro ha calcolato lo STESSO indirizzo di
+socket di quello vivo, e la sua riconciliazione ha ucciso venticinque terminali
+altrui.
+
+Entrambe le forme con cui il flag può essere scritto SHALL essere lette, e SHALL
+essere lette AL MOMENTO, non fotografate all'avvio.
+
+Il ponte PROPRIO impacchettato SHALL RIABILITARE i terminali anche sotto il flag:
+è nostro e non può collidere con nessuno.
+
+Le variabili della vecchia implementazione, rimossa, NON SHALL più riabilitare
+niente: un flag inerte che sembra vivo è una porta che nessuno sa di avere
+aperto.
+
+#### Scenario: il flag di autonomia acceso
+- **GIVEN** l'installazione dichiarata autonoma
+- **THEN** nessun socket SHALL essere aperto
+
+#### Scenario: una vecchia variabile
+- **GIVEN** una variabile della vecchia implementazione
+- **THEN** NON SHALL riabilitare i terminali
+

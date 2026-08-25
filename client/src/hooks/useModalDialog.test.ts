@@ -4,6 +4,7 @@
  * Il bug che chiude: nei modali senza trappola il Tab esce dal dialogo e va a
  * passeggiare sulla pagina sotto — che è coperta dal velo e non si vede. Da
  * tastiera il focus sparisce: si continua a premere Tab senza sapere dove si è.
+  * @covers GESTURE-02
  */
 import { test, expect } from 'bun:test';
 import { nextTrapFocus } from './useModalDialog';

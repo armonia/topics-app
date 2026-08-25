@@ -1,3 +1,6 @@
+/**
+ * @covers APPSET-06
+ */
 import { describe, test, expect } from 'bun:test';
 import { mostraSezione, chiaveErrore, CODICI_ACCOUNT, type StatoAccount } from './accountState';
 import { t, missingKeys } from '../../lib/i18n';

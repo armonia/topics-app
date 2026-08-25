@@ -5,6 +5,7 @@
  * an accident worth "cleaning up": a private-mode throw, a cleared profile and
  * an older build's value must all land on OPEN. A section stuck shut is
  * indistinguishable from a section that has nothing in it.
+  * @covers KANBAN-36
  */
 import { describe, expect, test } from 'bun:test';
 import { readSectionOpen, sectionKey, writeSectionOpen } from './sectionAccordion';

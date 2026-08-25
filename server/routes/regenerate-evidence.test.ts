@@ -10,6 +10,7 @@
  * senza strumenti su entrambi i runtime (`--tools ""` sulla CLI, `tools: []` sul
  * nativo), mentre il prompt del topic continua a descriverli. Qui si prova il
  * pezzo di prompt che chiude il buco.
+  * @covers CHAT-CONV-04
  */
 import { test, expect, describe } from "bun:test";
 import {

@@ -1,3 +1,6 @@
+/**
+ * @covers TOPIC-PURGE-01
+ */
 import { describe, expect, it } from "bun:test";
 import { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue } from "./topics";
 

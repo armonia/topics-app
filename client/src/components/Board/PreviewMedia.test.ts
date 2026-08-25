@@ -14,6 +14,7 @@
  * `ThreadRuns.test.tsx`), quindi l'osservatore non si arma e il video resta
  * fermo — che è esattamente lo stato di partenza preteso. Che poi si avvii
  * entrando in vista lo prova la spec E2E `board-preview-autoplay`.
+  * @covers KANBAN-40
  */
 import { describe, expect, test } from 'bun:test';
 import { createElement } from 'react';

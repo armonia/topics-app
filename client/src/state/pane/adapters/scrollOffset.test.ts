@@ -1,3 +1,6 @@
+/**
+ * @covers PANE-13
+ */
 import { describe, test, expect } from "bun:test";
 import { clampScrollOffset } from "./scrollOffset";
 

@@ -120,3 +120,67 @@ Lo stato esposto pubblicamente NON SHALL lasciar trapelare niente della chiave.
 #### Scenario: istante non numerico
 - **GIVEN** un'intestazione il cui istante non è un numero
 - **THEN** SHALL essere dichiarato tale, non trattato come zero
+
+### Requirement: LICENSE-04 — La lettura risponde SEMPRE, e un disco che non scrive NON è un gettone rifiutato
+
+La lettura della licenza SHALL rispondere sempre positivamente: senza gettone col
+piano gratuito, e SENZA nemmeno il servizio innestato SHALL rispondere lo stesso,
+nel verso PIÙ LIBERO.
+
+Un gettone di un'ALTRA macchina, o SCADUTO, SHALL essere rifiutato DICENDO quale
+dei due è il motivo.
+
+Un guasto di INFRASTRUTTURA — la cartella di stato che non accetta scritture —
+NON SHALL essere riportato come un gettone rifiutato: gettone perfetto, macchina
+giusta, pagamento riuscito, e un rifiuto che manda a cercare il problema
+nell'unico posto dove non c'è.
+
+Un corpo SENZA gettone SHALL essere una richiesta sbagliata, non un rifiuto di
+licenza.
+
+La licenza SHALL potersi TOGLIERE: una licenza inamovibile non si sposta di
+macchina.
+
+#### Scenario: la cartella di stato non scrivibile
+- **GIVEN** un gettone valido e un disco che rifiuta la scrittura
+- **THEN** NON SHALL essere riportato come gettone rifiutato
+
+#### Scenario: nessun gettone
+- **GIVEN** nessuna licenza installata
+- **THEN** la lettura SHALL rispondere col piano gratuito
+
+### Requirement: LICENSE-05 — Ogni motivo ha la sua frase, e i sette non si appiattiscono su uno
+
+Ognuno dei motivi per cui una licenza non vale SHALL avere una CHIAVE PROPRIA:
+nessuno SHALL cadere su quella di un altro. Due di essi — «tutto a posto» e
+«nessun gettone» — NON SHALL dire niente; gli altri SHALL parlare, tutti.
+
+SHALL essere distinto ciò che è COLPA NOSTRA da ciò che non lo è: una chiave di
+verifica assente è un guasto nostro, un gettone scaduto o di un'altra macchina
+no. Il predicato SHALL distinguere davvero, e il banco SHALL mostrarlo su
+entrambi i lati.
+
+L'acquisto SHALL essere possibile solo con il servizio di pagamento configurato E
+un'installazione identificata; il canale di ritorno NON SHALL entrare in questa
+decisione — sono assi separati.
+
+Il piano gratuito NON SHALL scadere, quindi NON SHALL produrre nessun numero di
+giorni. Un residuo di poche ore SHALL essere ZERO giorni, non uno; una scadenza
+già passata SHALL dare un numero NEGATIVO, non zero — sono due informazioni
+diverse. La soglia dell'avviso SHALL essere verificata da entrambi i lati.
+
+I posti dichiarati SHALL avere un MINIMO di due — uno non si vende, è il piano
+gratuito — e un TETTO. I numeri storti SHALL cadere sul minimo invece di
+viaggiare.
+
+Ogni motivo e ogni rifiuto dell'acquisto, generico compreso, SHALL avere la
+propria frase in ENTRAMBE le lingue, e il criterio della verifica SHALL essere
+visto FUNZIONARE su una chiave inventata.
+
+#### Scenario: ventitré ore alla scadenza
+- **GIVEN** meno di un giorno residuo
+- **THEN** SHALL essere zero giorni, non uno
+
+#### Scenario: un numero di posti non valido
+- **GIVEN** un valore non numerico
+- **THEN** SHALL cadere sul minimo

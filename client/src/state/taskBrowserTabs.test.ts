@@ -1,6 +1,7 @@
 /**
  * Tests for the task-owned browser tab group's pure reducer ops. No I/O — the
  * ui-state persistence / React hook layers are exercised only in the app.
+  * @covers BROWSER-STATE-01
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {

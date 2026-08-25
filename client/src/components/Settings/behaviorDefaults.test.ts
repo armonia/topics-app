@@ -1,3 +1,6 @@
+/**
+ * @covers APPSET-05
+ */
 // UI mapping for the Behaviour-defaults controls (env-var audit, Phase B).
 import { describe, test, expect } from 'bun:test';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';

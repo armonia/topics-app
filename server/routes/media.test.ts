@@ -25,6 +25,7 @@
  * Il router è puro rispetto al disco tranne che per le cartelle iniettate,
  * quindi si prova per intero senza avviare il server, e la misura è il
  * CONTENUTO della cartella — non solo lo status.
+  * @covers MEDIA-01
  */
 
 import { describe, expect, test, beforeEach, beforeAll, afterAll } from "bun:test";

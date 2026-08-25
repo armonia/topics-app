@@ -14,6 +14,7 @@
  *     that name already exists");
  *   - switch-topic returned 404 for an ARCHIVED target, conflating it with
  *     "does not exist" (AC-01 says 404 unknown / 400 archived).
+  * @covers TOPIC-CTRL-01
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";

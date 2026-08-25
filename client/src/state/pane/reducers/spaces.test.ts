@@ -1,3 +1,6 @@
+/**
+ * @covers PANE-05
+ */
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import { mergeSpaces, resolvePaneSpace, isLiveSpaceId, liveSpaceCount, spacesReducer } from "./spaces";

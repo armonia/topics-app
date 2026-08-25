@@ -5,6 +5,7 @@
  * un ricarico), e soprattutto l'ordine: un sito di ieri visitato tre volte deve
  * stare davanti a uno di due mesi fa visitato dieci, altrimenti la griglia
  * racconta il passato invece del presente.
+  * @covers BROWSER-STATE-03
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import {

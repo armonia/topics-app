@@ -6,6 +6,7 @@
  *   - first-seen wins when the same topic is in several other windows;
  *   - only DETACHED windows drive the marker (not plain browser tabs);
  *   - setWindows replaces the whole set (full-snapshot semantics, self-healing).
+  * @covers PRESENCE-10
  */
 import { describe, test, it, expect } from 'bun:test';
 import {

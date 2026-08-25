@@ -12,6 +12,7 @@
  * Si pinna anche il contorno: `null` resta rifiutato (una chiave assente legge
  * già `null`, quindi scriverlo non è rileggibile) e il PUT BULK — che è il
  * canale di pane-store/settings — tiene il vincolo oggetto.
+  * @covers APPSET-04
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

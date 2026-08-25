@@ -741,3 +741,27 @@ senza lasciare traccia.
 #### Scenario: nessuna dichiarazione, nessun default
 - **GIVEN** un topic senza provider e un server senza default
 - **THEN** NON SHALL essere scelta nessuna rotta
+
+### Requirement: CMD-09 — Svuotare la conversazione usa il gesto che quel fornitore CAPISCE
+
+Il gesto per svuotare la conversazione SHALL essere scelto in base a ciò che il
+fornitore sa fare: dimenticare la sessione dove esiste, mandare il comando DENTRO
+la sessione dove è quello il canale, e NON FARE NIENTE — dichiarandolo — dove non
+esiste nessuno dei due.
+
+Chiamare in modo opzionale un metodo che un fornitore non implementa NON produce
+nessun errore e nessuna traccia: la chat si svuota a schermo e il modello ricorda
+tutto.
+
+Con ENTRAMBE le possibilità SHALL vincere il dimenticare la sessione.
+
+La scelta SHALL essere verificata sui fornitori VERI, non su oggetti finti che
+dichiarano quel che si vuole.
+
+#### Scenario: un fornitore che non implementa nessuno dei due
+- **GIVEN** nessun canale disponibile
+- **THEN** SHALL essere dichiarato che non si può fare niente
+
+#### Scenario: i fornitori veri
+- **GIVEN** le implementazioni reali
+- **THEN** ognuna SHALL cadere nel ramo giusto

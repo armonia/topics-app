@@ -62,3 +62,53 @@ The system SHALL support preview tabs that are replaced when opening another ite
 - **WHEN** the user double-clicks the tab
 - **THEN** the tab loses its italic preview styling
 - **AND** opening another topic creates a new preview tab instead of replacing the pinned one
+
+### Requirement: PRESENCE-10 — «Aperto altrove» esclude ME, e una finestra non è mai vuota
+
+L'elenco di ciò che è aperto ALTROVE SHALL ESCLUDERE questa finestra: un discorso
+aperto QUI non è aperto altrove.
+
+L'esclusione SHALL avvenire per identificativo E per ETICHETTA: l'identificativo
+vive in una memoria che si svuota, e la stessa finestra può annunciarsi con
+identificativi diversi — è così che la sezione delle finestre ne mostrava quattro
+dove ce n'era una. Un'etichetta assente o vuota NON SHALL filtrare niente, o
+tutto collasserebbe.
+
+Una finestra SHALL essere descritta da OGNI scheda che annuncia, non solo dalle
+chat: alcune finestre annunciavano zero discorsi e la riga si disegnava come un
+titolo sopra il nulla. Una finestra che NON annuncia schede SHALL ripiegare sui
+suoi discorsi, non sul nulla; un elenco di schede VUOTO SHALL valere «non ha
+annunciato», non «finestra vuota».
+
+L'insieme annunciato SHALL SOSTITUIRE il precedente, non fondersi.
+
+Quando lo stesso discorso è aperto in due altre finestre SHALL vincere la prima
+vista. Una finestra senza etichetta NON SHALL essere raggiungibile.
+
+#### Scenario: la stessa finestra con due identificativi
+- **GIVEN** un annuncio con la mia etichetta e un altro identificativo
+- **THEN** NON SHALL essere considerata un'altra finestra
+
+#### Scenario: una finestra di soli terminali
+- **GIVEN** una finestra che non annuncia chat
+- **THEN** SHALL comunque essere descritta
+
+### Requirement: PRESENCE-11 — Due avvisi in pagina con lo STESSO segnale si sostituiscono
+
+Due avvisi in pagina che portano lo STESSO segnale SHALL SOSTITUIRSI, e il nuovo
+SHALL andare in fondo: sono UNA cosa da guardare — la stessa regola che le
+notifiche di sistema applicano — e senza la sostituzione una conversazione lunga
+lascia in pagina una colonna di cartelli identici.
+
+Segnali DIVERSI SHALL restare avvisi diversi. Senza segnale ogni avviso SHALL
+essere suo: due anonimi NON SHALL mangiarsi a vicenda.
+
+Chiudere un avviso SHALL togliere SOLO quello.
+
+#### Scenario: due fine-turno dello stesso discorso
+- **GIVEN** lo stesso segnale due volte
+- **THEN** SHALL restare un avviso solo, in fondo
+
+#### Scenario: due avvisi anonimi
+- **GIVEN** nessun segnale dichiarato
+- **THEN** SHALL restare entrambi

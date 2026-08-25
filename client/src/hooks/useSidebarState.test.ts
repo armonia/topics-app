@@ -7,6 +7,7 @@
  * the junk verbatim (the spread over DEFAULT_STATE does NOT drop extra keys
  * at runtime). The web sidebar then read pinnedItems from the wrong nesting
  * level → "Fissati" empty on web while desktop showed its localStorage copy.
+  * @covers LAYOUT-20
  */
 
 import { describe, expect, test } from "bun:test";

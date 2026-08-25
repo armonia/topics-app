@@ -12,6 +12,7 @@
  *    (e lo stesso motivo) di `GlobalCapControl.test.tsx`: `Card.tsx` e
  *    `TaskDetail.tsx` tirano dentro l'API, gli store e mezzo layout, quindi in
  *    un test unitario non si montano.
+  * @covers KANBAN-25
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

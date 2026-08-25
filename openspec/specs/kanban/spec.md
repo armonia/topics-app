@@ -1925,3 +1925,218 @@ diventa un non-fare silenzioso.
 #### Scenario: un'icona troppo densa
 - **GIVEN** un'icona il cui tratto supera il rapporto
 - **THEN** il banco SHALL fallire
+
+### Requirement: KANBAN-49 — Il pacchetto della differenza include i file NUOVI, e un rinominato compare UNA volta
+
+Una consegna fatta di soli file NUOVI NON SHALL apparire come una differenza
+VUOTA: i file non ancora tracciati SHALL essere INCLUSI nel pacchetto. È il caso
+in cui la review non aveva niente da leggere pur essendoci tutto il lavoro.
+
+Le esclusioni dichiarate del repository SHALL essere RISPETTATE: ciò che è
+ignorato resta fuori.
+
+I percorsi con SPAZI SHALL sopravvivere: la separazione SHALL usare il
+terminatore che non compare mai in un nome.
+
+Un file RINOMINATO SHALL avere lo STESSO percorso nell'elenco e nel corpo della
+differenza: da quando l'elenco si costruisce dalle statistiche, un disallineamento
+elenca lo stesso file DUE volte. La forma abbreviata del rinominato SHALL essere
+risolta al percorso di DESTINAZIONE, senza doppie separazioni, e una freccia che
+fa parte del NOME NON SHALL essere scambiata per un rinominato.
+
+#### Scenario: una consegna di soli file nuovi
+- **GIVEN** una copia di lavoro con solo file non tracciati
+- **THEN** la differenza NON SHALL essere vuota
+
+#### Scenario: un file rinominato
+- **GIVEN** un rinominato nella consegna
+- **THEN** SHALL comparire una volta sola, col percorso di destinazione
+
+### Requirement: KANBAN-50 — Il fronte di review scatta SOLO alla transizione, e dichiara se è una domanda
+
+L'avviso dedicato all'arrivo in review SHALL essere emesso SOLO alla TRANSIZIONE
+verso quello stato: emetterlo a ogni aggiornamento produrrebbe una tempesta di
+banner. Uno stato già in review NON SHALL riemetterlo, e uno stato diverso NON
+SHALL emetterlo affatto. Un task visto per la PRIMA volta già in review SHALL
+notificare.
+
+Il fronte SHALL DICHIARARE se la consegna è una DOMANDA, e il campo SHALL esserci
+SEMPRE — esplicitamente vuoto quando non lo è. Con il campo OMESSO, un client
+nuovo su un server vecchio offrirebbe «approva» su un task che sta aspettando una
+risposta.
+
+La domanda SHALL essere l'ULTIMA parola dell'agente, non una già superata, e le
+righe di TRANSIZIONE NON SHALL contare come parola di nessuno: il servizio ne
+scrive una a ogni cambio di stato, e senza il filtro quella — che arriva sempre
+per ultima — seppellirebbe ogni domanda. Una domanda SENZA opzioni resta una
+domanda.
+
+Il filo NON SHALL essere letto quando il fronte non scatta, e una lettura che
+FALLISCE NON SHALL mangiarsi il banner.
+
+#### Scenario: un aggiornamento su un task già in review
+- **GIVEN** un task che era già in review
+- **THEN** il fronte NON SHALL essere riemesso
+
+#### Scenario: una consegna che non è una domanda
+- **GIVEN** una consegna normale
+- **THEN** il campo della domanda SHALL essere presente ed esplicitamente vuoto
+
+### Requirement: KANBAN-51 — Un vincolo del database diventa un messaggio, e il messaggio non porta SQL
+
+Una violazione di un vincolo del database SHALL essere tradotta in un rifiuto
+LEGGIBILE, e la traduzione SHALL essere provata sugli errori VERI prodotti dal
+database, non su stringhe inventate.
+
+Il messaggio SHALL nominare il CAMPO e dire cosa è ammesso — l'intervallo, o
+l'elenco dei valori — e NON SHALL contenere SQL: chi lo legge è una persona
+davanti a un modulo.
+
+Un vincolo che la traduzione NON CONOSCE SHALL comunque produrre un rifiuto senza
+SQL. Un errore che NON è una violazione di vincolo NON SHALL essere tradotto:
+resta un guasto del server, e travestirlo da errore dell'utente manda a
+correggere la cosa sbagliata.
+
+#### Scenario: un valore fuori dall'intervallo
+- **GIVEN** un campo numerico fuori dai limiti
+- **THEN** il rifiuto SHALL nominare il campo e l'intervallo, senza SQL
+
+#### Scenario: un errore che non è un vincolo
+- **GIVEN** un guasto diverso
+- **THEN** NON SHALL essere tradotto in un rifiuto dell'utente
+
+### Requirement: KANBAN-52 — Il pannello non LEGGE quando nessuno lo guarda, e la sessione si taglia in UNA passata
+
+Il pannello di un task interroga la cronologia a intervalli. NON SHALL farlo
+quando non ha un posto nel layout, e SHALL SALTARE il giro quando la finestra non
+è in vista — senza smontare il proprio orologio. Congelare i DISEGNI di una
+superficie nascosta non ferma gli effetti di un sottoalbero già montato: un
+pannello parcheggiato dietro un'altra superficie continuava a leggere.
+
+Al ritorno in vista SHALL RECUPERARE, e SHALL farlo sullo STESSO ascoltatore, non
+su uno nuovo per giro.
+
+Il taglio della sessione fra i commenti SHALL essere UNA passata, non un filtro
+PER RIGA: quello percorreva l'intera cronologia una volta per ogni commento —
+centinaia di letture per giro, ogni pochi secondi. Il costo SHALL essere
+LIMITATO, e il banco SHALL misurarlo.
+
+Un intervallo il cui contenuto NON è cambiato SHALL restituire lo STESSO oggetto:
+la lettura ricostruisce i messaggi da zero a ogni giro, quindi solo un confronto
+di VALORE può tenere stabile ciò che non è cambiato — e un messaggio CRESCIUTO a
+metà stream ha lo stesso istante e un corpo più lungo, quindi riusare il vecchio
+lì congelerebbe l'anteprima viva.
+
+I confini fra i tratti di sessione NON SHALL aprire né chiudere l'elenco, e una
+serie di confini consecutivi SHALL COLLASSARE in uno: con decine di commenti e
+due turni di agente non si disegnano decine di separatori. I turni umani iniettati
+nella sessione SHALL essere tolti: il filo li mostra già.
+
+#### Scenario: la finestra in secondo piano
+- **GIVEN** il pannello aperto e la finestra non in vista
+- **THEN** il giro di lettura SHALL essere saltato
+
+#### Scenario: un messaggio cresciuto a metà stream
+- **GIVEN** lo stesso istante e un corpo più lungo
+- **THEN** l'intervallo SHALL essere ricostruito, non riusato
+
+### Requirement: KANBAN-53 — La stessa forma su due lati non può divergere in silenzio
+
+Le forme che esistono in DUE copie su lati che non possono condividere il
+dizionario — il riassunto di un tentativo scritto nel filo e la riga mostrata a
+schermo — SHALL produrre lo STESSO testo, e il banco SHALL confrontarle
+direttamente. Una copia che diverge è come il commento nel filo e lo schermo
+iniziano a raccontare due cose diverse dello stesso tentativo.
+
+Nella seconda lingua il PLURALE SHALL essere corretto, e gli stati SENZA numeri
+SHALL comunque avere una parola.
+
+Il riassunto di una descrizione SHALL prendere la prima riga di PROSA, senza i
+marcatori del formato; le righe di sola DECORAZIONE NON SHALL essere un accenno.
+Il taglio SHALL essere alla lunghezza dichiarata, senza spazio penzolante prima
+dei puntini. Senza descrizione NON SHALL essere inventato un accenno.
+
+I separatori delle migliaia SHALL esserci anche a quattro cifre — la
+localizzazione predefinita li salterebbe — e gli ordini di grandezza SHALL
+restare coerenti fra loro.
+
+Copiare un task SHALL produrre titolo e descrizione separati da una riga vuota,
+senza righe vuote in coda e senza gli spazi ai bordi.
+
+#### Scenario: le due copie della stessa forma
+- **GIVEN** lo stesso tentativo reso dai due lati
+- **THEN** il testo SHALL essere identico
+
+#### Scenario: un numero a quattro cifre
+- **GIVEN** un conteggio di migliaia
+- **THEN** SHALL portare il separatore
+
+### Requirement: KANBAN-54 — Gli allegati di un task sono UNA lista, e l'anteprima ne fa parte
+
+Gli allegati di un task — l'anteprima e quelli del filo — SHALL formare UNA lista
+UNIVOCA e ORDINATA, con l'anteprima per PRIMA. Arrivando da un campo suo e non da
+un commento, l'anteprima restava FUORI dalla lista e quindi fuori dalle schede.
+
+Un allegato che è ANCHE l'anteprima SHALL avere UNA sola voce.
+
+Ogni percorso SHALL produrre un identificativo di superficie STABILE.
+
+Il TIPO SHALL essere deciso dal SUFFISSO: una clip di consegna è un VIDEO, non
+un'immagine — disegnarla come immagine produce un'icona rotta e un visore che non
+la conosce. La verifica SHALL tollerare i parametri e i frammenti di un indirizzo
+già costruito, e una sottostringa a metà percorso NON SHALL contare.
+
+Senza percorso NON SHALL esserci nessun tipo.
+
+#### Scenario: una clip di consegna
+- **GIVEN** un allegato con il suffisso di un video
+- **THEN** SHALL essere trattato come video
+
+#### Scenario: l'anteprima allegata anche al filo
+- **GIVEN** lo stesso file in entrambi i posti
+- **THEN** SHALL comparire una volta sola
+
+### Requirement: KANBAN-55 — Ciò che si è aperto DA SOLO si richiude, ciò che hai aperto a mano resta
+
+Le superfici aperte AUTOMATICAMENTE entrando in un task SHALL essere richiuse
+uscendo; quelle aperte A MANO SHALL restare. Il contratto è quello, e vale in
+entrambi i versi.
+
+Un task mai registrato NON SHALL avere niente da chiudere, e una registrazione a
+VUOTO NON SHALL creare una voce.
+
+Ri-registrare lo STESSO task SHALL aggiornare il suo elenco senza sfrattare sé
+stesso; gli identificativi ripetuti SHALL contare una volta sola.
+
+Oltre un tetto di task ricordati SHALL essere sfrattato il PIÙ VECCHIO,
+restituendo le sue superfici, e ri-registrare il più vecchio SHALL riportarlo in
+cima.
+
+#### Scenario: uscire da un task
+- **GIVEN** superfici aperte automaticamente e una aperta a mano
+- **THEN** SHALL essere richiuse solo le prime
+
+#### Scenario: oltre il tetto
+- **GIVEN** più task ricordati del tetto
+- **THEN** SHALL essere sfrattato il più vecchio, restituendo le sue superfici
+
+### Requirement: KANBAN-56 — L'indice discorso→task si SOSTITUISCE, e sveglia solo chi è cambiato
+
+L'indice che lega un discorso al suo task SHALL essere SOSTITUITO a ogni lettura,
+non FUSO: un task che perde il legame — o che viene archiviato — sparisce dal
+feed, e fondendo resterebbe a puntare per sempre a una scheda che non c'è.
+
+Un aggiornamento IDENTICO NON SHALL svegliare nessuno e NON SHALL cambiare
+identità: il feed si rilegge a ogni evento, a raffica durante un dispatch, e ogni
+rilettura produce oggetti nuovi quasi sempre uguali.
+
+Un cambiamento VERO SHALL svegliare SOLO il discorso cambiato, e anche la
+SPARIZIONE SHALL svegliare: la riga che ne dipendeva deve poter smettere.
+
+#### Scenario: un task che esce dal feed
+- **GIVEN** un legame che sparisce
+- **THEN** l'indice SHALL perderlo, e chi lo guardava SHALL essere svegliato
+
+#### Scenario: una rilettura identica
+- **GIVEN** lo stesso contenuto riletto
+- **THEN** nessuno SHALL essere svegliato

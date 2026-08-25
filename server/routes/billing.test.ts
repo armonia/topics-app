@@ -10,6 +10,7 @@
  * un gettone di licenza CONTRAFFATTO. L'evento è autentico, la rotta risponde
  * `200` perché l'ha capito — e la licenza resta `free`, perché il gettone passa
  * comunque dalla porta unica che lo riverifica con la chiave pubblica.
+  * @covers LICENSE-03
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { createHmac, generateKeyPairSync, sign, type KeyObject } from "node:crypto";

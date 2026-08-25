@@ -1,3 +1,6 @@
+/**
+ * @covers ASK-07
+ */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { clearAskDraft, isEmptyDraft, readAskDraft, sweepAskDrafts, writeAskDraft } from './askDraft';
 

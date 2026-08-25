@@ -657,3 +657,43 @@ Una CARTELLA SHALL arrivare intera, con dentro il suo contenuto.
 #### Scenario: un file che non c'è
 - **GIVEN** un percorso inesistente
 - **THEN** SHALL essere un errore, non un successo silenzioso
+
+### Requirement: MEDIA-01 — Il contenuto ATTIVO non entra, e il tipo si misura come lo misura il RUNTIME
+
+Le porte che accettano allegati SHALL RIFIUTARE il contenuto ATTIVO — ciò che un
+navigatore eseguirebbe — e AMMETTERE gli allegati inerti.
+
+La verifica SHALL usare i valori di tipo REALI che il runtime consegna, non una
+copia locale: una copia diceva sì a un tipo che la rotta vera riceveva con il
+parametro di codifica attaccato e rifiutava — un allegato di testo era rotto in
+produzione con il banco tutto verde. Il runtime, inoltre, IGNORA il tipo dichiarato
+dal client e lo RI-DERIVA dal nome del file: è quello che va misurato.
+
+Il tipo SHALL essere NORMALIZZATO — parametri, spazi, maiuscole — prima del
+confronto, e il rifiuto SHALL mostrare il tipo NORMALIZZATO: il parametro non è la
+colpa.
+
+Ogni tipo attivo SHALL avere la sua ESTENSIONE nell'insieme gemello, e il
+rifiuto SHALL reggere anche se la derivazione del tipo è CIECA: l'estensione basta
+da sola.
+
+L'elenco dei tipi permessi in generale CONTIENE contenuto attivo: NON SHALL essere
+lui la guardia. Chi «sistemasse» un rifiuto allargandolo riaprirebbe l'esecuzione
+di contenuto senza che niente diventi rosso, quindi il banco SHALL dichiararlo.
+
+Oltre il tetto di dimensione SHALL essere un rifiuto dichiarato, e la cartella
+SHALL restare VUOTA. Sotto il tetto SHALL passare ed essere scritto — il controllo
+positivo.
+
+Un formato che può portare script NON SHALL entrare nella cartella del contesto, e
+quando viene servito SHALL essere SABBIATO e dichiarato non interpretabile per
+indovinare il tipo. Le stesse guardie SHALL valere sulla risposta PARZIALE, o
+basta chiedere un intervallo per aggirarle.
+
+#### Scenario: un allegato di testo con il parametro di codifica
+- **GIVEN** un tipo con il parametro attaccato
+- **THEN** SHALL essere normalizzato e ammesso
+
+#### Scenario: una richiesta a intervalli
+- **GIVEN** una risposta parziale su un formato che può portare script
+- **THEN** SHALL portare le stesse guardie della risposta intera

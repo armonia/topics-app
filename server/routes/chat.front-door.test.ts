@@ -25,6 +25,7 @@
  * dal fatto che chiama `appendLocalMessage` — l'effetto immediatamente
  * successivo, e la ragione per cui il 409 deve stare PRIMA (altrimenti il
  * messaggio respinto resterebbe comunque scritto in chat).
+  * @covers CHAT-DOOR-01
  */
 import { test, expect, describe } from "bun:test";
 import { createChatRouter } from "./chat";

@@ -1,3 +1,6 @@
+/**
+ * @covers ASK-08
+ */
 import { describe, expect, test } from 'bun:test';
 import { answerFromText, findPendingAsk, type PendingAsk } from './pendingAsk';
 import type { ChatMessage, ToolCall } from '../types';

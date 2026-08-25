@@ -17,6 +17,7 @@
  *
  * Il preview manager è quello VERO (deps iniettate): il ramo negativo deve
  * dimostrare la nota, non la nostra idea della nota.
+  * @covers KANBAN-41
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

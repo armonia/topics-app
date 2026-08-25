@@ -13,6 +13,7 @@
  *   · una re-iscrizione non riaccende in silenzio un dispositivo spento — il
  *     browser ruota le chiavi da solo, e se quella rotazione cancellasse le
  *     preferenze l'utente vedrebbe tornare notifiche che aveva tolto.
+  * @covers PUSH-01
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";

@@ -3,6 +3,7 @@
  * esistere sul server vero è il gate su `TOPICS_E2E`, quindi il gate è la cosa
  * da testare: se cede, cede in un posto dove non c'è nessuna suite a
  * accorgersene.
+  * @covers E2E-GATE-03
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";

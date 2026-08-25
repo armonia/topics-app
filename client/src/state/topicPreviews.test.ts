@@ -1,3 +1,6 @@
+/**
+ * @covers TOPIC-PREVIEW-01
+ */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import {
   applyMessagePreview,

@@ -18,6 +18,7 @@
  * non risolve l'alias `@/`, quindi il drawer qui non si monta. Il taglio della
  * sessione fra i commenti, che è l'altra metà di questo giro, è puro e provato
  * per davvero in `sessionBuckets.test.ts`.
+  * @covers KANBAN-52
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

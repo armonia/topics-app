@@ -1,3 +1,6 @@
+/**
+ * @covers THREAD-06
+ */
 import { describe, expect, test } from "bun:test";
 import { isTurnStillLive, shouldConsultBroker } from "./historyCleanupPolicy";
 

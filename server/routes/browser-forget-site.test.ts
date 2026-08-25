@@ -20,6 +20,7 @@
  *
  * Il servizio è finto (stesso stampo di `browser-close-keeps-session.test.ts`):
  * queste rotte si giudicano su cosa passano al servizio, non su un browser.
+  * @covers BROWSER-FORGET-01
  */
 import { describe, test, expect } from "bun:test";
 import { createBrowserRouter } from "./browser";

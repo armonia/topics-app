@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-54
+ */
 import { describe, test, expect } from "bun:test";
 import { collectTaskMediaPaths } from "./taskMedia";
 import { isVideoPath, isImagePath, isPdfPath } from "../../lib/mediaKind";

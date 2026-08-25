@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-WAIT-02
+ */
 import { describe, expect, it } from 'bun:test';
 import {
   deriveWorkLongevity,

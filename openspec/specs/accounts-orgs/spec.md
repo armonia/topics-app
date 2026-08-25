@@ -158,3 +158,39 @@ essere riuscita.
 #### Scenario: uno schema senza le colonne della visibilità
 - **GIVEN** un database privo di quelle colonne
 - **THEN** SHALL valere i difetti, e l'indirizzo SHALL essere chiuso
+
+### Requirement: ACCOUNT-03 — La porta dell'account NON risponde MAI con un guasto del server
+
+NESSUN ramo di questa porta SHALL rispondere con un errore del server. Il modo in
+cui una porta del genere si guasta è sempre lo stesso: qualcuno decide che «il
+servizio non risponde» è un errore NOSTRO, e da lì chi legge va a cercare il
+problema dove non c'è.
+
+I codici SHALL essere: sempre positivo in LETTURA — con lo stato dichiarato,
+compreso «non c'è servizio» — un CONFLITTO quando lo stato non permette
+l'operazione, e un rifiuto di RICHIESTA solo per un corpo malformato.
+
+La lettura NON SHALL chiamare NESSUNO, nemmeno con il servizio configurato.
+
+L'attivazione SHALL agganciare l'account alla persona CHE STA AGENDO. Agganciarlo
+alla riga trovata cercando per INDIRIZZO — mentre lettura e scollegamento parlano
+di chi agisce — è come l'attivazione rispondeva bene e il pannello continuava a
+dire che non c'era nessun account. L'indirizzo di UN'ALTRA riga SHALL essere
+RIFIUTATO, non agganciato lì.
+
+Un servizio irraggiungibile OGGI NON SHALL scollegare chi si è collegato IERI: si
+resta collegati, e il tentativo nuovo LO DICE.
+
+Uno schema più vecchio delle colonne necessarie NON SHALL rompere la porta: SHALL
+rispondere «non collegato».
+
+Le due porte che dichiarano l'identità SHALL parlare della STESSA persona.
+
+#### Scenario: il servizio non risponde
+- **GIVEN** un account collegato e il servizio irraggiungibile
+- **THEN** SHALL restare collegato, e il tentativo SHALL dichiarare il problema
+
+#### Scenario: l'indirizzo di un'altra persona
+- **GIVEN** una verifica su un indirizzo che appartiene a un'altra riga
+- **THEN** SHALL essere rifiutata, senza agganciarsi lì
+

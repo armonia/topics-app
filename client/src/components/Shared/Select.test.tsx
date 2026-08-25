@@ -21,6 +21,7 @@
  * di `Settings/IdentitySection.test.tsx`), quindi il presidio è sui SORGENTI.
  * `Select` usa hook, quindi non lo si può chiamare come funzione pura — il suo
  * comportamento in pagina è coperto dagli E2E.
+  * @covers GESTURE-03
  */
 import { describe, test, expect } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';

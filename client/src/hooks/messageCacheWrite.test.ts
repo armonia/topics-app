@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-10
+ */
 import { describe, expect, test } from 'bun:test';
 import { decideCacheWrite } from './messageCacheWrite';
 

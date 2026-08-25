@@ -253,3 +253,28 @@ sfrattato niente.
 #### Scenario: due indirizzi, uno al proprio tetto
 - **GIVEN** un indirizzo che ha raggiunto il proprio limite
 - **THEN** le richieste dell'altro indirizzo NON SHALL essere toccate
+
+### Requirement: PAIRING-03 — Lo schermo di appaiamento è RAGGIUNGIBILE su uno schermo corto, e dice CHI È
+
+Lo schermo di appaiamento SHALL SCORRERE, e la sua altezza minima SHALL seguire
+l'altezza VIVA della finestra: misurato su uno schermo corto, il contenuto finiva
+oltre il bordo visibile con nessun modo di raggiungerlo.
+
+SHALL centrarsi SOLO quando avanza spazio: una centratura simmetrica taglia anche
+la testata.
+
+SHALL DIRE chi è — l'icona dell'applicazione, la versione e lo stato della chiave
+— perché è la prima schermata che una persona vede e non deve sembrare una pagina
+qualunque.
+
+Il messaggio d'errore NON SHALL essere azzerato a ogni tentativo prima della
+richiesta: produrrebbe un lampeggio a ogni ritentativo. SHALL essere azzerato al
+successo.
+
+#### Scenario: uno schermo corto
+- **GIVEN** una finestra più bassa del contenuto
+- **THEN** il contenuto SHALL essere raggiungibile scorrendo
+
+#### Scenario: un ritentativo
+- **GIVEN** un errore mostrato e un nuovo tentativo
+- **THEN** il messaggio NON SHALL lampeggiare

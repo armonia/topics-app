@@ -4,6 +4,7 @@
  * Vale un test perché è l'ultimo metro fra i sette motivi che il server
  * distingue e la frase che una persona legge — ed è il metro in cui la
  * distinzione si perde senza che niente diventi rosso.
+  * @covers LICENSE-05
  */
 import { describe, expect, it } from 'bun:test';
 import {

@@ -4,6 +4,7 @@
  * the transition INTO review, so re-emitting `task:updated` for an
  * already-in-review task (a new comment, a preview bump) never re-notifies.
  * If this ever fired on every `task:updated` the user would get a banner storm.
+  * @covers KANBAN-50
  */
 import { describe, test, expect } from "bun:test";
 import { emitReviewReadyEdge, pendingQuestion } from "./tasks";

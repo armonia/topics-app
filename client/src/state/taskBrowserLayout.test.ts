@@ -2,6 +2,7 @@
  * Pure reducer tests for the task-scoped browser layout. No I/O — the ui-state
  * persistence + React hook are exercised only in the app. Deterministic group
  * ids are injected via `genId` so split/reconcile output is stable.
+  * @covers LAYOUT-23
  */
 import { describe, test, expect } from 'bun:test';
 import {
