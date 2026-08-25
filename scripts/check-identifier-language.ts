@@ -60,8 +60,10 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
 export const PROJECT_WORDS = new Set([
   // A dictionary hole, not jargon. `/usr/share/dict/words` is a 1934 legacy and
   // does not carry words today's English uses without thinking: `entries`
-  // (Object.entries) is as English as `entry`, which it does carry.
-  "entries",
+  // (Object.entries) is as English as `entry`, which it does carry. Same for
+  // `database`, and `svc` is this repository's own abbreviation for a service
+  // instance - it appears in a dozen test files that predate this gate.
+  "entries", "database", "svc",
 
   // the product and its parts
   "topics", "topic", "openclaw", "armonia", "tauri", "kanban", "pane", "panes",

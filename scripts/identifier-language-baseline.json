@@ -3871,8 +3871,7 @@
     "server/browser-dom-cobrowse.test.ts": [
       "CSP_HTML",
       "CSP_MARKER",
-      "emitted",
-      "svc"
+      "emitted"
     ],
     "server/browser-dom-walker.ts": [
       "buf",
@@ -3894,8 +3893,7 @@
     "server/browser-focused-field.test.ts": [
       "email",
       "otp",
-      "readonly",
-      "svc"
+      "readonly"
     ],
     "server/browser-framing.ts": [
       "FRAMING_TTL_MS",
@@ -3915,9 +3913,6 @@
     "server/browser-login-state.ts": [
       "cookieCount",
       "origUrl"
-    ],
-    "server/browser-native-delegate.integration.test.ts": [
-      "svc"
     ],
     "server/browser-native-delegate.test.ts": [
       "intruso",
@@ -3952,8 +3947,7 @@
       "buf"
     ],
     "server/browser-service-engine.test.ts": [
-      "connectOverCDP",
-      "svc"
+      "connectOverCDP"
     ],
     "server/browser-service.ts": [
       "FOCUSED_FIELD_TIMEOUT_MS",
@@ -3984,8 +3978,7 @@
     ],
     "server/browser-session-handoff.heavy.test.ts": [
       "stato",
-      "suLocalhost",
-      "svc"
+      "suLocalhost"
     ],
     "server/browser-session-handoff.test.ts": [
       "CONDIVISO",
@@ -4017,7 +4010,6 @@
       "nomi",
       "stato",
       "suDisco",
-      "svc",
       "vicino"
     ],
     "server/browser-site-data.test.ts": [
@@ -4134,9 +4126,6 @@
     ],
     "server/db.ts": [
       "REGISTRY_DDL",
-      "closeDatabase",
-      "getDatabase",
-      "initDatabase",
       "normalizzate"
     ],
     "server/db/activity-log.test.ts": [
@@ -5886,7 +5875,6 @@
       "senza",
       "servizio",
       "stato",
-      "svc",
       "testo",
       "vecchio",
       "vero"
@@ -6028,8 +6016,7 @@
       "wipCount"
     ],
     "server/routes/e2e.ts": [
-      "maxSeq",
-      "svc"
+      "maxSeq"
     ],
     "server/routes/edit.ts": [
       "EditDeps",
@@ -6099,8 +6086,7 @@
       "messo",
       "nuovaCoppia",
       "pieno",
-      "servizio",
-      "svc"
+      "servizio"
     ],
     "server/routes/license.ts": [
       "gettone",
@@ -6147,9 +6133,6 @@
       "mia",
       "primo",
       "secondo"
-    ],
-    "server/routes/permission.ts": [
-      "svc"
     ],
     "server/routes/processes.readopt.test.ts": [
       "LSTART",
@@ -6259,8 +6242,7 @@
       "mergiato",
       "riallineato",
       "statoLanding",
-      "statusAlloStop",
-      "svc"
+      "statusAlloStop"
     ],
     "server/routes/tasks.recapture-preview.test.ts": [
       "fakeProc"
@@ -6289,7 +6271,6 @@
       "secondo",
       "sei",
       "senzaSql",
-      "svc",
       "testo",
       "tornata",
       "traccia",
@@ -6322,7 +6303,6 @@
       "prov",
       "spente",
       "stat",
-      "svc",
       "titoloInSottofondo"
     ],
     "server/routes/terminal.ts": [
@@ -6352,7 +6332,6 @@
       "rec",
       "stmt",
       "submittedAt",
-      "taskSvc",
       "txt",
       "viste"
     ],
@@ -6455,8 +6434,7 @@
       "ArchiveTopicDeps"
     ],
     "server/services/board-ask-routing.test.ts": [
-      "COORD",
-      "svc"
+      "COORD"
     ],
     "server/services/board-ask-routing.ts": [
       "AskRoutingDeps",
@@ -6575,8 +6553,7 @@
       "activities",
       "attesa",
       "attesa2",
-      "dopoPrima",
-      "svc"
+      "dopoPrima"
     ],
     "server/services/discord-presence.ts": [
       "DiscordPresenceDeps",
@@ -6597,14 +6574,8 @@
       "costo",
       "nuovi"
     ],
-    "server/services/dispatch-usage.test.ts": [
-      "svc"
-    ],
     "server/services/dispatch-usage.ts": [
       "DispatchUsageDeps"
-    ],
-    "server/services/external-sessions.test.ts": [
-      "svc"
     ],
     "server/services/external-sessions.ts": [
       "ExternalSessionsDeps",
@@ -7076,8 +7047,7 @@
       "DispatcherDeps",
       "deps",
       "nota",
-      "seq",
-      "svc"
+      "seq"
     ],
     "server/services/task-dispatcher-fanout.test.ts": [
       "DispatcherDeps",
@@ -7086,16 +7056,14 @@
       "deps",
       "righe",
       "rotto",
-      "seq",
-      "svc"
+      "seq"
     ],
     "server/services/task-dispatcher-heavy-gate.test.ts": [
       "DispatcherDeps",
       "codaConPesanteInTesta",
       "deps",
       "nota",
-      "seq",
-      "svc"
+      "seq"
     ],
     "server/services/task-dispatcher-interrupted.test.ts": [
       "DispatcherDeps",
@@ -7104,8 +7072,7 @@
       "marcate",
       "righe",
       "seedOrfana",
-      "seq",
-      "svc"
+      "seq"
     ],
     "server/services/task-dispatcher-nudge.test.ts": [
       "DispatcherDeps",
@@ -7113,8 +7080,7 @@
       "deps",
       "processo",
       "riga",
-      "seedOrfana",
-      "svc"
+      "seedOrfana"
     ],
     "server/services/task-dispatcher.test.ts": [
       "ALTRA",
@@ -7156,7 +7122,6 @@
       "seq",
       "slimmed",
       "storico",
-      "svc",
       "testi",
       "testo"
     ],
@@ -7219,7 +7184,6 @@
       "spostato",
       "suAssorbita",
       "suSuperstite",
-      "svc",
       "testi",
       "vicini"
     ],
@@ -7264,13 +7228,9 @@
       "fileDelServizio",
       "fuori"
     ],
-    "server/services/tasks-test-db.ts": [
-      "svc"
-    ],
     "server/services/tasks.archive-restore.test.ts": [
       "altro",
       "nipote",
-      "svc",
       "tornato"
     ],
     "server/services/tasks.comment-slot.test.ts": [
@@ -7294,9 +7254,6 @@
       "altro",
       "senza"
     ],
-    "server/services/tasks.labels.test.ts": [
-      "svc"
-    ],
     "server/services/tasks.landing.test.ts": [
       "accusata",
       "approvata",
@@ -7314,7 +7271,6 @@
       "requeued",
       "riga",
       "riletta",
-      "svc",
       "vivo"
     ],
     "server/services/tasks.orphan-subtask.test.ts": [
@@ -7336,7 +7292,6 @@
       "padreInAttesa",
       "riga",
       "rinviato",
-      "svc",
       "testo",
       "ultimoCommento",
       "uno",
@@ -7360,19 +7315,16 @@
       "primo",
       "scorre",
       "secondo",
-      "svc",
       "tappo",
       "toni"
     ],
     "server/services/tasks.system-delivery.test.ts": [
-      "Database",
       "commenti",
       "evidenza",
       "figlio",
       "notaMuta",
       "parlate",
-      "seedPadreConFiglioFermo",
-      "svc"
+      "seedPadreConFiglioFermo"
     ],
     "server/services/tasks.test.ts": [
       "agente",
@@ -7402,7 +7354,6 @@
       "fermo",
       "grande",
       "grassa",
-      "hexSvc",
       "inLista",
       "inizioSerie",
       "ins",
@@ -7420,7 +7371,6 @@
       "sotto",
       "sottotask",
       "superstite",
-      "svc2",
       "testi",
       "testo",
       "totale",
@@ -7529,8 +7479,7 @@
     "server/services/worktree-gc-review-land.test.ts": [
       "WorktreeGcDeps",
       "absPath",
-      "deps",
-      "svc"
+      "deps"
     ],
     "server/services/worktree-gc-runner.test.ts": [
       "WorktreeGcDeps",
@@ -7542,7 +7491,6 @@
       "giri",
       "legaTask",
       "letture",
-      "svcConCard",
       "toccati"
     ],
     "server/services/worktree-gc-runner.ts": [
@@ -7552,9 +7500,6 @@
       "csid",
       "inVolo",
       "qualcosaVivoDentro"
-    ],
-    "server/services/worktree-gc-stamp-branch.test.ts": [
-      "svc"
     ],
     "server/services/worktree-gc.test.ts": [
       "WorktreeGcDeps",
@@ -10304,7 +10249,6 @@
       "orgDi",
       "quarta",
       "ruolo",
-      "svc",
       "vivi"
     ],
     "tests/integration/licenza-conio.test.ts": [
@@ -10671,8 +10615,7 @@
       "dallaLista",
       "dopo",
       "primo",
-      "secondo",
-      "svc"
+      "secondo"
     ],
     "tests/unit/destinazioni.test.ts": [
       "PKG",

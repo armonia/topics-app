@@ -4,7 +4,7 @@
  * Validates the provider-boundary normalizer that translates raw tool
  * names + args into the typed ToolCallDetail union the renderer
  * branches on. Pure function; trivial to test exhaustively.
- * @covers MONITOR-01, BGSHELL-01, PARITY-01
+ * @covers MONITOR-01, BGSHELL-01, PARITY-01, WEB-01
  */
 
 import { describe, expect, test } from "bun:test";
@@ -50,6 +50,7 @@ describe("deriveToolDetail", () => {
 
   test("read — captures offset/limit when present", () => {
     const d = deriveToolDetail("Read", { file_path: "f.ts", offset: 10, limit: 50 }, "...");
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("read");
     if (d.type === "read") {
       expect(d.offset).toBe(10);
       expect(d.limit).toBe(50);
@@ -109,6 +110,7 @@ describe("deriveToolDetail", () => {
 
   test("glob → type=search with toolName=glob", () => {
     const d = deriveToolDetail("Glob", { pattern: "**/*.ts" });
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("search");
     if (d.type === "search") {
       expect(d.toolName).toBe("glob");
       expect(d.query).toBe("**/*.ts");
@@ -117,6 +119,7 @@ describe("deriveToolDetail", () => {
 
   test("websearch → type=search with toolName=web_search", () => {
     const d = deriveToolDetail("WebSearch", { query: "latest react news" });
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("search");
     if (d.type === "search") {
       expect(d.toolName).toBe("web_search");
       expect(d.query).toBe("latest react news");
@@ -184,6 +187,7 @@ describe("deriveToolDetail", () => {
 
   test("MCP — tool name with multiple __ joins remainder", () => {
     const d = deriveToolDetail("mcp__server__nested__tool", {});
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("mcp");
     if (d.type === "mcp") {
       expect(d.server).toBe("server");
       expect(d.tool).toBe("nested__tool");
@@ -201,17 +205,20 @@ describe("deriveToolDetail", () => {
 
   test("undefined args → safe defaults", () => {
     const d = deriveToolDetail("Bash", undefined);
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("shell");
     if (d.type === "shell") expect(d.command).toBe("");
   });
 
   test("null args → no crash", () => {
     const d = deriveToolDetail("Read", null as any);
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("read");
     if (d.type === "read") expect(d.filePath).toBe("");
   });
 
   test("array args → coerced to empty record", () => {
     // The function should treat non-record args as missing, not crash.
     const d = deriveToolDetail("Read", [1, 2, 3] as any);
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("read");
     if (d.type === "read") expect(d.filePath).toBe("");
   });
 
@@ -223,6 +230,7 @@ describe("deriveToolDetail", () => {
       result: "hi",
       status: "success",
     });
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("shell");
     if (d.type === "shell") {
       expect(d.command).toBe("echo hi");
       expect(d.output).toBe("hi");
@@ -246,6 +254,7 @@ describe("deriveToolDetail", () => {
     }
     // Foreground bash never carries the flag.
     const fg = deriveToolDetail("Bash", { command: "ls" });
+    expect(fg.type, "without this line the assertions below are skipped in silence").toBe("shell");
     if (fg.type === "shell") expect(fg.background).toBeUndefined();
   });
 
@@ -262,6 +271,7 @@ describe("deriveToolDetail", () => {
 
   test("Monitor → command source when no ws", () => {
     const d = deriveToolDetail("Monitor", { description: "tail", command: "tail -f log" });
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("monitor");
     if (d.type === "monitor") {
       expect(d.command).toBe("tail -f log");
       expect(d.wsUrl).toBeUndefined();

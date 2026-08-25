@@ -648,3 +648,56 @@ stessa cosa.
 - **GIVEN** un alias riconosciuto dal server
 - **WHEN** il mirror sul client non lo nomina
 - **THEN** il controllo è rosso
+
+### Requirement: WEB-01 — Le chiamate web hanno una riga leggibile, e le due non si confondono
+
+Claude Code ha due strumenti che escono verso la rete, `WebSearch` e `WebFetch`,
+e in Topics sono la superficie che risponde a «cosa ha guardato fuori». Fino al
+25/08/2026 erano rese e coperte da test, e **nessun requisito le nominava**.
+
+Il sistema DEVE renderle come **due righe diverse**, perché rispondono a due
+domande diverse:
+
+1. `WebSearch` è una **ricerca**: si mostra come una riga di ricerca che dichiara
+   la propria origine (`toolName: 'web_search'`), accanto a `grep` e `glob`, e
+   porta la query. Chi rilegge deve poter distinguere una ricerca sul disco da
+   una ricerca sulla rete: sono la stessa forma di gesto con implicazioni di
+   privacy opposte.
+2. `WebFetch` è un **prelievo**: porta l'URL, la domanda posta alla pagina e ciò
+   che è tornato. L'URL è la parte che chi legge vuole poter aprire.
+
+Un errore di mappatura fra le due NON DEVE poter passare inosservato: le
+asserzioni che le verificano DEVONO fallire quando la traduzione cambia tipo.
+
+> Nota, e non è un dettaglio di stile. Prima del 25/08/2026 il test di
+> `WebSearch` aveva questa forma:
+>
+> ```ts
+> const d = deriveToolDetail("WebSearch", { query: "..." });
+> if (d.type === "search") { expect(d.toolName).toBe("web_search"); }
+> ```
+>
+> Se la mappatura si fosse rotta, `d.type` non sarebbe stato `"search"`, il
+> blocco non sarebbe entrato e **il test sarebbe rimasto verde**. La stessa
+> forma è stata trovata in **nove** test dello stesso file: nove asserzioni che
+> non potevano fallire. Adesso ognuno dichiara il tipo PRIMA di restringerlo, e
+> rompendo la mappatura di `websearch` due test diventano rossi — misurato.
+
+#### Scenario: una ricerca sulla rete si distingue da una sul disco
+
+- **GIVEN** una chiamata `WebSearch`
+- **WHEN** viene tradotta
+- **THEN** è una riga di ricerca che dichiara `web_search` come origine
+- **AND** porta la query
+
+#### Scenario: un prelievo porta l'indirizzo
+
+- **GIVEN** una chiamata `WebFetch` con url, prompt e risultato
+- **WHEN** viene tradotta
+- **THEN** è una riga di prelievo che porta tutti e tre
+
+#### Scenario: una mappatura rotta non passa in silenzio
+
+- **GIVEN** la traduzione di `websearch` viene cambiata perché non corrisponda più
+- **WHEN** la suite gira
+- **THEN** almeno un test diventa rosso
