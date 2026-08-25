@@ -103,3 +103,28 @@ All project-mutating endpoints SHALL emit a typed WebSocket broadcast immediatel
 - **WHEN** the request is processed
 - **THEN** no `project:*` broadcast SHALL be emitted
 - **AND** no row SHALL be persisted
+
+### Requirement: PROJECT-04 — A Shared Project Says So On Its Tab
+
+A project tab SHALL carry the organisation's mark when, and only when, that project is visible to someone other than the person looking at it. The mark SHALL name the organisation it is shared with, SHALL be anchored by a stable `data-testid` rather than a styling class, and SHALL appear and disappear as the sharing changes, without a reload.
+
+The condition is deliberately narrower than `projects.org_id != null`: every project created on an installation is stamped with that installation's own organisation, so the column is set on projects nobody else can see. The mark follows the warning — "other people can read this" — not the column.
+
+#### Scenario: A project shared with an organisation of several people
+- **GIVEN** a project whose `org_id` names a live organisation with more than one live member
+- **AND** the project is not marked `incognito`
+- **WHEN** its tab is rendered
+- **THEN** the tab SHALL show the organisation mark
+- **AND** the mark's tooltip SHALL name the organisation
+
+#### Scenario: An organisation whose only member is me is not "shared"
+- **GIVEN** a project whose `org_id` names an organisation with exactly one live member
+- **WHEN** its tab is rendered
+- **THEN** the tab SHALL show no organisation mark
+- **AND** the same SHALL hold for a project with `org_id` NULL, for a project marked `incognito`, and for an `org_id` the client cannot resolve to a name
+
+#### Scenario: The mark follows the sharing live
+- **GIVEN** a tab showing a shared project
+- **WHEN** the project is marked `incognito` and the server emits `project:updated`
+- **THEN** the mark SHALL disappear without a page reload
+- **AND** clearing `incognito` again SHALL bring it back the same way

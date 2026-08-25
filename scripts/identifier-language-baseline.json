@@ -926,7 +926,6 @@
       "togli"
     ],
     "client/src/components/Settings/OrgProjectsSection.tsx": [
-      "OrgProjectsSection",
       "PROPOSTE",
       "Proposta",
       "nomiProgetti",
@@ -1138,7 +1137,6 @@
     ],
     "client/src/components/Sidebar/IdentityBlock.tsx": [
       "Azione",
-      "ChipOrg",
       "Elenco",
       "Facce",
       "Ferro",
@@ -1617,9 +1615,7 @@
     "client/src/hooks/useIdentityPresence.ts": [
       "FacciaPresenza",
       "INTERVALLO_MS",
-      "MAX_ORG",
       "MembroPresenza",
-      "OrgApi",
       "OrgConPresenza",
       "PresenzaIdentita",
       "RigaPresenza",
@@ -1631,7 +1627,6 @@
       "membri",
       "mioId",
       "ogni",
-      "orgsRaw",
       "primo",
       "vivo"
     ],
@@ -4824,20 +4819,12 @@
     "server/lib/orgs.test.ts": [
       "MIGRAZIONI",
       "RADICE",
-      "creaOrg",
       "metti",
       "mia",
       "proprietario",
       "vecchio"
     ],
     "server/lib/orgs.ts": [
-      "ORG_ROLES",
-      "OrgRole",
-      "canAdministerOrg",
-      "installationOrgId",
-      "isOrgRole",
-      "orgAlive",
-      "orgRole",
       "puntata",
       "ripiego"
     ],
@@ -4915,7 +4902,6 @@
       "proprietaria"
     ],
     "server/lib/principals.ts": [
-      "orgs",
       "riga",
       "soloIlFerro"
     ],
@@ -5806,7 +5792,6 @@
       "RUNTIMES"
     ],
     "server/routes/auth.ts": [
-      "OrgRole",
       "__invecchiaPendingPerTests",
       "__scadenzeArmatePerTests",
       "attuale",
@@ -5826,10 +5811,6 @@
       "nomeDispositivo",
       "nomeSoggetto",
       "nulla",
-      "org",
-      "orgId",
-      "orgViva",
-      "orgs",
       "persone",
       "questoHash",
       "remota",
@@ -6123,8 +6104,6 @@
       "github",
       "inst",
       "mieOrg",
-      "org",
-      "orgs",
       "puo",
       "segnaposto"
     ],
@@ -6193,7 +6172,6 @@
       "destinatari",
       "identita",
       "originale",
-      "seedOrg",
       "visti"
     ],
     "server/routes/reattachMerge.ts": [
@@ -9605,7 +9583,6 @@
       "avviso",
       "copia",
       "inglesi",
-      "org",
       "origine",
       "pannello",
       "parola",
@@ -10127,8 +10104,6 @@
       "nella",
       "nellaRubrica",
       "nuovo",
-      "org",
-      "orgDi",
       "ospite",
       "primi",
       "quando",
@@ -10245,8 +10220,6 @@
       "emittente",
       "gettone",
       "nuovaCoppia",
-      "org",
-      "orgDi",
       "quarta",
       "ruolo",
       "vivi"
@@ -10331,7 +10304,6 @@
       "conta",
       "dopo",
       "esploso",
-      "org",
       "persone",
       "righe",
       "stmt",
@@ -10342,7 +10314,6 @@
       "stmt"
     ],
     "tests/integration/migration-092-project-org-incognito.test.ts": [
-      "seedOrg",
       "stmt"
     ],
     "tests/integration/migration-095-message-author.test.ts": [
@@ -10403,8 +10374,6 @@
       "dbVero",
       "devMircea",
       "finto",
-      "org",
-      "orgId",
       "seq",
       "suo",
       "turno"
@@ -10435,7 +10404,6 @@
       "estraneo",
       "macchina",
       "mircea",
-      "orgId",
       "ospite",
       "rinomina",
       "ripristina",
@@ -10461,8 +10429,6 @@
       "devMircea",
       "elenco",
       "mio",
-      "org",
-      "orgId",
       "segreto",
       "suo",
       "valore",

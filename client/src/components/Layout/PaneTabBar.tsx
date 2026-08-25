@@ -48,6 +48,7 @@ import {
 } from './spaceHelpers';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { browserTabLabel, browserTabSubtitle } from '../../lib/browserTabLabel';
@@ -1408,6 +1409,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     ? (pane.projectPath ?? (dndScope && dndScope !== STANDALONE_SCOPE ? dndScope : undefined))
                     : undefined
                 }
+              />
+            )}
+            {/* Quiet cue, and the only one that is a WARNING: this project is
+                visible to an organisation with other people in it. It sits in
+                the quiet rail rather than next to the favicon because it is not
+                the project's identity — but unlike the three dots it is always
+                DRAWN, never hover-only, because the whole point is to be read
+                BEFORE typing rather than found afterwards. Who decides when it
+                shows — and why `org_id != null` is not the condition — is in
+                `lib/projectSharing.ts`, which also carries the request that
+                asked for it, verbatim. */}
+            {pane.type === 'project' && pane.projectPath && (
+              <SharedOrgBadge
+                path={pane.projectPath}
+                className={onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}
               />
             )}
             {/* Quiet cue: this chat/terminal tab opened a browser. A third,

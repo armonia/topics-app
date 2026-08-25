@@ -65,8 +65,13 @@ export const PROJECT_WORDS = new Set([
   // instance - it appears in a dozen test files that predate this gate.
   "entries", "database", "svc",
 
-  // the product and its parts
+  // the product and its parts. "org" is the schema's own word, not an
+  // abbreviation someone chose in passing: the tables are `orgs` and
+  // `org_members`, the route is `/api/auth/orgs`, and the column every
+  // visibility rule reads is `org_id`. A variable holding one of those rows
+  // cannot be named after anything else without describing a different thing.
   "topics", "topic", "openclaw", "armonia", "tauri", "kanban", "pane", "panes",
+  "org", "orgs",
   "jcode", "unfollow",
   "worktree", "worktrees", "dispatcher", "dispatch", "board", "boards", "drawer",
   // tech and tooling

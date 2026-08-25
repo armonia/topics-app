@@ -38,6 +38,16 @@
  *                              chiuso, come il dispatcher a fine giro — così il
  *                              pannello "Tentativi" e la scelta del vincitore si
  *                              testano senza far girare N agenti veri.
+ *   POST /api/test/orgs/:id/members       puts a SECOND person in an
+ *                              organisation. The public API cannot get there:
+ *                              `POST /api/auth/orgs/:id/members` asks the
+ *                              licence for a seat and `POSTI_GRATUITI` is 1, so
+ *                              on a token-less installation the second member
+ *                              is precisely what the product refuses. But
+ *                              "shared with somebody" is a real state, and
+ *                              without this verb the only testable branch would
+ *                              be the one-person organisation, i.e. the branch
+ *                              where nothing is shared at all.
  *   POST /api/test/background-shell       registra/aggiorna una shell lasciata
  *                              in background, come fa `routes/chat.ts` leggendo
  *                              il risultato di una `Bash`. Senza un agente vero
@@ -176,6 +186,34 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       // `skipped` con il motivo: senza, un test che non vede il parcheggio non
       // sa distinguere «il gate ha fatto il suo lavoro» da «lo sweep e' rotto».
       return json({ ok: true, ...result });
+    }
+
+    // POST /api/test/orgs/:id/members {name} — the second person in the group.
+    //
+    // Writes the SAME two rows the real route would (`people` + `org_members`
+    // with role `member`) and skips the one thing that blocks it here: the seat
+    // count. Not a shortcut around behaviour — it is the licence token a test
+    // server does not have, and minting a signed one just to populate a table
+    // would be a second implementation of the licence inside the suite.
+    {
+      const m = pathname.match(/^\/api\/test\/orgs\/([^/]+)\/members$/);
+      if (m && method === "POST") {
+        const orgId = decodeURIComponent(m[1]!);
+        const body = (await req.json().catch(() => null)) as { name?: string } | null;
+        const nome = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
+        if (!nome) return json({ error: "name required" }, 400);
+        const viva = db.query("SELECT 1 FROM orgs WHERE id = ? AND revoked_at IS NULL").get(orgId);
+        if (!viva) return json({ error: "unknown_org" }, 404);
+        const now = Date.now();
+        const personId = crypto.randomUUID().replace(/-/g, "");
+        db.query(
+          "INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES (?,?,?,'local',1,?)",
+        ).run(personId, nome, now, now);
+        db.query(
+          "INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES (?,?,'member',?,1,?)",
+        ).run(orgId, personId, now, now);
+        return json({ ok: true, personId });
+      }
     }
 
     // POST /api/test/background-shell — muove il registro delle shell come lo
