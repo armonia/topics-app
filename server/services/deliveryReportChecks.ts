@@ -58,9 +58,21 @@ export interface RepoProbe {
   shaExists(sha: string): boolean;
   /** File names under `server/db/migrations`. */
   migrations(): readonly string[];
+  /**
+   * Does any TRACKED file match this citation, by suffix?
+   *
+   * NOT `existsSync(path)`, and the difference is the whole check. Reports cite
+   * files the way people talk about them - `PaneTabBar.tsx`, `routes/tasks.ts`,
+   * `App.tsx` - not by their path from the repository root. Resolving those
+   * literally makes every one of them "missing", and measured on the 29 real
+   * reports in the bench that was 20 distinct false accusations against files
+   * that all exist. A gate that accuses honest work is worse than no gate: it
+   * gets switched off, and then it is not there for the dishonest case either.
+   */
+  fileMatches(citation: string): boolean;
   /** Body of one migration, by file name. */
   readMigration(name: string): string;
-  fileExists(path: string): boolean;
+
   /** The text of one line, 1-based; null when the file or the line is absent. */
   readLine(path: string, line: number): string | null;
   /** `git log --all -S<simbolo>` found at least one commit. */
@@ -104,6 +116,25 @@ export function extractClaims(report: string): Claim[] {
   // "commit <sha>", "sha <sha>", and chains like "60a4f445+cffc7a13".
   for (const m of report.matchAll(/\b(?:commit|sha)s?\s+`?([0-9a-f]{7,40}(?:\s*\+\s*[0-9a-f]{7,40})*)`?/gi)) {
     for (const s of m[1]!.split(/\s*\+\s*/)) push({ kind: "sha", value: s.toLowerCase() });
+  }
+
+  /**
+   * Bare shas, written with no "commit" in front of them.
+   *
+   * People write "il fix di fee32d7e (matchMedia)" and mean a commit. Requiring
+   * the word first is a rule about prose style, not about evidence, and it cost
+   * a real catch: that exact sentence cites a sha that does not resolve, and the
+   * first version of this extractor walked straight past it.
+   *
+   * The shape has to earn it, or this turns into noise: 7-40 hex characters
+   * with AT LEAST ONE DIGIT and at least one letter, so English words made of
+   * a-f (`deface`, `decade`) cannot qualify, and not preceded by `#` or `0x`,
+   * which are a colour and a number.
+   */
+  for (const m of report.matchAll(/(^|[^#\w]|0[^x])\b([0-9a-f]{7,40})\b/gi)) {
+    const v = m[2]!.toLowerCase();
+    if (!/[0-9]/.test(v) || !/[a-f]/.test(v)) continue;
+    push({ kind: "sha", value: v });
   }
 
   // "migration 054", "migration renumbered 054->055" (both numbers are claims).
@@ -171,8 +202,8 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   // 3. Every cited path must exist, and a cited line must carry a named symbol.
   for (const c of claims) {
     if (c.kind !== "file") continue;
-    if (!probe.fileExists(c.path)) {
-      findings.push({ code: "file-missing", detail: `${c.path} non esiste` });
+    if (!probe.fileMatches(c.path)) {
+      findings.push({ code: "file-missing", detail: `nessun file tracciato corrisponde a ${c.path}` });
       continue;
     }
     if (c.line === undefined || symbols.length === 0) continue;

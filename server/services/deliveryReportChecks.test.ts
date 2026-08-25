@@ -1,5 +1,30 @@
 /**
- * The bench is the 14 cards, not an invented example.
+ * The bench is the real reports, not an invented example — and it is smaller
+ * than the audit's headline number, on purpose.
+ *
+ * WHO IS IN IT. Of the 14 cards reopened by the audit, SEVEN have a thread that
+ * claims a delivery: a sha, or a migration number. Those seven are the bench,
+ * and all seven are rejected. The other seven are outside it, and not because
+ * they were absolved:
+ *
+ *   - two are audit cards written during the audit itself, whose comments are
+ *     ANALYSIS, not delivery;
+ *   - one was closed as a duplicate, a human decision on a card whose request
+ *     then fell between two cards - no report was ever made;
+ *   - the rest were closed on an intention (an approved plan, a probe that was
+ *     armed but never read) with nothing citable in the thread.
+ *
+ * That distinction cost a rewrite. A first version widened the bench to any
+ * comment naming a file path, reached 13 cards, and reported "13 of 13
+ * rejected" - which looked stronger and was worth less: two of those were being
+ * rejected for reasons that had nothing to do with them. A bench inflated to
+ * cover the whole headline number is the same error the audit was about.
+ *
+ * WHAT THIS MEANS FOR THE FOUR CHECKS. They catch the cards that LIED about
+ * evidence. They do not catch a card closed on an intention, because there is
+ * nothing there to look up. That half of the signature needs a different
+ * instrument, and pretending otherwise here would be the third form of the
+ * defect: a verification that confirms something it never examined.
  *
  * The card that asked for these checks (`56a631c3`) named its own bar: run the
  * gate on the HISTORICAL delivery reports of the cards that were closed with no
@@ -24,6 +49,11 @@ import { execFileSync } from "node:child_process";
 import { extractClaims, checkReport, type RepoProbe } from "./deliveryReportChecks";
 
 const ROOT = join(import.meta.dir, "..", "..");
+
+/** Every tracked file, once: a citation is resolved by suffix. */
+const tracked: string[] = execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 << 20 })
+  .split("\n")
+  .filter(Boolean);
 
 /**
  * MEMOIZED, and not as a micro-optimisation.
@@ -53,7 +83,10 @@ const realProbe: RepoProbe = {
   }),
   migrations: () => readdirSync(join(ROOT, "server/db/migrations")),
   readMigration: (n) => readFileSync(join(ROOT, "server/db/migrations", n), "utf8"),
-  fileExists: (p) => existsSync(join(ROOT, p)),
+  fileMatches: (cit) => {
+    const c = cit.replace(/^\.?\//, "");
+    return tracked.some((f) => f === c || f.endsWith("/" + c));
+  },
   readLine(p, r) {
     try { return readFileSync(join(ROOT, p), "utf8").split("\n")[r - 1] ?? null; } catch { return null; }
   },
@@ -73,12 +106,19 @@ const BENCH: Fixture = JSON.parse(
 );
 
 describe("il banco: le cards riaperte, sui loro reports veri", () => {
-  test("il banco esiste e non e' vuoto", () => {
+  test("il banco esiste, non e' vuoto, ed e' quello che dice di essere", () => {
     // Without this the whole file is vacuous: an empty fixture makes every
     // loop below pass while checking nothing.
     const cards = Object.keys(BENCH);
-    expect(cards.length).toBeGreaterThanOrEqual(8);
+    expect(cards.length).toBeGreaterThanOrEqual(7);
     expect(Object.values(BENCH).every((c) => c.reports.length > 0)).toBe(true);
+    // And every report must claim a DELIVERY: a sha or a migration number. A
+    // first pass widened the bench to anyone naming a file path, and ANALYSIS
+    // comments - which deliver nothing - fell in: two cards then counted as
+    // "rejected" for a reason that had nothing to do with them.
+    const CLAIM = /\b(?:commit|sha)s?\s+`?[0-9a-f]{7,40}|\bmigrat\w+\b[^.\n]{0,40}?\d{3}/i;
+    const without = Object.entries(BENCH).filter(([, c]) => !c.reports.some((r) => CLAIM.test(r))).map(([k]) => k);
+    expect(without, "queste carte non rivendicano nessuna consegna: non appartengono a questo banco").toEqual([]);
   });
 
   for (const [id, card] of Object.entries(BENCH)) {
@@ -159,7 +199,7 @@ describe("e non boccia il lavoro vero", () => {
 });
 
 describe("cosa il cancello dice di se stesso", () => {
-  test("un report senza NIENTE da verificare non e' un report promosso", () => {
+  test("un report without NIENTE da verificare non e' un report promosso", () => {
     // "Fatto, tutto verde" is the shape that would slip through a gate that // allow-italian: the quoted report text is the data under test
     // only checks what it finds. Silence and success must not look alike.
     const r = checkReport("Fatto. Tutto verde, nessun problema.", realProbe);
@@ -180,6 +220,24 @@ describe("cosa il cancello dice di se stesso", () => {
   test("una catena di sha e' due rivendicazioni, non una stringa", () => {
     const c = extractClaims("VERIFICA INDIPENDENTE OK — commit 60a4f445+cffc7a13, worktree pulito");
     expect(c.filter((x) => x.kind === "sha")).toHaveLength(2);
+  });
+
+  test("uno sha NUDO si riconosce: la gente non scrive sempre «commit» davanti", () => {
+    // "il fix di fee32d7e (matchMedia)" is a delivery claim, and that sha does
+    // not exist. Demanding the word "commit" first is a rule about prose style,
+    // not about evidence, and it cost a real catch.
+    const c = extractClaims("Verificato: il fix di fee32d7e (matchMedia) e' gia' nel worktree.");
+    expect(c).toContainEqual({ kind: "sha", value: "fee32d7e" });
+  });
+
+  test("e non trasforma in sha tutto cio' che sembra esadecimale", () => {
+    // The other side of it: widening the extraction is the fastest way to make
+    // the gate accuse honest work. The shape has to earn it.
+    const shas = (t: string) => extractClaims(t).filter((x) => x.kind === "sha");
+    expect(shas("il colore #deadbe1 del tema"), "un colore non e' un commit").toEqual([]);
+    expect(shas("la parola defaced e decade non sono commit"), "without cifre non e' uno sha").toEqual([]);
+    expect(shas("il numero 12345678 di riferimento"), "without lettere non e' uno sha").toEqual([]);
+    expect(shas("versione 1.2.3 e porta 13334"), "numeri corti non lo sono").toEqual([]);
   });
 
   test("`git` fra apici non e' un simbolo che qualcuno rivendica", () => {

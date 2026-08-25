@@ -684,10 +684,22 @@ decorazione.
 I controlli NON DEVONO esprimersi su completezza, qualità o significato dei test.
 Rispondono a una domanda sola: **l'evidenza che il rapporto cita esiste?**
 
+I controlli catturano le carte che hanno MENTITO sull'evidenza. NON catturano
+una carta chiusa su un'intenzione (un piano approvato, una sonda armata e mai
+letta), perché lì non c'è niente da cercare. Quella metà della firma richiede
+uno strumento diverso, e fingere il contrario qui sarebbe la terza forma del
+difetto: una verifica che conferma ciò che non ha esaminato.
+
 > Nota sul banco: la barra di questo requisito non è un esempio inventato. I
-> rapporti di consegna storici delle carte riaperte sono conservati in
-> `tests/fixtures/rapporti-consegna-riaperte.json`, testualmente come furono
-> scritti, e il controllo deve bocciarli tutti.
+> rapporti storici delle carte riaperte sono conservati in
+> `tests/fixtures/delivery-reports-reopened.json`, testualmente come furono
+> scritti. Delle 14 carte riaperte, **sette** hanno nel thread una
+> rivendicazione di consegna (uno sha, o un numero di migration): quelle sono
+> il banco, e vanno bocciate tutte e sette. Le altre sette ne restano fuori con
+> una ragione dichiarata, non perché assolte. Un primo giro allargava il banco
+> a chiunque nominasse un percorso e arrivava a «13 su 13»: sembrava più forte
+> e valeva meno, perché due di quelle carte venivano bocciate per ragioni che
+> non le riguardavano.
 
 #### Scenario: un commit citato che non esiste viene rilevato
 
@@ -723,3 +735,59 @@ Rispondono a una domanda sola: **l'evidenza che il rapporto cita esiste?**
   simbolo presente nella storia
 - **WHEN** il rapporto viene verificato
 - **THEN** non viene prodotto nessun rilievo
+
+### Requirement: KANBAN-12 — La topbar della board ha UNA linea in meno e UNA porta sola
+
+Tre vincoli sulla barra in cima alla board Kanban. Due sono **rimozioni**, ed è
+per questo che hanno bisogno di un test: una rimozione è la cosa più facile da
+reintrodurre per sbaglio, perché niente, nel codice, dice che era voluta.
+
+1. **Sotto la barra non c'è nessuna linea.** Né sull'elemento della toolbar né
+   sul contenitore che la avvolge: le strisce che compaiono sotto (filtri
+   attivi, banda d'errore) portano già il proprio bordo, e una riga in più qui
+   ne disegnava due attaccate.
+2. **Una sola porta alle impostazioni**, il ⚙ a destra. Il menu ▾ accanto al
+   titolo era un secondo ingresso alle stesse impostazioni, e teneva una copia
+   PROPRIA dello stato dell'auto-dispatch: restava indietro quando l'altro
+   pannello lo cambiava. Due tasti per la stessa domanda, e due risposte
+   diverse. La rimozione è sicura solo perché il pannello del ⚙ contiene già
+   quel blocco (`GlobalCapControl`) su ogni board, anche quella generale.
+3. **I suggerimenti progetto stanno dentro il selettore progetto**, in un
+   componente solo (`ProjectFilterPicker.tsx`), con un fondino dichiarato in
+   **entrambi** i temi e chip di misura uniforme, dichiarata una volta sola.
+
+> Nota su come si verifica: `KanbanBoardPane` non si monta sotto `bun test`
+> (store, layout, API, una dozzina di hook), quindi i vincoli si leggono sulla
+> struttura del sorgente — il metodo di casa, lo stesso di
+> `slashCommandRouting.test.ts` e `kanbanChipMetrics.test.ts`. Il test ignora i
+> commenti: due criteri su tre sono rimozioni, e la nota che RACCONTA una
+> rimozione nomina per forza la cosa rimossa. Un test che vietasse il carattere
+> `▾` nel sorgente grezzo accuserebbe proprio la documentazione che protegge il
+> criterio.
+
+#### Scenario: la barra riguadagna un bordo inferiore
+
+- **GIVEN** l'elemento `board-toolbar`, o il contenitore che lo avvolge
+- **WHEN** vi compare una classe `border-b` (o un bordo scritto a mano)
+- **THEN** il vincolo è violato e il test è rosso
+
+#### Scenario: compare un secondo ingresso alle impostazioni
+
+- **GIVEN** la barra della board
+- **WHEN** più di un elemento cambia lo stato del pannello impostazioni
+- **THEN** il vincolo è violato
+
+> Nota: le chiamate `onClose` non contano — chiudere non è una porta, e ce n'è
+> una per ciascuno dei due pannelli possibili.
+
+#### Scenario: il fondino del selettore esiste in un tema solo
+
+- **GIVEN** la superficie sollevata del `ProjectFilterPicker`
+- **WHEN** è dichiarata solo `bg-white/N` senza la metà `bg-black/N`
+- **THEN** il vincolo è violato: nel tema chiaro sarebbe bianco su bianco
+
+#### Scenario: i chip tornano a misura variabile
+
+- **GIVEN** le larghezze massime dichiarate in `ProjectFilterPicker.tsx`
+- **WHEN** sono zero, oppure sono più di una e diverse fra loro
+- **THEN** il vincolo è violato
