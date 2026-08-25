@@ -69,6 +69,12 @@ const SLASH_COMMANDS = [
   // does nothing is worse than no entry, because it also spends the user's
   // trust in the menu. `slashCommandRouting.test.ts` now makes the class
   // impossible: every entry here must be handled or allowlisted.
+  //
+  // Half of `/pause` does exist, and this is where whoever builds it should
+  // start: `pauseSession` / `resumeSession` are declared on the provider
+  // interface (`server/providers/types.ts:590`) and implemented for openclaw
+  // (`providers/openclaw.ts:189`). Nothing calls either. The capability and
+  // the menu entry were built from opposite ends and never met.
   { cmd: '/resume', label: 'Resume', description: 'Resume agent (@name)', icon: Play },
   { cmd: '/project', label: 'Project', description: 'Create or open a project', icon: FolderOpen },
   { cmd: '/browser', label: 'Browser', description: 'Open browser tab and navigate (e.g. /browser https://example.com)', icon: Globe },
