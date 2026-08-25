@@ -94,10 +94,20 @@ const EVIDENCE = process.env.E2E_EVIDENCE === "1";
 //   slowMo  300 ms davanti a OGNI azione. Non è una prova, è un rallentatore
 //           perché il filmato sia guardabile da un umano.
 //
-// `E2E_NO_VIDEO=1` toglie la clip e tiene il trace. `E2E_NO_SLOWMO=1` toglie la
-// pausa. Servono a rispondere con una misura, invece che a occhio, alla domanda
-// «quanto ci costa l'evidenza e quale pezzo».
-const NO_VIDEO = process.env.E2E_NO_VIDEO === "1";
+// `E2E_VIDEO=1` aggiunge la clip. `E2E_NO_SLOWMO=1` toglie la pausa. Servono a
+// rispondere con una misura, invece che a occhio, alla domanda «quanto ci costa
+// l'evidenza e quale pezzo».
+//
+// IL DEFAULT DELL'EVIDENZA E' IL TRACE, NON IL VIDEO — ed e' il contrario di
+// come stava fino al 25/08/2026, quando `E2E_EVIDENCE=1` accendeva il video e
+// lasciava `trace: "on-first-retry"`, cioe' spento sui test che passano. Il
+// risultato: la living-doc pubblicata mostrava solo filmati, e nessuna delle
+// cose per cui il trace esiste — la lista delle azioni con i tempi, lo
+// screenshot per ogni azione, il DOM ispezionabile, la rete. Un filmato dice
+// «e' successo qualcosa»; il trace dice CHE COSA, e a che minuto.
+//
+// Il video resta a un tasto di distanza per quando serve una clip da guardare.
+const VIDEO = process.env.E2E_VIDEO === "1" && process.env.E2E_NO_VIDEO !== "1";
 
 // SLOWMO NON È PIÙ ACCESO DALL'EVIDENZA: va chiesto, con `E2E_SLOWMO=1`.
 //
@@ -188,9 +198,17 @@ export default defineConfig({
     actionTimeout: 15_000,
 
     baseURL: E2E_BASE,
-    video: EVIDENCE && !NO_VIDEO ? "on" : "retain-on-failure",
+    video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
     screenshot: "only-on-failure",
-    trace: "on-first-retry",
+    // In evidenza il trace si accende SU TUTTI, anche sui verdi: e' quello che
+    // si pubblica. Fuori dall'evidenza resta al primo ritentativo, dove serve a
+    // diagnosticare e non a raccontare.
+    // `sources: false`: il trace NON si porta dietro una copia dei sorgenti del
+    // test. Servono solo alla scheda "Source" del visualizzatore, e chi guarda la
+    // living-doc il repo ce l'ha; la linea del tempo, gli screenshot per azione,
+    // il DOM e la rete restano tutti. Misurato su add-menu.spec.ts (10 test):
+    // 1956 KB -> 1608 KB, cioe' il 18% in meno su tutto quello che si pubblica.
+    trace: EVIDENCE ? { mode: "on", sources: false, screenshots: true, snapshots: true } : "on-first-retry",
     viewport: { width: 1280, height: 800 },
     launchOptions: SLOWMO ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],

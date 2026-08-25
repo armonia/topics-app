@@ -51,8 +51,12 @@ bun run scripts/merge-shard-reports.ts "$OUT_DIR" --out "$MERGED" || {
   exit 1
 }
 
-step "video, per cartella e per requisito"
-bun run scripts/build-uat-index.ts --report "$MERGED" --by-requirement || exit 1
+# La cartella si SVUOTA prima: i collegamenti sono duri e restano, quindi senza questo
+# `publish-uat` continuerebbe a caricare l'evidenza delle corse precedenti per sempre.
+step "evidenza per requisito (e SOLO quella: il resto non e' raggiungibile dalla pagina)"
+find videos -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+bun run scripts/build-uat-index.ts --report "$MERGED" --by-requirement --only-requirements || exit 1
+echo "  videos/: $(find videos -type f \( -name '*.webm' -o -name '*.zip' \) | wc -l | tr -d ' ') file, $(du -sh videos 2>/dev/null | cut -f1)"
 
 step "mappa di copertura (dal cancello che possiede le regole)"
 t=$(date +%s)

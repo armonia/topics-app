@@ -103,7 +103,21 @@ function outcomesFromReport(path: string): Map<string, { title: string; outcome:
   return out;
 }
 
+/**
+ * `--only-requirements`: NON collegare un'evidenza per ogni cartella-artefatto.
+ *
+ * Il perche' e' un numero. La corsa completa del 25/08 ha prodotto 1201 video e
+ * `publish-uat` li ha caricati tutti — 85 MB — ma la living-doc ne puo' aprire solo quelli
+ * legati a un requisito, che erano 121. Millecento file caricati che nessuno puo' raggiungere
+ * non sono prudenza, sono banda e spazio spesi per niente, e rendono ogni pubblicazione lenta
+ * in proporzione a quanto NON si vede.
+ *
+ * Il default resta invariato: `uat.html` in locale vive di quella passata.
+ */
+const ONLY_REQUIREMENTS = process.argv.includes("--only-requirements");
+
 function collect(): Entry[] {
+  if (ONLY_REQUIREMENTS) return [];
   if (!existsSync(ARTIFACTS)) return [];
   const iReport = process.argv.indexOf("--report");
   const report = iReport >= 0 ? process.argv[iReport + 1] : null;
@@ -151,6 +165,16 @@ export function outcomeOf(fromReport: Entry["outcome"] | undefined): Entry["outc
 
 function main(): void {
   const entries = collect();
+  if (ONLY_REQUIREMENTS) {
+    // Nessun indice per-cartella e nessun INDEX.md: qui si collega solo cio' che un
+    // requisito puo' aprire, e quello lo fa `linkByRequirement`.
+    if (!process.argv.includes("--by-requirement")) {
+      console.error("[uat-index] --only-requirements senza --by-requirement non collega niente.");
+      process.exit(1);
+    }
+    linkByRequirement();
+    return;
+  }
   if (entries.length === 0) {
     console.error(
       "[uat-index] nessun video sotto test-results/artifacts/.\n" +
