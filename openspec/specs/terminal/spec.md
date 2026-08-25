@@ -420,6 +420,19 @@ Il motivo SHALL essere leggibile ACCANTO al comando che lo ha prodotto, dove la
 superficie lo permette: un avviso che scorre via non è dove si va a cercare la
 ragione di un gesto che non ha fatto niente.
 
+Il gesto SHALL avere UNA SOLA implementazione, e ogni superficie che lo offre
+SHALL passare da quella. Vale perché è già successo il contrario: la cura era
+andata nel menu contestuale della scheda, mentre lo stesso gesto vive anche
+dentro il pannello — «Ricarica» e «Riprendi» — e tutte e due ingoiavano ancora
+il rifiuto. Chi preme non sa quale delle tre copie ha toccato, quindi curarne
+una lascia il difetto vivo e invisibile: sembra riparato, e per due strade su
+tre non lo è.
+
+#### Scenario: ogni superficie che offre il gesto
+- **GIVEN** il riavvio chiesto da una qualsiasi delle superfici che lo offrono
+- **WHEN** il servizio rifiuta
+- **THEN** il comportamento SHALL essere lo stesso su tutte: velo via subito, motivo leggibile
+
 #### Scenario: il servizio rifiuta il riavvio
 - **GIVEN** una richiesta di riavvio respinta
 - **THEN** il velo SHALL sparire subito, e il motivo SHALL essere leggibile
