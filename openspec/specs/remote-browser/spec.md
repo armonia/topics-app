@@ -1545,3 +1545,42 @@ sito NON SHALL più riconoscere chi era entrato.
 #### Scenario: il giro completo dalla pane
 - **GIVEN** una sessione attiva su un sito
 - **THEN** dal comando nella pane il sito NON SHALL più riconoscerla
+
+### Requirement: BROWSER-CHROME-HYDRATE-01 — «Non lo so ancora» NON è «non è reale»
+
+La barra dell'indirizzo di una pane browser compare quando la si chiede, oppure
+quando non c'è NESSUN posto dove andare. La seconda metà guardava due valori —
+l'indirizzo VIVO del browser e quello che il negozio delle pane già conosce — e
+concludeva «nessuno dei due è reale, quindi mostrala».
+
+Ma il negozio si legge in modo SINCRONO, e prima che l'idratazione dal server
+arrivi non sa niente: risponde «non ho un indirizzo», che è indistinguibile da
+«questa pane è vuota». Sulla pane RIPRISTINATA la barra tornava e restava.
+
+Misurato il 25/08/2026 su una corsa a quattro shard: il campo dell'indirizzo ha
+risolto a UN elemento per TRENTAQUATTRO letture consecutive su trenta secondi di
+scadenza. Non arrivava tardi: non arrivava. Sotto carico l'idratazione atterra
+DOPO il montaggio, e quell'ordine invertito è tutto il difetto — motivo per cui
+il caso era verde da solo e rosso circa una volta su tre in parallelo.
+
+La decisione SHALL essere SOSPESA finché il negozio non ha parlato: la barra NON
+SHALL comparire sulla base di un valore che non è ancora stato chiesto. Una pane
+GENUINAMENTE vuota SHALL continuare ad avere la sua barra — è l'unica via
+d'uscita — perché il segnale di idratazione arriva comunque dentro un avvio, e da
+lì in poi «nessuno dei due è reale» vuol dire quello che dice.
+
+La richiesta esplicita della barra SHALL continuare a mostrarla sempre, che il
+negozio abbia parlato o no.
+
+Il rosso SHALL essere DETERMINISTICO — l'idratazione si RITARDA invece di
+aspettare che il carico lo produca — e il ritardo SHALL essere dimostrato SUL
+PERCORSO CRITICO, contando le richieste intercettate: senza quel conteggio la
+prova sarebbe verde anche su una pagina che l'idratazione non l'ha mai chiesta.
+
+#### Scenario: idratazione in ritardo su una pane ripristinata
+- **GIVEN** il negozio delle pane che risponde dopo il montaggio
+- **THEN** la barra NON SHALL comparire
+
+#### Scenario: una pane genuinamente vuota
+- **GIVEN** il negozio che ha parlato e nessun indirizzo reale
+- **THEN** la barra SHALL comparire

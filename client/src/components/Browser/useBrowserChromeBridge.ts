@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publishBrowserPaneChrome, retireBrowserPaneChrome, type BrowserPaneCommands } from '../../state/browserPaneChrome';
 import { isRealUrl } from '../../state/pane/browserPaneUrl';
+import { hasReceivedServerHydrate } from '../../state/pane/middleware/serverHydrated';
 import type { DeviceMode } from './browserDevTypes';
 
 export interface BrowserChromeBridgeInput {
@@ -156,8 +157,29 @@ export function useBrowserChromeBridge(
    * item (`browser-tab-edit-address`). And a navigation that FAILS lands on
    * `chrome-error:`, which `isRealUrl` rejects, so the bar comes back by
    * itself exactly when it is needed.
+   *
+   * AND THE THIRD STATE: «I DO NOT KNOW YET» IS NOT «IT IS NOT REAL».
+   *
+   * `knownUrl` reads the pane store SYNCHRONOUSLY (`getBrowserPaneUrl`), so
+   * before the server hydration lands that store knows nothing and returns
+   * `undefined` — which `isRealUrl` rejects, exactly like a blank pane. The
+   * guard then answered "neither is real → show the row", and on a restored
+   * pane the row came back and stayed.
+   *
+   * It is not a race that only theory has: measured 2026-08-25 on a four-shard
+   * run, `browser-url-input` resolved to 1 element for 34 consecutive polls
+   * across a 30s timeout — it did not arrive late, it did not arrive. Under
+   * load the hydration lands after the mount, and that inverted order is the
+   * whole defect. Reproduced deterministically by delaying `/api/ui-state`
+   * (`browser-tab-chrome.spec.ts`, "con l'idratazione IN RITARDO").
+   *
+   * So the row waits for the store to speak. A genuinely blank pane still gets
+   * it — the flag flips within a boot, and from then on `!isRealUrl` on both
+   * sides means what it says. What it can no longer do is answer a question the
+   * store has not been asked yet.
    */
-  const showChrome = revealed || (!isRealUrl(url) && !isRealUrl(input.knownUrl));
+  const storeHasSpoken = hasReceivedServerHydrate();
+  const showChrome = revealed || (storeHasSpoken && !isRealUrl(url) && !isRealUrl(input.knownUrl));
 
   const {
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,

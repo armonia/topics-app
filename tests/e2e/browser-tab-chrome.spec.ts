@@ -20,7 +20,7 @@
  *
  * Under `E2E_CLIP=1` the same path also records the delivery clip (helpers/clip).
  *
- * @covers BROWSER-01
+ * @covers BROWSER-01 @covers BROWSER-CHROME-HYDRATE-01
  */
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "http";
@@ -247,5 +247,62 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // On a pane that has just been restored those errors have not happened yet
     // in the live browser, and demanding them here would measure the load
     // instead of the trade this scene proves.
+  });
+
+  /**
+   * LO STESSO PATTO, CON L'IDRATAZIONE IN RITARDO — e questo e' il caso che
+   * cade sul serio.
+   *
+   * Il test qui sopra e' rosso circa una volta su tre sotto quattro shard, e
+   * verde sempre da solo: 34 letture consecutive del locator con l'elemento
+   * ancora li', su 30 secondi. Non arriva tardi, non arriva. Il motivo e'
+   * l'ORDINE: `knownUrl` legge il negozio delle pane in modo SINCRONO
+   * (`getBrowserPaneUrl`), e finche' l'idratazione dal server non e' arrivata
+   * quel negozio non sa niente. `showChrome` chiedeva «nessuna delle due e'
+   * reale?» e su un «non lo so ancora» rispondeva SI'.
+   *
+   * Qui il ritardo si INIETTA invece di aspettare che il carico lo produca:
+   * l'idratazione arriva dopo il montaggio, sempre. Cosi' il difetto ha un
+   * rosso deterministico, e la cura ha un verde che significa qualcosa.
+   *
+   * «Non lo so ancora» non e' «non e' reale»: finche' il negozio non ha
+   * parlato, la barra non e' una risposta.
+   */
+  test("con l'idratazione IN RITARDO la barra non torna: «non lo so ancora» non e' «non e' reale»", async ({ page, request }) => {
+    const origin = site!.origin;
+    await resetPaneStore(request, []);
+    const topic = await createTopic(request, `E2E-TABCHROME-HYDRATE-${Date.now()}`);
+    topicId = topic.id;
+    const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
+
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+    await mountPane(page, topic.id, `${origin}/rapporto`);
+    await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
+
+    // Da qui in poi il negozio delle pane risponde TARDI: e' il ritardo che
+    // sotto quattro shard capita da solo, reso ripetibile.
+    let colpi = 0;
+    await page.route("**/api/ui-state**", async (route) => {
+      colpi++;
+      await new Promise((r) => setTimeout(r, 4_000));
+      await route.continue();
+    });
+
+    await goToApp(page);
+    await mountPane(page, topicId, `${origin}/rapporto`);
+    // Il ritardo deve stare SUL PERCORSO CRITICO, o questo caso e' verde su
+    // niente: senza questa riga la prova successiva passerebbe anche su una
+    // pagina che non ha mai chiesto l'idratazione.
+    expect(colpi, "il ritardo non ha intercettato nessuna richiesta di idratazione").toBeGreaterThan(0);
+    await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
+
+    // La barra NON deve tornare mentre il negozio tace. Il tetto e' sotto il
+    // ritardo iniettato, o si finirebbe per misurare il dopo invece del durante.
+    await expect(
+      page.getByTestId("browser-url-input"),
+      "la barra e' tornata mentre il negozio non aveva ancora parlato",
+    ).toHaveCount(0, { timeout: 3_000 });
   });
 });
