@@ -7,6 +7,8 @@
  * la derivazione sia stabile e uguale da entrambe le parti, che non accetti
  * come valido ciò che non lo è, e che i casi limite cadano dal lato del
  * rifiuto.
+ *
+ * @covers RELAY-E2E-12
  */
 import { describe, expect, it } from "bun:test";
 import {

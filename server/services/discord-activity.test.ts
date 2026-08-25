@@ -6,6 +6,8 @@
  * che tiene dentro, non per ciò che mostra — e il modo in cui questi controlli
  * si rompono è sempre lo stesso, un campo aggiunto per il livello alto che
  * nessuno ha escluso dai livelli bassi.
+ *
+ * @covers DISCORD-01
  */
 
 import { describe, expect, test } from "bun:test";

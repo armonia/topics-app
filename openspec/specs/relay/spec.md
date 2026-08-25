@@ -337,3 +337,77 @@ working, which is the worst way to fail.
 - **GIVEN** the socket that was alive before the disconnection
 - **WHEN** its close is inspected
 - **THEN** the close code SHALL be the one that means the installation is offline
+
+### Requirement: RELAY-E2E-11 — The envelope is sealed, and a tampered one does not open
+
+What crosses the relay SHALL be encrypted end to end, and the relay SHALL be
+able to route it without being able to read it. Only what ROUTING needs — the
+rendezvous name and the reference of the shared thing — SHALL travel in the
+clear, and neither of those SHALL open anything on its own.
+
+The key SHALL live ONLY in the URL fragment. That is the one part of a link a
+browser never sends to a server; a key in the query string or the path is a key
+in somebody's access log.
+
+The nonce SHALL be generated inside the sealing function and SHALL NOT be
+reachable by any caller. Reusing a nonce under this cipher does not weaken it,
+it BREAKS it — it exposes the authentication key. Making it impossible to pass
+is the only version of that rule that holds.
+
+Opening SHALL return the SAME "no" for every failure — wrong key, altered
+ciphertext, altered nonce, malformed envelope, unknown version — and SHALL never
+raise a distinguishable error. Telling the failures apart would build an oracle
+for whoever is trying them.
+
+The plaintext SHALL NOT appear anywhere in the envelope, not even encoded.
+
+#### Scenario: one bit changed
+- **GIVEN** a sealed envelope whose ciphertext or nonce is altered by a single bit
+- **THEN** opening SHALL return nothing
+
+#### Scenario: an unknown version
+- **GIVEN** an envelope carrying a version this code does not know
+- **THEN** opening SHALL return nothing, and SHALL NOT guess a format
+
+#### Scenario: a link with no fragment
+- **GIVEN** a share link stripped of its fragment
+- **THEN** it SHALL be unusable
+
+### Requirement: RELAY-E2E-12 — The rendezvous name is a digest, and it is not the installation's identity
+
+The name a machine is reachable by through the relay SHALL be derived from a
+secret by a one-way digest with a domain-separating prefix, and SHALL be a pure
+function: no registry, no first-come-first-served, no shared state to keep in
+sync between the two sides that compute it.
+
+That name SHALL NOT be the installation's own identifier. They used to be the
+same value, and that meant whoever received a share link could impersonate the
+machine — the far side evicts the previous host when a new claim arrives.
+
+The formula SHALL live where BOTH sides that compute it can import it. Two
+copies of the same derivation are two things that one day produce different
+names.
+
+The secret SHALL be rejected before the digest is computed when it is not a
+string, is shorter than the declared minimum, or is longer than the declared
+maximum — the last one so an oversized input cannot buy work. A malformed name
+SHALL be rejected even when the secret is right.
+
+The secret SHALL travel in a request HEADER and never in a path or a query
+string, which end up in the logs of whoever sits in between.
+
+A constant-time comparison is NOT required and SHALL NOT be implied: the secret
+is never compared, only transformed, and the name is public by construction —
+it is in the links.
+
+#### Scenario: the same secret, both sides
+- **GIVEN** the same secret derived on the machine and on the far side
+- **THEN** the name SHALL be identical, and SHALL match the value fixed by contract
+
+#### Scenario: a secret that is nearly right
+- **GIVEN** a secret that is truncated, or carries an extra space, or differs in case
+- **THEN** it SHALL NOT match
+
+#### Scenario: an enormous secret
+- **GIVEN** a secret longer than the declared maximum
+- **THEN** it SHALL be refused BEFORE any digest is computed

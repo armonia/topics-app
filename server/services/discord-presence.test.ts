@@ -10,6 +10,8 @@
  *
  * They are the four things the daemon this replaced got wrong - the last one
  * cost it a crash-loop with the macOS diagnostic reports full.
+ *
+ * @covers DISCORD-02
  */
 
 import { describe, expect, test } from "bun:test";

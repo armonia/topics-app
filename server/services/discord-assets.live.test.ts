@@ -29,6 +29,8 @@
  * back up - measured, ~70 seconds of a wrong card on the profile of someone who
  * was only running the tests. A test that breaks what it observes runs when you
  * want it to, not by accident: it needs `DISCORD_LIVE_TEST=1`.
+ *
+ * @covers DISCORD-02
  */
 
 import { describe, expect, test } from "bun:test";

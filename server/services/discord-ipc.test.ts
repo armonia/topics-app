@@ -8,6 +8,8 @@
  *   • the TRANSPORT against a fake Discord: a real unix socket in tmpdir that
  *     speaks the real protocol. Not a mock of our own client - a
  *     counterpart, one that can also answer badly.
+ *
+ * @covers DISCORD-03
  */
 
 import { describe, expect, test, afterEach } from "bun:test";

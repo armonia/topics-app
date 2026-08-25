@@ -303,3 +303,60 @@ The system SHALL provide a modal form for creating new agent profiles and editin
 - **WHEN** the profile card renders
 - **THEN** the text "Max tasks: N" appears in the footer area
 
+
+### Requirement: AGENT-04 — «Consenti sempre» scrive una regola, e nessuna regola nega
+
+Il consenso su uno strumento SHALL poter essere ricordato: un canale di permesso
+senza memoria non si può usare, perché la stessa chat chiede tre volte di fila
+per lo stesso strumento e al quarto pannello la persona preme «consenti» senza
+leggere — che è il modo in cui una domanda di sicurezza smette di essere una
+domanda.
+
+Le regole SHALL vivere nel database di Topics e NON in un file di configurazione
+del repository. Una capacità NON SHALL dipendere da in quale cartella è nata la
+chat né da un file che nessuno versiona: lo stesso identico strumento passava
+dentro il repo e moriva muto altrove.
+
+Un pattern SHALL avere due forme sole — il nome esatto, e un prefisso che
+termina con l'asterisco. Un asterisco NUDO, o in mezzo, NON SHALL essere un
+pattern: trasformerebbe una lista di consensi in una modalità «fai pure» scritta
+di traverso, e per quella esiste già un nome scelto in chiaro nel selettore di
+autonomia.
+
+La decisione SHALL avere DUE esiti — concedi, oppure chiedi — e NON SHALL
+esistere un ramo che NEGA da solo. Una regola che nega in silenzio riprodurrebbe
+esattamente il guasto che le regole chiudono: uno strumento che sparisce senza
+che nessuno lo veda. Un no lo dice una persona, e si vede.
+
+Gli strumenti che sono LE MANI DI TOPICS dentro la chat — aprire un pannello,
+aggiornare un task, fare una domanda all'umano — NON SHALL essere mai chiesti.
+Il 07/08/2026 è arrivata una richiesta di permesso proprio sullo strumento che
+serve a FARE una domanda: per mostrare una domanda serviva il permesso di
+mostrare una domanda. Un'applicazione non chiede il permesso di essere sé stessa,
+e cosa quegli strumenti possono fare l'ha già deciso chi ha installato Topics.
+
+Quando l'elenco delle regole non è leggibile — tabella assente, database non
+raggiungibile — il canale SHALL CHIEDERE. Il guasto deve cadere dal lato in cui
+si domanda, mai dal lato in cui si concede.
+
+Scrivere una regola SHALL essere idempotente e NON SHALL spostare la data della
+prima concessione: quando è stato concesso è la cosa che si vuole sapere
+guardando l'elenco.
+
+#### Scenario: un asterisco nudo
+- **GIVEN** un pattern fatto del solo asterisco
+- **THEN** NON SHALL essere accettato come regola, e NON SHALL coprire niente
+
+#### Scenario: la tabella non c'è
+- **GIVEN** un server partito prima della migration che crea le regole
+- **THEN** ogni strumento SHALL essere CHIESTO
+
+#### Scenario: le mani di Topics
+- **GIVEN** uno strumento del ponte di Topics
+- **THEN** SHALL essere concesso senza chiedere, anche senza nessuna regola scritta
+
+#### Scenario: due volte «consenti sempre»
+- **GIVEN** una regola già scritta
+- **WHEN** la si scrive di nuovo
+- **THEN** NON SHALL comparire un duplicato
+- **AND** la data della prima concessione SHALL restare

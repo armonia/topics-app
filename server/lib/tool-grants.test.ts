@@ -1,3 +1,6 @@
+/**
+ * @covers AGENT-04
+ */
 import { describe, expect, it } from "bun:test";
 import { decideGrant, grantMatches, TOPICS_BRIDGE_PREFIX } from "./tool-grants";
 

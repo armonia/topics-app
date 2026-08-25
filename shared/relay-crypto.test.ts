@@ -4,6 +4,8 @@
  * Non si prova che AES funzioni — quello lo fa chi l'ha scritto. Si prova che
  * lo stiamo usando in un modo che regge le due promesse su cui il prodotto si
  * vende: **il relay non legge**, e **una busta manomessa non si apre**.
+ *
+ * @covers RELAY-E2E-11
  */
 import { describe, expect, it } from "bun:test";
 import {
