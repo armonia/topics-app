@@ -75,11 +75,24 @@ else
   step "suite saltata (SKIP_E2E=1): si pubblica il report già su disco"
 fi
 
-step "fusione dei report di shard"
-bun run scripts/merge-shard-reports.ts "$OUT_DIR" --out "$MERGED" || {
-  echo "✗ senza un report fuso la pagina direbbe 'mai eseguito' per metà suite. Fermo qui." >&2
-  exit 1
-}
+# SI RIFONDE SOLO SE LA SUITE HA GIRATO ADESSO.
+#
+# $OUT_DIR non si svuota fra le corse, quindi con SKIP_E2E=1 rifondere significa prendere per
+# buoni i report di QUALUNQUE cosa ci sia rimasta dentro. E' successo: una verifica su 4 file ha
+# lasciato li' i suoi report, la ripubblicazione li ha fusi, e la pagina e' passata da 125
+# requisiti verdi a 3 — senza che niente fallisse. «Pubblica quel che c'e' su disco» vuol dire
+# il report gia' fuso, non i pezzi di una corsa che non era questa.
+if [ "$RAN" = "1" ]; then
+  step "fusione dei report di shard"
+  bun run scripts/merge-shard-reports.ts "$OUT_DIR" --out "$MERGED" || {
+    echo "✗ senza un report fuso la pagina direbbe 'mai eseguito' per metà suite. Fermo qui." >&2
+    exit 1
+  }
+else
+  step "report già fuso (SKIP_E2E=1: NON si rifonde)"
+  [ -f "$MERGED" ] || { echo "✗ manca $MERGED e la suite non ha girato: non c'è niente da pubblicare." >&2; exit 1; }
+  echo "  $MERGED — $(date -r "$MERGED" '+%d %b %H:%M')"
+fi
 
 # Il piano degli shard si bilancia su queste durate. Ri-registrarle dopo OGNI corsa con
 # evidenza e' cio' che tiene gli shard a finire insieme invece di aspettarne uno: i pesi presi
