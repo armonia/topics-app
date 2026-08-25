@@ -7,6 +7,8 @@
  * nasconde meglio: una chiave sbagliata o una busta non scartata non rompono
  * niente, tornano solo lista vuota, cioè il comportamento di PRIMA (push che
  * parte) senza un rosso da nessuna parte.
+ *
+ * @covers MUTE-03
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

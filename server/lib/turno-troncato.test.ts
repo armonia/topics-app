@@ -5,6 +5,8 @@
  * sono la parte che conta — senza di essi, OGNI chat sana si prenderebbe un
  * «turno interrotto» a ogni riavvio, e il cartello smetterebbe di voler dire
  * qualcosa proprio mentre lo si scrive dappertutto.
+ *
+ * @covers INTERRUPT-01
  */
 import { describe, expect, test } from "bun:test";
 import { èTroncato, TURNO_TRONCATO, spiegaTurnoTroncato } from "./turno-troncato";

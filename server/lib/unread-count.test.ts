@@ -5,6 +5,8 @@
  * `createTopicsRouter` e non aveva un solo test: il gate «presente = letto» che
  * il commento del modulo racconta è stato tolto senza che niente lo impedisse
  * di tornare. Questi casi esistono perché torni rosso.
+ *
+ * @covers UNREAD-01
  */
 import { describe, expect, it } from "bun:test";
 import { bumpUnreadCount, type UnreadDeps } from "./unread-count";

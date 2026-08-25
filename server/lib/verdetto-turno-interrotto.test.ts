@@ -5,6 +5,8 @@
  * NORMALE di un turno d'agente che muore — dice cosa sta per fare, chiama un
  * tool, e lì il server si spegne — ed è esattamente quella che lo spazzino
  * lasciava muta, perché guardava `hasProse` e trovava prosa.
+ *
+ * @covers INTERRUPT-02
  */
 import { describe, expect, test } from "bun:test";
 import { verdettoDaApporre } from "./verdetto-turno-interrotto";

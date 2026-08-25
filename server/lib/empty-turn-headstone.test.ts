@@ -5,6 +5,8 @@
  * on screen, exactly as today): it is the false POSITIVE, that is, reusing
  * somebody else's row and erasing their turn. Most cases below are a row that
  * must NOT be touched.
+ *
+ * @covers INTERRUPT-04
  */
 import { describe, it, expect } from "bun:test";
 import { isReusableHeadstone, HEADSTONE_PREFIX, HEADSTONE_WINDOW_MS, type RowToReuse } from "./empty-turn-headstone";

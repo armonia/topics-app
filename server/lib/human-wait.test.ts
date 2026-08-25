@@ -1,3 +1,6 @@
+/**
+ * @covers HOLD-03
+ */
 import { describe, expect, test } from "bun:test";
 import { createHumanWaitLedger } from "./human-wait";
 

@@ -1,3 +1,6 @@
+/**
+ * @covers HOLD-01
+ */
 import { describe, expect, it } from "bun:test";
 import { beginAsk, endAsk } from "./ask-user-bridge";
 import { beginPermission, cancelPermissionsForSession, sessionHasPendingPermission, PERMISSION_TTL_MS } from "./permission-bridge";

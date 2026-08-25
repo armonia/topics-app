@@ -4,6 +4,8 @@
  * Il «sì» è uno. I «no» sono cinque, e sono la ragione per cui questa macchina
  * si può accendere: ogni ripresa sbagliata è un turno vero, a pagamento, e in
  * un ciclo sono tutti.
+ *
+ * @covers RESUME-01, RESUME-03
  */
 import { describe, expect, test } from "bun:test";
 import { chatDaRiprendere, FINESTRA_RIPRESA_MS, type RigaDaValutare } from "./ripresa-boot";

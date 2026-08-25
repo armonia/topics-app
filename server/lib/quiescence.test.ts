@@ -5,6 +5,8 @@
  * la terza sono quelle che prima non esistevano, e sono rosse contro
  * l'implementazione vecchia (`while (busyCount() > 0)`) per costruzione — con
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
+ *
+ * @covers HOLD-05
  */
 import { test, expect, describe } from "bun:test";
 import { describeInFlight, unadoptableStreams, providerSurvivesRestart, quiescenceVerdict } from "./quiescence";

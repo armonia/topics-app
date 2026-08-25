@@ -4,6 +4,8 @@
  * Il caso che conta è il primo — un turno morto per lo spegnimento riprende —
  * ma i quattro «no» pesano di più: una ripresa sbagliata costa un turno vero,
  * a pagamento, e in un ciclo li costa tutti.
+ *
+ * @covers RESUME-01
  */
 import { describe, expect, test } from "bun:test";
 import { meritaRipresaAutomatica, type StatoRipresa } from "./ripresa-automatica";

@@ -11,6 +11,8 @@
  * catena si spezza senza che nessun test se ne accorga: entrambi restano verdi
  * e la chat resta ferma. È esattamente com'è andata il 20/08, e questo file
  * esiste per rendere quella combinazione impossibile.
+ *
+ * @covers RESUME-02
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -146,3 +146,73 @@ phase signal is folded into the badge.
 - **GIVEN** the app is rendered with the badge above in place
 - **WHEN** the page is searched for the retired `ClaudePhaseDot` tooltips ("Awaiting your approval", "Claude is generating…", "Claude is running a tool", "Claude replied — waiting for you", "Approval timed out — still waiting on you", "Session error", "Finished a turn — click to open")
 - **THEN** none of them is present
+
+### Requirement: UNREAD-01 — Un messaggio incrementa SEMPRE, e solo una lettura esplicita azzera
+
+L'arrivo di un messaggio su un topic SHALL incrementare il suo non-letto,
+SEMPRE. Solo una lettura ESPLICITA — quella che il client manda dopo una
+permanenza continua sullo sguardo — SHALL azzerarlo.
+
+NON SHALL esistere un cancello del tipo «se il topic è a fuoco, non contare».
+Quel cancello equivaleva a «presente = letto», senza nessuna nozione di tempo, e
+si rompeva in due modi:
+
+1. un messaggio ad applicazione in secondo piano NON produceva MAI il badge,
+   perché il server considerava ancora a fuoco l'ultima chat vista — non
+   esisteva un annuncio di uscita affidabile e il fuoco veniva ri-annunciato a
+   ogni riconnessione;
+2. la soppressione era GLOBALE: bastava una qualunque connessione — un altro
+   dispositivo, un'altra finestra, un'applicazione web dimenticata — con quel
+   topic a fuoco perché NESSUNO ricevesse il badge.
+
+Da quando la lettura è marcata sulla soglia di permanenza, quel cancello è
+insieme ridondante e dannoso. Vedi [[MUTE-02]] per l'altra metà: l'uscita dal
+fuoco va comunque detta al server.
+
+Messaggi ravvicinati NON SHALL essere collassati: ognuno conta.
+
+L'incremento NON SHALL toccare il non-letto degli ALTRI topic, e NON SHALL
+azzerare l'istante di ultima lettura di una riga che esiste già.
+
+L'annuncio SHALL portare il conteggio NUOVO, non quello precedente
+all'incremento.
+
+Un errore di persistenza del non-letto NON SHALL propagare: il badge è
+accessorio, il messaggio no.
+
+#### Scenario: messaggi a raffica
+- **GIVEN** più messaggi ravvicinati sullo stesso topic
+- **THEN** il conteggio SHALL crescere di uno per ciascuno
+
+#### Scenario: la scrittura del badge fallisce
+- **GIVEN** un errore nel persistere il non-letto
+- **THEN** la consegna del messaggio NON SHALL fallire
+
+### Requirement: MUTE-03 — Il silenzio per progetto si legge dove il client lo scrive già, e ogni forma storta vale «nessuno»
+
+Il silenzio per PROGETTO SHALL essere letto dal server dalla riga di
+impostazioni che il client pubblica già. Non SHALL richiedere una colonna nuova
+né un canale nuovo: il campo non è locale al dispositivo, quindi viaggia con le
+impostazioni e la riga lo contiene — mancava solo qualcuno che lo LEGGESSE.
+
+Il valore è testo libero scritto da un client, quindi SHALL essere validato per
+intero: riga assente, contenuto illeggibile, campo mancante, campo della forma
+sbagliata, elementi che non sono testo, testo vuoto.
+
+**Ogni caso storto SHALL valere LISTA VUOTA**, cioè «nessun progetto
+silenziato». Il verso dell'errore è deliberato: una notifica di troppo si
+ignora, una persa non si recupera.
+
+La lettura NON SHALL pescare da altre chiavi dello stato, e una tabella assente
+SHALL dare lista vuota invece di un'eccezione.
+
+Gli elementi validi di un elenco parzialmente sbagliato SHALL essere TENUTI: si
+scartano i singoli elementi storti, non l'intera preferenza.
+
+#### Scenario: contenuto illeggibile
+- **GIVEN** una riga di impostazioni che non si riesce a interpretare
+- **THEN** SHALL valere nessun progetto silenziato, senza errore
+
+#### Scenario: elenco misto
+- **GIVEN** un elenco con dentro elementi validi e altri no
+- **THEN** SHALL essere tenuto ciò che è valido

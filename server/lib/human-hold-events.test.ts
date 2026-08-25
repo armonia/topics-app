@@ -7,6 +7,8 @@
  * Questi test guardano il PONTE — i due bridge annunciano, e l'annuncio è
  * esattamente uno per sessione, non uno per pannello. Il consumo del chip sta
  * nel dispatcher (`task-dispatcher.test.ts`).
+ *
+ * @covers HOLD-02
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { onHumanHoldChange, resetHumanHoldListeners, type HumanHoldChange } from "./human-hold-events";

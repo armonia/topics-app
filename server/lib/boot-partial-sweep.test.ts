@@ -18,6 +18,8 @@
  *   esistenti senza nessun cambiamento al client:
  *     - banner ambra (turnErrorOf != null)
  *     - bottone "Riprova" (turnIsOnlyError = true, niente tool_calls)
+ *
+ * @covers RESUME-02, RESUME-03
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

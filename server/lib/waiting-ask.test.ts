@@ -1,3 +1,6 @@
+/**
+ * @covers HOLD-04
+ */
 import { describe, expect, test } from "bun:test";
 import { waitingAskStartedAt } from "./waiting-ask";
 

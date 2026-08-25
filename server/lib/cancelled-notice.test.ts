@@ -31,6 +31,8 @@
  *
  * Queste prove coprono 2, 3 e 4 al livello della DECISIONE, più 1 e 2 insieme
  * sul provider vero in `native/abort-cause.test.ts`.
+ *
+ * @covers INTERRUPT-03
  */
 import { test, expect, describe } from "bun:test";
 import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione, CAUSE_NOSTRE } from "./cancelled-notice";
