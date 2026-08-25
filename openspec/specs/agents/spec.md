@@ -11,6 +11,8 @@ Common preconditions shared across scenarios:
 ## Requirements
 ### Requirement: AGENT-01 — Profiles, Sessions & Heartbeats
 
+**Status: NOT BUILT** — The agent roster shipped out on 2026-08-05 together with the panes that showed it (see `tests/unit/ws-outbound-coverage.test.ts`). Nothing in the client lists or edits agent profiles today. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
+
 The system SHALL support viewing agent sessions with status indicators, managing agent profiles via CRUD operations, tracking heartbeat timelines, and filtering the roster by search and status.
 
 #### Scenario: Sessions tab shows Live and History sections
@@ -108,6 +110,8 @@ The system SHALL support viewing agent sessions with status indicators, managing
 
 ### Requirement: AGENT-02 — Assignment, Session History & Status Indicators
 
+**Status: NOT BUILT** — Same removal as AGENT-01. What lives under "agents" now is the sub-agent orchestrator — five routes, covered by `topics-mcp-server.test.ts` — which is a different feature wearing the same word. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
+
 The system SHALL support assigning agents to topics, viewing session transcripts with messages and tool calls, navigating session detail views, and displaying status indicators throughout the agent UI.
 
 #### Scenario: Assign button opens topic input modal
@@ -199,6 +203,8 @@ The system SHALL support assigning agents to topics, viewing session transcripts
 - **AND** completed sessions display a "Completed" badge
 
 ### Requirement: AGENT-03 — Profile Editor
+
+**Status: NOT BUILT** — Same removal as AGENT-01: the agent-profile editor no longer exists. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
 
 The system SHALL provide a modal form for creating new agent profiles and editing existing ones, with fields for name, avatar emoji, role, model preference, max concurrent tasks, and capabilities, including validation that prevents saving without a name.
 

@@ -5,6 +5,8 @@ TBD - created by archiving change complete-spec-coverage. Update Purpose after a
 ## Requirements
 ### Requirement: REMOTE-01 — Tunnel Management
 
+**Status: NOT BUILT** — Already formally withdrawn: `openspec/changes/device-auth/specs/remote-access/spec-removal.md` lists REMOTE-01 under `## REMOVED Requirements` (the tunnel terminated on the machine and forwarded to loopback, which turned the trust boundary inside out). It only still stands here because that change has not been archived. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
+
 The system SHALL provide a remote access panel in the sidebar that displays tunnel status, allows starting and stopping tunnels, shows the public URL with copy and open-in-browser actions, displays the tunnel provider type with color-coded labels, shows expiry information, and auto-refreshes status periodically.
 
 #### Scenario: Panel displays inactive tunnel state

@@ -13,6 +13,7 @@ import { chatApi } from '../../lib/api';
 import { planDecisionFrom } from '../../../../shared/plan-decision';
 import { useSettledMetricClass } from './settledMetrics';
 import { isAwaitingHuman } from '../../../../shared/types';
+import { autoOpenSchedule, bodyIsOpen } from './toolRowDisclosure';
 
 /**
  * Live elapsed readout for a call that hasn't settled — ticks every second
@@ -47,12 +48,6 @@ export function ElapsedTimer({ since, tone, title }: { since: number; tone?: str
   );
 }
 
-/** Running must persist this long before the body auto-opens — instant tools
- *  (a sub-250ms Read) never flash a panel open and closed (CHAT-TOOL-03). */
-const AUTO_OPEN_DELAY_MS = 250;
-/** Once auto-opened, the body stays visible at least this long even if the
- *  tool finishes earlier, so short tools remain readable. */
-const AUTO_OPEN_MIN_DWELL_MS = 1500;
 
 interface Props {
   toolCall: ToolCall;
@@ -165,22 +160,27 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const [autoOpen, setAutoOpen] = useState(false);
   const autoOpenedAtRef = useRef(0);
   useEffect(() => {
-    if (isRunning) {
-      const t = setTimeout(() => {
+    // The rule itself lives in `toolRowDisclosure.ts`, where a test can reach
+    // it; this effect is only the timer that carries it out.
+    const plan = autoOpenSchedule(isRunning, autoOpen, autoOpenedAtRef.current, Date.now());
+    if (!plan) return;
+    const t = setTimeout(() => {
+      if (plan.action === 'open') {
         autoOpenedAtRef.current = Date.now();
         setAutoOpen(true);
-      }, AUTO_OPEN_DELAY_MS);
-      return () => clearTimeout(t);
-    }
-    if (autoOpen) {
-      const residual = Math.max(0, AUTO_OPEN_MIN_DWELL_MS - (Date.now() - autoOpenedAtRef.current));
-      const t = setTimeout(() => setAutoOpen(false), residual);
-      return () => clearTimeout(t);
-    }
+      } else {
+        setAutoOpen(false);
+      }
+    }, plan.delayMs);
+    return () => clearTimeout(t);
   }, [isRunning, autoOpen]);
-  const effectiveOpen = userToggled
-    ? open
-    : (open || detail.type === 'sub_agent' || isHumanTurn || autoOpen);
+  const effectiveOpen = bodyIsOpen({
+    userToggled,
+    open,
+    isSubAgent: detail.type === 'sub_agent',
+    isHumanTurn,
+    autoOpen,
+  });
 
   const onToggle = () => {
     setUserToggled(true);

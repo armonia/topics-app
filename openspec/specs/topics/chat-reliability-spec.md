@@ -52,14 +52,42 @@ The system SHALL send stream errors to the client via SSE before closing the con
 
 ### Requirement: CHAT-REL-03 — Stream inactivity timeout
 
-The system SHALL timeout HTTP streams that receive no data for an extended period.
+The system SHALL detect a stalled stream and SHALL finalize it — but SHALL NOT
+kill a turn whose provider process is still alive.
 
-#### Scenario: Gateway stalls during streaming
-- **GIVEN** a chat message is streaming via HTTP SSE
-- **WHEN** no data is received from the gateway for 60 seconds
-- **THEN** the system sends a timeout error message to the client
-- **AND** aborts the gateway fetch
-- **AND** cleans up the stream and session handler
+> **Rewritten to match what was built, and why.** The original text said a
+> 60-second silence aborts the fetch. The implementation deliberately does not:
+> a healthy turn can be silent for minutes while a tool runs or the CLI
+> auto-compacts, and killing it would lose work the user is waiting for — the
+> terminal `claude` has no wall-clock session kill either. What ships instead is
+> a three-stage watchdog that says "this is slowing down" long before it decides
+> anything is broken, and only finalizes a turn whose process is gone.
+
+#### Scenario: A silent stream is announced before it is judged
+- **GIVEN** a chat message is streaming and no tool call is running
+- **WHEN** no data arrives from the provider for 60 seconds
+- **THEN** the stream is annotated as slow and the client is told
+- **AND** the stream is NOT finalized
+
+#### Scenario: Output resumes during the grace window
+- **GIVEN** a stream that has been annotated as slow
+- **WHEN** any provider event arrives within the following 60 seconds
+- **THEN** the slow annotation is stripped and the stream returns to streaming
+
+#### Scenario: The timer is suspended while a tool runs
+- **GIVEN** at least one tool call is in `running` state
+- **THEN** the soft timer is not armed, so a long tool never trips the watchdog
+
+#### Scenario: Grace expires on a DEAD process
+- **GIVEN** the grace window expires with no further events
+- **WHEN** the provider process is no longer alive
+- **THEN** the stream is finalized as timed out and the session handler cleaned up
+
+#### Scenario: Grace expires on a LIVE process
+- **GIVEN** the grace window expires with no further events
+- **WHEN** the provider process is still alive (auto-compaction, a long tool)
+- **THEN** the grace window is extended instead of finalizing
+- **AND** only the 30-minute hard cap, and only on a dead process, ends the turn
 
 ### Requirement: CHAT-REL-04 — WS handler isolation
 

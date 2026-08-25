@@ -280,6 +280,8 @@ The system SHALL provide a board memory panel that lists stored memory entries w
 
 ### Requirement: KANBAN-04 — Extended Approvals
 
+**Status: NOT BUILT** — The extended approval modal does not exist: no `rubricScores`, `confidenceScore` or `justification` anywhere in the client, and no `/api/approvals` route. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
+
 The system SHALL provide an approval review modal that displays task information, status transition, confidence score as a percentage bar, rubric scores, justification text, an optional reviewer comment field, and Approve/Reject action buttons with metadata.
 
 #### Scenario: Approval modal displays task information

@@ -5,6 +5,8 @@ TBD - created by archiving change complete-spec-coverage. Update Purpose after a
 ## Requirements
 ### Requirement: WEBHOOK-01 — Webhook Management
 
+**Status: NOT BUILT** — The `/api/webhooks` CRUD this describes has no route, no table and no handler. The only webhook in the codebase is the Stripe one in `server/routes/billing.ts`, which is a different thing and is tested. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
+
 The system SHALL provide a webhook management API that supports creating, listing, updating, and deleting webhooks with configurable event subscriptions, HMAC-SHA256 signed test deliveries, retry and timeout settings, and persistent storage in SQLite.
 
 #### Scenario: List all webhooks

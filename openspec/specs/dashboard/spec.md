@@ -166,6 +166,8 @@ The system SHALL display KPI metric cards, interactive time-series charts with r
 
 ### Requirement: DASH-02 — Activity Feed
 
+**Status: NOT BUILT** — No activity feed exists in any form: no `ActivityFeed` or `JournalPanel` in the client, and `server/routes/activity.ts` exposes `GET /api/activity/log` and nothing else. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
+
 The system SHALL display a real-time activity feed powered by SSE with Live and Digest tabs, event filtering by category, text search with debounce, pause/resume controls, virtualized scrolling, and connection status indication.
 
 #### Scenario: Live tab is selected by default on feed open
@@ -249,6 +251,8 @@ The system SHALL display a real-time activity feed powered by SSE with Live and 
 - **AND** clicking again collapses the detail section
 
 ### Requirement: DASH-03 — Journal & Digest
+
+**Status: NOT BUILT** — No `/api/journal`, no `/api/digest`, no journal panel. `server/lib/tab-resolver.test.ts:363` asserts the opposite of this requirement: that `journal` is NOT an emittable pane. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
 
 The system SHALL provide a journal panel with date navigation, a Journal tab showing AI-generated digest summaries, an Events tab listing individual activity entries, and controls for generating new digest entries.
 

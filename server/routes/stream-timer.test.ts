@@ -37,6 +37,8 @@
  *      due difetti erano speculari — watchdog spento dopo l'ultimo risultato di
  *      tool, «sta rallentando» spurio al primo tool del turno.
  *
+ * @covers CHAT-REL-03
+ *
  * The replica below is kept in one-to-one structural correspondence with
  * the route code; if either drifts, this file should fail and the
  * chat.ts code should be re-aligned, NOT the test. (Il codice vero sta in

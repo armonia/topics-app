@@ -73,7 +73,14 @@ const BASELINE = join(ROOT, "openspec", "coverage-baseline.json");
 /** Roots where a test can live. Outside these, a `@covers` is never seen. */
 const TEST_ROOTS = ["tests", "client/src", "server", "shared", "relay", "cli", "scripts"];
 
-type Requisito = { id: string; capability: string; titolo: string; file: string };
+type Requisito = {
+  id: string;
+  capability: string;
+  titolo: string;
+  file: string;
+  /** The spec says out loud that this describes code nobody wrote. */
+  nonCostruito: boolean;
+};
 type FileTest = { path: string; covers: string[]; titoli: { id: string; testo: string }[] };
 
 function cammina(dir: string, out: string[] = []): string[] {
@@ -96,6 +103,29 @@ function cammina(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * A requirement that describes code NOBODY WROTE.
+ *
+ * Eight of them were measured on 2026-08-25 — agent roster, webhook CRUD,
+ * activity feed, journal & digest, extended approvals, the withdrawn tunnel —
+ * and they are a different animal from debt. A requirement with no test is a
+ * test somebody owes. A requirement with no CODE is a document lying to
+ * whoever reads it: the cure is deleting it, not testing it, and counting the
+ * two together turns the gate's headline number into noise ("8 uncovered"
+ * reads as eight holes when there are none).
+ *
+ * So the spec says it about itself, on a line under the heading:
+ *
+ *     **Status: NOT BUILT** — <why, and what would have to happen>
+ *
+ * It sits where the reader is, not in a baseline file they will never open.
+ * And it has teeth in BOTH directions: a marked requirement is excluded from
+ * the uncovered count, but if a test ever claims it, the gate fails and says
+ * the marker is stale. That is the day someone built the thing — the note has
+ * to go, and nobody has to remember to remove it.
+ */
+const MARCATORE_NON_COSTRUITO = /^\s*(?:>\s*)?\*\*Status:\s*NOT BUILT\*\*/m;
+
 /** Declared requirements: `### Requirement: CAP-nn — title`. */
 function leggiRequisiti(): Requisito[] {
   const fuori: Requisito[] = [];
@@ -103,8 +133,19 @@ function leggiRequisiti(): Requisito[] {
     if (!f.endsWith(".md")) continue;
     const capability = f.slice(SPECS.length + 1).split("/")[0]!;
     const testo = readFileSync(f, "utf8");
-    for (const m of testo.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm)) {
-      fuori.push({ id: m[1]!, capability, titolo: (m[2] ?? "").trim(), file: f.slice(ROOT.length) });
+    const teste = [...testo.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm)];
+    for (let i = 0; i < teste.length; i++) {
+      const m = teste[i]!;
+      // The requirement's own body, up to the next `###`. Read only to spot
+      // the NOT BUILT marker described below.
+      const corpo = testo.slice(m.index! + m[0].length, teste[i + 1]?.index ?? testo.length);
+      fuori.push({
+        id: m[1]!,
+        capability,
+        titolo: (m[2] ?? "").trim(),
+        file: f.slice(ROOT.length),
+        nonCostruito: MARCATORE_NON_COSTRUITO.test(corpo),
+      });
     }
   }
   return fuori;
@@ -174,8 +215,12 @@ for (const t of fileTest) for (const c of t.covers) dichiarati.set(c, [...(dichi
 const penzolanti: { id: string; file: string }[] = [];
 for (const t of fileTest) for (const c of t.covers) if (!idRequisito.has(c)) penzolanti.push({ id: c, file: t.path });
 
-// R2 - a requirement nobody claims.
-const scoperti = requisiti.filter((r) => !dichiarati.has(r.id)).map((r) => r.id);
+// R2 - a requirement nobody claims. Requirements the spec itself marks NOT
+// BUILT are not debt: there is nothing to test. They are counted apart.
+const nonCostruiti = requisiti.filter((r) => r.nonCostruito).map((r) => r.id);
+const scoperti = requisiti.filter((r) => !r.nonCostruito && !dichiarati.has(r.id)).map((r) => r.id);
+// R5 - the marker gone stale: it says nobody built it, and a test covers it.
+const marcatoriScaduti = requisiti.filter((r) => r.nonCostruito && dichiarati.has(r.id)).map((r) => r.id);
 
 // R3 - requirement id used as a scenario title without claiming it.
 const ambigui: { id: string; file: string; requisito: string; scenario: string }[] = [];
@@ -192,13 +237,15 @@ const modo = process.argv.includes("--report") ? "report" : process.argv.include
 // -- Snapshot ---------------------------------------------------------------
 const perCapability = new Map<string, { tot: number; coperti: number }>();
 for (const r of requisiti) {
+  if (r.nonCostruito) continue; // niente codice, niente barra da riempire
   const v = perCapability.get(r.capability) ?? { tot: 0, coperti: 0 };
   v.tot++;
   if (dichiarati.has(r.id)) v.coperti++;
   perCapability.set(r.capability, v);
 }
 console.log(`Requisiti: ${requisiti.length} in ${perCapability.size} capability · file di test letti: ${fileTest.length}`);
-console.log(`Dichiarati coperti: ${requisiti.length - scoperti.length}/${requisiti.length}`);
+console.log(`Dichiarati coperti: ${requisiti.length - scoperti.length - nonCostruiti.length}/${requisiti.length - nonCostruiti.length}` +
+  (nonCostruiti.length ? ` (${nonCostruiti.length} requisiti marcati NOT BUILT restano fuori dal conto: non c'e' codice da provare)` : ""));
 console.log("");
 for (const [cap, v] of [...perCapability].sort((a, b) => a[1].coperti / a[1].tot - b[1].coperti / b[1].tot)) {
   const barra = v.coperti === v.tot ? "pieno" : `${v.coperti}/${v.tot}`;
@@ -280,6 +327,13 @@ if (nuoviAmbigui.length) {
     console.log(`  ${" ".repeat(14)} il requisito dice: ${a.requisito}`);
     console.log(`  ${" ".repeat(14)} il test prova:     ${a.scenario}`);
   }
+}
+if (marcatoriScaduti.length) {
+  rosso = true;
+  console.log(`\nR5 — un requisito marcato NOT BUILT ha un test che lo copre (${marcatoriScaduti.length}):`);
+  for (const id of marcatoriScaduti) console.log(`  ${id.padEnd(18)} ${idRequisito.get(id)!.file}`);
+  console.log("  → qualcuno l'ha costruito: togli la riga `**Status: NOT BUILT**` dalla spec.");
+  console.log("  Nessuna linea di partenza qui: un marcatore che sopravvive a cio' che descrive e' sempre un errore.");
 }
 if (risolti.length) {
   rosso = true;
