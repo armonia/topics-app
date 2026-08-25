@@ -1,239 +1,72 @@
 /**
- * board-topbar-legibility.spec.ts — la top bar della kanban si legge da sola.
+ * board-topbar-legibility.spec.ts - the kanban top bar reads on its own.
  *
- * La barra era fatta di NUMERI SENZA FRASE: «Carico critico · max 1» (che cosa
- * devo fare?), «7 worktree» (numero di che cosa?), «3 non su main» all'altro
- * capo della barra rispetto a «Pubblica», che parla della stessa cosa. La
- * spiegazione esisteva, ma stava tutta nei `title`: su un telefono il tooltip
- * non esiste, e col mouse va cercato.
+ * The bar was made of NUMBERS WITHOUT A SENTENCE: "Carico critico - max 1"
+ * (what am I supposed to do?), "7 worktree" (a number of what?), "3 non su main"  allow-italian: the bar's own words
+ * at the opposite end of the bar from "Pubblica", which talks about the same
+ * thing. The explanation existed, but it lived entirely in the `title`s:
+ * on a phone the tooltip does not exist, and with a mouse it has to be hunted.
  *
- * Questa spec misura le quattro proprietà che rendono la barra leggibile —
- * niente tooltip, niente occhio: geometria dal DOM e testo visibile.
+ * This spec measures the four properties that make the bar legible - no
+ * tooltip, no eyeballing: geometry from the DOM and visible text.
  *
- *  - TOPBAR-01/02/03  i progetti diventano CHIP FILTRO nello spazio che avanza,
- *    e quando lo spazio manca tornano nel menu: mai a capo (spingerebbe giù la
- *    board), mai un chip tagliato a metà. Tre larghezze: 1440 · 1000 · 390.
- *  - TOPBAR-04  il chip del carico compare SOLO quando c'è qualcosa da fare
- *    (agent in volo > consigliati) e dice l'azione, non l'aggettivo.
- *  - TOPBAR-05  la consegna è UN controllo solo: «non su main» e «su main, non
- *    pubblicato» sono due sezioni dello stesso pannello (erano due badge
- *    adiacenti, letti come lo stesso allarme scritto due volte), e il click
- *    apre l'ELENCO dei task, non il primo della lista.
- *  - TOPBAR-06  il contatore delle cartelle di lavoro dice di che cosa è, e al
- *    click spiega che cosa sono e come si liberano (il GC sta lì dentro).
- *  - TOPBAR-08  i chip dei filtri progetto portano il conteggio PER STATO, con
- *    gli stessi glifi della riga «Board» in sidebar.
- *  - TOPBAR-09  il pannello impostazioni ha sezioni con un titolo invece di
- *    dieci righe tutte uguali, e la prima dice che quell'interruttore è globale.
- *  - TOPBAR-10  il freno di QUESTA board sta nelle sue impostazioni, non fra
- *    le globali: si misura la POSIZIONE, perche' e' quella a dire di chi e'.
- *  - TOPBAR-11  chi sta per pubblicare legge che la release esce a tutti.
- *  - TOPBAR-12  i chip progetto hanno UNA larghezza e UN rientro: con la
- *    favicon e senza, la fila resta dritta.
- *  - TOPBAR-13  sotto la barra non passa nessun filetto: si guarda la catena
- *    dalla barra alla radice, perche' il bordo poteva stare su un involucro.
- *  - TOPBAR-14  alle impostazioni si entra da un posto solo, e lo stato
- *    dell'auto-dispatch ha una copia sola (il ▾ ne teneva una propria).
- *  - TOPBAR-07  audit di layout (`helpers/ui-audit.js`) alle tre larghezze:
- *    nessun overflow orizzontale, nessuna sovrapposizione, niente fuori
- *    schermo, riga a 40px (il contratto `h-10` della chrome).
+ *  - TOPBAR-01/02/03  the projects become FILTER CHIPS in the space that is
+ *    left over, and when the space runs out they go back into the menu: never
+ *    wrapping (it would push the board down), never a chip cut in half. Three
+ *    widths: 1440 - 1000 - 390.
+ *  - TOPBAR-04  the load chip appears ONLY when there is something to do
+ *    (agents in flight > recommended) and it states the action, not the
+ *    adjective.
+ *  - TOPBAR-05  delivery is ONE control only: "not on main" and "on main, not
+ *    published" are two sections of the same panel (they used to be two
+ *    adjacent badges, read as the same alarm written twice), and the click
+ *    opens the LIST of tasks, not the first one in it.
+ *  - TOPBAR-06  the work-folder counter says what it is a count of, and on
+ *    click explains what they are and how to free them (the GC lives in there).
+ *  - TOPBAR-08  the project filter chips carry the PER-STATUS count, with the
+ *    same glyphs as the "Board" row in the sidebar.
+ *  - TOPBAR-09  the settings panel has sections with a title instead of ten
+ *    identical rows, and the first one says that switch is global.
+ *  - TOPBAR-10  THIS board's brake lives in its own settings, not among the
+ *    global ones: the POSITION is what gets measured, because the position is
+ *    what says whose lever it is.
+ *  - TOPBAR-11  whoever is about to publish reads that the release goes out to
+ *    everyone.
+ *  - TOPBAR-12  the project chips have ONE width and ONE indent: with the
+ *    favicon and without it, the row stays straight.
+ *  - TOPBAR-13  no hairline runs under the bar: the chain from the bar to the
+ *    root is inspected, because the border could have been on a wrapper.
+ *  - TOPBAR-14  settings are entered from one place only, and the auto-dispatch
+ *    state has a single copy (the menu used to keep one of its own).
+ *  - TOPBAR-07  layout audit (`helpers/ui-audit.js`) at the three widths: no
+ *    horizontal overflow, no overlap, nothing offscreen, a 40px row (the
+ *    chrome's `h-10` contract).
  *
- * Le sonde di sistema (capacità di dispatch, worktree, rami) sono STUBBATE via
- * `page.route`: il soggetto qui è la barra, e farle dire il vero vorrebbe dire
- * mettere la macchina sotto carico e creare worktree veri — cioè misurare
- * l'ambiente invece della UI.
- */
-import { test } from "./fixtures/layout.fixture";
-import { projectRow } from "./helpers/project-row";
-import { expect, type Page } from "@playwright/test";
+ * The system probes (dispatch capacity, worktrees, branches) are STUBBED via
+ * `page.route`: the subject here is the bar, and making them tell the truth
+ * would mean putting the machine under load and creating real worktrees - that
+ * is, measuring the environment instead of the UI.
+ */import { test } from "./fixtures/layout.fixture";
+import { expect } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+// The world the bar is measured in — four throwaway projects, the stubbed
+// system probes, and the readers that turn the bar into numbers.
+import {
+  SHOTS, STAMP, ROOT, PROJECTS, dirOf, unlandedTitles,
+  apiCreateTask, stubProbes, openProjectBoard, openGlobalBoard,
+  inlineChips, toolbarGeometry, audit,
+} from "./helpers/board-topbar";
 
 hermetic(test);
 
-const AUDIT_JS = readFileSync(join(__dirname, "helpers", "ui-audit.js"), "utf8");
-const SHOTS = join(process.cwd(), "test-results", "topbar");
-const STAMP = Date.now();
-/** Radice unica, nomi progetto CORTI: il chip mostra il basename, e quattro
- *  `e2e-topbar-alpha-1765…` non entrerebbero in nessuna barra — misurerebbero la
- *  lunghezza del nome di test, non lo spazio della riga. */
-const ROOT = `/tmp/e2e-topbar-${STAMP}`;
-const PROJECTS = ["alfa", "beta", "gamma", "delta"] as const;
-const dirOf = (name: string) => `${ROOT}/${name}`;
-
+/** Created here, torn down here: cleanup state belongs to the spec, not to a
+ *  helper module two specs could quietly corrupt for each other. */
 const topicIds: string[] = [];
 const createdTasks: string[] = [];
-/** I due task chiusi che gli stub faranno risultare «non su main». */
-const unlandedTitles = [`Consegna A ${STAMP}`, `Consegna B ${STAMP}`];
-
-async function apiCreateTask(
-  request: import("@playwright/test").APIRequestContext,
-  projectId: string,
-  text: string,
-  status: string,
-): Promise<void> {
-  // `done` non si crea: il servizio rifiuta un task che nasce già chiuso
-  // (`cannot create a task already done`). Ci si arriva come ci arriva un
-  // umano — creandolo e poi chiudendolo.
-  const nasce = status === "done" ? "backlog" : status;
-  const res = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks`, { data: { text, status: nasce } });
-  expect(res.ok(), `creazione task «${text}»`).toBe(true);
-  const task = (await res.json()) as { id: string };
-  createdTasks.push(`${projectId}:${task.id}`);
-  if (status === "done") {
-    const patch = await request.patch(`${E2E_BASE}/api/boards/${projectId}/tasks/${task.id}`, { data: { status: "done" } });
-    expect(patch.ok(), `chiusura task «${text}»`).toBe(true);
-  }
-}
-
-/**
- * Le sonde di sistema, stubbate.
- *
- * `running` è il termine che il chip del carico usa per decidere se esistere:
- * 4 in volo contro 2 consigliati = uno scarto su cui si può agire, quindi il
- * chip c'è. Il caso opposto (`running` basso) è TOPBAR-04b.
- */
-async function stubProbes(page: Page, opts?: { running?: number }) {
-  const running = opts?.running ?? 4;
-  await page.route((url) => url.pathname === "/api/system/dispatch-capacity", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        recommended: 2, cores: 12, totalMemGB: 32, load1: 15.4, running,
-        oursCores: 6.2, budgetCores: 6,
-        reason: "12 core → base 4, ridotto a 2: gli agent tengono 6.2 core sui 6 di quota",
-      }),
-    }));
-  await page.route((url) => url.pathname === "/api/worktrees", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ worktrees: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }, { id: 6 }, { id: 7 }] }),
-    }));
-  await page.route((url) => url.pathname === "/api/worktrees/branches", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ summary: { total: 5, orphan: 2, onOpenTasks: 3 } }),
-    }));
-  // `landing_state` non ha una porta HTTP che lo scriva (lo timbra l'audit
-  // periodico dopo un land): i due task chiusi si marcano nella RISPOSTA, che è
-  // esattamente l'ingresso da cui la barra li legge.
-  //
-  // Serve ANCHE il commit di consegna: `showsLandingDebt` (shared/board.ts) tace
-  // su un `unlanded` senza fotografia della consegna, perché senza quel commit
-  // non c'è nessuna domanda a cui il verdetto stia rispondendo. Un task chiuso
-  // via API non ce l'ha, quindi il debito va costruito per intero qui.
-  await page.route((url) => /\/api\/(all-boards|boards\/[^/]+)\/tasks$/.test(url.pathname), async (route) => {
-    const res = await route.fetch();
-    const body = (await res.json()) as { tasks?: Array<{ text?: string; status?: string; landingState?: string | null; deliveryCommit?: string | null }> };
-    for (const t of body.tasks ?? []) {
-      if (t.status === "done" && unlandedTitles.includes(t.text ?? "")) {
-        t.landingState = "unlanded";
-        t.deliveryCommit = "0ff1ce5";
-      }
-    }
-    await route.fulfill({ response: res, body: JSON.stringify(body) });
-  });
-}
-
-async function openProjectBoard(page: Page) {
-  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
-  if ((await projectsSection.count()) > 0) {
-    const expanded = await projectsSection.getAttribute("aria-expanded");
-    if (expanded === "false") await projectsSection.click();
-  }
-  const btn = projectRow(page, PROJECTS[0]);
-  await expect(btn).toBeVisible({ timeout: 15000 });
-  await btn.click();
-  await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 15000 });
-
-  const triggers = page.getByTestId("pane-add-menu-trigger");
-  const item = page.getByTestId("pane-add-menu-kanban");
-  const count = await triggers.count();
-  let opened = false;
-  for (let i = count - 1; i >= 0; i--) {
-    const t = triggers.nth(i);
-    if (!(await t.isVisible().catch(() => false))) continue;
-    if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
-    if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) { opened = true; break; }
-    await page.keyboard.press("Escape");
-  }
-  if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
-  await item.click();
-  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
-  // I filtri progetto esistono solo dove c'è più di un progetto da filtrare: la
-  // modalità «Tutti i progetti» della board di progetto (che è anche la barra
-  // più affollata che esista — ha ancora le cartelle di lavoro del progetto).
-  await page.getByRole("button", { name: "Tutti i progetti" }).click();
-  await expect(page.getByTestId("filter-project-chip")).toBeVisible({ timeout: 10000 });
-}
-
-/**
- * La BOARD GENERALE dalla barra standalone.
- *
- * È la superficie in cui la domanda «i progetti entrano nella barra?» ha senso:
- * niente toggle di modalità, niente cartelle di lavoro di UN progetto, e per
- * costruzione più progetti da filtrare. La board DI progetto in modalità «tutti
- * i progetti» porta ~400px di comandi in più, e con quelli lo spazio libero è
- * zero già a 1440 — che è il ripiego, ed è quello che misura TOPBAR-07.
- */
-async function openGlobalBoard(page: Page) {
-  await page.getByTestId("pane-add-menu-trigger").first().click();
-  await page.getByTestId("pane-add-menu-board").click();
-  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId("filter-project-chip")).toBeVisible({ timeout: 10000 });
-}
-
-/** I chip progetto DAVVERO visibili (quelli oltre il taglio sono `invisible`). */
-async function inlineChips(page: Page) {
-  return page.locator('[data-testid^="project-filter-chip-"]:visible').count();
-}
-
-/** La riga della barra: una sola riga, e nessun chip oltre il bordo destro. */
-async function toolbarGeometry(page: Page) {
-  return page.getByTestId("board-toolbar").evaluate((el) => {
-    const strip = el.querySelector('[data-testid="project-filter-strip"]');
-    const stripRight = strip ? strip.getBoundingClientRect().right : 0;
-    const spill = Array.from(el.querySelectorAll('[data-testid^="project-filter-chip-"]'))
-      .filter((c) => getComputedStyle(c).visibility !== "hidden")
-      .map((c) => c.getBoundingClientRect().right - stripRight)
-      .filter((over) => over > 0.5);
-    return {
-      height: Math.round(el.getBoundingClientRect().height),
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-      stripWidth: strip ? Math.round(strip.getBoundingClientRect().width) : -1,
-      chain: (() => {
-        const out: string[] = [];
-        let n: Element | null = strip;
-        while (n && n !== el) {
-          const cs = getComputedStyle(n);
-          out.push(`${n.className.toString().slice(0, 24)} w=${Math.round(n.getBoundingClientRect().width)} flex=${cs.flexGrow}/${cs.flexShrink}/${cs.flexBasis} min=${cs.minWidth}`);
-          n = n.parentElement;
-        }
-        return out;
-      })(),
-      spill,
-    };
-  });
-}
-
-async function audit(page: Page) {
-  await page.addScriptTag({ content: AUDIT_JS });
-  return page.evaluate(() => {
-    const fn = (window as unknown as { __uiAudit: (o: unknown) => string }).__uiAudit;
-    return JSON.parse(fn({ scope: '[data-testid="board-toolbar"]', minTap: 24 })) as {
-      overflowX: { present: boolean; offenders: unknown[] };
-      findings: { overlap: unknown[]; offscreen: unknown[] };
-    };
-  });
-}
 
 test.describe("Top bar della kanban — si legge da sola", () => {
   test.describe.configure({ timeout: 120_000 });
@@ -246,13 +79,13 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       const topic = await createTopic(request, `topbar-${name}-${STAMP}`, { projectPath: dirOf(name) });
       topicIds.push(topic.id);
     }
-    // Un task aperto per progetto (così ogni progetto è filtrabile) + due task
-    // CHIUSI, che gli stub faranno risultare non atterrati su main.
+    // One open task per project (so every project is filterable) + two CLOSED
+    // tasks, which the stubs will make show up as not landed on main.
     for (const name of PROJECTS) {
-      await apiCreateTask(request, boardIdForPath(dirOf(name)), `Lavoro ${name} ${STAMP}`, "todo");
+      createdTasks.push(await apiCreateTask(request, boardIdForPath(dirOf(name)), `Lavoro ${name} ${STAMP}`, "todo"));
     }
     for (const title of unlandedTitles) {
-      await apiCreateTask(request, boardIdForPath(dirOf(PROJECTS[0])), title, "done");
+      createdTasks.push(await apiCreateTask(request, boardIdForPath(dirOf(PROJECTS[0])), title, "done"));
     }
   });
 
@@ -275,24 +108,25 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   test("TOPBAR-01/02/03: i progetti sono filtri quando c'è spazio, e tornano nel menu quando manca", async ({ page }) => {
-    // `running: 1` = nessun chip del carico, cioè la barra nel suo stato
-    // NORMALE. Col chip acceso (246px di frase) più le cartelle di lavoro, a
-    // 1440 la riga è già piena e lo spazio libero è zero: è il ripiego che
-    // funziona, ed è il caso che misura TOPBAR-07 — ma non è la larghezza in
-    // cui si guarda se i progetti sanno diventare filtri.
+    // `running: 1` = no load chip, that is the bar in its NORMAL state. With
+    // the chip lit (246px of sentence) plus the work folders, at 1440 the row
+    // is already full and the free space is zero: that is the fallback
+    // working, and it is the case TOPBAR-07 measures - but it is not the width
+    // at which you look at whether the projects know how to become filters.
     await stubProbes(page, { running: 1 });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     await openGlobalBoard(page);
 
     const conteggi: Record<string, number> = {};
-    // La geometria viaggia nei messaggi: un «0 chip» senza la larghezza dello
-    // spazio libero non dice se è rotto il calcolo o se lo spazio non c'era.
+    // The geometry travels in the messages: a "0 chips" without the width of
+    // the free space does not say whether the calculation is broken or the
+    // space was not there.
     const geometrie: Record<string, unknown> = {};
     for (const [etichetta, width] of [["larga", 1440], ["media", 1000], ["stretta", 390]] as const) {
       await page.setViewportSize({ width, height: 900 });
-      // Il conteggio lo decide un ResizeObserver: si aspetta che si FERMI,
-      // invece di misurare il frame in cui la riga sta ancora ridistribuendosi.
+      // A ResizeObserver decides the count: wait for it to SETTLE, instead of
+      // measuring the frame in which the row is still redistributing itself.
       await expect.poll(async () => {
         const a = await inlineChips(page);
         await page.waitForTimeout(120);
@@ -303,20 +137,21 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       const g = await toolbarGeometry(page);
       geometrie[etichetta] = g;
       expect(g.spill, `${etichetta}: nessun chip deve sporgere dal contenitore (mai tagliato a metà)`).toEqual([]);
-      // 36px, MISURATI: la barra della board è `py-1.5` attorno a controlli
-      // alti 24 (6+24+6), e lo era anche prima di questo giro. Il contratto
-      // `h-10` (40px) è quello della riga di CHROME della finestra, che è
-      // un'altra riga — qui varrebbe 40 solo cambiando l'altezza del header
-      // della board, cioè una modifica che nessuno ha chiesto. Il fatto che
-      // conta è che l'altezza NON cambi e la riga resti una: se questi 36
-      // diventano 72, i chip dei progetti sono andati a capo.
+      // 36px, MEASURED: the board's bar is `py-1.5` around controls 24 high
+      // (6+24+6), and it was that way before this round too. The `h-10` (40px)
+      // contract belongs to the window's CHROME row, which is another row -
+      // here it would be 40 only by changing the height of the board's header,
+      // that is, a change nobody asked for. The fact that counts is that the
+      // height does NOT change and the row stays one: if these 36 turn into 72,
+      // the project chips have wrapped.
       expect(g.height, `${etichetta}: la barra resta UNA riga, alta 36px come prima`).toBe(36);
 
       await page.getByTestId("board-toolbar").screenshot({ path: join(SHOTS, `topbar-${etichetta}.png`) });
     }
 
-    // I numeri viaggiano con l'esito: senza, «larga ≥ media» resterebbe vero
-    // anche con 0 chip dappertutto, cioè un verde che non prova niente.
+    // The numbers travel with the verdict: without them, "wide >= medium"
+    // would stay true even with 0 chips everywhere, that is, a green that
+    // proves nothing.
     test.info().attach("geometria-e-conteggi", {
       contentType: "application/json",
       body: JSON.stringify({ conteggi, geometrie }, null, 2),
@@ -325,7 +160,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     expect(conteggi.media, "restringendo, i chip che non entrano tornano nel menu").toBeLessThan(conteggi.larga!);
     expect(conteggi.stretta, `a 390px la barra è già piena: nessun chip fuori dal menu — ${JSON.stringify(geometrie)}`).toBe(0);
 
-    // …e il menu resta la porta completa: a 390px ci sono TUTTI i progetti.
+    // ...and the menu remains the complete door: at 390px ALL the projects are there.
     await page.getByTestId("filter-project-chip").click();
     for (const name of PROJECTS) {
       await expect(page.getByRole("option", { name: new RegExp(`^${name}`) }), `«${name}» nel menu a 390px`).toBeVisible();
@@ -333,26 +168,26 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   test("TOPBAR-04: il chip del carico dice l'AZIONE, e non c'è quando non c'è niente da fare", async ({ page }) => {
-    await stubProbes(page, { running: 4 }); // 4 in volo, 2 consigliati
+    await stubProbes(page, { running: 4 }); // 4 in flight, 2 recommended
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);
 
     const chip = page.getByTestId("load-advice-chip");
     await expect(chip).toBeVisible({ timeout: 20000 });
-    // Il testo VISIBILE — non il `title` — deve dire cosa conviene fare, e
-    // dirlo in due parole: la barra è una fila di controlli, non un posto dove
-    // si legge una frase. Il resto sta nel popover, qui sotto.
+    // The VISIBLE text - not the `title` - has to say what is worth doing, and
+    // say it in two words: the bar is a row of controls, not a place where a
+    // sentence gets read. The rest lives in the popover, below.
     await expect(chip).toHaveText(/^Fermane 2$/);
     await chip.click();
     await expect(page.getByText("4 agent al lavoro, ne reggo 2")).toBeVisible();
-    // Il popover porta la misura VERA (la CPU della flotta), non il load average.
+    // The popover carries the REAL measure (the fleet's CPU), not the load average.
     await expect(page.getByText(/6\.2 core sui 6 che spettano loro/)).toBeVisible();
     await expect(page.getByText(/consiglio/)).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "popover-carico.png"), clip: { x: 0, y: 0, width: 1440, height: 320 } });
     await page.keyboard.press("Escape");
 
-    // Stesso carico, ma nessuno scarto su cui agire → il chip non esiste.
+    // Same load, but no gap to act on -> the chip does not exist.
     await page.unrouteAll({ behavior: "ignoreErrors" });
     await stubProbes(page, { running: 1 });
     await page.reload();
@@ -367,8 +202,8 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    // UN bottone solo: «N non su main» e «Pubblica M» erano due badge adiacenti
-    // che si leggevano come lo stesso allarme scritto due volte.
+    // ONE button only: "N not on main" and "Publish M" were two adjacent badges
+    // that read as the same alarm written twice.
     const badge = page.getByTestId("delivery-badge");
     await expect(badge).toBeVisible({ timeout: 20000 });
     await expect(badge).toContainText("Consegna");
@@ -378,8 +213,8 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       "in barra non resta un secondo bottone di consegna",
     ).toHaveCount(1);
 
-    // Il click apre l'INSIEME, non il primo task. E i due gradini hanno due
-    // titoli che dicono in che cosa differiscono.
+    // The click opens the WHOLE SET, not the first task. And the two steps have
+    // two titles that say how they differ.
     await badge.click();
     const voci = page.getByTestId("unlanded-item");
     await expect(voci).toHaveCount(2);
@@ -410,64 +245,65 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   test("TOPBAR-08: i filtri progetto dicono quanto lavoro c'è, e le impostazioni hanno sezioni", async ({ page, request }) => {
-    // Il progetto capofila prende un task per stato: senza, «conteggio per
-    // stato» sarebbe provato su un solo numero, cioè non provato.
+    // The lead project gets one task per status: without that, "per-status
+    // count" would be tested on a single number, that is, not tested.
     const alfa = boardIdForPath(dirOf(PROJECTS[0]));
-    await apiCreateTask(request, alfa, `Da guardare ${STAMP}`, "review");
-    await apiCreateTask(request, alfa, `In corso ${STAMP}`, "in_progress");
+    createdTasks.push(await apiCreateTask(request, alfa, `Da guardare ${STAMP}`, "review"));
+    createdTasks.push(await apiCreateTask(request, alfa, `In corso ${STAMP}`, "in_progress"));
 
     await stubProbes(page, { running: 1 });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
-    // La BOARD GENERALE, per la stessa ragione di TOPBAR-01: è la superficie in
-    // cui i chip progetto stanno davvero in barra. Sulla board DI progetto in
-    // modalità «tutti» i ~400px di comandi in più lasciano zero spazio libero, e
-    // i chip restano dietro il menu (che è il ripiego voluto, misurato lì).
+    // The GLOBAL BOARD, for the same reason as TOPBAR-01: it is the surface on
+    // which the project chips really sit in the bar. On the PROJECT board in
+    // "all" mode the ~400px of extra controls leave zero free space, and the
+    // chips stay behind the menu (which is the intended fallback, measured there).
     await openGlobalBoard(page);
 
-    // 1. Il conteggio è SUL chip, non solo dentro il menu: il nome da solo non
-    //    dice se quel progetto stia aspettando qualcuno.
+    // 1. The count is ON the chip, not only inside the menu: the name alone
+    //    does not say whether that project is waiting for somebody.
     const chipAlfa = page.getByTestId(`project-filter-chip-${alfa}`);
     await expect(chipAlfa).toBeVisible({ timeout: 15000 });
     const conteggi = chipAlfa.getByTestId("project-task-counts");
     await expect(conteggi).toBeVisible();
-    // review 1 · in corso 1 · in coda 1 (il «todo» seminato nel beforeAll).
+    // review 1 - in progress 1 - queued 1 (the "todo" seeded in the beforeAll).
     await expect(conteggi).toHaveText("111");
-    // I due chiusi non sono fra gli aperti, ma il dettaglio c'è nel tooltip.
-    // NON un `title` nativo: quello lo disegna il sistema operativo, arriva
-    // dopo oltre un secondo e sta su una riga sola. Ora è un componente, e il
-    // test lo apre davvero col mouse invece di leggere un attributo.
+    // The two closed ones are not among the open ones, but the detail is in the
+    // tooltip. NOT a native `title`: that one is drawn by the operating system,
+    // arrives after more than a second and sits on a single line. Now it is a
+    // component, and the test really opens it with the mouse instead of reading
+    // an attribute.
     await expect(chipAlfa).not.toHaveAttribute("title", /./);
     await chipAlfa.hover();
     const tip = page.getByTestId("app-tooltip");
     await expect(tip).toBeVisible({ timeout: 3000 });
     await expect(tip).toContainText("Review: 1");
     await expect(tip).toContainText("Done: 2");
-    // La LOCATION del progetto: è ciò che distingue due progetti con lo stesso
-    // nome, e nel tooltip vecchio non c'era proprio. I progetti di test stanno
-    // in /tmp, quindi qui `homeTilde` non accorcia niente e il path esce intero:
-    // va bene, l'asserzione è che il percorso CI SIA.
+    // The project's LOCATION: it is what tells apart two projects with the same
+    // name, and in the old tooltip it was simply absent. The test projects live
+    // in /tmp, so here `homeTilde` shortens nothing and the path comes out
+    // whole: that is fine, the assertion is that the path IS THERE.
     await expect(tip).toContainText(dirOf(PROJECTS[0]));
-    // Sta dentro la finestra: un tooltip mezzo fuori schermo non si legge.
+    // It stays inside the window: a tooltip half offscreen cannot be read.
     const box = await tip.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(1440);
-    // E se ne va da solo quando il mouse esce: un tooltip appiccicato copre
-    // la board.
+    // And it goes away on its own when the mouse leaves: a tooltip that sticks
+    // covers the board.
     await page.mouse.move(720, 700);
     await expect(tip).toBeHidden({ timeout: 3000 });
 
-    // 2. Lo stesso conteggio, con la stessa forma, dentro il menu «Progetto».
+    // 2. The same count, in the same shape, inside the "Project" menu.
     await page.getByTestId("filter-project-chip").click();
     await expect(page.getByTestId("project-task-counts").first()).toBeVisible();
     await page.keyboard.press("Escape");
 
     await page.screenshot({ path: join(SHOTS, "chip-conteggi.png"), clip: { x: 0, y: 0, width: 1440, height: 200 } });
 
-    // 3. E il controllo di consegna: due gradini, un pannello. Anche di qui —
-    //    la board generale li vede tutti insieme, che è il caso in cui i due
-    //    numeri separati si somigliavano di più.
+    // 3. And the delivery control: two steps, one panel. From here too - the
+    //    global board sees them all together, which is the case in which the
+    //    two separate numbers looked most alike.
     await page.getByTestId("delivery-badge").click();
     await expect(page.getByTestId("unlanded-item").first()).toBeVisible();
     await expect(page.getByText(/non ancora pubblicato/i)).toBeVisible();
@@ -475,22 +311,24 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   /**
-   * TOPBAR-12: la fila dei chip progetto e' UNA fila.
+   * TOPBAR-12: the row of project chips is ONE row.
    *
-   * Era due di tutto. Il chip che apre il menu era tagliato a `11rem` e i
-   * suggerimenti accanto a `13rem`: lo STESSO nome, sulla stessa riga, troncato
-   * in due punti diversi. E la scatola dell'icona: un progetto con la favicon su
-   * disco ne prendeva 12px, uno senza un puntino da 6, quindi i nomi dietro
-   * partivano da due rientri diversi. Nessuno dei due chip e' sbagliato da solo:
-   * si nota il risultato, cioe' una fila storta.
+   * It used to be two of everything. The chip that opens the menu was cut at
+   * `11rem` and the suggestions next to it at `13rem`: the SAME name, on the
+   * same row, truncated at two different points. And the icon box: a project
+   * with the favicon on disk took 12px of it, one without it a 6px dot, so the
+   * names behind them started from two different indents. Neither of the two
+   * chips is wrong on its own: what gets noticed is the result, that is, a
+   * crooked row.
    *
-   * Qui si misura sul DOM, con un progetto CHE HA l'icona e uno che non ce
-   * l'ha: e' quella la coppia che sfasava la fila, e senza entrambi il caso non
-   * si presenta.
+   * Here it is measured on the DOM, with a project THAT HAS the icon and one
+   * that does not: that is the pair that threw the row out of line, and without
+   * both of them the case does not come up.
    */
   test("TOPBAR-12: i chip progetto hanno una sola larghezza e un solo rientro", async ({ page }) => {
-    // L'icona a UN progetto solo. Il ripiego (nessuna icona) resta sugli altri
-    // tre: e' il confronto fra i due rami che il difetto rendeva visibile.
+    // The icon on ONE project only. The fallback (no icon) stays on the other
+    // three: it is the comparison between the two branches that made the defect
+    // visible.
     writeFileSync(`${dirOf(PROJECTS[0])}/favicon.svg`,
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#4f46e5"/></svg>');
 
@@ -502,9 +340,9 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     const primo = page.getByTestId(`project-filter-chip-${boardIdForPath(dirOf(PROJECTS[0]))}`);
     await expect(primo).toBeVisible({ timeout: 15000 });
 
-    // Il RIENTRO del nome: dove comincia il testo dentro il chip, misurato dal
-    // bordo del chip. E' la distanza che cambiava fra un progetto con icona e
-    // uno senza, ed e' cio' che si legge come «fila storta».
+    // The name's INDENT: where the text starts inside the chip, measured from
+    // the chip's edge. It is the distance that changed between a project with
+    // an icon and one without, and it is what reads as a "crooked row".
     const rientri = await page.evaluate(() => {
       const out: Array<{ id: string; rientro: number; larghezzaMax: string }> = [];
       for (const el of Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="project-filter-chip-"]'))) {
@@ -521,11 +359,11 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     });
 
     expect(rientri.length, "servono almeno due chip progetto in barra").toBeGreaterThan(1);
-    // UN SOLO RIENTRO, icona o no.
+    // ONE INDENT ONLY, icon or no icon.
     const soli = [...new Set(rientri.map((r) => r.rientro))];
     expect(soli, `rientri diversi: ${JSON.stringify(rientri)}`).toHaveLength(1);
-    // E UNA SOLA LARGHEZZA MASSIMA, anche col chip che apre il menu, che e'
-    // l'altra meta' della coppia che divergeva (11rem contro 13rem).
+    // And ONE MAXIMUM WIDTH ONLY, including the chip that opens the menu, which
+    // is the other half of the pair that diverged (11rem against 13rem).
     const apre = await page.getByTestId("filter-project-chip").evaluate((el) => getComputedStyle(el).maxWidth);
     const larghezze = [...new Set([...rientri.map((r) => r.larghezzaMax), apre])];
     expect(larghezze, `larghezze massime diverse: ${larghezze.join(" vs ")}`).toHaveLength(1);
@@ -539,9 +377,9 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    // Sezioni con un titolo, non dieci righe di seguito. La prima dice che
-    // l'interruttore lì sotto è GLOBALE: in cima a una lista piatta si leggeva
-    // come un'impostazione di questa board, che è l'opposto di ciò che fa.
+    // Sections with a title, not ten rows in a row. The first one says the
+    // switch below it is GLOBAL: at the top of a flat list it read as a setting
+    // of this board, which is the opposite of what it does.
     await page.getByTitle("Impostazioni auto-dispatch").click();
     const pannello = page.getByTestId("board-settings-panel");
     await expect(pannello).toBeVisible();
@@ -552,23 +390,23 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   test("TOPBAR-11: chi sta per pubblicare legge che la release esce a tutti", async ({ page }) => {
-    // Su questo repo main e' spedito: il push fa scattare la CI e, se e' verde,
-    // gli installer arrivano all'auto-updater di chiunque abbia Topics aperta.
-    // Il pannello elencava i commit e offriva «Pubblica» senza dirlo: chi
-    // premeva decideva una pubblicazione che nessuna schermata nominava.
+    // On this repo main is shipped: the push fires the CI and, if it is green,
+    // the installers reach the auto-updater of anyone who has Topics open. The
+    // panel listed the commits and offered "Publish" without saying so: whoever
+    // pressed it was deciding a publication no screen ever named.
     await stubProbes(page);
     await page.setViewportSize({ width: 1440, height: 900 });
 
-    // Il gradino «da pubblicare» legge questa rotta: senza un progetto avanti
-    // la riga non deve comparire, quindi per vederla serve dichiararne uno.
+    // The "to publish" step reads this route: with no project ahead the row
+    // must not appear, so seeing it requires declaring one.
     //
-    // E la rotta si arma PRIMA della navigazione. Stava dopo `openProjectBoard`,
-    // cioe' dopo che la board aveva gia' fatto la sua prima chiamata: quella
-    // partiva NUDA, tornava «nessun progetto avanti», e la riga non nasceva.
-    // Il test passava solo quando un giro di polling successivo ricadeva dentro
-    // lo stub — cioe' per fortuna. Il rosso che ne usciva («publish-consequence
-    // non trovato») accusava la riga, che non aveva nessuna colpa: nessuno le
-    // aveva mai dato i dati per esistere.
+    // And the route is armed BEFORE the navigation. It used to sit after
+    // `openProjectBoard`, that is, after the board had already made its first
+    // call: that one went out BARE, came back "no project ahead", and the row
+    // was never born. The test passed only when a later polling round happened
+    // to fall inside the stub - that is, by luck. The red that came out of it
+    // ("publish-consequence not found") accused the row, which was not at fault
+    // at all: nobody had ever given it the data it needed to exist.
     await page.route((url) => url.pathname.endsWith("/all-boards/publish-status"), (route) =>
       route.fulfill({
         status: 200,
@@ -587,21 +425,22 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.getByTestId("delivery-badge").click();
     const riga = page.getByTestId("publish-consequence");
     await expect(riga).toBeVisible();
-    // Nomina CHI la riceve: «pubblica il ramo» sarebbe vero e inutile.
+    // It names WHO receives it: "publishes the branch" would be true and useless.
     await expect(riga).toContainText(/tutti/i);
 
-    // E sta SOPRA il bottone: una conseguenza scritta sotto il gesto si legge
-    // dopo averlo fatto.
+    // And it sits ABOVE the button: a consequence written below the gesture
+    // gets read after the gesture has been made.
     //
-    // Le due misure stanno dentro un `toPass`, e il `!` è sparito. Il pannello
-    // di consegna si ridisegna quando arriva la risposta di
-    // `publish-status` — che qui è STUBBATA con una `route` registrata dopo il
-    // caricamento della board, quindi il primo giro può essere già partito e la
-    // riga compare, sparisce e ricompare. In quella finestra `boundingBox()`
-    // torna `null`, e `(...)!.y` non falliva su un'asserzione: esplodeva con
-    // «Cannot read properties of null (reading 'y')», cioè un TypeError che non
-    // nomina né la riga né il bottone. Misurare una geometria è lecito solo a
-    // layout fermo: qui la si riprende finché entrambi i rettangoli esistono.
+    // The two measurements live inside a `toPass`, and the `!` is gone. The
+    // delivery panel redraws when the `publish-status` response arrives - which
+    // here is STUBBED with a `route` registered after the board has loaded, so
+    // the first round may already be under way and the row appears, disappears
+    // and reappears. In that window `boundingBox()` returns `null`, and
+    // `(...)!.y` did not fail on an assertion: it blew up with "Cannot read
+    // properties of null (reading 'y')", that is, a TypeError that names
+    // neither the row nor the button. Measuring a geometry is only legitimate
+    // once the layout has settled: here it is retaken until both rectangles
+    // exist.
     const bottonePubblica = page.getByRole("button", { name: "Pubblica" }).first();
     await expect(async () => {
       const [boxRiga, boxBottone] = await Promise.all([
@@ -613,16 +452,17 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       expect(boxRiga!.y, "la conseguenza sta sopra il bottone").toBeLessThan(boxBottone!.y);
     }).toPass({ timeout: 10000 });
 
-    // E deve essere LEGGIBILE: un avviso ambra su fondo chiaro e' esattamente
-    // il posto dove il contrasto se ne va, e un avviso che non si legge non e'
-    // un avviso. Misurato contro il colore davvero dipinto dietro (un antenato
-    // con sfondo cambia il risultato), non contro quello del foglio di stile.
+    // And it has to be LEGIBLE: an amber notice on a light background is
+    // exactly the place where contrast goes away, and a notice that cannot be
+    // read is not a notice. Measured against the colour actually painted behind
+    // it (an ancestor with a background changes the result), not against the
+    // one in the stylesheet.
     const contrasto = await riga.evaluate((el) => {
-      // I colori dell'app sono in oklch: una regex sui numeri li legge come se
-      // fossero rgb e restituisce un contrasto inventato (la prima stesura di
-      // questo caso diceva 11.7 su un ambra chiaro dipinto su bianco, e
-      // passava). L'unico modo onesto e' farli dipingere al browser e rileggere
-      // i pixel: spazio colore, alpha e composizione li fa chi li disegna.
+      // The app's colours are in oklch: a regex over the numbers reads them as
+      // if they were rgb and returns an invented contrast (the first draft of
+      // this case said 11.7 on a light amber painted on white, and passed). The
+      // only honest way is to have the browser paint them and read the pixels
+      // back: colour space, alpha and compositing are done by whoever draws them.
       const dipingi = (colore: string, sotto?: string) => {
         const c = document.createElement("canvas"); c.width = c.height = 1;
         const g = c.getContext("2d")!;
@@ -634,8 +474,8 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       const canale = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
       const lum = (p: number[]) =>
         0.2126 * canale(p[0] / 255) + 0.7152 * canale(p[1] / 255) + 0.0722 * canale(p[2] / 255);
-      // Lo sfondo e' quello davvero dipinto dietro: un antenato con background
-      // cambia il risultato, quindi si risale finche' non se ne trova uno opaco.
+      // The background is the one actually painted behind: an ancestor with a
+      // background changes the result, so we walk up until an opaque one is found.
       let sfondo = "rgb(255,255,255)";
       for (let n: Element | null = el; n; n = n.parentElement) {
         const c = getComputedStyle(n).backgroundColor;
@@ -652,11 +492,11 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   test("TOPBAR-10: il freno di QUESTA board sta nelle sue impostazioni, non fra le globali", async ({ page }) => {
-    // Il pannello ha due leve che si somigliano e non sono la stessa cosa:
-    // l'auto-dispatch GLOBALE (vale per tutte) e la pausa di questa board. Se
-    // finissero nella stessa sezione, la seconda si leggerebbe come un doppione
-    // della prima — che e' il difetto che questo pannello evita di proposito
-    // tenendo la sezione «Vale per tutte le board» separata dal resto.
+    // The panel has two levers that look alike and are not the same thing: the
+    // GLOBAL auto-dispatch (it applies to all of them) and this board's pause.
+    // If they ended up in the same section, the second would read as a
+    // duplicate of the first - which is the defect this panel deliberately
+    // avoids by keeping the "applies to all boards" section separate from the rest.
     await stubProbes(page, { running: 1 });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
@@ -668,11 +508,12 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     const pausa = page.getByTestId("board-dispatch-paused");
     await expect(pausa).toBeVisible();
 
-    // Nasce NON in pausa: nessuna board si mette in pausa da sola.
+    // It is born NOT paused: no board pauses itself.
     await expect(pausa).not.toBeChecked();
 
-    // E sta sotto «Come lavora l'agente», non sotto le globali: si misura la
-    // POSIZIONE, perche' e' la posizione a dire di chi e' la leva.
+    // And it sits under "how the agent works", not under the global ones: the
+    // POSITION is what gets measured, because the position is what says whose
+    // lever it is.
     const globali = pannello.getByText("Vale per tutte le board", { exact: true });
     const agente = pannello.getByText("Come lavora l'agente", { exact: true });
     const yGlobali = (await globali.boundingBox())!.y;
@@ -697,16 +538,16 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       expect(a.overflowX.present, `${etichetta}: overflow orizzontale del documento — ${JSON.stringify(a.overflowX.offenders)}`).toBe(false);
       expect(a.findings.overlap, `${etichetta}: controlli sovrapposti`).toEqual([]);
       expect(a.findings.offscreen, `${etichetta}: controlli fuori dal bordo sinistro`).toEqual([]);
-      // Bersagli: il minimo WCAG 2.2 AA è 24×24, ed è anche il massimo che una
-      // riga di chrome di 36px possa dare senza rompere l'altezza della riga (i
-      // 44px della HIG Apple non ci stanno per costruzione — vedi la nota in
-      // testa al file). I controlli NUOVI di questo giro devono starci dentro;
-      // il resto della barra è com'era.
+      // Targets: the WCAG 2.2 AA minimum is 24x24, and it is also the maximum a
+      // 36px chrome row can give without breaking the row's height (the 44px of
+      // Apple's HIG do not fit by construction - see the note at the top of the
+      // file). The NEW controls of this round have to fit inside it; the rest of
+      // the bar is as it was.
       //
-      // Misurati per TESTID e non dal risultato dell'audit: `ui-audit.js`
-      // identifica gli elementi per tag+classe (`button.flex.items-center`), e
-      // un filtro per testid su quelle stringhe non matcherebbe MAI — sarebbe
-      // un'asserzione che non può fallire.
+      // Measured by TESTID and not from the audit's result: `ui-audit.js`
+      // identifies elements by tag+class (`button.flex.items-center`), and a
+      // testid filter over those strings would NEVER match - it would be an
+      // assertion that cannot fail.
       const piccoli = await page.evaluate(() => {
         const sel = '[data-testid="load-advice-chip"],[data-testid="delivery-badge"],[data-testid="worktree-count-badge"],[data-testid^="project-filter-chip-"]';
         return Array.from(document.querySelectorAll(sel))
@@ -719,19 +560,19 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   /**
-   * TOPBAR-13: sotto la barra non passa nessun filetto.
+   * TOPBAR-13: no hairline runs under the bar.
    *
-   * La riga c'era, e disegnava un confine che si vedeva gia' da solo: sotto la
-   * barra comincia la board, che ha un fondo diverso e le colonne. Le strisce
-   * che compaiono in mezzo (errore, avviso di drop, archivio, impostazioni)
-   * portano il proprio bordo quando servono, quindi il filetto fisso era in
-   * piu' esattamente quando non serviva a niente.
+   * The line was there, and it drew a boundary that was already visible on its
+   * own: below the bar the board begins, which has a different background and
+   * the columns. The strips that appear in between (error, drop notice,
+   * archive, settings) carry their own border when they are needed, so the
+   * fixed hairline was redundant exactly when it served no purpose.
    *
-   * Oggi la regola vive in un COMMENTO sopra il nodo in `KanbanBoardPane.tsx`, e
-   * un commento non ferma niente: chi aggiunge un `border-b` all'involucro non
-   * lo legge. Qui la regola diventa una misura, e si guarda la CATENA dalla
-   * barra alla radice della board — il filetto poteva stare su uno qualunque
-   * degli involucri, non solo sulla barra.
+   * Today the rule lives in a COMMENT above the node in `KanbanBoardPane.tsx`,
+   * and a comment stops nothing: whoever adds a `border-b` to the wrapper does
+   * not read it. Here the rule becomes a measurement, and the CHAIN from the
+   * bar to the board's root is inspected - the hairline could have been on any
+   * one of the wrappers, not only on the bar.
    */
   test("TOPBAR-13: sotto la barra non c'e' nessun filetto", async ({ page }) => {
     await stubProbes(page, { running: 1 });
@@ -739,7 +580,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    /** I bordi bassi di tutta la catena barra → radice, letti dal computed style. */
+    /** The bottom borders of the whole bar -> root chain, read from the computed style. */
     const bordiBassi = () =>
       page.evaluate(() => {
         const barra = document.querySelector('[data-testid="board-toolbar"]');
@@ -762,14 +603,14 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       });
 
     /**
-     * Visibile = ha spessore, ha uno stile, e non e' trasparente.
+     * Visible = it has a width, it has a style, and it is not transparent.
      *
-     * La trasparenza si legge SOLO da `rgba(...)` con alfa zero. La prima
-     * versione cercava una virgola-zero in fondo alla stringa, e quel filtro
-     * scartava anche `rgb(255, 0, 0)`: il rosso puro finisce per «, 0)» perche'
-     * il suo canale BLU e' zero. Se n'e' accorta la meta' non vacua qui sotto,
-     * che ha messo un filetto rosso e non l'ha piu' ritrovato — cioe' il
-     * setaccio era cieco proprio nel verso in cui doveva mordere.
+     * Transparency is read ONLY from `rgba(...)` with a zero alpha. The first
+     * version looked for a comma-zero at the end of the string, and that filter
+     * threw away `rgb(255, 0, 0)` too: pure red ends in ", 0)" because its BLUE
+     * channel is zero. The non-vacuous half below caught it, by putting in a red
+     * hairline and never finding it again - that is, the sieve was blind in
+     * exactly the direction in which it was supposed to bite.
      */
     const trasparente = (colore: string) =>
       colore === "transparent" || /^rgba\([^)]*,\s*0(\.0+)?\s*\)$/.test(colore);
@@ -783,9 +624,10 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       `un filetto sotto la barra: ${JSON.stringify(visibili(catena!))}`,
     ).toEqual([]);
 
-    // IL SETACCIO MORDE. Senza questa seconda meta', un errore nel giro dei nodi
-    // (selettore sbagliato, catena che non risale) darebbe lista vuota e verde
-    // per il motivo sbagliato: un filetto messo a mano deve farsi trovare.
+    // THE SIEVE BITES. Without this second half, a mistake in the walk over the
+    // nodes (wrong selector, a chain that does not climb) would give an empty
+    // list and a green for the wrong reason: a hairline put in by hand has to be
+    // found.
     await page.evaluate(() => {
       const barra = document.querySelector('[data-testid="board-toolbar"]') as HTMLElement;
       barra.style.borderBottom = "1px solid rgb(255, 0, 0)";
@@ -795,19 +637,18 @@ test.describe("Top bar della kanban — si legge da sola", () => {
   });
 
   /**
-   * TOPBAR-14: una porta sola alle impostazioni.
+   * TOPBAR-14: one single door to the settings.
    *
-   * Ce n'erano due, a mezzo centimetro l'una dall'altra: il ⚙ in coda alla
-   * barra e un menu ▾ accanto al titolo della board. Non erano due strade per
-   * la stessa stanza — il ▾ teneva una COPIA PROPRIA dello stato
-   * dell'auto-dispatch, quindi le due porte potevano dire cose diverse sullo
-   * stesso interruttore, e quale delle due avesse ragione dipendeva da quale
-   * era stata aperta per ultima.
+   * There were two of them, half a centimetre apart: the gear at the end of the
+   * bar and a caret menu next to the board's title. They were not two roads to
+   * the same room - the caret kept a COPY OF ITS OWN of the auto-dispatch
+   * state, so the two doors could say different things about the same switch,
+   * and which of the two was right depended on which had been opened last.
    *
-   * L'oracolo e' quindi doppio, e la seconda meta' e' quella che conta: non
-   * basta che i BOTTONI siano uno, deve essere una sola anche la COPIA dello
-   * stato. Con il pannello chiuso, nella board non si vede nessun controllo
-   * dell'auto-dispatch; aperto, se ne vede esattamente uno.
+   * The oracle is therefore double, and the second half is the one that counts:
+   * it is not enough for the BUTTONS to be one, the COPY of the state has to be
+   * one too. With the panel closed, no auto-dispatch control is visible in the
+   * board; with it open, exactly one is.
    */
   test("TOPBAR-14: alle impostazioni si entra da un posto solo, e lo stato ha una copia sola", async ({ page }) => {
     await stubProbes(page, { running: 1 });
@@ -820,22 +661,22 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     const statoDispatch = board.getByTestId("global-cap-control");
     const pannello = page.getByTestId("board-settings-panel");
 
-    // UNA porta, non due.
+    // ONE door, not two.
     await expect(porta, "le porte alle impostazioni non sono una").toHaveCount(1);
 
-    // A pannello chiuso lo stato dell'auto-dispatch non si vede da nessuna
-    // parte: era proprio la copia del ▾ a renderlo visibile in barra.
+    // With the panel closed the auto-dispatch state is nowhere to be seen: it
+    // was precisely the caret's copy that made it visible in the bar.
     await expect(pannello).toHaveCount(0);
     await expect(statoDispatch, "lo stato dell'auto-dispatch e' fuori dal pannello").toHaveCount(0);
 
-    // Aperta la porta: il pannello c'e', e la copia dello stato e' UNA.
+    // Once the door is opened: the panel is there, and the copy of the state is ONE.
     await porta.click();
     await expect(pannello).toBeVisible();
     await expect(statoDispatch, "due copie dello stato dell'auto-dispatch").toHaveCount(1);
 
-    // IL SETACCIO MORDE: `statoDispatch` sa riconoscere il controllo quando c'e'
-    // davvero — il conteggio a zero di sopra e' un'assenza misurata, non un
-    // selettore che non trova mai niente.
+    // THE SIEVE BITES: `statoDispatch` can recognise the control when it really
+    // is there - the zero count above is a measured absence, not a selector that
+    // never finds anything.
     await expect(statoDispatch).toBeVisible();
 
     await page.screenshot({ path: join(SHOTS, "porta-unica.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });

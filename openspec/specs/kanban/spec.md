@@ -348,6 +348,273 @@ The system SHALL provide an approval review modal that displays task information
 - **THEN** the text "Requested by [name]" is displayed with the creation timestamp
 - **AND** if an expiration date exists it is shown as "Expires [date]"
 
+### Requirement: KANBAN-05 — Gate di consegna umano (Review → Done)
+
+> Promoted verbatim from `openspec/changes/kanban-agent-authoring/`, which was never archived. It ships: `review_needs_summary` (409) is in `server/routes/tasks.ts:65`, `reviewed_by` is written on approval, and `tests/e2e/board.spec.ts` BOARD-05 covers the gate.
+> The text is kept in the original Italian on purpose: promoting it is a move,
+> not a rewrite, and a translation would be a second chance to drift from what
+> the tests actually pin.
+
+Un agente SHALL NOT poter portare un task a `done`. Il completamento da parte di un agente
+SHALL spostare il task in `review` e registrare un'approvazione pendente. La transizione
+`review → done` SHALL essere consentita solo a un attore umano. Un rifiuto SHALL riportare
+il task a `in_progress` e registrare un commento.
+
+Una consegna SHALL NOT essere muta: un agente non può portare un task in `review` se il
+thread non contiene almeno un suo commento (autore ≠ `user`/`system`) — la card in review
+mostra sempre l'ultima parola dell'agent (KANBAN-04) e senza commenti l'umano deciderebbe
+alla cieca. Il rifiuto (`review_needs_summary`, 409) SHALL istruire l'agent a postare una
+sintesi di 1-2 frasi e riprovare. Unica eccezione al gate `done`: gli **step propri**
+(KANBAN-08), che l'agent chiude direttamente.
+
+#### Scenario: la consegna muta è rifiutata
+- **GIVEN** un task lavorato da un agent senza alcun suo commento nel thread
+- **WHEN** l'agent chiama `update_task(status='review')`
+- **THEN** l'operazione è rifiutata (`review_needs_summary`) con istruzioni per la sintesi
+- **AND** dopo `comment_task(<sintesi>)` la stessa transizione riesce
+
+#### Scenario: l'agente consegna in Review, non in Done
+- **GIVEN** un task `in_progress` lavorato da un agente
+- **WHEN** l'agente chiama `update_task` con `status = done`
+- **THEN** l'operazione è rifiutata
+- **AND** l'agente può invece portarlo a `review`, creando un'approvazione pendente
+
+#### Scenario: solo l'umano chiude
+- **GIVEN** un task in `review` con approvazione pendente
+- **WHEN** l'umano approva dalla approval modal
+- **THEN** il task passa a `done` con `reviewed_by` valorizzato
+- **AND** lo stesso passaggio richiesto da un agente resta rifiutato
+
+#### Scenario: reject rimanda in lavorazione
+- **GIVEN** un task in `review`
+- **WHEN** l'umano rifiuta con un commento
+- **THEN** il task torna in `in_progress` e il commento è visibile nel thread
+
+### Requirement: KANBAN-06 — Feed globale multiprogetto via MCP
+
+> Promoted verbatim from `openspec/changes/kanban-agent-authoring/`. It ships: `scope: 'project' | 'all'` is an argument of the MCP `list_tasks` tool (`server/mcp/topics-mcp-server.ts:261`), covered by BOARD-07 and BOARD-19.
+> The text is kept in the original Italian on purpose: promoting it is a move,
+> not a rewrite, and a translation would be a second chance to drift from what
+> the tests actually pin.
+
+`list_tasks` SHALL accettare `scope: project | all`. Con `scope = all` il sistema SHALL
+restituire un feed piatto dei task di tutti i progetti, ciascuno etichettato con il proprio
+progetto, paginato a cursore. `scope = project` (default) SHALL limitare al progetto della
+sessione.
+
+#### Scenario: scope all attraversa i progetti
+- **GIVEN** task in due progetti diversi
+- **WHEN** l'agente chiama `list_tasks` con `scope = all`
+- **THEN** riceve task di entrambi i progetti, ognuno con l'etichetta del progetto
+
+#### Scenario: scope project è il default
+- **GIVEN** una sessione legata al progetto P
+- **WHEN** l'agente chiama `list_tasks` senza `scope`
+- **THEN** riceve solo i task di P
+
+### Requirement: KANBAN-07 — Auto-dispatch reattivo (opt-in)
+
+> Promoted verbatim from `openspec/changes/kanban-agent-authoring/`. It ships: the global switch lives on the reserved `project_id='*'` row behind `/api/all-boards/settings` (`server/routes/tasks.ts:1985`), covered by BOARD-06 and BOARD-08.
+> The text is kept in the original Italian on purpose: promoting it is a move,
+> not a rewrite, and a translation would be a second chance to drift from what
+> the tests actually pin.
+
+L'interruttore di avvio (`auto_dispatch`) SHALL essere **globale** — un solo switch per
+tutte le board (riga riservata `board_settings.project_id='*'`), esposto come toggle
+nell'header di ogni board **inclusa la board generale** (il click sul pill È il toggle;
+`GET/PATCH /api/all-boards/settings`, broadcast `board:dispatch` a ogni client). Quando
+è attivo, un task che entra in `todo` (trascinato O creato direttamente lì da un umano)
+SHALL innescare, dopo una finestra di grazia anti drag-through, il claim atomico del
+task e l'avvio di un agent headless dedicato in una chat tab detached, isolato in un
+git worktree quando `dispatch_use_worktree` è attivo. Cap di concorrenza, effort,
+worktree e timeout restano **per board**. Il numero di agent concorrenti per board
+SHALL essere limitato da `max_agents`; i tentativi per task da un retry-cap. L'agent
+lavora fino a `review` (mai `done`, KANBAN-05). Con il flag disattivo (default) nessuno
+spawn SHALL avvenire e nessun chip di dispatch SHALL comparire. La guardia
+anti-ricorsione è strutturale: gli agent creano solo in `backlog` (KANBAN-03), quindi
+il lavoro accodato da un worker non è mai auto-eleggibile.
+
+Feedback SHALL essere sempre visibile sulla card: `queued → starting → working →
+needs_input | delivered` via `dispatch_state`, e ogni interruzione (worktree impossibile,
+progetto non risolvibile, turno morto, retry esauriti) SHALL parcheggiare il task con il
+motivo in `dispatch_error` E un commento nel thread — mai un fallimento silenzioso solo
+nei log. In review i due esiti sono distinti: `needs_input` ("serve te") quando l'ultima
+parola dell'agent è un question block (risposta richiesta), `delivered` ("consegnato")
+quando la consegna è pulita e attende solo l'approvazione.
+
+Un turno che termina senza raggiungere `review` con il task ancora `in_progress` e il
+topic ancora legato (tipicamente il timeout wall-clock che taglia un agent al lavoro)
+SHALL **continuare sulla stessa sessione**: bump del tentativo (stesso retry-cap),
+commento di sistema nel thread, e resume dello stesso topic/worktree con un nudge di
+continuazione ("riprendi da dove eri, non ricominciare") — MAI un release+re-claim che
+scarta la conversazione e fa ripartire l'agent da zero. Il parcheggio in `backlog`
+avviene solo a cap esaurito. Il topic dell'agent SHALL nascere **background**
+(archiviato = chiuso nel modello 2-stati): visibile in sidebar, MAI una tab che si
+apre da sola su ogni client; la tab si apre solo dal bottone del task (che de-archivia)
+e chiuderla non ferma la sessione.
+
+Ogni task SHALL poter portare un **override di modello** (`tasks.model`, NULL = auto =
+default del provider) scelto dal composer; il dispatcher lo copia sul topic alla
+creazione insieme all'effort per-board.
+
+Un input umano (risposta, reject) che arriva mentre il turno dell'agent sta ancora
+terminando SHALL essere bufferizzato e consegnato sullo **stesso tab** al turn-end —
+mai scartato (il task resterebbe orfano e il requeue spawnerebbe un agent nuovo senza
+il contesto della conversazione). Rinominare task o step SHALL essere sempre sicuro:
+il loop è id-based (kickoff, tool MCP e resume referenziano gli id, mai i titoli).
+
+L'umano SHALL poter **fermare** un dispatch in corso (stop): il task è parcheggiato
+(backlog + motivo nel thread) PRIMA del taglio del turno, così il turn-end trova il
+task già spostato e NON ri-accoda un nuovo tentativo. Un task creato con
+**plan_first** SHALL istruire l'agent a consegnare un piano sintetico in review
+(question block "Approva il piano"/"Da rivedere") PRIMA di implementare; l'agent
+implementa solo al resume con l'approvazione.
+
+#### Scenario: stop umano di un dispatch in corso
+- **GIVEN** un task con un agent al lavoro (chip working)
+- **WHEN** l'umano preme Ferma
+- **THEN** il task va in backlog con "Fermato da te" nel thread, il turno è abortito
+- **AND** nessun nuovo tentativo parte da solo
+
+#### Scenario: plan first
+- **GIVEN** un task creato con plan_first
+- **WHEN** l'agent parte
+- **THEN** consegna un piano in review con quick-reply (senza implementare nulla)
+- **AND** implementa solo dopo l'approvazione del piano
+
+#### Scenario: task in todo parte da solo (flag on)
+- **GIVEN** una board con `auto_dispatch` attivo
+- **WHEN** un task entra in `todo` e vi resta oltre la finestra di grazia
+- **THEN** il task è claimato (`in_progress`, chip `working`) e un agent lavora in una
+  tab dedicata raggiungibile dalla card ("apri tab")
+- **AND** alla consegna il task è in `review` con chip `serve te`
+
+#### Scenario: nessun dispatch con flag off
+- **GIVEN** l'interruttore globale `auto_dispatch` disattivo (default)
+- **WHEN** un task viene creato o trascinato in `todo` su qualsiasi board
+- **THEN** nessun agente viene spawnato automaticamente
+- **AND** l'header della board mostra che l'auto-dispatch è spento
+
+#### Scenario: il toggle è globale
+- **GIVEN** l'interruttore spento e due board aperte (una di progetto e la generale)
+- **WHEN** l'umano clicca il pill "agent: off" su una qualsiasi delle due
+- **THEN** l'interruttore si accende per TUTTE le board e ogni header aperto si aggiorna
+  (broadcast, non refresh)
+
+#### Scenario: drag-through non spawna
+- **GIVEN** una board con `auto_dispatch` attivo
+- **WHEN** un task attraversa `todo` e ne esce prima della finestra di grazia
+- **THEN** nessun claim avviene e il chip `in coda` viene rimosso
+
+#### Scenario: interruzione visibile, mai silenziosa
+- **GIVEN** una board con `auto_dispatch` attivo il cui progetto non è risolvibile o il
+  cui worktree non può essere creato
+- **WHEN** un task tenta il dispatch
+- **THEN** il task è parcheggiato in `backlog` con il motivo in `dispatch_error` e nel
+  thread commenti
+
+#### Scenario: timeout a metà lavoro = continuazione, non restart
+- **GIVEN** un task `in_progress` il cui turno viene tagliato dal timeout wall-clock
+- **WHEN** il turn-end trova il task ancora in_progress col topic legato
+- **THEN** il tentativo è incrementato e l'agent riprende SULLA STESSA sessione
+  (stesso topic, stesso worktree) con un nudge di continuazione
+- **AND** il thread mostra "l'agent continua sulla stessa sessione (tentativo n/cap)"
+- **AND** solo a cap esaurito il task è parcheggiato in backlog
+
+#### Scenario: la sessione agent non apre tab da sola
+- **GIVEN** un dispatch che crea il topic dell'agent
+- **WHEN** il topic nasce
+- **THEN** nasce archiviato (background): nessuna tab spunta nella tabbar di alcun client
+- **AND** il bottone "apri tab" del task lo de-archivia e apre la tab on demand
+
+### Requirement: KANBAN-08 — Task annidati (subtask a cascata)
+
+> Promoted verbatim from `openspec/changes/kanban-agent-authoring/`. It ships: `parent_task_id` arrived with migration 034 and the board columns list root tasks only (`server/services/tasks.ts:456`), covered by BOARD-10.
+> The text is kept in the original Italian on purpose: promoting it is a move,
+> not a rewrite, and a translation would be a second chance to drift from what
+> the tests actually pin.
+
+Un task SHALL poter contenere sottotask a profondità illimitata (`parent_task_id`
+self-referential, FK). Il parent SHALL essere impostato solo alla creazione (niente
+re-parenting), rendendo i cicli impossibili per costruzione. Il parent SHALL vivere sulla
+stessa board del figlio. Un task con sottotask aperti SHALL NOT poter passare a `done`
+(qualsiasi attore, update o approvazione). L'archiviazione di un parent SHALL archiviare
+ricorsivamente l'intero sottoalbero. I sottotask NON SHALL comparire come card sulle
+colonne (né board di progetto né board generale: il feed è root-only) — vivono
+nell'albero del dettaglio del padre e nel contatore di card (`↳ fatti/totali`); il
+detail SHALL mostrare i sottotask come **albero** (espansione lazy, profondità
+illimitata) con quick-add e navigazione padre↔figlio. Il dispatcher NON SHALL mai
+claimare uno step come task indipendente (un sottotask in `todo` non accoda niente e
+non mostra chip): il lavoro di uno step appartiene all'agent del suo root.
+
+I sottotask del task assegnato a un agent sono la sua **checklist di step**: l'agent
+dispatched SHALL crearli come piano visibile e SHALL poterli marcare `done` lui stesso
+— unico carve-out al gate KANBAN-05, ristretto ai **discendenti stretti** del task
+legato al suo topic (`assigned_topic_id`). Il deliverable (il task assegnato) resta
+dietro il gate umano; il gate `open_subtasks` sull'approve garantisce che alla consegna
+tutti gli step risultino smarcati.
+
+Ogni sottotask ha il **proprio thread** di discussione (agent e umano possono
+commentare lo step specifico). Un commento umano su un task il cui root di dispatch
+(il più vicino antenato — o il task stesso — con `assigned_topic_id`) è in `review`
+SHALL ri-kickare lo stesso agent con il testo e il riferimento allo step — stessa
+semantica della risposta sul task principale: la risposta specifica non è mai un
+commento passivo mentre il chip dice "serve te".
+
+#### Scenario: gli step non sono card
+- **GIVEN** un task con sottotask
+- **WHEN** l'umano guarda le colonne (progetto o board generale)
+- **THEN** vede solo il task root col contatore `↳ n/m`; gli step compaiono solo
+  nell'albero del dettaglio
+- **AND** uno step trascinato in `todo` non avvia nessun agent e non mostra chip
+
+#### Scenario: sottotask annidati a più livelli
+- **GIVEN** un task A
+- **WHEN** viene creato B con parent A, e C con parent B
+- **THEN** `get_task(A)` elenca B e `get_task(B)` elenca C
+
+#### Scenario: il parent non si chiude con figli aperti
+- **GIVEN** un task con un sottotask non-done
+- **WHEN** qualcuno tenta `done` (update o approve)
+- **THEN** l'operazione è rifiutata (`open_subtasks`) finché i figli non sono completati
+  o archiviati
+
+#### Scenario: archive a cascata
+- **GIVEN** un albero A → B → C
+- **WHEN** A viene archiviato
+- **THEN** B e C risultano archiviati
+
+#### Scenario: l'agente spezza un task grande
+- **GIVEN** un agent che lavora il task T
+- **WHEN** chiama `create_task(text=..., parent_task_id=T)`
+- **THEN** il sottotask nasce in `backlog` sotto T (l'umano decide se e quando mandarlo
+  in lavorazione)
+
+#### Scenario: l'agente smarca i propri step
+- **GIVEN** il task T assegnato all'agent A (topic bound) con step S figlio di T
+- **WHEN** A chiama `update_task(task_id=S, status='done')`
+- **THEN** S passa a `done` (carve-out: S è un discendente stretto di T)
+- **AND** lo stesso update su T stesso resta rifiutato (`agent_cannot_complete`)
+
+#### Scenario: il carve-out non attraversa i task altrui
+- **GIVEN** un task U non discendente del task assegnato all'agent A
+- **WHEN** A tenta `update_task(task_id=U, status='done')`
+- **THEN** l'operazione è rifiutata (`agent_cannot_complete`)
+
+#### Scenario: rispondere sul thread di uno step ri-kicka l'agent
+- **GIVEN** il task T assegnato all'agent A, in `review`, con step S figlio di T
+- **WHEN** l'umano commenta sul thread di S
+- **THEN** T torna `in_progress` e A riparte con il testo e il riferimento a S
+- **AND** lo stesso commento con T già `in_progress` resta una nota nel thread di S
+
+#### Scenario: aggiungere uno step a un task in review È l'assegnazione
+- **GIVEN** il task T assegnato all'agent A, in `review`
+- **WHEN** l'umano crea un sottotask sotto T (o sotto un suo step)
+- **THEN** T torna `in_progress` e A riparte con il riferimento al nuovo step —
+  nessun commento "fai anche X" richiesto
+- **AND** con T in lavorazione il nuovo step atterra nell'albero e il resume prompt
+  istruisce A a rileggere il task (get_task) prima di riprendere
+
 ### Requirement: KANBAN-10 — Ripresa del dispatch al riavvio del server
 
 Un riavvio del server (deploy, hot-reload, crash) SHALL essere trasparente per i task in
