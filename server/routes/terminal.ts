@@ -537,11 +537,27 @@ function bridgeLogPath(): string {
   return join(dirname(SOCKET_PATH), `${basename(SOCKET_PATH, ".sock")}.log`);
 }
 
+/**
+ * Why the bridge's log could not be opened, on the occasions it could not.
+ *
+ * Without this, `stdio` falls back to `'ignore'` and the bridge's stderr goes
+ * nowhere: the bridge writes its reason and nobody collects it. The resulting
+ * error then says "no log at <path>", which reads as "the bridge said nothing"
+ * when what it means is "we were not listening". Those are opposite diagnoses
+ * and they send you looking in two different places.
+ */
+let bridgeLogOpenError: string | null = null;
+
+/** The message of a failed `spawn`, when it failed. See the note at the call. */
+let bridgeSpawnError: string | null = null;
+
 function openBridgeLog(): number | null {
   try {
     fs.mkdirSync(dirname(SOCKET_PATH), { recursive: true });
+    bridgeLogOpenError = null;
     return fs.openSync(bridgeLogPath(), "a");
-  } catch {
+  } catch (e) {
+    bridgeLogOpenError = e instanceof Error ? e.message : String(e);
     return null;
   }
 }
@@ -565,6 +581,41 @@ function lastBridgeLogLine(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * WHY THE BRIDGE DID NOT ANSWER, in the words that send you to the right place.
+ *
+ * Pure on purpose: this is the only part of bridge startup worth asserting on,
+ * and reaching it through `initBridge` would mean spawning a real process and
+ * waiting three seconds for it not to appear. Same cut as `routes/sessionStatus.ts`
+ * and `routes/clearPolicy.ts` - the decision moves to where a test can reach it,
+ * the caller keeps the plumbing.
+ *
+ * The four cases are ordered by how early they happen, and that order is the
+ * point. A spawn that failed explains everything after it, so it wins over a
+ * stale line left in the log by a PREVIOUS bridge - the log is append-only and
+ * outlives the process that wrote it, so trusting it first would report the
+ * last death instead of this one.
+ */
+export function bridgeFailureDetail(i: {
+  /** `error` from the spawn: the bridge was never born. */
+  spawnError?: string | null;
+  /** Last stderr line: it was born and said why it died. */
+  logLine?: string | null;
+  /** Why its log could not be opened: it may have said why, and we discarded it. */
+  logOpenError?: string | null;
+  logPath: string;
+}): string {
+  if (i.spawnError) return ` Lo spawn e' fallito: ${i.spawnError}.`;
+  if (i.logLine) return ` Il ponte dice: ${i.logLine}`;
+  if (i.logOpenError) {
+    return (
+      ` Il suo log non si e' potuto aprire (${i.logPath}): ${i.logOpenError}.` +
+      " Lo stderr del ponte e' stato scartato, quindi questo messaggio non sa perche' sia morto."
+    );
+  }
+  return ` Nessun log in ${i.logPath}: il ponte e' partito e non ha scritto niente prima di sparire.`;
 }
 
 /**
@@ -656,6 +707,7 @@ export async function ensureBridge(): Promise<void> {
     // so anything reading this process through a pipe (`| tee`, a test runner)
     // never sees EOF and hangs until killed. A file fd is ours to close the
     // moment the child has it.
+    bridgeSpawnError = null;
     const logFd = openBridgeLog();
     // `--parent-pid` is how the bridge decides it has been abandoned. Without it
     // it can only guess from its own ppid, and a server that dies while the
@@ -666,6 +718,23 @@ export async function ensureBridge(): Promise<void> {
       stdio: ['ignore', 'ignore', logFd ?? 'ignore'],
       env: { ...process.env, PATH: augmentPath() },
     });
+    /**
+     * THE SPAWN ERROR HAS TO BE COLLECTED, or it is lost by construction.
+     *
+     * `detached` + `unref()` detach the child from this process, but they do
+     * not change the fact that a failed spawn emits `error` on THIS object:
+     * ENOENT when the command is not there, EACCES when it is there and is not
+     * executable. With no listener that event has no recipient, and on an
+     * `EventEmitter` an unheard `error` is worse than lost: Node rethrows it.
+     *
+     * EACCES is the concrete case, not a hypothesis. It is node-pty's
+     * `spawn-helper` without its exec bit, the same fault the note on
+     * `lastBridgeLogLine` records as having cost a whole investigation. That
+     * time the bridge did start and did write its reason to the log; when it
+     * never starts there is no log to read, and the final error said "no log
+     * at ...". That accused the bridge of being mute when it was never born.
+     */
+    child.once("error", (e: Error) => { bridgeSpawnError = e.message; });
     child.unref();
     if (logFd !== null) { try { fs.closeSync(logFd); } catch { /* already closed */ } }
 
@@ -673,6 +742,10 @@ export async function ensureBridge(): Promise<void> {
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 100));
+      // A bridge that never started will not start during the remaining wait.
+      // Without this, every terminal opened on a broken install pays the full
+      // three seconds to learn something already known at the first tick.
+      if (bridgeSpawnError) break;
       if (fs.existsSync(SOCKET_PATH)) {
         const ok = await tryConnect();
         if (ok) break;
@@ -680,10 +753,19 @@ export async function ensureBridge(): Promise<void> {
     }
 
     if (!bridgeReady) {
-      const why = lastBridgeLogLine();
+      // Three possible reasons, and they must be told apart because each
+      // sends you to a different place: the bridge was never BORN (spawn
+      // failed), it was born and said why it died (the log), or we were not
+      // listening (log could not be opened). Before, every case wore the
+      // third one's words.
+      const detail = bridgeFailureDetail({
+        spawnError: bridgeSpawnError,
+        logLine: lastBridgeLogLine(),
+        logOpenError: bridgeLogOpenError,
+        logPath: bridgeLogPath(),
+      });
       throw new Error(
-        `Failed to connect to PTY bridge after spawning (${cmd} --socket ${SOCKET_PATH})` +
-          (why ? ` Il ponte dice: ${why}` : ` Nessun log in ${bridgeLogPath()}.`),
+        `Failed to connect to PTY bridge after spawning (${cmd} --socket ${SOCKET_PATH})` + detail,
       );
     }
   } finally {

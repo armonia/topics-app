@@ -180,3 +180,61 @@ types.
   database
 - **WHEN** `POST /api/terminal/sessions/:id/reload` is called
 - **THEN** the server responds `404`
+
+### Requirement: TERM-03 — A Bridge That Fails To Start SHALL Say Why
+
+Every terminal session is served by a PTY bridge process. When the server cannot
+reach it, the thrown error SHALL name the cause it actually observed, and SHALL
+distinguish the cases that send an investigator to different places:
+
+1. the **spawn failed** — the bridge was never born (`ENOENT` when the command is
+   not on PATH, `EACCES` when it is there without an exec bit);
+2. the **bridge spoke** — it started, wrote a reason to its stderr log, and died;
+3. the **log could not be opened** — the bridge's stderr was routed to `'ignore'`,
+   so any reason it gave was discarded before anyone could read it;
+4. **nothing to go on** — it started, wrote nothing, and disappeared.
+
+Cases 1 and 3 SHALL NOT be reported using the words of case 4. The bridge's stderr
+log is append-only and outlives the process that wrote it, so a spawn failure
+SHALL take precedence over a line left in the log by a previous bridge.
+
+The server SHALL register an `error` listener on the spawned child. A `detached`
+child that is `unref`'d still emits `error` on the parent's handle, and without a
+listener that event has no recipient.
+
+A spawn that has already failed SHALL NOT continue to be polled for the remainder
+of the connect timeout.
+
+> Note: case 1 is not hypothetical. `EACCES` here is node-pty's `spawn-helper`
+> without its exec bit — the same fault that `scripts/fix-node-pty-exec-bit.ts`
+> exists to repair, and that previously cost a full investigation because the
+> error named none of this.
+
+#### Scenario: The bridge binary is missing and the error names the spawn
+
+- **GIVEN** the configured bridge command does not exist on PATH
+- **WHEN** the server tries to open a terminal session
+- **THEN** the error states that the spawn failed and includes the errno
+- **AND** it does not claim that the bridge left no log
+
+#### Scenario: The bridge died and its last words are carried through
+
+- **GIVEN** the bridge started and wrote `Self-test failed: posix_spawnp failed.`
+  to its stderr log before exiting
+- **WHEN** the server gives up waiting for the socket
+- **THEN** the error carries that line verbatim
+
+#### Scenario: A stale log line does not explain a fresh spawn failure
+
+- **GIVEN** a bridge log that already contains the last words of an earlier bridge
+- **AND** a spawn that fails with `EACCES`
+- **WHEN** the server reports the failure
+- **THEN** the error names the `EACCES`
+- **AND** it does not quote the earlier bridge's line
+
+#### Scenario: A discarded stderr is admitted rather than reported as silence
+
+- **GIVEN** the bridge's stderr log cannot be opened for writing
+- **WHEN** the bridge fails to come up
+- **THEN** the error states that the log could not be opened, names the reason,
+  and says the bridge's stderr was discarded

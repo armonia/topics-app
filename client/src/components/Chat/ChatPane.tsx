@@ -920,8 +920,8 @@ function ChatPaneComponent({
       setCommandResult({
         type: 'error',
         message:
-          "/rewind è uno schermo della TUI, e qui la CLI gira in modalità non interattiva: consegnarglielo non farebbe niente.\n" +
-          "I checkpoint di questa chat sono la striscia sopra il composer: da lì si torna indietro.",
+          "/rewind is a TUI screen, and here the CLI runs non-interactively: handing it over would do nothing.\n" +
+          "This chat's checkpoints are the strip above the composer. That is where you go back from.",
       });
       return true;
     }
@@ -969,6 +969,7 @@ function ChatPaneComponent({
             : { type: 'error', message: tr('chat.goal.usage') });
           return true;
         }
+        // allow-italian: 'fatto' is typed BY the user; the word is the input, not a label
         if (rest === 'fatto' || rest === 'done') {
           if (!goal) { setCommandResult({ type: 'error', message: tr('chat.goal.none') }); return true; }
           await closeGoal('achieved');

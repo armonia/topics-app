@@ -61,7 +61,7 @@ export interface StatoOpts {
   sessionKey: string;
   messaggi: number;
   topic: TopicPerStato | null | undefined;
-  /** The model that would actually serve the next turn when the topic pins none. */
+  /** The model that would actually handle the next turn when the topic pins none. */
   modelloDiRipiego?: string | null;
 }
 
