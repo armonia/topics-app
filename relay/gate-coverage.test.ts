@@ -45,6 +45,8 @@
  * Le scadenze stanno percio' molto sopra il caso a vuoto: servono a fermare un
  * processo APPESO, non a misurare la macchina. Se un giorno scadono davvero,
  * la domanda giusta e' «cosa tiene fermo tsc», non «alzo ancora».
+ *
+ * @covers E2E-GATE-02
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";

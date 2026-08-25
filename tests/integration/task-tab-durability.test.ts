@@ -13,6 +13,8 @@
  * qui si misura la CATENA — route → servizio → ui_state — che è dove il buco
  * viveva, e con ZERO client in ascolto (i broadcast finiscono in un array e
  * nessuno li applica: esattamente lo scenario ad app chiusa).
+ *
+ * @covers RETIRE-07
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";

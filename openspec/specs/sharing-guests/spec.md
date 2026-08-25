@@ -277,3 +277,29 @@ what was not shared, and refused on a write.
 - **AND** the shared chat's messages SHALL be served 200
 - **AND** the other chat SHALL answer 403 or 404
 - **AND** the `PATCH` SHALL answer 403
+
+### Requirement: GUEST-08 — Un link è una capacità su UNA cosa, e ogni modo di fallire dà lo stesso nulla
+
+Un link di condivisione SHALL servire ESATTAMENTE la risorsa che nomina, e
+niente altro. Se servisse più di quella, il fatto che i link circolino nelle
+chat smetterebbe di essere accettabile.
+
+Il link SHALL avere una SCADENZA e SHALL poter essere REVOCATO. La richiesta e
+la risposta SHALL viaggiare dentro una busta sigillata con la chiave del link, e
+la risposta SHALL richiudersi con la stessa chiave.
+
+Tutti i modi di fallire — riferimento inesistente, scaduto, revocato, busta che
+non si apre — SHALL dare LO STESSO nulla. Distinguerli racconterebbe a chi prova
+quale dei quattro gli è capitato, e «questo riferimento esiste ma è scaduto» è
+un'informazione che non si deve poter comprare tirando a indovinare.
+
+Ogni apertura SHALL essere REGISTRATA. Non è statistica: è l'unico modo di
+accorgersi che un link è finito dove non doveva.
+
+#### Scenario: link scaduto e link inesistente
+- **GIVEN** un riferimento scaduto e uno che non è mai esistito
+- **THEN** le due risposte SHALL essere indistinguibili
+
+#### Scenario: un link buono
+- **GIVEN** un link valido per una risorsa
+- **THEN** SHALL servire quella risorsa, e l'apertura SHALL essere registrata

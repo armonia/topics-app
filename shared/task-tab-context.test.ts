@@ -6,6 +6,8 @@
  * prima, che è il bug di partenza), e nessuna delle forme può collidere con le
  * altre — compreso il gemello nel workspace, che deve restare riconducibile
  * alla sua tab o il login salvato non lo eredita.
+ *
+ * @covers RETIRE-07
  */
 import { describe, it, expect } from "bun:test";
 import {

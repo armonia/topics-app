@@ -13,6 +13,8 @@
  * altrove, e ripeterla qui coprirebbe la sola domanda di questo file: quando
  * una sessione se ne va, il socket di sopra viene CHIUSO davvero? Un finto lo
  * dice in modo esatto e sincrono; uno vero lo direbbe fra due `await`.
+ *
+ * @covers RELAY-E2E-13
  */
 import { describe, expect, it } from "bun:test";
 import { creaProxyTubo, creaRelayClient, type ApriSocketLocale } from "./relay-client";

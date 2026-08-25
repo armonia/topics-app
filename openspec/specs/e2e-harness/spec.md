@@ -87,3 +87,32 @@ riaprirebbe il buco senza che nessun test diventi rosso.
 #### Scenario: un valore che somiglia a un sì
 - **GIVEN** la variabile impostata a una parola diversa dal valore esatto
 - **THEN** le rotte di test NON SHALL esistere
+
+### Requirement: E2E-GATE-02 — Il codice che va in produzione sta DENTRO i cancelli, e lo si prova eseguendoli
+
+Ogni cartella il cui contenuto viene DISTRIBUITO SHALL essere compresa nei
+programmi dei cancelli — tipi, lint, codice morto. Una suite di test verde su
+quella cartella NON SHALL essere scambiata per copertura: i test giravano, e
+intanto un errore di tipo, un export morto o una violazione di stile
+arrivavano in produzione senza che niente diventasse rosso.
+
+La prova SHALL ESEGUIRE i cancelli e confrontare l'elenco dei file che
+dichiarano di aver letto con i file su disco. Verificare la CONFIGURAZIONE non
+basta: un'inclusione che non combacia con nessun file, o un comando la cui
+configurazione ignora la cartella, sono verdi — ed è esattamente lo stato che
+questa regola esiste per rilevare.
+
+Le SCADENZE di questa prova SHALL essere molto sopra il caso a macchina scarica.
+È una prova che gira nella barra di review di OGNI card: con dieci agenti che
+rivedono insieme, tre misure diventano trenta compilazioni in parallelo, e una
+compilazione da tre secondi ne impiega più di sessanta. Un rosso da scadenza qui
+non costa una card: costa N card e N agenti che lo rileggono ciascuno per conto
+suo.
+
+#### Scenario: una cartella distribuita fuori dai programmi
+- **GIVEN** una cartella il cui codice viene distribuito e che nessun cancello legge
+- **THEN** la prova SHALL fallire
+
+#### Scenario: configurazione che non combacia
+- **GIVEN** un'inclusione che non corrisponde a nessun file
+- **THEN** SHALL essere rilevata, perché l'elenco letto è vuoto

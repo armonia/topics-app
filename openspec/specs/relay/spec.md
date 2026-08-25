@@ -411,3 +411,21 @@ it is in the links.
 #### Scenario: an enormous secret
 - **GIVEN** a secret longer than the declared maximum
 - **THEN** it SHALL be refused BEFORE any digest is computed
+
+### Requirement: RELAY-E2E-13 — Le sessioni del tunnel hanno un tetto, e una riserva per il proprietario
+
+Il tunnel SHALL tenere un NUMERO MASSIMO di sessioni contemporanee, e SHALL
+riservarne una quota al dispositivo del proprietario: senza riserva, un link
+condiviso che attira traffico chiude fuori chi possiede la macchina.
+
+Ogni sessione SHALL portare il proprio RUOLO dalla nascita, e la fine di una
+sessione SHALL CHIUDERE davvero il socket che le stava sopra. Una sessione che
+se ne va lasciando il socket aperto è una risorsa che nessuno reclama più.
+
+#### Scenario: tetto raggiunto
+- **GIVEN** il numero massimo di sessioni già in piedi
+- **THEN** una sessione del proprietario SHALL comunque poter entrare nella riserva
+
+#### Scenario: sessione chiusa
+- **GIVEN** una sessione che termina
+- **THEN** il socket verso l'ascoltatore SHALL risultare chiuso

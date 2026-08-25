@@ -255,6 +255,12 @@ dal client: un task dispacciato mentre nessuna finestra è aperta non avrebbe
 altrimenti nessuno che le registri, e arriverebbe in review senza il proprio
 risultato.
 
+L'identità di un CONTESTO SHALL essere distinta per nome: due nomi diversi SHALL
+dare due tab diverse, o la seconda pagina consegnata sovrascrive la prima. Le
+forme che un contesto può assumere NON SHALL potersi sovrapporre fra loro — il
+gemello dentro lo spazio di lavoro compreso, che deve restare riconducibile alla
+propria tab o il login salvato non lo eredita.
+
 La scrittura SHALL essere idempotente per contesto — mai un duplicato, l'indirizzo
 e il titolo aggiornati sul posto — e un titolo SHALL poter essere sostituito solo
 da uno di autorità pari o maggiore, nell'ordine persona › agente › automatico.

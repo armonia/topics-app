@@ -4,6 +4,8 @@
  * Il caso che conta: **un link è una capacità su UNA cosa**, non un accesso. Se
  * servisse più di quella, il fatto che i link girino nelle chat smetterebbe di
  * essere accettabile.
+ *
+ * @covers GUEST-08
  */
 import { describe, expect, it } from "bun:test";
 import { creaRelayClient, type LinkCondivisione } from "./relay-client";
