@@ -1,3 +1,6 @@
+/**
+ * @covers EXTSESS-01, EXTSESS-02, EXTSESS-03
+ */
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
   parseTranscriptFacts,

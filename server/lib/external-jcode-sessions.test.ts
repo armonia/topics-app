@@ -1,3 +1,6 @@
+/**
+ * @covers EXTSESS-02, EXTSESS-03
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, utimesSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";

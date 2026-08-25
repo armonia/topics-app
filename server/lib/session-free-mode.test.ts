@@ -11,6 +11,8 @@
  *   - una sessione liberata SENZA che il selettore di autonomia se ne accorga:
  *     il `topic:updated` è l'unico modo in cui l'unico comando da cui si torna
  *     indietro viene a saperlo.
+ *
+ * @covers EXTSESS-06
  */
 import { describe, expect, test } from "bun:test";
 import type { Topic } from "../../shared/types";

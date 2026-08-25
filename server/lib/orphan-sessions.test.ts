@@ -3,6 +3,8 @@
  * VIVA la condanna, mentre risparmiarne una che orfana lo era davvero costa un
  * processo in più. I test insistono quindi sui casi che devono essere
  * RISPARMIATI — è lì che uno sbaglio fa danno.
+ *
+ * @covers EXTSESS-05
  */
 import { describe, test, expect } from "bun:test";
 import { scanOrphanSessions, referencedSessionIdsIn } from "./orphan-sessions";

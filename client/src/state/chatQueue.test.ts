@@ -5,6 +5,8 @@
  * lo stop che faceva PARTIRE il messaggio in coda, le due finestre che
  * drenavano la stessa testa, il sorpasso di chi scriveva dopo uno stop, e la
  * coda vecchia che al primo caricamento del codice nuovo sarebbe evaporata.
+ *
+ * @covers CHAT-QUEUE-01
  */
 import { describe, expect, test, beforeEach } from 'bun:test';
 import {

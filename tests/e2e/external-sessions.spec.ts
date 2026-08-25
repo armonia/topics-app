@@ -16,7 +16,7 @@
  * scripts/start-test-server.sh), so seeding a transcript under THAT home is
  * exactly what a bare `claude` would write — no mocks, the real scan path.
  *
- * @covers KANBAN-20
+ * @covers KANBAN-20, EXTSESS-02, EXTSESS-03
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
@@ -76,7 +76,7 @@ test.describe("Sessioni Claude fuori dalla kanban", () => {
   });
 
 
-  test("EXTSESS-01: /api/external-sessions reports the bare session with project, branch and last activity", async ({ request }) => {
+  test("EXTSESS-03: /api/external-sessions reports the bare session with project, branch and last activity", async ({ request }) => {
     // The census is TTL-cached server-side; poll until the seeded transcript
     // lands (this is also the "entro un minuto" acceptance criterion).
     await expect.poll(async () => {

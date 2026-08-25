@@ -12,6 +12,8 @@
  * L'altra metà del contratto conta quanto la prima: un topic aperto da un umano
  * NON passa da qui e deve continuare a nascere `ask`. Allargare l'autonomia a
  * tutti sarebbe stato un permesso concesso di nascosto.
+ *
+ * @covers EXTSESS-06
  */
 import { describe, test, expect } from "bun:test";
 import {

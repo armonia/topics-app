@@ -11,6 +11,8 @@ import { declaredProviderName, routesThroughGateway } from "./commandRouting";
  *
  * La riga che conta è la prima: topic claude-code + default openclaw NON è una
  * rotta verso il gateway.
+ *
+ * @covers CMD-08
  */
 describe("routesThroughGateway", () => {
   test("topic claude-code su una macchina il cui default è openclaw → NON passa dal gateway", () => {

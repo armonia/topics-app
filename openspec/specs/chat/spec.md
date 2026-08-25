@@ -1382,3 +1382,77 @@ stream.
 - **WHEN** the topic is opened and the message renders
 - **THEN** a reasoning row SHALL be visible inside that message's content
 - **AND** it SHALL be labelled as reasoning
+
+### Requirement: CHAT-QUEUE-01 — La coda del turno è durevole, la drena UNA finestra sola, e uno stop non fa partire niente
+
+Quando si scrive mentre un turno è in corso, il messaggio SHALL entrare in una
+CODA DUREVOLE, che sopravvive alla chiusura della finestra e conserva le opzioni
+con cui è stato scritto.
+
+Il vuoto NON SHALL entrare in coda. Svuotare la coda SHALL rimuovere anche la
+sua chiave: un contenitore vuoto lasciato a marcire su disco è indistinguibile
+da una coda che nessuno ha mai usato. Correggere e togliere SHALL agire per
+IDENTIFICATIVO, non per posizione — l'unica cosa che non cambia sotto i piedi
+mentre la coda si svuota.
+
+**Una sola finestra SHALL drenare la coda.** La seconda SHALL trovare la
+prenotazione e tirarsi indietro. La prenotazione SHALL SCADERE, o una finestra
+morta la terrebbe per sempre; e rilasciarla SHALL permettere alla stessa
+finestra di riprendere subito. Su una coda vuota NON SHALL essere lasciato
+nessun lucchetto appeso.
+
+La coda SHALL partire TUTTA INSIEME, in un batch, nell'ordine in cui è stata
+scritta — non un messaggio per turno. Opzioni diverse SHALL spezzare il batch, e
+il resto SHALL partire al turno dopo; opzioni assenti e opzioni vuote SHALL
+valere lo stesso e NON SHALL spezzare niente.
+
+Una testa estratta che non parte SHALL tornare in TESTA, mai in fondo: chi era
+dietro NON SHALL scavalcarla. Rimetterla due volte NON SHALL duplicarla, e
+l'intero batch SHALL tornare in coda nel proprio ordine.
+
+Il FRENO SHALL essere durevole e visibile alle altre finestre. Svuotare la coda
+SHALL spegnerlo; togliere a mano l'ULTIMA riga SHALL spegnerlo, toglierne una di
+mezzo NO. Uno stop NON SHALL mai far PARTIRE ciò che è in coda.
+
+Un formato di coda più vecchio NON SHALL evaporare al primo caricamento del
+codice nuovo: SHALL essere adottato, e la vecchia chiave SHALL sparire dopo
+l'adozione. Un contenuto illeggibile SHALL dare una coda VUOTA, mai un errore.
+
+#### Scenario: due finestre, una coda
+- **GIVEN** una finestra che ha preso la prenotazione
+- **THEN** la seconda NON SHALL drenare la stessa testa
+
+#### Scenario: il turno non parte
+- **GIVEN** un batch estratto e un invio rifiutato
+- **THEN** SHALL tornare in testa nel proprio ordine
+
+### Requirement: CHAT-QUEUE-02 — Il corpo di un invio non cresce con la conversazione, e il messaggio viaggia UNA volta
+
+Il messaggio che si sta inviando SHALL essere l'ULTIMO elemento del corpo della
+richiesta, e SHALL comparirvi UNA volta sola. È strutturale e non cosmetico: lo
+stato locale contiene già quel messaggio quando il corpo viene costruito, e
+riappenderlo lo faceva rientrare anche nella storia sul ramo che la ricostruisce
+dal corpo.
+
+Il peso del corpo NON SHALL crescere con la lunghezza della conversazione: SHALL
+essere limitato a una coda di dimensione dichiarata. Su una chat legata a un
+topic il server legge comunque solo l'ultimo elemento e ricostruisce la storia
+dal proprio archivio — mandare l'intero trascritto a ogni turno è banda spesa
+per essere buttata.
+
+#### Scenario: un trascritto lungo
+- **GIVEN** una conversazione di cento turni con risposte lunghe
+- **THEN** il corpo della richiesta SHALL restare entro il budget dichiarato
+
+### Requirement: CHAT-FOCUS-01 — Una risposta non richiesta va a UNA chat sola, e con una sola chat aperta è quella
+
+Quando arriva qualcosa che nessuna chat ha chiesto, il sistema SHALL sceglierne
+UNA come destinataria, e SHALL essere l'ULTIMA usata.
+
+Con una chat sola aperta SHALL essere quella, anche se non ha MAI ricevuto il
+fuoco: pretendere un fuoco esplicito significherebbe perdere il messaggio nel
+caso più comune di tutti.
+
+#### Scenario: una sola chat, mai messa a fuoco
+- **GIVEN** una sola chat registrata e nessun fuoco mai dato
+- **THEN** SHALL essere lei la destinataria

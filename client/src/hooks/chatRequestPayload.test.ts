@@ -19,6 +19,8 @@
  *  2. BUDGET: il carico non cresce con la conversazione. Su un trascritto
  *     realistico (100 turni, 4 KB per risposta) il corpo passava da centinaia di
  *     KB a una coda limitata.
+ *
+ * @covers CHAT-QUEUE-02
  */
 import { describe, expect, test } from 'bun:test';
 import { buildRequestMessages, REQUEST_TAIL_BUDGET_CHARS } from './chatRequestPayload';

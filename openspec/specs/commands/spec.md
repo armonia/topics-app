@@ -701,3 +701,43 @@ asserzioni che le verificano DEVONO fallire quando la traduzione cambia tipo.
 - **GIVEN** la traduzione di `websearch` viene cambiata perché non corrisponda più
 - **WHEN** la suite gira
 - **THEN** almeno un test diventa rosso
+
+### Requirement: CMD-08 — Un comando si instrada sul provider DICHIARATO, non su quello risolto
+
+Uno slash command che si biforca sul provider — il modello, lo sforzo di
+ragionamento — SHALL essere instradato in base al provider che il topic
+DICHIARA, e NON in base a quello che il registro riesce a risolvere su questa
+macchina.
+
+I due non sono la stessa cosa, e la differenza è un difetto già pagato. Chi
+risolve un provider deve pur restituire un oggetto con cui parlare, quindi
+quando il nome dichiarato non è registrato ripiega sul default. Su una macchina
+senza la riga di comando di quel provider il ripiego cambia la natura del topic:
+un comando su un topic dichiarato per un fornitore partiva verso il ponte di un
+altro, che lì non esiste, e rispondeva con un errore di connessione. La stessa
+prova era VERDE in locale, dove il binario c'è, e ROSSA altrove — per sei
+giorni. **Un topic non cambia natura perché su questa macchina manca un
+binario.**
+
+Un topic che non dichiara nulla SHALL ereditare il default del server. Senza
+dichiarazione E senza default il sistema NON SHALL inventare una rotta.
+
+Una dichiarazione vuota o fatta di soli spazi SHALL valere come «non
+dichiarato», e l'assenza SHALL restare assenza — mai una stringa vuota che si
+comporta come un nome.
+
+I nomi storici di un provider SHALL essere ricondotti al nome corrente nello
+stesso punto in cui li riconduce la risoluzione, o le due strade divergono
+proprio sui topic più vecchi.
+
+La regola SHALL essere PURA e provata a parte: il ripiego che la rompeva è
+esattamente il genere di cosa che un blocco di cattura silenzioso fa sparire
+senza lasciare traccia.
+
+#### Scenario: la macchina non ha quel binario
+- **GIVEN** un topic che dichiara un provider non registrato qui, e un default diverso
+- **THEN** il comando NON SHALL essere instradato verso il default
+
+#### Scenario: nessuna dichiarazione, nessun default
+- **GIVEN** un topic senza provider e un server senza default
+- **THEN** NON SHALL essere scelta nessuna rotta

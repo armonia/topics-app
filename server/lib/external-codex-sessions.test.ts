@@ -20,6 +20,8 @@ const FINISHED = [{ type: "event_msg", payload: { type: "task_complete" } }];
 /**
  * A fake `sessions/YYYY/MM/DD/file.jsonl` tree.
  * `files`: relative path -> { content, age in ms }.
+ *
+ * @covers EXTSESS-01, EXTSESS-02
  */
 function fakeFs(files: Record<string, { text: string; ageMs: number }>, dirAges: Record<string, number> = {}): CodexFs {
   const root = "/root";

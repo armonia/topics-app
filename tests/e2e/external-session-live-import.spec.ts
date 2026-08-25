@@ -10,6 +10,8 @@
  * SAME transcript on disk (what a bare `claude` in a terminal does) and watch it
  * appear in the open chat within one sweep. Under E2E_EVIDENCE=1 the run records
  * the .webm that IS the acceptance proof.
+ *
+ * @covers EXTSESS-04
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";

@@ -17,6 +17,8 @@
  * adottava. L'endpoint resta, ed e' quello che questa spec prova. Il `--resume`
  * che fa continuare la STESSA conversazione al turno dopo e' coperto dagli unit
  * test del provider; qui si prova il binding e la storia importata.
+ *
+ * @covers EXTSESS-04
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";

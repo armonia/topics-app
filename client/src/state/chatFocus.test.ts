@@ -1,3 +1,8 @@
+/**
+ * Who receives something nobody asked for.
+ *
+ * @covers CHAT-FOCUS-01
+ */
 import { beforeEach, describe, expect, test } from "bun:test";
 import { chatFocus } from "./chatFocus";
 
