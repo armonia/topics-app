@@ -4,11 +4,16 @@
   "specsDir": "openspec/specs",
   "videosDir": "videos",
   "videosIndex": "videos/INDEX.md",
-  "uatItPath": "openspec/uat-it.json",
   "outHtml": "uat.html",
   "actors": {
-    "developer": { "label": "Developer", "emailRegex": "\"dev@|\\bDeveloper\\b" },
-    "owner":     { "label": "Owner",     "emailRegex": "\"owner@|\\bOwner\\b" }
+    "developer": {
+      "label": "Developer",
+      "emailRegex": "\"dev@|\\bDeveloper\\b"
+    },
+    "owner": {
+      "label": "Owner",
+      "emailRegex": "\"owner@|\\bOwner\\b"
+    }
   },
   "pages": {
     "/": "Topics workspace root",
@@ -23,10 +28,337 @@
     "topic detail|teammate": "/topic/:id"
   },
   "featureOrder": [
-    ["master-topic", "Master Topic + Agent Teams"],
-    ["kanban", "Kanban board & task binding"],
-    ["terminal", "Terminal panes & PTY sessions"],
-    ["notifications", "Notifiche non-invasive"],
-    ["topics", "Multi-topic workspace"]
-  ]
+    [
+      "topics",
+      "Spazi di lavoro multipli"
+    ],
+    [
+      "layout",
+      "Disposizione dei pannelli"
+    ],
+    [
+      "projects",
+      "Progetti e cartelle collegate"
+    ],
+    [
+      "thread",
+      "Thread paralleli"
+    ],
+    [
+      "project-tabs-e2e",
+      "Schede di progetto"
+    ],
+    [
+      "tab-sync-e2e",
+      "Sincronizzazione delle schede"
+    ],
+    [
+      "settings",
+      "Impostazioni"
+    ],
+    [
+      "profile",
+      "Profilo utente"
+    ],
+    [
+      "night-mode",
+      "Modalita' notturna"
+    ],
+    [
+      "i18n",
+      "Lingue dell'interfaccia"
+    ],
+    [
+      "agents",
+      "Agenti: roster e assegnazione"
+    ],
+    [
+      "agent-runtime",
+      "Esecuzione degli agenti"
+    ],
+    [
+      "claude-sessions",
+      "Sessioni Claude Code"
+    ],
+    [
+      "external-sessions",
+      "Sessioni esterne"
+    ],
+    [
+      "acp",
+      "Protocollo ACP"
+    ],
+    [
+      "questions",
+      "Domande dell'agente"
+    ],
+    [
+      "human-wait",
+      "Attesa di una risposta umana"
+    ],
+    [
+      "interrupted-turns",
+      "Turni interrotti"
+    ],
+    [
+      "resume-on-boot",
+      "Ripresa all'avvio"
+    ],
+    [
+      "dictation",
+      "Dettatura vocale"
+    ],
+    [
+      "kanban",
+      "Board kanban e task"
+    ],
+    [
+      "commands",
+      "Comandi e palette"
+    ],
+    [
+      "worktrees",
+      "Worktree per task"
+    ],
+    [
+      "board-tooling",
+      "Strumenti della board"
+    ],
+    [
+      "chat",
+      "Chat con l'agente"
+    ],
+    [
+      "context",
+      "Contesto della conversazione"
+    ],
+    [
+      "notifications",
+      "Notifiche non invasive"
+    ],
+    [
+      "terminal",
+      "Terminale e sessioni PTY"
+    ],
+    [
+      "processes",
+      "Processi e runner"
+    ],
+    [
+      "files",
+      "File, diff ed editor"
+    ],
+    [
+      "cli",
+      "CLI topics"
+    ],
+    [
+      "machines",
+      "Macchine collegate"
+    ],
+    [
+      "remote-browser",
+      "Browser remoto"
+    ],
+    [
+      "remote-access",
+      "Accesso da remoto"
+    ],
+    [
+      "relay",
+      "Relay"
+    ],
+    [
+      "wire-transport",
+      "Trasporto e protocollo"
+    ],
+    [
+      "sharing-guests",
+      "Condivisione e ospiti"
+    ],
+    [
+      "touch-gestures",
+      "Gesti touch"
+    ],
+    [
+      "accounts-orgs",
+      "Account e organizzazioni"
+    ],
+    [
+      "licensing",
+      "Licenze"
+    ],
+    [
+      "releasing",
+      "Rilasci"
+    ],
+    [
+      "changelog",
+      "Changelog"
+    ],
+    [
+      "landing",
+      "Sito di presentazione"
+    ],
+    [
+      "public-site",
+      "Sito pubblico"
+    ],
+    [
+      "webhooks",
+      "Webhook"
+    ],
+    [
+      "cron-jobs",
+      "Lavori pianificati"
+    ],
+    [
+      "discord-presence",
+      "Presenza su Discord"
+    ],
+    [
+      "quality-gates",
+      "Cancelli di qualita'"
+    ],
+    [
+      "performance",
+      "Prestazioni"
+    ],
+    [
+      "usage",
+      "Consumi e quote"
+    ],
+    [
+      "resource-attribution",
+      "Attribuzione delle risorse"
+    ],
+    [
+      "runtime-hygiene",
+      "Igiene del runtime"
+    ],
+    [
+      "schema-integrity",
+      "Integrita' dello schema"
+    ],
+    [
+      "e2e-harness",
+      "Banco di prova E2E"
+    ],
+    [
+      "system-status",
+      "Stato del sistema"
+    ],
+    [
+      "dashboard",
+      "Cruscotto"
+    ],
+    [
+      "retirement",
+      "Dismissioni"
+    ]
+  ],
+  "specSource": "openspec",
+  "openspecDir": "openspec/specs",
+  "coverageMap": "openspec/coverage-map.json",
+  "playwrightReport": "test-results/uat-report.json",
+  "groups": {
+    "workspace": {
+      "label": "Il posto di lavoro",
+      "order": 1
+    },
+    "agenti": {
+      "label": "Agenti e sessioni",
+      "order": 2
+    },
+    "lavoro": {
+      "label": "Il lavoro: board e task",
+      "order": 3
+    },
+    "conversa": {
+      "label": "Conversazione",
+      "order": 4
+    },
+    "macchina": {
+      "label": "Terminale, processi, file",
+      "order": 5
+    },
+    "remoto": {
+      "label": "Browser e accesso remoto",
+      "order": 6
+    },
+    "azienda": {
+      "label": "Account, licenze, distribuzione",
+      "order": 7
+    },
+    "misura": {
+      "label": "Misura e qualita'",
+      "order": 8
+    }
+  },
+  "openspecGroups": {
+    "topics": "workspace",
+    "layout": "workspace",
+    "projects": "workspace",
+    "thread": "workspace",
+    "project-tabs-e2e": "workspace",
+    "tab-sync-e2e": "workspace",
+    "settings": "workspace",
+    "profile": "workspace",
+    "night-mode": "workspace",
+    "i18n": "workspace",
+    "agents": "agenti",
+    "agent-runtime": "agenti",
+    "claude-sessions": "agenti",
+    "external-sessions": "agenti",
+    "acp": "agenti",
+    "questions": "agenti",
+    "human-wait": "agenti",
+    "interrupted-turns": "agenti",
+    "resume-on-boot": "agenti",
+    "dictation": "agenti",
+    "kanban": "lavoro",
+    "commands": "lavoro",
+    "worktrees": "lavoro",
+    "board-tooling": "lavoro",
+    "chat": "conversa",
+    "context": "conversa",
+    "notifications": "conversa",
+    "terminal": "macchina",
+    "processes": "macchina",
+    "files": "macchina",
+    "cli": "macchina",
+    "machines": "macchina",
+    "remote-browser": "remoto",
+    "remote-access": "remoto",
+    "relay": "remoto",
+    "wire-transport": "remoto",
+    "sharing-guests": "remoto",
+    "touch-gestures": "remoto",
+    "accounts-orgs": "azienda",
+    "licensing": "azienda",
+    "releasing": "azienda",
+    "changelog": "azienda",
+    "landing": "azienda",
+    "public-site": "azienda",
+    "webhooks": "azienda",
+    "cron-jobs": "azienda",
+    "discord-presence": "azienda",
+    "quality-gates": "misura",
+    "performance": "misura",
+    "usage": "misura",
+    "resource-attribution": "misura",
+    "runtime-hygiene": "misura",
+    "schema-integrity": "misura",
+    "e2e-harness": "misura",
+    "system-status": "misura",
+    "dashboard": "misura",
+    "retirement": "misura"
+  },
+  "platform": {
+    "apiBase": "https://specflow.armonia.io",
+    "orgSlug": "armonia",
+    "projectSlug": "topics",
+    "projectName": "Topics",
+    "projectId": "ff465e40012648e9830d1f4a"
+  }
 }

@@ -177,6 +177,13 @@ function main(): void {
     }
   }
 
+  // `--by-requirement`: a SECOND link of the same video, under
+  // `videos/<capability>/<REQ-ID>.webm`. That is the layout the platform serves and the one the
+  // OpenSpec reader looks in, and the name is the requirement id — exact, not a similarity match
+  // on the test title, which is how a scenario ends up showing somebody else's recording.
+  // Hard links, so the second name costs no bytes.
+  if (process.argv.includes("--by-requirement")) linkByRequirement();
+
   const lines = [
     "# Video delle prove E2E",
     "",
@@ -199,6 +206,92 @@ function main(): void {
     `[uat-index] ${INDEX}: ${entries.length} video ` +
     `(${countOf("pass")} passati, ${countOf("fail")} falliti, ${countOf("unknown")} senza esito noto)`,
   );
+}
+
+
+/** Requirement id -> capability, read from the OpenSpec tree. The id alone does not say where it lives. */
+function capabilityById(): Map<string, string> {
+  const out = new Map<string, string>();
+  const specs = join(ROOT, "openspec/specs");
+  if (!existsSync(specs)) return out;
+  for (const cap of readdirSync(specs)) {
+    const dir = join(specs, cap);
+    let st; try { st = statSync(dir); } catch { continue; }
+    if (!st.isDirectory()) continue;
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith(".md")) continue;
+      const text = readFileSync(join(dir, f), "utf8");
+      for (const m of text.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)\b/gm)) {
+        out.set(m[1]!, cap);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Links every video whose test declared a `spec` annotation to `videos/<capability>/<REQ-ID>.webm`,
+ * and its trace to the matching `.zip`. Silent about requirements with no video: most of them are
+ * covered by unit tests, which never record one, and saying so once per line would bury the rest.
+ */
+function linkByRequirement(): void {
+  const iReport = process.argv.indexOf("--report");
+  const report = iReport >= 0 ? process.argv[iReport + 1] : null;
+  if (!report || !existsSync(report)) {
+    console.error("[uat-index] --by-requirement senza --report: gli esiti e le annotazioni stanno la' dentro, non nei nomi delle cartelle.");
+    process.exit(1);
+  }
+  const capOf = capabilityById();
+  let linked = 0, orphan = 0;
+  for (const { specIds, video, trace } of specAttachments(report)) {
+    for (const id of specIds) {
+      const cap = capOf.get(id);
+      if (!cap) { orphan++; continue; }
+      const destDir = join(VIDEOS_DIR, cap);
+      mkdirSync(destDir, { recursive: true });
+      for (const [src, ext] of [[video, ".webm"], [trace, ".zip"]] as const) {
+        if (!src || !existsSync(src)) continue;
+        const dest = join(destDir, id + ext);
+        if (existsSync(dest)) continue;
+        try { linkSync(src, dest); } catch { try { copyFileSync(src, dest); } catch { continue; } }
+        if (ext === ".webm") linked++;
+      }
+    }
+  }
+  console.log(`[uat-index] per requisito: ${linked} video collegati sotto videos/<capability>/<REQ-ID>.webm` +
+    (orphan ? `, ${orphan} annotazioni verso requisiti che non esistono` : ""));
+}
+
+/** Per spec of the report: the requirement ids it declares, plus its video and trace paths. */
+function specAttachments(report: string): Array<{ specIds: string[]; video: string | null; trace: string | null }> {
+  const out: Array<{ specIds: string[]; video: string | null; trace: string | null }> = [];
+  let doc: unknown;
+  try { doc = JSON.parse(readFileSync(report, "utf8")); } catch { return out; }
+  const visit = (suite: Record<string, unknown>): void => {
+    for (const spec of (suite.specs as Record<string, unknown>[] | undefined) ?? []) {
+      for (const test of (spec.tests as Record<string, unknown>[] | undefined) ?? []) {
+        const results = (test.results as Record<string, unknown>[] | undefined) ?? [];
+        const r = results[results.length - 1];
+        const anns = ((test.annotations as Record<string, unknown>[] | undefined)?.length
+          ? (test.annotations as Record<string, unknown>[])
+          : ((r?.annotations as Record<string, unknown>[] | undefined) ?? []));
+        const specIds = anns
+          .filter((a) => a.type === "spec" && typeof a.description === "string")
+          .flatMap((a) => String(a.description).split(/[,\s/]+/))
+          .filter((x) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(x));
+        if (specIds.length === 0) continue;
+        const att = (r?.attachments as Record<string, unknown>[] | undefined) ?? [];
+        const pathOf = (n: string) => {
+          const a = att.find((x) => x.name === n && typeof x.path === "string");
+          return a ? (a.path as string) : null;
+        };
+        out.push({ specIds: [...new Set(specIds)], video: pathOf("video"), trace: pathOf("trace") });
+      }
+    }
+    for (const s of (suite.suites as Record<string, unknown>[] | undefined) ?? []) visit(s);
+  };
+  for (const s of ((doc as Record<string, unknown>)?.suites as Record<string, unknown>[] | undefined) ?? []) visit(s);
+  return out;
 }
 
 if (import.meta.main) main();

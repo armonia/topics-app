@@ -81,7 +81,7 @@ type Requirement = {
   /** The spec says out loud that this describes code nobody wrote. */
   notBuilt: boolean;
 };
-type FileTest = { path: string; covers: string[]; titles: { id: string; title: string }[] };
+type FileTest = { path: string; covers: string[]; annotated: string[]; titles: { id: string; title: string }[] };
 
 function walk(dir: string, out: string[] = []): string[] {
   let entries: string[];
@@ -189,7 +189,11 @@ function readTests(): FileTest[] {
       const titles = [...text.matchAll(/\b(?:test|it)\(\s*["'`]([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)[^"'`]*?:\s*([^"'`]{0,90})/g)].map(
         (m) => ({ id: m[1]!, title: (m[2] ?? "").trim() }),
       );
-      if (covers.length || titles.length) out.push({ path: f.slice(ROOT.length), covers, titles });
+      // `annotated` is the PER-TEST channel kept apart from the union: only it can carry an
+      // outcome. A `@covers` names a FILE, and a file holds many tests, so it is evidence of
+      // a link — never evidence that the requirement passed.
+      const annotated = [...new Set(fromAnnotation)];
+      if (covers.length || titles.length) out.push({ path: f.slice(ROOT.length), covers, annotated, titles });
     }
   }
   return out;
@@ -266,6 +270,39 @@ for (const t of fileTest) {
     if (r && !t.covers.includes(id)) ambiguous.push({ id, file: t.path, requirement: r.title, scenario: title });
   }
 }
+
+/**
+ * `--json <path>` writes out the id -> test files map this gate builds anyway and then throws
+ * away. It exists so the living-doc can say "KANBAN-34 is declared by these three files"
+ * WITHOUT a second implementation of what counts as a declaration: two implementations drift,
+ * and when they do, one of them is lying and nobody can tell which.
+ *
+ * It runs alongside the checks, never instead of them, so a map can only be produced by a run
+ * that also passed judgement on the same data.
+ */
+function writeCoverageMap(dest: string): void {
+  const byId = new Map<string, { file: string; channel: "annotation" | "covers" }[]>();
+  for (const t of fileTest) {
+    for (const c of t.covers) {
+      const channel = t.annotated.includes(c) ? "annotation" : "covers";
+      byId.set(c, [...(byId.get(c) ?? []), { file: t.path.replace(/^\//, ""), channel }]);
+    }
+  }
+  const requirementsOut: Record<string, { notBuilt: boolean; claims: { file: string; channel: string }[] }> = {};
+  for (const r of [...requirements].sort((a, b) => a.id.localeCompare(b.id))) {
+    requirementsOut[r.id] = {
+      notBuilt: r.notBuilt,
+      claims: (byId.get(r.id) ?? []).sort((a, b) => a.file.localeCompare(b.file)),
+    };
+  }
+  writeFileSync(dest, JSON.stringify({ version: 1, requirements: requirementsOut }, null, 2) + "\n");
+  const withClaims = Object.values(requirementsOut).filter((r) => r.claims.length).length;
+  const perTest = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.channel === "annotation")).length;
+  console.log(`mappa di copertura -> ${dest}: ${Object.keys(requirementsOut).length} requisiti, ${withClaims} dichiarati, ${perTest} con una prova per-test`);
+}
+
+const jsonFlag = process.argv.indexOf("--json");
+if (jsonFlag >= 0) writeCoverageMap(process.argv[jsonFlag + 1] ?? "openspec/coverage-map.json");
 
 const base = readBaseline();
 const mode = process.argv.includes("--report") ? "report" : process.argv.includes("--write-baseline") ? "scrivi" : "cancello";

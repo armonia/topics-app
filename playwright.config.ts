@@ -150,6 +150,12 @@ export default defineConfig({
   reporter: [
     ["html", { outputFolder: "test-results/html-report", open: "never" }],
     ["list"],
+    // The JSON report is what turns the living-doc from a browser of specifications into a
+    // statement about the code: it is the only place a run's outcome, duration and `spec`
+    // annotations are readable by another tool. Without it every requirement published to
+    // specflow.armonia.io reads "never run" — which is honest, and useless.
+    // PLAYWRIGHT_JSON_OUTPUT_FILE lets a shard write its own copy, to be merged afterwards.
+    ["json", { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE || "test-results/uat-report.json" }],
   ],
   use: {
     /**
