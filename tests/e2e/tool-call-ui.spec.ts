@@ -50,6 +50,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
   });
 
   test("renders ReasoningRow + ToolCallRow + footer in order", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "THINK-04" });
     // Seed a user message + an assistant message with thinking, two legacy
     // tool calls, prose content, and footer metadata. parentId chains the
     // assistant onto the user so loadActiveThread() returns both.

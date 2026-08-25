@@ -947,11 +947,6 @@ The answer produced by a woken turn SHALL be written to the conversation as a ro
 - **WHEN** the id is parsed
 - **THEN** the result SHALL be null, on the server, and undefined in the card's own stricter parse
 
-#### Scenario: A background Bash that failed leaves nothing behind
-- **GIVEN** a background `Bash` tool result flagged as an error
-- **WHEN** the result is classified for its effect on the registry
-- **THEN** no shell SHALL be started
-
 #### Scenario: The reported status is read, and a non-zero exit outranks the label
 - **GIVEN** a `BashOutput` result carrying `<status>` and optionally `<exit_code>`
 - **WHEN** the status is parsed
@@ -1088,7 +1083,7 @@ Each sub-agent action used to trigger a deep copy, a database write and a broadc
 
 ### Requirement: SUBAGENT-04 — A sub-agent that exits reports its real result to the chat that delegated
 
-A sub-agent spawned from a topic chat SHALL report its exit into that conversation, so the chat that promised an update reaches an end instead of hanging on a promise nobody can keep. The report SHALL prefer the child's own final text and SHALL distinguish a failure from a clean but silent finish.
+A sub-agent spawned from a topic chat reports its exit into that conversation, so the chat that promised an update reaches an end instead of hanging on a promise nobody can keep. The body of that report SHALL prefer the child's own final text, and SHALL distinguish a failure from a clean but silent finish.
 
 #### Scenario: The child's own words are the body
 - **GIVEN** an exit carrying the child's final assistant text
@@ -1373,3 +1368,17 @@ SHALL keep passing through whole.
 - **GIVEN** a text block and a tool-use block from the same turn
 - **WHEN** they are prepared for the API
 - **THEN** each SHALL keep its own fields intact
+
+### Requirement: THINK-04 — Reasoning stored on a message renders as its own row in the transcript
+
+An assistant message that carries reasoning SHALL render it as a dedicated row
+inside the message's content, labelled as reasoning, distinct from the tool rows
+and from the prose. Reasoning persisted with the message SHALL survive to the
+rendered transcript, so reopening a chat shows the same stack as watching it
+stream.
+
+#### Scenario: A stored message with reasoning shows a reasoning row
+- **GIVEN** an assistant message persisted with reasoning text, two tool calls, prose and footer metadata
+- **WHEN** the topic is opened and the message renders
+- **THEN** a reasoning row SHALL be visible inside that message's content
+- **AND** it SHALL be labelled as reasoning

@@ -500,3 +500,35 @@ labelling none.
 - **GIVEN** an empty string, or a value that is not a string
 - **WHEN** it is parsed
 - **THEN** the result SHALL be no invocation, and nothing SHALL be thrown
+
+### Requirement: SKILL-04 — The message that ran a command reads as a command, once, and opens its body
+
+Since the CLI expands a slash command before the turn, the user's own message
+SHALL be the single place the transcript shows that a command ran: it SHALL
+render as the command it invoked, and there SHALL NOT be a second marker on the
+same turn saying the same thing. Expanding it SHALL show the body of the command
+FILE, fetched on demand rather than carried by the turn, with no redundant label
+repeating what the header already says. A message that merely begins with a slash
+without being a command SHALL render no such marker.
+
+#### Scenario: The user's message renders as the command it ran
+- **GIVEN** a turn whose user message is `/recap`, with a `recap.md` present in the server's command folder
+- **WHEN** the topic is opened
+- **THEN** the message SHALL render as an invocation naming that command
+
+#### Scenario: One marker per turn, not two
+- **GIVEN** the same turn
+- **WHEN** its markers are counted within that turn
+- **THEN** there SHALL be exactly one
+- **AND** the separate "this turn runs /x" row SHALL NOT be present anywhere
+
+#### Scenario: Expanding shows the body of the real file
+- **GIVEN** the command file seeded in the folder the server actually reads
+- **WHEN** the marker is expanded
+- **THEN** the file's content SHALL appear
+- **AND** no label repeating "command" or "skill" SHALL sit above it
+
+#### Scenario: A path renders no marker
+- **GIVEN** a user message that is a filesystem path beginning with a slash
+- **WHEN** the topic is opened
+- **THEN** that message SHALL carry no invocation marker

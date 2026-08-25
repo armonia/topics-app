@@ -322,6 +322,7 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
   });
 
   test("un messaggio che È un comando si legge come un comando", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SKILL-04" });
     // `/recap` parte verbatim e la CLI lo espande PRIMA del turno: sul filo non
     // torna nessun tool e nessun testo iniettato (verificato). Finché il corpo
     // del comando colava nella risposta, il segnale «sto usando una skill»
@@ -394,6 +395,7 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
   });
 
   test("un percorso all\'inizio del messaggio NON diventa un comando", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SKILL-04" });
     const fresh = await createTopic(request, "Percorso " + Date.now());
     const sk = `topic:${fresh.id.slice(0, 8)}`;
     try {
