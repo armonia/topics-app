@@ -14,6 +14,8 @@
  * the text CHANGES between writes (so `once`, which dedupes identical text,
  * could never have caught it), a different author is not the same slot, and a
  * human comment that happens to start with the same words is never touched.
+ *
+ * @covers THREAD-04
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -20,6 +20,8 @@
  * So the test asserts the mark end to end, on both readers, plus the fallback
  * that keeps an unknown value harmless. Adding a kind to `TaskComment` without
  * adding it here leaves the same hole open.
+ *
+ * @covers THREAD-03
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

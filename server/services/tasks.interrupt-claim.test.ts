@@ -16,6 +16,8 @@
  * altri tacciono per tre minuti. Il test che conta è il primo — due
  * interruzioni ravvicinate, una riga sola — e sotto c'è la prova che sa
  * diventare rosso: azzerata la finestra, le righe tornano due.
+ *
+ * @covers THREAD-01
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

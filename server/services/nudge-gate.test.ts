@@ -9,6 +9,8 @@
  * righe corte. Sotto ci sono le prove che il cancello sa anche NON scattare
  * (finestra scaduta, testo diverso) e che sa diventare rosso: azzerata la
  * finestra, i paragrafi tornano quattro.
+ *
+ * @covers THREAD-02
  */
 import { describe, expect, test } from "bun:test";
 import {

@@ -12,6 +12,8 @@
  * una riga corta. E si misura la parte che la RAM non poteva fare: il secondo
  * dispatcher e' un processo NUOVO (e' appena ripartito, e' il motivo per cui
  * sollecita), e trova la rivendicazione sul task.
+ *
+ * @covers THREAD-02
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
