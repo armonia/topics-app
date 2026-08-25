@@ -63,13 +63,66 @@ fi
 echo
 
 STARTED=$(date +%s)
+
+# ── BILANCIAMENTO PER DURATA ────────────────────────────────────────────────
+#
+# `--shard=i/N` di Playwright riparte i file per NUMERO DI TEST: non conosce le
+# durate, quindi non sa che un file può costare quanto quaranta. Misurato su
+# questa macchina il 24/08, suite intera in modalità evidenza a 2 shard:
+#
+#   shard 1   51,8 min   568 test        <- il wall-clock è QUESTO
+#   shard 2   34,8 min   552 test
+#   lavoro totale 78,4 min: bilanciato sarebbero 39 min a testa
+#
+# Diciassette minuti di macchina ferma ad aspettare, con lo stesso lavoro fatto.
+#
+# `e2e-plan-shards.ts` esiste da tempo e fa esattamente questo (LPT sulle durate
+# di `e2e-durations.json`), ma NESSUNO lo chiamava: questo script tirava dritto
+# su `--shard`. Ora il piano si calcola una volta sola e ogni shard riceve la
+# sua lista di file.
+#
+# SE IL PIANO NON SI PUÒ FARE si torna a `--shard=i/N` e la suite gira lo
+# stesso: il bilanciamento rende la corsa più corta, non più corretta. Un piano
+# mancante non deve mai essere il motivo per cui i test non partono.
+PLAN_DIR="$OUT_DIR/plan"
+USE_PLAN=0
+if [ "$SHARDS" -gt 1 ] && [ "$#" -eq 0 ]; then
+  if bun run scripts/e2e-plan-shards.ts "$SHARDS" --out "$PLAN_DIR" > "$OUT_DIR/plan.log" 2>&1; then
+    USE_PLAN=1
+    sed -E 's/^/  /' "$OUT_DIR/plan.log"
+    echo
+  else
+    echo "  ⚠ piano non calcolabile, si torna a --shard=i/N (vedi $OUT_DIR/plan.log)" >&2
+    echo
+  fi
+fi
+
 pids=""
 for i in $(seq 1 "$SHARDS"); do
   port=$((BASE_PORT + i - 1))
-  E2E_PORT="$port" npx playwright test --shard="$i/$SHARDS" --reporter=line "$@" \
-    > "$OUT_DIR/shard-$i.log" 2>&1 &
+  # Con il piano: la lista dei file di QUESTO shard, uno per riga, come
+  # argomenti posizionali. Senza: la vecchia divisione per numero.
+  if [ "$USE_PLAN" = "1" ]; then
+    # shellcheck disable=SC2207
+    sel=($(cat "$PLAN_DIR/shard-$i.txt"))
+    shard_args=("${sel[@]}")
+    modo="piano"
+  else
+    shard_args=("--shard=$i/$SHARDS")
+    modo="--shard"
+  fi
+  # In modalita' evidenza serve il report JSON: gli esiti della pagina UAT
+  # vengono da li', non dal testo del reporter `line`.
+  if [ "${E2E_EVIDENCE:-}" = "1" ]; then
+    E2E_PORT="$port" PLAYWRIGHT_JSON_OUTPUT_FILE="$OUT_DIR/report-$i.json" \
+      npx playwright test "${shard_args[@]}" --reporter=json "$@" \
+      > "$OUT_DIR/shard-$i.log" 2>&1 &
+  else
+    E2E_PORT="$port" npx playwright test "${shard_args[@]}" --reporter=line "$@" \
+      > "$OUT_DIR/shard-$i.log" 2>&1 &
+  fi
   pids="$pids $!"
-  echo "  shard $i/$SHARDS  porta $port  pid $!"
+  echo "  shard $i/$SHARDS  porta $port  pid $!  ($modo)"
 done
 
 # `wait` per pid, so one shard failing does not hide the others: we want every
