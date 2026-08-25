@@ -5,6 +5,8 @@
  * esattamente la situazione in cui il server risponde «Questo computer». Se
  * qualcuno rimette il nome del ferro davanti, questo caso fallisce nominando la
  * stringa che era il difetto.
+  *
+ * @covers STATUSLINE-01
  */
 import { describe, it, expect } from 'bun:test';
 import { etichettaIdentita, iniziali } from './identityLabel';

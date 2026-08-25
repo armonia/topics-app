@@ -15,6 +15,8 @@
  * literals written in three places, and a render test would have gone green
  * again the moment someone typed a fourth. What is pinned here is that the
  * three subjects name the SAME constant.
+  *
+ * @covers STATUSLINE-01
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

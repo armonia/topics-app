@@ -235,3 +235,55 @@ it is expanded, with `aria-expanded` reporting the current state.
 - **THEN** `aria-expanded` becomes `"false"` and the child's row is no longer present
 - **WHEN** the user clicks the chevron again
 - **THEN** `aria-expanded` returns to `"true"` and the child's row is visible again
+
+### Requirement: STATUSLINE-01 — La fascia in fondo alla sidebar è UNA fascia, e dice la verità su chi c'è
+
+Claude Code ha una status line configurabile; l'equivalente in Topics è la fascia
+in fondo alla sidebar (`SidebarStatusBar.tsx`). È coperta da otto file di test —
+e fino al 25/08/2026 **nessun requisito la nominava**. È il caso peggiore da
+trovare: la copertura c'è e il documento di riferimento tace, così chi legge le
+spec crede che la funzionalità non esista e chi guarda i test crede che sia
+descritta.
+
+Il sistema DEVE:
+
+1. **tenere la fascia leggibile come UNA fascia.** I tre soggetti che ci stanno
+   (io, le mie organizzazioni, chi è in giro) si distinguono per il **primo
+   glifo** di ciascuno, non per una riga di separazione;
+2. **non contare sé stessi.** La riga di presenza risponde a «chi ALTRO c'è»:
+   chi lavora da solo su due macchine deve leggere «nessuno», non «1 online»;
+3. **non dire il ferro al posto della persona.** Con una persona nota su una
+   sessione loopback la riga nomina la persona, non «Questo computer»;
+4. **lasciare fuori qualcosa quando i posti finiscono.** Il chip dei segnali ha
+   tre posti e cinque candidati: uno zero non occupa mai un posto, perché è il
+   modo più largo di non dire niente;
+5. **dichiarare le soglie del verdetto come decisioni di prodotto**, fuori dalla
+   JSX, dove possano essere contraddette da un test.
+
+> Nota: questo requisito NON introduce comportamento nuovo. Descrive ciò che
+> otto file di test già verificano, e li lega a un id perché la copertura sia
+> auditabile invece che solo presente.
+
+#### Scenario: la fascia si spezza in due
+
+- **GIVEN** i tre soggetti della fascia
+- **WHEN** si distinguono per una riga di separazione invece che per il glifo
+- **THEN** il vincolo è violato
+
+#### Scenario: la presenza conta chi guarda
+
+- **GIVEN** una persona sola collegata da due macchine
+- **WHEN** la riga di presenza mostra «1 online»
+- **THEN** il vincolo è violato: doveva dire «nessuno»
+
+#### Scenario: la riga nomina la macchina invece della persona
+
+- **GIVEN** una persona nota su una sessione loopback
+- **WHEN** la riga dice «Questo computer»
+- **THEN** il vincolo è violato
+
+#### Scenario: uno zero occupa un posto nel chip
+
+- **GIVEN** il chip dei segnali con più candidati che posti
+- **WHEN** un conteggio a zero prende un posto
+- **THEN** il vincolo è violato

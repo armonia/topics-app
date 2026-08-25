@@ -7,6 +7,8 @@
  *  3. What is dropped is never the open-session count while something quieter
  *     stays: "how much is going on in here" is the question the chip exists to
  *     answer.
+  *
+ * @covers STATUSLINE-01
  */
 import { describe, it, expect } from 'bun:test';
 import { workSignals, type WorkCounts } from './workSignals';

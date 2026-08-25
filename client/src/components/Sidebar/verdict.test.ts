@@ -4,6 +4,8 @@
  * viveva dentro la JSX, non poteva essere contraddetta da niente.
  *
  * Il caso che ha prodotto il modulo sta per primo, con i suoi numeri veri.
+  *
+ * @covers STATUSLINE-01
  */
 import { describe, it, expect } from 'bun:test';
 import { scegliVerdetto, mostraResidenteInBarra, MIN_COMPRESSI_MB, SOGLIA_PRESSIONE_MB } from './verdict';

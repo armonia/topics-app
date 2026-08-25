@@ -11,6 +11,8 @@
  * The order is part of the contract: whoever showed up last comes first. A list
  * that reshuffles on every network round trip is a list in which nobody is
  * recognisable any more.
+  *
+ * @covers STATUSLINE-01
  */
 import { describe, it, expect } from 'bun:test';
 import { presentiOra, facceOnline, unisciFacce, gentePresenza, unisciGente, PRESENZA_MS } from './orgPresence';
