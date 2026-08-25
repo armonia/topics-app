@@ -10,6 +10,8 @@
  *
  * Qui si prova l'altra strada: la card va in REVIEW con le due risposte, e ognuna
  * delle due rimette il padre in coda senza toccare nient'altro.
+ *
+ * @covers KANBAN-19
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

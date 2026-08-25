@@ -6,6 +6,8 @@
  * sarebbe una misura di ciò che si vede: sarebbe il modulo con cui si autorizza
  * a chiudersi le proprie card. Da qui l'asimmetria: alzare la mano sempre,
  * abbassarla mai — e nemmeno di sponda, togliendo un `visibile` già scritto.
+ *
+ * @covers KANBAN-17
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

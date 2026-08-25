@@ -7,6 +7,8 @@
  * Qui si misura il ritorno, nell'ordine in cui lo vive chi guarda la board:
  * archivia (la card sparisce) → elenca con il filtro (la ritrova) → ripristina
  * → la card è di nuovo in colonna, nella sua colonna, con la sua checklist.
+ *
+ * @covers KANBAN-18
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

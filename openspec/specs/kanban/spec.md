@@ -1054,3 +1054,153 @@ dietro» da «un altro pesante sta lavorando».
 #### Scenario: l'attesa è troppo lunga
 - **GIVEN** un pesante fermo oltre il tetto
 - **THEN** SHALL partire comunque, e la card SHALL dirlo
+
+### Requirement: KANBAN-17 — Le etichette hanno un vocabolario chiuso, e un agente può solo alzare la mano
+
+Un task SHALL portare etichette da un vocabolario CHIUSO di sette, divise in due
+famiglie: chi CHIUDE la card (`visibile`, `decisione`, `invisibile`) e che GENERE
+di lavoro è (`bugfix`, `feature`, `chore`, `misura`). Ogni etichetta SHALL
+portare la propria SORGENTE — dedotta, umana, o dell'agente.
+
+Le classi di chiusura SHALL essere TRE e non due. Con due, sette piani su
+ventinove finivano nella classe che si chiude da sola: misurato l'11/08/2026 su
+una coda vera, la ripartizione giusta è 21 visibili, 6 decisioni, 2 invisibili.
+
+Un agente SHALL poter scrivere solo etichette che ALZANO la mano. `invisibile` è
+la sola che toglie la revisione umana, e un agente NON SHALL potersela dare né
+poter TOGLIERE una classe di chiusura già presente, nemmeno di sponda. Un
+tentativo vietato SHALL far cadere l'INTERO gruppo, non solo l'etichetta
+proibita: applicarne metà sarebbe obbedire a metà di una richiesta rifiutata.
+
+Le etichette SHALL essere dedotte dai file dei commit PROPRI del task e non da
+tutto il ramo, per non ereditare il lavoro di un checkout condiviso.
+
+Una correzione UMANA su una famiglia NON SHALL essere sovrascritta dalla
+consegna successiva: basta una sola etichetta non dedotta in quella famiglia
+perché la deduzione lasci stare.
+
+Il ricalcolo SHALL cancellare l'INTERA famiglia prima di riscrivere, e quando
+non c'è niente da cambiare NON SHALL scrivere.
+
+Filtrare per più etichette SHALL essere una congiunzione, e un'etichetta ignota
+NON SHALL filtrare nulla — non SHALL filtrare tutto.
+
+#### Scenario: un agente prova a nascondersi
+- **GIVEN** un agente che scrive `invisibile` insieme a `bugfix`
+- **THEN** SHALL essere rifiutato
+- **AND** NEMMENO `bugfix` SHALL essere scritta
+
+#### Scenario: una correzione umana e una nuova consegna
+- **GIVEN** una classe di chiusura corretta a mano
+- **WHEN** arriva una nuova consegna
+- **THEN** la deduzione NON SHALL sovrascriverla
+
+### Requirement: KANBAN-18 — Archiviare scende, ripristinare scende E risale
+
+Archiviare un task SHALL archiviare tutto il suo sottoalbero: un sottotask
+orfano di un padre archiviato sarebbe irraggiungibile.
+
+Ripristinare SHALL andare in DUE direzioni — giù per tutto il sottoalbero, e SU
+per tutta la catena degli antenati. Riportare un figlio senza il padre lo
+riporterebbe dove nessuno lo vede.
+
+Il ripristino SHALL riportare lo stato ORIGINALE della card: non è una
+riapertura, e una card che era in review ci torna.
+
+Archiviare SHALL chiudere anche l'eventuale richiesta di revisione pendente: una
+card archiviata non deve lasciarne una in attesa per sempre.
+
+Il ripristino SHALL essere ambito al progetto: un identificativo valido ma di
+un altro progetto SHALL non fare NIENTE, e la card SHALL restare in archivio.
+
+> Archiviare aveva una porta sola: l'elenco inchiodava il filtro, la modifica
+> rifiutava il campo, e nessuna scrittura riportava indietro. Settantaquattro
+> task erano usciti dalla board senza un modo di rivederli.
+
+#### Scenario: un ramo intero
+- **GIVEN** un padre con figli e nipoti
+- **WHEN** lo si archivia e lo si ripristina
+- **THEN** SHALL tornare tutta la checklist annidata
+
+#### Scenario: un figlio ripristinato da solo
+- **GIVEN** un figlio archiviato sotto un padre archiviato
+- **WHEN** si ripristina il figlio
+- **THEN** SHALL tornare anche il padre
+
+#### Scenario: il progetto sbagliato
+- **GIVEN** un identificativo valido chiesto da un altro progetto
+- **THEN** NON SHALL essere scritto niente
+
+### Requirement: KANBAN-19 — Fermo sui sottotask: si CHIEDE, e non si chiede due volte la stessa cosa
+
+Quando un task resta fermo perché i suoi sottotask non li lavorerà nessuno, il
+sistema SHALL portarlo in revisione con una DOMANDA e delle scelte, invece di
+lasciarlo in una colonna dove non succede niente.
+
+La domanda NON SHALL essere posta mentre il padre ha un turno VIVO, salvo che sia
+il turno stesso a finire: senza questa guardia un passo di checklist spuntato
+tagliava il turno in corso.
+
+La domanda NON SHALL ripetersi: due giri producono una domanda sola. E l'opzione
+«rimettili in coda» NON SHALL essere offerta una SECONDA volta — quello è
+l'anello che si è chiuso su sé stesso tre volte in una notte. Il conteggio SHALL
+essere fatto su ciò che è stato SCRITTO, non sull'etichetta di un bottone.
+
+Una domanda SHALL essere riconosciuta come tale solo se l'ha scritta il SISTEMA e
+solo all'inizio di una riga: un agente che ripete la frase NON SHALL poterla far
+sparire, e citarla dentro un altro messaggio NON SHALL contare.
+
+Una domanda SHALL potersi considerare risolta quando i sottotask si sono
+sbloccati, e questa asimmetria è voluta: si può spegnere una domanda superata,
+mai accenderne una già risolta.
+
+Il rastrello periodico NON SHALL toccare chi ha un turno addosso o in arrivo, chi
+è già in revisione, e chi è appena stato rimesso in coda.
+
+La nota di contabilità SHALL essere scritta PRIMA della domanda: appesa dopo, la
+seppellisce.
+
+#### Scenario: un passo spuntato mentre l'agente lavora
+- **GIVEN** un padre con un turno vivo e sottotask fermi
+- **THEN** SHALL comparire una riga nel filo, e il turno NON SHALL essere tagliato
+
+#### Scenario: la seconda volta
+- **GIVEN** una card già rimessa in coda una volta e di nuovo ferma
+- **THEN** le scelte offerte NON SHALL comprendere «rimettili in coda»
+
+### Requirement: KANBAN-20 — Non si dispaccia in un repo dove c'è una persona al lavoro
+
+Prima di affidare un task a un agente il sistema SHALL guardare se una sessione
+ESTERNA sta lavorando nella stessa cartella. Quando c'è, e la board lavora IN
+PLACE, i task SHALL restare in coda con il chip di attesa e NESSUN turno SHALL
+partire.
+
+La guardia NON SHALL scattare quando la board usa worktree isolati: lì non ci si
+pesta i piedi, ed è la ragione per cui i worktree esistono.
+
+Solo una sessione ATTIVA SHALL contare. Un transcript fermo da un'ora non è
+qualcuno che sta scrivendo adesso, e bloccare su quello incastrerebbe la board
+per sempre dopo una qualunque finestra lasciata aperta.
+
+L'appartenenza SHALL essere per percorso reale e non per prefisso di stringa: una
+cartella che comincia con lo stesso nome NON è dentro.
+
+Una scansione FALLITA SHALL lasciare in piedi il censimento precedente e NON
+SHALL mai essere letta come «la cartella è libera». Un errore transitorio del
+filesystem non è un permesso.
+
+L'attesa SHALL essere annunciata una volta per episodio e non a ogni giro, e
+SHALL sciogliersi da sola quando la sessione esterna tace: nessun gesto umano
+SHALL essere necessario.
+
+#### Scenario: una persona nel repo, board in place
+- **GIVEN** una sessione esterna attiva nella cartella del progetto
+- **THEN** nessun task SHALL essere dispacciato, e i todo SHALL portare il chip di attesa
+
+#### Scenario: la stessa persona, board a worktree
+- **GIVEN** la stessa sessione esterna e una board che isola in worktree
+- **THEN** il dispatch SHALL procedere
+
+#### Scenario: la scansione non risponde
+- **GIVEN** una scansione che fallisce
+- **THEN** SHALL valere il censimento precedente, e NON SHALL essere dedotto che non c'è nessuno

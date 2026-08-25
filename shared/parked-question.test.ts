@@ -2,6 +2,8 @@
  * La domanda sui sottotask fermi deve spegnersi quando i sottotask si muovono —
  * e NON deve spegnersi un minuto prima. Il verso sbagliato qui non e' rumore in
  * piu': e' una card che aspetta una decisione e non lo dice piu' a nessuno.
+ *
+ * @covers KANBAN-19
  */
 import { describe, test, expect } from 'bun:test';
 import {

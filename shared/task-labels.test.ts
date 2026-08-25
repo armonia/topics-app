@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-17
+ */
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

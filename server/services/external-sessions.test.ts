@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-20
+ */
 import { describe, test, expect } from "bun:test";
 import { createExternalSessionsService } from "./external-sessions";
 import type { ExternalClaudeSession } from "../lib/external-claude-sessions";
