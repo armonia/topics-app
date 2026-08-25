@@ -11,6 +11,8 @@ import { decideOnRestart, type RestartCandidate } from "./terminal-restart-polic
  * non esistevano più.
  *
  * La riga che non deve mai più tornare verde è «claude + transcript → recreate».
+ *
+ * @covers TERM-05
  */
 
 const claude = (over: Partial<RestartCandidate> = {}): RestartCandidate => ({

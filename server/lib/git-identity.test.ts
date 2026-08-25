@@ -11,6 +11,8 @@ import { gitEnvFor, FALLBACK_GIT_IDENTITY, resetGitIdentityCache } from "./git-i
  * che sul portatile c'è e sul runner è vuoto) ma con `user.useConfigOnly`, che
  * spegne quel ripiego e mette QUALUNQUE macchina nella condizione del runner:
  * l'identità o è configurata o non esiste.
+ *
+ * @covers GIT-ID-01
  */
 function senzaIdentita(): void {
   const dir = mkdtempSync(join(tmpdir(), "git-identity-"));

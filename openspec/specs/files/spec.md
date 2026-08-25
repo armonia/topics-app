@@ -373,3 +373,254 @@ The system SHALL list scripts from the project's package.json, allow starting an
 - **THEN** a "New Agent" spawn dialog overlay appears
 - **AND** the dialog contains Task, Label, and Model fields
 
+
+### Requirement: GIT-ID-01 — Firmare un commit è un RIPIEGO, mai una sostituzione
+
+Ogni comando git che SCRIVE un commit — commit, cherry-pick, revert, merge,
+rebase, applicazione di patch, accantonamento — SHALL ricevere un ambiente che
+garantisca un'identità utilizzabile. Senza, il comando muore con un errore secco
+ovunque manchi una configurazione utente, e ciò che stava per essere consegnato
+non parte.
+
+L'identità configurata sulla macchina o sul repo SHALL VINCERE sempre.
+L'identità di ripiego SHALL entrare in gioco SOLO quando git dichiara di non
+saperne nessuna. **Un'applicazione che si intesta i merge di una persona è un
+guasto peggiore di quello che sta rimediando.**
+
+Il ripiego SHALL essere passato come AMBIENTE e non come opzione della riga di
+comando: una variabile d'ambiente vuota batte l'opzione, quindi l'opzione non
+protegge dal caso che conta.
+
+L'ambiente passato al sondaggio SHALL essere quello CORRENTE e non quello
+fotografato all'avvio del processo.
+
+Se git non parte affatto, NON SHALL essere dedotto nessun ripiego: non è una
+domanda sull'identità.
+
+Il risultato SHALL essere memorizzato PER CARTELLA: una consegna lancia decine di
+comandi git, e un sottoprocesso in più per ciascuno è un costo che nessuno ha
+chiesto.
+
+#### Scenario: la macchina ha già un'identità
+- **GIVEN** un repo con un'identità configurata
+- **THEN** SHALL essere usata quella, e il ripiego NON SHALL comparire
+
+#### Scenario: git non parte
+- **GIVEN** un ambiente in cui git non è eseguibile
+- **THEN** NON SHALL essere imposto nessun ripiego
+
+### Requirement: GIT-ID-02 — La regola si applica a TUTTI i punti di chiamata, e il banco lo verifica sul codice
+
+L'applicazione della regola precedente SHALL essere verificata SCANDENDO IL
+CODICE: ogni punto che lancia git con un verbo che scrive un commit SHALL
+passare un ambiente.
+
+Non è pedanteria: **un rimedio applicato a un solo punto di chiamata non è un
+rimedio, è un precedente.** Lo stesso guasto è ricomparso due volte in due giorni
+consecutivi, in due file diversi, dopo essere stato «risolto».
+
+La finestra in cui si cerca l'ambiente SHALL essere di più righe, non la riga
+secca: l'ambiente sta nelle opzioni dopo gli argomenti e la formattazione può
+spezzare la riga.
+
+Il banco SHALL portare la propria prova di NON VACUITÀ: SHALL verificare di aver
+riconosciuto almeno un punto di chiamata reale. Senza, un cambio di forma dello
+spawn lo renderebbe verde per ASSENZA di controlli invece che per correttezza —
+e un banco verde che non guarda niente è peggio di nessun banco.
+
+I punti che passano da un esecutore iniettato SHALL restare fuori: lì la
+responsabilità è di chi costruisce quell'esecutore.
+
+#### Scenario: un punto di chiamata nuovo senza ambiente
+- **GIVEN** un nuovo comando git che scrive un commit, senza ambiente
+- **THEN** il banco SHALL fallire
+
+#### Scenario: il matcher non riconosce più niente
+- **GIVEN** una forma di chiamata che il banco non sa più riconoscere
+- **THEN** SHALL fallire invece di passare a vuoto
+
+### Requirement: GIT-MSG-01 — Il messaggio si scrive imitando il repo, e un errore non finisce nella casella
+
+Il messaggio di un commit proposto SHALL essere modellato sugli ESEMPI REALI del
+repo — lingua, lunghezza, stile — e non su una convenzione dichiarata. Qui non
+esiste nessuno strumento che imponga un formato: la convenzione è solo uso, e
+inventare un prefisso che nessuno usa è aggiungere rumore.
+
+La prima riga SHALL dire cosa CAMBIA il commit, in una frase, e NON SHALL essere
+l'elenco dei file. Il corpo SHALL esistere solo se serve, e solo per il perché.
+
+Il pezzo di diff mandato al modello SHALL avere un BUDGET diviso PER FILE, non
+«i primi N caratteri»: un file grosso in testa affama tutti gli altri. Misurato su
+trenta commit, il diff mediano è di 10.295 caratteri e 24 su 30 superano i 4.000.
+La quota SHALL essere UGUALE per tutti, con l'avanzo di chi non la usa
+redistribuito a chi sfora.
+
+Il taglio SHALL avvenire a FINE RIGA: mezza riga di diff confonde più di quanto
+aiuti.
+
+Ciò che è «in stage» SHALL essere deciso sulla prima colonna del codice di stato,
+e le voci non tracciate o ignorate SHALL restare fuori per definizione. La
+lettura NON SHALL ripulire gli spazi dell'intera uscita: il primo carattere della
+prima riga è significativo, e toglierlo sposta ogni stato di una colonna.
+
+**Una risposta che è un ERRORE del fornitore NON SHALL finire nella casella del
+messaggio.** Un contenuto vuoto o un errore SHALL essere scartato, e un messaggio
+avvolto in un blocco di codice SHALL essere spogliato. La regola SHALL vivere in
+un punto solo: ha più di un chiamante, e due copie divergono.
+
+#### Scenario: il fornitore risponde con un errore
+- **GIVEN** una risposta che comincia dichiarando un errore
+- **THEN** NON SHALL essere usata come messaggio
+
+#### Scenario: un file enorme davanti a tutti
+- **GIVEN** un diff in cui il primo file supera da solo il budget
+- **THEN** gli altri file SHALL comunque ricevere la propria quota
+
+### Requirement: GIT-HUNK-01 — Mettere in stage un blocco solo: il lato VECCHIO non si tocca, il NUOVO scorre
+
+Un diff SHALL poter essere messo in stage, tolto dall'indice o scartato UN BLOCCO
+ALLA VOLTA.
+
+La patch ricostruita SHALL lasciare INTATTO il lato vecchio di ogni intestazione —
+deve combaciare con l'indice — e SHALL far scorrere il lato nuovo con il delta
+dei soli blocchi TENUTI, non di quelli saltati. Sbagliare questo calcolo produce
+un rifiuto secco della patch oppure, peggio, uno spostamento SILENZIOSO dello
+stage quando si prova a farla ricontare.
+
+La patch SHALL terminare con un a-capo, o viene rifiutata per riga troncata.
+
+Se il diff contiene PIÙ file, SHALL essere tenuto solo il primo: mettere in stage
+pezzi scelti da un file diverso da quello che la persona sta guardando è il
+guasto peggiore di questa superficie.
+
+Senza nessun blocco scelto SHALL essere restituito NIENTE, non una patch vuota:
+una patch vuota fa lavorare git per applicare il nulla. Un indice fuori portata
+SHALL essere ignorato, non far fallire l'operazione.
+
+Un blocco senza il secondo numero SHALL valere UNA riga. Un diff senza blocchi
+NON SHALL essere un errore. La nota di fine file senza a-capo NON SHALL sballare
+i totali.
+
+Il riassunto per l'interfaccia NON SHALL portarsi dietro le righe del diff.
+
+Il banco SHALL applicare le patch a un repo VERO e confrontare l'esito con quello
+del comando diretto, e SHALL verificare che la propria copia del diff sia ancora
+quella che git produce.
+
+#### Scenario: solo l'ultimo blocco
+- **GIVEN** una selezione del solo ultimo blocco, con blocchi saltati prima che spostano il conteggio
+- **THEN** la patch SHALL applicarsi senza essere rifiutata
+
+#### Scenario: scartare un blocco
+- **GIVEN** un blocco scartato fra molti
+- **THEN** gli altri blocchi del file NON SHALL essere toccati
+
+### Requirement: GIT-COUNT-01 — «Quanto» è un'altra domanda da «cosa», e «non lo so» non è zero
+
+Il numero di righe cambiate SHALL essere letto SEPARATAMENTE dallo stato dei
+file: lo stato dice COSA è cambiato, non QUANTO.
+
+I due lati — ciò che è in stage e ciò che non lo è — SHALL restare DUE mappe
+distinte e NON SHALL essere sommati: lo stesso file può avere righe da una parte
+e righe dall'altra, e un totale unico nasconde proprio la differenza che la
+persona sta guardando.
+
+Chi non ha conteggi SHALL risultare SCONOSCIUTO, mai ZERO. Un file non tracciato
+SHALL restare senza numeri: «0 modifiche» su un file nuovo è falso.
+
+Un file BINARIO NON SHALL apparire come «nessuna modifica»: SHALL essere marcato
+come tale.
+
+Una RINOMINA SHALL agganciare i conteggi al percorso NUOVO, e i due percorsi che
+porta con sé NON SHALL far slittare i record successivi — l'ordine dei campi è
+INVERTITO fra i due comandi che il sistema usa, ed è esattamente lì che il numero
+finisce sul file sbagliato.
+
+I percorsi SHALL essere letti con il separatore che sopravvive ai caratteri non
+inglesi.
+
+Oltre una soglia di file i conteggi SHALL essere SALTATI e la lista SHALL restare
+INTERA: su una lista enorme quel calcolo costa quanto tutto il resto della
+risposta, e nessuno legge il «+3» della quattromillesima riga.
+
+Un repo senza cronologia NON SHALL essere un guasto.
+
+Quando un progetto è aperto su una SOTTOCARTELLA, il percorso SHALL essere
+ricomposto: altrimenti la colonna dei numeri resta vuota per tutti.
+
+#### Scenario: un file per metà in stage
+- **GIVEN** un file con righe in stage e righe fuori
+- **THEN** SHALL portare due numeri diversi, non la loro somma
+
+#### Scenario: lista enorme
+- **GIVEN** più file della soglia
+- **THEN** la lista SHALL restare intera e i numeri SHALL mancare
+
+### Requirement: GIT-COMMIT-VIEW-01 — I file di UN commit: due comandi, e il formato non è quello dello stato
+
+I file toccati da un singolo commit SHALL essere letti con DUE comandi — cosa è
+successo a ciascuno, e quante righe — perché nessuno dei due basta da solo, e
+insieme costano comunque meno di un diff intero.
+
+Il formato NON è quello dell'elenco di stato: qui la lettera dello stato è un
+CAMPO A SÉ. Riusare il lettore dell'altro formato produce una lista VUOTA senza
+nessun errore — il modo peggiore di sbagliare.
+
+Il punteggio di una rinomina NON SHALL finire dentro lo stato, e i campi che una
+rinomina porta con sé NON SHALL far slittare i record successivi.
+
+Un file senza conteggi — un cambio di soli permessi — SHALL restare a ZERO invece
+di sparire: sparire lo farebbe sembrare non toccato dal commit. Un binario SHALL
+essere marcato tale.
+
+Con un progetto aperto su una sottocartella SHALL essere tenuto solo ciò che le
+appartiene, e i percorsi SHALL essere accorciati — ma una rinomina che VIENE da
+fuori SHALL conservare il percorso di provenienza INTERO, o punterebbe a un
+percorso che non esiste.
+
+Un commit vuoto SHALL dare una lista vuota.
+
+#### Scenario: cambio di soli permessi
+- **GIVEN** un file toccato senza righe cambiate
+- **THEN** SHALL comparire con zero, non sparire
+
+#### Scenario: rinomina da fuori la sottocartella
+- **GIVEN** un file rinominato da fuori dello scopo
+- **THEN** il percorso di provenienza SHALL restare intero
+
+### Requirement: GIT-IGNORE-01 — Le regole di esclusione si applicano come le applica git, non come somigliano
+
+Il riconoscimento di un percorso escluso SHALL seguire la semantica vera delle
+regole, e NON SHALL essere approssimato sul solo nome del file. Tre difetti
+misurati dall'approssimazione precedente:
+
+1. una regola ANCORATA nascondeva le cartelle omonime in profondità — file
+   TRACCIATI diventati invisibili nell'esploratore;
+2. una NEGAZIONE veniva letta come un nome che comincia col punto esclamativo,
+   quindi non riapriva niente;
+3. una wildcard IN MEZZO al nome non corrispondeva MAI, perché erano gestiti solo
+   i casi in cui stava all'inizio o alla fine.
+
+Una regola ancorata SHALL valere solo dalla propria radice; una senza separatore
+SHALL valere a QUALUNQUE profondità. Una wildcard semplice NON SHALL attraversare
+le cartelle, quella doppia SÌ.
+
+Fra regole in conflitto SHALL vincere l'ULTIMA che corrisponde, non la prima.
+
+Una regola che finisce col separatore SHALL valere solo per le CARTELLE, e
+escludere una cartella SHALL escludere i suoi discendenti.
+
+Commenti, righe vuote e spazi in coda NON SHALL diventare regole.
+
+Un file di regole ANNIDATO SHALL valere solo dalla propria cartella in giù.
+
+Copiare l'insieme delle regole NON SHALL permettere alla copia di sporcare
+l'originale.
+
+#### Scenario: una cartella omonima in profondità
+- **GIVEN** una regola ancorata alla radice e una cartella con lo stesso nome più in basso
+- **THEN** quella in basso NON SHALL essere esclusa
+
+#### Scenario: due regole in conflitto
+- **GIVEN** una regola che esclude e una successiva che riapre
+- **THEN** SHALL valere la seconda

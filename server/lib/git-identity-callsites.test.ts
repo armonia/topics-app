@@ -22,6 +22,8 @@ const SERVER = join(import.meta.dir, "..");
  * Un fix applicato a una call-site sola non è un fix, è un precedente. Questo
  * banco fa la domanda a tutte insieme, costa millisecondi e gira in
  * `bun run test:unit`, molto prima che qualcuno aspetti un browser.
+ *
+ * @covers GIT-ID-02
  */
 
 /** I verbi che scrivono un commit, cioè quelli che hanno bisogno di un autore. */

@@ -238,3 +238,108 @@ of the connect timeout.
 - **WHEN** the bridge fails to come up
 - **THEN** the error states that the log could not be opened, names the reason,
   and says the bridge's stderr was discarded
+
+### Requirement: TERM-04 — I terminali fermi si PARCHEGGIANO, e in mancanza di dati non si parcheggia
+
+Un terminale di agente fermo SHALL poter essere PARCHEGGIATO, non ucciso: lo
+stato di quella sessione sta su disco ed è ciò che la ripresa rilegge, quindi
+spegnere il processo e marcare la riga dormiente non perde niente.
+
+Serviva perché quel sottosistema non aveva né un raccoglitore di inattività né un
+tetto di vita: misurate il 02/08/2026, tredici sessioni vive da **tre giorni e
+cinque ore**, circa il 15% di una macchina e 0,9 GB per stare ferme a un prompt.
+
+**In mancanza di dati NON si parcheggia.** Un valore assente, un campo mancante,
+una fase sconosciuta SHALL valere tutti «no». L'errore di non parcheggiare costa
+un po' di memoria; l'errore opposto uccide lavoro vivo, e un raccoglitore su
+questo sottosistema l'ha già fatto una volta.
+
+NON SHALL essere parcheggiato: un terminale il cui scrollback È il suo stato,
+perché non ha una ripresa da cui ripartire; una sessione senza identificativo di
+ripresa; una sessione il cui trascritto NON esiste su disco, perché la ripresa
+fallirebbe PER SEMPRE; una sessione la cui uscita CANCELLA la riga invece di
+renderla dormiente.
+
+NON SHALL essere parcheggiata una sessione con la pseudo-terminale che sta
+scrivendo ADESSO, né una in un turno in corso, né una con un client attaccato —
+uno o più, l'esito è lo stesso.
+
+Una sessione ferma ad ASPETTARE UNA PERSONA SHALL invece poter essere
+parcheggiata: è ferma davvero.
+
+La soglia SHALL avere un confine verificato da entrambi i lati.
+
+#### Scenario: trascritto assente
+- **GIVEN** una sessione senza il proprio trascritto su disco
+- **THEN** NON SHALL essere parcheggiata
+
+#### Scenario: qualcuno sta guardando
+- **GIVEN** un client attaccato alla sessione
+- **THEN** NON SHALL essere parcheggiata
+
+### Requirement: TERM-05 — Al riavvio non si rilancia: si parcheggia, e la pane risveglia ciò che guarda
+
+Al riavvio del server, una riga di terminale la cui pseudo-terminale non esiste
+più NON SHALL essere RILANCIATA.
+
+Rilanciare ogni riga rimasta, senza chiedersi se una scheda la mostri ancora né
+da quanto sia ferma, riaccendeva per sempre le conversazioni chiuse: misurato il
+03/08/2026, undici sessioni vive per **2,4 GB**, tutte di conversazioni chiuse fra
+il 3 e il 29 luglio, riaccese insieme da un riavvio — e invisibili, perché non
+esiste una vista per una sessione senza pane.
+
+La riga SHALL essere lasciata DORMIENTE, e la pane SHALL risvegliarla da sola
+quando torna attiva. Così un riavvio costa zero processi e ciò che si sta
+guardando torna comunque su.
+
+Una riga il cui trascritto NON esiste SHALL essere CANCELLATA: la ripresa
+fallirebbe per sempre, e una riga che non può ripartire non è dormiente, è
+morta. Ma un trascritto mancante NON SHALL mai cancellare una riga di un tipo che
+non usa quel trascritto.
+
+Una sessione il cui pane autonomo non ha una rianimazione SHALL essere
+rilanciata: lì il parcheggio non ha chi lo risvegli.
+
+#### Scenario: conversazione chiusa da settimane
+- **GIVEN** una riga di una conversazione che nessuna scheda mostra
+- **THEN** NON SHALL essere rilanciata al riavvio
+
+#### Scenario: trascritto mancante su un tipo che non lo usa
+- **GIVEN** una riga non basata su trascritto, senza trascritto
+- **THEN** NON SHALL essere cancellata
+
+### Requirement: TERM-06 — Un agente legge lo SCHERMO, non lo scrollback
+
+Quando un agente deve sapere cosa c'è su un terminale, SHALL leggere lo SCHERMO —
+la griglia risultante — e non il flusso grezzo di byte.
+
+Su un programma che ridisegna IN PLACE — un menu con le frecce, una barra di
+avanzamento, qualunque interfaccia a caratteri — i byte scritti non dicono cosa
+c'è a schermo: dicono cosa è stato scritto, comprese tutte le versioni precedenti
+della stessa riga. Chi legge il grezzo vede la STORIA, non lo STATO: non sa quale
+voce è evidenziata, né se il tasto che ha premuto è arrivato.
+
+La griglia SHALL essere ottenuta rigiocando il flusso su un emulatore, e
+l'emulatore NON SHALL essere scritto a mano: le sequenze di controllo sono un
+formato ostile — cursore, cancellazioni parziali, regioni di scorrimento,
+larghezza doppia — e una copia artigianale sarebbe giusta sui casi provati e
+sbagliata sugli altri, in silenzio.
+
+SHALL essere riportata anche la posizione del CURSORE: è ciò che dice dove sta il
+programma.
+
+Le righe vuote in CODA SHALL potersi tagliare, quelle in MEZZO NO, e SHALL
+esistere il modo di chiedere lo schermo intero.
+
+La LARGHEZZA con cui si rigioca SHALL essere quella vera: rigiocare più stretti
+manda a capo dove il programma non l'aveva fatto. Dimensioni assurde SHALL
+ricadere sui valori di riferimento invece di rompersi, e un flusso vuoto SHALL
+dare uno schermo vuoto, non un errore.
+
+#### Scenario: un programma che ridisegna in place
+- **GIVEN** un flusso che riscrive più volte la stessa riga
+- **THEN** SHALL essere restituita solo l'ultima versione
+
+#### Scenario: righe vuote in mezzo
+- **GIVEN** uno schermo con righe vuote fra due righe piene
+- **THEN** quelle in mezzo SHALL restare

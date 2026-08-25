@@ -1,3 +1,6 @@
+/**
+ * @covers GIT-IGNORE-01
+ */
 /** I casi vengono dal `.gitignore` di questo repo, dove il vecchio parse
  *  faceva sparire file che git traccia. */
 import { test, expect } from "bun:test";

@@ -8,6 +8,8 @@ import { decidePark, idleParkThresholdMs, refusalLabel, summarizeRefusals, type 
  * lezione è che il costo dei due errori non è simmetrico: non parcheggiare
  * spreca un po' di RAM, parcheggiare a sproposito interrompe il lavoro di
  * qualcuno o — peggio — lo rende irrecuperabile.
+ *
+ * @covers TERM-04
  */
 
 const THRESHOLD = 30 * 60 * 1000;

@@ -2,6 +2,8 @@
  * La prova che serve non è «il testo semplice passa» — quella la supererebbe
  * anche `buffer` grezzo. È il RIDISEGNO IN PLACE: cursore che torna indietro,
  * riga cancellata e riscritta. È lì che il buffer grezzo mente e lo schermo no.
+ *
+ * @covers TERM-06
  */
 import { describe, test, expect } from "bun:test";
 import { renderScreen, screenToText, trimTrailingBlank } from "./terminal-screen";

@@ -1,3 +1,6 @@
+/**
+ * @covers GIT-MSG-01
+ */
 import { describe, expect, test } from "bun:test";
 import {
   stagedEntries,

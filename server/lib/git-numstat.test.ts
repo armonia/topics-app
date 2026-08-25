@@ -2,6 +2,8 @@
  * Le fixture sono l'output LETTERALE di git, catturato da un repo vero, non
  * ricostruito a memoria: il formato dei rename e dei binari e' esattamente il
  * punto in cui questo parser puo' sbagliare.
+ *
+ * @covers GIT-COUNT-01
  */
 import { test, expect, describe } from "bun:test";
 import { parseNumstatZ, statOf, attachNumstats, NUMSTAT_MAX_FILES } from "./git-numstat";

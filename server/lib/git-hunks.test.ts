@@ -4,6 +4,8 @@
  * sbagliarli non da' un risultato storto ma un «corrupt patch» — oppure, con
  * `--recount`, uno stage silenziosamente spostato. Quindi qui si applica per
  * davvero, su repo veri, e si guarda cosa e' finito nell'indice.
+ *
+ * @covers GIT-HUNK-01
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "./git-hunks";

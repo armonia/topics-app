@@ -1,6 +1,8 @@
 /**
  * Le fixture sono l'output LETTERALE di `git show`, catturato da un repo vero.
  * Il punto e' proprio che assomiglia a `--porcelain -z` senza esserlo.
+ *
+ * @covers GIT-COMMIT-VIEW-01
  */
 import { test, expect, describe } from "bun:test";
 import { parseNameStatusZ, mergeCommitFiles, scopeCommitFiles } from "./git-show";
