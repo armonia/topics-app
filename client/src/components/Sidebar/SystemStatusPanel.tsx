@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare, Layers, DollarSign } from 'lucide-react';
+import { AlertTriangle, Clock, DollarSign, Layers, MessageSquare, RefreshCw, RotateCcw, Server, Wifi } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
@@ -31,6 +31,8 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const { status, loading, error, refresh } = useSystemStatus(enabled, 30000);
   const openclawAvailable = useOpenClawAvailable();
   const [restarting, setRestarting] = useState(false);
+  /** Il motivo dell'ultimo riavvio fallito. `null` = non e' fallito niente. */
+  const [erroreRiavvio, setErroreRiavvio] = useState<string | null>(null);
   const [confirmingRestart, setConfirmingRestart] = useState(false);
   // Local spinner state for the manual refresh: useSystemStatus's `loading` only
   // flips on the initial fetch, not on a manual re-poll, so the icon never spun
@@ -171,10 +173,18 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               }
               setConfirmingRestart(false);
               setRestarting(true);
+              // STESSO DIFETTO DELLA «Ricarica» DI UNA TAB TERMINALE, e stessa
+              // cura: il `catch {}` vuoto ingoiava ogni rifiuto, e il bottone
+              // tornava da «Riavvio…» a «Riavvia» come se fosse andata bene.
+              // Chi guarda non ha modo di distinguere un riavvio riuscito da
+              // uno che non e' mai partito — e la mossa successiva delle due e'
+              // opposta: aspettare, oppure andare a vedere perche'.
               try {
                 await openclawControlApi.restart();
                 setTimeout(refresh, 3000);
-              } catch {}
+              } catch (e) {
+                setErroreRiavvio(e instanceof Error ? e.message : 'Riavvio non riuscito');
+              }
               setRestarting(false);
             }}
             disabled={restarting}
@@ -189,6 +199,19 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           </button>
         )}
       </div>
+      {/* Un riavvio fallito ha una RIGA, non un silenzio. Sta qui e non in un
+          toast perche' questo pannello vive nella colonna: il toast lo
+          coprirebbe la colonna stessa, e comunque il fatto va letto ACCANTO al
+          bottone che lo ha prodotto. */}
+      {erroreRiavvio && (
+        <div
+          data-testid="system-restart-error"
+          className="mt-1.5 flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1 text-[11px] text-red-400"
+        >
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          <span className="min-w-0 break-words">{erroreRiavvio}</span>
+        </div>
+      )}
     </div>
   );
 }

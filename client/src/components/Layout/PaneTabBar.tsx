@@ -55,6 +55,7 @@ import { browserTabLabel, browserTabSubtitle } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
+import { useToast } from '../Shared/Toast';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
@@ -263,6 +264,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
   // inglese finalmente dice qualcosa.
   const tr = useT();
+  const toast = useToast();
   // Ridisegna quando arriva uno snapshot di consumo nuovo. Senza, il title
   // resterebbe fermo al valore del primo render e la fetch su hover non si
   // vedrebbe mai. `useSyncExternalStore` e non uno stato locale: lo snapshot
@@ -1712,9 +1714,33 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 if (sid) {
                   // Show a "Riavvio…" overlay over the pane during the kill→respawn
                   // gap (cleared on WS reconnect); safety-clear if it never comes back.
+                  //
+                  // UN RIFIUTO NON E' UN'ATTESA. Prima il risultato della POST
+                  // veniva buttato via — nessun controllo su `ok`, e un
+                  // `.catch(() => {})` che ingoiava tutto. Il server pero'
+                  // rifiuta in tre modi (409 se un reload e' gia' in corso, 404
+                  // se la sessione non c'e', 500 se lo spawn fallisce:
+                  // `routes/terminal.ts`), e in tutti e tre l'interfaccia
+                  // mostrava «Riavvio…» per QUINDICI SECONDI e poi lo toglieva
+                  // in silenzio. E' esattamente la forma di «non va, o si
+                  // blocca»: sembra che stia lavorando, e non sta succedendo
+                  // niente. Il tetto dei 15s e' la rete di sicurezza per il
+                  // caso in cui la riconnessione non arrivi, non il modo
+                  // normale di sapere che e' andata male.
                   signalsActions.markTerminalReloading(sid);
-                  window.setTimeout(() => signalsActions.clearTerminalReloading(sid), 15000);
-                  void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}/reload`, { method: 'POST' }).catch(() => {});
+                  const rete = window.setTimeout(() => signalsActions.clearTerminalReloading(sid), 15000);
+                  const arreso = (motivo: string) => {
+                    window.clearTimeout(rete);
+                    signalsActions.clearTerminalReloading(sid);
+                    toast.error(motivo);
+                  };
+                  void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}/reload`, { method: 'POST' })
+                    .then(async (res) => {
+                      if (res.ok) return;
+                      const detta = await res.text().catch(() => '');
+                      arreso(detta.trim() || tr('tab.restartSessionFailed'));
+                    })
+                    .catch(() => arreso(tr('tab.restartSessionUnreachable')));
                 }
                 setCtxMenu(null);
               }}

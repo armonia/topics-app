@@ -302,6 +302,8 @@ const EN = {
   'tab.openedBrowser': 'This tab opened a browser',
   'tab.cloudSession': 'Cloud session (OpenClaw)',
   'tab.restartSession': 'Restart the session (Claude/codex resume via --resume)',
+  'tab.restartSessionFailed': 'Restart failed: the server refused',
+  'tab.restartSessionUnreachable': 'Restart failed: the server did not answer',
   'tab.rename': 'Rename this tab',
   'tab.newName': 'New name',
   'common.save': 'Save',

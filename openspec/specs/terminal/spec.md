@@ -394,3 +394,36 @@ misurato, l'unico rosso di oltre settemila casi.
 #### Scenario: nessun ponte disponibile
 - **GIVEN** un ambiente senza ponte
 - **THEN** SHALL essere dichiarata l'assenza, non un guasto
+
+### Requirement: RESTART-SAY-01 — Un riavvio rifiutato lo DICE, e non si finge un'attesa
+
+Il gesto che riavvia una sessione mostra un velo mentre la vecchia muore e la
+nuova nasce. Quel velo si toglie quando la sessione torna, e ha un TETTO di
+tempo come rete di sicurezza per il caso in cui non torni.
+
+Il risultato della richiesta veniva BUTTATO VIA: nessun controllo sull'esito, e
+la cattura degli errori era vuota. Ma il rifiuto ha tre forme — un riavvio già in
+corso, una sessione che non esiste, un avvio fallito — e in tutte e tre il velo
+restava per l'intero tetto e poi spariva in silenzio. È la forma esatta di «non
+va, oppure si blocca»: sembra che stia lavorando, e non sta succedendo niente.
+
+Un rifiuto SHALL togliere il velo SUBITO, e SHALL DIRE il motivo. Il tetto di
+tempo SHALL restare quello che è — la rete per la riconnessione che non arriva —
+e NON SHALL diventare il modo in cui si scopre che è andata male.
+
+La stessa regola SHALL valere per il riavvio del SERVIZIO dal pannello di stato:
+una cattura vuota lì riportava il comando da «in corso» a pronto come se fosse
+riuscito, e le due mosse successive sono OPPOSTE — aspettare, oppure andare a
+vedere perché.
+
+Il motivo SHALL essere leggibile ACCANTO al comando che lo ha prodotto, dove la
+superficie lo permette: un avviso che scorre via non è dove si va a cercare la
+ragione di un gesto che non ha fatto niente.
+
+#### Scenario: il servizio rifiuta il riavvio
+- **GIVEN** una richiesta di riavvio respinta
+- **THEN** il velo SHALL sparire subito, e il motivo SHALL essere leggibile
+
+#### Scenario: il servizio non risponde
+- **GIVEN** nessuna risposta alla richiesta
+- **THEN** SHALL essere dichiarato, non atteso fino al tetto
