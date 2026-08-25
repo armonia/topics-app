@@ -17,6 +17,7 @@
  * destro» è una frase legittima ovunque si parli di menu contestuali
  * dell'interfaccia, e vietarla in blocco renderebbe il presidio rumoroso e
  * quindi zittito.
+  * @covers RELEASE-06
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync, existsSync } from "node:fs";

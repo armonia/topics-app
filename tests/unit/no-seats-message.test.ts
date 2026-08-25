@@ -20,6 +20,7 @@
  * 403). Quello lo prova il primo caso qui sotto. Il rendering completo resta
  * scoperto e va con la spec E2E delle impostazioni — detto qui invece che
  * lasciato credere coperto.
+  * @covers LICENSE-06
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

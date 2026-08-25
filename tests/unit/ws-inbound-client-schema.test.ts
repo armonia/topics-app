@@ -9,6 +9,7 @@
  * test qui sotto diventa rosso.
  *
  * Run with: `bun test tests/unit/ws-inbound-client-schema.test.ts`
+  * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
 import {

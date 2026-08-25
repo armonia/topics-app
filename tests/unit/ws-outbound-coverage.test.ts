@@ -13,6 +13,7 @@
  * Lo scan è statico, quindi vede solo le emissioni con il tipo scritto come
  * LETTERALE. Un tipo costruito da una variabile gli sfugge: quel buco lo chiude
  * la tipizzazione di `broadcast` (fase B), non questo test.
+  * @covers WIRE-08
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";

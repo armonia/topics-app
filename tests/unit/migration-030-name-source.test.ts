@@ -1,3 +1,6 @@
+/**
+ * @covers SCHEMA-06
+ */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";

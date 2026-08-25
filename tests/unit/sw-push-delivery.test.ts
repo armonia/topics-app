@@ -23,6 +23,7 @@
  * pagina dentro il postMessage. Le `requests` già composte accompagnano solo la
  * notifica di sistema: le esegue il worker, che non può importare niente. La
  * pagina riceve i soli id e la richiesta se la compone (`runNotificationAction`).
+  * @covers CHAT-BANNER-01
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";

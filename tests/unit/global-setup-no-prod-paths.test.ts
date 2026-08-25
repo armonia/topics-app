@@ -19,6 +19,7 @@
  * radice una directory derivata dalla configurazione di test (TEST_DATA_DIR,
  * DATA_DIR, /tmp), mai `process.cwd()` — che nell'uso reale È il repo, e quindi
  * la cartella dati di produzione.
+  * @covers E2E-GATE-06
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

@@ -1,0 +1,192 @@
+## Purpose
+
+Come esce una versione: cosa deve essere vero perché si pubblichi, chi decide, e
+cosa una persona legge PRIMA di premere il tasto che raggiunge tutti.
+
+## Background
+
+TRENTASETTE RILASCI, VENTOTTO DA UNA VERIFICA NON VERDE. Misurato su sessanta
+esecuzioni: la pubblicazione partiva sul PUSH, cioè prima che qualcuno avesse
+guardato se il codice funzionava. E un'espressione di condizione non valida non
+è un errore: viene valutata FALSA, e il lavoro viene saltato in silenzio.
+
+I QUATTRO NUMERI DI VERSIONE SI SCOLLANO DA SOLI. Tre versioni di fila hanno
+toccato tre file su quattro; misurato su una di esse, il quarto era cinque
+versioni indietro.
+
+E UN RILASCIO COMPLETO PUÒ RESTARE BOZZA PER SEMPRE: dodici pacchetti su dodici
+caricati, poi un errore del servizio undici secondi DOPO l'ultimo caricamento
+riuscito. Il lavoro c'era tutto; a mancare era il giudizio su cosa fosse
+davvero successo.
+
+## Requirements
+
+### Requirement: RELEASE-01 — Si pubblica sull'ESITO della verifica, e sullo SHA che è stato giudicato
+
+La pubblicazione SHALL essere innescata dall'ESITO della verifica, non dal push:
+altrimenti esce codice che nessuno ha guardato.
+
+Una verifica ROSSA NON SHALL pubblicare. Una verifica CANCELLATA, scaduta,
+saltata o in attesa NON SHALL pubblicare: «non lo sappiamo» NON è «va bene».
+
+Il commit che ALZA la versione NON SHALL innescare un altro giro: nessun anello.
+Un ramo che non è quello principale NON SHALL pubblicare.
+
+SHALL essere preso lo SHA che la verifica ha GIUDICATO, non lo stato corrente del
+ramo: un prelievo senza riferimento esplicito pubblica qualcos'altro.
+
+Il lavoro di rilascio SHALL dipendere da quello di versione, così il cancello
+vale per entrambi.
+
+Le clausole scritte nel flusso e quelle rigiocate dal banco SHALL essere le
+STESSE, e il banco SHALL verificarlo: altrimenti diverge senza che nessuno lo
+sappia.
+
+#### Scenario: una verifica cancellata
+- **GIVEN** un esito non verde e non rosso
+- **THEN** NON SHALL essere pubblicato niente
+
+#### Scenario: il commit che alza la versione
+- **GIVEN** il commit prodotto dal rilascio precedente
+- **THEN** NON SHALL innescare un nuovo rilascio
+
+### Requirement: RELEASE-02 — I quattro numeri di versione coincidono, e un gesto solo li riallinea
+
+I quattro file che dichiarano la versione SHALL portare lo STESSO numero, e ognuno
+SHALL dichiararne uno leggibile.
+
+Il messaggio di fallimento SHALL NOMINARE il gesto che risolve: un cancello che
+dice solo «non coincidono» lascia a chi legge il compito di scoprire come si
+aggiusta.
+
+SHALL esistere UN gesto che li riallinea tutti e quattro — riallineare senza
+inventare un numero nuovo, imporne uno esplicito, o incrementare — e un albero
+scollato SHALL essere ROSSO prima di quel gesto e VERDE dopo.
+
+Un argomento che non è né una parola nota né un numero di versione valido SHALL
+uscire con un errore, non scrivere un incremento a caso.
+
+#### Scenario: un file rimasto indietro
+- **GIVEN** tre file allineati e uno no
+- **THEN** il cancello SHALL fallire, nominando il gesto che risolve
+
+#### Scenario: un argomento non valido
+- **GIVEN** una parola che non è né nota né un numero di versione
+- **THEN** SHALL essere un errore
+
+### Requirement: RELEASE-03 — Si pubblica se i PACCHETTI ci sono, non se il lavoro è uscito zero
+
+Il giudizio sulla pubblicabilità SHALL guardare i PACCHETTI PRESENTI, non il
+codice di uscita dei lavori di costruzione: un errore del servizio dopo l'ultimo
+caricamento riuscito lasciava una costruzione completa su tre sistemi operativi
+bloccata come bozza per sempre.
+
+L'insieme atteso SHALL essere DICHIARATO, e il giudizio SHALL guardare i SUFFISSI,
+non la versione nel nome.
+
+Un pacchetto MANCANTE NON SHALL pubblicare, e il messaggio SHALL dire QUALE. Una
+FIRMA mancante NON SHALL pubblicare: senza, l'aggiornamento automatico non
+installa. Un sistema operativo INTERO mancante NON SHALL pubblicare. Il manifesto
+dell'aggiornamento mancante NON SHALL pubblicare: senza, gli altri non vengono
+mai chiesti.
+
+Una bozza VUOTA NON SHALL essere pubblicata. Pacchetti IN PIÙ NON SHALL
+disturbare: la domanda è «c'è tutto», non «c'è solo».
+
+Il controllo dei pacchetti SHALL venire PRIMA della pubblicazione, e il flusso
+SHALL girare ANCHE con una costruzione rossa — ma solo se il rilascio è stato
+creato.
+
+#### Scenario: costruzione rossa e pacchetti completi
+- **GIVEN** dodici pacchetti su dodici e un lavoro uscito non-zero
+- **THEN** SHALL essere pubblicato
+
+#### Scenario: una firma mancante
+- **GIVEN** un pacchetto senza la sua firma
+- **THEN** NON SHALL essere pubblicato
+
+### Requirement: RELEASE-04 — Chi preme «pubblica» LEGGE che raggiunge tutti
+
+Prima del gesto che pubblica, la schermata SHALL DIRE la CONSEGUENZA: il difetto
+non era la velocità, era che NESSUNA schermata lo diceva — si elencavano i commit
+in uscita e si offriva il tasto, e chi lo premeva prendeva una decisione di
+pubblicazione senza che niente gliela nominasse.
+
+La frase SHALL NOMINARE CHI la riceve, non solo che «esce», e SHALL dire che il
+cancello è la verifica automatica, non un'approvazione umana.
+
+Il gesto che porta il lavoro sul ramo principale SENZA pubblicare SHALL
+DICHIARARE che non pubblica — anche nella sua variante forzata.
+
+La riga SHALL comparire SOLO quando c'è davvero qualcosa da pubblicare, e SHALL
+stare PRIMA dei tasti, non dopo.
+
+Con l'aggiornamento AUTOMATICO acceso NON SHALL essere offerto il tasto che
+scarica: è un gesto che non fa niente. SHALL essere comunque DETTO che una
+versione sta arrivando — il silenzio no, un gesto inutile nemmeno. Lo stato SHALL
+essere letto dalla STESSA fonte che usa la barra, o le due si contraddicono.
+
+#### Scenario: qualcosa da pubblicare
+- **GIVEN** dei commit in uscita
+- **THEN** la conseguenza SHALL essere scritta prima dei tasti
+
+#### Scenario: aggiornamento automatico acceso
+- **GIVEN** l'automatismo attivo
+- **THEN** NON SHALL essere offerto il tasto che scarica
+
+### Requirement: RELEASE-05 — I documenti descrivono il prodotto che SPEDISCE oggi
+
+I documenti che una persona legge per configurare o installare SHALL descrivere
+ciò che il prodotto è ADESSO.
+
+Il file di esempio della configurazione NON SHALL INCHIODARE la scelta del
+fornitore: fissarne uno che non risponde non produce nessun errore — la chat
+semplicemente non risponde mai. SHALL nominare TUTTI i valori validi, e SHALL
+segnalare quelli che si registrano senza il proprio motore.
+
+La documentazione SHALL nominare la chiave che DAVVERO decide il predefinito, e
+nell'ORDINE in cui viene consultata.
+
+I pacchetti PROMESSI SHALL essere esattamente quelli che la costruzione produce:
+promettere un formato che non si costruisce più manda a cercare un file che non
+esiste.
+
+Le descrizioni del prodotto NON SHALL essere sopravvissute a un cambio di
+direzione, e i crediti NON SHALL nominare un guscio archiviato o un componente
+che nessun pacchetto contiene. Ogni componente CREDITATO SHALL portare la propria
+licenza, e i motori con obblighi di licenza SHALL essere NOMINATI su OGNI
+piattaforma dove viaggiano.
+
+I setacci che verificano tutto questo SHALL essere visti PRENDERE il testo che
+hanno sostituito.
+
+#### Scenario: un formato di pacchetto non più costruito
+- **GIVEN** una promessa nella documentazione
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un fornitore inchiodato nella configurazione di esempio
+- **GIVEN** una scelta fissata
+- **THEN** il banco SHALL fallire
+
+### Requirement: RELEASE-06 — Le istruzioni di installazione descrivono un percorso che ESISTE
+
+Le istruzioni per aprire l'applicazione la prima volta SHALL descrivere un
+percorso che il sistema operativo offre ANCORA: il vecchio aggiramento non esiste
+più, e chi lo segue non trova la voce, riprova, conclude che il pacchetto è
+corrotto e se ne va.
+
+Il percorso che FUNZIONA SHALL essere scritto DOVE serve, in tutti i documenti che
+ne parlano.
+
+NON SHALL essere suggerito di spegnere la protezione per TUTTA la macchina.
+
+Il controllo SHALL leggere per PARAGRAFO e SHALL riconoscere un paragrafo che
+NEGA l'istruzione vecchia: citarla per dire che non vale più non è darla.
+
+#### Scenario: l'istruzione superata
+- **GIVEN** un documento che la dà come valida
+- **THEN** il banco SHALL fallire
+
+#### Scenario: la stessa istruzione citata per negarla
+- **GIVEN** un paragrafo che dichiara che non vale più
+- **THEN** NON SHALL essere un fallimento

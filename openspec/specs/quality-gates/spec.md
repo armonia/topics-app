@@ -218,3 +218,128 @@ con l'esito dell'impedimento.
 #### Scenario: un'esenzione senza ragione
 - **GIVEN** una riga esentata senza motivo scritto
 - **THEN** l'esenzione NON SHALL avere effetto
+
+### Requirement: GATE-07 — Niente di PERSONALE in un file tracciato, e il debito può solo scendere
+
+Nessun file tracciato SHALL contenere il percorso della cartella personale, il
+nome di chi lavora al repository, o un indirizzo di posta su un dominio
+personale. Sono già rientrati tutti e tre: decine di percorsi in file di misura,
+oltre cento file col nome proprio alla vigilia del primo push pubblico, e un
+indirizzo reale dentro una migration — trovato da una spec, non da un cancello.
+
+Il nome SHALL essere cercato in OGNI grafia in cui compare, compresa quella
+codificata per un indirizzo e quella usata negli identificativi di cartella.
+
+L'utente di una macchina di costruzione NON SHALL essere trattato come il nome di
+una persona, o decine di file legittimi diventerebbero rossi.
+
+Il PREDICATO SHALL essere visto MORDERE: un indirizzo personale preso, uno di
+ruolo lasciato stare.
+
+Il debito noto SHALL poter solo SCENDERE: nessun file NUOVO, e nessuna voce
+STANTIA nell'elenco. Ogni esenzione SHALL portare scritta la propria RAGIONE.
+
+Il cancello che protegge la pubblicazione SHALL guardare ciò che il push
+AGGIUNGE — contenuto E messaggi di commit — e SOLO verso i remoti configurati: un
+nome che sta in un ramo locale NON è una fuga, e un riferimento a un remoto che
+non esiste più NON pubblica niente. Senza l'elenco dei nomi SHALL uscire con un
+errore invece di fingere di aver guardato.
+
+Ogni elenco esaminato SHALL essere verificato NON VUOTO: un cancello che misura
+zero file è verde e cieco.
+
+#### Scenario: un nome solo nel messaggio di un commit
+- **GIVEN** contenuto pulito e un messaggio che porta il nome
+- **THEN** il push SHALL essere bloccato
+
+#### Scenario: un ramo puramente locale
+- **GIVEN** un nome presente solo su un ramo mai pubblicato
+- **THEN** NON SHALL essere trattato come una fuga
+
+### Requirement: GATE-08 — Nessun CICLO fra moduli, nessun tipo SPECCHIATO, nessun byte invisibile
+
+I moduli NON SHALL formare CICLI di importazione oltre a quelli DICHIARATI, e
+ogni deroga dichiarata SHALL corrispondere a un ciclo che esiste ancora: nessuna
+eccezione fossile.
+
+Un tipo NON SHALL essere dichiarato DUE volte, una per lato: gli specchi
+divergono in silenzio — campi mai arrivati al client, una modifica costruita da
+un tipo incompleto che azzera ciò che non conosce, uno schema che accetta valori
+che l'originale rifiuta. Ogni eccezione SHALL spiegare PERCHÉ.
+
+Nessun sorgente SHALL contenere un byte NULLO: non si vede e non si trova — la
+ricerca testuale salta l'intero file come binario, e dentro una stringa produce
+un confronto che fallisce fra due valori stampati identici. Lo scanner SHALL
+guardare solo i file di TESTO, e SHALL essere visto trovarne uno davvero.
+
+Il budget dei tipi non specificati SHALL contare solo quelli scritti in CODICE:
+non dentro una parola, non nei commenti, non dentro una stringa di prosa — un
+cancello NATO rosso per una parola inglese in una descrizione è un cancello che
+verrà spento. Uno con la sua RAGIONE scritta NON SHALL contare. Il tetto SHALL
+coincidere con la misura di oggi.
+
+#### Scenario: un tipo dichiarato su entrambi i lati
+- **GIVEN** lo stesso tipo in client e in server
+- **THEN** il banco SHALL fallire, salvo eccezione motivata
+
+#### Scenario: la parola dentro una stringa di prosa
+- **GIVEN** un testo che contiene la parola
+- **THEN** NON SHALL essere contata
+
+### Requirement: GATE-09 — Un banco non eredita la macchina di chi lo lancia
+
+Nessun banco SHALL dichiarare un percorso FISSO nella cartella temporanea
+condivisa: misurato, tre corse in parallelo producevano decine di rossi per
+lucchetti contesi, tutti verdi presi da soli.
+
+Ogni banco che lancia il sistema di versione SHALL passare un AMBIENTE proprio,
+che disattiva i ganci della macchina e la firma: su questa macchina un gancio di
+terze parti chiamava la rete a ogni commit — misurato, più del doppio del tempo
+per commit, e sotto carico il superamento del tempo massimo. Il rilevatore SHALL
+essere visto dire di NO su una chiamata senza ambiente e di sì sulle varianti
+corrette. Il caricamento globale da solo NON BASTA: senza ambiente esplicito
+l'isolamento si perde, e il banco SHALL dirlo.
+
+Nessun banco SHALL leggere un file che esiste sul disco locale ma NON è
+tracciato: su un clone pulito quel file non c'è, e il rosso arriva dove nessuno
+lo collega — misurato, oltre cento commit senza un pacchetto di rilascio.
+
+L'estrattore SHALL riconoscere la forma che ha rotto la verifica, ed escludere i
+falsi positivi già noti.
+
+#### Scenario: un percorso fisso nella cartella temporanea
+- **GIVEN** un banco che lo dichiara
+- **THEN** il cancello SHALL fallire
+
+#### Scenario: un file non tracciato letto da un banco
+- **GIVEN** un file presente in locale e assente dal repository
+- **THEN** il cancello SHALL fallire
+
+### Requirement: GATE-10 — Ogni cancello è CABLATO, e ciò che è un referto non è un cancello
+
+OGNI cancello SHALL essere eseguito da qualcuno, o SHALL avere scritta la ragione
+per cui non lo è: un elenco tenuto a mano si è scollato subito, e tre cancelli
+non giravano da nessuna parte.
+
+Nessuna ragione dichiarata SHALL essere SCADUTA.
+
+Un REFERTO — qualcosa che misura e racconta — NON SHALL entrare in un flusso di
+verifica: uno di essi leggeva lo stato di una bacheca da un file che su un clone
+pulito non esiste, e usciva con un errore senza guardare niente. La distinzione
+SHALL stare nel NOME, non nella memoria di chi lo ha scritto.
+
+Il riconoscimento SHALL rispettare i CONFINI di parola — un nome che è prefisso di
+un altro NON è quell'altro — e SHALL distinguere la DEFINIZIONE dall'INVOCAZIONE.
+
+Il cancello sul codice morto SHALL sapere DOVE è CIECO: un modulo importato in
+modo opaco lo rende invisibile, e senza dirlo il verde non significa niente. Ogni
+punto cieco noto SHALL puntare a un file che esiste ancora e SHALL avere un
+motivo scritto; nessuna sonda SHALL restare dimenticata in un file tracciato.
+
+#### Scenario: un cancello nuovo mai cablato
+- **GIVEN** uno script di verifica che nessun flusso esegue
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un referto messo in un flusso
+- **GIVEN** uno script che misura e racconta
+- **THEN** NON SHALL comparire in un flusso di verifica

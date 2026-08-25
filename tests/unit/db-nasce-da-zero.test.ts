@@ -19,6 +19,7 @@
  *
  * Questo caso è la prova che mancava, e vale finché resta l'unica cosa che
  * esercita la catena vera invece della sua copia.
+  * @covers SCHEMA-04
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

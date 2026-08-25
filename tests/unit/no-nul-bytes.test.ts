@@ -3,6 +3,7 @@
  * l'intero file come binario, e dentro una stringa produce un confronto che
  * fallisce fra due valori stampati identici. Questo test è la rete — vedi
  * scripts/check-nul-bytes.ts per il perché per esteso.
+  * @covers GATE-08
  */
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";

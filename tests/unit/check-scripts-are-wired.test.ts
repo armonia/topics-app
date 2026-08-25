@@ -32,6 +32,7 @@
  * Nessuno dei due controlli tocca il disco oltre a `package.json` e ai
  * workflow, ne' un database, ne' la rete: le stesse cose che i referti fanno e
  * che li tengono fuori dalla CI.
+  * @covers GATE-10
  */
 import { describe, it, expect } from "bun:test";
 import { readdirSync, readFileSync } from "fs";

@@ -642,3 +642,24 @@ sbagliata.
 #### Scenario: uscita per macchina
 - **GIVEN** lo strumento eseguito nella forma destinata ai programmi
 - **THEN** tutta l'uscita SHALL essere analizzabile in una volta sola
+
+### Requirement: USAGE-19 — Un numero non rappresentabile diventa ZERO, non finisce a schermo
+
+I conteggi mostrati SHALL essere NORMALIZZATI prima di essere sommati: la sola
+sostituzione dell'assenza copre il valore nullo e quello non definito, ma NON un
+valore non rappresentabile — che passava e compariva a schermo come tale, accanto
+alla parola «gettoni».
+
+Un valore non finito, e uno NEGATIVO, SHALL valere ZERO. Un valore che non è
+nemmeno un numero SHALL essere rifiutato.
+
+Una somma con dentro un valore sporco SHALL restituire la parte VALIDA, non
+propagare lo sporco. Una coppia di valori legittimi NON SHALL essere toccata.
+
+#### Scenario: un valore non rappresentabile
+- **GIVEN** un conteggio non finito
+- **THEN** SHALL valere zero
+
+#### Scenario: una somma mista
+- **GIVEN** un valore valido e uno sporco
+- **THEN** SHALL restare il valido

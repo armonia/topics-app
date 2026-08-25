@@ -15,6 +15,7 @@
  * Il test legge il SORGENTE: è l'unico posto in cui la domanda «esistono chip
  * fuori dall'elenco?» ha una risposta, dato che un chip mancante non produce
  * DOM da interrogare.
+  * @covers KANBAN-57
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

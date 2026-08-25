@@ -26,6 +26,7 @@
  * Solo l'invariante condizionale. `transparent` (nessun velo) passa: e' la
  * forma piu' forte, non un'eccezione. Un velo che NON viene da `--bg-surface`
  * e' rosso. Il comportamento a runtime lo verifica la suite E2E.
+  * @covers CHROME-01
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

@@ -29,6 +29,7 @@
  * innocente insegna a chi legge che la deroga e' normale. Se un giorno un test
  * di quelle cartelle iniziasse a scrivere sul disco, quella e' la riga da
  * cambiare, ma va cambiata sapendo cosa si sta comprando.
+  * @covers GATE-09
  */
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";

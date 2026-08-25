@@ -697,3 +697,31 @@ basta chiedere un intervallo per aggirarle.
 #### Scenario: una richiesta a intervalli
 - **GIVEN** una risposta parziale su un formato che può portare script
 - **THEN** SHALL portare le stesse guardie della risposta intera
+
+### Requirement: MEDIA-02 — La durata di una clip si LEGGE, e la scala dei tempi non si dà per scontata
+
+La durata di una clip SHALL essere letta dalla propria intestazione, applicando la
+SCALA dei tempi dichiarata: i valori nell'intestazione sono in unità del
+contenitore, non in millisecondi, e sbagliare la scala di un fattore due lascia
+passare una clip lunga il doppio dicendo la metà. In assenza di scala dichiarata
+SHALL valere l'unità predefinita.
+
+Senza durata nell'intestazione SHALL essere RICAVATA dall'ultimo blocco, e questo
+SHALL essere DICHIARATO: è una stima, non il valore scritto.
+
+Una durata a ZERO NON SHALL contare come dichiarata: un registratore interrotto
+lascia lo zero al posto del valore.
+
+Un file che NON è del formato atteso, o privo della propria struttura, SHALL
+SOLLEVARE invece di rispondere zero: uno zero si legge come «clip vuota».
+
+Il banco SHALL usare file COSTRUITI byte per byte, così l'attesa è un numero
+DICHIARATO e non l'uscita del lettore stesso.
+
+#### Scenario: una scala dei tempi non predefinita
+- **GIVEN** un'intestazione con la propria scala
+- **THEN** la durata SHALL essere convertita, non presa così com'è
+
+#### Scenario: un file di un altro formato
+- **GIVEN** un contenuto che non è del formato atteso
+- **THEN** SHALL sollevare, non restituire zero

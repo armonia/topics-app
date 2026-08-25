@@ -12,6 +12,7 @@
  * applicano entrambi e che un database nato con la vecchia forma non riesegue
  * niente. Il cancello che impedisce che due `089` arrivino su main sta in
  * tests/unit/migration-number-collision.test.ts.
+  * @covers SCHEMA-05
  */
 import { describe, it, expect, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";

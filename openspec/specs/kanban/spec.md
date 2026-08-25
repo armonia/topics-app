@@ -2140,3 +2140,27 @@ SPARIZIONE SHALL svegliare: la riga che ne dipendeva deve poter smettere.
 #### Scenario: una rilettura identica
 - **GIVEN** lo stesso contenuto riletto
 - **THEN** nessuno SHALL essere svegliato
+
+### Requirement: KANBAN-57 — Ogni chip della riga di dettaglio è coperto dalla condizione che disegna la riga
+
+OGNI elemento disegnato dentro la riga condizionale di una card SHALL essere
+compreso nella condizione che decide se quella riga esiste. Un elemento fuori
+dalla condizione non compare MAI, e il difetto è invisibile a ogni misura: il
+database, il feed e la condizione compilata dicevano tutti la cosa giusta mentre
+a schermo non c'era niente — tre giri di diagnosi.
+
+Il banco SHALL rilevare da sé gli elementi NON mappati, o si limita a confermare
+la mappa che qualcuno ha scritto e resta verde mentre la prova a schermo diventa
+rossa.
+
+Il predicato di un elemento SHALL essere UNO SOLO, dichiarato una volta: due copie
+divergono, e nel caso vero una delle due faceva comparire il chip su un valore
+ZERO.
+
+#### Scenario: un chip nuovo non aggiunto alla condizione
+- **GIVEN** un elemento dentro la riga ma fuori dal predicato
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un valore zero
+- **GIVEN** un conteggio pari a zero
+- **THEN** il chip NON SHALL comparire

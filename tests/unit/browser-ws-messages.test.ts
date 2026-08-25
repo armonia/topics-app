@@ -10,6 +10,7 @@
  * discriminator values fail. This is the WS-01 contract test from the
  * v3 foundations roadmap (`/.planning/ROADMAP_v3_FOUNDATIONS.md`) —
  * extending main without merging the abandoned branch.
+  * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
 import {

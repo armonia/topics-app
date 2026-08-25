@@ -1,3 +1,6 @@
+/**
+ * @covers E2E-GATE-07
+ */
 import { describe, test, expect } from "bun:test";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";

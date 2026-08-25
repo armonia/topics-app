@@ -4,6 +4,7 @@
  * costa più del silenzio. Qui si inchiodano le due decisioni che contano —
  * quando TACERE (server vivo: l'errore è vero, va lasciato intatto) e quando
  * puntare il dito su un'altra run.
+  * @covers E2E-GATE-05
  */
 import { describe, it, expect } from "bun:test";
 import {

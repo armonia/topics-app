@@ -13,6 +13,7 @@
  * looks at, and the line that applies it (`env: gitEnv()`) is easy to forget
  * in the next file that will be born. What is measured here is the effect, not
  * the presence of the code.
+  * @covers GATE-09
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";

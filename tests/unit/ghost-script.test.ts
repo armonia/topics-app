@@ -10,6 +10,7 @@
  *   - cwd in ~/Projects/dancerooms → NO (non e' un worktree di Topics)
  *   - source:"detected" → NO (non e' di proprieta' di Topics)
  *   - symlink /tmp vs /private/tmp su worktree viva → NO (canonicalizzato)
+  * @covers PROCESS-11
  */
 import { describe, it, expect } from "bun:test";
 import { isGhostScript, hasRunningScriptsInWorktree } from "../../server/lib/ghost-script";

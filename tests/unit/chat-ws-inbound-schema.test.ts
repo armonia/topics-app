@@ -3,6 +3,7 @@
  * WS-01 extension covering `/ws` main channel).
  *
  * Run with: `bun test tests/unit/chat-ws-inbound-schema.test.ts`
+  * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
 import {

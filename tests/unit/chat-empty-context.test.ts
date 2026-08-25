@@ -7,6 +7,7 @@
  * descrivere «modello auto, effort auto, chiede prima di agire»: e' un topic
  * normale, e stampargli addosso tre default e' il modo in cui una riga di
  * contesto diventa una decorazione che si smette di leggere.
+  * @covers CHAT-LAYOUT-01
  */
 import { describe, it, expect } from "bun:test";
 import { contextBits } from "../../client/src/components/Chat/emptyStateContext";

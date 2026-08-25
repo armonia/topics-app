@@ -1,3 +1,6 @@
+/**
+ * @covers GATE-07
+ */
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "child_process";
 import { readFileSync, statSync } from "fs";

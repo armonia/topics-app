@@ -27,6 +27,7 @@
  * macOS `client/src/app.tsx` «esiste» anche se il file si chiama `App.tsx`, e
  * su Linux no. Un letterale che non corrisponde a nessun file vero non e'
  * affar suo: puo' essere una fixture costruita a runtime.
+  * @covers GATE-09
  */
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";

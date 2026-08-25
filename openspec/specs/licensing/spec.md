@@ -184,3 +184,23 @@ visto FUNZIONARE su una chiave inventata.
 #### Scenario: un numero di posti non valido
 - **GIVEN** un valore non numerico
 - **THEN** SHALL cadere sul minimo
+
+### Requirement: LICENSE-06 — Un rifiuto per posti esauriti si LEGGE e si MOSTRA
+
+Il rifiuto per posti esauriti SHALL portare lo STESSO codice sul server e
+sull'interfaccia, e la risposta SHALL essere LETTA: il difetto non era il
+disegno — era che la risposta non veniva letta affatto, e il modulo si chiudeva
+su un rifiuto senza dire niente.
+
+Il messaggio SHALL esistere in ENTRAMBE le lingue e SHALL dire cosa si PUÒ fare,
+non solo cosa non si può.
+
+Il rifiuto NON SHALL buttare via quello che la persona aveva appena scritto.
+
+#### Scenario: il server rifiuta
+- **GIVEN** un rifiuto per posti esauriti
+- **THEN** SHALL comparire un messaggio che dice cosa si può fare
+
+#### Scenario: dopo il rifiuto
+- **GIVEN** del testo appena inserito
+- **THEN** NON SHALL essere cancellato

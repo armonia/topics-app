@@ -21,6 +21,7 @@
  * Non fissa i cinque nomi di oggi: li ricalcola dall'albero vero. Una spec
  * nuova che nasce con un nome contenuto in un'altra fa rosso QUI, prima di
  * costare una passata intera a nessuno.
+  * @covers E2E-GATE-07
  */
 import { describe, test, expect } from "bun:test";
 import { readdirSync } from "node:fs";

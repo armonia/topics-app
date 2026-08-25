@@ -17,6 +17,7 @@
  * Il secondo verso è quello che conta: aggiungere un deploy senza scriverlo è
  * esattamente il modo in cui una destinazione nuova arriva senza che nessuno
  * decida chi la sceglie e cosa vede chi approva.
+  * @covers RELEASE-05
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";

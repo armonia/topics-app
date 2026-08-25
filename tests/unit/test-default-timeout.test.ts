@@ -15,6 +15,7 @@
  * stiamo verificando comparirebbe per colpa dell'import. Sarebbe verde anche
  * col preload staccato da bunfig. Quindi il nome della chiave e' ricopiato a
  * mano qui sotto, e i numeri si leggono dal sorgente invece che importarli.
+  * @covers E2E-GATE-07
  */
 import { describe, it, expect } from "bun:test";
 import { existsSync, readFileSync } from "fs";

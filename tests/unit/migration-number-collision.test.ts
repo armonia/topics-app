@@ -10,6 +10,7 @@
  *
  * Il primo test è la rete sul repo vero; gli altri provano che la rete morde
  * davvero — su un repo git di prova con due `089` costruito qui dentro.
+  * @covers SCHEMA-05
  */
 import { describe, it, expect } from "bun:test";
 import { execFileSync } from "child_process";

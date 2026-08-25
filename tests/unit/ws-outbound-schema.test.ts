@@ -3,6 +3,7 @@
  * emit-side validation).
  *
  * Run with: `bun test tests/unit/ws-outbound-schema.test.ts`
+  * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
 import {

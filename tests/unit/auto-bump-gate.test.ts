@@ -19,6 +19,7 @@
  *
  * Un lint YAML non basterebbe: direbbe che la sintassi e' valida, non che la
  * condizione scarta un `cancelled`.
+  * @covers RELEASE-01
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

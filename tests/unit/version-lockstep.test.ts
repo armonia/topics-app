@@ -1,3 +1,6 @@
+/**
+ * @covers RELEASE-02
+ */
 import { describe, test, expect } from "bun:test";
 import { resolve } from "path";
 import { PKG, readVersions } from "./version-sources";

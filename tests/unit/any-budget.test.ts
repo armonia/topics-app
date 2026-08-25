@@ -6,6 +6,7 @@
  * finiscono filtrati via, il totale scende a 0, il confronto col tetto passa e
  * il cancello diventa una decorazione che dice OK per sempre. Per questo qui si
  * verifica anche che stia MISURANDO qualcosa, non solo che sia verde.
+  * @covers GATE-08
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

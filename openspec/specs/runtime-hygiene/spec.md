@@ -397,3 +397,28 @@ Una connessione NUOVA SHALL nascere col polso AZZERATO, non già scaduta.
 #### Scenario: una risposta ricevuta
 - **GIVEN** un segno di vita
 - **THEN** il conto SHALL ripartire da lì
+
+### Requirement: RUNTIME-13 — Una funzione di riferimento INLINE non chiama un setter di stato
+
+Una funzione passata INLINE come riferimento a un elemento NON SHALL chiamare un
+setter di stato: viene ricreata a ogni disegno, quindi viene chiamata a ogni
+disegno, e chiamare un setter da lì produce una raffica che porta giù la
+superficie.
+
+La forma CORRETTA — scrivere in un riferimento, o estrarre la funzione — SHALL
+essere lasciata stare: il repository la usa in molti punti, e un rilevatore che la
+segnala viene spento.
+
+Un nome che SEMBRA un setter ma che il file DICHIARA come funzione propria NON
+SHALL essere segnalato.
+
+Il rilevatore SHALL leggere il corpo su PIÙ RIGHE, che è come il difetto si
+scrive davvero, e il file che aveva il difetto SHALL essere verificato pulito.
+
+#### Scenario: la forma che ha rotto la superficie
+- **GIVEN** una funzione di riferimento inline che chiama un setter
+- **THEN** il banco SHALL fallire
+
+#### Scenario: una funzione già estratta
+- **GIVEN** un riferimento memoizzato
+- **THEN** NON SHALL essere segnalato

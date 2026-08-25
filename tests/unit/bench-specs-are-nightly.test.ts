@@ -1,3 +1,6 @@
+/**
+ * @covers E2E-GATE-07
+ */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

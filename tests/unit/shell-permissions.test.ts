@@ -15,6 +15,7 @@
  * Questo test guarda il SORGENTE del plist, che e' l'unico posto in cui la
  * dichiarazione si puo' perdere: `tauri build` lo fonde nel bundle, quindi se
  * la chiave c'e' qui c'e' anche nell'app.
+  * @covers STT-04
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

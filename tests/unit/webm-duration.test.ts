@@ -10,6 +10,7 @@
  * I tre casi che contano: la durata scritta nell'header, la stessa con una
  * scala dei tempi diversa dal default, e l'header senza durata — dove il numero
  * deve uscire dai cluster e DIRLO.
+  * @covers MEDIA-02
  */
 import { describe, it, expect } from "bun:test";
 import { misuraWebm } from "../e2e/helpers/webm-duration";

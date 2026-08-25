@@ -8,6 +8,7 @@
  * un knip intero, quindi sta in CI, non in `test:unit`) più due reti che non
  * costano niente: nessuna sonda dimenticata in un file tracciato, e nessuna
  * riga di KNOWN_BLIND che punta a un file sparito.
+  * @covers GATE-10
  */
 import { describe, it, expect } from "bun:test";
 import { execFileSync } from "child_process";

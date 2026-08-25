@@ -13,6 +13,7 @@
  * `client/public/*` are the SOURCES, `public/*` are the copies the client build
  * writes. Editing one of a pair silently ships the other, so the pair equality is
  * asserted on bytes, not on parsed JSON.
+  * @covers RELEASE-05
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

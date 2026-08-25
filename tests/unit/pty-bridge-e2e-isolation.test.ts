@@ -26,6 +26,7 @@
  * `spawn-helper` può legittimamente non esserci. Il test non finge di misurare
  * ciò che non c'è: dice ESPLICITAMENTE quale caso sta guardando, e su macOS —
  * dove il difetto vive e dove girano le E2E del terminale — è pienamente vivo.
+  * @covers E2E-GATE-06
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";

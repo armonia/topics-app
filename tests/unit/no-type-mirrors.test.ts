@@ -26,6 +26,7 @@
  * Euristica, non un compilatore: confronta NOMI, non forme. Un tipo dichiarato
  * una volta sola in un posto sbagliato non lo vede nessuno. È il costo di un
  * controllo che gira in mezzo secondo su tutto il repo.
+  * @covers GATE-08
  */
 
 import { describe, expect, test } from 'bun:test';

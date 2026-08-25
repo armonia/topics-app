@@ -112,3 +112,24 @@ sottostringa: la stessa frase dentro un discorso vero è un discorso vero.
 #### Scenario: la stessa frase dentro un discorso
 - **GIVEN** l'artefatto come sottostringa di una trascrizione più lunga
 - **THEN** NON SHALL essere toccato
+
+### Requirement: STT-04 — Il guscio desktop DICHIARA i permessi che il client chiede
+
+Il manifesto del guscio desktop SHALL dichiarare le chiavi d'uso per OGNI
+permesso di sistema che il client richiede. La dettatura e la nota vocale non
+hanno MAI funzionato nel guscio: misurato sull'applicazione installata, NESSUNA
+chiave d'uso — nemmeno una. La richiesta del microfono non poteva riuscire in
+nessuna versione.
+
+Ogni chiave SHALL portare una FRASE VERA, non un segnaposto: è il testo che una
+persona legge nel momento in cui decide.
+
+Il manifesto SHALL restare VALIDO: una chiave orfana lo rompe in silenzio.
+
+#### Scenario: il permesso del microfono
+- **GIVEN** il client che lo richiede
+- **THEN** il manifesto SHALL dichiararlo con una frase vera
+
+#### Scenario: una chiave orfana
+- **GIVEN** un manifesto sbilanciato
+- **THEN** il banco SHALL fallire

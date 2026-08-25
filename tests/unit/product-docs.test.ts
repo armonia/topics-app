@@ -29,6 +29,7 @@
  * parse the array out of the file. The point stands either way: the expected
  * values come from the code, so adding a provider fails this test until the
  * README names it.
+  * @covers RELEASE-05
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

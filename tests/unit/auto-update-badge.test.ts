@@ -14,6 +14,7 @@
  *
  * Un avviso che chiede un gesto inutile è peggio di nessun avviso: insegna a
  * ignorare gli avvisi.
+  * @covers RELEASE-04
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

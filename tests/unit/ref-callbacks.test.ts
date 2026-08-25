@@ -7,6 +7,7 @@
  * in un ref). Un cancello che le confonde chiede di riscrivere codice sano, e
  * un cancello cosi' si spegne entro la settimana — e' gia' scritto nella
  * baseline di `check:bloat`.
+  * @covers RUNTIME-13
  */
 import { describe, it, expect } from "bun:test";
 import { findInlineRefSetters } from "../../scripts/check-ref-callbacks";

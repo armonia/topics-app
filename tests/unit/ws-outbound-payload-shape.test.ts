@@ -19,6 +19,7 @@
  * automaticamente proverebbe solo che il generatore e lo schema concordano.
  * Si aggiunge una riga quando si aggiunge un broadcast — la lista non pretende di
  * essere esaustiva, ma ogni riga che c'è è una forma reale verificata.
+  * @covers WIRE-08
  */
 import { describe, expect, test } from "bun:test";
 import { validateOutbound } from "../../shared/ws-outbound";

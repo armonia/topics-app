@@ -15,6 +15,7 @@
  * Questi casi difendono le due frasi, e la differenza fra loro: `land` è
  * LOCALE e non pubblica niente, `publish` sì. Confonderle è precisamente il
  * modo in cui qualcuno spedisce credendo di salvare.
+  * @covers RELEASE-04
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

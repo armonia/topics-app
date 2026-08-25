@@ -187,3 +187,152 @@ successo che finge di aver ripulito.
 #### Scenario: nessuna fotografia
 - **GIVEN** un azzeramento senza punto di partenza registrato
 - **THEN** SHALL essere un conflitto dichiarato
+
+### Requirement: E2E-GATE-04 — Ogni spec dichiara il proprio isolamento, e lo dichiara a LIVELLO DI FILE
+
+OGNI spec del banco SHALL chiamare la funzione che le garantisce uno spazio di
+lavoro pulito. È una riga che si DIMENTICA, e dimenticarla non rompe niente IN
+QUEL FILE: il conto arriva altrove, su una spec che decine di test più avanti
+trova uno spazio che nessuno le ha promesso.
+
+La chiamata SHALL stare a LIVELLO DI FILE, non dentro un raggruppamento: là
+dentro si registra sulla suite annidata e gira DOPO le preparazioni del file,
+cancellando ciò che quelle hanno seminato.
+
+Importare quella funzione SENZA chiamarla, e chiamarla senza importarla, SHALL
+essere un errore.
+
+Il presidio SHALL verificare di avere davvero delle spec da guardare: un
+conteggio che scende a zero significa che sta guardando la cartella sbagliata.
+
+#### Scenario: una spec nuova senza la riga
+- **GIVEN** una spec che non dichiara l'isolamento
+- **THEN** il banco SHALL fallire
+
+#### Scenario: la chiamata dentro un raggruppamento
+- **GIVEN** la dichiarazione annidata
+- **THEN** il banco SHALL fallire
+
+### Requirement: E2E-GATE-05 — Una run non ruba la porta di un'altra, e quando succede lo DICE
+
+Una corsa del banco SHALL prendere un LUCCHETTO sulla propria porta PRIMA che
+parta un solo test, e SHALL RIFIUTARSI di partire quando un'altra corsa viva la
+tiene. Il difetto che questo chiude non si vede in nessun rosso: si vede in una
+corsa che muore per un motivo che non c'entra niente col codice sotto test.
+
+Un lucchetto il cui processo è MORTO SHALL essere un residuo, e SHALL essere
+preso. Un processo VIVO ma con un lucchetto vecchio di ore SHALL essere
+considerato un identificativo RICICLATO — nessuna suite dura sei ore — e SHALL
+essere preso. Un lucchetto CORROTTO NON SHALL rendere il banco inavviabile per
+sempre. Il PROPRIO identificativo NON SHALL bloccare sé stesso.
+
+Il rifiuto SHALL dire la PORTA, CHI la tiene, e COME girare in parallelo. Porte
+diverse NON SHALL bloccarsi a vicenda. Rilasciare SHALL togliere il PROPRIO
+lucchetto e NON SHALL toccare quello di un altro.
+
+Quando una connessione viene rifiutata, la DIAGNOSI SHALL distinguere: server
+VIVO — l'errore è vero e SHALL passare INTATTO; porta che risponde ma lucchetto
+cambiato di proprietario — SHALL accusare l'altra corsa dicendo che il database
+non è il nostro; identificativo morto ma porta che risponde e lucchetto ancora
+nostro — è un RIAVVIO, e SHALL TACERE.
+
+Fuori dal contesto in cui si sa di chi è il lucchetto NON SHALL essere accusato
+NESSUNO: qui i falsi positivi costano troppo. Un indizio SHALL essere dichiarato
+come tale, non come una certezza.
+
+#### Scenario: un'altra corsa viva sulla stessa porta
+- **GIVEN** un lucchetto di un processo vivo e recente
+- **THEN** il banco SHALL rifiutarsi di partire, dicendo chi la tiene
+
+#### Scenario: un errore di connessione col server vivo
+- **GIVEN** il server che risponde
+- **THEN** l'errore SHALL passare intatto, senza diagnosi inventate
+
+### Requirement: E2E-GATE-06 — Il banco non tocca NIENTE che appartenga alla produzione
+
+La preparazione del banco NON SHALL contenere nessuna cancellazione distruttiva
+ancorata alla cartella di ESECUZIONE: il server di produzione non ha una cartella
+dati separata, quindi quel percorso è il SUO — dentro ci stanno i cookie, la
+memoria locale, l'ultimo indirizzo di ogni superficie e gli accessi salvati. Ogni
+corsa lanciata dal checkout li cancellava, e le superfici si risvegliavano
+sloggate e bianche.
+
+Il database azzerato SHALL essere quello del banco, e la pulizia dello stato dei
+navigatori SHALL restare dentro la cartella dati del banco.
+
+Il ponte dei terminali del banco SHALL avere un socket DEDICATO, e lo smontaggio
+SHALL uccidere SOLO quello: mai una terminazione per NOME, che porterebbe via
+anche il ponte di produzione con dentro le sessioni vive.
+
+I binari di supporto dei terminali SHALL avere il bit di esecuzione: arrivano
+dal pacchetto senza, e il ponte muore nel proprio autotest prima di mettersi in
+ascolto — tre giri su tre di spec rosse per una ragione che non era il codice.
+
+#### Scenario: una cancellazione ancorata alla cartella di esecuzione
+- **GIVEN** una rimozione costruita da quel percorso
+- **THEN** il banco SHALL fallire
+
+#### Scenario: lo smontaggio del ponte
+- **GIVEN** la fine di una corsa
+- **THEN** SHALL essere terminato solo il ponte del banco
+
+### Requirement: E2E-GATE-07 — Un selettore prende UN file, e i banchi lunghi restano fuori dal cancello rapido
+
+Un selettore generato per eseguire una singola spec SHALL selezionare UN SOLO
+file: gli argomenti posizionali sono ESPRESSIONI REGOLARI sul percorso, non nomi
+di file — misurato su un albero di alcune centinaia di spec, cinque collisioni,
+con un nome breve che ne tirava dentro tre.
+
+Il difetto SHALL essere RIPRODOTTO nel banco: il nome nudo usato come espressione
+SHALL produrre collisioni, altrimenti il caso è morto e va tolto.
+
+I banchi di MISURA lunghi SHALL portare l'etichetta che li tiene fuori dal
+cancello rapido, sia sul raggruppamento sia sul singolo caso, e la
+configurazione SHALL escluderli davvero: uno solo dei tre senza etichetta ha
+tinto di rosso un commit il cui contenuto non c'entrava niente, dopo un minuto per
+tentativo e due ritentativi.
+
+La revisione del navigatore voluta dal server e quella voluta dal banco SHALL
+COINCIDERE: due revisioni diverse producono un eseguibile cercato dove non c'è.
+
+Il timeout predefinito dei casi SHALL essere alzato sopra quello dello strumento
+in ENTRAMBI i posti che lo governano — la configurazione e la riga di comando di
+OGNI script — e i due SHALL portare lo STESSO numero: nessun collegamento tiene
+insieme quei due posti, e toglierne uno riapre metà del difetto in silenzio.
+
+#### Scenario: un nome di spec breve
+- **GIVEN** un basename che compare in più percorsi
+- **THEN** il selettore generato SHALL comunque prenderne uno solo
+
+#### Scenario: uno script che lancia i test
+- **GIVEN** uno script senza il timeout dichiarato
+- **THEN** il banco SHALL fallire
+
+### Requirement: E2E-GATE-08 — Il banco notturno CHIUDE ciò che apre, e il lavoro di scrittura porta la propria identità
+
+Il flusso notturno SHALL CHIUDERE da sé la segnalazione che ha aperto, quando
+torna verde. Il ramo che lo fa esiste — ma misurato su venti corse, in ognuna
+risultava SALTATO: non è mai stato eseguito in produzione.
+
+L'apertura e la chiusura SHALL usare la STESSA etichetta, il passo dell'esito
+SHALL girare ANCHE quando la suite passa, e la PROMESSA scritta nella
+segnalazione SHALL corrispondere al codice che dovrebbe mantenerla.
+
+Nel flusso di verifica, OGNI passo dopo la preparazione SHALL portare la guardia
+che lo fa girare comunque: prima erano decine di passi in fila senza condizioni,
+e un rosso a metà abortiva il resto — misurato, un mese in cui nulla a valle è
+stato misurato. La PREPARAZIONE SHALL restare a fallimento immediato, e i passi
+che avevano già una condizione SHALL conservarla.
+
+Ogni scrittura sul sistema di versione dentro una spec SHALL portare la propria
+IDENTITÀ, inline o da un supporto condiviso: questo repository l'ha già pagata
+tre volte, e l'ultima ha portato giù il ramo principale. Il rilevatore SHALL
+essere visto riconoscere il caso nudo e perdonare quello vestito.
+
+#### Scenario: un passo di verifica senza guardia
+- **GIVEN** un passo dopo la preparazione senza la condizione
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un commit dentro una spec
+- **GIVEN** una scrittura senza identità dichiarata
+- **THEN** il banco SHALL fallire

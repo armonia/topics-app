@@ -21,6 +21,7 @@
  *      .planning/WS-PROTOCOL.md.
  *
  * Run with: `bun test tests/unit/ws-contract.test.ts`
+  * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';

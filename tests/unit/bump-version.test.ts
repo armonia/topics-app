@@ -1,3 +1,6 @@
+/**
+ * @covers RELEASE-02
+ */
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import { execFileSync } from "child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";

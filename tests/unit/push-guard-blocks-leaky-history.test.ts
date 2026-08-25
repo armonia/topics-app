@@ -10,6 +10,7 @@
  * The two cases are not one case twice. `git log -S` looks at content and never
  * sees a name that appears only in a commit MESSAGE; the real rewrite of
  * 2026-08-21 left 15 such messages behind while the content check read clean.
+  * @covers GATE-07
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";

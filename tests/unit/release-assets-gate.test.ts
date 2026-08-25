@@ -12,6 +12,7 @@
  *  - una release completa si pubblica ANCHE se un build e' rosso (il recupero);
  *  - una release a cui manca un pezzo NON si pubblica (la protezione che
  *    esisteva prima e che non va persa nel cambio).
+  * @covers RELEASE-03
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";

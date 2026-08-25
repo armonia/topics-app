@@ -9,6 +9,7 @@
  * suite E2E per accorgersene.
  *
  * Vedi tests/e2e/fixtures/hermetic.ts per il perché della chiamata esplicita.
+  * @covers E2E-GATE-04
  */
 import { describe, it, expect } from "bun:test";
 import { readdirSync, readFileSync } from "fs";

@@ -208,3 +208,70 @@ essere GEMELLE, e il banco SHALL verificarlo.
 #### Scenario: la lettura di una singola chiave
 - **GIVEN** una chiave esclusa dallo snapshot
 - **THEN** SHALL essere servita com'era
+
+### Requirement: WIRE-07 — Il protocollo è un REGISTRO, e la sua forma si blocca in modo LEGGIBILE
+
+Ogni messaggio che attraversa il filo SHALL avere uno SCHEMA in un registro
+condiviso, e la FORMA di quel registro SHALL essere bloccata da un banco: quali
+campi sono obbligatori, quali opzionali, quali insiemi di valori sono chiusi.
+
+Il blocco SHALL essere STRUTTURATO, non un'impronta: un'impronta dice che
+qualcosa è cambiato, un confronto strutturato dice ESATTAMENTE cosa. E SHALL
+leggere lo schema attraverso i suoi involucri: leggerne uno solo faceva sembrare
+«cambiato» uno schema identico.
+
+L'aggiunta di un campo SHALL essere ADDITIVA e OPZIONALE dove il protocollo deve
+restare compatibile: un interlocutore più vecchio che non lo manda SHALL
+continuare a essere accettato.
+
+Il CLIENT e il SERVER SHALL usare LO STESSO registro, verificato per IDENTITÀ e
+non per uguaglianza: due elenchi gemelli scritti a mano divergono, ed è così che
+il server mandava sempre un campo che la copia del client non chiedeva — due
+contratti, uno più lasco.
+
+Un tipo NON registrato SHALL passare senza validazione; un ingresso che non è un
+oggetto, o senza il proprio discriminatore, SHALL essere rifiutato. Gli errori
+SHALL conservare il PERCORSO annidato del campo che ha fallito.
+
+Gli insiemi chiusi SHALL essere DAVVERO chiusi, e ogni voce SHALL portare scritta
+la ragione per cui è entrata.
+
+#### Scenario: un campo aggiunto
+- **GIVEN** un interlocutore più vecchio che non lo manda
+- **THEN** SHALL continuare a essere accettato
+
+#### Scenario: due elenchi gemelli
+- **GIVEN** un registro ricopiato invece che condiviso
+- **THEN** il banco SHALL fallire
+
+### Requirement: WIRE-08 — Ogni tipo EMESSO ha uno schema, ogni tipo DICHIARATO è emesso
+
+OGNI tipo di messaggio che il server EMETTE SHALL avere uno schema nel registro:
+un tipo nuovo non fa MAI rumore — nessuno se ne accorge finché un client non
+esplode su un carico malformato.
+
+OGNI tipo DICHIARATO nel registro SHALL essere davvero EMESSO, o SHALL essere
+elencato come DORMIENTE con una motivazione: un registro che dichiara messaggi
+inesistenti fa credere che una via di sincronizzazione ci sia. L'elenco dei
+dormienti NON SHALL contenere tipi tornati vivi né tipi usciti dal registro.
+
+OGNI tipo emesso SHALL essere ASCOLTATO dal client, o motivato come non
+consumato: un messaggio che nessuno ascolta è stato esattamente il difetto per
+cui una connessione restava aperta per sempre e la bacheca mostrava lo stato di
+prima del guasto.
+
+Gli schemi SHALL accettare i carichi REALI, copiati dai punti che li emettono:
+verificare che gli ELENCHI combacino non basta — uno schema pretendeva un campo
+che l'unico emittente non mandava, e il client scartava il messaggio come
+malformato. La guardia SHALL essere vista MORDERE su un campo obbligatorio
+mancante.
+
+Le scansioni SHALL essere verificate NON VUOTE su entrambi i lati.
+
+#### Scenario: un tipo emesso senza schema
+- **GIVEN** un messaggio nuovo dal server
+- **THEN** il banco SHALL fallire
+
+#### Scenario: uno schema che nessuno soddisfa
+- **GIVEN** un carico reale che lo schema rifiuta
+- **THEN** il banco SHALL fallire

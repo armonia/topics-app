@@ -5,6 +5,7 @@
  *
  * Covers: welcome (server→client), hello (client→server), upgrade-required
  * (future), plus the capability constants exported by `ws-capabilities.ts`.
+  * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
 import {

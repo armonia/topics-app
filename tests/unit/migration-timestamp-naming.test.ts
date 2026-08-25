@@ -17,6 +17,7 @@
  * Il caso stretto — stesso SECONDO — non è un'ipotesi: i due generatori qui
  * partono a millisecondi di distanza, quindi il timestamp condiviso è la norma
  * di questo test, non l'eccezione. È previsto: vedi `findNumberCollisions`.
+  * @covers SCHEMA-05
  */
 import { describe, it, expect, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -39,6 +39,7 @@
  * scritto ogni overlay dell'app. Un `style={{ position:'fixed', inset:0,
  * zIndex:N }}` non sarebbe visto — oggi non esiste, e il giorno che esistesse
  * andrebbe aggiunto qui invece che allargato il buco.
+  * @covers LAYOUT-24
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";

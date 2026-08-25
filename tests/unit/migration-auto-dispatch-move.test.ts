@@ -15,6 +15,7 @@
  * Si esegue lo SQL vero, letto dal file, contro un DB in memoria con lo schema
  * di partenza: riscrivere qui le istruzioni vorrebbe dire provare una copia e
  * lasciare l'originale senza cancello.
+  * @covers SCHEMA-06
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

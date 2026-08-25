@@ -11,6 +11,7 @@
  * of the helper (kept in lockstep with the implementation by review).
  *
  * Run with: `bun test tests/unit/message-meta-footer-safe-num.test.ts`
+  * @covers USAGE-19
  */
 import { describe, expect, test } from 'bun:test';
 

@@ -94,3 +94,92 @@ verrebbe rifiutato.
 #### Scenario: un vincolo perso nella copia
 - **GIVEN** una colonna con tipo giusto e vincolo mancante
 - **THEN** il banco SHALL fallire
+
+### Requirement: SCHEMA-04 — Il database NASCE dal nulla, e la catena si prova dal vuoto
+
+L'intera catena delle migration SHALL essere applicabile, IN ORDINE, a un
+database VUOTO. Una migration che riferisce qualcosa che non esiste ferma la
+catena, e su un'INSTALLAZIONE NUOVA il server muore prima di mettersi in
+ascolto — mentre su una macchina già migrata non succede niente.
+
+L'ordine dichiarato SHALL essere CRESCENTE e le versioni NON SHALL ripetersi.
+
+Il database nato dal nulla SHALL avere le tabelle che il prodotto usa davvero: la
+verifica NON SHALL fermarsi al «nessun errore».
+
+Il fallimento SHALL NOMINARE la migration colpevole.
+
+#### Scenario: una migration che riferisce una colonna inesistente
+- **GIVEN** la catena applicata a un database vuoto
+- **THEN** SHALL fallire, nominando la migration
+
+#### Scenario: due versioni uguali
+- **GIVEN** un numero di versione ripetuto
+- **THEN** il banco SHALL fallire
+
+### Requirement: SCHEMA-05 — La chiave di una migration è il NOME, e il prefisso è un ISTANTE
+
+Il registro delle migration applicate SHALL essere indicizzato per NOME del file,
+non per numero: con la chiave sul numero, la seconda migration con lo stesso
+numero veniva SALTATA in silenzio, per sempre — ed è successo davvero, con due
+file allo stesso numero scritti su due rami tagliati prima che l'altro atterrasse.
+
+Due migration con lo stesso numero SHALL applicarsi ENTRAMBE, e a parità di
+numero l'ordine SHALL essere deciso dal NOME — deterministico a ogni avvio e su
+ogni macchina.
+
+Un secondo avvio NON SHALL riapplicare niente, e un database con la VECCHIA forma
+del registro SHALL essere CONVERTITO senza riapplicare nulla. Le migration che si
+registrano da sole con una forma abbreviata NON SHALL lasciare doppioni.
+
+Il prefisso di una migration NUOVA SHALL essere un ISTANTE, non un contatore: col
+contatore due agenti in parallelo collidono sempre — misurato, tre volte in una
+notte dopo due il giorno prima. Un file nuovo col contatore SHALL essere
+RIFIUTATO anche quando il numero è LIBERO, o il verde arriva e diventa rosso solo
+all'atterraggio.
+
+Lo STESSO istante da due copie di lavoro NON SHALL essere una collisione: l'ordine
+resta deciso dal nome. Il generatore SHALL scansare solo i propri duplicati
+LOCALI.
+
+Il cancello SHALL essere visto ROSSO su un repository di prova con una collisione
+vera, e VERDE appena il file nuovo prende il prefisso a istante. Una base non
+risolvibile SHALL uscire con un errore, non con un verde a vuoto.
+
+#### Scenario: due migration con lo stesso numero
+- **GIVEN** un numero duplicato
+- **THEN** SHALL applicarsi entrambe, in ordine di nome
+
+#### Scenario: un file nuovo col contatore su un numero libero
+- **GIVEN** nessuna collisione ma il vecchio schema di nome
+- **THEN** SHALL essere rifiutato
+
+### Requirement: SCHEMA-06 — Una migration di DATI porta il valore VIVO dall'altra parte
+
+Una migration che SPOSTA un valore da una parte all'altra SHALL portare il valore
+VIVO: se non arriva, ogni installazione che aveva quella funzione ACCESA si
+risveglia SPENTA — e non se ne accorge nessuno finché qualcuno non va a vedere
+perché il lavoro non parte più.
+
+Lo stato ACCESO SHALL restare acceso e quello SPENTO spento — sono due casi, non
+uno.
+
+Ciò che non era oggetto dello spostamento SHALL sopravvivere: si toglie una
+colonna, non i dati.
+
+In ASSENZA della riga di partenza NON SHALL essere inventato un valore ACCESO:
+l'errore opposto manderebbe lavoro vero su una macchina dove nessuno l'aveva
+chiesto.
+
+Una migration che CLASSIFICA delle righe esistenti SHALL essere verificata su
+entrambe le classi, e i valori che SEMBRANO scelti da una persona ma sono
+predefiniti generati dal prodotto SHALL essere riconosciuti come predefiniti — o
+la rinomina automatica non toccherà più niente.
+
+#### Scenario: la funzione era accesa
+- **GIVEN** un valore vivo prima della migration
+- **THEN** SHALL essere lo stesso dopo
+
+#### Scenario: la riga di partenza non c'è
+- **GIVEN** nessun valore da spostare
+- **THEN** NON SHALL risultare acceso

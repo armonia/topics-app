@@ -3,6 +3,7 @@
  * in una run che muore per un motivo che non ha nulla a che fare col codice
  * sotto test (SIGTERM mai emesso + `SQLITE_IOERR_VNODE` su ogni query). Qui si
  * inchioda la sola cosa che conta: quando ci si ferma e quando si prosegue.
+  * @covers E2E-GATE-05
  */
 import { describe, it, expect } from "bun:test";
 import {

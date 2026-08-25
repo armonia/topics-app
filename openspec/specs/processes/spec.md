@@ -262,3 +262,28 @@ Il risparmio a riposo SHALL essere MISURATO, non dichiarato.
 #### Scenario: qualcosa cambia
 - **GIVEN** un cambiamento nell'elenco
 - **THEN** l'intervallo SHALL tornare a quello pieno
+
+### Requirement: PROCESS-11 — Uno script FANTASMA è quello che gira su una copia di lavoro CANCELLATA
+
+Uno script SHALL essere dichiarato FANTASMA quando gira su una copia di lavoro che
+NON esiste più. Una copia VIVA — anche se la cartella di lavoro è la sua radice —
+NON SHALL produrre un fantasma, e nemmeno una cartella che non è una copia di
+lavoro nostra.
+
+Uno script che NON è nostro, uno già CONCLUSO, e uno di cui non si conosce il
+processo NON SHALL essere dichiarato fantasma: senza identificativo non lo si può
+riconoscere.
+
+I percorsi SHALL essere CANONICALIZZATI prima del confronto, o un collegamento
+simbolico fa sembrare cancellata una copia viva.
+
+Una cartella di lavoro che sta SOTTO la base ma dentro la radice di un'ALTRA copia
+viva SHALL essere un fantasma: quella copia non è la sua.
+
+#### Scenario: un collegamento simbolico nel percorso
+- **GIVEN** una copia viva raggiunta per un percorso alternativo
+- **THEN** NON SHALL essere dichiarata fantasma
+
+#### Scenario: uno script già concluso
+- **GIVEN** un processo non più in esecuzione
+- **THEN** NON SHALL essere dichiarato fantasma

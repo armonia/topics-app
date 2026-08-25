@@ -885,3 +885,49 @@ ritorno.
 #### Scenario: una superficie orfana di un altro tipo
 - **GIVEN** un'orfana che non è del tipo atteso
 - **THEN** NON SHALL prendere il posto attivo
+
+### Requirement: A11Y-01 — Un comando fatto di sola icona ha un NOME
+
+Un comando che contiene SOLO un'icona SHALL portare un nome accessibile. Al
+momento del rilievo erano diciassette, e quasi tutte erano CHIUSURE: le
+impostazioni, l'ispettore, il dettaglio di un task, le scorciatoie, l'avviso
+temporaneo, la scheda dell'editor, i due cartelli di esito.
+
+Il setaccio SHALL essere STRETTO: la prima versione segnalava qualunque comando
+senza testo letterale e ne trovava quasi novanta, metà dei quali falsi positivi.
+La regola SHALL guardare i comandi il cui unico contenuto è un componente-icona.
+
+L'elenco dei sorgenti esaminati SHALL essere verificato non vuoto.
+
+#### Scenario: un comando con la sola icona
+- **GIVEN** nessun nome accessibile dichiarato
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un comando con del testo accanto all'icona
+- **GIVEN** un contenuto che non è solo l'icona
+- **THEN** NON SHALL essere segnalato
+
+### Requirement: LAYOUT-24 — Le superfici a schermo intero prendono il piano da una COSTANTE
+
+Una superficie che copre lo SCHERMO INTERO NON SHALL scriversi il proprio piano a
+mano: i valori trovati andavano da poche decine a quasi diecimila, scelti uno per
+volta. È la forma esatta del difetto per cui una tavolozza finiva migliaia di
+livelli SOTTO un menu già aperto, e sembrava che aprisse tutto.
+
+Il piano SHALL venire da una COSTANTE condivisa, e le superfici già riparate SHALL
+prenderlo da lì.
+
+Le eccezioni dichiarate SHALL esistere ancora dove sono dichiarate, e il debito
+noto SHALL essere STRETTO e non crescere.
+
+Il setaccio SHALL essere visto riconoscere sia la forma arbitraria sia quella
+della scala predefinita, e SHALL lasciare stare i piani PICCOLI interni a un
+componente.
+
+#### Scenario: una superficie nuova a schermo intero
+- **GIVEN** un piano scritto a mano
+- **THEN** il banco SHALL fallire
+
+#### Scenario: un piano piccolo dentro una card
+- **GIVEN** un valore locale non a schermo intero
+- **THEN** NON SHALL essere segnalato

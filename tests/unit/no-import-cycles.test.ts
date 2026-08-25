@@ -1,3 +1,6 @@
+/**
+ * @covers GATE-08
+ */
 import { describe, test, expect } from "bun:test";
 import { readdirSync, statSync, readFileSync, existsSync } from "fs";
 import { resolve, dirname, join } from "path";

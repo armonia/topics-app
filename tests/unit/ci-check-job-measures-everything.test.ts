@@ -17,6 +17,7 @@
  * This is a text scan and not a YAML parse on purpose: the repo has no YAML
  * dependency, the surrounding tests read this file the same way, and the shape
  * being asserted is exactly the shape a person sees when editing it.
+  * @covers E2E-GATE-08
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";

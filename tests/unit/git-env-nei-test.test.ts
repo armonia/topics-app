@@ -23,6 +23,7 @@
  * fail it for nothing. The difference that counts is between «I pass an
  * environment» and «I pass none at all», which is the case in which
  * `Bun.spawnSync` does not inherit what the preload set at runtime.
+  * @covers GATE-09
  */
 
 import { describe, expect, test } from "bun:test";

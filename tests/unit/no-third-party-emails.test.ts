@@ -30,6 +30,7 @@
  * Cio' che resta vietato e' l'indirizzo personale su un dominio di posta
  * pubblico — gmail, outlook, icloud e compagnia — che e' esattamente la forma
  * dell'unico che era passato.
+  * @covers GATE-07
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
