@@ -7,6 +7,8 @@
  * installation and the question looks academic; the day there are two, a
  * pairing screen that cannot name its subject is a screen that asks you to
  * trust something unnamed.
+ *
+ * @covers PAIRING-01
  */
 import { describe, test, expect } from "bun:test";
 import { hostname } from "node:os";

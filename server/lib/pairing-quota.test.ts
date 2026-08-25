@@ -6,6 +6,8 @@
  * richieste a testa saturavano tutto e il proprietario col telefono in mano
  * restava fuori. Non fa entrare nessuno — impedisce a te di far entrare — ed è
  * il modo peggiore in cui un limite può rompersi, perché somiglia a un guasto.
+ *
+ * @covers PAIRING-02
  */
 import { describe, expect, it } from "bun:test";
 import {

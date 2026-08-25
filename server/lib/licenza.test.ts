@@ -14,6 +14,8 @@
  * La chiave privata usata qui nasce a ogni esecuzione e muore col processo: non
  * esiste su disco, non esiste nel repository, e non è la chiave di nessun
  * servizio vero.
+ *
+ * @covers LICENSE-01, LICENSE-02
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";

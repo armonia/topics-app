@@ -14,6 +14,8 @@
  *  4. The internal map is GC-d after work completes (no memory leak).
  *  5. Concurrent calls on the same key are serialized (no interleaving).
  *  6. Different keys run independently (no cross-key blocking).
+ *
+ * @covers RUNTIME-01
  */
 
 import path from "node:path";

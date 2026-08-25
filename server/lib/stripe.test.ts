@@ -12,6 +12,8 @@
  * La SECONDA è che senza configurazione non succede niente di brutto. Non è un
  * dettaglio da sviluppo: è lo stato di ogni installazione che non paga, cioè
  * quella della maggior parte delle persone.
+ *
+ * @covers LICENSE-03
  */
 import { describe, expect, it } from "bun:test";
 import {

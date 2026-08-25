@@ -169,3 +169,87 @@ del disco apre l'intero sistema.
 #### Scenario: nessuna radice configurata
 - **GIVEN** una configurazione senza radici
 - **THEN** ogni percorso SHALL essere rifiutato
+
+### Requirement: PAIRING-01 — Chi bussa si presenta con un FATTO, e l'installazione ha un nome
+
+La schermata che chiede di autorizzare un dispositivo SHALL dire DA DOVE arriva
+la richiesta in parole, non solo con un numero: questa macchina, la rete di casa,
+Internet, oppure sconosciuto.
+
+Un indirizzo privato e uno pubblico si leggono allo stesso modo se non si sa
+cosa significhi il prefisso — e distinguerli non è una cosa che chi possiede il
+computer debba sapere per decidere se far entrare qualcuno. La differenza conta:
+un dispositivo sulla rete locale è già dentro casa; qualcosa che arriva dal ponte
+può essere il proprio telefono fuori casa oppure chiunque abbia ricevuto un link.
+
+Il riconoscimento SHALL leggere gli ottetti come NUMERI, non come prefisso di
+testo: l'intervallo privato che comincia con lo stesso ottetto di indirizzi
+pubblici si distingue solo guardando il secondo.
+
+Il rivestimento che incapsula un indirizzo vecchio dentro uno nuovo NON SHALL
+cambiare la risposta.
+
+Ciò che non si riconosce SHALL restare SCONOSCIUTO e NON SHALL diventare
+«Internet»: non sapere non è la stessa cosa che sapere il caso peggiore.
+
+Questo giudizio NON SHALL essere una decisione di accesso: nessun ramo di
+autorizzazione SHALL leggerlo. Serve a mettere una frase accanto a un numero, e
+la decisione resta di chi possiede la macchina. Per la stessa ragione il
+riconoscimento del «locale» SHALL essere un DOPPIONE deliberato di quello che
+governa il cancello: quello tiene una porta e non deve poter cambiare per ragioni
+di presentazione — e questo è quello che qualcuno sarà tentato di allargare.
+
+L'installazione SHALL avere un NOME leggibile. Finché ne esiste una sola la
+domanda non si pone; dal momento che ce ne sono due — un portatile e un fisso,
+l'installazione di prova accanto a quella vera, due persone sulla stessa rete —
+«autorizza» diventa una richiesta senza soggetto.
+
+Il nome SHALL stare in UNA riga: senza caratteri di controllo, senza a-capo, e
+non più lungo di un limite dichiarato. Il suffisso che i sistemi di scoperta
+locale appendono NON SHALL arrivare a chi legge. Il costo per ricavarlo SHALL
+essere pagato UNA volta sola.
+
+#### Scenario: un indirizzo pubblico che comincia come uno privato
+- **GIVEN** un indirizzo il cui primo ottetto coincide con quello di un intervallo privato ma il secondo no
+- **THEN** SHALL essere classificato come Internet
+
+#### Scenario: un indirizzo che non si riconosce
+- **GIVEN** un indirizzo assente o non riconosciuto
+- **THEN** SHALL restare sconosciuto, NON «Internet»
+
+### Requirement: PAIRING-02 — La coda dell'accoppiamento non si rifiuta MAI: si sfratta
+
+Una richiesta di accoppiamento NON SHALL essere rifiutata perché «la coda è
+piena». Misurato attraverso il ponte il 21/08/2026: la prima richiesta passava,
+ogni successiva veniva respinta — e a essere respinto era il telefono di chi
+possiede la macchina, non l'attaccante.
+
+Il tetto totale SHALL essere alto abbastanza da non scattare nell'uso normale, e
+quando si raggiunge SHALL essere SFRATTATA una richiesta, non rifiutata quella
+nuova.
+
+Lo sfratto SHALL colpire la più vecchia del gruppo PIÙ NUMEROSO — cioè di chi sta
+inondando — e a parità di numero la più vecchia in assoluto. Una richiesta
+legittima NON SHALL essere sfrattata finché esiste un gruppo più lungo del suo.
+
+Il limite PER INDIRIZZO SHALL restare basso, e SHALL continuare a valere: lo
+sfratto NON SHALL trasformarsi in un innalzamento del limite. Chi arriva al
+proprio tetto NON SHALL toccare le richieste di un ALTRO indirizzo.
+
+Gli indirizzi SCONOSCIUTI NON SHALL condividere una quota fra loro: due
+sconosciuti non devono potersi sfrattare a vicenda.
+
+Su una coda vuota non c'è niente da sfrattare, e sotto il tetto NON SHALL essere
+sfrattato niente.
+
+> Limite accettato e dichiarato: a una richiesta per indirizzo, chi inonda da
+> molti indirizzi diversi a bassa intensità non è distinguibile da molte persone
+> vere. È una scelta, non una svista.
+
+#### Scenario: la coda è piena e arriva chi bussa una volta sola
+- **GIVEN** la coda al tetto totale e una richiesta da un indirizzo nuovo
+- **THEN** SHALL entrare, e a uscire SHALL essere una del gruppo più numeroso
+
+#### Scenario: due indirizzi, uno al proprio tetto
+- **GIVEN** un indirizzo che ha raggiunto il proprio limite
+- **THEN** le richieste dell'altro indirizzo NON SHALL essere toccate

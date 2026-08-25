@@ -12,6 +12,8 @@
  * Un test che ricostruisce le tabelle a memoria smette di accorgersi proprio
  * della cosa che qui fa più male — gli indici UNIQUE su `people(email)` e
  * `people(remote_id)`, che sono ciò che rende necessari due dei rami di rifiuto.
+ *
+ * @covers ACCOUNT-01, ACCOUNT-02
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

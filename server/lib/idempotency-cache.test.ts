@@ -1,3 +1,6 @@
+/**
+ * @covers RUNTIME-02
+ */
 import { describe, it, expect } from "bun:test";
 import { createIdempotencyCache } from "./idempotency-cache";
 

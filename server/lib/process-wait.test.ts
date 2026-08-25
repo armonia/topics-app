@@ -8,6 +8,8 @@ import {
  * L'orologio finto: il tempo avanza solo quando il ciclo dorme. Cosi' un
  * timeout di due minuti si prova in un millisecondo, e il test misura la
  * LOGICA invece di misurare la pazienza di chi lo guarda.
+ *
+ * @covers RUNTIME-05
  */
 function fakeClock() {
   let t = 0;

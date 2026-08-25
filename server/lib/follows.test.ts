@@ -13,6 +13,8 @@
  *    test builds that schema on purpose, so "it degrades" is measured instead
  *    of asserted in a comment. The direction of the degradation is the part
  *    that matters: `showEmail` has to fall CLOSED.
+ *
+ * @covers FOLLOW-01
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

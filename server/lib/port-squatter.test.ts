@@ -5,6 +5,8 @@
  * `port-squatter.ts`. Qui si prova la DECISIONE — «chi risponde è Topics?» — che
  * è l'unica parte governabile in un test: la rete vera, i pid veri e `lsof` non
  * lo sono, e un test che provasse a simularli proverebbe la simulazione.
+ *
+ * @covers RUNTIME-04
  */
 import { describe, it, expect } from "bun:test";
 import {

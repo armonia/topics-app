@@ -12,6 +12,8 @@
  * quella — ma una sincronizzazione sì, ed è il momento in cui «qual è la mia
  * organizzazione» non deve rispondere «nessuna» a un'installazione che ha un
  * proprietario e un gruppo vivo.
+ *
+ * @covers ORG-INST-01
  */
 import { describe, test, expect } from "bun:test";
 import { Database } from "bun:sqlite";

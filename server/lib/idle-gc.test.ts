@@ -9,6 +9,8 @@
  * La prova che `Bun.gc(true)` restituisce davvero le pagine swappate sta nel
  * commento di `idle-gc.ts`, con i numeri e le condizioni: è una misura di
  * sistema, e appartiene lì, non a un test che la ripeterebbe male.
+ *
+ * @covers RUNTIME-03
  */
 import { describe, it, expect } from "bun:test";
 import { giroIdleGc, IDLE_GC_SOGLIA_MB, type IdleGcDeps } from "./idle-gc";

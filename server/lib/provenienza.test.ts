@@ -9,6 +9,8 @@
  * The direction that matters most is the cautious one: what we cannot classify
  * must NOT become "internet". Saying "this comes from outside" when we do not
  * know is inventing the scariest of the possible facts.
+ *
+ * @covers PAIRING-01
  */
 import { describe, test, expect } from "bun:test";
 
