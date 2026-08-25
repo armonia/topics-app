@@ -34,11 +34,11 @@ import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readGlobalCap } from "./dispatch-capacity";
 import { liveAgentCount } from "./agent-census";
 
-// Stati e forma del thread stanno in `shared/board.ts`: il client li legge
-// dalla stessa dichiarazione invece di riscriverli. `export type … from`
-// ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
-// l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
-// chi la vuole la prende da `shared/board`.
+// The statuses and the thread's shape live in `shared/board.ts`, so the client
+// reads them from the same declaration instead of rewriting them. `export type
+// … from` re-exports but does NOT bring the names into local scope, and they
+// are needed below — hence the separate import. This module is not a door onto
+// the `TASK_STATUSES` list: whoever wants it takes it from `shared/board`.
 export type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason, ParkedChildrenDecision } from "../../shared/board";
 import {
   ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
@@ -3618,6 +3618,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // Stesso ragionamento — e stessa riga — del nesting qui sopra.
         if (patch.status !== "todo" && current === "todo" && row.dispatch_state === "queued") {
           put("dispatch_state", null);
+          // AND ITS REASON WITH IT. `dispatch_error` is what the chip says out
+          // loud — «tetto agenti pieno», «nessuno slot libero» — and it was
+          // left behind: the badge went out and the explanation for a queue
+          // that no longer exists stayed on the row, ready to be rendered by
+          // any surface that reads the reason rather than the state.
+          put("dispatch_error", null);
         }
         // A task arriving in review is a hand-off, not live work: settle a
         // lingering in-flight chip ('queued'/'starting'/'working') to

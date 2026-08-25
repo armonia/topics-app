@@ -527,6 +527,20 @@ implementa solo al resume con l'approvazione.
 - **THEN** nasce archiviato (background): nessuna tab spunta nella tabbar di alcun client
 - **AND** il bottone "apri tab" del task lo de-archivia e apre la tab on demand
 
+#### Scenario: il chip «in coda» non sopravvive all'uscita da Todo
+- **GIVEN** una card con `dispatch_state = 'queued'`, cioè la promessa «il dispatcher ti prende fra poco»
+- **WHEN** la card viene spostata FUORI da Todo, verso qualunque altra colonna
+- **THEN** il chip e il suo motivo (`dispatch_error`, la frase che il badge dice a voce alta) SHALL spegnersi ENTRAMBI nella STESSA scrittura che sposta la card, e comparire già spenti nel task che quella scrittura restituisce
+- **AND** il motivo non SHALL sopravvivere al chip: una riga che porta «tetto agenti pieno» senza più una coda dietro è la stessa bugia in corpo minore
+- **AND** questo SHALL valere anche dopo un riavvio del server, perché la regola sta nella scrittura e non in un timer tenuto in memoria
+- **AND** `todo → todo` NON è un'uscita: una PATCH che ripassa lo stesso stato lascia la card in coda
+
+#### Scenario: un turno vivo non si nasconde
+- **GIVEN** una card con `dispatch_state` `starting` o `working`, cioè un agente che può essere davvero partito
+- **WHEN** la card viene trascinata in un'altra colonna
+- **THEN** il chip SHALL restare, e con lui il comando «Ferma», che è l'unico che serve
+- **AND** lo stesso SHALL valere per i chip che descrivono un parcheggio (`waiting`, `failed`, `blocked`, `stopped`): non sono una coda
+
 ### Requirement: KANBAN-08 — Task annidati (subtask a cascata)
 
 > Promoted verbatim from `openspec/changes/kanban-agent-authoring/`. It ships: `parent_task_id` arrived with migration 034 and the board columns list root tasks only (`server/services/tasks.ts:456`), covered by BOARD-10.
