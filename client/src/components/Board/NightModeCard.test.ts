@@ -2,6 +2,8 @@
  * La parte che conta di questa card non è il disegno: è la FRASE. Dire «sta
  * dispacciando» mentre il dispatcher aspetta manda qualcuno a letto convinto che
  * la coda stia girando, ed è l'unico errore che questa card può fare davvero.
+ *
+ * @covers NIGHT-03
  */
 import { describe, test, expect } from 'bun:test';
 import { describeNight, formatCountdown, type NightStatus } from './nightModeText';

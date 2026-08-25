@@ -201,3 +201,37 @@ indovinare.
 - **GIVEN** una riga dell'inventario con un peso in byte
 - **WHEN** viene mostrata
 - **THEN** il numero è presentato come stima, non come misura
+
+### Requirement: RES-ATTR-07 — Le voci MISURATE portano megabyte veri, e dodici terminali fanno una riga
+
+L'inventario del peso SHALL tenere separate le voci MISURATE — megabyte di
+processi veri — da quelle dichiarate a registro (RES-ATTR-06). Le prime arrivano
+da fuori e possono MANCARE: senza shell non c'è nessuna webview da pesare, senza
+server non c'è nessuna flotta. Metterle nello stesso registro delle seconde
+significherebbe inventare un modo per registrare un dato che arriva a strappi.
+
+Il calcolo SHALL essere una TRASFORMAZIONE di campionamenti già fatti per la
+barra di stato e per i suggerimenti delle schede. NON SHALL introdurre nessuna
+lettura in più: è la regola di RES-ATTR-04 applicata a una superficie nuova.
+
+Le sessioni SHALL essere AGGREGATE in una voce sola. Dodici terminali fanno
+dodici righe, e dodici righe da trenta megabyte nascondono quella da settecento.
+Il nome della sessione PIÙ PESANTE SHALL comparire nel dettaglio: è quella su cui
+si agisce.
+
+Le radici del lato server SHALL invece avere UNA RIGA CIASCUNA: sommarle
+direbbe ciò che la barra di stato già dice. SHALL portare nomi riconoscibili, e
+una radice di tipo sconosciuto SHALL passare col proprio nome grezzo invece di
+sparire dall'inventario.
+
+Un gruppo che pesa meno di un megabyte NON SHALL produrre una riga: «0 MB» è
+rumore con l'aria di un dato. Per la stessa ragione ogni voce misurata SHALL
+portare megabyte maggiori di zero.
+
+#### Scenario: dodici terminali
+- **GIVEN** più sessioni terminale campionate insieme
+- **THEN** SHALL produrre UNA voce, e il dettaglio SHALL nominare la più pesante
+
+#### Scenario: un ponte che non conosciamo
+- **GIVEN** una radice del server di tipo mai visto
+- **THEN** SHALL comparire col proprio nome, non essere scartata

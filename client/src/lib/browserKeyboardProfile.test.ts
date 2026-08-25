@@ -12,6 +12,8 @@
  * ne toccasse un'altra, qui esploderebbe invece di mentire. Il comportamento
  * vero del DOM (elementFromPoint sul mirror, il focus, la tastiera) è provato
  * dalla E2E `browser-mobile-keyboard.spec.ts`, che gira in un motore vero.
+ *
+ * @covers BROWSER-KBD-01
  */
 import { describe, test, expect } from 'bun:test';
 import {

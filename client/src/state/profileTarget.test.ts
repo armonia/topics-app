@@ -10,6 +10,8 @@
  * The other half of the contract is the expiry, and it is why this is a time
  * window and not a flag: reopening the profile an hour later from the "Topics"
  * menu must not land on the page somebody asked for at some other moment.
+ *
+ * @covers PROFILE-06
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { apriProfilo, openPersonProfile, dimenticaPaginaProfilo, paginaProfiloChiesta, requestedProfile } from './profileTarget';

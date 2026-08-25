@@ -7,6 +7,8 @@
  * `messages.cache_read_tokens`), ed è precisamente la cosa che un finto DB non
  * può provare. Il precedente è nel commento in cima al file: il cruscotto
  * leggeva tre tabelle vere che nessuno scriveva, e i test passavano tutti.
+ *
+ * @covers PROFILE-01, PROFILE-02
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";

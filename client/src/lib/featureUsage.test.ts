@@ -1,3 +1,16 @@
+/**
+ * The MEASURED entries: real megabytes, and the rule that keeps them readable.
+ *
+ * The fact worth pinning is not that the sum adds up — it is the AGGREGATION.
+ * Twelve terminals make twelve rows, and twelve thirty-megabyte rows hide the
+ * seven-hundred one: the inventory gets longer and less useful exactly as the
+ * machine fills up, which is exactly when someone opens it.
+ *
+ * The other half is the floor: a group under one megabyte gets no row at all,
+ * because "0 MB" is noise wearing the clothes of a measurement.
+ *
+ * @covers RES-ATTR-07
+ */
 import { describe, it, expect } from 'bun:test';
 import { vociMisurate, type IngressiMisurati } from './featureUsage';
 

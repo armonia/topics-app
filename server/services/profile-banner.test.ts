@@ -5,6 +5,8 @@
  * qualcuno possa avere, e i numeri che mostra sono quelli delle statistiche
  * (non delle costanti rimaste nel modello). Il resto — dove cade una `<text>` —
  * è geometria, e si guarda con gli occhi.
+ *
+ * @covers PROFILE-05
  */
 
 import { describe, expect, test } from "bun:test";

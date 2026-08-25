@@ -1,12 +1,11 @@
 /**
  * `POST …/tasks/:taskId/retitle` and `GET …/night-status`.
  *
- * No `@covers` line, deliberately. Neither route has a requirement in
- * `openspec/specs/kanban/`: KANBAN-01 is board rendering and task CRUD, -02
- * workflows, -03 memory and tags, -04 approvals, -10 dispatch resume after a
- * restart. Claiming one of them from here would be a false declaration, which
- * is precisely the defect `check:spec-coverage` was written to catch. The
- * honest state is "tested surface, undeclared requirement".
+ * These two routes had no requirement at all until 2026-08-25: the honest
+ * state was "tested surface, undeclared requirement", and this file said so
+ * rather than claiming a KANBAN- id that meant something else — a false
+ * declaration is precisely the defect `check:spec-coverage` was written to
+ * catch. The cure was to WRITE the two requirements, not to borrow a number.
  *
  * Why this file exists. On 2026-08-25 an audit of the 310 HTTP routes found the
  * Kanban in good shape — 23 of its 26 routes named by some test — with three
@@ -30,6 +29,8 @@
  * answer `{enabled:false, action:"off"}` rather than fail. It is the branch that
  * runs on every board that never turned night mode on, i.e. almost all of them,
  * and a 500 there would be a permanent red dot on a feature nobody uses.
+ *
+ * @covers KANBAN-25, NIGHT-03
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";

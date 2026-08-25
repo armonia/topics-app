@@ -4,6 +4,8 @@
  *     attesa per sempre e diventa una trappola il giorno dopo);
  *  2. l'orario di fine si calcola dall'ACCENSIONE, non dalla mezzanotte —
  *     acceso alle 23:00 con fine alle 10:00 significa domani mattina.
+ *
+ * @covers NIGHT-01, NIGHT-02, NIGHT-04
  */
 import { describe, test, expect } from "bun:test";
 import { decideNight, parseHHMM, deadlineFrom } from "./night-mode";

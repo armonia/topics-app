@@ -12,6 +12,8 @@
  *  · L'ATTRIBUZIONE. I token non stanno sulla riga di chi scrive: stanno sulla
  *    RISPOSTA appesa al suo prompt. Un conteggio che li cerca sul messaggio
  *    utente restituisce zero per tutti e sembra funzionare.
+ *
+ * @covers PROFILE-03, PROFILE-04
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

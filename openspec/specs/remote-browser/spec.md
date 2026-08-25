@@ -435,3 +435,37 @@ The marker SHALL be published to the shared `tombstones-browser` key of the
 - **GIVEN** a connected client showing a global (non-project) browser tab
 - **WHEN** the tab is closed through its own close control
 - **THEN** the shared `tombstones-browser` value SHALL come to list that tab's context id
+
+### Requirement: BROWSER-KBD-01 — La tastiera la sceglie il campo che hai toccato, non quello che riceve il fuoco
+
+Toccando un campo dentro un pane browser dal telefono, la tastiera che si apre
+SHALL corrispondere al TIPO di quel campo. Nel co-browse la pagina remota è uno
+specchio non interattivo: il fuoco lo prende un campo di cattura NOSTRO, e il
+sistema operativo sceglie la tastiera guardando quello — quindi email, numero e
+password davano tutti la tastiera di testo.
+
+Il profilo di tastiera SHALL essere copiato sul campo di cattura PRIMA di dargli
+il fuoco: gli attributi vengono letti al momento del fuoco, e cambiarli dopo non
+aggiorna una tastiera già aperta.
+
+Dal nodo effettivamente toccato il sistema SHALL RISALIRE al campo che scrive
+davvero — il dito atterra sull'etichetta, sulla cornice, sull'icona dentro il
+bordo — seguendo le tre forme in cui i siti veri scrivono un campo: il campo che
+contiene il punto, l'etichetta che punta al proprio controllo, l'etichetta che lo
+avvolge. La risalita SHALL essere LIMITATA in profondità.
+
+Un elemento che NON è un campo SHALL produrre nessun profilo, non quello di
+ripiego: aprire una tastiera su un bottone è un difetto, non un default.
+
+La DECISIONE su quali attributi producono quale tastiera SHALL stare in un punto
+solo, condiviso col server: sul ramo video non esiste nessuno specchio da
+interrogare e il descrittore del campo a fuoco arriva dalla rete. Una tabella
+sola, due strade per riempirla.
+
+#### Scenario: il dito sull'etichetta
+- **GIVEN** un tocco sull'etichetta di un campo email
+- **THEN** SHALL essere risolto il campo email, e la tastiera SHALL essere quella delle email
+
+#### Scenario: il dito su un bottone
+- **GIVEN** un tocco su un elemento che non scrive
+- **THEN** NON SHALL essere applicato nessun profilo di tastiera

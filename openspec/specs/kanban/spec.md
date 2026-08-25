@@ -1362,3 +1362,30 @@ NON SHALL mai bloccare il dispatch.
 #### Scenario: il classificatore non risponde
 - **GIVEN** un classificatore che va in errore
 - **THEN** SHALL essere usato il modello di ripiego, e il task SHALL partire
+
+### Requirement: KANBAN-25 — Riscrivere il titolo di una card è l'unica volta che un modello tocca ciò che hai scritto
+
+Il sistema SHALL poter proporre un titolo migliore per una card, e questa SHALL
+essere l'unica strada per cui un modello riscrive un testo scritto da una
+persona. Ogni rifiuto SHALL lasciare il titolo originale ESATTAMENTE dov'era.
+
+Il rifiuto SHALL essere DISTINTO nel motivo: nessun modello collegato, oppure il
+titolo va già bene. Un motivo solo non permette di capire se la funzione è rotta
+o se ha fatto il suo lavoro.
+
+Sotto una lunghezza minima il modello NON SHALL nemmeno essere interpellato:
+riscrivere un titolo già breve costa un turno per non cambiare niente.
+
+Una riscrittura accettata SHALL essere PERSISTITA sulla card, e SHALL restituire
+anche il titolo di PRIMA. I due modi di sbagliare qui sono entrambi silenziosi —
+una card il cui titolo diventa qualcosa che nessuno ha scritto, e una risposta
+che annuncia il titolo nuovo senza averlo salvato — e nessuno dei due produce un
+errore a schermo.
+
+#### Scenario: nessun modello collegato
+- **GIVEN** una card con un titolo lungo e nessun modello disponibile
+- **THEN** SHALL rifiutare dichiarando il motivo, e il titolo SHALL restare quello di prima
+
+#### Scenario: la riscrittura riesce
+- **GIVEN** una card riscritta con successo
+- **THEN** la card riletta SHALL portare il titolo nuovo, e la risposta SHALL nominare quello vecchio
