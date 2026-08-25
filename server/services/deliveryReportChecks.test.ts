@@ -285,3 +285,79 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
     expect(repoProbe.fileMatches("questo/file/non/esiste.ts")).toBe(false);
   });
 });
+
+/**
+ * THE TWO EXTRACTORS THAT ACCUSED THE NOISE.
+ *
+ * Every case below is a REAL string, taken from agent comments on this
+ * project's `done` cards, and every one of them produced a finding. The
+ * measurement that opened the case, over the corpus the check actually reads
+ * (the last three agent comments per card): `migration-missing` on 14 cards, of
+ * which zero survived; and 16 of the 77 cards accused of `sha-missing` were
+ * accused ONLY because a board identifier was read as a commit.
+ *
+ * Why they live here and not in a separate bench: they are assertions about the
+ * EXTRACTOR — about "does this sentence claim anything?" — which is where the
+ * defect lived. The checks downstream were right; they were being handed
+ * invented claims.
+ */
+describe("l'estrattore non scambia il rumore per una dichiarazione", () => {
+  const shas = (t: string) => extractClaims(t).filter((c) => c.kind === "sha").map((c) => (c as { value: string }).value);
+  const migs = (t: string) => extractClaims(t).filter((c) => c.kind === "migrazione").map((c) => (c as { number: string }).number);
+
+  test("il tempo di un cancello non è un numero di migration", () => {
+    // By far the commonest source: the line every report writes when it lists
+    // the gates it ran green.
+    expect(migs("✓ `check:deadcode` (6.4s), ✓ `check:migrations` (130ms), ✓ `test:unit`")).toEqual([]);
+  });
+
+  test("una frase SU una collisione di numeri non è una migration scritta", () => {
+    expect(migs("⚠️ Land NON riuscito: collisione di numeri di migration (202: 'main' ha 20260812…)")).toEqual([]);
+  });
+
+  test("una migration a timestamp non dichiara la 202", () => {
+    // This repository's scheme moved to timestamps, and `20260818052603-…`
+    // begins with three digits like anything else.
+    expect(migs("`profile_share_token` in `app_settings` (migration `20260818052603`)")).toEqual([]);
+  });
+
+  test("ma una citazione vera resta una citazione", () => {
+    expect(migs("migration 054")).toEqual(["054"]);
+    expect(migs("migration rinumerata a `102-notification-log.sql`")).toEqual(["102"]);
+    expect(migs("migration renumbered 054->055")).toEqual(["054", "055"]);
+  });
+
+  test("i due pezzi di un UUID non sono due commit", () => {
+    // Two per worktree hand-over, and the hand-over is written by the system
+    // on every card that changes one.
+    expect(shas("Nuovo worktree: `topics/tame-empire` (precedente: `50f30152-0605-494d-b7e6-cf6348063142`)")).toEqual([]);
+  });
+
+  test("un digest non è un commit corto", () => {
+    expect(shas("Anteprima IDENTICA (md5 `7efc92f9`) a quella del task")).toEqual([]);
+  });
+
+  test("e un commit vero resta un commit, corto o lungo", () => {
+    expect(shas("Portato in main con `ea5b230f`: nessun conflitto")).toEqual(["ea5b230f"]);
+    expect(shas("Commit e2fefb66a1b2c3d4e5f60718293a4b5c6d7e8f90 landato"))
+      .toEqual(["e2fefb66a1b2c3d4e5f60718293a4b5c6d7e8f90"]);
+  });
+
+  test("un numero di migration più alto di ogni migration sequenziale non è un'accusa", () => {
+    // The scheme changed under these reports: numbering stopped at 101 and
+    // everything after it is named by timestamp. A report that told the truth —
+    // "102" — describes a file that was then renamed, and the check cannot tell
+    // that from an invention. So it says nothing.
+    const probe = {
+      shaExists: () => true,
+      migrations: () => ["001-a.sql", "101-b.sql", "20260821000500-c.sql"],
+      readMigration: () => "",
+      fileMatches: () => true,
+      readLine: () => null,
+      symbolInHistory: () => true,
+    };
+    expect(checkReport("migration a **102**", probe).map((f) => f.code)).not.toContain("migration-missing");
+    // Below the tip the accusation stands: that number would have a file.
+    expect(checkReport("migration 099", probe).map((f) => f.code)).toContain("migration-missing");
+  });
+});

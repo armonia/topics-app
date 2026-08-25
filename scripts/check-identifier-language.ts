@@ -73,7 +73,7 @@ export const PROJECT_WORDS = new Set([
   "topics", "topic", "openclaw", "armonia", "tauri", "kanban", "pane", "panes",
   "org", "orgs",
   "jcode", "unfollow",
-  "worktree", "worktrees", "dispatcher", "dispatch", "board", "boards", "drawer",
+  "sharing", "inflight", "worktree", "worktrees", "dispatcher", "dispatch", "board", "boards", "drawer",
   // tech and tooling
   "ts", "tsx", "js", "jsx", "api", "apis", "url", "urls", "uri", "uuid", "id", "ids",
   "http", "https", "ws", "wss", "sql", "sqlite", "db", "json", "jsonl", "yaml", "css",

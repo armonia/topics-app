@@ -19,26 +19,26 @@ import { sharedTitle } from '../../lib/projectSharing';
  * fallback is a glyph, and that is deliberate rather than an oversight.
  *
  * THE ANCHOR IS A `data-testid`. `PaneTabBar` already carries the lesson
- * written on its own label: «i locator dei test erano agganciati alle classi
- * Tailwind, e rinominarne una li faceva passare a verde-vuoto». A styling
- * class is not an anchor.
+ * written on its own label: test locators were hung off Tailwind classes, and
+ * renaming one of those classes turned them green-and-empty without anything
+ * being broken. A styling class is not an anchor.
  */
 export function SharedOrgBadge({ path, size = 12, className = '' }: { path: string; size?: number; className?: string }) {
   const org = useSharedOrg(path);
   // A logo that fails to load must not leave a broken-image glyph on the tab;
   // the fallback glyph says the same thing and always draws.
-  const [logoRotto, setLogoRotto] = useState(false);
+  const [logoBroken, setLogoBroken] = useState(false);
 
   if (!org) return null;
-  const titolo = sharedTitle(org);
-  const logo = org.logoUrl && !logoRotto ? org.logoUrl : null;
+  const tooltip = sharedTitle(org);
+  const logo = org.logoUrl && !logoBroken ? org.logoUrl : null;
 
   return (
     <span
       data-testid="pane-tab-shared-org"
       data-org-id={org.id}
-      title={titolo}
-      aria-label={titolo}
+      title={tooltip}
+      aria-label={tooltip}
       role="img"
       className={`flex items-center justify-center flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity ${className}`}
       style={{ width: size, height: size }}
@@ -55,7 +55,7 @@ export function SharedOrgBadge({ path, size = 12, className = '' }: { path: stri
           // the logo's aspect ratio. Same trap `ProjectFavicon` documents.
           style={{ width: size, height: size }}
           className="rounded-[2px] object-contain"
-          onError={() => setLogoRotto(true)}
+          onError={() => setLogoBroken(true)}
         />
       ) : (
         <Users size={size} />

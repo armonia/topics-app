@@ -134,11 +134,57 @@ export function extractClaims(report: string): Claim[] {
   for (const m of report.matchAll(/(^|[^#\w]|0[^x])\b([0-9a-f]{7,40})\b/gi)) {
     const v = m[2]!.toLowerCase();
     if (!/[0-9]/.test(v) || !/[a-f]/.test(v)) continue;
+    // NOT EVERY RUN OF HEX IS A COMMIT, and the two impostors here are the
+    // board's own vocabulary. Measured over the cards this check actually
+    // reads: 16 of the 77 accused (21%) were accused ONLY by these two.
+    //
+    //   `topics/tame-empire` (precedente: `50f30152-0605-…-cf6348063142`)  allow-italian: a real comment, quoted as evidence
+    //    → the head and the tail of a task UUID, twice per worktree hand-over
+    //   Anteprima IDENTICA (md5 `7efc92f9`) a quella del task …  allow-italian: idem
+    //    → a digest of a preview image
+    //
+    // A dash on either side means the run is one GROUP of a dashed identifier,
+    // not a whole one: a commit is never written that way. The md5 guard reads
+    // the few characters in front, because a digest looks exactly like a short
+    // sha and only its label tells them apart. Both refuse in the direction
+    // this module always refuses in — silence rather than an accusation.
+    const start = m.index! + m[1]!.length;
+    if (report[start - 1] === "-" || report[start + v.length] === "-") continue;
+    if (/md5|sha256|digest|hash/i.test(report.slice(Math.max(0, start - 12), start))) continue;
     push({ kind: "sha", value: v });
   }
 
-  // "migration 054", "migration renumbered 054->055" (both numbers are claims).
-  for (const m of report.matchAll(/\bmigrat(?:ion|ions|ione|ioni)\b[^.\n]{0,40}?(\d{3})(?:\s*(?:->|→|-->)\s*(\d{3}))?/gi)) {
+  /**
+   * "migration 054", "migration renumbered 054->055" (both numbers are claims).
+   *
+   * THE NUMBER HAS TO BE THE WORD'S OWN, and the rule that enforces it is the
+   * absence of slop: the digits must follow the word directly, across at most
+   * two small linking words and some decoration (a backtick, a pair of
+   * asterisks). Nothing else may sit between.
+   *
+   * The previous shape allowed forty arbitrary characters of gap, and the gap
+   * is where the false claims came from. Measured over every `done` card of
+   * this project: 82 of 106 extracted numbers (77%) were impossible — higher
+   * than 101, which is the highest migration that exists. Where they came from:
+   *
+   *     ✓ `check:migrations` (130ms)   →  claims migration 130
+   *     ✓ `check:migrations` (762ms)   →  claims migration 762
+   *     collisione di numeri di migration (202: 'main' ha …)  →  claims 202  allow-italian: a real report line, quoted as evidence
+   *
+   * The first two are a gate's own timing, quoted by every report that runs the
+   * battery — which is nearly all of them. The third is a report DESCRIBING a
+   * numbering collision, i.e. prose about migrations rather than a claim to
+   * have written one. A check that reads a stopwatch as a claim does not
+   * measure honesty, it measures how many gates the agent ran.
+   *
+   * `(?!\d)` on each number is the other half: a migration named by TIMESTAMP
+   * (`20260818052603-…`, the scheme this repo moved to) starts with three
+   * digits like any other, and without the guard every one of them was read as
+   * a claim to have written migration 202.
+   */
+  for (const m of report.matchAll(
+    /\bmigrat(?:ion|ions|ione|ioni)\b(?:\s+(?:numero|number|rinumerata|renumbered|a|to|at)){0,2}\s*[`*]{0,2}(\d{3})(?!\d)(?:\s*(?:->|→|-->)\s*(\d{3})(?!\d))?/gi,
+  )) {
     push({ kind: "migrazione", number: m[1]! });
     if (m[2]) push({ kind: "migrazione", number: m[2] });
   }
@@ -184,6 +230,20 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
     if (c.kind !== "migrazione") continue;
     const file = migrations.find((f) => f.startsWith(`${c.number}-`));
     if (!file) {
+      // A number ABOVE the highest sequential migration is not an accusation.
+      // The scheme changed under these reports: numbering stopped at 101 and
+      // everything since is named by timestamp, so a report that legitimately
+      // said "renumbered to 102" describes a file that was then renamed. The
+      // check cannot tell that from an invention, so it says nothing — the
+      // direction this module errs in, everywhere.
+      // Solo i nomi SEQUENZIALI: un file a timestamp comincia con tre cifre
+      // come chiunque altro (`20260821…` darebbe 202 come punta), e prendendolo
+      // per un numero d'ordine la guardia si disarmava da sé.
+      const lastSequential = migrations
+        .filter((f) => /^\d{3}-/.test(f))
+        .map((f) => Number(f.slice(0, 3)))
+        .reduce((a, b) => Math.max(a, b), 0);
+      if (Number(c.number) > lastSequential) continue;
       findings.push({ code: "migration-missing", detail: `nessuna migration ${c.number}-*.sql` });
       continue;
     }

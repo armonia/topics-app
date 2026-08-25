@@ -2,10 +2,9 @@
  * IS THIS PROJECT VISIBLE TO SOMEONE ELSE, AND TO WHOM.
  *
  * The question a project tab has to answer before you type into it. The
- * feedback that asked for it, verbatim: «se un progetto è condiviso con una
- * certa organizzazione, dovrei vedere l'icona dell'organizzazione sulla tab del
- * progetto stesso, in modo da ricordarmi che condivido e tutti quanti possono
- * vedere quella sessione». It is not decoration: it is the only thing standing
+ * request that asked for it, verbatim: «se un progetto è condiviso con una certa organizzazione, dovrei vedere l'icona dell'organizzazione sulla tab del progetto stesso, in modo da ricordarmi che condivido e tutti quanti possono vedere quella sessione». allow-italian: the request as written, and its words are the specification
+ *
+ * It is not decoration: it is the only thing standing
  * between writing something private and writing it in a session five people
  * can read. An answer you can only get by opening a menu always arrives late.
  *

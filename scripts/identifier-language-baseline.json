@@ -1121,7 +1121,6 @@
       "NONE_VERIFIED_TTL_MS",
       "endpointUrl",
       "img",
-      "inflight",
       "presenti",
       "reportImgError"
     ],
@@ -1974,7 +1973,6 @@
       "cmp"
     ],
     "client/src/lib/boardProjectsStore.ts": [
-      "inflight",
       "noto",
       "senzaHash"
     ],
@@ -2265,9 +2263,7 @@
     ],
     "client/src/lib/iconTint.ts": [
       "RGB",
-      "img",
-      "inflight",
-      "paletteInflight"
+      "img"
     ],
     "client/src/lib/imageCrop.ts": [
       "img"
@@ -2405,7 +2401,6 @@
       "unregisterFirst"
     ],
     "client/src/lib/providersSnapshotStore.ts": [
-      "inflight",
       "unsubFrames"
     ],
     "client/src/lib/push/environment.ts": [
@@ -2763,13 +2758,9 @@
       "uninstallFakeWindow"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
-      "InflightEntry",
       "MAX_RETRIES",
-      "__getInflightKeys",
-      "__resetInflightForTests",
       "armaSpinta",
       "flushNowKeepalive",
-      "inflight",
       "lastFlushedSeqOnHide",
       "seq"
     ],
@@ -2861,9 +2852,6 @@
     ],
     "client/src/state/projectGridWeights.test.ts": [
       "unsub"
-    ],
-    "client/src/state/reconcileOrphanStreams.test.ts": [
-      "inflight"
     ],
     "client/src/state/scrollToMessage.ts": [
       "TTL_MS"
@@ -3965,7 +3953,6 @@
       "effectiveDsf",
       "handoff",
       "href",
-      "inflight",
       "info",
       "screencastSessions",
       "skipped",
@@ -5471,7 +5458,6 @@
     ],
     "server/providers/claude-models.ts": [
       "buf",
-      "inflight",
       "newestOfFamily"
     ],
     "server/providers/claude/args.test.ts": [

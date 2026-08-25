@@ -8,8 +8,9 @@
  * answer differently about the same project, and neither would look wrong.
  *
  * WHY IT LISTENS TO THE SOCKET. The mark has to disappear the moment a project
- * is withdrawn from its organisation — that is the whole request: «senza
- * ricaricare». The server already emits `project:updated` after every project
+ * is withdrawn from its organisation — that is the whole request, and the
+ * request said it in three words: without a reload. The server already emits
+ * `project:updated` after every project
  * mutation (`PROJECT-03`), and to a client that must no longer see the row it
  * emits `project:deleted` with the bare id instead (`envelopeProgettoPer`).
  * Both are handled here, and the second one is the interesting one: for

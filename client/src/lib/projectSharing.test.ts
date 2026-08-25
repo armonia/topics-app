@@ -17,56 +17,56 @@ import { sharedWith, sharedTitle, type OrgRef, type ProjectSharing } from "./pro
 const org = (o: Partial<OrgRef> = {}): OrgRef =>
   ({ id: "o1", name: "Danceroom", logoUrl: null, members: 3, ...o });
 
-const proj = (p: Partial<ProjectSharing> = {}): ProjectSharing =>
+const project = (p: Partial<ProjectSharing> = {}): ProjectSharing =>
   ({ path: "/p", orgId: "o1", incognito: false, ...p });
 
-const indice = (p: ProjectSharing[], o: OrgRef[]) =>
+const index = (p: ProjectSharing[], o: OrgRef[]) =>
   [new Map(p.map((x) => [x.path, x])), new Map(o.map((x) => [x.id, x]))] as const;
 
 describe("quando il marchio compare", () => {
   test("progetto di un'organizzazione con altre persone dentro", () => {
-    const [pp, oo] = indice([proj()], [org({ members: 3 })]);
+    const [pp, oo] = index([project()], [org({ members: 3 })]);
     expect(sharedWith("/p", pp, oo)?.name).toBe("Danceroom");
   });
 
   test("due persone bastano: il secondo membro e' gia' qualcuno che legge", () => {
-    const [pp, oo] = indice([proj()], [org({ members: 2 })]);
+    const [pp, oo] = index([project()], [org({ members: 2 })]);
     expect(sharedWith("/p", pp, oo)).not.toBeNull();
   });
 });
 
 describe("quando tace, e perche'", () => {
   test("un'organizzazione di UNA persona non condivide niente con nessuno", () => {
-    // La riga per cui esiste questo file: sull'installazione di chi scrive,
-    // dieci progetti su dieci cadono qui.
-    const [pp, oo] = indice([proj()], [org({ members: 1 })]);
+    // The line this whole file exists for: on the author's own installation,
+    // ten projects out of ten land on this branch.
+    const [pp, oo] = index([project()], [org({ members: 1 })]);
     expect(sharedWith("/p", pp, oo)).toBeNull();
   });
 
   test("`incognito` vince sull'appartenenza: il proprietario ha gia' detto di no", () => {
-    const [pp, oo] = indice([proj({ incognito: true })], [org({ members: 5 })]);
+    const [pp, oo] = index([project({ incognito: true })], [org({ members: 5 })]);
     expect(sharedWith("/p", pp, oo)).toBeNull();
   });
 
   test("`org_id` nullo: nessuna organizzazione, nessun marchio", () => {
-    const [pp, oo] = indice([proj({ orgId: null })], [org()]);
+    const [pp, oo] = index([project({ orgId: null })], [org()]);
     expect(sharedWith("/p", pp, oo)).toBeNull();
   });
 
   test("un'organizzazione che l'indice non sa nominare non diventa «condiviso con ?»", () => {
-    // Il senso del marchio e' il CON CHI. Senza il nome resterebbe solo
-    // l'allarme, che e' la meta' che non si puo' verificare guardandola.
-    const [pp, oo] = indice([proj({ orgId: "fantasma" })], [org()]);
+    // The point of the mark is the WITH WHOM. Without the name only the alarm
+    // is left, and that is the half nobody can check by looking at it.
+    const [pp, oo] = index([project({ orgId: "fantasma" })], [org()]);
     expect(sharedWith("/p", pp, oo)).toBeNull();
   });
 
   test("un progetto che l'indice non conosce e' una domanda aperta, non un «no»", () => {
-    const [pp, oo] = indice([proj()], [org()]);
+    const [pp, oo] = index([project()], [org()]);
     expect(sharedWith("/altro", pp, oo)).toBeNull();
   });
 
   test("senza path non si indovina", () => {
-    const [pp, oo] = indice([proj()], [org()]);
+    const [pp, oo] = index([project()], [org()]);
     expect(sharedWith(null, pp, oo)).toBeNull();
     expect(sharedWith("", pp, oo)).toBeNull();
   });
@@ -84,8 +84,8 @@ describe("il titolo dice CON CHI", () => {
   });
 
   test("e non e' la stringa vuota per un'organizzazione senza logo", () => {
-    // Il logo e' opzionale, il NOME no: un marchio senza titolo dice «condiviso»
-    // e lascia aperta l'unica domanda che conta.
+    // The logo is optional, the NAME is not: a mark with no tooltip says
+    // "shared" and leaves open the only question that matters.
     expect(sharedTitle(org({ logoUrl: null })).length).toBeGreaterThan(10);
   });
 });
