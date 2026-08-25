@@ -42,14 +42,15 @@ export interface ProcessoSubagente {
   completedAt?: string;
 }
 
-/** Il segno che una sessione E' un sotto-agente, nella sua chiave. */
+/** The mark that a session IS a sub-agent, in its key. */
 const MARCA_SUBAGENTE = "subagent";
 
 /**
- * Le sessioni di sotto-agente, nella forma che il pannello disegna.
+ * The sub-agent sessions, in the shape the panel draws.
  *
- * `adesso` è un parametro e non `new Date()` di proposito: è il ripiego per le
- * date mancanti, e un test che non può fissarlo asserirebbe sull'orologio.
+ * The clock is a parameter and not `new Date()` on purpose: it is the fallback
+ * for missing dates, and a test that cannot pin it would assert on the clock.
+ * (The parameter is `adesso`.)  allow-italian: the identifier's own name
  */
 export function processiSubagente(
   sessioni: readonly SessionePerProcessi[],
@@ -62,9 +63,9 @@ export function processiSubagente(
       const attivo = s.status === "active";
       return {
         sessionKey: chiave,
-        // Il ripiego è l'ULTIMO segmento della chiave, non la chiave intera:
-        // `topic:abc:subagent:explore` in un pannello stretto deve leggersi
-        // «explore». L'ultimo ripiego è una parola, mai una stringa vuota.
+        // The fallback is the LAST segment of the key, not the whole key:
+        // `topic:abc:subagent:explore` in a narrow panel has to read as
+        // "explore". The last fallback is a word, never an empty string.
         label: s.label || chiave.split(":").pop() || "Sub-agent",
         status: attivo ? "running" : "done",
         startedAt: s.createdAt || adesso(),

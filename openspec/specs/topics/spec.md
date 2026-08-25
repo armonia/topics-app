@@ -191,3 +191,47 @@ The system SHALL provide organizational features for topics including drag-and-d
 - **GIVEN** two topics exist at the same level in the sidebar
 - **WHEN** the user drags one topic directly onto another topic
 - **THEN** the dragged topic becomes a nested child of the target topic
+
+### Requirement: TOPIC-WT-01 — Optional Worktree Binding
+
+> Promoted from `2026-05-16-add-project-worktree-domain`; the scenarios about the New Topic dialog's worktree picker, the settings-modal Worktree section and slash-command cwd resolution were dropped because the covering test exercises the topic API only. What is stated here is what that test proves: the binding round-trip and the fallback when the worktree disappears.
+
+A topic MAY optionally be bound to a single worktree through the `worktree_id` foreign key. A topic with no binding SHALL behave exactly as it did before the column existed, operating inside its own `project_path`. When the bound worktree is deleted the binding SHALL be cleared, and the topic SHALL keep working against `project_path` with no user-visible error.
+
+#### Scenario: Topic created without a worktree keeps the legacy behaviour
+- **GIVEN** the user creates a topic without naming a worktree
+- **WHEN** the topic is persisted
+- **THEN** the created topic SHALL come back with `worktreeId` null
+- **AND** it SHALL be listed by `GET /api/topics` like any other topic
+
+#### Scenario: Topic created bound to a ready worktree
+- **GIVEN** a project has a worktree that reached `status: 'ready'`
+- **WHEN** the user creates a topic passing that worktree's id
+- **THEN** the created topic SHALL carry that `worktreeId`
+
+#### Scenario: Topic falls back to the project path when the worktree is deleted
+- **GIVEN** a topic bound to worktree W
+- **WHEN** `DELETE /api/worktrees/:id` removes W
+- **THEN** the topic SHALL still exist
+- **AND** its `worktreeId` SHALL be null
+- **AND** its `projectPath` SHALL be unchanged
+
+### Requirement: TOPIC-09 — Project folder expand and collapse
+
+The system SHALL give a project row in the sidebar a chevron control, separate from the
+project name, that only expands and collapses the folder — it never moves focus. The
+folder's children SHALL be removed from the tree while it is collapsed and returned when
+it is expanded, with `aria-expanded` reporting the current state.
+
+> A project row exists while the project has an open pane, and a project chat is listed
+> as a child only when it has an open pane inside the project, a pending attention, or is
+> pinned — the test raises an unread on the child to make it listable.
+
+#### Scenario: Collapsing the folder hides its child, expanding brings it back
+- **GIVEN** a project row is visible in the sidebar with a chat inside it that has a pending unread
+- **AND** the project's chevron reports `aria-expanded="true"`
+- **THEN** the child chat's row is visible in the sidebar
+- **WHEN** the user clicks the chevron
+- **THEN** `aria-expanded` becomes `"false"` and the child's row is no longer present
+- **WHEN** the user clicks the chevron again
+- **THEN** `aria-expanded` returns to `"true"` and the child's row is visible again

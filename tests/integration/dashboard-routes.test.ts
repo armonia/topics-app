@@ -50,7 +50,7 @@ async function banco(): Promise<Router> {
   return createDashboardRouter(await createTestAppContext());
 }
 
-/** Le chiavi a cui le cinque componenti del cruscotto sono cablate. */
+/** The keys the dashboard's five components are wired to. */
 const CHIAVI_KPI = [
   "throughputDay",
   "throughputWeek",
@@ -75,17 +75,17 @@ describe("i numeri del cruscotto", () => {
     const mancanti = CHIAVI_KPI.filter((k) => typeof kpi[k] !== "number");
     expect(mancanti, "chiavi assenti o non numeriche: la card resta vuota, non rossa").toEqual([]);
 
-    // Vuoto vuol dire zero, non `null`: e' il ramo `?? 0` che la rotta mette su
-    // ogni statement, e senza dati e' l'unico che gira.
+    // Empty means zero, not `null`: it is the `?? 0` branch the route puts on
+    // every statement, and with no data it is the only one that runs.
     expect(kpi.throughputDay).toBe(0);
     expect(kpi.wipCount).toBe(0);
     expect(kpi.errorRate).toBe(0);
   });
 
   test("l'errore rate non divide per zero", async () => {
-    // `totalSessions > 0 ? … : 0`. Su un database vuoto il divisore E' zero, e
-    // il ramo sbagliato darebbe `NaN` — che in JSON diventa `null` e sulla card
-    // diventa un trattino, in silenzio.
+    // `totalSessions > 0 ? ... : 0`. On an empty database the divisor IS zero,
+    // and the wrong branch would give `NaN` - which in JSON becomes `null` and
+    // on the card becomes a dash, quietly.
     const router = await banco();
     const kpi = (await (await chiama(router, "/api/dashboard/kpis")).json()) as { errorRate: number };
     expect(Number.isFinite(kpi.errorRate)).toBe(true);
@@ -104,9 +104,9 @@ describe("la serie storica del cruscotto", () => {
   });
 
   test("una metrica che non esiste e' 400, non un grafico vuoto", async () => {
-    // La meta' che rende non vacuo il test sopra: qui la risposta CAMBIA. Un
-    // grafico vuoto e un grafico che non esiste si disegnano uguali, e solo il
-    // codice di stato li distingue.
+    // The half that makes the test above non-vacuous: here the answer CHANGES.
+    // An empty chart and a chart that does not exist are drawn the same way, and
+    // only the status code tells them apart.
     const router = await banco();
     const res = await chiama(router, "/api/dashboard/timeseries?metric=inventata&range=7d");
     expect(res.status).toBe(400);
@@ -119,10 +119,11 @@ describe("la serie storica del cruscotto", () => {
   });
 
   test("un intervallo sconosciuto NON e' un errore: ripiega su sette giorni", async () => {
-    // Asimmetria voluta rispetto alla metrica, e sta qui scritta apposta: chi
-    // legge lo `switch` di `rangeToDays` e quello delle metriche e' tentato di
-    // renderli coerenti. Il ripiego e' la scelta giusta — un intervallo strano
-    // e' una preferenza, una metrica strana e' una richiesta senza risposta.
+    // A deliberate asymmetry with the metric branch, written down here on
+    // purpose: whoever reads the `switch` in `rangeToDays` and the one for the
+    // metrics will be tempted to make them consistent. The fallback is the right
+    // choice - an odd range is a preference, an odd metric is a request with no
+    // answer.
     const router = await banco();
     const strano = await chiama(router, "/api/dashboard/timeseries?metric=throughput&range=999y");
     expect(strano.status).toBe(200);

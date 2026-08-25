@@ -132,18 +132,18 @@ describe("l'istantanea delle sessioni Claude", () => {
     expect(uno.claudeSessionId).toBe("cli-uno");
     expect(uno.phase).toBe("starting");
 
-    // Il puntatore: e' il campo che il commento della rotta dichiara di
-    // servire apposta, ed e' quello che sparisce in silenzio se qualcuno
-    // sfoltisce il map literal.
+    // The pointer: it is the field the route's own comment declares it serves
+    // on purpose, and it is the one that disappears quietly if somebody thins
+    // out the map literal.
     expect(Object.keys(uno)).toContain("jsonlPath");
     expect(Object.keys(uno)).toContain("jsonlOffset");
     expect(uno.jsonlPath).toBe("/tmp/finto/uno.jsonl");
 
-    // Una sessione senza transcript NON porta la chiave: `JSON.stringify`
-    // toglie gli `undefined`, quindi sul filo `jsonlPath` semplicemente non
-    // c'e'. Va bene — il client legge `undefined` in entrambi i casi — e va
-    // detto qui, perche' un test che pretendesse `null` fallirebbe su un
-    // comportamento corretto e verrebbe spento invece che letto.
+    // A session with no transcript does NOT carry the key: `JSON.stringify`
+    // strips the `undefined`s, so on the wire `jsonlPath` simply is not there.
+    // That is fine - the client reads `undefined` in both cases - and it has to
+    // be said here, because a test demanding `null` would fail on correct
+    // behaviour and would get switched off instead of read.
     const due = sessions.find((s) => s.sessionKey === "topic:due")!;
     expect(due.jsonlPath ?? null).toBeNull();
   });
@@ -157,17 +157,17 @@ describe("l'istantanea delle sessioni Claude", () => {
     expect(session.sessionKey).toBe("topic:tre");
     expect(session.claudeSessionId).toBe("cli-tre");
 
-    // 404 e non 200-vuoto: per un client un 200 senza sessione si legge come
-    // «c'e', ed e' ferma», che e' la cosa sbagliata da credere di una sessione
-    // che non esiste piu'.
+    // 404 and not an empty 200: to a client a 200 with no session reads as
+    // "it is there, and it is idle", which is the wrong thing to believe about
+    // a session that no longer exists.
     const assente = await chiama(router, "/api/claude-sessions/by-key/topic:mai-esistita");
     expect(assente.status).toBe(404);
   });
 
   test("l'istantanea segue la fase che gli hook fanno cambiare", async () => {
-    // Il legame fra le due meta': la macchina a stati e' provata altrove, qui
-    // si prova che la rotta racconta lo STATO CORRENTE e non una copia
-    // congelata al primo giro.
+    // The link between the two halves: the state machine is tested elsewhere,
+    // here what gets tested is that the route reports the CURRENT STATE and not
+    // a copy frozen at the first round.
     semina(db, "topic:quattro", "cli-quattro");
 
     const prima = (await (await chiama(router, "/api/claude-sessions/by-key/topic:quattro")).json()) as { session: Istantanea };

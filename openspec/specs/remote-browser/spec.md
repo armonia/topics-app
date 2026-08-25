@@ -204,3 +204,234 @@ The system SHALL support agent-driven browser interactions including click, type
 - **THEN** a DELETE request SHALL be sent to /api/browsers/:id
 - **AND** the server SHALL destroy the browser context and broadcast a "browser-deleted" event
 
+
+### Requirement: BROWSER-CHAT-01 — Per-topic browser state persists to disk and is restored on cold open
+
+The system SHALL persist a browser context's storage state to
+`<DATA_DIR>/browser-state/<sanitized-contextId>/storage.json`, flushing it synchronously
+when the context is destroyed, and SHALL restore both that storage state and the last
+visited URL when the context is created again from cold. The topic's `browserState.url`
+SHALL reflect the last navigation.
+
+#### Scenario: Storage file is written when the context closes
+- **GIVEN** a topic whose browser context has been opened and navigated to a URL via `POST /api/browsers/:id/agent/open`
+- **WHEN** the context is destroyed via `DELETE /api/browsers/:id`
+- **THEN** `storage.json` exists at the canonical path for that context id
+- **AND** it parses to an object with a `cookies` array and an `origins` array
+
+#### Scenario: Reopening from cold restores the URL
+- **GIVEN** the context was destroyed after navigating to `https://example.com`
+- **WHEN** a request re-creates it lazily (`POST /api/browsers/:id/agent/screenshot`)
+- **THEN** the call succeeds and returns a file `path` plus a positive `bytes`, and no inline base64 payload
+- **AND** the bytes on disk at that path match the reported size
+- **AND** `GET /api/browsers/:id` reports a URL containing `example.com` — the fresh context is not sitting on `about:blank`
+- **AND** the topic's `browserState.url` contains `example.com`
+
+### Requirement: BROWSER-CHAT-02 — Live pane transport: push frames, input latency, degradation and recovery
+
+The system SHALL stream the remote browser pane over a per-context WebSocket
+(`/ws/browser/:id`), driving the pane's rendered surface, and SHALL degrade and recover
+without stranding the pane. Numeric ceilings are read from
+`tests/e2e/perf-baseline.json` (`browser_ws_streaming`), not hard-coded here.
+
+#### Scenario: First frame arrives push-driven after the socket opens
+- **GIVEN** a browser pane is mounted for a topic via the `browser:open-and-navigate` event
+- **WHEN** the first `frame` message arrives on the browser WebSocket
+- **THEN** the elapsed time since the socket opened is below the `first_frame_ms_ceiling` baseline
+
+#### Scenario: Input round-trip stays under the p95 ceiling
+- **GIVEN** a connected pane whose clickable surface is the WebRTC `<video>` element
+- **WHEN** the user clicks it repeatedly until at least `input_latency_sample_size_min` click→frame pairs are measured
+- **THEN** the p95 of those round trips is below the `input_latency_p95_ms_ceiling` baseline
+
+#### Scenario: Sustained frame rate stays within the bandwidth ceiling
+- **GIVEN** a connected pane receiving frames
+- **WHEN** at least `frame_count_in_2s_floor` frames have arrived
+- **THEN** the measured bandwidth is below the `bandwidth_kbps_ceiling` baseline
+
+#### Scenario: A transient socket drop reconnects and the surface returns
+- **GIVEN** a connected pane showing the WebRTC `<video>` surface
+- **WHEN** the WebSocket is closed underneath it
+- **THEN** the client opens a NEW socket rather than staying in polling
+- **AND** the `<video>` surface returns once the transport renegotiates
+
+#### Scenario: With no socket at all the pane reports fallback, never "connecting"
+- **GIVEN** the browser WebSocket constructor throws so no socket can be opened
+- **WHEN** the pane mounts
+- **THEN** the connection indicator is visible and carries the `connection-fallback` class within the `fallback_http_grace_ms_ceiling` baseline
+- **AND** it does not carry the `connection-connecting` class
+
+#### Scenario: The pane streams its real size on open and on resize
+- **GIVEN** a browser pane has just opened its socket
+- **THEN** a `resize` message is sent carrying a positive width, a positive height and a `deviceScaleFactor` of at least 1
+- **WHEN** the window is resized
+- **THEN** a further `resize` message is sent
+
+#### Scenario: A download announces itself in the toolbar and is dismissible
+- **GIVEN** a connected pane
+- **WHEN** the server pushes a completed download
+- **THEN** a downloads button appears in the toolbar and its menu opens by itself, with no separate strip at the foot of the pane
+- **AND** the menu entry names the file, links to its href and shows its size
+- **WHEN** the user presses Escape the menu closes, and clicking the button reopens it
+- **WHEN** the user dismisses the last entry, the downloads button disappears
+
+### Requirement: BROWSER-CHAT-03 — Agent control of the browser over REST, including other sessions' tabs
+
+The system SHALL expose the browser to an agent through per-context REST endpoints
+(`open`, `observe`, `get-text`, `extract`, `act`, `point`), SHALL broadcast an
+`agent_active` true→false pair around every locked operation even when the operation
+fails, and SHALL let a session that owns no pane list and drive another topic's tab by
+`contextId`.
+
+#### Scenario: browser_open navigates and reports the landed page
+- **WHEN** the agent posts a URL to `POST /api/browsers/:id/agent/open`
+- **THEN** the response carries no `error`, a `url` matching the requested host and a string `title`
+
+#### Scenario: browser_observe returns a compact ref snapshot, with the screenshot opt-in
+- **GIVEN** a context sitting on a page
+- **WHEN** the agent posts `{ full: true }` to `agent/observe`
+- **THEN** the response carries a `snapshot` of numbered ref lines (`[1] link …`), a `count` of at least 1, `full: true` and a non-empty `url`
+- **AND** `screenshot_annotated` is absent — the heavy payload is opt-in
+- **WHEN** the agent observes again without `full`
+- **THEN** the response reports `full: false` and an incremental snapshot ("no element changes" / "same structure" / "navigated")
+- **WHEN** the agent observes with `{ screenshot: true }`
+- **THEN** `screenshot_annotated` is a base64 JPEG or PNG of non-trivial size
+
+#### Scenario: get-text and extract read the page
+- **GIVEN** a context sitting on a page
+- **WHEN** the agent posts to `agent/get-text`
+- **THEN** it receives non-empty `text`
+- **WHEN** the agent posts `{ fields: { heading: "h1" } }` to `agent/extract`
+- **THEN** it receives no `error` and a string value for `heading`
+
+#### Scenario: agent_active pairs even when the action fails
+- **GIVEN** a client listening on `/ws/browser/:id`
+- **WHEN** the agent posts an `act` naming an element id that does not exist
+- **THEN** the endpoint fails soft (HTTP 200 with an `error`, or 500)
+- **AND** the socket has received an `agent_active: true` followed by an `agent_active: false`
+
+#### Scenario: A pane-less session lists and drives another topic's tab
+- **GIVEN** topic A has an open browser context, and a session key that owns no pane of its own
+- **WHEN** that session posts to `/api/sessions/:key/browser/list-tabs`
+- **THEN** topic A's tab is listed with `kind: "topic"`, the topic's name as `label`, its current URL, and `isOwn: false`
+- **WHEN** that session posts `get-text` with `contextId` set to topic A
+- **THEN** it receives non-empty text
+- **WHEN** it posts `get-text` with an unknown `contextId`
+- **THEN** the response is HTTP 404 with an error naming "unknown contextId" and listing the live ids, and no phantom context is created
+
+#### Scenario: browser_point fails soft when the vision backend is unavailable
+- **GIVEN** the Moondream backend is unreachable or unauthenticated on the test server
+- **WHEN** the agent posts a description to `agent/point`
+- **THEN** the response is either a structured `error` naming the cause, or a success carrying `clicked: true` and numeric point coordinates
+
+#### Scenario: The OpenClaw browser-isolation bridge is gone
+- **WHEN** `server/routes/topics.ts` is read
+- **THEN** it contains no occurrence of `browserTargetIdCache`, `BROWSER ISOLATION`, `isolationInstruction` or `BrowserIsolation`
+
+### Requirement: BROWSER-CHAT-04 — Opening, driving and closing a browser pane from a topic
+
+The system SHALL mount a remote browser pane inside a topic from the chat surface, SHALL
+show the agent-controlling overlay while an agent holds the lock, SHALL let the user take
+control back, SHALL offer a select-element mode that feeds the chat, and SHALL close the
+pane in live clients on a remote close.
+
+#### Scenario: A browser pane can be opened in a topic
+- **GIVEN** a topic is open
+- **WHEN** the user picks Browser from the add-pane menu, or the canonical `browser:open-and-navigate` event is dispatched
+- **THEN** a pane root marked `[data-browser-pane]` is visible
+
+> Written from the test, and no wider: the E2E falls back to dispatching the event when
+> the add-pane menu does not expose a Browser entry, so what is pinned is that the pane
+> mounts, not that the menu path is the one taken.
+
+#### Scenario: /browser <url> opens the pane and labels the tab
+- **GIVEN** a topic chat is open and focused
+- **WHEN** the user sends `/browser https://example.com` in the composer
+- **THEN** a `[data-browser-pane]` root becomes visible
+- **AND** a tab is shown naming the destination (or the generic browser/chat label while the shared session is still negotiating)
+
+#### Scenario: @browser registers the browser tool surface with the provider
+- **GIVEN** the server is running a passthrough provider (`claude` or `openai`)
+- **WHEN** the user sends a message beginning with `@browser`
+- **THEN** the provider request carries at least the tools `browser_open`, `browser_observe`, `browser_act`, `browser_extract`, `browser_screenshot` and `browser_point`
+- **AND** on any other provider the scenario does not apply — the tool surface is upstream-managed
+
+#### Scenario: The agent-controlling overlay follows the agent_active broadcast
+- **GIVEN** a mounted browser pane connected to its socket
+- **THEN** the agent-controlling overlay is hidden
+- **WHEN** `agent_active: true` is broadcast, the overlay becomes visible
+- **WHEN** `agent_active: false` is broadcast, the overlay hides again
+
+#### Scenario: Take control sends take_control and releases the overlay
+- **GIVEN** the agent-controlling overlay is showing
+- **WHEN** the user clicks the Take control button
+- **THEN** a `take_control` message is sent on the browser socket
+- **AND** the overlay hides once the server re-broadcasts `agent_active: false` — the client does not clear it optimistically
+
+#### Scenario: Cmd+Shift+E selects an element and feeds it to the chat
+- **GIVEN** a mounted browser pane showing the WebRTC `<video>` surface
+- **WHEN** the user presses Cmd+Shift+E
+- **THEN** the select-element overlay mounts
+- **WHEN** the user clicks a point on the overlay
+- **THEN** a `chat:insert-text` event carries the element's identification (css path and selector), its bounding box, its markup in an HTML code block and its computed style in a CSS code block
+- **AND** a separate `chat:attach-image` event carries the crop as a `data:image/png;base64,` attachment
+
+#### Scenario: localhost is not force-framed — it follows the framable probe
+- **GIVEN** a pane pointed at `http://localhost:3333` whose `/api/browsers/framable` probe reports `framable: false`
+- **WHEN** the pane renders
+- **THEN** no iframe is rendered — the retired localhost force-frame does not return
+- **AND** the pane falls back to the streaming WebRTC surface rather than a dead pane
+
+#### Scenario: A remote close removes the pane in live clients
+- **GIVEN** a mounted browser pane whose context id is the topic id
+- **WHEN** `POST /api/topics/:id/browser/close-pane` is called
+- **THEN** the request succeeds and the pane root disappears from the live client
+
+### Requirement: CD-CLOSE-01 — A browser tab closed on one device disappears live on the other
+
+> Written from `tests/e2e/browser-cross-device-close.spec.ts`. It lives here
+> rather than under `tab-sync-e2e` because it is specific to BROWSER panes: the
+> generic cross-device pane reconciliation (`TAB-SYNC-02`) merges as a UNION, so
+> a removal there deliberately does NOT propagate, and browser closes ride a
+> separate rail. The two eviction guards — a pane re-opened after the close, and
+> the five-minute window — are not exercised by this test.
+
+Closing a browser tab on one device SHALL remove it from another connected
+device LIVE, without a reload. The pane-store's cross-device broadcast
+reconciles with a union so that no client can wipe another's tabs, which means a
+removal does not travel that way; the close therefore SHALL travel as its own
+close-marker, synced over `/ws`, and the receiving device SHALL evict the
+matching `browser:<context>` pane on receipt rather than merely stop resurrecting
+it at the next hydrate.
+
+The eviction SHALL be targeted: a sibling browser tab SHALL survive.
+
+#### Scenario: Both devices show both browser tabs
+- **GIVEN** two connected clients and two browser panes seeded in the shared pane store before either loads
+- **WHEN** the second device finishes hydrating
+- **THEN** it SHALL show a tab for each of the two browser panes
+
+#### Scenario: The close propagates without a reload
+- **GIVEN** those two devices
+- **WHEN** the first device closes one browser tab through the tab's own close control
+- **THEN** the second device SHALL stop showing that tab, without being reloaded
+
+#### Scenario: The sibling tab survives
+- **GIVEN** the same close
+- **WHEN** the second device is inspected afterwards
+- **THEN** the other browser tab SHALL still be visible
+
+### Requirement: CD-CLOSE-02 — Closing a browser tab publishes its close-marker to the shared channel
+
+The GLOBAL close path SHALL write the cross-device close-marker, not only the
+close path of a tab inside a project. Writing it in one of the two places is
+exactly the gap that left a tab closed on the desktop still standing on the
+phone.
+
+The marker SHALL be published to the shared `tombstones-browser` key of the
+`ui_state` channel, listing the context id of the closed browser tab.
+
+#### Scenario: A global browser tab's close is published
+- **GIVEN** a connected client showing a global (non-project) browser tab
+- **WHEN** the tab is closed through its own close control
+- **THEN** the shared `tombstones-browser` value SHALL come to list that tab's context id

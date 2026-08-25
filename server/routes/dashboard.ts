@@ -246,15 +246,15 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
             rows = stmts.throughputSeries.all(days) as any[];
             break;
           case 'tokens':
-            // DUE volte, non una: `tokensSeries` è l'unica delle quattro che
-            // UNISCE due tabelle (`messages` e `tasks`), quindi ha un `?` per
-            // ramo. Con un solo argomento SQLite rifiuta lo statement e la
-            // rotta risponde 500 — sempre, su qualunque database. Misurato il
-            // 25/08/2026 sul server di produzione: throughput, cost ed errors
-            // rispondevano 200 e `tokens` era l'unica rotta a 500, cioè il
-            // grafico dei token del cruscotto non ha mai funzionato. Nessuno se
-            // n'era accorto perché queste due rotte non le esercitava nessun
-            // test (`dashboard-routes.test.ts` è nato per questo).
+            // TWICE, not once: `tokensSeries` is the only one of the four that
+            // JOINS two tables (`messages` and `tasks`), so it has one `?` per
+            // branch. With a single argument SQLite rejects the statement and
+            // the route answers 500 - always, on any database. Measured on
+            // 25/08/2026 on the production server: throughput, cost and errors
+            // answered 200 and `tokens` was the only route at 500, meaning the
+            // dashboard's token chart has never worked. Nobody had noticed
+            // because no test exercised these two routes
+            // (`dashboard-routes.test.ts` was born for this).
             rows = stmts.tokensSeries.all(days, days) as any[];
             break;
           case 'cost':

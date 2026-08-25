@@ -56,3 +56,18 @@ The system SHALL display status badges on project tabs indicating git status and
 - **GIVEN** a project has running processes (e.g., dev server)
 - **WHEN** the project tab is visible in the tab bar
 - **THEN** the tab displays a badge or indicator showing the number of running processes
+
+### Requirement: PROJECT-TABS-MOBILE-01 — A project flattens to a single tab strip on a phone
+
+The system SHALL render a project window's panes through `SplitTree` on desktop and
+SHALL flatten them to exactly one visible tab strip below the mobile breakpoint,
+carrying the same set of panes — no split cells, and no pane lost in the transition.
+
+#### Scenario: The same panes survive the switch to a phone viewport
+- **GIVEN** a project window is open with at least two panes in it (for example a chat and a browser)
+- **THEN** the project window shows at least one split group cell on desktop
+- **AND** the set of pane ids visible in the project is recorded
+- **WHEN** the viewport is shrunk to a phone size (390×844)
+- **THEN** no split group cell is rendered anywhere on the page
+- **AND** exactly one visible tab bar remains in the whole page
+- **AND** the set of pane ids in that single strip equals the set recorded on desktop

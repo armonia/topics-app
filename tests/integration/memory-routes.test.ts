@@ -70,8 +70,8 @@ describe("aggiungere alla memoria di un topic", () => {
     const dopo = await leggiTopic(router, id);
     expect(dopo, "l'aggiunta ha sovrascritto invece di aggiungere").toContain("La prima cosa detta.");
     expect(dopo).toContain("La seconda.");
-    // La voce nuova porta una data, ed e' la sola cosa che distingue due
-    // aggiunte con lo stesso testo.
+    // The new entry carries a date, and that is the only thing that tells apart
+    // two appends with the same text.
     expect(dopo).toMatch(/- \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] La seconda\./);
   });
 
@@ -94,9 +94,9 @@ describe("aggiungere alla memoria di un topic", () => {
   });
 
   test("un'aggiunta che sfora il tetto viene rifiutata E non tocca il file", async () => {
-    // Il caso che conta: il controllo sta FRA la lettura e la scrittura. Se
-    // scivolasse sotto la `saveMemory`, la richiesta rifiutata sarebbe anche
-    // quella che tronca — cioe' il 413 arriverebbe DOPO aver fatto il danno.
+    // The case that counts: the check sits BETWEEN the read and the write. If it
+    // slipped below the `saveMemory`, the request that is refused would also be
+    // the one that truncates - that is, the 413 would arrive AFTER the damage.
     const router = await banco();
     const id = `t-tetto-${Date.now()}`;
     const prezioso = "Questo non deve sparire.";
@@ -142,11 +142,11 @@ describe("le due memorie sono due cose separate", () => {
   });
 
   test("`/append` non viene inghiottita dalla rotta del singolo topic", async () => {
-    // Due modelli che si somigliano — `/api/memory/:topicId` e
-    // `/api/memory/:topicId/append` — e l'ordine in cui il router li prova e'
-    // l'unica cosa che li tiene distinti. Se il primo cominciasse ad accettare
-    // anche il secondo, un `append` diventerebbe una lettura: 200, nessun
-    // errore, e niente scritto.
+    // Two patterns that look alike - `/api/memory/:topicId` and
+    // `/api/memory/:topicId/append` - and the order in which the router tries
+    // them is the only thing keeping them distinct. If the first started
+    // accepting the second too, an `append` would become a read: 200, no error,
+    // and nothing written.
     const router = await banco();
     const id = `t-rotta-${Date.now()}`;
     await chiama(router, "POST", `/api/memory/${id}/append`, { content: "arrivata a destinazione" });

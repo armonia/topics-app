@@ -126,14 +126,26 @@ function cammina(dir: string, out: string[] = []): string[] {
  */
 const MARCATORE_NON_COSTRUITO = /^\s*(?:>\s*)?\*\*Status:\s*NOT BUILT\*\*/m;
 
-/** Declared requirements: `### Requirement: CAP-nn — title`. */
+/**
+ * Declared requirements: `### Requirement: CAP-nn — title`.
+ *
+ * A middle segment may contain digits (`RELAY-E2E-01`), and that is not
+ * cosmetic: the claim side has always accepted such ids
+ * (`/^[A-Z][A-Z0-9-]*-\d+[a-z]?$/`), so with `[A-Z]+` here the two sides read a
+ * DIFFERENT vocabulary — a requirement written with that id was invisible to
+ * this file, which made those nine claims permanently dangling with no way to
+ * cure them except renaming the test. Measured 2026-08-25: widening this to
+ * `[A-Z0-9]+` changes the parse of no heading that exists today, and the same
+ * widening on the title regex below adds thirteen titles, none of them a
+ * duplicate and none naming a requirement, so R3 and R4 stay where they were.
+ */
 function leggiRequisiti(): Requisito[] {
   const fuori: Requisito[] = [];
   for (const f of cammina(SPECS)) {
     if (!f.endsWith(".md")) continue;
     const capability = f.slice(SPECS.length + 1).split("/")[0]!;
     const testo = readFileSync(f, "utf8");
-    const teste = [...testo.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm)];
+    const teste = [...testo.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm)];
     for (let i = 0; i < teste.length; i++) {
       const m = teste[i]!;
       // The requirement's own body, up to the next `###`. Read only to spot
@@ -174,7 +186,7 @@ function leggiTest(): FileTest[] {
         .flatMap((m) => m[1]!.split(/[,\s]+/))
         .filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
       const covers = [...new Set([...daAnnotation, ...daCovers])];
-      const titoli = [...testo.matchAll(/\b(?:test|it)\(\s*["'`]([A-Z][A-Z0-9]*(?:-[A-Z]+)*-\d+[a-z]?)[^"'`]*?:\s*([^"'`]{0,90})/g)].map(
+      const titoli = [...testo.matchAll(/\b(?:test|it)\(\s*["'`]([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)[^"'`]*?:\s*([^"'`]{0,90})/g)].map(
         (m) => ({ id: m[1]!, testo: (m[2] ?? "").trim() }),
       );
       if (covers.length || titoli.length) fuori.push({ path: f.slice(ROOT.length), covers, titoli });
@@ -237,7 +249,7 @@ const modo = process.argv.includes("--report") ? "report" : process.argv.include
 // -- Snapshot ---------------------------------------------------------------
 const perCapability = new Map<string, { tot: number; coperti: number }>();
 for (const r of requisiti) {
-  if (r.nonCostruito) continue; // niente codice, niente barra da riempire
+  if (r.nonCostruito) continue; // no code, no bar to fill
   const v = perCapability.get(r.capability) ?? { tot: 0, coperti: 0 };
   v.tot++;
   if (dichiarati.has(r.id)) v.coperti++;

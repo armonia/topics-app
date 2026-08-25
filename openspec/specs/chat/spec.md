@@ -540,3 +540,249 @@ avere label/tooltip sensati, e riflettere lo stato reale. Le slash-command e la 
   mic, overflow (slash-command + voice) e il pulsante unificato send/queue/stop
 - **THEN** ciascuno esegue la sua azione senza errori
 - **AND** nessuna slash-command punta a una feature rimossa
+
+### Requirement: FAST-MODE-01 — The ⚡ toggle sits in the composer's left cluster and flips on click
+
+The chat composer SHALL render a Fast Mode toggle (`data-testid="chat-input-fast-mode"`)
+between the `+` add menu and the context ring, starting OFF, flipping `aria-pressed`
+on each click and carrying an amber background token (`bg-amber-500/10`) while ON. The
+button exists only when the providers snapshot reports Fast Mode with no blocking
+`reason`.
+
+> Written from the test; the chat-fast-mode proposal said the order was
+> Attach → Plan mode → Fast mode → Context ring. The shipped row is
+> `+` menu → Fast mode → Context ring: the Plan toggle was removed (planning is an
+> autonomy level, not a prompt flag) and the paperclip moved inside the `+` menu.
+
+#### Scenario: The toggle renders in order and flips
+- **GIVEN** a topic chat is open and the providers snapshot reports fast mode as available (`reason: null`)
+- **WHEN** the composer renders
+- **THEN** the `+` add menu, the fast-mode button and the context ring are all visible, left to right in that order
+- **AND** no "toggle plan mode" button and no "Attach file" button exist in the row
+- **AND** the fast-mode button has `aria-pressed="false"`
+- **WHEN** the user clicks the fast-mode button
+- **THEN** `aria-pressed` becomes `"true"` and the button's class list contains `bg-amber-500/10`
+- **WHEN** the user clicks it again
+- **THEN** `aria-pressed` returns to `"false"`
+
+### Requirement: FAST-MODE-02 — A message sent with Fast ON carries `fastMode: true`
+
+The system SHALL include `fastMode: true` in the body of the `POST /api/chat` request
+issued for a message sent while the toggle is ON.
+
+#### Scenario: The flag reaches the chat request
+- **GIVEN** a topic chat is open with fast mode available
+- **WHEN** the user turns the fast-mode toggle ON and sends a message
+- **THEN** the `POST /api/chat` body carries `fastMode: true`
+- **AND** it does not carry a truthy `planMode`
+
+### Requirement: FAST-MODE-03 — Fast and planning coexist, and planning does not travel as a client flag
+
+The system SHALL allow Fast Mode to be ON while the composer's autonomy level selects
+planning, and the client SHALL NOT send a `planMode` field: the plan is applied
+server-side from the autonomy level (`planModeFor`), not from a per-turn prompt flag.
+
+> Written from the test; the chat-fast-mode proposal said the request would carry both
+> `planMode: true` AND `fastMode: true`. The shipped request carries `fastMode` only.
+
+#### Scenario: Autonomy set to ask, Fast ON, one flag on the wire
+- **GIVEN** a topic chat is open with fast mode available
+- **WHEN** the user sets the composer autonomy control to `ask`
+- **AND** turns the fast-mode toggle ON and sends a message
+- **THEN** the autonomy control reports `data-level="ask"`
+- **AND** the `POST /api/chat` body carries `fastMode: true`
+- **AND** the body has no `planMode` field at all
+
+### Requirement: CCPROV-01 — Claude Code Provider Registration
+
+> Promoted from `2026-05-16-claude-code-provider`; only the registration half is stated. The process-lifecycle scenarios of the original text (spawn flags, the 15-minute inactivity kill, the 2-hour max lifetime, SIGTERM then SIGKILL on stop) are exercised by unit tests under `server/providers/` that claim no requirement id, so they are not restated as scenarios here.
+
+The system SHALL register the Claude Code CLI as an AI provider named `claude-code`, declaring the capabilities `streaming`, `tools`, `sessions` and `abort`, and SHALL expose every registered provider over `GET /api/providers`.
+
+#### Scenario: The providers endpoint lists the registered providers
+- **GIVEN** the server has run provider initialisation
+- **WHEN** a client issues `GET /api/providers`
+- **THEN** the response SHALL carry a `providers` array with at least one entry
+- **AND** every entry SHALL expose `name`, `connected` and `capabilities`
+
+### Requirement: CCPROV-02 — Streamed Turns Render Text And Tool Cards
+
+> Promoted from `2026-05-16-claude-code-provider`, rewritten from provider-callback wording to the visible end of the stream, which is what the covering tests assert. The original scenarios about `onTextDelta`/`onToolStart`/`onToolResult` fan-out, error propagation from the child process and per-session serialisation of concurrent messages live at unit level and are claimed by no test id.
+
+The system SHALL render a streamed assistant turn incrementally: the assistant text as it arrives, and one tool card carrying the tool's name for every tool the turn uses, placed at the offset in the text where the call happened. A card SHALL render whether the call succeeded or failed, and a turn that uses several tools SHALL render one card per tool.
+
+#### Scenario: A streamed turn renders its text and a card for the tool it used
+- **GIVEN** an open topic with the message input ready
+- **WHEN** the user sends a message and the turn streams back text plus a `Read` (or `Bash`) tool call
+- **THEN** the assistant text SHALL appear in the message area
+- **AND** a tool card naming that tool SHALL appear alongside it
+
+#### Scenario: A failed tool call still renders its card
+- **GIVEN** a streamed turn whose tool call comes back as an error
+- **WHEN** the turn is rendered
+- **THEN** the assistant text SHALL appear
+- **AND** the tool card SHALL still render with the tool's name
+
+#### Scenario: Several tool calls in one turn each render a card
+- **GIVEN** a streamed turn that uses `Grep` and then `Read`
+- **WHEN** the turn is rendered
+- **THEN** a card SHALL appear for each of the two tools
+- **AND** the text that follows the calls SHALL appear after them
+
+### Requirement: CCPROV-05 — Claude Code Provider Configuration
+
+> Promoted from `2026-05-16-claude-code-provider`; the environment-defaults scenario was rewritten. It pinned `claude-sonnet-4-6` as the default model and the model list has since moved on (see CHAT-DEF-03), so no model id is stated here; the workspace scenarios state the resolution order that actually ships.
+
+The system SHALL let a topic select `claude-code` as its provider and SHALL persist that choice on the topic. The working directory of a Claude Code session SHALL be resolved from the topic: its bound worktree when that worktree is ready, otherwise the project checkout.
+
+#### Scenario: A topic is switched to the claude-code provider
+- **GIVEN** an existing topic
+- **WHEN** the client issues `PATCH /api/topics/:id` with `{ provider: "claude-code" }`
+- **THEN** `GET /api/topics` SHALL report that topic with `provider: "claude-code"`
+
+#### Scenario: The session workspace follows the topic's binding
+- **GIVEN** a topic bound to a project checkout
+- **WHEN** the workspace for its session is resolved
+- **THEN** the workspace SHALL be the project checkout
+- **AND** a `ready` worktree bound to the topic SHALL win over the project path
+- **AND** a pending or errored worktree SHALL fall through to the project path
+
+#### Scenario: A topic with no usable project directory yields no workspace
+- **GIVEN** a topic whose project directory does not exist, or a topic with no project at all
+- **WHEN** the workspace for its session is resolved
+- **THEN** the resolution SHALL yield nothing
+- **AND** the caller SHALL fall back to the home directory rather than spawn in a dead cwd
+
+### Requirement: CHAT-RND-01 — Syntax Highlighting In Code Blocks
+
+> Promoted from `2026-07-10-chat-rendering-parity` and translated into English. The safe-degradation scenario (unknown language, blocks over 50 000 characters, tokenizer failure) is not restated: no test exercises it. The behaviour is in `highlightCode`, which returns null in those cases and leaves the block plain.
+
+Code blocks in messages whose fence names a known language SHALL be rendered with syntax highlighting.
+
+#### Scenario: A javascript fence is tokenised
+- **GIVEN** an assistant message containing a fence marked `javascript` with a keyword and a comment
+- **WHEN** the message is rendered
+- **THEN** the code block SHALL contain distinct token elements for the keyword and for the comment
+
+### Requirement: CHAT-CONV-01 — Regenerate As A Sibling Branch
+
+> Promoted from `2026-07-11-chat-conversation-pack` and translated into English. The "regenerate is not offered during streaming" scenario was rewritten: what ships is a per-message guard (the action is absent on a partial message) plus a 409 from the endpoint, and no test claims the streaming case, so only the offered-on-a-completed-message half is stated.
+
+The system SHALL offer Regenerate on any completed assistant reply, not only on failed ones. Regenerating SHALL fork a new assistant sibling under the same anchor user message, leaving the previous reply reachable through the branch arrows, and SHALL truncate the prompt sent to the provider at the anchor so the model never sees the answer it is replacing. The endpoint SHALL refuse anything that is not an assistant message.
+
+#### Scenario: The regenerate action is offered on a completed assistant reply
+- **GIVEN** a topic whose thread ends in a completed assistant reply
+- **WHEN** the user hovers that message
+- **THEN** the message toolbar SHALL offer the regenerate action
+
+#### Scenario: A regenerated reply becomes the active sibling
+- **GIVEN** an assistant reply already exists under a user message
+- **WHEN** a second assistant reply is forked under the same parent
+- **THEN** it SHALL take the next branch index
+- **AND** it SHALL become the active branch, the earlier reply staying reachable
+
+#### Scenario: Only assistant messages can be regenerated
+- **GIVEN** a user message, or an id that no message has
+- **WHEN** `POST /api/messages/:id/regenerate` is issued for it
+- **THEN** the request SHALL be refused instead of starting a turn
+
+### Requirement: CHAT-CONV-02 — Message Deletion Takes Its Subtree
+
+> Promoted from `2026-07-11-chat-conversation-pack` and translated into English; the substance is unchanged.
+
+The system SHALL let the user delete a message. Deletion SHALL remove the whole descendant subtree, renumber the surviving siblings densely and repair the active-branch pointer, returning the resulting active thread. The UI SHALL require a two-click confirmation, and the removal SHALL be server truth.
+
+#### Scenario: Delete with confirmation, and it survives a reload
+- **GIVEN** a thread with a user question and the assistant reply under it
+- **WHEN** the user clicks Delete on the reply and clicks the armed button again
+- **THEN** the reply SHALL disappear from the thread
+- **AND** after a full page reload the question SHALL still be there and the reply SHALL NOT
+
+#### Scenario: Deleting a message takes its descendants with it
+- **GIVEN** a message that has descendants
+- **WHEN** it is deleted
+- **THEN** the descendants SHALL be removed as well
+- **AND** the response SHALL carry the shortened active thread
+
+#### Scenario: Deleting a sibling renumbers the survivors densely
+- **GIVEN** a parent with several sibling branches
+- **WHEN** one sibling is deleted
+- **THEN** the surviving siblings SHALL be renumbered without gaps
+- **AND** the active-branch pointer SHALL be repaired to a branch that still exists
+
+### Requirement: CHAT-CONV-03 — Conversation Export
+
+> Promoted from `2026-07-11-chat-conversation-pack` and translated into English; the promise of roles and timestamps in the exported file was narrowed to the message contents, which is what the covering test reads back.
+
+The system SHALL export the active thread as a downloadable Markdown file from the composer's tools menu.
+
+#### Scenario: Export downloads a markdown file carrying the thread
+- **GIVEN** a topic with messages
+- **WHEN** the user opens the composer's tools menu and chooses Export conversation
+- **THEN** a file whose name ends in `.md` SHALL be downloaded
+- **AND** its content SHALL contain the messages of the active thread
+
+### Requirement: REAL-TC-01 — Tool Calls Stored In History Render As Cards
+
+> Promoted from `2026-05-16-real-e2e-tool-calls-and-media`; the test ids were corrected against what ships. The row is `[data-testid="tool-call-row-<id>"]` (the change said `tool-call-<id>`), and the error status is an attribute on that row, `data-status="error"`, not a separate `[data-testid="tool-call-status"]` element.
+
+The system SHALL render a tool card for every tool call stored on a message, when that message is loaded from chat history.
+
+#### Scenario: A stored tool call renders a row carrying the tool name
+- **GIVEN** a message in the database with a tool call `{ name: "Read", args: { path: "/src/app.ts" }, status: "success" }`
+- **WHEN** the user opens the topic holding that message
+- **THEN** a `[data-testid="tool-call-row-<id>"]` element SHALL be visible
+- **AND** its `[data-testid="tool-call-name"]` SHALL contain "Read"
+
+#### Scenario: The card expands to show arguments and result
+- **WHEN** a rendered tool-call row is clicked
+- **THEN** a `[data-testid="tool-call-args"]` element SHALL show the call's arguments
+- **AND** a `[data-testid="tool-call-result"]` element SHALL show the call's result
+
+#### Scenario: A failed tool call renders with the error status
+- **GIVEN** a stored tool call with `status: "error"` and `error: "Permission denied"`
+- **WHEN** the message is loaded
+- **THEN** its row SHALL carry `data-status="error"`
+- **AND** expanding it SHALL show `[data-testid="tool-call-error"]` containing "Permission denied"
+
+#### Scenario: Several tool calls on one message render in offset order
+- **GIVEN** a message with three tool calls at content offsets 0, 50 and 120
+- **WHEN** the message is loaded
+- **THEN** three tool-call rows SHALL be visible
+- **AND** they SHALL appear top to bottom in the order of their content offsets
+
+### Requirement: REAL-TC-02 — Media Stored In History Renders
+
+> Promoted from `2026-05-16-real-e2e-tool-calls-and-media` unchanged: the element ids in the original text are the ones that ship.
+
+The system SHALL render a media component for every path stored in a message's `media`, when that message is loaded from chat history.
+
+#### Scenario: An image path renders as a media image
+- **GIVEN** a message in the database with `media: ["/uploads/test-screenshot.png"]`
+- **WHEN** the user opens the topic holding that message
+- **THEN** a `[data-testid="media-image"]` element SHALL be visible
+- **AND** its `src` SHALL contain the media path
+
+#### Scenario: A file path renders as a named media file
+- **GIVEN** a message in the database with `media: ["/uploads/test-report.pdf"]`
+- **WHEN** the message is loaded
+- **THEN** a `[data-testid="media-file"]` element SHALL be visible
+- **AND** a `[data-testid="media-file-name"]` element SHALL contain "test-report.pdf"
+
+### Requirement: REAL-TC-03 — Live Streaming Produces Visible Tool Cards
+
+> Promoted from `2026-05-16-real-e2e-tool-calls-and-media`; the selector was corrected to the shipped prefix `tool-call-row-`.
+
+When a live chat turn uses a tool, the system SHALL render the tool card in real time through the whole unmocked pipeline (server stream to client state to DOM).
+
+#### Scenario: A live turn that uses a tool shows the card
+- **GIVEN** the gateway or AI service is available
+- **WHEN** the user sends a message that makes the model use a tool
+- **THEN** within 30 seconds at least one `[data-testid^="tool-call-row-"]` element SHALL appear in the message area
+- **AND** its `[data-testid="tool-call-name"]` SHALL NOT be empty
+
+#### Scenario: The check skips when the gateway is unavailable
+- **GIVEN** the gateway or AI service is NOT available
+- **WHEN** the live tool-call check runs
+- **THEN** it SHALL skip with the annotation "Gateway unavailable"
+- **AND** SHALL NOT report a failure

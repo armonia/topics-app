@@ -89,8 +89,8 @@ describe("collegamento fra topic", () => {
     const a = await creaTopic(router, `link-a-${Date.now()}`);
     const b = await creaTopic(router, `link-b-${Date.now()}`);
 
-    // Nasce senza collegamenti: senza questo, un test che trova il link dopo
-    // non saprebbe se l'ha messo lui.
+    // It is born with no links: without this, a test that finds the link
+    // afterwards would not know whether it was the one that put it there.
     expect(await linksDi(router, a)).toEqual([]);
     expect(await linksDi(router, b)).toEqual([]);
 
@@ -120,7 +120,7 @@ describe("collegamento fra topic", () => {
     expect((await chiama(router, "POST", `/api/topics/${a}/link`, {})).status).toBe(400);
     expect((await chiama(router, "POST", `/api/topics/${a}/link`, { targetId: "non-esiste" })).status).toBe(404);
 
-    // E il rifiuto non ha lasciato niente dietro di se'.
+    // And the refusal left nothing behind it.
     expect(await linksDi(router, a)).toEqual([]);
   });
 
@@ -139,8 +139,8 @@ describe("collegamento fra topic", () => {
   });
 
   test("un collegamento verso un topic sparito si puo' comunque togliere", async () => {
-    // Il caso che rende utile il ramo `if (target)` della rotta: B non c'e'
-    // piu', e senza questa tolleranza l'id resterebbe su A per sempre.
+    // The case that makes the route's `if (target)` branch useful: B is gone,
+    // and without this tolerance the id would stay on A forever.
     const { router } = await banco();
     const a = await creaTopic(router, `orfano-a-${Date.now()}`);
     const b = await creaTopic(router, `orfano-b-${Date.now()}`);
@@ -163,11 +163,10 @@ describe("collegamento fra topic", () => {
 
 describe("il progetto di un topic", () => {
   test("un topic senza progetto risponde 400, non un id inventato", async () => {
-    // La rotta `GET /api/topics/:topicId/project-id` e' quella da cui la board
-    // ricava a quale progetto appartiene una chat. Il ramo «nessun progetto»
-    // deve essere un rifiuto esplicito: un id plausibile restituito per un
-    // topic che non ha progetto manderebbe la board a leggere la board di
-    // qualcun altro.
+    // The `GET /api/topics/:topicId/project-id` route is the one the board
+    // derives which project a chat belongs to from. The "no project" branch has
+    // to be an explicit refusal: a plausible id returned for a topic that has no
+    // project would send the board off to read somebody else's board.
     const { router } = await banco();
     const a = await creaTopic(router, `senza-progetto-${Date.now()}`);
     const res = await chiama(router, "GET", `/api/topics/${a}/project-id`);
@@ -188,8 +187,8 @@ describe("il progetto di un topic", () => {
     expect(typeof projectId).toBe("string");
     expect(projectId.length).toBeGreaterThan(0);
 
-    // Lo stesso id che la board calcola dal percorso: se i due divergessero,
-    // la chat e la sua board parlerebbero di due progetti diversi.
+    // The same id the board computes from the path: if the two diverged, the
+    // chat and its board would be talking about two different projects.
     const { projectIdForPath } = await import("../../shared/board");
     expect(projectId).toBe(projectIdForPath(cartella));
   });

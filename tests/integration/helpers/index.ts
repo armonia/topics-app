@@ -120,27 +120,27 @@ export async function cleanupTestDataDir(dir: string): Promise<void> {
  * Create an `AppContext` rooted at the repo root + stub broadcastToAll
  * to a no-op. Same call shape every test had inline.
  *
- * ── PERCHE' QUI C'E' UNA GUARDIA ────────────────────────────────────────────
- * Il contesto apre il database, e QUALE database dipende da `DATA_DIR`. Senza
- * quella variabile `server/db.ts` ripiega sulla radice del repo, cioe' su
- * `data/topics.db`: il DATABASE DI PRODUZIONE, quello dell'app che l'utente ha
- * aperta in questo momento. Un test che scorda `setupTestDataDir` non fallisce
- * — passa, e passa scrivendo sui dati veri.
+ * -- WHY THERE IS A GUARD HERE ----------------------------------------------
+ * The context opens the database, and WHICH database depends on `DATA_DIR`.
+ * Without that variable `server/db.ts` falls back to the repo root, that is to
+ * `data/topics.db`: the PRODUCTION DATABASE, the one belonging to the app the
+ * user has open right now. A test that forgets `setupTestDataDir` does not
+ * fail - it passes, and it passes by writing to the real data.
  *
- * Non e' un'ipotesi: il 25/08/2026 e' successo. `topic-links.test.ts` ha creato
- * 24 topic nel DB vivo prima che qualcuno se ne accorgesse, e l'unico indizio
- * era una riga di log («Opened existing database at …/data/topics.db») in mezzo
- * a un verde. Gli altri 24 file che usano questo helper facevano gia' la cosa
- * giusta, quindi la guardia nasce verde: costa zero e chiude una porta che si
- * apre in silenzio.
+ * This is not a hypothesis: on 25/08/2026 it happened. `topic-links.test.ts`
+ * created 24 topics in the live DB before anyone noticed, and the only clue was
+ * one log line ("Opened existing database at .../data/topics.db") in the middle
+ * of a green run. The other 24 files that use this helper were already doing
+ * the right thing, so the guard is born green: it costs nothing and closes a
+ * door that opens quietly.
  */
 export async function createTestAppContext(): Promise<AppContext> {
   const dataDir = process.env.DATA_DIR;
   if (!dataDir || !isUnderTestTmp(dataDir)) {
     throw new Error(
-      `createTestAppContext: DATA_DIR ${dataDir ? `= "${dataDir}"` : "non impostata"}, ` +
-        `quindi il contesto aprirebbe il database di PRODUZIONE (data/topics.db). ` +
-        `Isola il file prima di creare il contesto:\n` +
+      `createTestAppContext: DATA_DIR ${dataDir ? `= "${dataDir}"` : "not set"}, ` +
+        `so the context would open the PRODUCTION database (data/topics.db). ` +
+        `Isolate the file before creating the context:\n` +
         `  const ROOT = testTmpDir("<label>");\n` +
         `  beforeAll(() => setupTestDataDir(join(ROOT, "data")));\n` +
         `  afterAll(() => cleanupTestDataDir(ROOT));`,

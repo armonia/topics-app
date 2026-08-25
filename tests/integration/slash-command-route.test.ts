@@ -51,7 +51,7 @@ async function banco(): Promise<Router> {
   return createTopicsRouter(await createTestAppContext());
 }
 
-/** Le fughe che SOPRAVVIVONO alla normalizzazione e arrivano al gestore. */
+/** The escapes that SURVIVE normalisation and reach the handler. */
 const FUGHE = [
   "..%2F..%2Fetc%2Fpasswd",
   "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
@@ -61,7 +61,7 @@ const FUGHE = [
   "a%00b",
 ] as const;
 
-/** Le forme che l'URL normalizza via: non arrivano nemmeno alla rotta. */
+/** The shapes the URL normalises away: they do not even reach the route. */
 const NORMALIZZATE = [
   ["../../../etc/passwd", "/etc/passwd"],
   ["..", "/api/"],
@@ -73,19 +73,19 @@ describe("il cancello del sorgente di un comando slash", () => {
     const passate: string[] = [];
     for (const nome of FUGHE) {
       const res = await chiama(router, `/api/slash-commands/${nome}`);
-      // 400 = il cancello ha detto no. Qualunque altra cosa (200 con un corpo,
-      // 500 con una traccia) vuol dire che il nome e' arrivato al disco.
+      // 400 = the gate said no. Anything else (200 with a body, 500 with a
+      // stack trace) means the name reached the disk.
       if (res.status !== 400) passate.push(`${nome} -> ${res.status}`);
     }
     expect(passate, "nomi che hanno superato il cancello").toEqual([]);
   });
 
   test("le fughe non codificate le mangia la normalizzazione, prima del routing", async () => {
-    // Non e' una difesa di questa rotta ed e' importante non spacciarla per
-    // tale: e' `new URL()` che riscrive il percorso. Sta qui perche' senza
-    // questa riga il test sopra sembrerebbe coprire anche il caso letterale,
-    // che invece non passa mai di qui — e il giorno in cui il routing
-    // cambiasse parser, questa differenza tornerebbe a contare.
+    // This is not a defence belonging to this route and it matters not to pass
+    // it off as one: it is `new URL()` that rewrites the path. It is here
+    // because without this line the test above would look like it covered the
+    // literal case too, which in fact never comes through here - and the day the
+    // routing changed parser, this difference would start counting again.
     for (const [nome, atteso] of NORMALIZZATE) {
       const u = new URL(`http://h/api/slash-commands/${nome}`);
       expect(u.pathname, `${nome} non e' piu' normalizzato`).toBe(atteso);
@@ -94,9 +94,9 @@ describe("il cancello del sorgente di un comando slash", () => {
   });
 
   test("un nome ben formato che non esiste e' 404, non 400", async () => {
-    // La meta' che rende non vacuo il test sopra: qui il cancello LASCIA
-    // PASSARE, e la risposta cambia. Se rispondesse 400 anche a questo, il
-    // verde di sopra non direbbe niente.
+    // The half that makes the test above non-vacuous: here the gate LETS IT
+    // THROUGH, and the answer changes. If it answered 400 to this one too, the
+    // green above would say nothing.
     const router = await banco();
     const res = await chiama(router, "/api/slash-commands/comando-che-non-esiste-12345");
     expect(res.status).toBe(404);
@@ -117,10 +117,10 @@ describe("il cancello del sorgente di un comando slash", () => {
 
 describe("il resolver, con le sue cartelle sotto controllo", () => {
   test("legge il corpo di un comando che esiste davvero", async () => {
-    // Il ramo POSITIVO, provato con `cwd` esplicito invece che cambiando la
-    // cartella del processo: `bun test` fa girare i file nello stesso
-    // processo, e una `chdir` non ripristinata cambierebbe il mondo sotto ai
-    // file successivi. Qui la stessa prova senza effetti collaterali.
+    // The POSITIVE branch, exercised with an explicit `cwd` instead of changing
+    // the process's directory: `bun test` runs the files in the same process,
+    // and a `chdir` that is not restored would change the world out from under
+    // the files that follow. Here the same proof with no side effects.
     const casa = join(ROOT, "casa");
     const lavoro = join(ROOT, "lavoro");
     mkdirSync(join(lavoro, ".claude", "commands"), { recursive: true });
@@ -134,9 +134,9 @@ describe("il resolver, con le sue cartelle sotto controllo", () => {
   });
 
   test("un link che punta fuori dalle cartelle note non si legge", async () => {
-    // `contained()` controlla DOPO aver risolto il percorso reale, e questo e'
-    // il caso per cui esiste: il nome e' ammesso, il file sta dove ci si
-    // aspetta, ma il file E' un link a qualcos'altro.
+    // `contained()` checks AFTER resolving the real path, and this is the case
+    // it exists for: the name is allowed, the file is where it is expected to
+    // be, but the file IS a link to something else.
     const { symlinkSync } = await import("node:fs");
     const casa = join(ROOT, "casa2");
     const lavoro = join(ROOT, "lavoro2");

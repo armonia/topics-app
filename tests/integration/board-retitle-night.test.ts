@@ -41,8 +41,8 @@ afterAll(() => cleanupTestDataDir(ROOT));
 
 type Router = ReturnType<typeof import("../../server/routes/tasks").createTasksRouter>;
 
-/** Il titolo lungo che fa scattare la riscrittura: sotto i 60 caratteri il
- *  servizio non chiama nemmeno il modello, ed e' una scelta, non un limite. */
+/** The long title that triggers the rewrite: below 60 characters the service
+ *  does not even call the model, and that is a choice, not a limit. */
 const TITOLO_LUNGO =
   "potremmo fare in modo che quando uno apre la board dopo aver chiuso tutto le colonne " +
   "si ricordino da sole quanto erano larghe, perche' adesso tornano tutte uguali";
@@ -66,13 +66,14 @@ async function chiama(router: Router, method: string, path: string, body?: unkno
 }
 
 /**
- * Un provider finto.
+ * A fake provider.
  *
- * `complete` deve rispondere `{ content }` e non una stringa nuda: e' la forma
- * che `titoloMigliore` legge (`out.content ?? ""`). Con la stringa nuda il
- * contenuto risulta vuoto, `ripulisci("")` torna `null`, e la rotta risponde
- * «nothing_better» — cioe' il test sarebbe stato verde sul ramo sbagliato,
- * credendo di provare il rifiuto mentre stava solo sbagliando lo stub.
+ * `complete` has to answer `{ content }` and not a bare string: that is the
+ * shape `titoloMigliore` reads (`out.content ?? ""`). With a bare string the
+ * content comes out empty, `ripulisci("")` returns `null`, and the route
+ * answers "nothing_better" - that is, the test would have been green on the
+ * wrong branch, believing it was exercising the refusal while it was only
+ * getting the stub wrong.
  */
 function provider(risposta: string) {
   return () => ({ complete: async () => ({ content: risposta }) }) as never;
@@ -95,7 +96,7 @@ async function progetto(): Promise<string> {
   return projectIdForPath(join(ROOT, `p-${++contatore}`));
 }
 
-/** Un router sullo STESSO database, con o senza modello cablato. */
+/** A router on the SAME database, with or without a model wired in. */
 async function router(naming?: () => unknown): Promise<Router> {
   const { createTasksRouter } = await import("../../server/routes/tasks");
   return createTasksRouter(
@@ -111,7 +112,7 @@ async function creaTask(router: Router, projectId: string, text: string, descrip
   return ((await res.json()) as { id: string }).id;
 }
 
-/** Il titolo della card, riletto dalla rotta invece che dalla risposta. */
+/** The card's title, read back from the route instead of from the response. */
 async function titoloDi(router: Router, projectId: string, taskId: string): Promise<string> {
   const res = await chiama(router, "GET", `/api/boards/${projectId}/tasks/${taskId}`);
   expect(res.status).toBe(200);
@@ -137,10 +138,9 @@ describe("il modello riscrive il titolo di una card", () => {
   });
 
   test("un titolo gia' corto non si tocca, anche col modello acceso", async () => {
-    // Il ramo che protegge la scelta di una PERSONA: sotto i 60 caratteri il
-    // titolo e' una decisione, non un ripiego, e il modello non viene nemmeno
-    // interrogato. Il provider qui risponde, e la sua risposta deve restare
-    // inascoltata.
+    // The branch that protects a PERSON's choice: below 60 characters the title
+    // is a decision, not a fallback, and the model is not even queried. The
+    // provider here does answer, and its answer has to go unheard.
     const { router, projectId } = await banco(provider("Titolo inventato dal modello"));
     const corto = "Larghezze delle colonne persistenti";
     const id = await creaTask(router, projectId, corto, DESCRIZIONE);
@@ -152,11 +152,11 @@ describe("il modello riscrive il titolo di una card", () => {
   });
 
   test("quando riscrive, la card cambia davvero e la risposta dice anche il prima", async () => {
-    // La card nasce SENZA modello cablato, di proposito: la `create` fa gia' un
-    // rinomino in sottofondo, quindi creandola con il provider acceso la card
-    // arriverebbe a `retitle` gia' rinominata e la rotta risponderebbe
-    // «nothing_better» — verde sul ramo sbagliato. Due router sullo stesso
-    // database separano i due momenti.
+    // The card is born WITHOUT a model wired in, on purpose: `create` already
+    // does a rename in the background, so creating it with the provider on
+    // would have the card reach `retitle` already renamed and the route would
+    // answer "nothing_better" - green on the wrong branch. Two routers on the
+    // same database keep the two moments apart.
     const nuovo = "Larghezze delle colonne che sopravvivono alla riapertura";
     const projectId = await progetto();
     const senzaModello = await router();
@@ -169,20 +169,20 @@ describe("il modello riscrive il titolo di una card", () => {
     const body = (await res.json()) as { ok: boolean; text: string; before: string; reason?: string };
     expect(body.ok, JSON.stringify(body)).toBe(true);
     expect(body.text).toBe(nuovo);
-    // `before` non e' decorazione: e' l'unico posto in cui resta quello che la
-    // persona aveva scritto, dopo che la card e' stata riscritta.
+    // `before` is not decoration: it is the only place where what the person
+    // had written survives, once the card has been rewritten.
     expect(body.before).toBe(TITOLO_LUNGO);
 
-    // E la prova che conta: la card, riletta, porta il titolo nuovo. Un
-    // `{ok:true}` con la scrittura persa risponderebbe identico.
+    // And the proof that counts: the card, read back, carries the new title. An
+    // `{ok:true}` with the write lost would answer identically.
     expect(await titoloDi(conModello, projectId, id)).toBe(nuovo);
   });
 });
 
 describe("la modalita' notte di una board", () => {
   test("senza dispatcher risponde spenta, non fallisce", async () => {
-    // Il ramo di ogni board che la notte non l'ha mai accesa, cioe' quasi
-    // tutte: deve essere una risposta, non un rosso permanente su un pannello.
+    // The branch of every board that has never turned night mode on, i.e.
+    // almost all of them: it has to be an answer, not a permanent red on a panel.
     const { router, projectId } = await banco();
     const res = await chiama(router, "GET", `/api/boards/${projectId}/night-status`);
     expect(res.status).toBe(200);

@@ -1,22 +1,22 @@
 /**
- * Il pannello dei sotto-agenti dice il vero su chi sta girando.
+ * The sub-agent panel tells the truth about what is running.
  *
- * Prima di questo file `GET /api/processes` — l'unica vista che Topics ha sui
- * sotto-agenti COME PROCESSI — non era nominata da nessun test, e la sua
- * logica era un'espressione sola dentro la rotta. Nessuno poteva provarla:
- * la rotta risolve il provider dal registro globale, quindi esercitare la
- * mappatura voleva dire montare un provider finto.
+ * Before this file `GET /api/processes` - the only view Topics has of
+ * sub-agents AS PROCESSES - was named by no test, and its logic was a single
+ * expression inside the route. Nobody could exercise it: the route resolves
+ * its provider from the global registry, so exercising the mapping meant
+ * standing up a fake provider.
  *
- * Le tre cose che qui non possono piu' rompersi in silenzio, ognuna col modo
- * in cui si vedrebbe a schermo se si rompesse:
+ * The three things that can no longer break quietly here, each with the way it
+ * would show up on screen if it did break:
  *
- *  1. il filtro tiene SOLO i sotto-agenti. Allargarlo riempie il pannello di
- *     ogni sessione che il provider conosce, presentate come «sotto la tua
- *     chat» quando non lo sono.
- *  2. `active` e' l'unico stato che vuol dire in corso. Uno stato sconosciuto
- *     trattato come attivo lascia una rotella che gira per sempre.
- *  3. `completedAt` esiste solo per chi ha finito. Su un processo vivo non e'
- *     una sbavatura: e' il pannello che dice che una cosa e' anche finita.
+ *  1. the filter keeps ONLY the sub-agents. Widening it fills the panel with
+ *     every session the provider knows, presented as "under your chat" when
+ *     they are not.
+ *  2. `active` is the only status that means running. An unknown status
+ *     treated as active leaves a spinner turning forever.
+ *  3. `completedAt` exists only for what has finished. On a live process it is
+ *     not a smudge: it is the panel saying a thing has also ended.
  */
 import { describe, expect, test } from "bun:test";
 import { processiSubagente, type SessionePerProcessi } from "./subagentProcesses";
@@ -49,8 +49,8 @@ describe("quali sessioni finiscono nel pannello", () => {
   });
 
   test("una sessione senza chiave non entra e non fa esplodere niente", () => {
-    // Il ramo che il `?.` della rotta gia' proteggeva, e che nessuno provava:
-    // un elenco che arriva da un provider puo' avere una voce monca.
+    // The branch the route's `?.` already protected, and nobody exercised:
+    // a list arriving from a provider can carry a truncated entry.
     expect(processiSubagente([{ status: "active" }, sessione({})], adesso)).toHaveLength(1);
   });
 
@@ -78,8 +78,9 @@ describe("in corso oppure finito", () => {
   });
 
   test("uno stato sconosciuto NON lascia la rotella che gira", () => {
-    // La stessa cosa dell'asserzione sopra, detta dal verso che conta: e' il
-    // ramo permissivo quello che fa danno, perche' non produce nessun segnale.
+    // The same thing as the assertion above, said from the side that counts:
+    // the permissive branch is the one that does damage, because it produces
+    // no signal at all.
     const [p] = processiSubagente([sessione({ status: "qualcosa-di-nuovo" })], adesso);
     expect(p!.status).toBe("done");
   });
