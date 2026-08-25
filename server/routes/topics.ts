@@ -50,6 +50,7 @@ import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
 import { decodeCol } from "../../shared/message-blob";
 import { processiSubagente } from "./subagentProcesses";
+import { statoSessione } from "./sessionStatus";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -2432,9 +2433,15 @@ export function createTopicsRouter(
       try {
         switch (command) {
           case "status": {
+            // The report itself lives in `sessionStatus.ts`, where a test can
+            // reach it; this branch only gathers what it reads.
             const messages = loadLocalMessages(sessionKey);
             const topic = getTopicBySessionKey(sessionKey);
-            const output = [`📍 Session: ${sessionKey}`, `💬 Messages: ${messages.length}`, topic?.projectPath ? `📁 Project: ${topic.projectPath}` : null, topic?.name ? `📝 Topic: ${topic.name}` : null].filter(Boolean).join('\n');
+            const output = statoSessione({
+              sessionKey,
+              messaggi: messages.length,
+              topic: topic as never,
+            });
             return json({ ok: true, command: "status", output });
           }
           case "clear": {

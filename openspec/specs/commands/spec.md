@@ -242,6 +242,50 @@ lower-case, no slash, no whitespace.
 - **WHEN** the matcher compares the first token of a message against the list
 - **THEN** that entry can never match, and the check fails instead of leaving it there reading as coverage
 
+### Requirement: CMD-07 — `/status` answers the question that made someone type it
+
+`/status` SHALL report the facts that decide how the next turn behaves — the
+model and where it comes from, the reasoning effort, fast mode, the autonomy
+level and what that level means, and whether the MCP fleet is the reduced
+bridge — and SHALL NOT spend lines on what the user can already read off the
+screen.
+
+A field with no value SHALL produce no line: an absent override IS the default,
+and a line saying "none" pushes the lines that matter further down.
+
+> Written from the gap. The previous report named four things — session key,
+> message count, project path, topic name — three of which are already visible
+> (tab, sidebar) and one of which is an internal identifier. Everything that
+> explains a surprise was missing, from the same `topic` object the handler
+> already held.
+
+#### Scenario: the turn refused to touch files
+- **GIVEN** a topic whose autonomy level is `ask`
+- **WHEN** the user asks for the session status
+- **THEN** the report names the level AND what it means ("touches no file, runs no command")
+- **AND** an unrecognised level says so, instead of printing a mute line
+
+#### Scenario: the model is pinned, or it is not
+- **GIVEN** a topic that pins a model
+- **THEN** the report names it and says it is pinned on this topic
+- **GIVEN** a topic that pins none
+- **THEN** the report names the model that would serve the next turn and says it is a default
+- **AND** the pinned case does not also print the fallback: two "model" lines are two answers to one question
+
+#### Scenario: a capability is missing rather than a behaviour surprising
+- **GIVEN** a topic whose MCP policy is `bridge-only`
+- **THEN** the report says the fleet is reduced to the `topics` bridge
+- **AND** the full fleet, being the default, produces no line
+
+#### Scenario: nothing to say is said with silence
+- **GIVEN** a topic with no effort override, fast mode off, no worktree and no context files
+- **THEN** none of those produce a line
+- **AND** the internal session identifier is last, because it is copied into a bug report rather than read
+
+#### Scenario: a session the registry does not know
+- **GIVEN** a session key with no topic behind it
+- **THEN** the report still answers, with the facts it does have, instead of failing the command
+
 ### Requirement: CMD-02 — Push Notifications
 
 The system SHALL support browser push notification subscription management with VAPID key exchange, subscribe and unsubscribe flows, permission state handling, and graceful degradation for unsupported browsers.
