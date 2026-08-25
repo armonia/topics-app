@@ -41,11 +41,26 @@ import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSyn
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
-const ARTIFACTS = join(ROOT, "test-results", "artifacts");
+/**
+ * Le cartelle degli artefatti: `test-results/artifacts` piu' le `artifacts-<porta>` che lo
+ * sharder crea, una per shard (vedi `outputDir` in playwright.config.ts). Leggerne una sola
+ * farebbe sparire dall'indice tutto cio' che hanno prodotto gli altri shard.
+ */
+function artifactRoots(): string[] {
+  const base = join(ROOT, "test-results");
+  if (!existsSync(base)) return [];
+  return readdirSync(base)
+    .filter((d) => d === "artifacts" || d.startsWith("artifacts-"))
+    .map((d) => join(base, d))
+    .filter((d) => { try { return statSync(d).isDirectory(); } catch { return false; } })
+    .sort();
+}
 const VIDEOS_DIR = join(ROOT, "videos");
 const INDEX = join(VIDEOS_DIR, "INDEX.md");
 
 interface Entry {
+  /** Da quale cartella-artefatti viene: ce n'e' una per shard. */
+  root: string;
   /** The artifact folder, which Playwright names after the test title. */
   folder: string;
   /** The file name without `.webm`. */
@@ -118,14 +133,15 @@ const ONLY_REQUIREMENTS = process.argv.includes("--only-requirements");
 
 function collect(): Entry[] {
   if (ONLY_REQUIREMENTS) return [];
-  if (!existsSync(ARTIFACTS)) return [];
+  const roots = artifactRoots();
+  if (roots.length === 0) return [];
   const iReport = process.argv.indexOf("--report");
   const report = iReport >= 0 ? process.argv[iReport + 1] : null;
   const outcomes = report && existsSync(report) ? outcomesFromReport(report) : new Map();
 
   const entries: Entry[] = [];
-  for (const folder of readdirSync(ARTIFACTS)) {
-    const dir = join(ARTIFACTS, folder);
+  for (const root of roots) for (const folder of readdirSync(root)) {
+    const dir = join(root, folder);
     let st;
     try { st = statSync(dir); } catch { continue; }
     if (!st.isDirectory()) continue;
@@ -133,6 +149,7 @@ function collect(): Entry[] {
       if (!f.endsWith(".webm")) continue;
       const fromReport = outcomes.get(folder);
       entries.push({
+        root,
         folder,
         file: f.replace(/\.webm$/, ""),
         title: fromReport?.title || titleFromFolder(folder),
@@ -188,7 +205,7 @@ function main(): void {
   // they are tens of MB and copying them every run would fill the disk for
   // nothing.
   for (const v of entries) {
-    const src = join(ARTIFACTS, v.folder, `${v.file}.webm`);
+    const src = join(v.root, v.folder, `${v.file}.webm`);
     const destDir = join(VIDEOS_DIR, v.folder);
     const dest = join(destDir, `${v.file}.webm`);
     if (existsSync(dest)) continue;

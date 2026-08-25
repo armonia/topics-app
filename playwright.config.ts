@@ -281,7 +281,21 @@ export default defineConfig({
     // si apre i due contesti a mano con `browser.newContext`.
     contextOptions: { reducedMotion: "reduce" },
   },
-  outputDir: "test-results/artifacts",
+  // UNA CARTELLA PER SHARD, e non e' pignoleria.
+  //
+  // `e2e-shards.sh` lancia N processi Playwright INDIPENDENTI sulla stessa macchina. Con un
+  // `outputDir` solo, ognuno ci scrive la propria area di lavoro `.playwright-artifacts-<n>` e
+  // la ripulisce all'avvio — cioe' cancella i file di trace che un altro shard sta ancora
+  // scrivendo. Il rosso che ne esce e':
+  //
+  //   ENOENT: no such file or directory, open '.../.playwright-artifacts-3/traces/…-recording2.trace'
+  //
+  // che ha tutta l'aria di un guasto del prodotto e non lo e'. Prima si vedeva di rado perche'
+  // il trace era acceso solo al ritentativo; con il trace su tutti (E2E_EVIDENCE=1) e' sistematico,
+  // e ha fatto cadere TAB-SYNC-03 due volte di fila il 25/08.
+  //
+  // `E2E_PORT` c'e' solo quando a lanciare e' lo sharder, quindi una corsa singola non cambia.
+  outputDir: process.env.E2E_PORT ? `test-results/artifacts-${process.env.E2E_PORT}` : "test-results/artifacts",
   projects: [
     {
       name: "chromium",
