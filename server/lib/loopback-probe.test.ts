@@ -1,3 +1,6 @@
+/**
+ * @covers LOOPBACK-01
+ */
 import { describe, expect, test } from "bun:test";
 import net from "node:net";
 import { isPortListening, loopbackPortOf } from "./loopback-probe";

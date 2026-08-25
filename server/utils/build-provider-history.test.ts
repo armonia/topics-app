@@ -9,6 +9,7 @@
  *
  * Marker stripping is exercised directly so a regex regression on browser /
  * topic-switch markers can't sneak through into provider prompts.
+  * @covers HISTBUILD-01
  */
 
 import { describe, expect, test } from "bun:test";

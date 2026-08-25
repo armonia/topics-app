@@ -167,3 +167,25 @@ NESSUNA SHALL essere zero.
 #### Scenario: un codice sconosciuto
 - **GIVEN** un codice che l'interfaccia non conosce
 - **THEN** SHALL comparire la frase generica
+
+### Requirement: ENVALIAS-01 — Il nome canonico vince, e l'alias avvisa UNA volta
+
+Il valore CANONICO SHALL vincere sull'alias, e in quel caso NON SHALL essere
+avvisato niente: chi ha già la forma nuova non ha nulla da correggere.
+
+L'alias SHALL essere onorato come RIPIEGO, e SHALL avvisare ESATTAMENTE una
+volta: un avviso a ogni lettura diventa rumore e smette di essere letto.
+
+Una stringa VUOTA SHALL valere «non impostato»: una variabile svuotata è un modo
+di toglierla.
+
+L'avviso SHALL essere deduplicato per NOME di alias, non globalmente: due alias
+diversi hanno due cose diverse da dire.
+
+#### Scenario: canonico e alias entrambi presenti
+- **GIVEN** entrambe le forme impostate
+- **THEN** SHALL vincere la canonica, senza avvisi
+
+#### Scenario: lo stesso alias letto dieci volte
+- **GIVEN** più letture consecutive
+- **THEN** SHALL essere avvisato una volta sola

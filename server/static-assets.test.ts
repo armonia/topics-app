@@ -1,3 +1,6 @@
+/**
+ * @covers STATIC-01
+ */
 import { describe, test, expect } from "bun:test";
 import { classifyStaticAsset } from "./static-assets";
 import { buildTabPath } from "../shared/tab-link";

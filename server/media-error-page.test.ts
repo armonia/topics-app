@@ -1,3 +1,6 @@
+/**
+ * @covers MEDIAERR-01
+ */
 import { test, expect, describe } from "bun:test";
 import { wantsHtml, mediaErrorHtml } from "./media-error-page";
 

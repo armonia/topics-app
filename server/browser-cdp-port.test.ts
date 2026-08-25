@@ -1,3 +1,6 @@
+/**
+ * @covers CDPPORT-01
+ */
 import { describe, expect, test } from "bun:test";
 import { defaultCdpPort } from "./browser-service";
 

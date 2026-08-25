@@ -8,6 +8,7 @@
  * dalla parte sbagliata. E la seconda regola: quando nessuno ha potuto
  * decidere, la risposta è NEGA. Un sì per inerzia sarebbe peggio del guasto che
  * stiamo chiudendo.
+  * @covers APPROVAL-01
  */
 import { describe, test, expect } from "bun:test";
 import {

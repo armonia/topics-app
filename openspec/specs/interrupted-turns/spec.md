@@ -148,3 +148,28 @@ smette di funzionare in silenzio il giorno che qualcuno riscrive la frase.
 #### Scenario: una data illeggibile
 - **GIVEN** una riga con un istante che non si riesce a leggere
 - **THEN** NON SHALL essere riusata
+
+### Requirement: NOTICE-01 — Il cartello che il server scrive, il client lo RICONOSCE
+
+Il server decide il cartello di interruzione e lo scrive come blocco d'errore; il
+client decide il banner e il bottone che rimanda. Sono DUE moduli in DUE alberi
+diversi, provati ognuno per conto suo — e se le loro idee di «cartello»
+divergono, il server ne scrive uno che il client non disegna, o il client accende
+un bottone su un turno che non lo prevede. Nessuna delle due prove per conto suo
+lo vedrebbe.
+
+OGNI cartello che il server scrive SHALL essere RICONOSCIUTO dal client.
+
+Un turno che ha prodotto del LAVORO NON SHALL offrire di rimandare: rimandare
+rifarebbe tutto.
+
+Uno stop chiesto A MANO NON SHALL accendere niente: nessun blocco, nessun banner
+— è una decisione, non un guasto.
+
+#### Scenario: un cartello nuovo lato server
+- **GIVEN** un cartello che il client non conosce
+- **THEN** la verifica SHALL fallire
+
+#### Scenario: uno stop a mano
+- **GIVEN** un'interruzione chiesta dalla persona
+- **THEN** NON SHALL comparire nessun banner

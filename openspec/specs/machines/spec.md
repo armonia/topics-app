@@ -27,3 +27,21 @@ adesso.
 #### Scenario: la macchina locale
 - **GIVEN** la spazzata delle macchine ferme
 - **THEN** quella locale NON SHALL passare a non disponibile
+
+### Requirement: CORES-01 — Una macchina non perde core perché una lettura è vuota
+
+Il numero di core SHALL essere ALMENO uno, e SHALL essere quello VERO quando la
+piattaforma sa dichiararlo.
+
+**Una lettura VUOTA NON SHALL rimpicciolire la macchina.** È il difetto: un
+ripiego che scatta su un'assenza di risposta trasforma una macchina da venti core
+in una da uno, e ogni tetto che si dimensiona su quel numero si stringe insieme a
+lui.
+
+#### Scenario: una lettura vuota
+- **GIVEN** la piattaforma non risponde
+- **THEN** il numero NON SHALL scendere sotto quello reale già noto
+
+#### Scenario: una piattaforma che dichiara i core
+- **GIVEN** una risposta valida
+- **THEN** SHALL essere quel numero

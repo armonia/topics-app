@@ -1,3 +1,6 @@
+/**
+ * @covers CORES-01
+ */
 import { test, expect, describe } from "bun:test";
 import os from "node:os";
 import { machineCores } from "./machine-cores";

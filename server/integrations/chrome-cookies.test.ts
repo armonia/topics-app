@@ -1,3 +1,6 @@
+/**
+ * @covers CHROMECK-01
+ */
 import { test, expect } from "bun:test";
 import { COOKIE_BROWSERS, isCookieBrowser, listChromeCookieHosts } from "./chrome-cookies";
 

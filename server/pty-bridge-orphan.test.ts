@@ -26,6 +26,7 @@
  *
  * Nota: il ponte gira sotto **node** (node-pty non funziona sotto Bun), quindi si
  * spawna `node`, non `process.execPath`.
+  * @covers PTYORPH-01
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import net from "node:net";

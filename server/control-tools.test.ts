@@ -7,6 +7,7 @@
  * same side-effect helpers the Layer-1 endpoints use, so we assert: the correct
  * broadcasts, the AC-01 error semantics (409-equivalent collision, archived,
  * unknown ref, trustRawPaths:false), and the tool-list projection shape.
+  * @covers CTRLTOOL-01
  */
 import { describe, test, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";

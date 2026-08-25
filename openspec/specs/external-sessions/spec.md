@@ -308,3 +308,31 @@ senza toccare il disco.
 #### Scenario: una diramazione di sotto-agente
 - **GIVEN** righe appartenenti a una diramazione
 - **THEN** NON SHALL entrare nella storia della chat
+
+### Requirement: CODEXSESS-01 — La sessione esterna si riconosce per CARTELLA e per ISTANTE, non a caso
+
+La scoperta SHALL restituire NIENTE quando la radice delle sessioni non esiste.
+
+SHALL corrispondere una sessione fresca per CARTELLA DI LAVORO, restituendone
+l'identificativo, e SHALL IGNORARE quelle di una cartella diversa.
+
+SHALL ignorare quelle scritte PRIMA dell'accensione, oltre uno scarto tollerato,
+e SHALL tollerare un piccolo scarto NEGATIVO di orologio — un file marcato appena
+prima è ancora nostro.
+
+SHALL saltare le sessioni dei SOTTO-agenti e quelle di un'origine diversa da
+quella attesa: sono sessioni vere di qualcun altro, e adottarle significa
+mostrare la conversazione sbagliata.
+
+Fra più candidate SHALL essere scelta la PIÙ NUOVA.
+
+L'esistenza di una sessione SHALL essere vera quando un file con quel suffisso
+c'è, e falsa per un identificativo sconosciuto e per uno vuoto.
+
+#### Scenario: una sessione di un sottoagente
+- **GIVEN** una registrazione marcata come sottoagente
+- **THEN** SHALL essere saltata
+
+#### Scenario: un file marcato appena prima dell'accensione
+- **GIVEN** un piccolo scarto negativo di orologio
+- **THEN** SHALL essere accettato

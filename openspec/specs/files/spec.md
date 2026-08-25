@@ -833,3 +833,59 @@ non prometterla.
 #### Scenario: un documento portatile
 - **GIVEN** un PDF
 - **THEN** SHALL essere riconosciuto, e NON SHALL essere un'immagine
+
+### Requirement: LOCALURL-01 — Un file locale diventa un indirizzo di QUESTO server, e lo schema non si allenta
+
+SHALL essere riconosciuto sia lo schema dei file sia un percorso assoluto nudo, e
+gli SPAZI nel nome SHALL sopravvivere al giro attraverso un indirizzo. Tutto ciò
+che non è un file locale NON SHALL essere affare suo.
+
+Un file SERVIBILE SHALL diventare un indirizzo di QUESTO server. **Lo schema NON
+SHALL allentarsi**: ciò che esce SHALL essere un indirizzo di rete, MAI uno
+schema di file — un guscio che apre uno schema di file legge il disco di chi
+guarda.
+
+Il riferimento SHALL essere RELATIVO: lo risolve chi naviga, sulla PROPRIA
+origine.
+
+Riscrivere due volte SHALL essere come riscrivere una.
+
+Fuori dal recinto NON SHALL essere riscritto niente. Un file dentro un progetto
+APERTO SHALL passare dal ripiego. «Non esiste» e «non si può» SHALL essere DUE
+risposte diverse.
+
+Gli schemi di rete, di pagina interna e di dati SHALL restare fuori dalla
+riscrittura. Senza il cablaggio NON SHALL essere inventato niente: SHALL essere
+rifiutato, non riscritto.
+
+#### Scenario: un file fuori dal recinto
+- **GIVEN** un percorso non servibile
+- **THEN** SHALL essere rifiutato, non riscritto
+
+#### Scenario: due riscritture
+- **GIVEN** un indirizzo già riscritto
+- **THEN** SHALL restare lo stesso
+
+### Requirement: MEDIAERR-01 — Un allegato che non si apre lo dice, nella forma che chi chiede si aspetta
+
+Una NAVIGAZIONE SHALL ricevere una PAGINA; un'immagine, una richiesta di dati, o
+un cliente che non dichiara di volere una pagina SHALL ricevere il documento di
+dati di sempre. La distinzione serve a NON cambiare la forma della risposta sotto
+i piedi al codice che la controlla: le immagini delle card leggono i dati.
+
+La pagina d'errore SHALL dire il FILE e il MOTIVO, e SHALL essere una pagina
+vera.
+
+NON SHALL sbiancare in tema scuro: una pagina d'errore che acceca è un secondo
+difetto sopra il primo.
+
+Il percorso SHALL finire nel TESTO, non nel markup: un percorso che entra nel
+markup lo rompe, e con i caratteri giusti fa di più.
+
+#### Scenario: una richiesta da un'immagine
+- **GIVEN** un cliente che non chiede una pagina
+- **THEN** SHALL ricevere il documento di dati
+
+#### Scenario: in tema scuro
+- **GIVEN** la preferenza scura
+- **THEN** la pagina d'errore NON SHALL sbiancare

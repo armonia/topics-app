@@ -1,3 +1,6 @@
+/**
+ * @covers SITEDATA-01
+ */
 import { test, expect } from "bun:test";
 import type { BrowserStorageState } from "./browser-state-store";
 import {

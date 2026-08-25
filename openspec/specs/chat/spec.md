@@ -2495,3 +2495,86 @@ dettaglio quando non c'è.
 #### Scenario: niente da togliere
 - **GIVEN** una chiamata senza duplicati
 - **THEN** SHALL tornare lo stesso riferimento
+
+### Requirement: COMPACT-DIV-01 — Il separatore sopravvive alla riga che lo portava
+
+Da quando la compattazione chiude davvero il proprio turno, quel turno finalizza
+una riga dell'assistente COMPLETAMENTE VUOTA: una compattazione non produce
+testo, e il suo esito è il separatore, che vive in una tabella sua.
+
+La riga vuota SHALL essere SCARTATA, e il marcatore SHALL RI-ANCORARSI al
+messaggio precedente: scartare la riga senza ri-ancorare il marcatore perde il
+separatore, che è l'unica cosa che quel turno ha prodotto.
+
+Un turno di compattazione che HA prodotto qualcosa NON SHALL essere scartato.
+
+#### Scenario: una compattazione senza testo
+- **GIVEN** un turno di sola compattazione
+- **THEN** la bolla SHALL sparire e il separatore SHALL restare
+
+#### Scenario: una compattazione con del testo
+- **GIVEN** un turno che ha prodotto contenuto
+- **THEN** NON SHALL essere scartato
+
+### Requirement: MSGOWN-01 — Ogni scrittore possiede i PROPRI campi, e non sbianca quelli degli altri
+
+Il difetto: la conversazione scorreva e poi il messaggio spariva. La causa era
+una scrittura condivisa che sovrascriveva testo, ragionamento e strumenti DIRETTAMENTE,
+e ogni scrittore li ri-persisteva TUTTI dalla propria istantanea — così la
+scrittura di un risultato di strumento cancellava il testo appena trasmesso.
+
+Una scrittura di RISULTATO NON SHALL MAI sbiancare il testo trasmesso, e una
+scrittura di TESTO NON SHALL sbiancare lo stato degli strumenti. La finalizzazione
+SHALL preservare entrambi — mai una bolla vuota — e una scrittura di solo
+controllo NON SHALL sbiancare il corpo.
+
+La chiusura del flusso SHALL marcare uno strumento rimasto appeso, SHALL lasciare
+intatti quelli già conclusi, e SHALL SPEGNERE anche una domanda rimasta a
+schermo: un pannello vivo su un turno morto promette una risposta che non arriverà.
+
+Un marcatore di scadenza SHALL scrivere il testo PRESERVANDO la cronologia degli
+strumenti. Un turno di SOLI blocchi NON SHALL essere scartato come vuoto.
+
+Un turno SPONTANEO SHALL riprendere il cartello che lo precede: la stessa bolla,
+col corpo pulito e il turno vivo. Una risposta VERA NON SHALL toccarlo: SHALL
+nascere una riga NUOVA. Un turno che aveva prodotto degli strumenti NON SHALL
+essere riusato. Su una sessione vuota SHALL essere creato e basta.
+
+Alla riadozione dopo un ricaricamento SHALL essere RIUSATA la riga parziale
+sopravvissuta, IN PLACE, conservandone il corpo e ricostruendo pulito — nessun
+turno doppio, nessun fantasma. Se la gamba di riadozione muore prima di
+finalizzare, la riga SHALL restare com'era. Un replay MUTO NON SHALL portare via
+il pannello. Quando NIENTE è sopravvissuto — l'ultimo messaggio è già finalizzato,
+o la sessione è vuota — SHALL essere creata una riga NUOVA.
+
+#### Scenario: un risultato di strumento durante lo streaming
+- **GIVEN** una scrittura di risultato mentre il testo arriva
+- **THEN** il testo NON SHALL essere sbiancato
+
+#### Scenario: una riadozione che muore prima di finalizzare
+- **GIVEN** la gamba interrotta
+- **THEN** la riga SHALL restare com'era
+
+### Requirement: HISTBUILD-01 — La storia consegnata al fornitore è quella ATTIVA, senza i turni a metà
+
+La storia SHALL essere costruita dal ramo ATTIVO persistito, come una sequenza
+senza stato, e SHALL restituire un elenco VUOTO quando non ci sono messaggi.
+
+SHALL essere ESCLUSO ciò che non è una risposta: i turni PARZIALI ancora in volo,
+le buste di contesto, e i messaggi che restano vuoti dopo la ripulitura.
+
+L'esclusione dell'ULTIMO SHALL funzionare — così il turno appena aggiunto non
+viene duplicato — e su un ingresso vuoto SHALL essere un non-fare, senza cadere.
+
+Il limite SHALL tenere i turni PIÙ RECENTI, e insieme all'esclusione dell'ultimo
+SHALL prima escludere e poi limitare: l'ordine inverso taglia un turno in più.
+
+L'ORDINE SHALL essere preservato attraverso tutti i filtri.
+
+#### Scenario: un turno parziale in volo
+- **GIVEN** una risposta ancora in streaming
+- **THEN** NON SHALL entrare nella storia
+
+#### Scenario: limite ed esclusione dell'ultimo insieme
+- **GIVEN** entrambi richiesti
+- **THEN** SHALL essere prima escluso l'ultimo, poi applicato il limite

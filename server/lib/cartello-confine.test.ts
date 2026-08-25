@@ -12,6 +12,7 @@
  * Il difetto che questo test rende impossibile e' banale e per questo
  * probabile: cambiare il prefisso ⚠️ da una parte sola, o mettere nel blocco un
  * testo che `turnErrorOf` non riconosce.
+  * @covers NOTICE-01
  */
 import { test, expect } from "bun:test";
 import { cancelledNotice } from "./cancelled-notice";

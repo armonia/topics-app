@@ -2,6 +2,7 @@
  * resolveCodexReasoningEffort() — mirror of the resolveClaudeEffort() contract:
  * explicit override → mirror env → user config.toml → default; unrecognised
  * values resolve to null (no override passed, no badge shown).
+  * @covers EFFORTRES-01 @covers PROMPT-01
  */
 import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';

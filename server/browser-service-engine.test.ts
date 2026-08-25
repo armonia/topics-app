@@ -8,6 +8,7 @@
  * SHARED sidecar context is reused (extensions live there), teardown closes the
  * page + disconnects the CDP client but NEVER closes the shared context, and the
  * engine hint drives an opts-less getOrCreate recreate onto chromium.
+  * @covers ENGSVC-01
  */
 import { describe, it, expect } from "bun:test";
 import { createBrowserService } from "./browser-service";

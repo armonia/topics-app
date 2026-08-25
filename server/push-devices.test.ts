@@ -5,6 +5,7 @@
  * dispositivo, e per spegnere quello giusto devi riconoscerlo. L'endpoint non
  * si può mostrare (è un URL di 200 caratteri che cambia da solo), quindi tutto
  * il riconoscimento poggia su questa riga di testo.
+  * @covers PUSH-03
  */
 import { describe, expect, test } from "bun:test";
 import { deviceLabelFromUserAgent, parseWhenOpen, toDeviceView, DEFAULT_WHEN_OPEN } from "./push-devices";

@@ -112,3 +112,34 @@ Chiudere un avviso SHALL togliere SOLO quello.
 #### Scenario: due avvisi anonimi
 - **GIVEN** nessun segnale dichiarato
 - **THEN** SHALL restare entrambi
+
+### Requirement: PRESENCE-12 — Quattro socket con la stessa etichetta sono UNA finestra
+
+I socket che non hanno mai ANNUNCIATO un identificativo di finestra SHALL essere
+saltati. Identificativi DUPLICATI — la corsa di una riconnessione — SHALL
+collassare sul primo. Ogni voce SHALL portare il client, l'etichetta, se è
+staccata, i suoi argomenti e il fuoco. Togliere un socket dall'ingresso SHALL
+toglierlo dall'istantanea: si guarisce da sé.
+
+Un socket NON VIVO NON SHALL essere una finestra.
+
+**Più socket vivi con la STESSA etichetta di finestra SHALL essere UNA finestra
+sola**, e fra gli omonimi SHALL vincere quello dichiarato. Il collasso SHALL
+tenere i dati del sopravvissuto, e un socket MORTO NON SHALL tenere in vita
+l'etichetta di uno vivo.
+
+**Il ramo web NON SHALL collassare**: senza etichetta, più schede SONO più
+finestre davvero. Etichette DIVERSE SHALL restare finestre diverse — una staccata
+è una finestra vera.
+
+Le tab SHALL attraversare l'istantanea INTATTE, e un socket che non ne annuncia
+nessuna SHALL riportare «non dichiarato», non un elenco vuoto: sono due cose
+diverse.
+
+#### Scenario: quattro socket, una etichetta
+- **GIVEN** quattro socket vivi con la stessa etichetta
+- **THEN** SHALL uscire una finestra sola
+
+#### Scenario: più schede web senza etichetta
+- **GIVEN** socket senza etichetta di finestra
+- **THEN** SHALL restare finestre distinte

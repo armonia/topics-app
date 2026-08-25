@@ -3,6 +3,7 @@
  * la cosa sbagliata a chi sta indagando**. Due modi di sbagliare, e i test
  * insistono su quelli: nascondere una chiamata fallita, e seppellirla sotto
  * trecento immagini.
+  * @covers NETLOG-01
  */
 import { describe, test, expect } from "bun:test";
 import {

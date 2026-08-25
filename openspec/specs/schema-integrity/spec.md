@@ -238,3 +238,31 @@ niente: «non ci guadagno» e «lo rompo» sono due esiti diversi.
 #### Scenario: il confine della soglia
 - **GIVEN** una stringa esattamente sulla soglia
 - **THEN** NON SHALL perdere niente
+
+### Requirement: UPSERT-01 — Salvare un argomento NON deve cancellarne i figli
+
+L'inserimento di un argomento SHALL essere un vero aggiornamento-o-inserimento, e
+MAI una sostituzione: il motore risolve una sostituzione con una cancellazione
+seguita da un inserimento, e con i vincoli attivi quella cancellazione NASCOSTA
+fa scattare OGNI azione a cascata che punta agli argomenti.
+
+Il danno osservabile dell'era della sostituzione SHALL restare impossibile:
+risalvare un argomento SHALL preservare la mappatura di ripresa della sua
+sessione, SHALL preservare lo stato di lettura, e risalvare un PADRE NON SHALL
+azzerare i figli.
+
+Un argomento NUOVO SHALL comunque essere inserito.
+
+I campi aggiunti dalle migrazioni successive SHALL sopravvivere al giro
+salva-ricarica. Una scrittura MIRATA SHALL aggiornare SOLO quella colonna. Un
+argomento che non esiste SHALL avere la propria risposta. Un contenuto ILLEGGIBILE
+in colonna NON SHALL far cadere la lettura dell'argomento. Un argomento normale
+NON SHALL guadagnare campi che non ha.
+
+#### Scenario: risalvare un argomento padre
+- **GIVEN** un argomento con dei figli
+- **THEN** i figli NON SHALL essere azzerati
+
+#### Scenario: un contenuto illeggibile in colonna
+- **GIVEN** una colonna non interpretabile
+- **THEN** la lettura dell'argomento NON SHALL cadere

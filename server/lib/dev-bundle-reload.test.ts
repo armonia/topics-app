@@ -1,3 +1,6 @@
+/**
+ * @covers BUNDLE-REV-01
+ */
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";

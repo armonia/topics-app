@@ -1,3 +1,6 @@
+/**
+ * @covers LOCALURL-01
+ */
 import { test, expect, describe, afterEach } from "bun:test";
 import {
   localPathOf,

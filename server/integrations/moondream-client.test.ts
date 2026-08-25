@@ -2,6 +2,7 @@
  * Unit tests for the vision-text de-loop guard (browser_read_screen). Pure
  * logic, no network — verifies a degenerate moondream decode loop can't flood
  * the agent context.
+  * @covers VISION-01
  */
 import { describe, it, expect } from "bun:test";
 import { clampVisionText } from "./moondream-client";

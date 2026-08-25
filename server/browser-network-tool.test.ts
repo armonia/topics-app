@@ -7,6 +7,7 @@
  * quante ne mostro. Senza, una risposta corta si legge come «non è successo
  * niente» invece di «te ne mostro dieci su trecento», e chi indaga si ferma un
  * passo prima del difetto.
+  * @covers NETLOG-02
  */
 import { describe, test, expect } from "bun:test";
 import { handleBrowserNetwork } from "./browser-tools-handler";

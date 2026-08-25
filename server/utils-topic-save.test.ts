@@ -9,6 +9,7 @@
  *     topic update → chat respawned fresh and lost the model's session memory;
  *   - unread CASCADE-wiped;
  *   - children's parent_id SET NULL → topic hierarchy silently flattened.
+  * @covers UPSERT-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

@@ -7,6 +7,7 @@
  * stands in for topics-app (passed as --base-url) so tools/call round-trips for
  * real. This verifies the readline loop, stdout framing, the registry dispatch,
  * and the httpJson layer together — the parts unit tests can't reach.
+  * @covers MCPSRV-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { join } from "path";

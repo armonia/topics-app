@@ -1,3 +1,6 @@
+/**
+ * @covers EXTDISC-01
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';

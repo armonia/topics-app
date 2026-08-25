@@ -1,3 +1,6 @@
+/**
+ * @covers SIDECAR-01
+ */
 import { test, expect } from "bun:test";
 import {
   discoverChromiumEngines,

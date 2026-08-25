@@ -355,3 +355,68 @@ essere un errore.
 #### Scenario: un comando irreversibile al livello intermedio
 - **GIVEN** un comando che non si annulla
 - **THEN** SHALL essere rifiutato, e il turno SHALL restare vivo
+
+### Requirement: EFFORTRES-01 — L'impegno si risolve per gradini, e un valore ignoto NON diventa un valore
+
+La risoluzione dell'impegno SHALL scendere per gradini dichiarati: una scelta
+esplicita dell'app vince su tutto; poi la variabile d'ambiente specchiata; poi la
+configurazione della persona; poi il valore predefinito.
+
+Un valore NON RICONOSCIUTO SHALL risolversi in NIENTE — nessun sovrascrittura
+passata, nessun distintivo mostrato — invece di diventare un valore a caso.
+
+La configurazione della persona SHALL vincere sul predefinito, mai declassarlo, e
+SHALL leggere solo le chiavi al livello di radice: una chiave dentro una tabella
+è di un'altra cosa.
+
+La scelta per argomento SHALL vincere anche sulla variabile dell'app, SHALL
+essere insensibile a maiuscole e spazi, e un valore nullo, vuoto o sconosciuto
+SHALL cadere sul predefinito d'ambiente. Senza né scelta né ambiente SHALL restare
+il predefinito dichiarato.
+
+Gli ALIAS deprecati SHALL essere ancora onorati, con UN avviso; la forma nuova
+SHALL vincere in silenzio.
+
+Il selettore per argomento sul percorso del terminale SHALL leggere la scelta
+dalla riga; un argomento senza scelta SHALL cadere sul predefinito globale; un
+identificativo assente NON SHALL produrre nessuna interrogazione né errore; e un
+argomento inesistente, o un'interrogazione fallita, NON SHALL bloccare
+l'accensione.
+
+Il tetto ai risultati degli strumenti esterni SHALL esistere per difetto, SHALL
+essere spostabile con un intero, e un valore ILLEGGIBILE NON SHALL spegnerlo in
+silenzio: chi scrive un numero vuole un tetto.
+
+#### Scenario: un livello di impegno sconosciuto
+- **GIVEN** un valore fuori vocabolario
+- **THEN** NON SHALL essere passato nessun sovrascrittura
+
+#### Scenario: un tetto illeggibile
+- **GIVEN** un valore non numerico
+- **THEN** il tetto NON SHALL essere spento
+
+### Requirement: PROMPT-01 — Il prompt dice COME aspettare, e i tre strumenti restano distinti
+
+La direttiva di lingua SHALL essere UNA riga e SHALL nominare la lingua; con una
+lingua scelta SHALL CHIUDERE il prompt, che è dove si legge per ultima.
+
+Il prompt SHALL contenere la parte sui processi.
+
+**SHALL dire COME aspettare**, perché è la scelta che un agente sbaglia più
+spesso: il sorvegliante per le attese lunghe, l'attesa diretta per quelle corte.
+Il sorvegliante SHALL essere offerto SE C'È.
+
+Sui comandi in secondo piano il prompt NON SHALL vietare, ma SHALL dire DA COSA
+DIPENDE che il risveglio arrivi davvero.
+
+**I tre strumenti SHALL restare DISTINTI**: quello che chiude e sveglia, quello
+che tiene e torna, e quello che dipende. Confonderli è come si aspetta per sempre
+qualcosa che era già finito.
+
+#### Scenario: senza il sorvegliante disponibile
+- **GIVEN** lo strumento non presente
+- **THEN** NON SHALL essere offerto
+
+#### Scenario: una lingua scelta
+- **GIVEN** la lingua dichiarata
+- **THEN** la direttiva SHALL chiudere il prompt

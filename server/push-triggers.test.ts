@@ -6,6 +6,7 @@
  *
  * `push-service` (DB + VAPID) is mocked so the trigger logic is tested in
  * isolation — no database, no network.
+  * @covers PUSH-04
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 

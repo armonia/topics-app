@@ -5,6 +5,7 @@
  * browser_op message → executeNativeBrowserOp → browser_op_result → resolveOp →
  * the agent's awaited result. The only thing NOT exercised here is the literal WS
  * JSON transport (standard, and the subscription mirrors the proven agent-pill WS).
+  * @covers NATDEL-01
  */
 import { test, expect } from 'bun:test';
 import { createNativeDelegateRegistry, nativeDelegateRegistry } from './browser-native-delegate';

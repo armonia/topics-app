@@ -1302,3 +1302,133 @@ La descrizione di un bersaglio SHALL dire il TIPO e la CHIAVE.
 #### Scenario: una codifica corrotta
 - **GIVEN** un segmento illeggibile
 - **THEN** SHALL valere niente, senza sollevare
+
+### Requirement: TABRES-01 — Risolvere un permalink DICE lo stato, non lo cambia, e non esplode mai
+
+Un riferimento che la grammatica non riconosce SHALL valere NIENTE, non un
+errore. SHALL essere accettato sia un percorso nudo sia un indirizzo assoluto, e
+gli alias storici SHALL risolvere.
+
+Per una CHAT: una pane viva al livello dell'app SHALL essere APERTA, col titolo
+dell'ARGOMENTO; aperta dentro una finestra di progetto SHALL risolvere anche
+quando non è una pane; una nella pila delle chiuse SHALL essere CHIUSA anche se
+il record porta titolo e indirizzo; una lapide STANTÌA NON SHALL chiudere una
+pane VIVA; solo lapidi SHALL valere chiusa; un argomento che esiste ma che
+nessuna superficie mostra SHALL essere chiuso; uno ARCHIVIATO SHALL essere
+archiviato anche con la tab aperta; e uno INESISTENTE SHALL essere sconosciuto —
+col titolo NON inventato.
+
+La cartella di lavoro SHALL seguire la copia di lavoro PRONTA, non il percorso
+del progetto, e una funzione iniettata SHALL avere la precedenza sul ripiego.
+
+Per un TERMINALE: una pane viva con elenco VUOTO SHALL restare aperta con un
+titolo neutro; con l'elenco, titolo e cartella SHALL venire da lì; senza né pane
+né elenco SHALL essere SCONOSCIUTO — «sconosciuto» e «non esiste» sono due
+risposte diverse.
+
+Per un BROWSER: dentro una finestra di progetto il titolo SHALL venire dal
+contesto VIVO; la tab di un TASK SHALL avere la propria superficie; la presenza
+nel riquadro di un task SHALL bastare anche senza inventario; una pane NATIVA
+registrata senza istantanea SHALL essere viva lo stesso; nessuna traccia SHALL
+essere sconosciuto, e il passo successivo SHALL essere dichiarato.
+
+Per FILE e CONFRONTO: la pane SHALL essere trovata per PERCORSO e non per
+identificativo; confronto e file SHALL essere DUE tab distinte sullo stesso
+percorso; senza tab aperta SHALL essere CHIUSO e mai sconosciuto — il percorso è
+il soggetto; e un percorso di progetto con un PUNTO SHALL sopravvivere al giro
+completo.
+
+Per un PROGETTO: finestra aperta SHALL dare titolo dal registro e il passo
+successivo; progetto noto con finestra chiusa SHALL essere chiuso; percorso ignoto
+SHALL essere sconosciuto.
+
+Per un TASK: la forma storica SHALL continuare a risolvere; la cartella di un task
+dispacciato SHALL essere la COPIA DI LAVORO del suo argomento; archiviato SHALL
+essere archiviato, inesistente sconosciuto.
+
+**L'esistenza SHALL essere ASIMMETRICA.** Una CARTELLA che sta sul disco SHALL
+essere un soggetto valido — chiusa, NON sconosciuta — anche se nessuna tabella la
+conosce; una cartella che NON esiste SHALL essere sconosciuta, ed è il caso che
+chi chiama deve rifiutare; un FILE non è un progetto, solo una directory conta; un
+progetto REGISTRATO SHALL restare noto anche se la cartella non è montata; e una
+CHAT inventata SHALL continuare a essere rifiutata.
+
+**Il perimetro della domanda al filesystem SHALL essere stretto**: SHALL passare
+solo un percorso assoluto e GIÀ NORMALIZZATO, e una traversata NON SHALL MAI
+diventare una domanda al disco.
+
+La chiave di progetto NON SHALL essere presa per buona: una riga il cui compendio
+non inverte su nessun percorso noto SHALL uscire dichiarata tale, e in una
+collisione REALE il percorso che il collegamento porta con sé SHALL disambiguare.
+
+**La risoluzione NON SHALL MAI SCRIVERE**: nessuna riga di stato SHALL cambiare —
+né valore né contatore di revisione — dopo un numero qualunque di risoluzioni.
+
+E SHALL DEGRADARE, non esplodere: un database privo di ogni tabella SHALL
+rispondere lo stesso.
+
+#### Scenario: una cartella sul disco che nessuna tabella conosce
+- **GIVEN** un percorso esistente e non registrato
+- **THEN** SHALL essere «chiuso», non «sconosciuto»
+
+#### Scenario: dieci risoluzioni di fila
+- **GIVEN** più chiamate consecutive
+- **THEN** nessuna riga di stato SHALL cambiare
+
+### Requirement: SPAFB-01 — Il guscio si serve alle NAVIGAZIONI, e non maschera un 404
+
+Il guscio SHALL essere servito per un collegamento profondo alla bacheca e per un
+percorso di navigazione nudo.
+
+**Una rotta di interfaccia SCONOSCIUTA NON SHALL essere mascherata**: resta un
+«non trovato», o ogni errore di indirizzo diventa una pagina bianca che sembra
+funzionare. Lo stesso vale per un ARTEFATTO mancante — un percorso con
+un'estensione — e per il canale del socket, che NON SHALL MAI essere il guscio.
+
+I metodi che non LEGGONO NON SHALL MAI ricevere il guscio. Il metodo di sola
+intestazione SHALL comportarsi come quello di lettura: stessa decisione su ogni
+percorso.
+
+Un cliente che NON dichiara di volere una pagina NON SHALL ricevere il guscio.
+
+I permalink SHALL contare come navigazioni, compresi quelli con due segmenti
+codificati; uno scritto A MANO che contiene un PUNTO SHALL ricevere comunque il
+guscio — è un permalink, non un artefatto; e gli alias storici SHALL restare
+navigazioni.
+
+#### Scenario: una rotta di interfaccia sconosciuta
+- **GIVEN** un percorso di interfaccia inesistente
+- **THEN** SHALL restare «non trovato»
+
+#### Scenario: un permalink con un punto nella chiave
+- **GIVEN** un permalink scritto a mano
+- **THEN** SHALL ricevere il guscio
+
+### Requirement: STATIC-01 — Gli artefatti si classificano per FORMA, non per un elenco scritto a mano
+
+Il caso che ha rotto l'installazione per un mese: un file di radice non era
+nell'elenco di nomi scritto a mano, quindi rispondeva «non trovato» mentre il
+documento principale lo caricava.
+
+I file di RADICE che ci sono SHALL essere serviti, e un artefatto NUOVO alla
+radice NON SHALL richiedere di aggiornare nessun elenco: la classificazione è per
+FORMA.
+
+Le cartelle degli artefatti SHALL essere servite anche IN PROFONDITÀ.
+
+NON SHALL passare di qui: le rotte di interfaccia; una rotta di client senza
+estensione, che resta al ripiego del guscio; un permalink, MAI — nemmeno con un
+punto nella chiave; una traversata fuori dal pacchetto; e una cartella di secondo
+livello non dichiarata.
+
+Le cartelle con nomi versionati o stabili SHALL essere dichiarate IMMUTABILI,
+mentre i file di RADICE NON SHALL essere fissati nella memoria del browser:
+decidono cosa viene servito dopo, e fissarli congela il prossimo dispiegamento.
+
+#### Scenario: un artefatto nuovo alla radice
+- **GIVEN** un file aggiunto alla radice del pacchetto
+- **THEN** SHALL essere servito senza toccare nessun elenco
+
+#### Scenario: un permalink con un punto
+- **GIVEN** una chiave che contiene un punto
+- **THEN** NON SHALL essere trattato come artefatto

@@ -4,6 +4,7 @@
  *   - duplicate windowIds (reconnect race) collapse to the first;
  *   - each entry carries clientId + label + detached + topics + focus;
  *   - dropping a socket from the input drops it from the snapshot (self-heal).
+  * @covers PRESENCE-12
  */
 import { describe, test, expect } from 'bun:test';
 import { buildPresenceSnapshot, type PresenceSource } from './presence';

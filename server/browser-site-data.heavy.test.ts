@@ -21,6 +21,7 @@
  *
  * Corsia pesante (`bun run test:heavy`): avvia un vero Chromium. Stesso motivo
  * di browser-session-handoff.heavy.test.ts.
+  * @covers SITEDATA-02
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

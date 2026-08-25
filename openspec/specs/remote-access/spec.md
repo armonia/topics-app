@@ -322,3 +322,27 @@ REVOCATO SHALL azzerare quella presenza.
 #### Scenario: un segreto sbagliato
 - **GIVEN** un ritiro con il segreto errato
 - **THEN** la risposta SHALL essere identica a quella di un identificativo inesistente
+
+### Requirement: LOOPBACK-01 — La sonda del ciclo interno non è un cercatore di porte
+
+La porta SHALL essere estratta dalle varie forme del ciclo interno, forma
+esplicita compresa, e la porta IMPLICITA SHALL contare: una scheda su un indirizzo
+locale senza porta è la porta predefinita del suo schema.
+
+**Tutto ciò che NON è il ciclo interno SHALL valere NIENTE**: questa rotta non è
+un cercatore di porte, e non deve poter diventarlo.
+
+Il controllo di ascolto SHALL essere VERO mentre un server è su e FALSO appena si
+spegne. Un server in ascolto SOLO sulla forma estesa dell'indirizzo locale NON
+SHALL essere dato per morto: sono due indirizzi dello stesso posto.
+
+Una porta LIBERA NON SHALL far aspettare l'intera scadenza: una diagnosi che
+impiega quanto un guasto non è una diagnosi.
+
+#### Scenario: un indirizzo che non è locale
+- **GIVEN** un host esterno
+- **THEN** NON SHALL essere estratta nessuna porta
+
+#### Scenario: un server sulla sola forma estesa dell'indirizzo locale
+- **GIVEN** un ascolto su quella forma
+- **THEN** SHALL risultare vivo

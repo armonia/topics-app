@@ -10,6 +10,7 @@
  *
  * Deterministic + offline: content is built with evaluate() on about:blank (no
  * network, no data:/scheme questions), including a ticking mutation.
+  * @covers DOMCO-01
  */
 import { describe, it, expect } from 'bun:test';
 

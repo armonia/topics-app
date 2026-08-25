@@ -25,6 +25,7 @@
  * La seconda è quella che conta davvero: un setaccio più leggero che si perde
  * un tool in corso lascia a schermo uno spinner che gira per sempre, ed è un
  * danno peggiore del picco che stava risolvendo.
+  * @covers BOOTSCAN-01
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

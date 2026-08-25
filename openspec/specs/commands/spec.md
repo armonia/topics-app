@@ -790,3 +790,61 @@ non inventarsi una sessione.
 #### Scenario: nessun bersaglio
 - **GIVEN** nessuna sessione candidabile
 - **THEN** NON SHALL essere inventata nessuna sessione
+
+### Requirement: CTRLTOOL-01 — Gli strumenti di controllo hanno un vocabolario CHIUSO, e ogni rifiuto ha il suo nome
+
+Gli strumenti di controllo esposti SHALL essere ESATTAMENTE quelli dichiarati,
+ciascuno con i propri argomenti obbligatori, e il riconoscimento SHALL rifiutare
+qualunque altro nome. Uno strumento sconosciuto SHALL sollevare un errore con il
+proprio CODICE.
+
+Il cambio di argomento SHALL annunciare il passaggio per un bersaglio esistente e
+non archiviato. Un bersaglio ARCHIVIATO SHALL sollevare «archiviato» e NON «non
+trovato» — e NON SHALL annunciare niente: sono due situazioni diverse e chi legge
+il messaggio va a cercare due cose diverse. Un bersaglio MANCANTE SHALL sollevare
+«non trovato», e un identificativo assente SHALL sollevare «argomenti sbagliati».
+
+La creazione di un argomento SHALL EREDITARE il percorso del progetto e
+annunciare prima la creazione e poi il passaggio.
+
+La creazione di un progetto SHALL impalcare la cartella e il file di contesto,
+legare, e annunciare. Una COLLISIONE SHALL sollevare «progetto esistente» —
+NESSUNA sovrascrittura, NESSUN legame, NESSUN annuncio. Un nome vuoto dopo la
+pulizia SHALL sollevare «argomenti sbagliati».
+
+L'apertura di un progetto SHALL risolvere per NOME dentro lo spazio di lavoro
+noto, legare e annunciare; SHALL sollevare «non trovato» sia per un riferimento
+sconosciuto SIA per un percorso ASSOLUTO, perché i percorsi grezzi non sono
+fidati.
+
+La risoluzione di una tab SHALL restituire il risultato VERBATIM, senza NESSUN
+effetto collaterale; un riferimento che non è un permalink SHALL avere la propria
+risposta; un riferimento vuoto SHALL sollevare «argomenti sbagliati» SENZA
+chiamare il risolutore; e senza risolutore iniettato SHALL DIRLO.
+
+#### Scenario: un bersaglio archiviato
+- **GIVEN** un argomento archiviato
+- **THEN** SHALL sollevare «archiviato», senza annunciare niente
+
+#### Scenario: un percorso assoluto come riferimento di progetto
+- **GIVEN** un percorso invece di un nome
+- **THEN** SHALL sollevare «non trovato»
+
+### Requirement: MCPSRV-01 — Il server degli strumenti regge il protocollo VERO, come processo separato
+
+Le prove sulle funzioni esportate non toccano il processo. Questo SHALL accendere
+il server come SOTTOPROCESSO vero e parlargli con il protocollo di chiamata sul
+suo ingresso e uscita standard, esattamente come fa la riga di comando.
+
+La stretta di mano iniziale SHALL funzionare, e l'elenco degli strumenti SHALL
+restituirli tutti.
+
+Le chiamate SHALL fare il giro completo verso le porte della sessione: l'elenco
+dei processi, l'esecuzione di uno script che passa il nome, e la risoluzione di
+una tab che interroga la porta dedicata e restituisce ciò che ha risolto.
+
+Uno strumento SCONOSCIUTO SHALL tornare un errore di protocollo, non un silenzio.
+
+#### Scenario: uno strumento sconosciuto
+- **GIVEN** una chiamata a un nome inesistente
+- **THEN** SHALL tornare un errore di protocollo

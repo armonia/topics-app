@@ -374,3 +374,20 @@ Un indirizzo ASSOLUTO verso un'ALTRA origine SHALL passare INTATTO.
 #### Scenario: un indirizzo verso un'altra origine
 - **GIVEN** un indirizzo assoluto esterno
 - **THEN** SHALL passare intatto
+
+### Requirement: NATDEL-02 — Il giro dell'operazione delegata regge anche sul FILO vero
+
+L'integrazione in processo prova la logica; questo prova l'UNICO anello che
+quella non tocca: la serializzazione letterale sul socket vero.
+
+Gli STESSI moduli — il registro dei delegati e il gestore del fotogramma di
+delega sul server, l'esecutore sul client — SHALL far girare un'operazione di
+browser attraverso un socket REALE con serializzazione letterale, e il risultato
+SHALL tornare a chi lo attende.
+
+Il canale dedicato SHALL essere quello dichiarato: due estremi che parlano su due
+percorsi diversi non si incontrano, e nessuna prova in processo lo vedrebbe.
+
+#### Scenario: un'operazione sul socket vero
+- **GIVEN** i due estremi connessi con serializzazione letterale
+- **THEN** il risultato SHALL tornare a chi lo attende

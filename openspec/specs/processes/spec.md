@@ -310,3 +310,86 @@ verde da solo e rosso in parallelo.
 #### Scenario: un server di terzi sulla stessa porta
 - **GIVEN** un ascoltatore da una cartella estranea
 - **THEN** NON SHALL essere toccato
+
+### Requirement: BRIDGE-OWN-01 — Un proprietario VIVO ma lento non si sfratta
+
+Il 13/08/2026 questo contratto è costato la macchina due volte in un'ora, una
+volta perfino attraverso un riavvio: 1612 processi sullo stesso socket in dodici
+minuti, 3653 processi in tutto, 36 GB di scambio su una macchina da 32, carico
+644, e il server principale irraggiungibile. La causa era una riga di giudizio:
+scambiare «non ha risposto in tempo» per «non c'è nessuno».
+
+Un proprietario VIVO che è soltanto TROPPO LENTO a rispondere NON SHALL essere
+sfrattato: la lentezza non è assenza, e sfrattarlo mette due processi sullo
+stesso socket — che è come nasce la moltiplicazione.
+
+Un socket ABBANDONATO, senza nessuno in ascolto, SHALL poter essere preso.
+
+Più processi in corsa per un socket LIBERO SHALL lasciarne esattamente UNO in
+ascolto.
+
+#### Scenario: un proprietario lento
+- **GIVEN** un processo vivo che non risponde entro la finestra
+- **THEN** NON SHALL essere sfrattato
+
+#### Scenario: cinque in corsa sullo stesso socket libero
+- **GIVEN** più candidati simultanei
+- **THEN** esattamente uno SHALL restare in ascolto
+
+### Requirement: BRIDGE-01 — Il ponte consegna per OFFSET, e riattaccarsi non perde né duplica
+
+La scrittura SHALL tornare come dati indirizzati per POSIZIONE, e un
+riattaccamento SHALL rigiocare la storia SENZA PERDITE.
+
+L'accensione SHALL essere IDEMPOTENTE per identificativo: MAI un secondo figlio
+sulla stessa trascrizione. Riaccendere su una sessione VIVA SHALL attaccare chi
+chiama al flusso vivo, non ricominciare.
+
+L'elenco SHALL riportare la sessione, e la chiusura SHALL toglierla.
+
+Il segnale di uscita SHALL scattare quando il figlio finisce, e un attaccamento
+TARDIVO SHALL comunque rigiocare l'output completato: chi arriva dopo non ha
+diritto a meno storia.
+
+Uno store grande SHALL arrivare in PIÙ pezzi, CONTIGUI e identici byte per byte.
+Un attaccamento dalla coda ESATTA NON SHALL consegnare nemmeno un byte.
+
+Un processo il cui padre dichiarato è MORTO SHALL ritirarsi appena nessun client
+è connesso. Una SONDA che si connette e chiude NON SHALL rinnovare la licenza a
+restare vivo — è il modo in cui un orfano si tiene in vita da solo. Con un padre
+VIVO SHALL restare su.
+
+#### Scenario: un attaccamento tardivo
+- **GIVEN** un figlio già terminato
+- **THEN** l'output completato SHALL essere rigiocato per intero
+
+#### Scenario: una sonda che si connette e chiude
+- **GIVEN** un processo orfano e una connessione istantanea
+- **THEN** NON SHALL essere rinnovata la sua licenza a restare vivo
+
+### Requirement: PTYORPH-01 — Il ponte del terminale sa RITIRARSI, e non solo quando il padre muore
+
+Misurato il 14/08/2026: venti ponti vivi con ZERO client e ZERO sessioni figlie,
+fino a trentasette ore d'età, quindici dei quali puntavano a copie di lavoro già
+cancellate — circa 365 MB fermi lì. NESSUNO aveva mai scritto nel proprio
+registro che il padre era morto: il sorvegliante anti-orfano non scattava.
+
+Un ponte il cui padre dichiarato è MORTO SHALL ritirarsi, e SHALL portarsi via il
+proprio socket: un socket rimasto lì fa credere al successivo che qualcuno
+ascolti.
+
+Una SONDA che si connette e chiude NON SHALL rinnovare la licenza. Con il padre
+VIVO SHALL restare su.
+
+**E SHALL esserci un secondo freno, indipendente dal padre**: senza client e
+senza sessioni figlie SHALL ritirarsi ANCHE con il padre vivo — è il caso dei
+quindici che puntavano al nulla. Con un client attaccato NON SHALL ritirarsi: il
+freno non uccide chi è in uso.
+
+#### Scenario: nessun client, nessuna sessione, padre vivo
+- **GIVEN** un ponte inutilizzato da tempo
+- **THEN** SHALL ritirarsi lo stesso
+
+#### Scenario: un client attaccato
+- **GIVEN** almeno un client vivo
+- **THEN** NON SHALL ritirarsi

@@ -1,3 +1,6 @@
+/**
+ * @covers SPAFB-01
+ */
 import { describe, test, expect } from "bun:test";
 import { shouldServeSpaFallback } from "./spa-fallback";
 import { buildTabPath, encodeTabSegment } from "../shared/tab-link";

@@ -14,6 +14,7 @@
  * lancia un Chromium, e sotto carico un timeout che scatta direbbe «il fuoco è
  * rotto» quando il fatto è «la macchina era occupata». Si lancia con
  * `bun run test:heavy` (o `TOPICS_HEAVY_TESTS=1`).
+  * @covers FOCFIELD-01
  */
 import { describe, it, expect } from 'bun:test';
 import { createBrowserService } from './browser-service';

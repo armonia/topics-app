@@ -2,6 +2,7 @@
  * Unit tests for the login-state file store (external-tool interop format).
  * Redirects both stores to a tmp dir so it never touches real data/ or the
  * external store. Setting TOPICS_EXTERNAL_STATES_DIR opts the external store in.
+  * @covers LOGINST-01
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";

@@ -108,3 +108,29 @@ Una sessione senza nessun turno a metà NON SHALL subire nessun cambiamento.
 #### Scenario: la persona ha già scritto
 - **GIVEN** un turno interrotto seguito da un messaggio della persona
 - **THEN** NON SHALL essere ripreso
+
+### Requirement: BOOTSCAN-01 — Il setaccio dell'avvio non si carica il database per trovare quattro righe
+
+La ricerca degli strumenti rimasti «in corso» dopo un riavvio SHALL SCORRERE le
+righe invece di materializzarle tutte: misurato sul database di produzione,
+caricare trenta giorni di messaggi significa 8.354 righe per 706 MB di
+contenuto, per trovarne quattro.
+
+Scorrendo SHALL essere trovato ESATTAMENTE ciò che si trovava caricando tutto —
+o il risparmio ha cambiato la risposta.
+
+Le righe SCARTATE NON SHALL essere trattenute: ciò che sopravvive SHALL essere
+proporzionale ai TROVATI, non agli esaminati. Un database senza strumenti in
+corso NON SHALL trattenere niente.
+
+Lo stato SHALL essere visto anche quando sta dentro un blocco COMPRESSO, e SHALL
+essere riconosciuto OGNI stato «in corso», non solo il più comune: un solo stato
+riconosciuto lascia gli altri appesi per sempre.
+
+#### Scenario: un database senza strumenti in corso
+- **GIVEN** nessuna riga da finalizzare
+- **THEN** NON SHALL essere trattenuto niente
+
+#### Scenario: uno stato dentro un blob compresso
+- **GIVEN** una riga compressa che porta uno stato in corso
+- **THEN** SHALL essere trovata

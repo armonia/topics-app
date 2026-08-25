@@ -21,6 +21,7 @@
  * scarto di un segnaposto vuoto non cancella nessun contenuto (per definizione
  * non ce n'era), quindi il marker si RI-ANCORA al padre e resta nello stesso
  * punto del thread. Qui si misura che sia davvero così.
+  * @covers COMPACT-DIV-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

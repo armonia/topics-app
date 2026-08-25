@@ -327,3 +327,30 @@ Una pane condivisa che NON sta guardando NON SHALL sottrarsi dal conto.
 #### Scenario: una pane condivisa che non guarda
 - **GIVEN** una pane in condivisione senza canale attivo
 - **THEN** NON SHALL sottrarsi dal conto
+
+### Requirement: VIEWCNT-01 — Un delegato NATIVO non è uno spettatore
+
+Un delegato nativo NON SHALL essere contato come spettatore, QUALUNQUE cosa
+dichiari: è il braccio della pane, non qualcuno che guarda.
+
+Un socket che NON dichiara niente SHALL valere spettatore — è un client vecchio,
+o il socket dell'app — perché sbagliare per eccesso qui significa condividere una
+sessione che poteva restare nativa, e sbagliare per difetto significa non
+condividerla a qualcuno che sta guardando.
+
+Chi è FUORI dallo schermo NON SHALL contare; chi è dentro sì. Un telefono che
+guarda attraverso il canale video SHALL essere contato.
+
+Il caso vero SHALL tornare uno: la macchina nativa più un telefono che guarda fa
+UN altro dispositivo. Una macchina condivisa ma in SECONDO PIANO più un telefono
+che guarda fa UNO.
+
+Nessun socket SHALL fare zero.
+
+#### Scenario: un delegato nativo che si dichiara spettatore
+- **GIVEN** un socket delegato
+- **THEN** NON SHALL essere contato
+
+#### Scenario: la macchina in secondo piano e un telefono che guarda
+- **GIVEN** i due socket
+- **THEN** il conteggio SHALL essere uno

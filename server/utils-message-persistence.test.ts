@@ -10,6 +10,7 @@
  *   - a tool write NEVER touches content/thinking,
  *   - a content write NEVER touches tool_calls,
  *   - finalize / partial-only updates NEVER blank the body.
+  * @covers MSGOWN-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

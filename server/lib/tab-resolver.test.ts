@@ -1,3 +1,6 @@
+/**
+ * @covers TABRES-01
+ */
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

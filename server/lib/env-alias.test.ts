@@ -1,3 +1,6 @@
+/**
+ * @covers ENVALIAS-01
+ */
 // Deprecated-env-alias helper: canonical wins, alias is a warned fallback.
 import { test, expect, afterEach } from "bun:test";
 import { readEnvWithAlias, warnDeprecatedEnv, __resetDeprecatedEnvWarnings } from "./env-alias";

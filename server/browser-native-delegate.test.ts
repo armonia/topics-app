@@ -1,3 +1,6 @@
+/**
+ * @covers NATDEL-03
+ */
 import { test, expect, describe } from 'bun:test';
 import { createNativeDelegateRegistry, handleNativeDelegationFrame, type BrowserOpMessage } from './browser-native-delegate';
 

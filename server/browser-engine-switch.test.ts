@@ -1,3 +1,6 @@
+/**
+ * @covers ENGSW-01
+ */
 import { describe, it, expect } from "bun:test";
 import { applyEngineSwitch, type EngineSwitchDeps, type PaneEngine } from "./browser-engine-switch";
 

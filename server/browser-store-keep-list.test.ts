@@ -1,3 +1,6 @@
+/**
+ * @covers KEEPLIST-01
+ */
 import { test, expect } from "bun:test";
 import { collectBrowserContextIds } from "./browser-store-keep-list";
 

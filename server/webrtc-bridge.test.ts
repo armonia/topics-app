@@ -9,6 +9,7 @@
  * Qui si verifica l'altra metà del fix (il lato Rust è in
  * desktop-tauri/webrtc-bridge/src/main.rs): un sidecar che dichiara una build
  * diversa dalla nostra viene mietuto all'avvio, senza aspettare un offer.
+  * @covers WEBRTC-01
  */
 import { describe, expect, it } from "bun:test";
 import { spawn } from "child_process";

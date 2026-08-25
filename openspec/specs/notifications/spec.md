@@ -447,3 +447,79 @@ tasto che non fa niente.
 #### Scenario: un percorso fuori dalla bacheca
 - **GIVEN** una richiesta composta verso un'altra superficie
 - **THEN** NON SHALL essere eseguita
+
+### Requirement: PUSH-03 — Per spegnere IL dispositivo giusto bisogna riconoscerlo
+
+Sembra cosmesi e non lo è: l'elenco delle impostazioni serve a spegnere UN
+dispositivo, e per spegnere quello giusto bisogna riconoscerlo. Il punto di
+consegna non si può mostrare — è un indirizzo lunghissimo che cambia da solo —
+quindi tutto il riconoscimento poggia su una riga di testo.
+
+L'etichetta SHALL riconoscere i dispositivi noti. **Il tablet SHALL essere
+riconosciuto PRIMA del computer**, perché da una certa versione un tablet si
+dichiara come un computer.
+
+Una dichiarazione che non dice niente SHALL dare la parola generica, non una
+stringa tecnica: una stringa tecnica non si riconosce meglio di un indirizzo.
+
+Il momento in cui aprire SHALL ammettere due valori soli, e tutto il resto SHALL
+valere NIENTE — la rotta ci fa un rifiuto di richiesta.
+
+Una riga SENZA preferenze scritte SHALL ricadere sui valori predefiniti, non su
+un valore indefinito. Senza sapere CHI chiede, NESSUNA riga SHALL essere «questo
+dispositivo».
+
+#### Scenario: un tablet che si dichiara computer
+- **GIVEN** una dichiarazione ambigua
+- **THEN** SHALL essere riconosciuto come tablet
+
+#### Scenario: una riga senza preferenze
+- **GIVEN** nessuna preferenza scritta
+- **THEN** SHALL valere i predefiniti
+
+### Requirement: PUSH-04 — Ogni spinta porta a QUALCOSA, e tace su ciò che non è una notizia
+
+La spinta di fine lavoro SHALL scattare quando un task entra in revisione,
+portando il TITOLO e un'etichetta chiavata sul task — così una ri-emissione
+SOSTITUISCE invece di impilare — e SHALL degradare con grazia senza titolo. Il
+gesto SHALL portare AL TASK, non alla pagina iniziale; senza identificativo SHALL
+ripiegare sulla pagina iniziale invece di costruire un indirizzo rotto. SHALL
+restare MUTA per gli annunci che non la riguardano.
+
+I tasti SHALL seguire la stessa regola della card: una domanda con opzioni dà i
+suoi tasti; una consegna con la sola azione di pubblicazione tiene il titolo di
+revisione e quel tasto; una domanda MISTA torna a essere una domanda; una
+consegna senza domanda dà un tasto solo; una domanda con TROPPE opzioni dà
+NESSUN tasto — **ma la spinta parte lo stesso**, perché la notizia vale anche
+senza i tasti. Un elemento parcheggiato SHALL offrire di rimetterlo in coda.
+Senza identificativo di task NON SHALL essere disegnato nessun tasto: non
+saprebbe a chi parlare.
+
+Un parcheggio SHALL distinguere i propri motivi: consegna mancata, richiesta di
+intervento, e richiesta di una decisione sono TRE testi diversi, e degradano
+senza titolo. Anche qui il gesto SHALL portare al task.
+
+La fine PULITA di una conversazione SHALL mandare una spinta col nome
+dell'argomento, con etichetta e indirizzo chiavati su di esso, e senza nome
+risolto SHALL degradare a un titolo generico MANDANDO comunque.
+
+SHALL essere MUTA su: un annullo, l'abbattimento del sorvegliante, un turno di
+errore, l'assenza di identificativo dell'argomento, un argomento archiviato o
+silenziato, e un argomento il cui PROGETTO è silenziato. Un argomento in un
+progetto NON silenziato SHALL mandare.
+
+Il cancello del silenzio SHALL parlare per un argomento sano in un progetto non
+silenziato; SHALL tacere se archiviato o silenziato, qualunque sia il progetto;
+SHALL tacere per un progetto silenziato, confrontando il percorso ESATTO — un
+prefisso NON è il progetto; un argomento senza percorso NON SHALL essere toccato
+dal silenzio di progetto; una lista assente o vuota SHALL valere nessun progetto
+silenziato, sbagliando verso la spinta; e un argomento INESISTENTE SHALL tacere,
+sbagliando verso il silenzio.
+
+#### Scenario: una domanda con troppe opzioni
+- **GIVEN** più opzioni del tetto
+- **THEN** NON SHALL esserci tasti, e la spinta SHALL partire lo stesso
+
+#### Scenario: un progetto con un percorso che è prefisso di uno silenziato
+- **GIVEN** un percorso simile ma diverso
+- **THEN** NON SHALL essere silenziato

@@ -988,3 +988,529 @@ testo.
 #### Scenario: un campo in sola lettura
 - **GIVEN** un campo che non accetta scrittura
 - **THEN** NON SHALL salire nessuna tastiera
+
+### Requirement: CDPPORT-01 — Ogni server ha la SUA porta di controllo, o due si ammazzano
+
+La porta di controllo del browser era una costante per OGNI server della
+macchina. Con il server di produzione che la tiene, un server di prova che
+accende il proprio browser moriva su «indirizzo già in uso», e il difetto usciva
+come una spec rossa che non c'entrava niente.
+
+La produzione SHALL mantenere la porta storica, e un server che non dichiara la
+propria porta SHALL mantenerla anch'esso: la sonda del profilo esterno la cerca
+lì.
+
+OGNI porta di server di prova SHALL derivare la PROPRIA porta di controllo, e le
+porte degli shard di una corsa locale NON SHALL collidere né fra loro né con la
+produzione.
+
+Una dichiarazione ESPLICITA SHALL vincere, per il caso che la regola non può
+prevedere.
+
+#### Scenario: quattro shard e la produzione
+- **GIVEN** una corsa a quattro shard con la produzione accesa
+- **THEN** le cinque porte di controllo SHALL essere tutte diverse
+
+#### Scenario: un server senza porta dichiarata
+- **GIVEN** nessuna porta di server
+- **THEN** SHALL restare la porta storica
+
+### Requirement: EXTDISC-01 — Le estensioni si scoprono per versione più alta, e una cartella illeggibile non solleva
+
+Per ogni identificativo SHALL essere scelta la cartella con la VERSIONE PIÙ ALTA
+che porta un manifesto.
+
+Le cartelle che non sono identificativi SHALL essere ignorate, e così gli
+identificativi che non hanno nessuna versione con manifesto.
+
+Una cartella ASSENTE o ILLEGGIBILE SHALL dare un elenco VUOTO e NON SHALL
+sollevare mai.
+
+La scoperta SHALL deduplicare per identificativo attraverso i profili, con
+precedenza dichiarata, e le cartelle candidate SHALL coprire i browser noti della
+piattaforma.
+
+#### Scenario: due versioni della stessa estensione
+- **GIVEN** più cartelle di versione con manifesto
+- **THEN** SHALL essere scelta la più alta
+
+#### Scenario: una cartella illeggibile
+- **GIVEN** un profilo non accessibile
+- **THEN** SHALL uscire un elenco vuoto, senza sollevare
+
+### Requirement: SIDECAR-01 — Un motore esterno si accende UNA volta, e si spegne dopo la grazia
+
+La scoperta SHALL trovare i browser installati della piattaforma, il PRIMO
+percorso esistente per ciascun candidato, e SHALL restituire VUOTO quando non c'è
+niente installato. La scelta SHALL onorare una preferenza dichiarata, altrimenti
+il primo.
+
+L'acquisizione SHALL accendere UNA volta sola ed essere CONDIVISA — le chiamate
+concorrenti SHALL collassare in un volo solo — e il rilascio SHALL spegnere dopo
+una finestra di GRAZIA. Una nuova acquisizione DENTRO la grazia SHALL annullare
+lo spegnimento.
+
+Un'acquisizione senza nessun browser installato SHALL essere RIFIUTATA e NON
+SHALL lasciare un riferimento fantasma: un riferimento a un motore che non esiste
+tiene in vita un conteggio che nessuno azzererà mai.
+
+Lo smaltimento SHALL spegnere SUBITO, qualunque sia il conteggio.
+
+Il carico delle estensioni SHALL essere valutato all'ACCENSIONE e non alla
+costruzione — o si carica l'elenco di ieri — e la forma statica SHALL continuare
+a funzionare.
+
+#### Scenario: due acquisizioni concorrenti
+- **GIVEN** due richieste simultanee
+- **THEN** SHALL essere acceso un solo motore
+
+#### Scenario: nessun browser installato
+- **GIVEN** una macchina senza browser
+- **THEN** SHALL essere rifiutata, senza lasciare riferimenti
+
+### Requirement: DOMCO-01 — La navigazione condivisa parte da un'ISTANTANEA, e si riarma dopo una navigazione
+
+L'accensione della modalità DOM SHALL restituire un avvio che porta
+un'ISTANTANEA COMPLETA con il testo VERO della pagina, e le mutazioni successive
+SHALL essere trasmesse come incrementi. Spegnendo l'emissione SHALL fermarsi.
+
+Una SECONDA accensione mentre il registratore è vivo SHALL comunque produrre
+l'istantanea: è chi arriva tardi, o si riconnette, e senza istantanea vedrebbe
+una pagina fatta di soli incrementi.
+
+Una corsa fra la creazione del contesto e l'accensione SHALL condividere UN solo
+contesto.
+
+Un'accensione che corre contro una PRIMA navigazione LENTA SHALL comunque
+produrre l'istantanea, senza ricadere sul video.
+
+Dopo una navigazione SHALL RIARMARSI: una nuova istantanea completa SHALL essere
+trasmessa.
+
+L'istantanea SHALL essere prodotta anche quando la politica di sicurezza della
+pagina vieta gli script in linea.
+
+OGNI battuta digitata SHALL essere trasmessa: un campionamento che ne perde
+qualcuna trasforma la copia in una pagina diversa.
+
+#### Scenario: chi si connette dopo
+- **GIVEN** un registratore già vivo
+- **THEN** SHALL ricevere comunque un'istantanea completa
+
+#### Scenario: una politica che vieta gli script in linea
+- **GIVEN** una pagina con quella politica
+- **THEN** l'istantanea SHALL essere prodotta lo stesso
+
+### Requirement: ENGREG-01 — Il conteggio dei motori non va MAI sotto zero
+
+Un contesto sconosciuto SHALL valere il motore NATIVO.
+
+Passare al motore esterno SHALL acquisire ESATTAMENTE un riferimento e restituire
+il punto di connessione. Impostare lo STESSO motore due volte SHALL essere
+IDEMPOTENTE, senza movimento di riferimenti.
+
+Tornare al nativo SHALL rilasciare l'UNICO riferimento che quella pane teneva, e
+un passaggio nativo→nativo RIDONDANTE NON SHALL rilasciare: è così che un
+conteggio va sotto zero e un motore resta acceso per sempre.
+
+Il rilascio SHALL far cadere una pane esterna. Due pane sul motore esterno SHALL
+tenere DUE riferimenti indipendenti.
+
+Un'accensione a freddo FALLITA SHALL lasciare la pane NATIVA e NON SHALL tenere
+nessun riferimento.
+
+#### Scenario: due passaggi nativo→nativo
+- **GIVEN** una pane già nativa
+- **THEN** NON SHALL essere rilasciato niente
+
+#### Scenario: un'accensione a freddo fallita
+- **GIVEN** nessun motore esterno disponibile
+- **THEN** la pane SHALL restare nativa senza riferimenti
+
+### Requirement: ENGSW-01 — Il suggerimento si scrive PRIMA di distruggere
+
+Il passaggio dal nativo all'esterno SHALL acquisire il motore, scrivere il
+suggerimento con il punto di connessione, distruggere e annunciare il numero di
+estensioni. Il passaggio inverso SHALL scrivere il suggerimento predefinito,
+senza punto di connessione e senza numero di estensioni.
+
+**Il suggerimento SHALL essere scritto PRIMA della distruzione**, o la
+ricostruzione lo legge quando non c'è ancora e rinasce sul motore sbagliato.
+
+Il registro SHALL essere creduto: un fallimento del registro — nessun motore
+esterno installato — SHALL essere PROPAGATO senza scrivere il suggerimento e
+senza distruggere niente. Distruggere una pane per un motore che non arriverà
+mai la lascia morta.
+
+#### Scenario: nessun motore esterno installato
+- **GIVEN** un fallimento del registro
+- **THEN** NON SHALL essere distrutta nessuna pane
+
+#### Scenario: l'ordine delle due operazioni
+- **GIVEN** un passaggio di motore
+- **THEN** il suggerimento SHALL essere già scritto quando la distruzione avviene
+
+### Requirement: FOCFIELD-01 — Chi ha il fuoco lo dice la PAGINA, e senza contesto non si inventa
+
+Sul ramo video la pane vede PIXEL e non ha nessuno specchio da interrogare:
+l'unica risposta possibile alla domanda «che campo ho toccato» la dà la pagina
+vera. Se questa risposta mente, il telefono apre la tastiera sbagliata e NESSUNA
+prova lato client se ne accorge.
+
+SHALL essere riportato il campo che il gesto ha messo a fuoco, e SHALL essere
+TACIUTO ciò su cui non si scrive.
+
+Senza contesto NON SHALL essere inventato niente, e NON SHALL nascere un browser
+per rispondere: una domanda diagnostica non accende un motore.
+
+#### Scenario: un click su un elemento non scrivibile
+- **GIVEN** il fuoco su qualcosa che non accetta testo
+- **THEN** NON SHALL essere riportato un campo
+
+#### Scenario: nessun contesto
+- **GIVEN** nessuna pane viva
+- **THEN** NON SHALL nascere nessun browser
+
+### Requirement: LOGINST-01 — Lo stato di accesso vive in DUE store, e il nome non può uscire dal recinto
+
+Il nome dello stato SHALL essere ripulito dalla traversata e dai caratteri non
+sicuri: raggiunge un percorso su disco, quindi non può essere testo libero.
+
+Quando lo store esterno è attivo SHALL essere scritto in ENTRAMBI, e la lettura
+SHALL prendere da quello esterno quando la riga lo dichiara. Il giro completo
+SHALL funzionare per uno stato salvato qui.
+
+Una memoria locale MANCANTE SHALL essere SEGNALATA, non taciuta: uno stato di
+accesso senza di essa somiglia a uno completo e non lo è.
+
+Un nome sconosciuto SHALL valere NIENTE.
+
+La regola di pulizia dello store esterno SHALL rispecchiare quella del programma
+compagno, e un nome che contiene punti SHALL fare il giro completo conservandoli
+qui e togliendoli là.
+
+#### Scenario: un nome con una traversata dentro
+- **GIVEN** un nome che tenta di uscire dalla cartella
+- **THEN** SHALL essere ripulito
+
+#### Scenario: memoria locale assente
+- **GIVEN** uno stato salvato senza memoria locale
+- **THEN** SHALL essere segnalato
+
+### Requirement: NATDEL-01 — Il giro completo di un'operazione delegata torna SEMPRE, anche quando fallisce
+
+Un'operazione di browser chiesta da un agente SHALL fare il giro completo fino
+alla pane nativa e tornare come risultato atteso.
+
+Un'operazione NON SUPPORTATA SHALL tornare un suggerimento STRUTTURATO, senza
+invocare niente sul nativo. Un comando nativo che CADE SHALL tornare come errore
+strutturato e NON SHALL MAI restare appeso: un'operazione appesa tiene un turno
+per sempre.
+
+La consegna per contesto SHALL delegare un contesto REGISTRATO, e NON SHALL
+delegare un contesto non registrato — la guardia è un non-fare per i gusci che
+non usano questa strada.
+
+L'elenco dei delegati SHALL enumerare i contesti registrati, farli cadere alla
+cancellazione, e riflettere una RI-registrazione da un nuovo proprietario come
+UNA voce sola.
+
+#### Scenario: un comando nativo che cade
+- **GIVEN** un errore sul lato nativo
+- **THEN** SHALL tornare un errore strutturato, senza restare appeso
+
+#### Scenario: un contesto non registrato
+- **GIVEN** una consegna verso un contesto ignoto
+- **THEN** NON SHALL essere delegato niente
+
+### Requirement: NATDEL-03 — La proprietà di un contesto si difende, ma la RICONNESSIONE deve passare
+
+La delega SHALL inoltrare l'operazione e risolversi sul risultato
+CORRISPONDENTE. Un risultato di errore SHALL emergere strutturato. Una delega su
+un contesto NON registrato SHALL risolversi con un errore e NON SHALL MAI restare
+appesa. La scadenza SHALL risolversi con un errore strutturato.
+
+La cancellazione SHALL far fallire le operazioni IN VOLO di quel contesto.
+
+Una cancellazione con un proprietario STANTÌO SHALL essere un non-fare — un
+socket più nuovo si è già registrato — mentre una cancellazione senza
+proprietario SHALL restare incondizionata, per chi chiama alla vecchia maniera.
+
+Un risultato stantìo o sconosciuto SHALL essere IGNORATO, senza sollevare.
+
+Un SECONDO socket su un contesto servito da un esecutore VIVO SHALL essere
+RIFIUTATO. Ma la RICONNESSIONE SHALL continuare a funzionare: quando il socket
+vecchio è chiuso, il nuovo SHALL subentrare. Lo STESSO socket SHALL potersi
+ri-registrare anche da vivo. Un contesto LIBERO SHALL registrarsi sempre, e dopo
+la cancellazione SHALL tornare libero per chiunque. Senza una prova di vitalità
+SHALL essere consentito — è il comportamento storico — ma il valore restituito
+SHALL DIRLO.
+
+Registrazioni su contesti DIVERSI NON SHALL disturbarsi.
+
+#### Scenario: una riconnessione
+- **GIVEN** un socket chiuso e uno nuovo sullo stesso contesto
+- **THEN** il nuovo SHALL subentrare
+
+#### Scenario: nessuna prova di vitalità
+- **GIVEN** impossibile stabilire se il proprietario è vivo
+- **THEN** SHALL essere consentito, dichiarandolo
+
+### Requirement: NATSTATE-01 — Il segreto resta sul SERVER: al nativo va solo la gamba che serve
+
+Le operazioni di stato di accesso SHALL essere esattamente quelle dichiarate, e
+nient'altro.
+
+Il salvataggio SHALL delegare la gamba di ESPORTAZIONE e persistere in ENTRAMBI
+gli store; senza memoria locale SHALL portare l'avviso che dice di salvare mentre
+si è sul sito; e un nome non valido SHALL essere rifiutato SOLLEVANDO, che è il
+contratto con chi consegna.
+
+Il caricamento SHALL risolvere il nome SUL SERVER e delegare SOLO la gamba di
+applicazione. Un nome mancante SHALL essere un errore strutturato, senza delegare
+niente.
+
+L'importazione da un browser esterno in prova SHALL elencare gli host SUL SERVER
+senza delegare e senza decifrare; l'importazione vera SHALL DECIFRARE SUL SERVER
+e delegare SOLO la gamba di iniezione. Il browser scelto SHALL essere inoltrato a
+entrambe le gambe, e senza scelta SHALL restare il predefinito. Un'importazione
+senza domini, e non in prova, SHALL sollevare.
+
+Un errore delegato SHALL passare in modo MORBIDO: l'agente vede il guasto della
+pane, non un turno interrotto.
+
+#### Scenario: l'importazione in prova
+- **GIVEN** una richiesta di sola elencazione
+- **THEN** NON SHALL essere decifrato niente e NON SHALL essere delegato niente
+
+#### Scenario: il caricamento di un nome che non esiste
+- **GIVEN** un nome sconosciuto
+- **THEN** SHALL essere un errore strutturato, senza delega
+
+### Requirement: NETLOG-01 — Il registro di rete non nasconde una chiamata FALLITA sotto trecento immagini
+
+Il difetto che questo registro può avere non è «non registra»: è restituire la
+cosa SBAGLIATA a chi sta indagando. Due modi di sbagliare, e sono quelli
+presidiati.
+
+Oltre il tetto SHALL essere buttato via il PIÙ VECCHIO, mai il nuovo.
+
+La chiusura di una richiesta SHALL portare stato e durata; con lo stesso
+indirizzo due volte SHALL chiudere quella ANCORA APERTA; una richiesta FALLITA
+SHALL portare il MOTIVO e non solo l'esito; e un esito per un indirizzo che non
+c'è NON SHALL inventare una riga.
+
+Il filtro SHALL tenere per difetto SOLO ciò che porta dati — è così che una
+chiamata fallita non finisce sepolta sotto le immagini — e i tipi SHALL potersi
+chiedere esplicitamente. Il filtro dei soli FALLIMENTI SHALL prendere sia gli
+errori di risposta sia le richieste MAI risposte: una richiesta senza risposta è
+il fallimento peggiore, perché non ha un codice.
+
+Il limite SHALL tenere le PIÙ RECENTI. Nessuna corrispondenza SHALL dare un
+elenco VUOTO, mai tutto.
+
+Il riassunto SHALL dire quante ne sono state registrate IN TUTTO: una risposta
+corta resta onesta solo se dichiara quante ne ha lasciate fuori.
+
+#### Scenario: una richiesta mai risposta
+- **GIVEN** una richiesta senza esito
+- **THEN** SHALL comparire fra i soli fallimenti
+
+#### Scenario: oltre il tetto
+- **GIVEN** più richieste del tetto
+- **THEN** SHALL essere buttata la più vecchia
+
+### Requirement: NETLOG-02 — Una risposta corta dice quante ne ha lasciate fuori
+
+Chi chiede il registro di rete SHALL ricevere per difetto niente immagini, e il
+conto TOTALE SHALL restare VISIBILE: senza, una risposta corta si legge come
+«non è successo niente».
+
+Il filtro dei soli fallimenti SHALL tenere sia gli errori di risposta sia le
+richieste mai risposte.
+
+Un servizio che ESPLODE SHALL diventare un errore LEGGIBILE, non una risposta
+vuota che somiglia a un elenco.
+
+Nessuna richiesta registrata SHALL dare elenco vuoto e zero, non un errore: «non
+ho visto niente» è una risposta valida.
+
+#### Scenario: nessuna richiesta registrata
+- **GIVEN** un registro vuoto
+- **THEN** SHALL uscire elenco vuoto e zero, non un errore
+
+#### Scenario: il servizio esplode
+- **GIVEN** un guasto interno
+- **THEN** SHALL uscire un errore leggibile
+
+### Requirement: ENGSVC-01 — Il motore esterno si connette, e la sua sessione NON è nostra
+
+Un contesto sul motore esterno SHALL CONNETTERSI al programma compagno invece di
+accendere il proprio browser, SHALL riusare il contesto condiviso e SHALL
+catturare l'identificativo del bersaglio.
+
+Il motore esterno SHALL RICHIEDERE il punto di connessione: senza, non c'è niente
+a cui connettersi.
+
+La distruzione SHALL chiudere la pagina e disconnettersi, ma NON SHALL MAI
+chiudere il contesto CONDIVISO: è di un altro processo.
+
+Il suggerimento di motore SHALL guidare una ricostruzione SENZA opzioni verso il
+motore esterno — è il percorso del passaggio.
+
+Lo svuotamento dello stato di memorizzazione SHALL essere un non-fare quando non
+c'è niente da svuotare, e NON SHALL toccare il motore esterno: quel profilo
+persistente è del programma compagno.
+
+#### Scenario: distruggere una pane sul motore esterno
+- **GIVEN** un contesto condiviso con altre pane
+- **THEN** il contesto condiviso NON SHALL essere chiuso
+
+#### Scenario: motore esterno senza punto di connessione
+- **GIVEN** nessun endpoint dichiarato
+- **THEN** SHALL essere rifiutato
+
+### Requirement: SITEDATA-01 — Un sottodominio è un silo SUO, e si cancella per NOME
+
+Il punto iniziale di un dominio NON SHALL produrre due barattoli distinti. Di
+un'origine SHALL contare l'host. Cookie e origine dello STESSO host SHALL essere
+UNA riga con due tipi.
+
+Il deposito indicizzato SHALL comparire come tipo PROPRIO, con i nomi in ordine.
+
+Un'origine visitata ma VUOTA NON SHALL essere un sito da dimenticare: non c'è
+niente da promettere.
+
+Uno stato ASSENTE o ILLEGGIBILE SHALL dare nessun record e NESSUN errore.
+
+**Un sottodominio SHALL essere un silo SUO**: dimenticare il padre NON SHALL
+toccarlo.
+
+La cancellazione SHALL avvenire per NOME — i nomi MOSTRATI, e SOLO quelli — e un
+nome che nel barattolo non c'è NON SHALL far fallire il resto. Le origini di un
+silo SHALL tornare con TUTTI i loro schemi.
+
+#### Scenario: un sottodominio
+- **GIVEN** la cancellazione del dominio padre
+- **THEN** il silo del sottodominio NON SHALL essere toccato
+
+#### Scenario: un'origine visitata ma vuota
+- **GIVEN** nessun dato memorizzato per quell'origine
+- **THEN** NON SHALL comparire fra i siti da dimenticare
+
+### Requirement: SITEDATA-02 — «Dimenticato» si verifica su un browser VERO, non sulle regole
+
+Le regole — come si nomina un silo, cosa resta dopo un filtro — restano una
+PROMESSA finché nessuno verifica che quel filtro slogghi davvero: potrebbe non
+arrivare al contesto acceso, e la chiamata di cancellazione potrebbe volere
+un'altra forma.
+
+Dopo la cancellazione il contesto VIVO NON SHALL più riconoscere chi era entrato,
+e il DISCO nemmeno: sono due verifiche diverse e servono entrambe, perché un
+contesto ancora caldo può far sembrare cancellato ciò che è solo nascosto.
+
+Il VICINO DI CASA SHALL essere rimasto dov'era.
+
+#### Scenario: dopo la cancellazione, sul contesto vivo
+- **GIVEN** una sessione attiva su quel sito
+- **THEN** il sito NON SHALL più riconoscere l'accesso
+
+#### Scenario: un dominio vicino
+- **GIVEN** un sito con un nome simile
+- **THEN** SHALL restare intatto
+
+### Requirement: KEEPLIST-01 — Uno store si protegge da chi lo NOMINA, e una riga corrotta protegge comunque
+
+Una pane browser presente nel riquadro SHALL proteggere il proprio store, e così
+la tab consegnata da un task — insieme al suo gemello di sessione.
+
+Un contesto che è un PERCORSO SHALL tornare con le barre VERE, non con quelle
+codificate: un percorso codificato non corrisponde a niente, e lo store che
+doveva proteggere viene cancellato.
+
+Le righe SHALL SOMMARSI, e i duplicati SHALL collassare.
+
+**Una riga CORROTTA SHALL proteggere comunque ciò che NOMINA**: buttare via
+l'intera riga perché una parte non si legge cancella dati che qualcuno stava
+usando.
+
+Nessuna riga SHALL significare nessun permesso, e NESSUN errore.
+
+Le espressioni di ricerca NON SHALL tenere stato fra due chiamate: uno stato
+residuo fa saltare la seconda corrispondenza, e la protezione salta a giro
+alterno.
+
+#### Scenario: una riga corrotta
+- **GIVEN** una riga parzialmente illeggibile
+- **THEN** SHALL proteggere comunque ciò che nomina
+
+#### Scenario: due chiamate consecutive
+- **GIVEN** la stessa espressione usata due volte
+- **THEN** SHALL dare lo stesso risultato
+
+### Requirement: CHROMECK-01 — L'identificativo del browser è un REGISTRO CHIUSO, non testo libero
+
+L'identificativo del browser raggiunge SIA un percorso su disco SIA gli argomenti
+di un comando che legge il portachiavi: NON SHALL MAI essere testo libero
+controllato da chi chiama.
+
+Il registro SHALL essere CHIUSO: solo gli identificativi noti SHALL passare la
+guardia. Le proprietà EREDITATE NON SHALL passare — è la via per cui una stringa
+qualunque diventa una chiave.
+
+Ogni voce SHALL portare una radice di profilo DISTINTA e un servizio di
+portachiavi DISTINTO.
+
+Un browser sconosciuto SHALL degradare al predefinito, invece di far trapelare il
+percorso tentato.
+
+#### Scenario: una proprietà ereditata come identificativo
+- **GIVEN** un nome che esiste solo sulla catena dei prototipi
+- **THEN** NON SHALL passare la guardia
+
+#### Scenario: un identificativo sconosciuto
+- **GIVEN** un browser non nel registro
+- **THEN** SHALL degradare al predefinito senza rivelare il percorso tentato
+
+### Requirement: VISION-01 — Un ciclo di decodifica non allaga il contesto dell'agente
+
+Un testo breve e normale SHALL passare INVARIATO.
+
+Una parola ripetuta all'infinito, una FRASE ripetuta, e le RIGHE ripetute SHALL
+essere collassate: sono le tre forme del ciclo degenere, e ognuna riempie il
+contesto di un agente con la stessa informazione.
+
+Un testo molto lungo ma NON ripetitivo SHALL essere comunque limitato da un tetto
+duro.
+
+Un ingresso vuoto o di soli spazi SHALL essere gestito senza sollevare.
+
+#### Scenario: una frase ripetuta
+- **GIVEN** un testo che ripete lo stesso gruppo di parole
+- **THEN** SHALL essere collassato
+
+#### Scenario: un testo lungo non ripetitivo
+- **GIVEN** un testo che non si ripete ma supera il tetto
+- **THEN** SHALL essere tagliato
+
+### Requirement: WEBRTC-01 — Si adotta un compagno della NOSTRA build, e l'orfano si miete
+
+Il broker adotta un programma compagno già in ascolto sul socket: è così che
+sopravvive a un ricaricamento del server. Ma se quel compagno è di una BUILD
+VECCHIA è un ORFANO, e l'adozione è il motivo per cui la mietitura non scattava
+mai — gira solo dopo un fallimento di connessione, e un orfano il socket lo tiene
+e risponde. Osservato: un compagno difettoso al 42% di CPU sopravvissuto a sei
+giorni di riavvii.
+
+Un compagno di una build ESTRANEA SHALL essere MIETUTO all'avvio, prima di
+qualunque tentativo di adozione.
+
+Un compagno della NOSTRA build SHALL essere lasciato in vita.
+
+#### Scenario: un compagno di una build vecchia
+- **GIVEN** un processo in ascolto sul socket, di build diversa
+- **THEN** SHALL essere mietuto
+
+#### Scenario: un compagno della build corrente
+- **GIVEN** un processo in ascolto della stessa build
+- **THEN** SHALL essere adottato

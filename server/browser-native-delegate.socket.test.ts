@@ -10,6 +10,7 @@
  * inspection to match server.ts lines ~852-967), deliberately WITHOUT booting the
  * full server (whose BrowserService Chromium :19222 / MCP spawns / proxy :3334 are
  * shared singletons with the user's prod). Ephemeral port → zero prod impact.
+  * @covers NATDEL-02
  */
 import { test, expect } from 'bun:test';
 import { createNativeDelegateRegistry, handleNativeDelegationFrame } from './browser-native-delegate';

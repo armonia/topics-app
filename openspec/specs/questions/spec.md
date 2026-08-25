@@ -483,3 +483,40 @@ solo un pulsante.
 #### Scenario: un ingresso vuoto
 - **GIVEN** nessun parametro da riassumere
 - **THEN** NON SHALL comparire nessuna riga di riassunto
+
+### Requirement: APPROVAL-01 — Il canale del permesso torna SEMPRE una decisione, e non lancia MAI
+
+Una sola regola governa ogni ramo: **torna sempre una decisione, non lancia
+mai**. Un'eccezione qui la riga di comando la traduce comunque in un rifiuto, ma
+con un messaggio che parla del PONTE invece che del permesso — cioè manda a
+cercare il guasto dove non è.
+
+Le tre decisioni SHALL tornare nel formato che la riga di comando si aspetta: il
+sì con gli argomenti INVARIATI; il sì permanente come un sì — la regola la scrive
+il server, qui si esegue; il no con il MOTIVO che arriva fino alla riga.
+
+Quando NIENTE funziona SHALL essere NEGATO, e NON SHALL essere lanciato: sono
+casi diversi — l'app irraggiungibile oltre la grazia, una risposta vuota, una
+richiesta senza il nome dello strumento, un server incastrato — e OGNUNO SHALL
+finire in un rifiuto.
+
+Al server SHALL arrivare il nome, gli argomenti, l'identificativo della riga e la
+durata del tentativo. Senza identificativo SHALL essere usata comunque una chiave
+STABILE.
+
+**Il tetto dei tentativi SHALL stare SOPRA la scadenza della richiesta**, o
+sarebbe il ponte — e non il server — a decidere che un permesso muore.
+
+Il canale SHALL essere pubblicato OVUNQUE — un segnale solo non può
+desincronizzarsi da sé stesso — e SHALL restare CHIAMABILE anche nel profilo
+ridotto, perché chi chiama è la riga di comando e non il modello. Il modello
+comunque NON lo vede: lo toglie la riga di comando, che lo designa in ogni
+modalità.
+
+#### Scenario: l'app irraggiungibile oltre la grazia
+- **GIVEN** nessuna risposta dal server
+- **THEN** SHALL essere restituito un rifiuto, senza lanciare
+
+#### Scenario: una richiesta senza il nome dello strumento
+- **GIVEN** un carico incompleto
+- **THEN** SHALL essere restituito un rifiuto

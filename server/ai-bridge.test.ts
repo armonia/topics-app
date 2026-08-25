@@ -1,3 +1,6 @@
+/**
+ * @covers BRIDGE-01
+ */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import net from "node:net";
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";

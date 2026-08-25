@@ -558,3 +558,59 @@ verifica un'opinione.
 #### Scenario: un crash dopo un avvio riuscito
 - **GIVEN** nessun fallimento di avvio
 - **THEN** NON SHALL esserci ritardo
+
+### Requirement: RESTORECAP-01 — Il riscaldamento all'avvio non può affamare il proprio mietitore
+
+Il ripristino dei contesti browser rilanciava con entusiasmo i più recenti a ogni
+avvio. La mietitura dell'INTERO processo browser, poche righe sopra nello stesso
+file, pretende ZERO contesti per cinque minuti. Le due cose insieme non possono
+convivere: se ogni avvio ne rimette otto, quello zero non arriva mai.
+
+Il riscaldamento all'avvio SHALL avere un TETTO, e il tetto SHALL essere
+REGOLABILE.
+
+La mietitura del browser SHALL continuare a dipendere da ZERO contesti — è quel
+predicato a rendere il tetto necessario.
+
+Il ripristino PIGRO SHALL esistere davvero, altrimenti un tetto a zero
+perderebbe qualcosa invece di rimandarlo.
+
+#### Scenario: il tetto a zero
+- **GIVEN** nessun contesto riscaldato all'avvio
+- **THEN** i contesti SHALL essere ripristinati alla prima richiesta
+
+#### Scenario: otto contesti recenti
+- **GIVEN** più contesti del tetto
+- **THEN** SHALL essere riscaldati fino al tetto
+
+### Requirement: BUNDLE-REV-01 — Un ridispiegamento IDENTICO non annuncia niente
+
+Senza il segnale di attivazione il sorvegliante SHALL essere INERTE: nessun
+osservatore, nessun annuncio, nessuna revisione.
+
+Con il segnale attivo, una RAFFICA di scritture che termina in un pacchetto nuovo
+SHALL produrre UN SOLO annuncio, che porta la revisione.
+
+**Un ridispiegamento IDENTICO byte per byte — stessa revisione — NON SHALL
+annunciare niente e NON SHALL sbiancare nessuna finestra.** È il caso frequente,
+ed è quello che rende il segnale credibile.
+
+L'arresto SHALL zittire un annuncio già in coda.
+
+La revisione SHALL essere l'elenco ORDINATO e UNICO dei nomi degli artefatti, e
+un documento principale MANCANTE SHALL dare una revisione VUOTA — non una
+inventata.
+
+Il marchio SHALL essere iniettato subito dopo l'apertura dell'intestazione; una
+revisione VUOTA SHALL lasciare il documento identico byte per byte, perché non
+c'è niente da promettere; e senza intestazione SHALL essere anteposto invece di
+essere perso. Il giro completo SHALL restituire ciò che la lettura aveva
+prodotto.
+
+#### Scenario: un ridispiegamento identico
+- **GIVEN** lo stesso pacchetto ripubblicato
+- **THEN** NON SHALL essere annunciato niente
+
+#### Scenario: una raffica di scritture
+- **GIVEN** più scritture ravvicinate che finiscono in un pacchetto nuovo
+- **THEN** SHALL uscire un solo annuncio
