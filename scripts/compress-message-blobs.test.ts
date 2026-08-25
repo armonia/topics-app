@@ -18,6 +18,7 @@
  * corso. Un `cp` di un SQLite in uso non è uno snapshot, e chiamarlo tale
  * avrebbe fatto passare quel rumore per una perdita di dati (o, peggio, una
  * perdita vera per rumore).
+  * @covers COMPRESS-01
  */
 import { describe, it, expect } from "bun:test";
 import { encodeCol, decodeCol } from "../shared/message-blob";

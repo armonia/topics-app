@@ -1,3 +1,6 @@
+/**
+ * @covers EMPTYTURN-01
+ */
 import { describe, expect, test } from "bun:test";
 import { isEmptyAssistantTurn } from "./empty-turn";
 

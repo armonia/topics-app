@@ -1,3 +1,6 @@
+/**
+ * @covers FDLEAK-01
+ */
 import { describe, expect, it } from "bun:test";
 import { countFds, DEFAULT_TOLERANCE, judge, parseListenerPid } from "./fd-leak-probe";
 

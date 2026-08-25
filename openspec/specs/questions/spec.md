@@ -449,3 +449,37 @@ farebbe sparire nel nulla. Un testo VUOTO NON SHALL essere una risposta.
 #### Scenario: una domanda appesa da un turno precedente
 - **GIVEN** un'attesa rimasta da un turno finito
 - **THEN** NON SHALL essere considerata aperta
+
+### Requirement: PERM-07 — Tre tasti in fila, il quarto fuori, e sul confine si valida
+
+Le decisioni SHALL essere quattro, e OGNUNA SHALL avere una parola propria. Il
+RIFIUTO SHALL stare per ULTIMO: si legge prima cosa si concede.
+
+Il passaggio alla modalità libera SHALL avere le proprie parole ma restare FUORI
+dalla fila dei tre: non è una risposta a questa richiesta, è un cambio di regime.
+La sua riga SHALL dire sia cosa SMETTE di succedere sia DA DOVE si torna
+indietro.
+
+Verso la riga di comando SHALL viaggiare sempre e solo ciò che essa capisce: il
+passaggio alla modalità libera SHALL essere tradotto, le altre tre SHALL passare
+INTATTE.
+
+Una sola decisione SHALL liberare la sessione, e SHALL riconoscersi da sé.
+
+**Sul confine si VALIDA, non si spera**: le quattro SHALL passare e TUTTO il resto
+SHALL essere FUORI — e chi riceve risponde con un rifiuto di richiesta, non con un
+sì né con un no muto.
+
+Il riassunto dell'ingresso SHALL mettere per PRIMO il campo che dice cosa succede,
+SHALL restare su UNA riga senza esplodere con valori lunghi, SHALL essere ASSENTE
+su un ingresso vuoto — niente riga a vuoto nel pannello — e SHALL mostrare i
+VALORI veri, non i tipi: è su quelli che si decide. Un permesso senza il COSA è
+solo un pulsante.
+
+#### Scenario: una decisione che non è fra le quattro
+- **GIVEN** un valore fuori vocabolario
+- **THEN** SHALL essere rifiutato sul confine
+
+#### Scenario: un ingresso vuoto
+- **GIVEN** nessun parametro da riassumere
+- **THEN** NON SHALL comparire nessuna riga di riassunto

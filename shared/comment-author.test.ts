@@ -5,6 +5,7 @@
  * an invented one. The 60-character sentences are the defect this module was
  * written for: 404 distinct authors on that board were topic names, and a topic
  * name for a dispatched agent is the task title cut at 60 characters.
+  * @covers CAUTHOR-01
  */
 import { describe, test, expect } from 'bun:test';
 import {

@@ -1,3 +1,6 @@
+/**
+ * @covers STREAMB-02
+ */
 import { describe, expect, it } from "bun:test";
 import {
   HARNESS_BOUND_DRAIN_MS,

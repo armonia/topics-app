@@ -5,6 +5,7 @@
  * porte (banner del client, push del server) scrivono la stessa stringa per lo
  * stesso evento; se divergessero, ogni consegna lascerebbe due righe e nessuno
  * se ne accorgerebbe leggendo il codice di una sola delle due parti.
+  * @covers NOTIF-LOG-02
  */
 
 import { describe, expect, test } from "bun:test";

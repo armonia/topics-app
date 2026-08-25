@@ -1,3 +1,6 @@
+/**
+ * @covers LEAN-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { blocksForDisk, leanBlocks, leanToolCall, leanToolCalls, toolCallResultText, toolCallsForDisk } from './lean-tool-call';
 

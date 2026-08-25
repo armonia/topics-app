@@ -1,3 +1,6 @@
+/**
+ * @covers SHARD-01
+ */
 import { describe, test, expect } from "bun:test";
 import { planShards } from "./e2e-plan-shards";
 

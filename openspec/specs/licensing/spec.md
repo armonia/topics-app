@@ -242,3 +242,51 @@ evento autentico SHALL restare senza effetto.
 #### Scenario: un gettone inventato in un evento autentico
 - **GIVEN** una firma valida e un gettone falso
 - **THEN** la licenza SHALL restare quella di prima
+
+### Requirement: MINT-01 — Non si conia a chi non ha pagato, e il ciclo si ferma
+
+Il servizio di conio SHALL coniare per un abbonamento NUOVO, ATTIVO e con
+un'installazione dichiarata. NON SHALL coniare per un abbonamento disdetto, senza
+installazione, o senza fine periodo — e senza fine periodo NON SHALL inventare una
+scadenza. Posti fuori scala SHALL fermarsi PRIMA della firma.
+
+La scadenza SHALL essere la fine del periodo PIÙ la grazia. I posti SHALL essere
+sommati su TUTTE le righe, non letti dalla prima; se le righe non li dicono SHALL
+esserci un ripiego dichiarato; e una fine periodo sulla RIGA SHALL valere quanto
+quella sull'abbonamento.
+
+**IL CICLO SI FERMA.** Scrivere il gettone nei metadati genera l'evento che torna
+qui: senza uno stop il servizio scriverebbe per sempre. Lo stesso stato NON SHALL
+riconiare. Ma al RINNOVO SÌ — il periodo si è spostato e il gettone vecchio
+scadrebbe prima — e a un cambio di POSTI sì, perché chi compra tre postazioni in
+più le vuole adesso. Dopo una rotazione di chiave SHALL riconiare anche se il
+gettone vecchio è ancora buono. La tolleranza SHALL essere di un giorno e non di
+un istante: un secondo di deriva NON SHALL far riscrivere.
+
+Gli eventi che non conosciamo, e un corpo che non è un evento, NON SHALL
+sollevare.
+
+Il gettone che esce SHALL verificarsi davvero, e SHALL valere per l'installazione
+per cui è stato coniato e non per un'altra.
+
+Il gestore SHALL coniare e SCRIVERE il gettone nei metadati. Una firma sbagliata,
+un segreto assente, una chiave privata assente, un rifiuto di scrittura, un evento
+che non ci riguarda e una richiesta che non è un webhook SHALL avere ciascuno la
+propria risposta, DISTINTA.
+
+**Il gettone NON SHALL finire nei registri**: una riga di registro è il posto meno
+sorvegliato in cui possa stare una licenza.
+
+Le scritture verso il servizio di pagamento NON SHALL MAI sollevare: una rete che
+non risponde SHALL essere dichiarata. La chiave del servizio SHALL stare
+nell'ambiente. Un ambiente vuoto NON SHALL sollevare: SHALL dire che manca tutto.
+Una variabile di soli spazi SHALL valere ASSENTE, non «configurato male», e una
+chiave privata storta NON SHALL diventare una chiave a metà.
+
+#### Scenario: lo stesso stato una seconda volta
+- **GIVEN** un evento generato dalla scrittura del gettone stesso
+- **THEN** NON SHALL essere coniato niente
+
+#### Scenario: un abbonamento disdetto
+- **GIVEN** un abbonamento non attivo
+- **THEN** NON SHALL essere coniato niente

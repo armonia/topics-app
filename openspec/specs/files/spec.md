@@ -812,3 +812,24 @@ la sola barra iniziale — NON SHALL sollevare.
 #### Scenario: la radice
 - **GIVEN** il percorso della radice
 - **THEN** NON SHALL essere sollevato niente
+
+### Requirement: MEDIA-04 — Cosa è un allegato, e cosa si può DAVVERO aprire
+
+I rami del protocollo degli allegati SHALL essere riconosciuti anche con query e
+frammento addosso: un indirizzo decorato è lo stesso indirizzo.
+
+Un video NON SHALL essere trattato come un'immagine, e un documento portatile
+SHALL essere RICONOSCIUTO ma NON SHALL essere un'immagine: sono tre cose che si
+aprono in tre modi.
+
+«Mostrabile» SHALL significare che esiste un elemento che lo apre. Tutto il resto
+NON SHALL esserlo: promettere un'anteprima che non si può disegnare è peggio che
+non prometterla.
+
+#### Scenario: un indirizzo con query e frammento
+- **GIVEN** un allegato con parametri in coda
+- **THEN** SHALL essere riconosciuto lo stesso
+
+#### Scenario: un documento portatile
+- **GIVEN** un PDF
+- **THEN** SHALL essere riconosciuto, e NON SHALL essere un'immagine

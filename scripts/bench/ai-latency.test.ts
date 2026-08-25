@@ -13,6 +13,7 @@
  * so `acceptedToFirstProviderEvent` is absent on every ordinary run: an
  * implementation that folded "absent" into "0 ms" would publish a benchmark
  * claiming the model answers instantly.
+  * @covers LAT-AI-02
  */
 import { describe, expect, it } from "bun:test";
 import {

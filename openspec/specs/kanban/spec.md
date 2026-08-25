@@ -2353,3 +2353,174 @@ Su un testo già semplice, e sul testo vuoto, SHALL essere un non-fare.
 #### Scenario: testo già semplice
 - **GIVEN** un testo senza marcatori
 - **THEN** SHALL uscire identico
+
+### Requirement: KANBAN-63 — L'identità di una bacheca e le righe di transizione non si derivano a occhio
+
+L'identificativo di una bacheca SHALL nascere dal percorso con una forma
+DETERMINISTICA e DICHIARATA — nome della cartella più un suffisso derivato — e
+SHALL essere inchiodato a un vettore noto: qualunque copia che lo riderivi da sé
+nega quel vettore. Una barra finale SHALL cambiare il risultato, perché cambia il
+percorso.
+
+L'evento di cambio di stato SHALL dire da dove a dove, e con una ragione SHALL
+aggiungerla senza spostare il confine: senza ragione il contenuto SHALL restare
+IDENTICO a prima, o le righe già scritte diventano illeggibili. Una ragione che
+contiene la stessa freccia o un altro separatore NON SHALL spostare il confine. La
+ragione SHALL essere UNA riga con un TETTO: è una riga di cronologia, non un
+thread.
+
+Ciò che non è una transizione NON SHALL essere letto come tale.
+
+#### Scenario: una ragione che contiene una freccia
+- **GIVEN** un testo di ragione con dentro il separatore
+- **THEN** il confine della transizione NON SHALL spostarsi
+
+#### Scenario: una transizione senza ragione
+- **GIVEN** nessuna ragione
+- **THEN** il contenuto SHALL essere identico alla forma precedente
+
+### Requirement: KANBAN-64 — Perché una card è ferma: una frase per ogni motivo, e il buco si DICHIARA
+
+OGNI motivo per cui una card non si muove SHALL avere una frase, e la frase SHALL
+dire COSA SUCCEDE DOPO. Quando la ragione NON si sa SHALL essere DICHIARATO il
+buco: NON SHALL essere scritto «in coda», che è un'affermazione sull'ordine.
+
+NESSUNA frase SHALL usare la parola che sulla card significa il CONTRARIO.
+
+In revisione con la checklist APERTA la card è FERMA e SHALL dirlo; con la
+checklist chiusa non c'è niente da dire. «Rinviata» in revisione SHALL essere
+riconosciuta come falsa: da quella colonna non dispaccia nessuno. La checklist
+aperta SHALL battere una promessa di rinvio, perché è la mossa più utile delle
+due. Con una domanda aperta la ragione SHALL TACERE: la mossa è la persona. Una
+consegna pulita con la checklist aperta NON è pulita: SHALL vincere «ferma».
+
+In backlog «rinviata» SHALL diventare «ferma» — da lì non riparte niente — e una
+finestra di rinvio scaduta SHALL restare una bugia. Senza NESSUNA promessa SHALL
+tacere: il parcheggio si vede dalla colonna.
+
+In corso SENZA agente SHALL essere detto, invece di sembrare in movimento; con un
+agente dentro, o una persona sopra, non c'è niente da dire.
+
+L'attesa di uno slot SHALL dire QUANTI ce ne sono davanti, col tono di una coda
+che scorre. Un lavoro pesante TRATTENUTO SHALL dire che è LUI il tappo, non «in
+coda, zero davanti». Un pesante IN VOLO SHALL avere una frase propria — non quella
+del carico — e SHALL fermare OGNI card, non solo le pesanti. Né il pesante in volo
+né il tappo SHALL coprire le ragioni proprie della card. «Aspetta uno slot» e «non
+partirà mai» NON SHALL essere la stessa parola.
+
+Il rinvio e il bloccante SHALL venire PRIMA del budget dei tentativi. Un bloccante
+chiuso o archiviato NON SHALL bloccare più, con lo STESSO predicato del cancello
+di dispatch. Interruttore spento e bacheca senza cartella SHALL essere due «non
+partirà» detti in modo DIVERSO.
+
+Uno step NON SHALL MAI essere «in coda»: la sua ragione è sempre il padre.
+
+Il debito di consegna SHALL essere dichiarato solo quando è VERO — consegna
+registrata e verdetto misurato — e senza l'identificativo della consegna NON è
+stato verificato niente: SHALL tacere. «Non lo so» NON SHALL essere presentato
+come un fatto. E vale solo su una card CHIUSA: in revisione non essere sul ramo
+principale è la norma.
+
+I plurali SHALL essere corretti: nessuna frase SHALL dire «uno … aperti».
+
+#### Scenario: un pesante in volo
+- **GIVEN** un lavoro pesante in corso
+- **THEN** ogni card SHALL dirlo con la frase propria, senza coprire le proprie ragioni
+
+#### Scenario: una ragione ignota
+- **GIVEN** nessun motivo determinabile
+- **THEN** SHALL essere dichiarato il buco, non «in coda»
+
+### Requirement: KANBAN-65 — Chi lavora uno step senza agente suo, e cosa chiede una domanda
+
+La forma AMBIGUA SHALL essere UNA sola: in corso, figlio, senza topic e senza
+chip. È quella che finora non diceva niente.
+
+Un antenato SHALL contare come «al lavoro» solo se è VIVO, in corso e con un
+agente dentro. Il padre che lo lavora nel proprio turno SHALL essere detto sulla
+card, con CHI. Se NESSUN antenato è al lavoro SHALL essere detto, così il triage
+lo vede. SHALL vincere il PRIMO antenato al lavoro, non il padre diretto.
+
+Una nota di servizio dopo una domanda NON SHALL mangiarsela; una parola vera dopo
+la domanda SHALL chiuderla.
+
+Una domanda le cui opzioni sono TUTTE azioni che la bacheca sa eseguire NON è una
+domanda: è una CONSEGNA. Un'etichetta decorata SHALL sopravvivere al filtro e
+restare un'azione. Un insieme MISTO SHALL restare una domanda: un'opzione che la
+bacheca non può eseguire ha bisogno di una persona. Nessuna opzione SHALL restare
+una domanda; nessun blocco NON è una domanda.
+
+L'insieme delle azioni riconosciute SHALL coincidere con quelle che il server
+esegue davvero, e con nient'altro.
+
+#### Scenario: opzioni tutte eseguibili dalla bacheca
+- **GIVEN** una domanda le cui opzioni sono tutte azioni di bacheca
+- **THEN** SHALL essere trattata come consegna, non come domanda
+
+#### Scenario: uno step figlio senza agente
+- **GIVEN** uno step in corso, senza topic e senza chip
+- **THEN** SHALL essere detto chi lo lavora, o che non lo lavora nessuno
+
+### Requirement: CAUTHOR-01 — Un titolo tagliato a metà parola NON è un nome
+
+Sulla bacheca viva, il 13/08/2026, quattrocentoquattro autori distinti erano NOMI
+DI TOPIC — e il nome del topic di un agente dispacciato è il titolo del task
+tagliato a sessanta caratteri. Una frase mozzata al posto di un nome è ciò che
+questa etichetta esiste per correggere.
+
+I ruoli riservati SHALL restare sé stessi e portare la propria natura, SHALL
+essere riconosciuti dopo aver tolto gli spazi e le maiuscole, e SHALL tornare in
+forma canonica.
+
+Un identificativo di agente SHALL diventare un identificativo CORTO leggibile, e
+quello completo SHALL sopravvivere altrove: l'etichetta NON SHALL MAI portare
+l'identificativo intero. La forma abbreviata della sessione SHALL risolversi
+allo stesso modo. Due agenti diversi sullo stesso task NON SHALL collassare in
+un'etichetta sola. Il prefisso senza niente dietro SHALL essere l'agente generico.
+
+Un autore a FORMA DI FRASE SHALL leggersi come l'agente; uno a forma di NOME
+SHALL essere TENUTO, perché buttarlo via perderebbe un nome vero. Le due soglie
+SHALL essere l'intera regola, e ciascuna da sola SHALL decidere. Un autore su più
+righe NON SHALL MAI essere un nome, per quanto corto; gli spazi collassati NON
+SHALL trasformare una frase in un nome.
+
+Un autore vuoto SHALL essere l'agente, mai un'etichetta vuota; un autore che non è
+testo NON SHALL far cadere la card; e NESSUNA etichetta SHALL essere più lunga
+dello spazio che la ospita.
+
+#### Scenario: un titolo tagliato a sessanta caratteri
+- **GIVEN** un autore che è una frase mozzata
+- **THEN** SHALL leggersi come l'agente
+
+#### Scenario: un autore su due righe
+- **GIVEN** un autore che contiene un a capo
+- **THEN** NON SHALL essere trattato come un nome
+
+### Requirement: TRAY-01 — Nel menu di sistema un gruppo VUOTO non compare
+
+Un gruppo senza righe NON SHALL comparire: una voce che dice zero si legge come
+un difetto, non come «niente da fare».
+
+Le colonne di partenza e di arrivo NON SHALL entrare nel menu, e questo SHALL
+essere DICHIARATO, non lasciato dedurre.
+
+Il CONTEGGIO SHALL essere di TUTTI, mentre le righe mostrate SHALL essere solo le
+prime: sono due numeri diversi e vanno detti come tali.
+
+Ogni riga SHALL portare il PROGETTO: due card omonime su bacheche diverse
+capitano.
+
+Il glifo SHALL contare chi aspetta una DECISIONE, non tutto il lavoro aperto.
+
+Un titolo corto SHALL restare intero; uno lungo SHALL essere tagliato su uno
+SPAZIO e non a metà parola; una parola sola lunghissima SHALL essere spezzata,
+perché tagliata è meglio che sparita. Gli a capo e gli spazi doppi SHALL
+diventare uno spazio: una riga di menu è una riga.
+
+#### Scenario: una colonna senza card
+- **GIVEN** un gruppo vuoto
+- **THEN** NON SHALL comparire nel menu
+
+#### Scenario: un titolo lungo
+- **GIVEN** un titolo che non ci sta
+- **THEN** SHALL essere tagliato su uno spazio

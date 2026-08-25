@@ -1,3 +1,6 @@
+/**
+ * @covers LAT-AI-01
+ */
 import { describe, expect, it } from "bun:test";
 import { judge } from "./ai-latency";
 import {

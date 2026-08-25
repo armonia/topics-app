@@ -1,3 +1,6 @@
+/**
+ * @covers CHLOG-01
+ */
 import { test, expect, describe } from 'bun:test';
 import { buildChangelog, parseEntry, isNoise, bucketForType, stripBumpTail } from './changelog-lib.mjs';
 

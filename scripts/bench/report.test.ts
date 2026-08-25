@@ -5,6 +5,7 @@
  * it was taken on, an absent measurement starts printing as `0`, a stale row
  * keeps being republished because nobody looks at the date. Each of those is a
  * function in report.ts, and each of them is here.
+  * @covers BENCHREP-01
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";

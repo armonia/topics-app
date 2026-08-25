@@ -1266,3 +1266,39 @@ pezzi a sé. Senza niente da spezzare SHALL uscire vuota.
 #### Scenario: una riga intera
 - **GIVEN** una riscrittura molto lunga
 - **THEN** SHALL restare dentro lo stesso budget di tempo
+
+### Requirement: TABREF-01 — Un permalink resta LEGGIBILE, e ciò che non lo è non diventa un link a metà
+
+Un segmento SICURO SHALL restare in chiaro — il collegamento si legge a occhio —
+e qualunque altra cosa SHALL essere codificata in una forma che NON contiene mai
+un punto né una barra: sono i due caratteri che fanno leggere un percorso come
+un'altra cosa.
+
+Una codifica CORROTTA SHALL valere NIENTE, mai un'eccezione.
+
+La costruzione e la lettura SHALL fare il giro completo per ogni tipo. Il tipo
+pannello SHALL ammettere SOLO i tipi che si sanno davvero aprire. Il browser
+SHALL portare il proprio contesto, con o senza gli indizi di proprietà. Un file e
+un confronto SHALL portare SEMPRE il progetto ospite. Una chiave VUOTA NON SHALL
+produrre un collegamento.
+
+Gli alias storici SHALL restare LEGGIBILI, e tutto ciò che non è un permalink
+SHALL valere NIENTE.
+
+La lettura SHALL accettare sia un indirizzo assoluto sia un percorso nudo, la
+query SHALL sopravvivere al giro attraverso un indirizzo intero, e la spazzatura
+SHALL valere NIENTE.
+
+Il collegamento SHALL essere costruito sull'origine dichiarata; NESSUN punto SHALL
+comparire nel percorso nemmeno per un progetto che ha un'estensione nel nome; e un
+bersaglio non costruibile SHALL valere NIENTE — non un indirizzo a metà.
+
+La descrizione di un bersaglio SHALL dire il TIPO e la CHIAVE.
+
+#### Scenario: un progetto con un punto nel nome
+- **GIVEN** un percorso che contiene un'estensione
+- **THEN** il collegamento NON SHALL contenere punti nel percorso
+
+#### Scenario: una codifica corrotta
+- **GIVEN** un segmento illeggibile
+- **THEN** SHALL valere niente, senza sollevare

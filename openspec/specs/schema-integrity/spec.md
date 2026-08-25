@@ -215,3 +215,26 @@ toccato.
 #### Scenario: un contenuto che somiglia al criterio
 - **GIVEN** una riga che contiene letteralmente il testo cercato senza esserlo
 - **THEN** NON SHALL essere toccata
+
+### Requirement: COMPRESS-01 — La compressione dei messaggi NON può perdere un messaggio
+
+La riscrittura compressa dei blocchi e delle chiamate riguarda la tabella che
+contiene le CONVERSAZIONI: un difetto qui non si vede subito e non si torna
+indietro.
+
+Ogni colonna SHALL essere RILETTA e confrontata con l'originale PRIMA di essere
+sostituita. Un blocco tipico SHALL tornare IDENTICO, e pesare meno.
+
+Una stringa SOTTO la soglia NON SHALL essere toccata e SHALL restare sé stessa, e
+il CONFINE della soglia NON SHALL perdere niente in nessuno dei due versi.
+
+Dati NON comprimibili NON SHALL essere corrotti, anche quando non ci si guadagna
+niente: «non ci guadagno» e «lo rompo» sono due esiti diversi.
+
+#### Scenario: dati incomprimibili
+- **GIVEN** una colonna che non si comprime
+- **THEN** SHALL restare leggibile e identica
+
+#### Scenario: il confine della soglia
+- **GIVEN** una stringa esattamente sulla soglia
+- **THEN** NON SHALL perdere niente

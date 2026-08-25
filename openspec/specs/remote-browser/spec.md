@@ -953,3 +953,38 @@ passo, e NON SHALL poter sollevare verso il chiamante.
 #### Scenario: un valore fuori scala
 - **GIVEN** un valore persistito che non sta sulla scala
 - **THEN** SHALL essere agganciato al più vicino prima di muoversi
+
+### Requirement: KBDFIELD-01 — La tastiera si decide sul descrittore che arriva DAL FILO
+
+Sul ramo remoto l'unica strada è il descrittore: il server legge il campo a fuoco
+nella pagina vera e ne manda gli attributi. Le due strade — quella dallo specchio
+e quella dal filo — SHALL arrivare alla STESSA tastiera.
+
+Un campo senza tipo SHALL essere testo; ogni tipo noto SHALL portare la propria
+tastiera; un tipo SCONOSCIUTO NON SHALL inventare niente e SHALL restare testo.
+Un'area di testo e un elemento modificabile SHALL essere testo.
+
+NESSUNA tastiera SHALL salire dove non ne serve: nessun campo, comandi e caselle,
+i campi data che aprono un rullo, un elenco a discesa che apre la propria lista, e
+un campo disabilitato o in sola lettura — dove il sistema non la apre comunque.
+
+Una modalità di inserimento DICHIARATA SHALL vincere sul tipo, e una fuori
+specifica SHALL essere IGNORATA, non inoltrata. Il suggerimento sul tasto di
+invio dichiarato SHALL essere rispettato; dentro un modulo, senza dichiarazioni,
+l'invio SHALL mandare; FUORI da un modulo NON SHALL essere promesso niente.
+
+Le dichiarazioni del sito su maiuscole e correttore SHALL essere seguite, ma su
+indirizzo di posta, indirizzo web e password il correttore SHALL restare zitto
+comunque.
+
+Ciò che arriva dal filo è GREZZO: maiuscole e spazi negli attributi NON SHALL
+cambiare la risposta, e un descrittore vuoto di tutto SHALL restare la tastiera di
+testo.
+
+#### Scenario: una modalità di inserimento dichiarata
+- **GIVEN** un campo che dichiara la propria modalità
+- **THEN** SHALL vincere sul tipo
+
+#### Scenario: un campo in sola lettura
+- **GIVEN** un campo che non accetta scrittura
+- **THEN** NON SHALL salire nessuna tastiera

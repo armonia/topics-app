@@ -7,6 +7,7 @@
  * in each of those cases a number is still printed, and it is wrong. Those are
  * the three things pinned here, with a synthetic process table so the assertions
  * do not depend on what this machine happens to be running.
+  * @covers MEM-BENCH-01
  */
 
 import { describe, expect, test } from "bun:test";

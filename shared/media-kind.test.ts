@@ -1,3 +1,6 @@
+/**
+ * @covers MEDIA-04
+ */
 import { describe, test, expect } from "bun:test";
 import { isVideoPath, isImagePath, isPdfPath, isPreviewablePath } from "./media-kind";
 

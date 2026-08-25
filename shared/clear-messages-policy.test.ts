@@ -1,3 +1,6 @@
+/**
+ * @covers CLEAR-01
+ */
 import { describe, expect, test } from "bun:test";
 import { shouldHonorClearMessages } from "./clear-messages-policy";
 

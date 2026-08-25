@@ -12,6 +12,7 @@
  *
  * Il test complementare che verifica che start-prod.sh CONTENGA il codice del
  * backoff sta alla fine.
+  * @covers BACKOFF-01
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";

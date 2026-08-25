@@ -383,3 +383,67 @@ avvelenare il cancello. Fuori dal guscio nativo NON c'è niente da diagnosticare
 #### Scenario: permesso negato
 - **GIVEN** una lettura rifiutata dal sistema
 - **THEN** NON SHALL essere silenziato niente
+
+### Requirement: NOTIF-LOG-02 — Le due porte scrivono la STESSA chiave, o ogni consegna lascia due righe
+
+La deduplica del registro funziona solo se le due porte — il banner del client e
+la spinta del server — scrivono la STESSA stringa per lo STESSO evento. Se
+divergessero, ogni consegna lascerebbe DUE righe e nessuno se ne accorgerebbe
+leggendo il codice di una sola delle due parti.
+
+Le chiavi SHALL essere STABILI e DISTINTE per famiglia.
+
+Ciò che non è registrabile SHALL essere rifiutato. Un tipo SCONOSCIUTO NON SHALL
+far buttare via la riga: SHALL declassarla. Un bersaglio a metà NON SHALL essere
+un bersaglio.
+
+Titolo e corpo SHALL essere TAGLIATI: è una lista, non un archivio di testi.
+
+La sorgente SHALL valere «banner» salvo dichiarazione contraria.
+
+Le rotte del bersaglio SHALL essere quelle dei collegamenti profondi. Il gruppo
+predefinito SHALL essere il bersaglio, e senza bersaglio NON SHALL esserci
+gruppo.
+
+Il vocabolario dei tipi SHALL essere chiuso.
+
+#### Scenario: la stessa consegna dalle due porte
+- **GIVEN** un evento scritto dal banner e dalla spinta
+- **THEN** SHALL produrre la stessa chiave, e una riga sola
+
+#### Scenario: un tipo sconosciuto
+- **GIVEN** un avviso di famiglia ignota
+- **THEN** SHALL essere declassato, non scartato
+
+### Requirement: NOTIF-ACT-01 — Un tasto su un avviso o fa esattamente quello che dice, o non c'è
+
+Una domanda con delle opzioni SHALL produrre un tasto per opzione, etichettato col
+TESTO dell'opzione. **Più opzioni del tetto SHALL produrre NESSUN tasto**: una
+scelta troncata è peggio di nessuna scelta, perché sembra completa.
+
+Una card in revisione SENZA domanda SHALL offrire lo stesso tasto della card. Una
+domanda SENZA opzioni NON è una consegna da approvare: NESSUN tasto. Un elemento
+parcheggiato SHALL offrire di rimetterlo in coda.
+
+La decodifica SHALL reggere testi con caratteri che romperebbero un
+identificativo ingenuo, e un identificativo sconosciuto o rotto SHALL valere
+NIENTE, mai un'azione a caso.
+
+Rispondere SHALL essere un rifiuto che PORTA il testo — è la semantica della
+card. Approvare e rimettere in coda SHALL usare le porte della bacheca. Senza
+progetto o senza task NON SHALL esserci richiesta.
+
+**Ogni percorso composto SHALL passare il cancello di chi la richiesta la
+riceve**: fuori dalla bacheca NON SHALL essere eseguito niente.
+
+Il pacchetto pronto SHALL portare tasti e richieste GIÀ composte, in coppia, per
+chi non sa decodificare; e senza riferimento al task SHALL essere VUOTO: nessun
+tasto che non fa niente.
+
+#### Scenario: più opzioni del tetto
+- **GIVEN** una domanda con troppe opzioni
+- **THEN** NON SHALL comparire nessun tasto
+
+#### Scenario: un percorso fuori dalla bacheca
+- **GIVEN** una richiesta composta verso un'altra superficie
+- **THEN** NON SHALL essere eseguita

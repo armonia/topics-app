@@ -41,3 +41,29 @@ configurazione di chi lo esegue.
 #### Scenario: un comando sconosciuto
 - **GIVEN** una parola che non è un comando
 - **THEN** SHALL uscire con il proprio codice
+
+### Requirement: CLITRANS-01 — La CLI prova il cifrato per primo, e ripiega SOLO se il trasporto tace
+
+Il server accende il cifrato da sé appena trova i certificati. Una CLI che scrive
+il protocollo in chiaro a mano muore sul PRIMO scambio contro un'installazione
+reale: non degradata, non funzionante.
+
+Lo schema SHALL essere provato CIFRATO per primo, e il ripiego in chiaro SHALL
+avvenire SOLO quando il trasporto non ha risposto. Un errore di protocollo È una
+risposta: ripeterlo in chiaro non lo cura, lo nasconde.
+
+Se NESSUNO dei due risponde SHALL essere dichiarato, non scelto uno a caso.
+
+Una dichiarazione esplicita dello schema SHALL forzare la mano e NON SHALL
+ripiegare: chi lo dice sa cosa vuole.
+
+La destinazione SHALL restare il ciclo interno: MAI un host che non sia
+l'indirizzo locale.
+
+#### Scenario: un errore del server
+- **GIVEN** una risposta di errore sul canale cifrato
+- **THEN** NON SHALL essere ritentato in chiaro
+
+#### Scenario: schema forzato
+- **GIVEN** lo schema dichiarato esplicitamente
+- **THEN** NON SHALL esserci nessun ripiego

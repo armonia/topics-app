@@ -336,3 +336,35 @@ essere visto riconoscere il caso nudo e perdonare quello vestito.
 #### Scenario: un commit dentro una spec
 - **GIVEN** una scrittura senza identità dichiarata
 - **THEN** il banco SHALL fallire
+
+### Requirement: SHARD-01 — Gli shard si impacchettano per DURATA, e il conto è sul più LENTO
+
+Il tempo da parete di una suite parallela è il suo shard PIÙ LENTO. Ogni
+proprietà di questa divisione SHALL guardare il MASSIMO, non la media: una
+divisione che fa dieci, dieci, dieci e duecentoventi è «in media» perfetta e in
+pratica inutile — ed è esattamente ciò che fa una divisione per NUMERO di test,
+che le durate non le conosce.
+
+NESSUN file SHALL essere perso e nessuno SHALL essere eseguito due volte.
+
+Il file più lento NON SHALL finire insieme al secondo più lento, quando c'è dove
+metterlo.
+
+Lo shard più lento SHALL restare entro un margine dichiarato rispetto
+all'ideale.
+
+Un file MAI MISURATO SHALL prendere la MEDIANA, non zero: zero lo farebbe
+sembrare gratis e lo impilerebbe tutto su uno shard.
+
+Senza NESSUNA misura la divisione SHALL restare uniforme per numero di file — è
+il ripiego onesto, non un ordinamento inventato.
+
+Un solo shard SHALL ricevere tutto.
+
+#### Scenario: un file senza durata registrata
+- **GIVEN** una spec mai misurata
+- **THEN** SHALL essere valutata alla mediana, non a zero
+
+#### Scenario: i due file più lenti
+- **GIVEN** più shard disponibili
+- **THEN** NON SHALL finire nello stesso

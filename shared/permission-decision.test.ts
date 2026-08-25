@@ -1,3 +1,6 @@
+/**
+ * @covers PERM-07
+ */
 import { describe, expect, it } from "bun:test";
 import {
   PERMISSION_CHOICES,

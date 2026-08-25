@@ -1,3 +1,6 @@
+/**
+ * @covers CLITRANS-01
+ */
 import { describe, test, expect, afterEach } from "bun:test";
 import { fetchLocal, localBase } from "./topics";
 

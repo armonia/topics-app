@@ -343,3 +343,34 @@ motivo scritto; nessuna sonda SHALL restare dimenticata in un file tracciato.
 #### Scenario: un referto messo in un flusso
 - **GIVEN** uno script che misura e racconta
 - **THEN** NON SHALL comparire in un flusso di verifica
+
+### Requirement: SLOT-01 — Il semaforo dei cancelli esclude davvero, e non può MAI rifiutarsi di eseguire
+
+Questo involucro sta davanti a OGNI cancello costoso, quindi un difetto qui è un
+difetto in tutti i cancelli insieme, e in ogni turno che ne esegue uno. Le due
+cose da tenere ferme sono OPPOSTE.
+
+**Il comando gira SEMPRE.** L'output SHALL passare, un successo SHALL restare un
+successo, e il codice di uscita SHALL essere QUELLO DEL COMANDO. Con la
+strozzatura SPENTA SHALL girare lo stesso. Un file di slot rotto NON SHALL poter
+fermare un comando.
+
+**E la strozzatura esclude DAVVERO**, o è decorazione: uno slot SHALL significare
+uno alla volta, non due; due slot SHALL lasciarne passare due insieme; e lo slot
+SHALL tornare libero quando il comando ha finito.
+
+Uno slot tenuto da un processo MORTO NON SHALL essere uno slot: SHALL essere
+raccolto.
+
+Un comando APPESO SHALL essere abbattuto: oltre il tetto di tempo da parete
+SHALL uscire con il codice dedicato invece di restare appeso, SHALL portarsi via
+i propri figli, e lo slot SHALL tornare libero ANCHE in quel caso. Un comando che
+finisce in tempo NON SHALL essere toccato, e il tetto SHALL potersi spegnere.
+
+#### Scenario: uno slot di un processo morto
+- **GIVEN** un file di slot che nomina un processo non più vivo
+- **THEN** SHALL essere raccolto, e il comando SHALL partire
+
+#### Scenario: un comando appeso
+- **GIVEN** un comando che supera il tetto di tempo
+- **THEN** SHALL essere abbattuto, e lo slot SHALL tornare libero

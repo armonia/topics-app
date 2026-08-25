@@ -9,6 +9,7 @@
  *   3. **il gettone coniato VERIFICA davvero** sull'installazione giusta, con
  *      la stessa funzione che gira nell'app spedita. Un gettone che esce ma non
  *      verifica è indistinguibile, dal lato cliente, da nessun gettone.
+  * @covers MINT-01
  */
 import { describe, expect, it } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";

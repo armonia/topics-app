@@ -1,3 +1,6 @@
+/**
+ * @covers STREAMB-01
+ */
 import { describe, expect, it } from "bun:test";
 import {
   buildStreamingReport,

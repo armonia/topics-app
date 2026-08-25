@@ -10,6 +10,7 @@
  *
  * Each test gets its own slot directory: this file executes INSIDE `test:unit`,
  * which is holding a real slot while it runs.
+  * @covers SLOT-01
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";

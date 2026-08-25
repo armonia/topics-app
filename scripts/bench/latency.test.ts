@@ -1,3 +1,6 @@
+/**
+ * @covers LAT-UI-01
+ */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

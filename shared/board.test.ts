@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-63 @covers KANBAN-64 @covers KANBAN-65
+ */
 import { test, expect, describe } from "bun:test";
 import {
   ARCHIVE_PARKED_LABEL,

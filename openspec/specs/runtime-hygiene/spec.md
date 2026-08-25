@@ -503,3 +503,58 @@ pacchetto incorporato nel guscio nativo, che non ha da dove ricaricarsi.
 #### Scenario: un documento non marcato
 - **GIVEN** il pacchetto incorporato nel guscio
 - **THEN** NON SHALL essere annunciato niente
+
+### Requirement: FDLEAK-01 — I descrittori di file tornano dove stavano, o è una perdita
+
+La sonda SHALL leggere il processo in ascolto dalla colonna giusta, saltando
+l'intestazione, e SHALL restituire NIENTE quando nessuno ascolta.
+
+Il conteggio NON SHALL contare la sonda stessa, SHALL separare gli stati che sono
+la FORMA della perdita — chiuso e in attesa di chiusura — e SHALL reggere una
+riga malformata.
+
+Il giudice SHALL PROMUOVERE la misura quando i descrittori tornano dov'erano, e
+SHALL promuovere il respiro naturale di un server vivo: un numero che oscilla non
+è una perdita.
+
+SHALL BOCCIARE la crescita misurata il 19/08 — centinaia di descrittori in più —
+e SHALL bocciare appena si supera la tolleranza dichiarata.
+
+Un CALO di descrittori NON SHALL essere una perdita.
+
+#### Scenario: il respiro di un server vivo
+- **GIVEN** un'oscillazione dentro la tolleranza
+- **THEN** SHALL essere promossa
+
+#### Scenario: centinaia di descrittori in più
+- **GIVEN** una crescita oltre la tolleranza
+- **THEN** SHALL essere bocciata
+
+### Requirement: BACKOFF-01 — Il riavvio in produzione rallenta, invece di provare un giro al secondo
+
+Il 17/08: cinquecentosei avvii falliti in dieci minuti e trentotto secondi, un
+tentativo al secondo, senza nessun freno. Un ciclo di caduta senza freno riempie
+il registro e rende illeggibile l'errore che lo ha causato.
+
+Un processo che muore PRIMA di una soglia dichiarata SHALL contare come
+fallimento di AVVIO, e il ritardo prima del tentativo successivo SHALL CRESCERE
+per moltiplicazione — non di un passo fisso — fino a un TETTO.
+
+Il primo fallimento SHALL avere il ritardo minimo. ZERO fallimenti di avvio SHALL
+significare NESSUN ritardo: è il caso di un crash in produzione dopo un avvio
+riuscito, e lì si riparte subito.
+
+Nessun ritardo SHALL superare il tetto.
+
+Lo script SHALL DICHIARARE la soglia, il ritardo iniziale e il tetto, SHALL
+STAMPARE il ritardo che sta applicando, e le costanti dichiarate SHALL coincidere
+con quelle su cui la verifica si basa: due copie che divergono rendono la
+verifica un'opinione.
+
+#### Scenario: cinque avvii falliti di fila
+- **GIVEN** una sequenza di fallimenti di avvio
+- **THEN** il ritardo SHALL crescere moltiplicando, fino al tetto
+
+#### Scenario: un crash dopo un avvio riuscito
+- **GIVEN** nessun fallimento di avvio
+- **THEN** NON SHALL esserci ritardo

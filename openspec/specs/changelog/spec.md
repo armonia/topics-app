@@ -67,3 +67,34 @@ fallback.
 - **AND** no "non disponibile" message is shown
 - **WHEN** the user selects a version that has at least one `new`, `fixes` or `perf` entry
 - **THEN** that entry's text is rendered inside a public section list item
+
+### Requirement: CHLOG-01 — Il registro delle modifiche tiene il lavoro e butta il rumore
+
+I salti di versione, le fusioni e il rimescolamento dei file di blocco SHALL
+essere scartati come RUMORE; il lavoro vero SHALL restare.
+
+Una voce SHALL essere classificata per TIPO in un secchio, con l'ambito
+estratto; la coda del salto di versione e la parentesi col solo identificativo
+SHALL essere tolte; una voce di rumore SHALL valere NIENTE; e una modifica che
+ROMPE SHALL essere segnalata come tale. Un tipo sconosciuto SHALL comunque
+trovare un secchio.
+
+Il registro SHALL essere ordinato dalla versione più nuova, per numero di
+versione e non per stringa.
+
+**Un lavoro appartiene alla versione del salto che lo SEGUE**, non a quella che
+lo precede: è il salto a pubblicarlo. Il lavoro fatto NELLA riga del salto conta,
+e il rumore di fusione si scarta. Il lavoro in coda, non ancora pubblicato da
+nessun salto, SHALL confluire nella versione corrente.
+
+Una versione che contiene SOLO rumore SHALL essere lasciata fuori: una voce vuota
+si legge come una versione senza contenuto invece che come una versione senza
+novità.
+
+#### Scenario: un lavoro prima di un salto di versione
+- **GIVEN** un commit seguito da un salto
+- **THEN** SHALL comparire nella versione del salto
+
+#### Scenario: una versione di solo rumore
+- **GIVEN** un salto con dietro solo fusioni
+- **THEN** NON SHALL comparire nel registro

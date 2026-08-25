@@ -1,3 +1,6 @@
+/**
+ * @covers TRAY-01
+ */
 import { describe, expect, test } from "bun:test";
 import {
   TRAY_GROUP_ORDER,

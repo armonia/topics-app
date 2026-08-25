@@ -9,6 +9,7 @@
  *
  * Quindi le prove che contano sono le stesse di là: email dà email, un
  * `inputmode` dichiarato batte il `type`, e un bottone non dà niente affatto.
+  * @covers KBDFIELD-01
  */
 import { describe, test, expect } from 'bun:test';
 import { keyboardProfileForField, type RemoteField } from './browser-keyboard-field';

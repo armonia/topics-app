@@ -2403,3 +2403,95 @@ L'insieme delle frasi SHALL essere non banale e privo di voci vuote.
 #### Scenario: un istante futuro
 - **GIVEN** un tempo trascorso negativo
 - **THEN** SHALL essere mostrata la prima frase
+
+### Requirement: CLEAR-01 — Lo svuotamento rapido vale solo dove non c'è niente da perdere
+
+Lo svuotamento SHALL essere permesso su un thread del tutto vuoto, su quello col
+SOLO primo messaggio della persona, e col SEGNAPOSTO vuoto — che è il caso per cui
+la scorciatoia esiste.
+
+SHALL essere RIFIUTATO quando l'assistente ha prodotto qualcosa, e in particolare
+su un turno AGENTICO: nessuna prosa, ma strumenti eseguiti è lavoro. SHALL essere
+rifiutato su un SECONDO turno della persona — è la regressione che cancellava la
+cronologia — e su un thread lungo.
+
+SHALL essere rifiutato quando la sessione ha righe FUORI dal ramo attivo: ciò che
+non si vede da qui è comunque roba.
+
+Un conteggio di sessione che COINCIDE col ramo attivo NON SHALL cambiare niente, e
+un conteggio PIÙ PICCOLO del ramo attivo NON SHALL fingere righe nascoste.
+
+Un turno della persona con due risposte dell'assistente — cioè due rami — SHALL
+essere rifiutato.
+
+#### Scenario: un turno agentico senza prosa
+- **GIVEN** un turno che ha eseguito strumenti senza scrivere
+- **THEN** lo svuotamento SHALL essere rifiutato
+
+#### Scenario: righe fuori dal ramo attivo
+- **GIVEN** una sessione con rami non visibili da qui
+- **THEN** lo svuotamento SHALL essere rifiutato
+
+### Requirement: EMPTYTURN-01 — Un turno che non ha prodotto niente non resta in chat
+
+Il segnaposto appena creato SHALL essere riconosciuto VUOTO — è la riga che
+restava in chat quando si premeva stop subito — e lo SPAZIO BIANCO NON SHALL
+valere contenuto.
+
+SHALL essere TENUTO tutto ciò che è lavoro: mezza frase, il solo ragionamento
+senza testo, una chiamata a uno strumento anche senza testo, dei blocchi, dei
+media. Array serializzati VUOTI SHALL valere quanto l'assenza.
+
+**Una colonna ILLEGGIBILE NON SHALL essere scambiata per vuota**: nel dubbio si
+tiene, perché cancellare è irreversibile.
+
+Un messaggio della persona NON SHALL passare da qui.
+
+Le sentinelle che la riga di comando emette al posto di una risposta — la frase
+che dice che nessuna risposta era richiesta, e quella che dichiara nessun
+contenuto — SHALL valere VUOTO, spazi attorno compresi. Ma se quel turno ha
+prodotto LAVORO SHALL restare, e PARLARE di una sentinella NON SHALL essere
+emetterla.
+
+#### Scenario: il segnaposto dopo uno stop immediato
+- **GIVEN** un turno interrotto prima di qualunque contenuto
+- **THEN** SHALL essere riconosciuto vuoto
+
+#### Scenario: una colonna illeggibile
+- **GIVEN** un contenuto che non si riesce a interpretare
+- **THEN** NON SHALL essere trattato come vuoto
+
+### Requirement: LEAN-01 — La stessa stringa non si scrive due volte sulla riga
+
+Il risultato di una chiamata SHALL essere lasciato cadere quando il dettaglio
+porta GIÀ la stessa identica stringa, anche quando la copia sta un livello più
+sotto.
+
+SHALL essere TENUTO quando il dettaglio dice qualcos'altro — una conferma non è il
+contenuto — quando la copia è solo un PEZZO e non il tutto, e quando il dettaglio
+MANCA, perché lì è il risultato la ricaduta di chi disegna.
+
+NON SHALL essere guardato oltre il secondo livello: una copia troppo in fondo NON
+autorizza il taglio.
+
+Un risultato vuoto o non testuale SHALL essere lasciato stare, e senza niente da
+togliere SHALL tornare lo STESSO riferimento — così chi confronta per identità non
+ridisegna.
+
+Dentro i blocchi SHALL valere la stessa regola, e il resto del blocco NON SHALL
+muoversi. L'originale NON SHALL essere mutato.
+
+Sulla riga scritta a disco il testo duplicato SHALL comparire UNA volta sola, la
+colonna assente SHALL restare assente — e assente NON SHALL diventare vuoto — e
+NIENTE SHALL andare perso: un risultato che non è una copia resta.
+
+La rilettura SHALL prendere il risultato quando c'è, e il campo di testo del
+dettaglio quando non c'è.
+
+#### Scenario: la copia sta tre livelli sotto
+- **GIVEN** una copia oltre il secondo livello
+- **THEN** il risultato NON SHALL essere tagliato
+
+#### Scenario: niente da togliere
+- **GIVEN** una chiamata senza duplicati
+- **THEN** SHALL tornare lo stesso riferimento
