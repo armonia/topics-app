@@ -587,3 +587,64 @@ without being a command SHALL render no such marker.
 - **GIVEN** a user message that is a filesystem path beginning with a slash
 - **WHEN** the topic is opened
 - **THEN** that message SHALL carry no invocation marker
+
+### Requirement: PARITY-01 — Ogni tool che la CLI emette ha una riga leggibile
+
+Topics rende le chiamate a tool di Claude Code, Codex e OpenClaw traducendole in
+un `ToolCallDetail` tipizzato. Quando un nome non corrisponde a nessun tipo noto
+il sistema NON DEVE perdere la chiamata: risponde `type: "unknown"` e il
+renderer mostra un JSON generico. Quel ripiego è corretto come rete di
+sicurezza, e **inaccettabile come stato stabile** per un tool che la CLI emette
+di continuo: chi legge la chat vede un blocco di JSON dove dovrebbe vedere
+un'azione.
+
+Il sistema DEVE quindi mantenere un **inventario dichiarato** dei nomi che la
+CLI emette davvero, diviso in due:
+
+1. i nomi **resi**, che DEVONO tradursi in un tipo diverso da `unknown`;
+2. i nomi **a debito**, ancora resi come JSON grezzo perché richiedono un tipo
+   nuovo e una riga nel renderer.
+
+La lista a debito DEVE essere auto-pulente: quando una sua voce comincia a
+rendersi, il controllo DEVE diventare rosso e obbligare a toglierla. Una lista
+di eccezioni che non si accorge di essere stale è il modo in cui una copertura
+finta sopravvive per mesi.
+
+Alias dello stesso tool DEVONO rendersi allo stesso modo. `Agent` e `Task` sono
+la stessa operazione sotto due nomi.
+
+Il mirror sul client (`client/src/components/Chat/toolDetail.ts`), che serve i
+messaggi vecchi il cui `detail` non fu costruito lato server, DEVE conoscere gli
+stessi nomi del server: i due percorsi non si incontrano mai a runtime, quindi
+una divergenza non si manifesta come errore ma come due rese diverse per la
+stessa cosa.
+
+> Nota sull'inventario: non si scrive a memoria. I nomi si leggono dai
+> transcript veri (`~/.claude/projects/**/*.jsonl`, blocchi `tool_use`). La
+> prima misura, 25/08/2026 su 40 sessioni, ha trovato 34 nomi distinti e
+> **10 su 28 non resi**, fra cui `Agent` con 58 occorrenze reali mentre `Task`
+> — lo stesso tool sotto il nome vecchio — si rendeva correttamente.
+
+#### Scenario: un tool reso smette di rendersi
+
+- **GIVEN** un nome nell'inventario dei tool resi
+- **WHEN** la sua traduzione torna `type: "unknown"`
+- **THEN** il controllo è rosso: è una regressione di parità
+
+#### Scenario: un tool a debito comincia a rendersi
+
+- **GIVEN** un nome nella lista a debito
+- **WHEN** la sua traduzione non è più `unknown`
+- **THEN** il controllo è rosso e chiede di toglierlo dalla lista
+
+#### Scenario: due nomi dello stesso tool divergono
+
+- **GIVEN** `Agent` e `Task`
+- **WHEN** le loro traduzioni danno tipi diversi
+- **THEN** il controllo è rosso
+
+#### Scenario: il mirror del client resta indietro
+
+- **GIVEN** un alias riconosciuto dal server
+- **WHEN** il mirror sul client non lo nomina
+- **THEN** il controllo è rosso

@@ -217,15 +217,23 @@ export function deriveToolDetail(
     }
   }
 
-  // Plan exit / plan tools — show the proposed plan body.
-  if (c === "exitplanmode" || c === "exit_plan_mode") {
+  // Plan exit / plan tools — show the proposed plan body. `enterplanmode` has
+  // no body to show, but it is the same event to a reader ("this turn is about
+  // a plan"), and leaving it out made it render as a raw JSON blob.
+  if (c === "exitplanmode" || c === "exit_plan_mode" || c === "enterplanmode" || c === "enter_plan_mode") {
     return { type: "plan", text: s(a.plan) ?? s(a.text) ?? "" };
   }
 
   // Sub-agent (Task tool). The actions[] is filled in by the SidechainTracker
   // via onSubAgentUpdate; here we just seed the metadata so the parent row
   // shows description/subAgentType while the sub-agent runs.
-  if (c === "task") {
+  //
+  // `agent` is the SAME tool under its current name. Measured 2026-08-25 on the
+  // real transcripts of this machine: `Agent` was emitted 58 times and every
+  // one of them rendered as a generic JSON blob, while `Task` - the older name
+  // for the identical call - rendered properly. Two names for one operation,
+  // one of them invisible.
+  if (c === "task" || c === "agent") {
     return {
       type: "sub_agent",
       ...(s(a.subagent_type) ? { subAgentType: s(a.subagent_type)! } : {}),

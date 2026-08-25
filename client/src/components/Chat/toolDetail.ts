@@ -193,11 +193,11 @@ export function deriveToolDetail(
     }
   }
 
-  if (c === 'exitplanmode' || c === 'exit_plan_mode') {
+  if (c === 'exitplanmode' || c === 'exit_plan_mode' || c === 'enterplanmode' || c === 'enter_plan_mode') {
     return { type: 'plan', text: s(a.plan) ?? s(a.text) ?? '' };
   }
 
-  if (c === 'task') {
+  if (c === 'task' || c === 'agent') {
     return {
       type: 'sub_agent',
       ...(s(a.subagent_type) ? { subAgentType: s(a.subagent_type)! } : {}),

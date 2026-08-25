@@ -28,15 +28,15 @@ const PANE = readFileSync(join(DIR, "KanbanBoardPane.tsx"), "utf8");
 const PICKER = readFileSync(join(DIR, "ProjectFilterPicker.tsx"), "utf8");
 
 /**
- * Il file senza i suoi commenti.
+ * The file with its comments stripped.
  *
- * Serve perche' due dei tre criteri sono RIMOZIONI, e i commenti che spiegano
- * una rimozione nominano per forza la cosa rimossa. Cercare `▾` nel sorgente
- * grezzo trova la nota che dice «qui viveva un ▾» e la scambia per il ▾: il
- * test accuserebbe proprio la documentazione che protegge il criterio.
- * allow-italian: descrive il difetto del test, non e' testo mostrato
+ * Needed because two of the three criteria are REMOVALS, and a comment that
+ * explains a removal necessarily names the thing removed. Searching the raw
+ * source for the caret finds the note saying "a caret used to live here" and
+ * mistakes it for the caret: the test would accuse the very documentation that
+ * protects the criterion.
  */
-function codiceSenzaCommenti(src: string): string {
+function codeWithoutComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
 }
 
@@ -44,15 +44,14 @@ function codiceSenzaCommenti(src: string): string {
 function toolbarTag(): string {
   const i = PANE.indexOf('data-testid="board-toolbar"');
   expect(i, "la barra non si chiama piu' `board-toolbar`: questo test cerca un elemento che non c'e'").toBeGreaterThan(-1);
-  const apertura = PANE.lastIndexOf("<div", i);
-  const chiusura = PANE.indexOf(">", i);
-  return PANE.slice(apertura, chiusura + 1);
+  const openAt = PANE.lastIndexOf("<div", i);
+  const closeAt = PANE.indexOf(">", i);
+  return PANE.slice(openAt, closeAt + 1);
 }
 
 describe("1. sotto la barra non c'e' nessuna linea", () => {
-  // Le strisce che compaiono sotto (filtri attivi, banda d'errore) portano gia'
-  // il proprio bordo: una riga in piu' qui ne disegnava due attaccate.
-  // allow-italian: la nota descrive cio' che si vede, non e' testo mostrato
+  // The strips that appear below (active filters, the error band) already carry
+  // their own border: one more line here drew two of them touching.
   test("l'elemento della toolbar non dichiara un bordo inferiore", () => {
     const tag = toolbarTag();
     expect(tag, `la barra ha riguadagnato un bordo: ${tag}`).not.toContain("border-b");
@@ -60,16 +59,16 @@ describe("1. sotto la barra non c'e' nessuna linea", () => {
   });
 
   test("e nemmeno il contenitore che la avvolge", () => {
-    // Il bordo puo' rientrare dal genitore e l'effetto a schermo e' identico.
+    // A border can come back in from the parent, and on screen it looks the same.
     const i = PANE.indexOf('data-testid="board-toolbar"');
-    const prima = PANE.slice(Math.max(0, i - 400), i);
-    const genitore = prima.slice(prima.lastIndexOf("<div"));
-    expect(genitore, `il contenitore della barra ha un bordo inferiore: ${genitore}`).not.toContain("border-b");
+    const before = PANE.slice(Math.max(0, i - 400), i);
+    const parent = before.slice(before.lastIndexOf("<div"));
+    expect(parent, `il contenitore della barra ha un bordo inferiore: ${parent}`).not.toContain("border-b");
   });
 
   test("e il test puo' fallire", () => {
-    // Non-vacuita': se `toolbarTag` restituisse stringa vuota le due
-    // asserzioni sopra passerebbero per sempre senza guardare niente.
+    // Non-vacuity: if `toolbarTag` returned an empty string, the two assertions
+    // above would pass forever without looking at anything.
     expect(toolbarTag().length).toBeGreaterThan(30);
     expect(toolbarTag()).toContain("board-toolbar");
   });
@@ -77,33 +76,32 @@ describe("1. sotto la barra non c'e' nessuna linea", () => {
 
 describe("2. una sola porta alle impostazioni", () => {
   test("il ▾ accanto al titolo non c'e' piu' — nel CODICE, non nei commenti", () => {
-    // Il secondo ingresso non era solo ridondante: teneva una copia PROPRIA
-    // dello stato dell'auto-dispatch, che restava indietro quando l'altro
-    // pannello lo cambiava. Due tasti per la stessa domanda, e due risposte.
-    // allow-italian: il difetto storico, non testo mostrato
+    // The second entrance was not merely redundant: it held its OWN copy of the
+    // auto-dispatch state, which fell behind whenever the other panel changed
+    // it. Two buttons for one question, and two answers.
     //
-    // Il carattere compare ancora tre volte nel file, e va bene: sono i
-    // commenti che RACCONTANO la rimozione. Un test che li vieta cancella la
-    // memoria del perche', che e' l'unica difesa contro il reinserimento. Si
-    // guarda quindi il codice, non la prosa.
-    expect(codiceSenzaCommenti(PANE), "il carattere ▾ e' tornato in un elemento").not.toMatch(/▾/);
+    // The character still appears three times in the file, and that is fine:
+    // those are the comments that RECORD the removal. A test that forbids them
+    // erases the memory of why, which is the only real defence against putting
+    // it back. So we look at the code, not the prose.
+    expect(codeWithoutComments(PANE), "il carattere ▾ e' tornato in un elemento").not.toMatch(/▾/);
   });
 
   test("un elemento solo cambia lo stato del pannello", () => {
-    // `onClose` non conta: chiudere non e' una PORTA, e ce n'e' uno per
-    // ciascuno dei due pannelli possibili. Quello che si conta e' chi lo
-    // APRE, e il gesto e' un toggle, non un `set(true)`.
-    const codice = codiceSenzaCommenti(PANE);
-    const apre = [...codice.matchAll(/setShowSettings\(\s*\(s\)\s*=>\s*!s\s*\)|setShowSettings\(true\)/g)].length;
-    expect(apre, "piu' di un elemento apre le impostazioni: e' il difetto che la carta chiedeva di togliere").toBe(1);
+    // `onClose` does not count: closeAt is not a DOOR, and there is one for
+    // each of the two possible panels. What is counted is what OPENS it, and
+    // the gesture is a toggle, not a `set(true)`.
+    const code = codeWithoutComments(PANE);
+    const opens = [...code.matchAll(/setShowSettings\(\s*\(s\)\s*=>\s*!s\s*\)|setShowSettings\(true\)/g)].length;
+    expect(opens, "piu' di un elemento opens le impostazioni: e' il difetto che la carta chiedeva di togliere").toBe(1);
   });
 
   test("l'interruttore globale vive nel pannello, non in un menu della barra", () => {
-    // La rimozione del ▾ e' sicura solo perche' quel blocco esiste gia' nel
-    // pannello del ⚙, su ogni board. Se sparisse di li', togliendo il ▾ si
-    // sarebbe persa una funzione invece di una duplicazione.
-    const sezioni = readFileSync(join(DIR, "BoardSettingsSections.tsx"), "utf8");
-    expect(sezioni).toContain("GlobalCapControl");
+    // Removing the caret is only safe because that block already exists in the
+    // gear panel, on every board. If it vanished from there, removing the caret
+    // would have lost a feature rather than a duplicate.
+    const sections = readFileSync(join(DIR, "BoardSettingsSections.tsx"), "utf8");
+    expect(sections).toContain("GlobalCapControl");
   });
 });
 
@@ -113,18 +111,17 @@ describe("3. i suggerimenti progetto stanno dentro il selettore", () => {
     expect(PANE).toContain("<ProjectFilterPicker");
   });
 
-  test("il fondino e' dichiarato in tutti e due i temi", () => {
-    // Una superficie sollevata dichiarata solo `bg-white/N` e' bianco su bianco
-    // nel tema chiaro: e' esattamente il difetto che il criterio nominava.
-    // allow-italian: descrive il difetto storico, non e' testo mostrato
-    const fondino = PICKER.match(/className="[^"]*absolute[^"]*"/)?.[0] ?? "";
-    expect(fondino, "il fondino del selettore non si trova").toContain("bg-black/");
-    expect(fondino, "senza la meta' scura il fondino sparisce in un tema").toContain("dark:bg-white/");
+  test("il backing e' dichiarato in tutti e due i temi", () => {
+    // A raised surface declared only `bg-white/N` is white on white in the light
+    // theme: exactly the defect the criterion named.
+    const backing = PICKER.match(/className="[^"]*absolute[^"]*"/)?.[0] ?? "";
+    expect(backing, "il backing del selettore non si trova").toContain("bg-black/");
+    expect(backing, "senza la meta' scura il backing sparisce in un tema").toContain("dark:bg-white/");
   });
 
   test("i chip hanno UNA misura sola, dichiarata una volta", () => {
-    const dichiarazioni = [...PICKER.matchAll(/max-w-\[[\d.]+rem\]/g)].map((m) => m[0]);
-    expect(dichiarazioni.length, "nessuna larghezza dichiarata: i chip tornano a misura variabile").toBeGreaterThan(0);
-    expect(new Set(dichiarazioni).size, `misure diverse fra loro: ${[...new Set(dichiarazioni)].join(", ")}`).toBe(1);
+    const declarations = [...PICKER.matchAll(/max-w-\[[\d.]+rem\]/g)].map((m) => m[0]);
+    expect(declarations.length, "nessuna larghezza dichiarata: i chip tornano a misura variabile").toBeGreaterThan(0);
+    expect(new Set(declarations).size, `misure diverse fra loro: ${[...new Set(declarations)].join(", ")}`).toBe(1);
   });
 });

@@ -4,10 +4,12 @@
  * Validates the provider-boundary normalizer that translates raw tool
  * names + args into the typed ToolCallDetail union the renderer
  * branches on. Pure function; trivial to test exhaustively.
- * @covers MONITOR-01, BGSHELL-01
+ * @covers MONITOR-01, BGSHELL-01, PARITY-01
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { deriveToolDetail, deriveToolDetailFromCall } from "./tool-detail";
 
 describe("deriveToolDetail", () => {
@@ -374,5 +376,95 @@ describe("deriveToolDetail — TaskCreate / TaskUpdate", () => {
 
   test("non ruba il caso `Task` (sub-agent)", () => {
     expect(deriveToolDetail("Task", { subagent_type: "Explore", description: "cerca" })?.type).toBe("sub_agent");
+  });
+});
+
+/**
+ * PARITY WITH CLAUDE CODE: does every tool the CLI emits get a readable row?
+ *
+ * THE INVENTORY IS NOT FROM MEMORY. The names below were read out of the real
+ * transcripts on this machine (`~/.claude/projects`, `tool_use` blocks) on
+ * 2026-08-25: 34 distinct names across 40 sessions. It is not a list of what
+ * the documentation says; it is a list of what happened.
+ *
+ * WHAT IT FOUND on its first run: 10 names out of 28 came back as
+ * `type: "unknown"`, which on screen means a block of raw JSON. The worst was
+ * `Agent`, with 58 real occurrences, while `Task` - the SAME tool under its
+ * older name - rendered perfectly. Two names for one operation, one of them
+ * invisible.
+ *
+ * WHY A DEBT LIST AND NOT JUST A LIST OF GREENS. The tools that are still
+ * unrendered need a NEW type and a row in the client renderer: that is product
+ * work, not an alias. Until it exists the debt is written down here. But the
+ * list is SELF-CLEARING: if one of them starts rendering, this test goes red
+ * and forces its removal. A list of exceptions that cannot notice it has gone
+ * stale is how fake coverage survives for months.
+ */
+describe("parity with the CLI's tools", () => {
+  /** Minimal plausible args: some branches read `args` before deciding. */
+  const ARG: Record<string, unknown> = {
+    TodoWrite: { todos: [{ content: "x", status: "pending" }] },
+    Agent: { description: "d", subagent_type: "scout" },
+    Task: { description: "d", subagent_type: "scout" },
+  };
+
+  /** Emitted by the CLI and RENDERED with a row of their own. */
+  const RENDERED = [
+    "Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebSearch", "WebFetch",
+    "Skill", "Task", "Agent", "Monitor", "TodoWrite", "ExitPlanMode",
+    "EnterPlanMode", "NotebookEdit", "MultiEdit", "BashOutput", "KillShell",
+    "SlashCommand", "mcp__gateway__topics-board__board_comment",
+  ];
+
+  /**
+   * Emitted by the CLI and STILL rendered as raw JSON. Each needs a new type on
+   * the server and a row in the renderer: that is on the parity card.
+   */
+  const DEBT = [
+    "SendMessage", "ListAgents", "TaskOutput", "TaskStop", "ToolSearch",
+    "Artifact", "AskUserQuestion",
+  ];
+
+  const kind = (n: string) => (deriveToolDetail(n, (ARG[n] ?? {}) as never, undefined) as { type: string }).type;
+
+  test("every rendered tool still has a row of its own, not a JSON block", () => {
+    const blind = RENDERED.filter((n) => kind(n) === "unknown");
+    expect(blind, "these used to render and no longer do: a parity regression").toEqual([]);
+  });
+
+  test("`Agent` and `Task` are one tool and render the same", () => {
+    // The measured defect: one operation, two names, only one of them visible.
+    expect(kind("Agent")).toBe("sub_agent");
+    expect(kind("Agent")).toBe(kind("Task"));
+  });
+
+  test("the debt list is still true, entry by entry", () => {
+    // SELF-CLEARING, and that is the point: when one of these gets rendered the
+    // test goes red and forces its removal. Without it the list ages silently
+    // and keeps declaring debt that no longer exists.
+    const solved = DEBT.filter((n) => kind(n) !== "unknown");
+    expect(solved, "these render now: drop them from DEBT, the debt went down").toEqual([]);
+  });
+
+  test("the inventory does not overlap and is not empty", () => {
+    // Non-vacuity: two empty lists, or a name in both, would make everything
+    // pass while measuring nothing.
+    expect(RENDERED.length).toBeGreaterThan(15);
+    expect(DEBT.length).toBeGreaterThan(0);
+    expect(RENDERED.filter((n) => DEBT.includes(n)), "a name cannot be both rendered and in debt").toEqual([]);
+  });
+
+  test("the client mirror knows the same names as the server", () => {
+    // The docblock of `tool-detail.ts` says "Keep the mapping in sync", and by
+    // hand that means diverging sooner or later. An old message, which goes
+    // through the mirror, would render differently from a new one, and nobody
+    // would see it because the two paths never meet.
+    const mirror = readFileSync(
+      join(import.meta.dir, "..", "..", "..", "client/src/components/Chat/toolDetail.ts"),
+      "utf8",
+    );
+    for (const n of ["agent", "task", "enterplanmode", "exitplanmode"]) {
+      expect(mirror, `the client mirror does not know \`${n}\``).toContain(`'${n}'`);
+    }
   });
 });
