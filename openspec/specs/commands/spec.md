@@ -765,3 +765,28 @@ dichiarano quel che si vuole.
 #### Scenario: i fornitori veri
 - **GIVEN** le implementazioni reali
 - **THEN** ognuna SHALL cadere nel ramo giusto
+
+### Requirement: MISSION-01 — Una missione dice COME si sa che è finita, e sa a chi va
+
+Ogni missione preconfezionata SHALL dichiarare COME si riconosce che è finita: è
+esattamente ciò che la distingue da un prompt.
+
+Quella barra SHALL finire NEL testo che arriva alla sessione, non soltanto nella
+voce di menu: una barra che resta nel menu non è una barra.
+
+Gli identificativi delle missioni SHALL essere UNICI: il menu ci costruisce la
+chiave di lista.
+
+Il bersaglio SHALL essere scelto così: la chat a FUOCO vince; MAI una sessione
+altrui; senza chat aperte, la chat del progetto toccata più di recente.
+
+Senza nessun bersaglio SHALL essere restituito NIENTE, e chi chiama SHALL dirlo —
+non inventarsi una sessione.
+
+#### Scenario: nessuna chat aperta
+- **GIVEN** nessuna chat a fuoco
+- **THEN** SHALL essere scelta la chat del progetto toccata più di recente
+
+#### Scenario: nessun bersaglio
+- **GIVEN** nessuna sessione candidabile
+- **THEN** NON SHALL essere inventata nessuna sessione

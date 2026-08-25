@@ -18,6 +18,7 @@
  * andrà attaccato l'header di sessione dell'autenticazione centralizzata.
  *
  * `bun test` non ha un DOM: si stubbano a mano i global che i moduli toccano.
+  * @covers NETSHIM-01
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { __resetNetShimForTests, installNetShim } from './net';

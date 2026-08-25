@@ -1,3 +1,6 @@
+/**
+ * @covers TABOPEN-01
+ */
 import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import {
   buildTabLinkForTarget,

@@ -1,3 +1,6 @@
+/**
+ * @covers OSOPEN-01
+ */
 import { describe, it, expect } from 'bun:test';
 import type { TabTarget } from '../../../shared/tab-link';
 import { drainOsOpenPaths, OS_OPEN_MISS_MESSAGE, type OsOpenDeps } from './osOpenPath';

@@ -1,3 +1,6 @@
+/**
+ * @covers BANNER-SHARE-01
+ */
 import { describe, test, expect } from 'bun:test';
 import { bannerMarkdown } from './bannerShare';
 

@@ -479,3 +479,27 @@ togliere.
 #### Scenario: un progetto che si chiama come la cartella delle copie
 - **GIVEN** un percorso che somiglia ma sta altrove
 - **THEN** NON SHALL essere isolato
+
+### Requirement: BUNDLE-RELOAD-01 — Un pacchetto nuovo si PROPONE, non si impone
+
+Un fotogramma che dichiara una revisione DIVERSA da quella caricata SHALL soltanto
+ANNUNCIARE che il pacchetto è vecchio, e NON SHALL MAI ricaricare la pagina sotto
+le mani di chi la sta usando.
+
+La ricarica manuale SHALL essere l'UNICO percorso che naviga, SHALL forzare
+l'aggiramento della cache e SHALL avere un tetto ai tentativi.
+
+Una revisione UGUALE SHALL restare in silenzio: né annuncio né ricarica. E SHALL
+restare in silenzio anche quando la pagina ha caricato pezzi differiti con nomi
+diversi — quei nomi non sono una revisione.
+
+Un documento NON marcato SHALL essere fuori da questa regola per intero: è il
+pacchetto incorporato nel guscio nativo, che non ha da dove ricaricarsi.
+
+#### Scenario: una revisione diversa
+- **GIVEN** un fotogramma con revisione non corrispondente
+- **THEN** SHALL essere annunciato, e la pagina NON SHALL essere ricaricata
+
+#### Scenario: un documento non marcato
+- **GIVEN** il pacchetto incorporato nel guscio
+- **THEN** NON SHALL essere annunciato niente

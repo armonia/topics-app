@@ -1,3 +1,6 @@
+/**
+ * @covers POPOVER-01
+ */
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   closeAllPopovers,

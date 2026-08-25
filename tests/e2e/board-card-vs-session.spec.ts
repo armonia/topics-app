@@ -141,7 +141,10 @@ test.describe("Scheda del task e sessione dell'agente", () => {
     await beat(page, 2200);
 
     // (b) Il click nudo sulla card apre la SCHEDA — mai la sessione.
-    await cardVivo.click();
+    // Il titolo: il centro geometrico della card puo' essere occupato da un
+    // controllo in riga, e quel click non e' il «click nudo» che si vuole
+    // provare qui.
+    await cardVivo.getByText(TASK_VIVO).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 15000 });
     await expect(drawer).toContainText(TASK_VIVO);

@@ -1,3 +1,6 @@
+/**
+ * @covers ZOOM-01
+ */
 import { describe, it, expect } from 'bun:test';
 import {
   ZOOM_STEPS, DEFAULT_ZOOM, stepZoom, zoomApplyJs, parseZoomStyle, zoomDrifted,

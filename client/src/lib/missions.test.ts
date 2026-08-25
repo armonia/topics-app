@@ -1,3 +1,6 @@
+/**
+ * @covers MISSION-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { MISSIONS, missionPrompt } from './missions';
 import { pickMissionSession } from './missionTarget';

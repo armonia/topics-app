@@ -1,3 +1,6 @@
+/**
+ * @covers PANE-05
+ */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import {
   recordAction,

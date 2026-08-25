@@ -5,6 +5,7 @@
  * the indicator never flickers or reshuffles across React re-renders — and
  * guards the degenerate inputs (negative / NaN / Infinity) that a bad or
  * future message timestamp can produce.
+  * @covers THINK-05
  */
 import { describe, test, expect } from "bun:test";
 import { phraseAt, PHRASES, ROTATE_MS } from "./thinkingPhrases";

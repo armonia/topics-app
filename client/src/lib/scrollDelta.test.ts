@@ -1,3 +1,6 @@
+/**
+ * @covers SCROLLDELTA-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { scrollDelta, type Span } from './scrollDelta';
 

@@ -1,3 +1,6 @@
+/**
+ * @covers EXTERNAL-01
+ */
 import { test, expect, beforeEach, afterEach } from 'bun:test';
 import { openExternalOnce } from './openExternal';
 

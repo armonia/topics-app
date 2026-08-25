@@ -1,3 +1,6 @@
+/**
+ * @covers BUNDLE-RELOAD-01
+ */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
 /**

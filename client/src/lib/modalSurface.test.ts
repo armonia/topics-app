@@ -12,6 +12,7 @@
  *      soddisfare il selettore, e che i popover/menu continuino a NON farlo.
  *      Se qualcuno toglie `native-occlude` da `MODAL_PANEL`, o mette
  *      `glass-surface` su un modale, deve rompersi QUI.
+  * @covers MODAL-01
  */
 import { test, expect } from 'bun:test';
 import {

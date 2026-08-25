@@ -3,6 +3,7 @@
  * visited pages) have to come out as rows of the same type, mixed by time. If
  * one day either of them went back to travelling on its own, these cases turn
  * red before whoever is looking at the list ever notices.
+  * @covers HISTORY-01
  */
 import { describe, test, expect } from 'bun:test';
 import { buildHistoryRows } from './historyRows';

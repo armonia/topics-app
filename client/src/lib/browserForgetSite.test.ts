@@ -9,6 +9,7 @@
  * Né il nativo né il server ci sono, e non servono: `planForgetSite` e
  * `forgetSite` prendono il `SiteDataBackend` come parametro, ed è la stessa
  * interfaccia che alimenta il dialogo sulla pane nativa e su quella condivisa.
+  * @covers FORGET-02
  */
 import { test, expect } from 'bun:test';
 import {

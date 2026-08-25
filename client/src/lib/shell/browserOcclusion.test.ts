@@ -1,3 +1,6 @@
+/**
+ * @covers OCCLUSION-01
+ */
 import { test, expect, describe } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import {

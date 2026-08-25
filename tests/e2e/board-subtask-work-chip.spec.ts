@@ -141,7 +141,10 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(page.locator("[data-task-card]")).toHaveCount(1);
 
-    await card.click();
+    // Il TITOLO, non il centro della card: al centro di una card con dei
+    // controlli in riga ci sta un bottone, dentro un contenitore che ferma la
+    // propagazione, e il click non arriva mai alla card.
+    await card.getByText(EPICA).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 

@@ -8,6 +8,7 @@
  *     tempo, perche' sopra le ~26 lettere il passo si stringe da solo. Senza
  *     questo, la stessa animazione sarebbe elegante su «footer» e interminabile
  *     su un titolo lungo.
+  * @covers MORPH-01
  */
 import { describe, test, expect } from 'bun:test';
 

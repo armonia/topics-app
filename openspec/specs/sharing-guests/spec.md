@@ -303,3 +303,27 @@ accorgersi che un link è finito dove non doveva.
 #### Scenario: un link buono
 - **GIVEN** un link valido per una risorsa
 - **THEN** SHALL servire quella risorsa, e l'apertura SHALL essere registrata
+
+### Requirement: SHARED-AUTO-01 — Il passaggio a sessione condivisa non OSCILLA
+
+Una pane NATIVA SHALL voler passare alla sessione condivisa appena esiste un ALTRO
+spettatore.
+
+Una pane già CONDIVISA SHALL tornare nativa SOLO quando è l'ULTIMA a guardare.
+
+La differenza fra i due conti è che mentre è nativa la pane non tiene un proprio
+canale di flusso, mentre condivisa sì e quindi va SOTTRATTA: confondere i due conti
+è come nasce l'oscillazione, cioè una pane che entra ed esce dalla condivisione a
+ogni giro.
+
+Attraverso la transizione di ingresso e di uscita NON SHALL esserci oscillazione.
+
+Una pane condivisa che NON sta guardando NON SHALL sottrarsi dal conto.
+
+#### Scenario: un secondo spettatore arriva e poi se ne va
+- **GIVEN** una pane che entra in condivisione e poi resta sola
+- **THEN** NON SHALL oscillare fra i due stati
+
+#### Scenario: una pane condivisa che non guarda
+- **GIVEN** una pane in condivisione senza canale attivo
+- **THEN** NON SHALL sottrarsi dal conto

@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-62
+ */
 import { describe, expect, test } from 'bun:test';
 import { landedInColumn, statusSnapshot } from './columnFlash';
 import type { TaskStatus } from './board';

@@ -1,3 +1,6 @@
+/**
+ * @covers NOTIF-HIST-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { formatNotificationAge, mergeNotificationRow } from './history';
 import type { NotificationRow } from '../../../../shared/notification-log';

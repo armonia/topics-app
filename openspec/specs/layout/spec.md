@@ -931,3 +931,338 @@ componente.
 #### Scenario: un piano piccolo dentro una card
 - **GIVEN** un valore locale non a schermo intero
 - **THEN** NON SHALL essere segnalato
+
+### Requirement: DEEPLINK-01 — Un link che non porta da nessuna parte deve almeno DIRLO
+
+Il clic su un collegamento della propria origine dentro un testo formattato SHALL
+avere tre esiti, e NESSUNO dei tre SHALL essere il silenzio.
+
+Un vicolo cieco con niente di aperto SHALL aprire FUORI dall'app, in silenzio: è
+un ripiego che si vede.
+
+**Aperto a metà e poi arreso SHALL AVVISARE**, e NON SHALL aprire anche fuori. Era
+il terzo esito, ed era muto: la rotta interna apriva la finestra di progetto, il
+secondo salto si arrendeva, e non succedeva più niente — nessuna pane, nessun
+avviso, nessun ripiego.
+
+Una rotta riuscita NON SHALL produrre né avvisi né aperture esterne.
+
+Un collegamento a un task appartiene al proprio cassetto: NON SHALL produrre né
+avvisi né ripieghi da qui.
+
+Ciò che non è della propria origine — o una finestra staccata — SHALL andare al
+browser esterno.
+
+#### Scenario: la rotta si arrende dopo aver aperto qualcosa
+- **GIVEN** un primo salto riuscito e un secondo che fallisce
+- **THEN** SHALL comparire un avviso, e NON SHALL aprirsi niente fuori
+
+#### Scenario: un collegamento estraneo
+- **GIVEN** un collegamento a un'altra origine
+- **THEN** SHALL aprirsi nel browser esterno
+
+### Requirement: MODAL-01 — Con un modale aperto, Escape NON arriva al turno
+
+La regola che decide se Escape può interrompere il turno SHALL leggere il DOM, non
+un elenco scritto a mano: con un modale che quell'elenco non nominava — le
+impostazioni, l'elenco degli agenti, l'editor di profilo, la lente delle anteprime
+— Escape cadeva nel ramo «niente da chiudere» e ammazzava il turno in streaming
+dietro al modale.
+
+Nessun modale nel DOM SHALL lasciare Escape libero di interrompere il turno. UNO
+solo VISIBILE SHALL bastare a fermarlo, anche in mezzo a molti nascosti.
+
+Un modale montato ma NON disegnato NON SHALL contare.
+
+**Il velo di sfondo NON SHALL essere la superficie**: conta la card, non il velo.
+
+I popover e i menu NON SHALL essere modali: hanno il proprio Escape.
+
+Ogni marcatore di modale SHALL essere anche un marcatore di copertura nativa: è il
+legame che tiene insieme questa regola e quella delle viste native.
+
+#### Scenario: un modale nascosto
+- **GIVEN** un modale montato ma non disegnato
+- **THEN** Escape SHALL restare libero di interrompere il turno
+
+#### Scenario: un modale visibile
+- **GIVEN** almeno un modale disegnato
+- **THEN** Escape NON SHALL raggiungere l'interruzione del turno
+
+### Requirement: MOTION-01 — Le due copie della tabella del movimento restano UGUALI
+
+Durate e curve del movimento vivono in DUE posti — nel modulo, perché le
+animazioni scritte in codice lo importano, e come proprietà personalizzata nel
+foglio di stile, perché un fotogramma chiave non può importare un modulo. Due
+copie sono un debito: si cambia un numero di qua, si dimentica di là, e da quel
+momento la stessa cosa si muove a due velocità a seconda di chi la anima.
+
+OGNI durata del modulo SHALL esistere nel foglio di stile con lo STESSO numero, e
+ogni curva SHALL esistere con la STESSA definizione.
+
+Le durate SHALL stare in SCALA: un riscontro, una comparsa, uno spostamento, un
+viaggio, in quest'ordine crescente.
+
+L'animazione di un elemento SHALL essere un non-fare — senza sollevare — dove
+l'interfaccia di animazione non esiste, e chi ha chiesto MENO movimento NON SHALL
+vederne.
+
+#### Scenario: una durata cambiata in un solo posto
+- **GIVEN** un numero modificato nel modulo ma non nel foglio di stile
+- **THEN** la verifica SHALL fallire
+
+#### Scenario: chi ha chiesto meno movimento
+- **GIVEN** la preferenza di movimento ridotto
+- **THEN** NON SHALL essere animato niente
+
+### Requirement: MOTION-02 — La preferenza di movimento si chiede UNA volta, e si legge SEMPRE aggiornata
+
+Il punto NON è il valore restituito: è QUANTE VOLTE si costruisce un osservatore
+di media query. Il difetto misurato era più di settecento oggetti vivi in poco più
+di un'ora a schermo FERMO, e nasceva da una costruzione dentro un effetto senza
+dipendenze — cioè a ogni ridisegno. Una verifica sul solo valore sarebbe restata
+verde con il difetto dentro.
+
+SHALL essere costruito UN SOLO osservatore anche su migliaia di chiamate.
+
+La lettura SHALL restituire la preferenza CORRENTE, non quella dell'istante in cui
+l'osservatore è stato memorizzato: una cache del valore trasformerebbe un
+risparmio in un bug.
+
+La query interrogata SHALL essere quella giusta.
+
+Senza l'interfaccia delle media query SHALL rispondere «nessuna preferenza» e NON
+SHALL RITENTARE a ogni chiamata. Fuori dal browser SHALL rispondere lo stesso:
+chi non ha un sistema operativo non ha una preferenza.
+
+#### Scenario: mille chiamate
+- **GIVEN** mille letture consecutive
+- **THEN** SHALL essere costruito un solo osservatore
+
+#### Scenario: la preferenza cambia dopo la memorizzazione
+- **GIVEN** un cambio di preferenza a osservatore già costruito
+- **THEN** la lettura SHALL riportare il valore nuovo
+
+### Requirement: EXTERNAL-01 — Aprire fuori una volta sola
+
+L'apertura di un indirizzo fuori dall'app SHALL avvenire UNA volta per gesto. Una
+ripetizione RAVVICINATA dello STESSO indirizzo SHALL essere ingoiata: è la guardia
+contro il doppio clic, che altrimenti apre due finestre.
+
+Indirizzi DIVERSI NON SHALL essere mai deduplicati fra loro, e lo stesso indirizzo
+SHALL essere di nuovo apribile una volta trascorsa la finestra.
+
+Un indirizzo vuoto SHALL essere ignorato.
+
+L'apertura SHALL passare per la porta unica che conosce sia il guscio nativo sia
+il browser.
+
+#### Scenario: un doppio clic
+- **GIVEN** due aperture ravvicinate dello stesso indirizzo
+- **THEN** SHALL aprirsi una sola volta
+
+#### Scenario: due indirizzi diversi
+- **GIVEN** due aperture ravvicinate di indirizzi diversi
+- **THEN** SHALL aprirsi entrambe
+
+### Requirement: LAYOUT-25 — La tinta di una cella la decide il TIPO della pane, non il posto nell'albero
+
+Il fondo di una cella SHALL dipendere dal TIPO della pane che ospita, e NON dalla
+sua posizione nell'albero del riquadro.
+
+La pane del browser SHALL stare nel livello smerigliato insieme a chat e bacheca:
+l'unica parte che si vede è la striscia di comandi in cima — nessuna delle due
+barre ha un fondo proprio — e il contenuto web dipinge il proprio opaco per conto
+suo.
+
+Le pane che si dipingono il chrome da sole SHALL restare trasparenti.
+
+Il fondo OPACO SHALL restare dove c'è testo denso da tenere nitido.
+
+NESSUNA regola di foglio di stile SHALL decidere più questa tinta: la decisione sta
+in un posto solo.
+
+#### Scenario: una pane browser
+- **GIVEN** una cella che ospita una pane browser
+- **THEN** SHALL stare nel livello smerigliato
+
+#### Scenario: testo denso
+- **GIVEN** una cella che ospita testo denso
+- **THEN** il fondo SHALL restare opaco
+
+### Requirement: POPOVER-01 — Uno alla volta, ma un FIGLIO non caccia il genitore
+
+L'apertura di un popover ESCLUSIVO SHALL chiudere i FRATELLI e NON SHALL chiudere
+il GENITORE: se il trigger del nuovo vive DENTRO il pannello del vecchio, il
+vecchio è il suo contenitore e chiuderlo chiuderebbe anche il nuovo.
+
+Senza un trigger noto SHALL chiudere TUTTO: chi non ha un ancoraggio non può essere
+figlio di nessuno. Un riferimento non montato NON SHALL contare come contenitore.
+
+Un popover NON esclusivo NON SHALL cacciare nessuno e SHALL restare accanto agli
+altri.
+
+La registrazione SHALL contare, e la funzione restituita SHALL deregistrare. Un
+secondo popover esclusivo SHALL prendere il posto del primo, lasciandone UNO. Lo
+sfrattato SHALL uscire dal registro PRIMA di essere chiuso, e deregistrare uno già
+sfrattato NON SHALL scalare il conto di chi lo ha sostituito.
+
+Le sotto-superfici SHALL essere esposte separatamente. La chiusura di tutti SHALL
+svuotare il registro e chiudere tutto, sotto-superfici comprese.
+
+#### Scenario: un popover aperto da dentro un altro
+- **GIVEN** un trigger che vive nel pannello del popover già aperto
+- **THEN** il genitore NON SHALL essere chiuso
+
+#### Scenario: deregistrare uno già sfrattato
+- **GIVEN** un popover sostituito e poi deregistrato
+- **THEN** il conto di chi lo ha sostituito NON SHALL essere scalato
+
+### Requirement: SCROLLDELTA-01 — Si scorre di quel tanto che basta, e non si scorre se è già dentro
+
+Il calcolo dello scorrimento verso un bersaglio SHALL restituire ZERO quando il
+bersaglio è già dentro la finestra, e SHALL contare come dentro anche il bersaglio
+a FILO dei due bordi, senza margine.
+
+Oltre il bordo finale SHALL portare AVANTI quel tanto che basta; prima del bordo
+iniziale SHALL portare INDIETRO, cioè un valore negativo.
+
+Il margine SHALL STACCARE dal bordo invece di appoggiarci sopra il bersaglio.
+
+Un bersaglio più grande della finestra SHALL essere allineato al suo inizio,
+invece di restare irraggiungibile.
+
+I numeri SHALL essere quelli del riquadro visibile, che NON SHALL essere assunto
+partire da zero.
+
+#### Scenario: il bersaglio è già visibile
+- **GIVEN** un bersaglio interamente dentro la finestra
+- **THEN** lo scorrimento SHALL essere zero
+
+#### Scenario: un bersaglio più alto della finestra
+- **GIVEN** un bersaglio che non ci sta
+- **THEN** SHALL essere allineato al suo inizio
+
+### Requirement: CHROME-METRIC-01 — Le misure della striscia di comandi le dice UNA fonte
+
+Le misure della riga di chrome SHALL uscire tutte dalle stesse costanti, e la
+costante che dichiara i pixel SHALL dire DAVVERO i pixel della classe
+corrispondente: due fonti per la stessa misura si separano al primo ritocco.
+
+Il comando in coda SHALL lasciare alla riga la stessa aria della tab accanto, e
+il comando in testa SHALL avere lo STESSO incasso di quello in coda. Gli incassi
+orizzontali SHALL cadere su pixel INTERI.
+
+La riserva della striscia SHALL essere bordo più box più la stessa aria del bordo,
+e la riserva a SINISTRA SHALL essere quella specchiata.
+
+La riga subordinata SHALL essere box più UN solo incasso, e i due numeri SHALL
+uscire dalla stessa fonte. Il comando SHALL starci dentro la riga.
+
+Il margine di una card SHALL essere METÀ del passo di colonna, e SHALL stare
+scritto nella classe; il passo ORIZZONTALE SHALL essere lo stesso, dalla stessa
+costante; e mezzo passo SHALL essere un numero INTERO di pixel.
+
+Il box del comando in coda SHALL avere la stessa misura su entrambi i rami.
+
+Le due famiglie di altezza SHALL restare DUE, e NON SHALL sovrapporsi. La tab SHALL
+restare della misura del dito, e il soffitto SHALL uscire dal conto. Lo stile
+dell'etichetta SHALL essere il tipo più il colore, e NON una seconda scala.
+
+#### Scenario: mezzo passo di colonna
+- **GIVEN** il passo di colonna dichiarato
+- **THEN** la metà SHALL essere un numero intero di pixel
+
+#### Scenario: due famiglie di altezza
+- **GIVEN** l'altezza di riga e quella di card
+- **THEN** SHALL restare distinte
+
+### Requirement: TABOPEN-01 — Un permalink NON conia una pane: apre ciò che ESISTE
+
+Il collegamento a una superficie SHALL nascere sull'origine del SERVER quando è
+dichiarata, e su quella della pagina altrimenti. Un percorso di progetto NON SHALL
+mai finire NUDO nella URL. Un bersaglio incoerente NON SHALL produrre un
+collegamento: è il cancello della voce di menu.
+
+Il bersaglio SHALL essere riconosciuto solo sulla PROPRIA origine, in forma
+assoluta o relativa, e SHALL leggere anche gli alias storici — è un SOVRAINSIEME
+del bersaglio dei soli task. Un'origine estranea, o spazzatura, SHALL valere
+NIENTE, e chi chiama apre nel browser esterno.
+
+Ogni tipo SHALL avere il proprio ramo, tutti su eventi che l'app già gestisce: la
+chat porta il TOPIC e mai l'identificativo della pane; il terminale passa dalla
+porta che guarda ENTRAMBE le superfici; il progetto apre o mette a fuoco la propria
+finestra; il task delega al cassetto, che è già l'unico proprietario di quella
+rotta. Una chiave vuota o un tipo ignoto SHALL AVVISARE e NON SHALL materializzare
+niente.
+
+**Un soggetto NON CONFERMATO NON SHALL MAI diventare una pane.** Un topic, un
+progetto, una sessione di terminale che il server non conosce NON SHALL emettere
+niente e NON SHALL rubare il fuoco; un file SHALL essere verificato sul PROGETTO
+che lo ospita. Un SÌ SHALL essere ricordato, un NO NO: la domanda non si ripete a
+ogni riasserzione.
+
+**La guardia SHALL rifiutare il NOTO-CATTIVO, non ciò che non ha potuto
+verificare.** Server irraggiungibile, risposta non riuscita, corpo illeggibile:
+SHALL instradare LO STESSO e DIRLO. Un «non ho potuto chiedere» NON SHALL
+sedimentarsi in cache come un sì, e il ritentativo NON SHALL applicarsi a un «non
+esiste» — è una risposta, ripeterla non la cambia.
+
+Un file o un confronto SHALL fare DUE salti, e il secondo SHALL aspettare la
+finestra; una finestra che non si monta mai SHALL esaurire il ritentativo e
+AVVISARE — e quell'avviso NON SHALL valere «non ho aperto niente», perché il primo
+salto è già scattato. Senza il progetto ospite un file NON è indirizzabile.
+
+L'intento di FUOCO NON SHALL essere armato per un bersaglio privo di
+identificativo di pane deterministico. Una pane browser esiste già e va TROVATA,
+non coniata: il fuoco lo dà lo store; se nessuna superficie la possiede ma
+appartiene a un TASK SHALL essere aperto il task; senza superficie e senza indizio
+SHALL essere AVVISATO; e un riquadro persistito che la contiene senza saperla
+nominare NON SHALL produrre un falso allarme.
+
+Il consumo della rotta dalla URL SHALL aprire il bersaglio e poi RIPULIRE la
+rotta per SOSTITUZIONE, mai per aggiunta; una rotta illeggibile SHALL essere
+consumata comunque, per non ripresentarsi; NON SHALL toccare gli alias; senza
+permalink SHALL essere un non-fare; e SHALL restituire l'annullatore SOLO se ha
+armato qualcosa. In una finestra STACCATA NON SHALL toccare la URL, NON SHALL
+instradare e NON SHALL persistere niente: il collegamento va al browser esterno.
+
+L'apertura dopo l'idratazione NON SHALL instradare NIENTE finché lo stato non è
+arrivato; con l'idratazione già avvenuta SHALL aprire subito senza aspettare il
+ripiego; un'idratazione che non arriva MAI SHALL comunque far scattare il ripiego
+a tempo; e SHALL aprirsi UNA volta sola. Annullato NON SHALL aprire nemmeno quando
+l'idratazione arriva.
+
+#### Scenario: un topic che il server non conosce
+- **GIVEN** un permalink verso un soggetto inesistente
+- **THEN** NON SHALL essere emesso niente e NON SHALL nascere nessuna pane
+
+#### Scenario: il server non risponde
+- **GIVEN** la verifica del soggetto impossibile
+- **THEN** SHALL essere instradato lo stesso, dichiarando che non si è potuto chiedere
+
+### Requirement: MORPH-01 — Si animano solo le lettere NUOVE, dentro un BUDGET
+
+Quando una frase viene riscritta SHALL essere animato SOLO il pezzo cambiato: il
+prefisso e il suffisso in comune sono la parte che dice «è sempre lo stesso», e NON
+SHALL muoversi.
+
+Un testo identico NON SHALL avere niente da animare. Una coda aggiunta SHALL
+animare solo la coda. Una parola cambiata in mezzo SHALL lasciare fermi i due capi.
+Una riscrittura che ha solo TOLTO NON SHALL avere lettere da far entrare. Un testo
+che compare per la PRIMA volta NON SHALL essere trattato come una riscrittura.
+
+La durata SHALL essere un BUDGET: una parola e una riga intera SHALL costare lo
+STESSO tempo, perché oltre una soglia il passo si stringe da sé. Senza questo, la
+stessa animazione sarebbe elegante su una parola e interminabile su una frase.
+
+La scomposizione in parole SHALL tenere le parole INTERE e trattare gli spazi come
+pezzi a sé. Senza niente da spezzare SHALL uscire vuota.
+
+#### Scenario: una parola cambiata in mezzo
+- **GIVEN** due frasi che differiscono solo al centro
+- **THEN** i due capi NON SHALL muoversi
+
+#### Scenario: una riga intera
+- **GIVEN** una riscrittura molto lunga
+- **THEN** SHALL restare dentro lo stesso budget di tempo

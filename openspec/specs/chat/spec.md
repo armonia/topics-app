@@ -2358,3 +2358,48 @@ puntatore appeso.
 #### Scenario: solo una chiamata di strumento
 - **GIVEN** nessun testo ma uno strumento eseguito
 - **THEN** la bolla SHALL restare
+
+### Requirement: CHAT-COMPACT-02 — Il riassunto della compattazione si SEPARA dalla prosa
+
+Il corpo di un messaggio che porta il riepilogo automatico della compattazione
+SHALL essere spezzato in due: la prosa vera, che resta visibile, e il riepilogo,
+che diventa richiudibile. È il cancello che tiene ventiquattro chilobyte di
+riepilogo fuori dalla conversazione.
+
+Un messaggio interamente di riepilogo SHALL lasciare la prosa VUOTA e il riepilogo
+intero. Prosa seguita dal riepilogo SHALL produrre entrambi, ciascuno per intero.
+
+Senza preambolo il testo SHALL passare INTATTO e il riepilogo SHALL essere assente
+— non una stringa vuota, che è un riquadro richiudibile senza niente dentro. Un
+testo vuoto NON SHALL produrre nessun riepilogo.
+
+#### Scenario: un messaggio tutto di riepilogo
+- **GIVEN** un corpo che è solo il riepilogo
+- **THEN** la prosa SHALL essere vuota e il riepilogo SHALL essere il testo
+
+#### Scenario: un messaggio normale
+- **GIVEN** un corpo senza riepilogo
+- **THEN** SHALL passare intatto, senza riepilogo
+
+### Requirement: THINK-05 — La frase di attesa non tremola
+
+La frase mostrata mentre il turno lavora SHALL dipendere SOLO dal tempo trascorso:
+lo stesso tempo SHALL dare sempre la stessa frase, così l'indicatore non tremola né
+si rimescola quando l'interfaccia si ridisegna.
+
+SHALL partire dalla prima frase e tenerla per tutta la prima finestra, avanzare di
+UN passo per finestra, e ricominciare dopo l'ultima.
+
+Un tempo non valido — negativo, non numerico, infinito, come può produrlo un
+istante sbagliato o futuro — SHALL degradare alla prima frase, non a un indice
+fuori elenco.
+
+L'insieme delle frasi SHALL essere non banale e privo di voci vuote.
+
+#### Scenario: lo stesso tempo trascorso
+- **GIVEN** due letture allo stesso istante trascorso
+- **THEN** SHALL dare la stessa frase
+
+#### Scenario: un istante futuro
+- **GIVEN** un tempo trascorso negativo
+- **THEN** SHALL essere mostrata la prima frase

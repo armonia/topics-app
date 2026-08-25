@@ -1,3 +1,6 @@
+/**
+ * @covers CHROME-METRIC-01
+ */
 import { describe, expect, test } from 'bun:test';
 import {
   CHROME_ROW_ACTION_INSET,

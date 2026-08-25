@@ -1,3 +1,6 @@
+/**
+ * @covers SAFEAREA-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { alzataCurva, curvaturaEsterna, formaFila, pavimentoFila, raggioSchermo } from './safeAreaArc';
 

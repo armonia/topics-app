@@ -330,3 +330,47 @@ funzionare anche dalla forma compressa.
 #### Scenario: un valore sotto la soglia
 - **GIVEN** un contenuto breve
 - **THEN** NON SHALL essere compresso
+
+### Requirement: NETSHIM-01 — Lo strato di rete si installa SOLO dove riscrivere serve
+
+Lo strato che riscrive gli indirizzi relativi esiste per il guscio nativo, dove
+l'interfaccia vive su un'origine diversa da quella del server dei dati. FUORI da
+quel guscio la riscrittura sarebbe un non-fare: lo strato NON SHALL essere
+installato, e il browser SHALL restare senza modifiche al proprio metodo di rete.
+
+L'installazione SHALL essere IDEMPOTENTE su entrambi i lati: due chiamate NON SHALL
+impilare due involucri — e NON SHALL impilarne nemmeno quando è un non-fare.
+
+NESSUN intestazione di token SHALL essere aggiunta: l'appaiamento è stato rimosso, e
+un'intestazione che sopravvive alla funzione che la giustificava è un segreto che
+viaggia senza motivo.
+
+#### Scenario: fuori dal guscio nativo
+- **GIVEN** l'app in un browser normale
+- **THEN** NON SHALL essere installato nessuno strato, e l'indirizzo SHALL restare relativo
+
+#### Scenario: due installazioni
+- **GIVEN** la funzione di installazione chiamata due volte
+- **THEN** SHALL esistere un solo involucro
+
+### Requirement: NETSHIM-02 — Sotto il guscio nativo la riscrittura preserva ciò che il chiamante ha messo
+
+Sotto il guscio nativo una richiesta RELATIVA SHALL essere riscritta sull'origine
+del proxy locale.
+
+Le intestazioni messe dal punto di chiamata SHALL essere PRESERVATE: l'identificativo
+del client è ciò che tiene in sincronia lo store delle pane, e perderlo nella
+riscrittura è un difetto che si manifesta lontano da qui.
+
+La riscrittura SHALL avvenire anche quando l'ingresso è un oggetto richiesta e non
+una stringa.
+
+Un indirizzo ASSOLUTO verso un'ALTRA origine SHALL passare INTATTO.
+
+#### Scenario: una richiesta con intestazioni proprie
+- **GIVEN** una chiamata che porta l'identificativo del client
+- **THEN** l'intestazione SHALL sopravvivere alla riscrittura
+
+#### Scenario: un indirizzo verso un'altra origine
+- **GIVEN** un indirizzo assoluto esterno
+- **THEN** SHALL passare intatto

@@ -183,3 +183,66 @@ lo spazio.
 #### Scenario: spazio ridicolo
 - **GIVEN** uno spazio residuo inferiore al minimo
 - **THEN** il pannello SHALL scorrere, non ridursi a una fessura
+
+### Requirement: HAPTIC-01 — La micro-vibrazione ha UNA porta, e non risale mai al gesto
+
+La micro-vibrazione SHALL passare per una porta UNICA. Dove l'interfaccia di
+vibrazione esiste, la pulsazione SHALL partire davvero; i tre livelli SHALL essere
+tre DURATE diverse, e il livello predefinito SHALL essere il più leggero.
+
+Dove quell'interfaccia NON esiste SHALL essere usato il ripiego nativo. Il
+ripiego SHALL creare UN SOLO elemento per quante volte lo si chiami, e NON SHALL
+lasciare lo stato sporco: dopo lo scatto SHALL essere spento. Fuori da quella
+piattaforma NON SHALL nascere nessun elemento.
+
+**Se la piattaforma SOLLEVA, l'eccezione NON SHALL risalire al gesto**: una
+vibrazione mancata non è un motivo per non premere un bottone.
+
+#### Scenario: la piattaforma solleva
+- **GIVEN** un'interfaccia di vibrazione che lancia
+- **THEN** il gesto SHALL completarsi comunque
+
+#### Scenario: dieci chiamate al ripiego
+- **GIVEN** dieci invocazioni consecutive sul ripiego nativo
+- **THEN** SHALL esistere un solo elemento
+
+### Requirement: SAFEAREA-01 — Sugli schermi con gli angoli tondi la fila segue l'ARCO, non una regola inventata
+
+Il raggio dello schermo SHALL essere DEDOTTO dalla fascia sicura quando non è
+dichiarato, e SHALL essere ZERO dove la fascia non c'è: uno schermo squadrato non
+ha un arco da seguire. Un raggio DICHIARATO SHALL battere la stima; uno dichiarato
+non valido NO.
+
+L'alzata dovuta all'arco SHALL essere massima sul bordo e nulla alla fine
+dell'arco, SHALL essere MONOTONA con la distanza dal bordo, e a metà raggio SHALL
+valere la corda del cerchio, non la metà del raggio. Con raggio zero SHALL essere
+sempre zero.
+
+Un angolo TONDO SHALL pagare MENO o quanto un angolo appuntito a ogni distanza, e
+un angolo tondo quanto l'arco NON SHALL pagare niente — è lo stesso cerchio. Fuori
+dall'arco NESSUNO SHALL essere alzato.
+
+Il pavimento della fila SHALL essere un MINIMO, non un addendo: NON SHALL mai
+scendere sotto il respiro standard, nemmeno con una fascia sottile, e con una
+fascia piena SHALL abitare la banda.
+
+Il raggio esterno SHALL essere CONCENTRICO a quello dello schermo meno il gioco
+DENTRO l'arco, standard FUORI dall'arco — è ciò che tiene squadrato quello in
+mezzo — con la MEZZA ALTEZZA come tetto, e NON SHALL MAI scendere sotto lo
+standard.
+
+Nella fila risultante gli estremi SHALL salire e quello in mezzo SHALL restare sul
+pavimento; la curva SHALL stare agli estremi e MAI in mezzo, su qualunque
+larghezza; l'alzata SHALL essere misurata sull'angolo ESTERNO e non sul centro; e
+NESSUNA scatola SHALL finire sotto il pavimento.
+
+Su uno schermo squadrato la fila SHALL essere DRITTA e tutta standard, senza rami
+dedicati.
+
+#### Scenario: uno schermo squadrato
+- **GIVEN** nessuna fascia sicura
+- **THEN** la fila SHALL essere dritta e tutta standard
+
+#### Scenario: un angolo tondo a filo del bordo
+- **GIVEN** una scatola con angolo tondo sul bordo
+- **THEN** SHALL pagare meno di una con angolo appuntito

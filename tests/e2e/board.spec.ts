@@ -166,10 +166,10 @@ test.describe("Kanban board", () => {
     for (const status of ["backlog", "todo", "in_progress", "review", "done"]) {
       await expect(page.getByTestId(`kanban-column-${status}`)).toBeVisible();
     }
-    // The "agent: off" pill was removed (refactor 75712097 — it duplicated the
-    // dropdown); dispatch now lives in the header's GlobalSettingsMenu. Verify
-    // that control is present and that auto-dispatch defaults OFF.
-    const dispatchMenu = page.getByTitle(/Impostazioni dispatch/);
+    // Il ▾ accanto al titolo — che era un SECONDO ingresso alle stesse
+    // impostazioni, con una copia propria dello stato — e' stato tolto in
+    // 2f5be1ef6. Resta UNA porta sola: il ⚙, titolo `board.toolbar.dispatchSettings`.
+    const dispatchMenu = page.getByTitle(/Impostazioni auto-dispatch/);
     await expect(dispatchMenu).toBeVisible();
     await dispatchMenu.click();
     const autoDispatch = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
@@ -289,11 +289,10 @@ test.describe("Kanban board", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    // The "agent: off" pill this test used to click was removed in refactor
-    // 75712097 (it duplicated the dropdown) — same stale-selector fix BOARD-01
-    // already got. The BEHAVIOUR under test is unchanged: one GLOBAL switch for
-    // every board, whose state survives the PATCH round-trip.
-    const dispatchMenu = page.getByTitle(/Impostazioni dispatch/);
+    // Stessa porta unica di BOARD-01 (il ▾ e' sparito in 2f5be1ef6). Il
+    // COMPORTAMENTO sotto esame non cambia: un solo interruttore GLOBALE per
+    // ogni board, il cui stato sopravvive al giro attraverso il server.
+    const dispatchMenu = page.getByTitle(/Impostazioni auto-dispatch/);
     await expect(dispatchMenu).toBeVisible({ timeout: 10000 });
     await dispatchMenu.click();
     const autoDispatch = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
@@ -555,10 +554,16 @@ test.describe("Kanban board", () => {
     await drawer.getByPlaceholder("+ sottotask…").press("Enter");
     await expect(drawer.getByTestId("task-detail-subtasks").getByText(subText)).toBeVisible({ timeout: 10000 });
 
-    // The parent shows the counter chip; the step is NOT a card of its own —
-    // subtasks are the parent's checklist (drawer tree), never board cards.
+    // Il padre porta lo step ADDOSSO, e lo step NON e' una card sua —
+    // i sottotask sono la checklist del padre (albero del drawer), mai card.
+    //
+    // Il chip compatto `↳ fatti/totale` non e' piu' cio' che si vede qui: da
+    // quando la card disegna la checklist (fino a cinque righe, il resto dietro
+    // «Vedi tutti»), quel chip e' la RICADUTA per la card i cui figli non sono
+    // ancora arrivati. Con i figli caricati — che e' il caso, l'asserzione
+    // sopra li ha appena visti nel drawer — si vede la RIGA.
     const parentCard = page.getByTestId("kanban-column-in_progress").locator("div.group", { hasText: text });
-    await expect(parentCard.getByText("↳ 0/1")).toBeVisible({ timeout: 10000 });
+    await expect(parentCard.getByText(subText)).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("kanban-column-backlog").getByText(subText)).not.toBeVisible();
 
     // Structural gate: a parent with open subtasks cannot be closed.

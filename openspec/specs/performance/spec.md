@@ -135,3 +135,84 @@ banco.
 - **GIVEN** una misura di cicli ripetuti entro i budget
 - **WHEN** il cancello la giudica
 - **THEN** esce zero
+
+### Requirement: COALESCE-01 — Il primo evento NON aspetta, la raffica costa DUE letture
+
+Chi ha appena mosso qualcosa NON SHALL aspettare: il primo evento di una raffica
+SHALL far partire la lettura SUBITO. Gli eventi che arrivano nella stessa finestra
+SHALL costare UNA seconda lettura in coda, non una per evento.
+
+La lettura finale SHALL avvenire sempre DOPO l'ultimo evento della finestra:
+altrimenti è la penultima verità a restare sullo schermo. Nessun evento durante la
+finestra SHALL significare nessuna lettura in coda. Chiusa la finestra, un evento
+nuovo SHALL ripartire subito.
+
+Una risposta SUPERATA NON SHALL scrivere sopra una più recente: due letture che
+tornano invertite SHALL lasciare nello store quella emessa per ULTIMA. È il difetto
+che non si vede — lo schermo mostra un dato vecchio e sembra solo lento.
+
+Lo smontaggio SHALL spegnere la coda e ogni evento successivo: un lettore smontato
+NON SHALL scrivere.
+
+Un errore in una lettura NON SHALL bloccare quelle successive.
+
+#### Scenario: ventiquattro eventi nella stessa finestra
+- **GIVEN** una raffica di eventi ravvicinati
+- **THEN** SHALL costare due letture, non una per evento
+
+#### Scenario: due letture che tornano invertite
+- **GIVEN** la risposta più vecchia che arriva per ultima
+- **THEN** nello store SHALL restare quella emessa per ultima
+
+### Requirement: FPS-01 — Il numero dei fotogrammi è VERO, e a riposo la sonda DORME
+
+Il frame rate riportato SHALL essere quello VERO, senza lo scarto di uno che nasce
+dal contare i confini invece degli intervalli: se il numero mente, ogni diagnosi
+che ci si appoggia parte storta.
+
+A RIPOSO la sonda SHALL DORMIRE fra una raffica e l'altra — è tutto il punto di non
+contare i fotogrammi a tempo pieno. In modalità attiva le finestre consecutive
+SHALL concatenarsi senza perdere un fotogramma al cambio.
+
+Lo smontaggio SHALL fermare il ciclo.
+
+La sonda NON SHALL misurare quando la finestra è visibile ma NON a fuoco. Senza il
+modo di sapere se la finestra è a fuoco SHALL CONTINUARE a misurare, invece di
+spegnersi in silenzio: una sonda spenta che sembra accesa è peggio di una sonda
+che misura di più.
+
+#### Scenario: schermo fermo
+- **GIVEN** nessun cambiamento sullo schermo
+- **THEN** la sonda SHALL dormire fra una raffica e l'altra
+
+#### Scenario: finestra visibile ma non a fuoco
+- **GIVEN** la finestra in secondo piano ma visibile
+- **THEN** NON SHALL essere misurato niente
+
+### Requirement: FOOTPRINT-01 — Due metà non misurate NON fanno zero
+
+L'impronta di memoria SHALL sommare il lato del dispositivo e il lato del server, e
+quando UNA delle due non è misurabile il totale SHALL essere dichiarato PARZIALE,
+non ridotto in silenzio.
+
+**Quando NESSUNA delle due è misurata NON SHALL uscire un numero.** Zero megabyte e
+zero per cento sono affermazioni, e sono false: dicono «non consuma niente» dove la
+verità è «non lo so». Un'app FERMA invece misura zero davvero, e quello zero SHALL
+restare, non sparire.
+
+Gli script SHALL essere esclusi dal totale.
+
+Lo smorzamento SHALL attenuare l'oscillazione del lato server. Un campione MANCANTE
+NON SHALL entrare nella media come zero, e lo stesso campione letto due volte NON
+SHALL far avanzare la media: sono i due modi in cui una media si racconta una
+storia.
+
+L'etichetta della metrica SHALL dichiarare COSA è stato misurato.
+
+#### Scenario: nessuna delle due metà misurata
+- **GIVEN** né il dispositivo né il server misurabili
+- **THEN** NON SHALL uscire nessun numero
+
+#### Scenario: lo stesso campione due volte
+- **GIVEN** una lettura ripetuta identica
+- **THEN** la media NON SHALL avanzare

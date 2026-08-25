@@ -5,6 +5,7 @@
  * è davvero cambiato, e il confronto sbagliato non produce un errore rumoroso —
  * produce una schermata che resta com'era. È il modo peggiore in cui un difetto
  * si presenta, perché somiglia a «non è successo niente».
+  * @covers SESSION-01
  */
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import {

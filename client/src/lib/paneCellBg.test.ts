@@ -1,3 +1,6 @@
+/**
+ * @covers LAYOUT-25
+ */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';

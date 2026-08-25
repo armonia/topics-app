@@ -133,3 +133,27 @@ Il manifesto SHALL restare VALIDO: una chiave orfana lo rompe in silenzio.
 #### Scenario: una chiave orfana
 - **GIVEN** un manifesto sbilanciato
 - **THEN** il banco SHALL fallire
+
+### Requirement: STT-05 — La voce entra dove sta il cursore, e il cursore resta DOPO
+
+Il testo trascritto SHALL essere inserito nel punto del cursore, e il cursore
+SHALL restare DOPO il pezzo appena inserito: è ciò che rende ripetibile una
+dettatura in due riprese, che è il modo normale di dettare una frase lunga.
+
+NIENTE SHALL andare perso: a metà frase SHALL separare da ENTRAMBI i lati senza
+mangiare la coda.
+
+Lo spazio che il trascrittore non manda SHALL essere aggiunto in coda a del testo
+esistente, e NON SHALL essere inventato in un campo vuoto. Gli spazi già presenti
+NON SHALL essere raddoppiati. Un a capo SHALL valere come spazio: la voce non si
+incolla alla riga di sopra.
+
+Un cursore FUORI SCALA SHALL essere ristretto, non SHALL tagliare il testo.
+
+#### Scenario: dettatura in due riprese
+- **GIVEN** un secondo inserimento dopo il primo
+- **THEN** il cursore SHALL restare dopo il pezzo appena inserito
+
+#### Scenario: un cursore fuori scala
+- **GIVEN** una posizione oltre la fine del testo
+- **THEN** SHALL essere ristretta, senza tagliare niente

@@ -222,3 +222,59 @@ colonna era letta in otto punti e scritta in nessuno.
 #### Scenario: un gruppo revocato
 - **GIVEN** la revoca del gruppo
 - **THEN** NON SHALL restare la capacità di amministrarlo
+
+### Requirement: SESSION-01 — «Chi sono» avvisa solo quando è cambiato qualcosa che si guarda
+
+Lo stato di sessione del client SHALL vivere FUORI dal ciclo di disegno, e chi si
+iscrive SHALL ricevere SUBITO lo stato corrente, non solo i cambiamenti
+successivi.
+
+La notifica SHALL essere DEDUPLICATA sul contenuto: la stessa risposta due volte
+NON SHALL risvegliare nessuno. Un confronto sbagliato qui non produce un errore
+rumoroso — produce una schermata che resta com'era, che è il modo peggiore in cui
+un difetto si presenta.
+
+La deduplica SHALL guardare TUTTI i campi che qualcuno mostra: il motivo, il
+RUOLO, la PERSONA e il nome dell'installazione. Un cambio di ruolo a parità di
+nome, o di persona a parità di tutto il resto, SHALL risvegliare i sottoscrittori.
+
+«Mai entrato» e «revocato» SHALL essere due cartelli DISTINTI, e un codice
+sconosciuto SHALL ricadere su «mai entrato». La rete giù NON SHALL valere «non
+appaiato».
+
+Un server che non dichiara il ruolo SHALL valere OSPITE, mai proprietario. Un
+server che non manda la persona o il nome dell'installazione NON SHALL far
+esplodere niente, e un rifiuto qualunque NON SHALL CANCELLARE il nome già noto.
+
+Disiscriversi SHALL fermare le notifiche.
+
+#### Scenario: la stessa risposta due volte
+- **GIVEN** due letture identiche consecutive
+- **THEN** i sottoscrittori NON SHALL essere richiamati
+
+#### Scenario: il ruolo cambia a parità di nome
+- **GIVEN** un passaggio da proprietario a ospite con lo stesso nome
+- **THEN** i sottoscrittori SHALL essere avvisati
+
+### Requirement: AUTHERR-01 — Ogni codice di rifiuto dell'autenticazione ha una frase VERA, in entrambe le lingue
+
+Ogni codice di rifiuto delle porte di autenticazione SHALL avere una frase
+corrispondente in ENTRAMBE le lingue, e le due frasi NON SHALL essere identiche:
+una copia dell'italiano nel campo inglese è una traduzione mancante travestita da
+traduzione presente.
+
+Il server NON SHALL mandare prosa nel campo dell'errore. È già successo: la
+schermata di condivisione stampava una frase italiana sotto un titolo inglese.
+Tolta la prosa, il rischio si sposta su un codice NUOVO che arriva senza
+traduzione — e quel caso SHALL essere ROSSO, non un pannello muto.
+
+Un codice che l'interfaccia non conosce NON SHALL lasciare il pannello senza
+testo: SHALL esserci comunque una frase di ripiego.
+
+#### Scenario: un codice senza traduzione
+- **GIVEN** un codice di rifiuto privo della frase in una delle due lingue
+- **THEN** la verifica SHALL fallire
+
+#### Scenario: un codice sconosciuto all'interfaccia
+- **GIVEN** un codice che l'interfaccia non riconosce
+- **THEN** SHALL comparire comunque una frase, non un pannello vuoto

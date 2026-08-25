@@ -3,6 +3,7 @@
  * ~24 KB auto-compaction recap from dumping into the visible chat: it slices a
  * message body into the real prose (`before`) and the foldable summary
  * (`summary`). Pin the split points and the no-op cases.
+  * @covers CHAT-COMPACT-02
  */
 import { describe, test, expect } from "bun:test";
 import { splitCompactionSummary, COMPACTION_PREAMBLE } from "./compactionSummary";

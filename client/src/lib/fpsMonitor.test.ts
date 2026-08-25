@@ -1,3 +1,6 @@
+/**
+ * @covers FPS-01
+ */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { getFps, requestActive, subscribe } from './fpsMonitor';
 

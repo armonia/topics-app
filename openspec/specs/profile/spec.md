@@ -223,3 +223,59 @@ essere disabilitati.
 #### Scenario: nessun tolto
 - **GIVEN** nessuna persona revocata
 - **THEN** NON SHALL essere disegnato nessun titolo
+
+### Requirement: AUTHOR-01 — Sullo schermo va un NOME, l'identità resta nel dettaglio
+
+La riga di chi ha scritto SHALL mostrare un NOME leggibile, e MAI un ruolo di
+sistema o un identificativo. Le tre righe che questo esiste per correggere sono
+«user» dove l'app sa il nome, «dispatcher» dove ha agito l'app, e otto caratteri
+di identificativo dove va un nome.
+
+Le righe della persona che sta guardando SHALL portare il SUO nome. Senza un
+proprietario noto SHALL restare una PERSONA generica, non un ruolo di sistema.
+
+Un agente NON SHALL mostrare il proprio esadecimale, ma SHALL conservarlo PER
+INTERO nel dettaglio che il chiamante mette nel suggerimento: il nome sta sullo
+schermo, l'identità sta nel dettaglio, e niente si perde per strada.
+
+Una FRASE non è un nome: SHALL ricadere sul generico invece di stamparne metà.
+Chi verifica SHALL avere un nome proprio, distinto sia dalla persona sia
+dall'agente.
+
+Nessun nome SHALL essere MAI vuoto, per qualunque cosa arrivi dal disco. Ogni
+chiave di nome SHALL esistere nel dizionario.
+
+#### Scenario: un agente
+- **GIVEN** una riga scritta da un agente
+- **THEN** SHALL mostrare un nome, e l'identificativo SHALL restare intero nel dettaglio
+
+#### Scenario: dati storti sul disco
+- **GIVEN** un autore illeggibile
+- **THEN** il nome mostrato NON SHALL essere vuoto
+
+### Requirement: BANNER-SHARE-01 — Un link che funziona solo su questo computer NON è condivisibile, e lo DICE
+
+Il markdown del banner del profilo SHALL essere costruito sull'origine con cui
+qualcun altro può raggiungerlo, e quando quell'origine NON è pubblica il testo
+copiato SHALL essere ACCOMPAGNATO da un avviso.
+
+Il difetto non si risolve inventando un dominio: finché il banner esce da una
+macchina personale, nessuna stringa lo rende raggiungibile. Si risolve DICENDOLO,
+prima di incollare — perché altrimenti si scopre solo dopo, che è il momento
+peggiore.
+
+SHALL contare come NON pubblici il nome locale della macchina, l'indirizzo di
+ciclo interno e gli indirizzi di rete locale: sono tutti indirizzi che dentro un
+documento condiviso diventano un'immagine rotta per chiunque, chi ha copiato
+compreso appena apre quel documento da un altro computer.
+
+Il nome SHALL finire nella query correttamente codificato e NON SHALL rompere il
+markdown. Senza nome NON SHALL essere scritta una query vuota.
+
+#### Scenario: da un indirizzo locale
+- **GIVEN** l'app aperta su un indirizzo non raggiungibile da fuori
+- **THEN** il markdown SHALL esserci, accompagnato dall'avviso
+
+#### Scenario: da un indirizzo pubblico
+- **GIVEN** un'origine raggiungibile da fuori
+- **THEN** il markdown SHALL essere pronto, senza avvisi

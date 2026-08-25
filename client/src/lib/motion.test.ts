@@ -10,6 +10,7 @@
  * Il debito lo paga questo file: legge il CSS come TESTO e lo confronta con le
  * costanti. Non c'e' un modo piu' furbo (non c'e' un DOM in `bun test`, e non
  * serve: qui si controlla il SORGENTE, che e' quello che si sbaglia a mano).
+  * @covers MOTION-01
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';

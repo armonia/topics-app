@@ -1,3 +1,6 @@
+/**
+ * @covers FOOTPRINT-01
+ */
 import { test, expect, describe, beforeEach } from 'bun:test';
 import {
   computeTopicsFootprint,

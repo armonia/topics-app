@@ -2269,3 +2269,87 @@ qualunque.
 #### Scenario: un titolo con caratteri speciali
 - **GIVEN** un testo che contiene caratteri del formato
 - **THEN** il file SHALL restare valido
+
+### Requirement: KANBAN-62 — Lampeggia l'ATTRAVERSAMENTO, non lo stato
+
+Una card SHALL lampeggiare quando ATTRAVERSA un confine di colonna, e NON SHALL
+lampeggiare per il fatto di TROVARSI in quella colonna: è la transizione a essere
+l'informazione.
+
+Il PRIMO caricamento NON SHALL far lampeggiare niente — una lista appena arrivata
+non è una lista che si è mossa — e una card mai vista prima NON SHALL lampeggiare.
+
+Una card ferma nella propria colonna NON SHALL rilampeggiare a ogni rilettura.
+
+OGNI confine SHALL contare, non solo l'ultimo: e una card riaperta che poi torna
+SHALL lampeggiare a ogni attraversamento.
+
+Più card mosse insieme — da una diramazione o da un altro dispositivo — SHALL
+lampeggiare TUTTE.
+
+Il lampeggio SHALL dichiarare la colonna di arrivo.
+
+#### Scenario: il primo caricamento
+- **GIVEN** la lista appena arrivata
+- **THEN** niente SHALL lampeggiare
+
+#### Scenario: una card ferma
+- **GIVEN** riletture successive senza movimenti
+- **THEN** la card NON SHALL rilampeggiare
+
+### Requirement: TASKLINK-01 — Il permalink di un task è un PERCORSO, e la forma vecchia continua a funzionare
+
+Il collegamento a un task SHALL essere un PERCORSO pulito, senza query e senza
+caratteri codificati, e SHALL fare il giro completo costruzione → lettura. Una
+barra finale SHALL essere tollerata; un percorso malformato SHALL essere
+rifiutato.
+
+La forma storica con la query SHALL continuare a essere LETTA, e SHALL essere
+spezzata sul PRIMO separatore. Un collegamento che porta entrambe le forme SHALL
+far vincere il percorso.
+
+Il bersaglio SHALL essere riconosciuto solo sulla PROPRIA origine: un'origine
+estranea, o un indirizzo che non è un task, SHALL valere NIENTE — e chi chiama
+ripiega sull'apertura fuori dall'app.
+
+L'apertura SHALL riflettersi nella URL con una SOSTITUZIONE quando la forma
+storica va aggiornata, e con un'aggiunta altrimenti; già riflessa NON SHALL essere
+ripetuta a vuoto, e in una finestra-gruppo NON SHALL ripetersi. La chiusura SHALL
+tornare alla radice, e già alla radice SHALL essere un non-fare. La riflessione NON
+SHALL cancellare ciò che non le appartiene.
+
+Il ritorno indietro e avanti del browser SHALL riportare il bersaglio a chi
+ascolta, e la disiscrizione SHALL staccare davvero.
+
+Un collegamento aperto dal service worker SHALL aprire il cassetto del task; SHALL
+accettare anche la forma assoluta e quella storica; SHALL restare MUTO su tutto ciò
+che non è un collegamento profondo; e senza service worker SHALL essere un
+non-fare, non un errore. Un collegamento a un topic SHALL aprire la tab del topic.
+
+#### Scenario: un collegamento nella forma storica
+- **GIVEN** un indirizzo con la query di una volta
+- **THEN** SHALL essere letto, e l'apertura SHALL aggiornarlo al percorso pulito
+
+#### Scenario: un'origine estranea
+- **GIVEN** un collegamento a un'altra origine
+- **THEN** NON SHALL essere riconosciuto come bersaglio interno
+
+### Requirement: STRIPMD-01 — L'anteprima di un piano è TESTO, e non perde le parole
+
+La riduzione a testo semplice SHALL togliere i marcatori — titoli, grassetto,
+corsivo, barrato, elenchi, citazioni — e CONSERVARE le parole. I collegamenti e le
+immagini SHALL essere ridotti al loro testo o alla loro descrizione, mai
+cancellati.
+
+I recinti di codice SHALL sparire CONSERVANDO il contenuto del codice in linea:
+un'anteprima che perde il nome di un comando non è più un'anteprima di quel piano.
+
+Su un testo già semplice, e sul testo vuoto, SHALL essere un non-fare.
+
+#### Scenario: un collegamento
+- **GIVEN** un collegamento in formato markdown
+- **THEN** SHALL restare il suo testo
+
+#### Scenario: testo già semplice
+- **GIVEN** un testo senza marcatori
+- **THEN** SHALL uscire identico

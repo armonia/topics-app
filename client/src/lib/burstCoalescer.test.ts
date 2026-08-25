@@ -1,3 +1,6 @@
+/**
+ * @covers COALESCE-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { createBurstCoalescer, createCoalescedReader, latestWins } from './burstCoalescer';
 

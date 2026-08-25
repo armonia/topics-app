@@ -6,6 +6,7 @@
  * l'app, e otto caratteri di uuid dove va un nome. La regola sotto è una sola:
  * il NOME sta sullo schermo, l'IDENTITÀ sta nel `detail` (che il chiamante
  * mette nel tooltip), e niente si perde per strada.
+  * @covers AUTHOR-01
  */
 import { describe, test, expect } from 'bun:test';
 import { commentAuthorLabel } from '../../../shared/comment-author';

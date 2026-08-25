@@ -21,6 +21,7 @@
  * che il callsite ha messo di suo**: le chiamate più calde del client (sync del
  * pane-store, tombstone, layout di progetto, tab del browser del task) passano
  * `X-Client-Id`, che il server usa come `sourceClientId`.
+  * @covers NETSHIM-02
  */
 import { describe, test, expect, beforeAll, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 

@@ -330,3 +330,56 @@ copia non rigenerata è una copia che si comporta diversamente.
 #### Scenario: i tasti non ci stanno tutti
 - **GIVEN** più tasti di quanti il sistema ne mostra
 - **THEN** NON SHALL essere mostrato nessuno
+
+### Requirement: NOTIF-HIST-01 — La cronologia degli avvisi non si sdoppia, e non stampa numeri finti
+
+Una riga nuova SHALL andare in TESTA alla cronologia.
+
+Una riga che QUESTA finestra ha appena scritto NON SHALL essere duplicata quando
+torna indietro dal server: sono lo stesso avviso visto due volte.
+
+L'età di un avviso SHALL scalare da «adesso» fino ai giorni.
+
+Una data ILLEGGIBILE NON SHALL stampare un numero non-numerico: è la forma in cui
+un difetto arriva fino agli occhi di chi guarda.
+
+#### Scenario: l'eco della propria scrittura
+- **GIVEN** un avviso scritto qui e rimandato dal server
+- **THEN** SHALL comparire una volta sola
+
+#### Scenario: una data illeggibile
+- **GIVEN** un istante non interpretabile
+- **THEN** NON SHALL comparire un valore non-numerico
+
+### Requirement: QUIET-01 — Con «Non disturbare» acceso non si bussa, ma solo su una lettura VERA
+
+Il cancello del silenzio SHALL leggere lo stato di concentrazione del sistema, che
+sul web NON esiste: lo sa solo il guscio nativo e lo spinge dentro l'interfaccia.
+
+Il difetto: gli avvisi di fine turno bussavano a ogni turno senza chiedersi se il
+sistema fosse in concentrazione — si accende «Non disturbare» per lavorare e l'app
+continua a suonare.
+
+Il valore predefinito SHALL essere TRASPARENTE: senza ancora una lettura si avvisa
+normalmente. Il silenzio SHALL scattare SOLO su una lettura POSITIVA e SUPPORTATA;
+supportata ma senza concentrazione attiva SHALL avvisare; un ospite che NON
+supporta la lettura NON SHALL MAI silenziare, nemmeno se dichiara di essere
+attivo.
+
+Una concentrazione che si spegne SHALL riaprire il cancello.
+
+Un carico non booleano SHALL essere convertito senza AVVELENARE il cancello.
+
+Il MOTIVO della lettura SHALL essere diagnosticabile: «file assente» NON SHALL
+silenziare e NON SHALL essere un blocco — il cancello funziona; «negato» NON SHALL
+silenziare mai, e il difetto sicuro resta; un guscio vecchio che manda solo i due
+booleani SHALL ricadere sulla regola precedente; e un motivo SCONOSCIUTO NON SHALL
+avvelenare il cancello. Fuori dal guscio nativo NON c'è niente da diagnosticare.
+
+#### Scenario: un ospite che non supporta la lettura
+- **GIVEN** un guscio che dichiara concentrazione attiva senza supportarla
+- **THEN** NON SHALL essere silenziato niente
+
+#### Scenario: permesso negato
+- **GIVEN** una lettura rifiutata dal sistema
+- **THEN** NON SHALL essere silenziato niente

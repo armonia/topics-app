@@ -21,6 +21,7 @@
  * l'utente sta guardando. Quindi conta il contenuto del messaggio (label giusto
  * e id vivi), conta che parta subito, e conta che un errore resti un battito
  * perso invece di diventare un'eccezione che uccide il bootstrap.
+  * @covers CLAIM-01
  */
 import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { markBrowserViewLive, markBrowserViewDead } from './shell/nativeBrowserRoster';

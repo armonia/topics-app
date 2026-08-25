@@ -1,3 +1,6 @@
+/**
+ * @covers PATHUTIL-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { basename } from './path-utils';
 

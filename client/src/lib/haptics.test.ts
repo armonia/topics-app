@@ -1,3 +1,6 @@
+/**
+ * @covers HAPTIC-01
+ */
 import { describe, test, expect, afterEach } from 'bun:test';
 import { haptic, __resetHaptics } from './haptics';
 

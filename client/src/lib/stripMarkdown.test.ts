@@ -1,3 +1,6 @@
+/**
+ * @covers STRIPMD-01
+ */
 import { describe, it, expect } from "bun:test";
 import { stripMarkdown } from "./stripMarkdown";
 

@@ -1,3 +1,6 @@
+/**
+ * @covers STT-05
+ */
 import { describe, it, expect } from 'bun:test';
 import { insertAtCaret } from './insertAtCaret';
 

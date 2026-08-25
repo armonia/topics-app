@@ -6,6 +6,7 @@
  * boot piazzava un toast di errore a ogni avvio dell'app — per qualcosa che
  * l'utente non ha chiesto e non può risolvere. Un aggiornamento davvero
  * disponibile deve invece uscire SEMPRE, anche se il controllo era silenzioso.
+  * @covers UPDATER-01
  */
 import { describe, test, expect } from 'bun:test';
 import { shouldShowUpdaterToast, type UpdaterStatus } from './updater';

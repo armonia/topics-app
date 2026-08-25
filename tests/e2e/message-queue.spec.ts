@@ -496,7 +496,15 @@ test.describe.serial("Coda dei messaggi", () => {
     // Il comando ha risposto sul posto. La riga è quella che `/help` stampa
     // davvero (`SLASH_COMMANDS_HELP` in ChatPane): la si cita per intero, così
     // un elenco che smette di nominare `/status` fa rumore.
-    await expect(page.getByText("/status: mostra lo stato della sessione").first())
+    //
+    // Il testo è INGLESE, e non è una svista di questa riga: dal 646269bf9
+    // `/help` è DERIVATO da `SLASH_COMMANDS` (`ChatInput`) invece di essere un
+    // secondo elenco scritto a mano che era andato alla deriva. Le descrizioni
+    // di quell'array non passano da `tr()` — le stesse che si leggono nel menu
+    // del composer. Che una superficie in italiano stampi inglese è un difetto
+    // suo, non di questa prova: qui si cita CIÒ CHE SI VEDE, e il giorno che
+    // quelle stringhe vengono tradotte questa riga diventa rossa e lo dice.
+    await expect(page.getByText("/status: Show session status").first())
       .toBeVisible({ timeout: 10_000 });
     // …e non è finito in coda, dove sarebbe poi partito come testo verso il modello.
     await expect(queuedBubbles(page)).toHaveCount(0);

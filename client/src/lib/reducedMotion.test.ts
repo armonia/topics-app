@@ -7,6 +7,7 @@
  * dipendenze — cioe' a ogni render. Un test sul solo `.matches` sarebbe restato
  * verde con il difetto dentro: e' per questo che il primo caso qui sotto conta
  * le chiamate e non le risposte.
+  * @covers MOTION-02
  */
 import { describe, test, expect, afterEach } from 'bun:test';
 import { prefersReducedMotion, resetReducedMotionCache } from './reducedMotion';

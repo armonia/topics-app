@@ -16,6 +16,7 @@
  *   • vicolo cieco DOPO che qualcosa è partito → si avvisa, e NON si apre fuori
  *     (aprire fuori lascerebbe una seconda copia completa di Topics accanto
  *     alla finestra appena aperta).
+  * @covers DEEPLINK-01
  */
 import { describe, expect, test } from 'bun:test';
 import { openDeepLinkFromClick, type DeepLinkClickDeps } from './deepLinkClick';

@@ -730,3 +730,226 @@ pannello non è mai stato montato SHALL leggere «niente», e non è un errore.
 #### Scenario: una superficie che cambia
 - **GIVEN** l'aggiornamento di una sola superficie
 - **THEN** l'oggetto della vicina NON SHALL essere ricreato
+
+### Requirement: CLAIM-01 — Il battito di reclamo rivendica ciò che è vivo ADESSO
+
+Il reclamo delle viste native SHALL dichiarare l'etichetta di QUESTA finestra e
+gli identificativi delle pane VIVE al momento del battito, non la lista con cui è
+stato armato: una pane aperta dopo l'armo resterebbe di nessuno.
+
+Una finestra senza etichetta SHALL reclamare comunque verso la finestra
+principale. Nessuna pane montata SHALL reclamare la lista VUOTA, non tacere: il
+silenzio non è distinguibile da un battito perso.
+
+Il battito SHALL partire SUBITO e poi ripetersi a intervallo fisso. Armarlo due
+volte SHALL essere IDEMPOTENTE e NON SHALL raddoppiare i battiti.
+
+Fuori dal guscio nativo NON SHALL essere invocato niente e NON SHALL essere armato
+nessun battito.
+
+Una chiamata nativa che rigetta NON SHALL propagare: il battito si perde, lo si
+dichiara, e il giro successivo riprova.
+
+#### Scenario: una pane aperta dopo l'armo
+- **GIVEN** un battito armato e una pane montata dopo
+- **THEN** il battito successivo SHALL rivendicare anche quella
+
+#### Scenario: fuori dal guscio nativo
+- **GIVEN** l'app in un browser normale
+- **THEN** NON SHALL essere armato nessun battito
+
+### Requirement: FORGET-02 — «Dimentica questo sito» cancella SOLO quel sito, ed ESATTAMENTE ciò che ha mostrato
+
+Il piano di cancellazione SHALL comprendere il silo registrabile del sito e i
+sottodomini che stanno sotto di lui, e NON SHALL comprendere un vicino di casa né
+il resto dello store.
+
+Ciò che viene cancellato SHALL essere ESATTAMENTE l'elenco che il dialogo ha
+mostrato: i nomi che tornano al nativo sono i nomi elencati, MAI un secondo filtro
+applicato dopo. Un dialogo che mostra una lista e ne cancella un'altra è una
+promessa rotta che nessuno può vedere.
+
+Le voci SHALL essere nominate per esteso e ordinate per GRAVITÀ, uniche. Un tipo
+di dato sconosciuto SHALL finire fra i dati del sito, NON SHALL sparire in
+silenzio. Senza sessione salvata NON SHALL comparire una riga che promette di
+cancellarla.
+
+La costruzione del piano SHALL LEGGERE lo store senza toccarlo.
+
+Una pane vuota, uno store illeggibile, o un errore del server SHALL produrre un
+piano VUOTO — quindi nessun tasto che promette — non una promessa a vuoto. Una
+lista vuota NON SHALL chiamare il nativo.
+
+Per lo store CONDIVISO NON SHALL comparire una riga per ciò che non è per-sito, e
+il contesto SHALL finire nella URL correttamente codificato, mai concatenato a
+mano. Un motore esterno SHALL essere dichiarato «non li teniamo noi», che è
+diverso da «non c'è niente».
+
+#### Scenario: un vicino di casa
+- **GIVEN** un dominio che condivide un prefisso ma non il silo
+- **THEN** NON SHALL entrare nel piano
+
+#### Scenario: lo store non si legge
+- **GIVEN** uno store illeggibile
+- **THEN** il piano SHALL essere vuoto, e nessun tasto SHALL promettere una cancellazione
+
+### Requirement: HISTORY-01 — La cronologia è UNA, per quante sorgenti abbia
+
+Le righe della cronologia SHALL uscire dello STESSO tipo qualunque sia la
+sorgente — tab chiuse e pagine visitate — e SHALL essere mescolate per TEMPO, dal
+più recente. Se una delle due tornasse a viaggiare per conto suo, questi casi
+diventano rossi prima che chi guarda la lista se ne accorga.
+
+Una pagina senza titolo SHALL presentarsi con il proprio indirizzo, accorciato.
+Una tab chiusa SHALL portare con sé il proprio indirizzo.
+
+La ricerca SHALL richiedere TUTTE le parole, anche quando cadono in campi diversi.
+
+Il tetto SHALL essere applicato DOPO l'ordinamento, mai prima: tagliare prima
+sceglie a caso.
+
+Senza sorgenti SHALL uscire un elenco vuoto, non un errore.
+
+#### Scenario: due sorgenti
+- **GIVEN** tab chiuse e pagine visitate con istanti intrecciati
+- **THEN** SHALL uscire un solo elenco ordinato per tempo
+
+#### Scenario: il tetto
+- **GIVEN** più righe del tetto
+- **THEN** SHALL essere tagliato dopo l'ordinamento
+
+### Requirement: TINT-01 — La tinta di un'icona esce dai suoi pixel, e il contrasto si misura sul COMPOSITO
+
+Il colore dominante di un'icona SHALL essere ricavato dai pixel, ignorando i
+trasparenti e i grigi: i grigi non sono identità, e un'icona monocroma o vuota
+SHALL produrre NESSUNA tinta, non una tinta sbagliata. Lo spicchio più PESANTE
+SHALL vincere, non il primo incontrato, e il risultato SHALL essere
+DETERMINISTICO.
+
+La conversione da e verso la forma esadecimale SHALL annullarsi, SHALL tollerare
+la forma corta e gli ingressi storti, e SHALL SATURARE invece di sbordare.
+
+La luminanza SHALL usare la spezzata dello spazio colore standard, non una
+potenza approssimata. Il contrasto SHALL essere simmetrico, con bianco e nero ai
+due estremi.
+
+**Il rapporto di contrasto SHALL essere calcolato sul colore che si VEDE**, cioè
+sul composito della tinta sulla superficie, non sulla tinta pura: una tinta al
+ventidue per cento non porta con sé la luminanza della tinta piena, e misurarla lì
+promette una leggibilità che non c'è. L'opacità fuori scala SHALL essere
+ristretta.
+
+La scelta fra i due toni di testo SHALL restituire sempre il MIGLIORE dei due —
+mai un valore predefinito — e SHALL RIPORTARE il rapporto quando nessuno dei due
+basta, invece di nasconderlo.
+
+La palette per spicchi SHALL rispecchiare DOVE il colore sta nell'icona, e uno
+spicchio vuoto SHALL ereditare il vicino invece di spegnersi.
+
+#### Scenario: una tinta trasparente su una superficie
+- **GIVEN** una tinta applicata a bassa opacità
+- **THEN** il rapporto SHALL essere calcolato sul composito
+
+#### Scenario: un'icona monocroma
+- **GIVEN** un'icona di soli bianco e nero
+- **THEN** NON SHALL essere prodotta nessuna tinta
+
+### Requirement: OCCLUSION-01 — Una vista nativa si congela quando qualcosa la COPRE davvero
+
+Una vista nativa SHALL essere considerata coperta quando un pannello sovrapposto
+INTERSECA la sua area. Il contatto sul solo bordo, con area di sovrapposizione
+nulla, NON SHALL contare; un pannello lontano NON SHALL contare; un'area nulla NON
+SHALL essere mai coperta; e senza pannelli NON SHALL esserci copertura. Uno
+qualunque fra più pannelli SHALL bastare.
+
+Ogni superficie che può stare sopra — la card di un modale, un menu contestuale, i
+contenitori dei menu — SHALL portare il marcatore di copertura. **Il velo di
+sfondo NON SHALL essere la superficie**: conta la card, non il velo.
+
+Un pannello che sta ENTRANDO SHALL contare anche se la sua opacità è ancora zero,
+perché un fotogramma dopo copre già. Un elemento fermo a zero — un comando di riga
+in attesa del passaggio del mouse — NON SHALL contare. Un elemento non disegnato o
+nascosto NON SHALL contare, nemmeno mentre un'animazione gira.
+
+Senza un rettangolo noto e con un pannello aperto la vista SHALL congelarsi lo
+stesso: nel dubbio si congela. Senza rettangolo e senza pannelli NON SHALL
+congelarsi niente.
+
+Chi si iscrive SHALL ricevere SUBITO lo stato corrente. Una pane che si APRE, e
+una che TORNA visibile, SHALL chiedersi subito se il proprio posto è già coperto.
+
+#### Scenario: due rettangoli che si toccano sul bordo
+- **GIVEN** un pannello adiacente alla vista, senza sovrapposizione
+- **THEN** NON SHALL contare come copertura
+
+#### Scenario: un modale che sta entrando
+- **GIVEN** un pannello in animazione di ingresso, opacità ancora nulla
+- **THEN** SHALL contare come copertura
+
+### Requirement: NATIVEOPS-01 — Le operazioni del browser nativo o si mappano, o dicono perché no
+
+Ogni operazione del browser SHALL avere una mappatura nativa dichiarata, e quelle
+prive di mappatura SHALL restituire un suggerimento STRUTTURATO — che quella
+operazione vive in modalità flusso — SENZA invocare niente. Un'operazione che
+tace è indistinguibile da una che ha fallito.
+
+La lettura del testo SHALL rispettare un tetto e, con un riferimento, SHALL
+restringersi all'elemento osservato. L'osservazione SHALL serializzare nel formato
+condiviso, e la forma incrementale SHALL confrontarsi con l'istantanea
+precedente.
+
+L'azione SHALL restituire la differenza successiva all'azione, e SHALL RIFIUTARE —
+senza invocare — un'azione per riferimento priva di riferimento e un'azione
+sconosciuta. Un risultato nativo fallito SHALL emergere come ERRORE, non come
+successo silenzioso.
+
+L'estrazione SHALL richiedere i campi. Lo scatto di schermo SHALL tornare nella
+forma compatibile con il flusso.
+
+Il salvataggio dello stato di accesso SHALL leggere il barattolo dei cookie della
+pane e la memoria locale dell'origine corrente, e SHALL TOLLERARE un barattolo
+malformato: nessun cookie, ma la memoria locale esce lo stesso. Il caricamento
+SHALL applicare cookie e memoria per origine e SHALL tornare alla pagina di
+partenza, con un ripiego cookie-per-cookie quando il blocco viene rifiutato. Senza
+uno stato risolto dal server SHALL essere un errore STRUTTURATO.
+
+Una chiamata nativa che solleva SHALL essere catturata e riportata come errore
+strutturato.
+
+#### Scenario: un'operazione senza mappatura nativa
+- **GIVEN** un'operazione che il guscio non implementa
+- **THEN** SHALL tornare un suggerimento strutturato, senza invocare niente
+
+#### Scenario: un barattolo di cookie malformato
+- **GIVEN** un dump illeggibile
+- **THEN** i cookie SHALL mancare, e la memoria locale SHALL uscire lo stesso
+
+### Requirement: ZOOM-01 — Lo zoom vive su una SCALA, e sopravvive a una navigazione
+
+I livelli di zoom SHALL formare una scala di percentuali INTERE, strettamente
+crescente, con il valore predefinito SULLA scala.
+
+Il movimento SHALL essere di UNO scatto per gesto, e SHALL dipendere solo dal
+SEGNO dell'incremento: la tastiera e i bottoni SHALL muoversi allo stesso modo.
+Agli estremi SHALL essere ristretto. Un valore FUORI scala — ereditato o
+persistito — SHALL essere agganciato al più vicino PRIMA di muoversi, e il
+risultato NON SHALL MAI uscire dalla scala, qualunque cosa arrivi in ingresso.
+
+**Lo zoom SHALL sopravvivere a una navigazione.** Un documento appena caricato che
+non dichiara zoom vale cento per cento; un documento che ha PERSO lo zoom è
+DERIVATO, ed è tutto il difetto. Entrambe le grafie della proprietà SHALL essere
+rilette; un valore illeggibile SHALL valere neutro, non un numero. Il rumore di
+virgola del giro attraverso una stringa NON SHALL essere scambiato per deriva, e
+il caso comune — cento per cento su un documento fresco — NON SHALL costare
+niente.
+
+Il codice applicato SHALL fare il giro attraverso il proprio lettore per OGNI
+passo, e NON SHALL poter sollevare verso il chiamante.
+
+#### Scenario: una pagina che ha perso lo zoom
+- **GIVEN** una navigazione dopo la quale il documento non porta più lo zoom
+- **THEN** SHALL essere riconosciuta come deriva
+
+#### Scenario: un valore fuori scala
+- **GIVEN** un valore persistito che non sta sulla scala
+- **THEN** SHALL essere agganciato al più vicino prima di muoversi

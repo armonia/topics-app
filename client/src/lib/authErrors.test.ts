@@ -7,6 +7,7 @@
  * un tuo dispositivo, non un ospite» sotto un titolo che dice «Share this card
  * with a guest». Tolta la prosa, il rischio si sposta: un codice nuovo che
  * arriva senza traduzione. Qui diventa rosso invece che un pannello muto.
+  * @covers AUTHERR-01
  */
 import { describe, test, expect } from 'bun:test';
 import { chiaveErroreAuth, CODICI_AUTH } from './authErrors';

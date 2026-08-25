@@ -121,7 +121,13 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     await beat(page, 2200);
 
     // Nel drawer il chip sta IN RIGA, non sepolto nel menu ⋯, e apre il picker.
-    await card.click();
+    //
+    // Si clicca il TITOLO, non la card. `card.click()` colpisce il centro
+    // geometrico, e su una card bloccata lì ci sta il bottone «sblocca»
+    // (`task-choice-unblock`, dentro un contenitore che ferma la propagazione):
+    // il drawer non si apriva, e il click PATCHava il task — cioè il gesto
+    // sbloccava proprio ciò che il test doveva ancora osservare bloccato.
+    await card.getByText(DIPENDENTE).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     const chip = drawer.getByTestId("task-blocked-by-chip");

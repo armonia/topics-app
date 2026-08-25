@@ -16,6 +16,7 @@
  *
  * `bun test` non ha DOM: il modulo tocca solo `cache` in memoria, quindi basta
  * resettarlo tra i casi.
+  * @covers QUIET-01
  */
 import { describe, test, it, expect, beforeEach } from 'bun:test';
 import { isFocusSilencing, applyFocusStatus, focusGateState, __resetFocusForTests } from './focus';

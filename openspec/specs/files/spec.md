@@ -748,3 +748,67 @@ dimensioni a zero.
 #### Scenario: un formato sconosciuto
 - **GIVEN** byte non riconoscibili
 - **THEN** SHALL essere restituito «non lo so»
+
+### Requirement: TILDE-01 — La home si accorcia, ma non a metà di un nome
+
+Il prefisso della cartella personale SHALL essere accorciato nel percorso
+mostrato: è la parte uguale per tutti i progetti, e occupa spazio senza dire
+niente.
+
+La home NUDA SHALL diventare il solo simbolo, senza barra finale.
+
+Ciò che NON è una home SHALL restare INTERO: meglio lungo che sbagliato.
+
+L'accorciamento NON SHALL mordere a metà di un nome di cartella: un percorso che
+comincia con le stesse lettere della home non sta dentro la home.
+
+#### Scenario: una cartella che comincia come la home
+- **GIVEN** un percorso che condivide il prefisso ma non il confine di cartella
+- **THEN** SHALL restare intero
+
+#### Scenario: la home nuda
+- **GIVEN** esattamente il percorso della home
+- **THEN** SHALL diventare il solo simbolo
+
+### Requirement: OSOPEN-01 — I file che il sistema consegna si aprono uno alla volta, e ciò che non si apre lo DICE
+
+La coda dei percorsi consegnati dal sistema operativo SHALL essere svuotata
+aprendo ciò che il server ha RISOLTO, nell'ORDINE in cui il sistema li ha
+consegnati, UNO alla volta.
+
+Una coda vuota NON SHALL produrre né aperture né avvisi. Fuori dal guscio la coda
+NON esiste, e NON SHALL essere un errore.
+
+Un percorso che NON risolve SHALL AVVISARE, non restare muto. Un percorso che fa
+fallire il server NON SHALL fermare gli altri.
+
+SHALL esserci un TETTO alle aperture per giro: venti file consegnati insieme NON
+SHALL diventare venti tab.
+
+#### Scenario: venti file trascinati insieme
+- **GIVEN** venti percorsi in coda
+- **THEN** SHALL essere aperti fino al tetto, non tutti
+
+#### Scenario: un percorso che non risolve
+- **GIVEN** un percorso non risolvibile
+- **THEN** SHALL comparire un avviso
+
+### Requirement: PATHUTIL-01 — L'ultimo segmento di un percorso, anche nei casi degeneri
+
+L'ultimo segmento di un percorso assoluto SHALL essere restituito.
+
+Un ingresso senza separatori SHALL essere restituito INVARIATO.
+
+Le barre finali SHALL essere ignorate, restituendo il nome della cartella che le
+precede.
+
+L'ingresso vuoto SHALL dare una stringa vuota, e la radice — come un percorso con
+la sola barra iniziale — NON SHALL sollevare.
+
+#### Scenario: una barra finale
+- **GIVEN** un percorso che termina con il separatore
+- **THEN** SHALL essere restituito il nome della cartella che lo precede
+
+#### Scenario: la radice
+- **GIVEN** il percorso della radice
+- **THEN** NON SHALL essere sollevato niente

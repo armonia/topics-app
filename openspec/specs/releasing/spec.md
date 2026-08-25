@@ -190,3 +190,28 @@ NEGA l'istruzione vecchia: citarla per dire che non vale più non è darla.
 #### Scenario: la stessa istruzione citata per negarla
 - **GIVEN** un paragrafo che dichiara che non vale più
 - **THEN** NON SHALL essere un fallimento
+
+### Requirement: UPDATER-01 — L'aggiornamento si annuncia, ma un controllo SILENZIOSO resta silenzioso
+
+Il riquadro dell'aggiornamento SHALL comparire per gli stati che chiedono qualcosa
+a chi guarda — disponibile, in scaricamento, pronto — perché senza quel riquadro
+nessuno saprebbe che c'è, dato che non arriva più da solo. Lo stato di riposo NON
+SHALL disegnare niente.
+
+Un controllo AUTOMATICO all'avvio SHALL restare SILENZIOSO sugli errori: finché non
+esiste una release firmata la porta risponde «non trovato», e un riquadro d'errore
+a ogni avvio riguarda qualcosa che chi guarda non ha chiesto e non può risolvere.
+
+**Un aggiornamento davvero DISPONIBILE SHALL uscire lo stesso, anche se il
+controllo era silenzioso**: il silenzio vale per i guasti, non per le notizie.
+
+Chiuso da chi guarda, o con il pannello della versione già aperto, NON SHALL
+comparire un doppione.
+
+#### Scenario: il controllo al boot senza release firmate
+- **GIVEN** un controllo automatico che fallisce
+- **THEN** NON SHALL comparire nessun riquadro d'errore
+
+#### Scenario: un aggiornamento disponibile trovato dal controllo al boot
+- **GIVEN** un controllo silenzioso che trova un aggiornamento
+- **THEN** il riquadro SHALL comparire lo stesso
