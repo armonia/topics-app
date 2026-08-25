@@ -92,6 +92,7 @@ import { parkIdleClaudeSessions } from "./terminal";
 import { noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
 import { shellProcessKey } from "../../shared/background-shell-registry";
 import { setSessionCliPid } from "../providers/session-pids";
+import { setRouteFault } from "../lib/route-fault";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -122,6 +123,29 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
 
   return async function e2eRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!e2eRoutesEnabled()) return null;
+
+    // POST /api/test/route-fault — arma o disarma il guasto di latenza, a caldo.
+    //
+    // Serve all'autoprova di `check:route-latency`: senza, il guasto si arma solo dall'ambiente
+    // al boot, quindi la misura sana e quella guasta vengono da due processi DIVERSI e la
+    // differenza non prova niente sul cancello. Da qui vengono dallo stesso.
+    // Body: {"delayMs": 40, "pathPrefix": "/api/topics"} per armare, {} o null per disarmare.
+    if (method === "POST" && pathname === "/api/test/route-fault") {
+      const body = (await req.json().catch(() => null)) as { delayMs?: unknown; pathPrefix?: unknown } | null;
+      const delayMs = Number(body?.delayMs);
+      if (!body || !Number.isFinite(delayMs) || delayMs <= 0) {
+        setRouteFault(null);
+        console.log("[e2e] route-fault: disarmato");
+        return json({ ok: true, armed: null });
+      }
+      const fault = {
+        delayMs,
+        pathPrefix: typeof body.pathPrefix === "string" && body.pathPrefix ? body.pathPrefix : "/api/topics",
+      };
+      setRouteFault(fault);
+      console.log(`[e2e] route-fault: armato ${fault.delayMs}ms su ${fault.pathPrefix}`);
+      return json({ ok: true, armed: fault });
+    }
 
     // POST /api/test/checkpoint — fotografa lo stato corrente come baseline.
     if (method === "POST" && pathname === "/api/test/checkpoint") {

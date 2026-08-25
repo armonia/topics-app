@@ -18,7 +18,7 @@ import {
   type Baseline,
   type RouteKey,
 } from "./check-route-latency";
-import { readRouteFault, applyRouteFault } from "../server/lib/route-fault";
+import { readRouteFault, applyRouteFault, currentRouteFault, setRouteFault } from "../server/lib/route-fault";
 import { baselineEnvKey, baselineCandidates, pickBaselinePath } from "./route-latency-baseline-pick";
 
 /**
@@ -277,6 +277,30 @@ describe("route-fault", () => {
     expect(
       readRouteFault({ TOPICS_E2E: "1", TOPICS_ROTTE_FAULT_MS: "5", TOPICS_ROTTE_FAULT_PATH: "/api/all-boards" }),
     ).toEqual({ delayMs: 5, pathPrefix: "/api/all-boards" });
+  });
+
+  test("si arma a CALDO, senza riavviare: e' quello che rende l'autoprova una prova", async () => {
+    // Armare dall'ambiente obbliga a far ripartire il server, quindi la misura sana e quella
+    // guasta vengono da due processi DIVERSI — che hanno numeri diversi anche senza guasto.
+    // Da qui vengono dallo stesso, ed e' l'unica forma in cui la differenza dice qualcosa.
+    const prima = currentRouteFault();
+    try {
+      setRouteFault({ delayMs: 30, pathPrefix: "/api/topics" });
+      expect(currentRouteFault()).toEqual({ delayMs: 30, pathPrefix: "/api/topics" });
+
+      // Il default di applyRouteFault segue l'armamento vivo, non una copia del boot.
+      const t0 = performance.now();
+      await applyRouteFault("/api/topics/abc/messages");
+      expect(performance.now() - t0).toBeGreaterThanOrEqual(25);
+
+      setRouteFault(null);
+      expect(currentRouteFault()).toBeNull();
+      const t1 = performance.now();
+      await applyRouteFault("/api/topics/abc/messages");
+      expect(performance.now() - t1).toBeLessThan(15);
+    } finally {
+      setRouteFault(prima);
+    }
   });
 
   test("il ritardo colpisce solo il prefisso, e da spento non costa niente", async () => {

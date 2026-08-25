@@ -50,15 +50,35 @@ export function readRouteFault(env: Record<string, string | undefined>): RouteFa
 }
 
 /**
- * Letta UNA volta al caricamento del modulo. Il server la usa come interruttore
- * sincrono (`if (ROUTE_FAULT) await applyRouteFault(...)`), cosi' quando e'
- * spenta il costo per richiesta e' un confronto con `null` e non una promessa
- * allocata a vuoto.
+ * L'armamento corrente. Letto dall'ambiente al caricamento del modulo, e da li' in poi
+ * MODIFICABILE a runtime da `setRouteFault`.
+ *
+ * Perche' non basta l'ambiente: armare un guasto via env obbliga a riavviare il server, quindi la
+ * misura "sana" e quella "guasta" vengono da DUE processi diversi. Un'autoprova costruita cosi'
+ * non dimostra che il cancello sappia diventare rosso — dimostra che due processi diversi hanno
+ * numeri diversi, che e' vero anche senza guasto.
+ *
+ * Il server lo usa come interruttore sincrono, cosi' da spento il costo per richiesta resta un
+ * confronto con `null` e non una promessa allocata a vuoto.
  */
-export const ROUTE_FAULT: RouteFault | null = readRouteFault(process.env);
+let armed: RouteFault | null = readRouteFault(process.env);
+
+/** L'armamento in vigore adesso. */
+export function currentRouteFault(): RouteFault | null {
+  return armed;
+}
+
+/**
+ * Arma o disarma a caldo. Chiamabile SOLO dalla rotta di prova, che e' gia' dietro
+ * `TOPICS_E2E=1`: fuori da li' nessuno puo' raggiungerla, e in produzione `armed` nasce null e
+ * nessuno la tocca.
+ */
+export function setRouteFault(fault: RouteFault | null): void {
+  armed = fault;
+}
 
 /** Aspetta, se questo path e' quello colpito. */
-export async function applyRouteFault(pathname: string, fault: RouteFault | null = ROUTE_FAULT): Promise<void> {
+export async function applyRouteFault(pathname: string, fault: RouteFault | null = armed): Promise<void> {
   if (!fault) return;
   if (!pathname.startsWith(fault.pathPrefix)) return;
   await new Promise((r) => setTimeout(r, fault.delayMs));

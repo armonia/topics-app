@@ -67,15 +67,25 @@
  *   404 e' velocissima, e un banco che cronometra 404 resta verde per sempre
  *   mentre la rotta non esiste piu'.
  *
+ * · Il banco misura IL SERVER CHE HA AVVIATO LUI, e lo dimostra: `waitForPort` da
+ *   solo e' contento se risponde CHIUNQUE, quindi un server rimasto vivo da una
+ *   corsa precedente verrebbe cronometrato al posto di questo, contro la baseline
+ *   di un altro codice. Due testimoni: EADDRINUSE nel log del figlio, e il gruppo
+ *   di processi di chi ascolta sulla porta.
+ *
+ * · `--selftest` prova che il cancello sa diventare rosso, nello STESSO processo
+ *   appena misurato: arma un guasto a caldo, rimisura, e pretende il rosso.
+ *
  * Uso:
  *   bun run check:route-latency
  *   bun run check:route-latency -- --update-baseline     registra i numeri nuovi
  *   bun run check:route-latency -- --samples=25          piu' campioni, meno rumore
- *   TOPICS_ROTTE_FAULT_MS=40 bun run check:route-latency    prova che sa diventare rosso
+ *   bun run check:route-latency -- --selftest            prova che sa diventare rosso
+ *   TOPICS_ROTTE_FAULT_MS=40 bun run check:route-latency    guasto armato dall'ambiente
  *
  * Uscite:  0 = dentro il budget · 1 = regressione · 2 = non misurabile
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { resolveBaselinePaths } from "./route-latency-baseline-pick";
@@ -390,6 +400,32 @@ function die(msg: string, code: 1 | 2): never {
   process.exit(code);
 }
 
+/**
+ * Who is listening on this port, by process group. It proves the server being measured is the
+ * one just started: `waitForPort` alone is happy if ANYBODY answers, so a server left alive by a
+ * previous run — or any unrelated service that happened to grab the port — gets timed in its
+ * place, against a baseline recorded for different code. The failure is silent and looks exactly
+ * like a regression.
+ *
+ * Returns null when it could not be established (no `lsof`): the bench then says so out loud
+ * instead of pretending it checked.
+ */
+function listenerPgids(port: number): number[] | null {
+  const lsof = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
+  if (lsof.error || lsof.status !== 0 || !lsof.stdout.trim()) return null;
+  const pids = lsof.stdout.trim().split(/\s+/).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (pids.length === 0) return null;
+  const out: number[] = [];
+  for (const pid of pids) {
+    const ps = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" });
+    if (ps.error || ps.status !== 0) return null;
+    const pgid = Number(ps.stdout.trim());
+    if (!Number.isInteger(pgid)) return null;
+    out.push(pgid);
+  }
+  return out;
+}
+
 async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -554,6 +590,9 @@ async function runPass(base: string, probes: Probe[], samples: number): Promise<
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const update = args.includes("--update-baseline");
+  // `--selftest`: prova che questo cancello SA diventare rosso. Vedi in fondo a main().
+  const selftest = args.includes("--selftest");
+  if (update && selftest) die("✗ --update-baseline e --selftest non stanno insieme: uno scrive la baseline, l'altro la usa per giudicare.", 2);
   const samples = Number(args.find((a) => a.startsWith("--samples="))?.split("=")[1]) || DEFAULT_SAMPLES;
   const portArg = Number(args.find((a) => a.startsWith("--port="))?.split("=")[1]);
   // LE `TOPICS_ROTTE_*` RESTANO COL NOME VECCHIO, ed e' una scelta.
@@ -631,6 +670,25 @@ async function main(): Promise<void> {
   try {
     if (!(await waitForPort(port, 40_000))) {
       die(`✗ Il server del banco non si e' aperto sulla ${port} in 40s.\n${serverLog.slice(-1500)}`, 2);
+    }
+
+    // Is the thing answering actually OUR child? Two witnesses, neither costs anything.
+    if (/EADDRINUSE/i.test(serverLog)) {
+      die(`✗ Il server del banco ha detto EADDRINUSE sulla ${port}: sta rispondendo un altro processo.`, 2);
+    }
+    const pgids = listenerPgids(port);
+    if (pgids === null) {
+      log(`⚠ Non ho potuto leggere chi ascolta sulla ${port} (lsof assente): resta un testimone in meno.`);
+    } else {
+      const mine = child.pid ?? -1;
+      const estranei = pgids.filter((g) => g !== mine);
+      if (estranei.length > 0) {
+        die(
+          `✗ Sulla ${port} ascolta un processo che non e' del banco (gruppo ${estranei.join(", ")}, il mio e' ${mine}).\n` +
+            `  Misurarlo vorrebbe dire confrontare la baseline di questo codice con un altro server.`,
+          2,
+        );
+      }
     }
 
     const base = `http://127.0.0.1:${port}`;
@@ -802,6 +860,50 @@ async function main(): Promise<void> {
       );
       exitCode = 1;
       return;
+    }
+
+    // ── L'AUTOPROVA ──────────────────────────────────────────────────────────
+    //
+    // Un cancello che nessuno ha mai visto fallire non e' un cancello. Qui la prova si fa nello
+    // STESSO processo appena misurato: si arma un guasto di 40 ms sulle rotte dei topic, si
+    // rimisura, e si pretende un rosso. Se resta verde, il cancello e' cieco — e lo dice invece
+    // di lasciarti credere il contrario.
+    //
+    // Armare via ambiente non basterebbe: obbligherebbe a riavviare, e allora la misura sana e
+    // quella guasta verrebbero da due processi diversi, che hanno numeri diversi comunque.
+    if (selftest) {
+      const arma = async (body: unknown) =>
+        fetch(`${base}/api/test/route-fault`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      const armed = await arma({ delayMs: 40, pathPrefix: "/api/topics" });
+      if (!armed.ok) {
+        die(`✗ Non ho potuto armare il guasto (${armed.status}): senza, l'autoprova non prova niente.`, 2);
+      }
+      log("\n▸ autoprova: guasto di 40 ms armato su /api/topics — mi aspetto un ROSSO.");
+      const guastoA = await runPass(base, probes, samples);
+      const guastoB = await runPass(base, probes, samples);
+      const guasto = {} as Record<RouteKey, number>;
+      for (const key of ROUTE_KEYS) guasto[key] = Math.max(guastoA[key]!, guastoB[key]!);
+      await arma(null).catch(() => {});
+
+      const rosso = regressions(guasto, baseline);
+      for (const key of ROUTE_KEYS) {
+        log(`  ${key.padEnd(18)} ${String(round2(guasto[key]!)).padStart(7)} ms (era ${round2(measured[key]!)})`);
+      }
+      if (rosso.length === 0) {
+        console.error(
+          `\n✗ AUTOPROVA FALLITA: con 40 ms di guasto su /api/topics il cancello e' rimasto VERDE.\n` +
+            `  Vuol dire che i tetti sono cosi' larghi da non poter piu' vedere niente: una\n` +
+            `  regressione vera passerebbe allo stesso modo. Il numero da guardare e'\n` +
+            `  tolerance_pct in ${BASELINE_PATH}.`,
+        );
+        exitCode = 1;
+        return;
+      }
+      log(`\n✓ Autoprova: il cancello e' diventato rosso su ${rosso.length} rotta/e. Sa mordere.`);
     }
 
     const won = ROUTE_KEYS.filter((k) => measured[k]! < baseline.routes[k]!.median_ms * 0.7);
