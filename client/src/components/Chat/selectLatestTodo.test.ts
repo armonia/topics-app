@@ -241,11 +241,27 @@ describe('nessun nome fuori lista produce una todo', () => {
       command: 'ls',
       file_path: '/tmp/x',
     };
+    // TWO DIRECTIONS, and the second one was missing.
+    //
+    // The test only checked "if it produces a todo, then it is in the filter".
+    // With every assertion inside that `if`, the day `deriveToolDetail` stopped
+    // todoNames todos for ANY name, the loop would assert nothing and the test
+    // would stay green: coverage declared and not real. The opposite direction
+    // (in the filter therefore produces a todo) is the one that actually breaks
+    // when somebody adds an alias to the filter and forgets the deriver.
+    const todoNames = new Set<string>();
     for (const nome of CORPUS) {
       const detail = deriveToolDetail(nome, args);
+      const canonical = nome.toLowerCase().trim();
       if (detail.type === 'todo') {
-        expect(TODO_TOOL_NAMES.has(nome.toLowerCase().trim()), `${nome} produce una todo ma non è nel filtro`).toBe(true);
+        todoNames.add(canonical);
+        expect(TODO_TOOL_NAMES.has(canonical), `${nome} produce una todo ma non è nel filtro`).toBe(true);
+      } else {
+        expect(TODO_TOOL_NAMES.has(canonical), `${nome} è nel filtro ma non produce una todo`).toBe(false);
       }
     }
+    // Non-vacuity: had the loop found not one, both assertions above would have
+    // passed while measuring nothing.
+    expect(todoNames.size, 'nessun nome del corpus produce una todo: il deriver è rotto').toBeGreaterThan(2);
   });
 });
