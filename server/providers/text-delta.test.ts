@@ -12,6 +12,7 @@
  * Ora la regola vale SOLO per chi è cumulativo davvero (il gateway OpenClaw), e
  * qui si prova che su quel flusso «uguale a prima» significa davvero «niente di
  * nuovo», mentre il flusso a delta non passa più di qui.
+  * @covers DELTA-01
  */
 import { describe, expect, test } from "bun:test";
 import { nextTextDelta } from "./text-delta";

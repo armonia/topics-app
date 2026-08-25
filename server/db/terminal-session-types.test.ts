@@ -1,3 +1,6 @@
+/**
+ * @covers SCHEMA-02
+ */
 // DRIFT GATE fra l'union TypeScript dei tipi di sessione e il CHECK di SQLite.
 //
 // Il disallineamento fra i due è già costato due bug identici: la migration 029

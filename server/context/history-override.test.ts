@@ -7,6 +7,7 @@
  * esprimibile con una query. Senza questo parametro quel percorso non poteva usare
  * l'envelope, e infatti si era messo a ricostruire i blocchi di sistema a mano —
  * perdendone sette e ignorando i toggle dell'inspector.
+  * @covers CTX-OVERRIDE-01
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -13,6 +13,7 @@
  *    Same picture from outside: a child that is alive and working, a turn that
  *    never ends. `resyncStream` re-attaches from the last consumed byte and the
  *    missed output is replayed, so the turn still lands.
+  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "fs";

@@ -1,5 +1,6 @@
 /**
  * Tests for the snapshot ring buffer.
+  * @covers CTX-SNAP-01
  */
 
 import { afterEach, describe, expect, it } from "bun:test";

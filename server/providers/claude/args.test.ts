@@ -9,6 +9,7 @@
  * Quando un cambio è voluto si aggiorna la fotografia, e il diff del commit
  * mostra esattamente cosa si è deciso di cambiare. Quando non lo è, il rosso è
  * la domanda giusta al momento giusto.
+  * @covers CCLI-07
  */
 import { describe, expect, test } from "bun:test";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED } from "./args";

@@ -6,6 +6,7 @@
  *
  * The tests pin the contract that `adaptEnvelope`'s output is byte-for-byte
  * identical to the legacy inline path in `streamEditResponse`.
+  * @covers CTX-ADAPT-01
  */
 
 import { describe, expect, it } from "bun:test";

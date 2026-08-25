@@ -7,6 +7,7 @@
  * streamHandler.onError(...), so hitting stop showed a scary error bubble. Now
  * only a genuine non-zero crash is an error; a clean/aborted exit flushes the
  * partial via onAborted (same as an explicit abort).
+  * @covers CCLI-01
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";

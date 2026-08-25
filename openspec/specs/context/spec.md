@@ -270,3 +270,130 @@ SHALL dichiararlo esplicitamente nel preambolo e SHALL rimuoverlo dallo stato di
 - **GIVEN** una sessione in cui il ritiro dello slot `plan-mode` è già stato dichiarato
 - **WHEN** l'utente invia un altro messaggio con plan mode ancora disattivato
 - **THEN** il preambolo non contiene alcuna riga di ritiro per `plan-mode`
+
+### Requirement: CTX-ADAPT-01 — L'unità è lo SLOT COMPOSTO, e l'ordine è canonico qualunque sia l'ordine d'arrivo
+
+I blocchi di contesto SHALL essere aggregati in SLOT COMPOSTI prima di diventare
+messaggi: tutti i file in uno, la consapevolezza del progetto insieme ai suoi
+modelli in un altro. L'unità NON SHALL essere il singolo blocco — riemettere
+l'intestazione «i file di contesto per questo discorso» con dentro il solo file
+cambiato è una frase FALSA rispetto a ciò che la sessione ha già. Uno slot
+riparte INTERO, e resta coerente per costruzione.
+
+L'ordine dei messaggi prodotti SHALL essere CANONICO e indipendente dall'ordine
+in cui i blocchi arrivano. Il messaggio di sistema principale SHALL essere il
+PRIMO.
+
+I blocchi INFORMATIVI — quelli che l'app mostra ma non inietta — e quelli
+DISATTIVATI NON SHALL diventare messaggi: l'interruttore nell'ispettore SHALL
+avere effetto sul carico reale, o l'ispettore mente.
+
+Un aggregato senza contenuto SHALL degradare in modo dichiarato: con i modelli
+si usano i modelli, senza modelli si ripiega sull'elenco, senza nessuno dei due
+resta la sola frase nuda — mai un'intestazione seguita dal vuoto.
+
+Con ZERO blocchi la cronologia SHALL essere quella di partenza e il testo
+dell'utente SHALL passare VERBATIM. Con dei blocchi la cronologia SHALL
+cominciare con i messaggi di sistema e proseguire con quella di partenza.
+
+I turni SCARTATI per far posto SHALL essere DICHIARATI nelle note: un contesto
+tagliato in silenzio è la ragione per cui una risposta sembra amnesica senza che
+nessuno sappia perché.
+
+Il carico prodotto SHALL restare IDENTICO a quello del percorso che ha
+sostituito, e questo SHALL essere verificato da un banco che confronta i due,
+non dedotto: è l'unica prova che la riscrittura non ha cambiato ciò che il
+modello legge.
+
+#### Scenario: blocchi in ordine sparso
+- **GIVEN** gli stessi blocchi consegnati in ordine diverso
+- **THEN** i messaggi prodotti SHALL essere identici, nell'ordine canonico
+
+#### Scenario: un modello disattivato nell'ispettore
+- **GIVEN** un blocco disattivato
+- **THEN** NON SHALL comparire nel carico
+
+### Requirement: CTX-STRAT-01 — La strategia si DICHIARA, e il ripiego non concede mai quella che va chiesta
+
+Ogni fornitore SHALL DICHIARARE la propria strategia di contesto, e la
+dichiarazione esplicita SHALL avere la precedenza.
+
+Le strategie SHALL restare DISTINTE: chi accetta una cronologia riceve i messaggi
+di sistema in testa alla cronologia; chi tiene la sessione per conto suo li
+riceve concatenati DENTRO il turno, senza cronologia; chi passa da un
+intermediario con stato riceve la stessa forma del primo ma con note proprie e
+SENZA i blocchi che riguardano strumenti che non può raggiungere.
+
+Per un fornitore che NON dichiara niente, la strategia SHALL essere DEDOTTA
+dalla presenza della capacità di gestire una cronologia.
+
+Il ripiego NON SHALL MAI restituire la strategia dell'intermediario con stato:
+quella va CHIESTA esplicitamente. Concederla per deduzione manderebbe a un
+intermediario un carico costruito per lui senza che nessuno l'abbia deciso.
+
+#### Scenario: un fornitore che non dichiara niente
+- **GIVEN** un fornitore senza dichiarazione, con la capacità di cronologia
+- **THEN** SHALL essere dedotta la strategia con cronologia
+
+#### Scenario: l'intermediario con stato
+- **GIVEN** un fornitore senza dichiarazione
+- **THEN** NON SHALL essere dedotta la strategia dell'intermediario con stato
+
+### Requirement: CTX-OVERRIDE-01 — Rigenerare vuol dire che il modello NON vede la risposta che sta sostituendo
+
+Quando un turno viene modificato o rigenerato, la cronologia consegnata SHALL
+essere quella SOSTITUITA, non quella a database: il modello NON SHALL vedere la
+risposta che sta rimpiazzando, o rigenerare significa chiedergli di ripetersi.
+
+In assenza di sostituzione la cronologia SHALL venire dal discorso a database.
+
+Il CONTEGGIO dei messaggi riportato SHALL riflettere la sostituzione: un numero
+che descrive la cronologia scartata non corrisponde a niente di ciò che il
+modello ha letto.
+
+Il preambolo SHALL essere quello CANONICO, con dentro la consapevolezza del
+progetto: la vecchia ricostruzione a mano non la emetteva, e modifica e
+rigenerazione erano gli unici due percorsi che ne restavano privi.
+
+Gli interruttori dell'ispettore SHALL valere anche su questo percorso: ciò che è
+disattivato NON SHALL rientrare dalla porta di servizio.
+
+#### Scenario: rigenerare una risposta
+- **GIVEN** un turno rigenerato
+- **THEN** la risposta sostituita NON SHALL comparire nella cronologia consegnata
+
+#### Scenario: un blocco disattivato, su questo percorso
+- **GIVEN** un blocco disattivato nell'ispettore
+- **THEN** NON SHALL rientrare nel carico della rigenerazione
+
+### Requirement: CTX-SNAP-01 — Gli scatti sono un anello per discorso, e ciò che si consegna è una COPIA
+
+Gli scatti del contesto SHALL essere conservati in un ANELLO di dimensione
+LIMITATA per discorso: oltre il tetto, i più vecchi escono. Senza tetto una
+diagnosi lasciata accesa diventa una perdita di memoria.
+
+SHALL essere restituiti in ordine CRONOLOGICO.
+
+Due discorsi SHALL essere ISOLATI: nessuno scatto di uno SHALL comparire
+nell'altro.
+
+Ciò che viene restituito SHALL essere una COPIA DIFENSIVA: modificarla NON SHALL
+toccare ciò che è conservato.
+
+Un discorso SCONOSCIUTO SHALL restituire un elenco VUOTO, mai «non definito»:
+sono due cose che si trattano diversamente e una delle due fa cadere chi legge.
+
+Uno scatto con identificativo VUOTO SHALL essere un non-fare: senza questa
+regola tutti gli scatti senza discorso si accumulano sotto la stessa chiave, e
+diventano visibili a chiunque la chieda.
+
+Lo svuotamento SHALL poter colpire UN discorso solo — restituendo quanti ne ha
+tolti — oppure TUTTO.
+
+#### Scenario: oltre il tetto dell'anello
+- **GIVEN** più scatti del tetto
+- **THEN** SHALL restare gli ultimi, in ordine cronologico
+
+#### Scenario: uno scatto senza discorso
+- **GIVEN** uno scatto con identificativo vuoto
+- **THEN** NON SHALL essere conservato sotto nessuna chiave

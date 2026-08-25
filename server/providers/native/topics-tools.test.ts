@@ -10,6 +10,7 @@
  * handler che solleva diventi un risultato d'errore invece di uccidere il
  * turno. I comportamenti dei singoli tool hanno già i loro test in
  * `mcp/topics-mcp-server.test.ts`, ed è esattamente il punto di riusarli.
+  * @covers RT-09
  */
 import { describe, expect, test } from "bun:test";
 import { topicsToolSpecs, isTopicsTool, executeTopicsTool } from "./topics-tools";

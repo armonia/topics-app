@@ -8,6 +8,7 @@
  *
  * We stub the private `sendChatInternal` so no real CLI is spawned: the queue
  * wrapper is the only thing under test.
+  * @covers CCLI-03
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";

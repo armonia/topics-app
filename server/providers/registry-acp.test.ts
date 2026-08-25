@@ -7,6 +7,7 @@
  * cui registri il secondo — silenziosamente, perché `stop()` non fa rumore.
  * Questi test tengono ferma quella separazione, e insieme l'etichetta con cui
  * un nome arbitrario arriva nel picker.
+  * @covers ACP-05
  */
 import { describe, expect, test, afterEach } from "bun:test";
 import { join } from "path";

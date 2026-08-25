@@ -10,6 +10,7 @@
  *   - hasPriorMessagesInDB  → "should we replay at all?"
  *   - loadActiveBranchForReplay → "what does the recap include?"
  *   - renderReplayPrologue → "what does the prologue look like?"
+  * @covers CCLI-06
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";

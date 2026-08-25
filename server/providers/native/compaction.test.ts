@@ -9,6 +9,7 @@
  *      suo `tool_result`, altrimenti la richiesta successiva viene rifiutata e
  *      la compattazione, invece di salvare il turno, lo uccide;
  *   3. il peso cala davvero.
+  * @covers RT-03
  */
 import { describe, expect, test } from "bun:test";
 import { estimateTokens, needsCompaction, compact, windowFor } from "./compaction";

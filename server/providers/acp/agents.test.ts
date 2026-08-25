@@ -5,6 +5,7 @@
  * di partire. Una riga illeggibile si scarta e si va avanti — il costo di un
  * agente in meno è un provider assente, il costo di un'eccezione al boot è
  * l'app che non si apre.
+  * @covers ACP-03
  */
 import { describe, expect, test } from "bun:test";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./agents";

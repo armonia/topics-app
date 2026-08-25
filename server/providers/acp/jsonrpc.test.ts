@@ -5,6 +5,7 @@
  * senza dare errore: una riga tagliata da un chunk, del rumore su stdout, una
  * richiesta dell'agente che non riceve risposta, un processo che muore con una
  * promise ancora in volo.
+  * @covers ACP-01
  */
 import { describe, expect, test } from "bun:test";
 import { JsonRpcPeer, JsonRpcRemoteError, RPC_METHOD_NOT_FOUND, RPC_INTERNAL_ERROR } from "./jsonrpc";

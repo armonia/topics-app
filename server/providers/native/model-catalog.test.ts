@@ -18,6 +18,7 @@
  * Nessuno dei test esistenti poteva vederlo: guardavano il loop, la finestra
  * lunga, la compattazione — cioè i pezzi che funzionavano. Mancava la domanda
  * «il catalogo e il codice che esegue sono d'accordo?».
+  * @covers RT-06
  */
 import { describe, expect, test } from "bun:test";
 import { NativeProvider, DEFAULT_MODEL } from "./provider";

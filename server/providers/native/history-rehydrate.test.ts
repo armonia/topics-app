@@ -8,6 +8,7 @@
  * Qui si prova la funzione che ricostruisce la storia dal DB. Ogni test è una
  * delle quattro regole, e ognuna è un modo in cui la trascrizione di Topics NON
  * coincide con quello che l'API accetta.
+  * @covers RT-04
  */
 import { test, expect, describe } from "bun:test";
 import { historyFromPersistedThread, type PersistedTurn } from "./history-rehydrate";

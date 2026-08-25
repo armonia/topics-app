@@ -14,6 +14,7 @@
  *   pre-refactor) to produce a baseline payload.
  * - Run the canonical pipeline (assemble → adapt) for the same inputs.
  * - Diff the resulting `system` messages + history.
+  * @covers CTX-ADAPT-01
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";

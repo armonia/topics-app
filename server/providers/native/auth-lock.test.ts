@@ -15,6 +15,7 @@
  *    puntato al server finto.
  *
  * Nessuna credenziale vera viene letta o toccata.
+  * @covers RT-02
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { tokenUrlFromEnv, OAUTH_TOKEN_URL_DEFAULT } from "./auth";

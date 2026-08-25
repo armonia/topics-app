@@ -117,3 +117,30 @@ The system SHALL provide a system status panel in the sidebar that displays gate
 - **THEN** latency below 1ms SHALL display as "<1ms"
 - **AND** latency at or above 1ms SHALL display as the rounded value with "ms" suffix
 
+
+### Requirement: SYSTEM-LOG-01 — Ogni esito di uno stream ha la sua riga, e il registro non cresce per sempre
+
+Il registro di attività SHALL scrivere una riga per ogni esito di uno stream, e
+gli esiti SHALL restare DISTINTI con la propria gravità: una scadenza morbida è
+un avviso, una scadenza dura e un errore sono errori, un completamento, un
+annullamento e un recupero sono informazioni. Collassarli rende il registro
+inutile proprio quando serve — cioè quando si cerca perché un turno è finito
+come è finito.
+
+Un completamento SHALL portare con sé il CONSUMO, e un errore il proprio
+DETTAGLIO: una riga che dice solo «errore» costringe a cercare altrove ciò che
+si sapeva al momento in cui è stata scritta.
+
+I campi opzionali assenti SHALL cadere su valori puliti, senza righe a metà.
+
+La tabella SHALL essere LIMITATA a un tetto di righe: un registro che cresce per
+sempre è la stessa perdita di memoria di quello che nessuno cancella, solo più
+lenta.
+
+#### Scenario: una scadenza morbida e una dura
+- **GIVEN** i due esiti
+- **THEN** SHALL essere scritti con gravità diverse
+
+#### Scenario: oltre il tetto
+- **GIVEN** più righe del tetto
+- **THEN** la tabella SHALL restare al tetto

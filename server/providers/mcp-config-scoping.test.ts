@@ -1,3 +1,6 @@
+/**
+ * @covers CCLI-11
+ */
 import { describe, it, expect, afterAll } from "bun:test";
 import { readFileSync, unlinkSync } from "node:fs";
 import { writeMcpConfigForSession, topicsMcpBridgeSpec } from "./claude-code";

@@ -5,6 +5,7 @@
  * user message from stdin and emits a `result` event; we assert onDone fires
  * through the whole chain: sendChat → daemon spawn → stdin write → stdout `data`
  * frame → PassThrough → readline → handleStreamEvent → onDone.
+  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "fs";

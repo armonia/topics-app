@@ -15,6 +15,7 @@
  * DB in-memory su una tmpdir, come `activity-log.test.ts`: le migration vere
  * girano tali e quali, quindi la tabella sotto test è quella che va in
  * produzione.
+  * @covers NOTIF-LOG-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

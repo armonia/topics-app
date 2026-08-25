@@ -1,3 +1,6 @@
+/**
+ * @covers RT-04
+ */
 import { describe, test, expect } from "bun:test";
 import { orphanToolUseIds, pruneDanglingToolUses } from "./history-repair";
 import type { AgentMessage } from "./agent-loop";

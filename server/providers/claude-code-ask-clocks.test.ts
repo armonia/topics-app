@@ -22,6 +22,7 @@
  * `turn-deadline.test.ts`, ma quella che uccideva era la riga che non la usava.
  * I metodi accettano i millisecondi come override apposta — due ore, e nemmeno
  * quindici minuti, non si aspettano in un test.
+  * @covers CCLI-02
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";

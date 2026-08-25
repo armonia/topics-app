@@ -11,6 +11,7 @@
  * The fix: `sendChatInternal` clears the timer at turn start and re-arms it in a
  * `finally` ONLY for a process that survived the turn. These tests pin that
  * invariant by driving the real `sendChatInternal` with a fully faked child.
+  * @covers CCLI-02
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";

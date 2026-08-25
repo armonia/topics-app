@@ -251,6 +251,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
   });
 
   test("FAST-MODE-04: quando la CLI dice che non si può, il bottone NON c'è", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "FAST-MODE-04" });
     // Il caso vero di oggi: le chat girano `claude --print --input-format
     // stream-json`, cioè la via Agent SDK, e la CLI risponde
     // `fast_mode_disabled_reason: "sdk_opt_in_required"`. Prima, con lo stesso
@@ -271,6 +272,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
   });
 
   test("FAST-MODE-05: quando si può, sotto il ⚡ c'è quanto costa", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "FAST-MODE-05" });
     // 2× = 10$/50$ della fast mode contro i 5$/25$ di Opus standard, listino
     // che la CLI scrive nei suoi stessi documenti. «Più veloce» da solo non è
     // un'informazione finché non dici quanto costa.

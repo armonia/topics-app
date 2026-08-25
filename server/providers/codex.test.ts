@@ -6,6 +6,7 @@
  * deterministic upstream, neither of which is achievable here. The helpers
  * are where the real complexity lives anyway (multi-shape usage payloads
  * and double-encoded error messages).
+  * @covers CODEX-01
  */
 
 import { describe, expect, test } from "bun:test";

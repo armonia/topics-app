@@ -1456,3 +1456,525 @@ caso più comune di tutti.
 #### Scenario: una sola chat, mai messa a fuoco
 - **GIVEN** una sola chat registrata e nessun fuoco mai dato
 - **THEN** SHALL essere lei la destinataria
+
+### Requirement: CHAT-COMPACT-01 — La compattazione lascia un SEGNO, e il segno non si moltiplica
+
+Ogni compattazione SHALL lasciare un segno persistente, legato alla sessione,
+letto dal fotogramma che la dichiara. Senza, una compattazione è invisibile: la
+conversazione si accorcia e nessuno sa perché.
+
+Il riconoscimento SHALL essere DIFENSIVO: i nomi dei campi sono cambiati fra le
+versioni dello strumento, quindi SHALL essere provati più nomi alternativi e
+SHALL degradare con grazia. Un motivo sconosciuto SHALL essere DICHIARATO tale,
+non inventato. Un conteggio negativo o non numerico SHALL essere SCARTATO, non
+convertito.
+
+Un fotogramma che NON è un confine di compattazione SHALL restituire «niente»,
+e la guardia SHALL riconoscere solo la coppia esatta di tipo e sottotipo.
+
+Segni ripetuti sullo STESSO punto di ancoraggio SHALL essere COLLASSATI in uno,
+e questo SHALL valere anche per ancore ripetutamente ASSENTI: senza, ogni
+riaggancio ne aggiunge uno e la cronologia si riempie di confini che
+descrivono lo stesso evento. Un'ancora che AVANZA SHALL invece produrre un segno
+nuovo.
+
+I segni SHALL essere per sessione e in ordine di creazione.
+
+Il conteggio DOPO SHALL essere colmato a posteriori sul segno più recente che ne
+è privo, e SHALL essere RIFIUTATO se non è MINORE di quello prima: una
+compattazione non fa crescere il contesto, e accettare un numero più grande
+scrive nel registro una cosa che non può essere successa. Un «dopo» SHALL essere
+accettato anche quando il «prima» non è mai stato registrato.
+
+Il colmo SHALL restituire il segno aggiornato — serve a ridiffonderlo — oppure
+«niente» quando non c'era nulla da colmare.
+
+#### Scenario: due confini sullo stesso punto
+- **GIVEN** due dichiarazioni con la stessa ancora
+- **THEN** SHALL restare un segno solo
+
+#### Scenario: un «dopo» più grande del «prima»
+- **GIVEN** un conteggio successivo non inferiore al precedente
+- **THEN** SHALL essere rifiutato
+
+### Requirement: CCLI-01 — Un'uscita non è un errore: annullamento, spegnimento e crash sono tre cose
+
+L'uscita del processo della riga di comando NON SHALL essere trattata come un
+errore per il solo fatto di essere un'uscita: prima, QUALUNQUE uscita con un
+flusso vivo produceva un errore a schermo, e premere «ferma» mostrava un
+allarme.
+
+Un'uscita PULITA con un flusso vivo SHALL essere un ANNULLAMENTO — con il
+parziale consegnato — non un errore. Un'uscita non pulita DURANTE un annullamento
+SHALL restare un annullamento. Un'uscita non pulita SENZA annullamento in corso
+SHALL essere un ERRORE VERO: nascondere un guasto reale è l'altra metà dello
+stesso difetto.
+
+Il turno in attesa SHALL essere rigettato con il motivo GIUSTO: annullato quando
+la chiusura è pulita, morte del processo con il proprio codice quando non lo è.
+
+Senza flusso vivo — turno già concluso — NON SHALL essere chiamato NIENTE: due
+notifiche per lo stesso fatto sono peggio di una.
+
+La bandiera «sto annullando» SHALL essere alzata PRIMA che l'evento di uscita
+possa arrivare, o la corsa la perde. Un annullamento deciso da un guardiano SHALL
+portare la propria ragione, così quell'uscita NON SHALL MAI essere registrata
+come un gesto dell'utente.
+
+Una FERMATA SENZA intermediario SHALL comunque annullare il turno vivo con la
+causa dello spegnimento: fermare il processo non avvisa nessuno, e la chat resta
+a metà frase.
+
+Una sessione dichiarata INESISTENTE dall'altro capo SHALL essere DIMENTICATA e
+SHALL produrre UN solo rinvio, seguito da una nota: senza, l'identificativo morto
+non viene mai scordato e ogni turno lo ricicla in un giro infinito. Una sessione
+APPENA CREATA NON SHALL MAI entrare in quel recupero, e un errore diverso NON
+SHALL innescarlo.
+
+#### Scenario: premere «ferma»
+- **GIVEN** un flusso vivo e un'uscita pulita
+- **THEN** SHALL essere un annullamento, non un errore
+
+#### Scenario: un crash vero
+- **GIVEN** un'uscita non pulita senza annullamento in corso
+- **THEN** SHALL essere un errore
+
+### Requirement: CCLI-02 — Gli orologi non uccidono chi è fermo su una domanda a schermo
+
+Nessun orologio SHALL uccidere un processo mentre una DOMANDA all'utente è a
+schermo: il tetto di vita del figlio, essendo il più basso, costringeva la
+domanda stessa a scadere prima di lui.
+
+Il tetto di vita SHALL RIARMARSI invece di uccidere quando c'è una domanda
+aperta, e SHALL scattare normalmente quando non ce n'è.
+
+Il mietitore dell'inattività NON SHALL mietere un processo fermo su una domanda,
+e SHALL essere ANNULLATO quando comincia il turno successivo e RIARMATO quando
+finisce: un orologio non annullato uccide a metà lavoro un turno che parte dopo
+una pausa lunga. Un processo MORTO NON SHALL essere riarmato.
+
+Un orologio ORFANO — rimasto da una voce sostituita — NON SHALL toccare il
+processo che ha preso il suo posto: la fermata avviene PER CHIAVE, e l'orfano
+ammazza il figlio di qualcun altro.
+
+Azzerare la sessione SHALL CHIUDERE la domanda aperta: una voce rimasta fa
+credere che ci sia una domanda a schermo, e questo DISARMA i guardiani del turno
+successivo.
+
+Il tempo concesso alla riga di comando per un comando esterno SHALL essere
+MAGGIORE di quanto possa consumare una domanda a schermo: il suo valore
+predefinito è più corto, e una domanda lasciata lì muore per un orologio che non
+sa niente di lei.
+
+L'ambiente passato al processo dell'agente NON SHALL portare SEGRETI, e NON SHALL
+recintare i processori: la quota è per discorso, non per tutti.
+
+#### Scenario: una domanda a schermo e il tetto di vita
+- **GIVEN** una domanda aperta al raggiungimento del tetto
+- **THEN** il tetto SHALL riarmarsi invece di uccidere
+
+#### Scenario: un turno che parte dopo una pausa lunga
+- **GIVEN** un mietitore armato dal turno precedente
+- **THEN** SHALL essere annullato all'inizio del turno nuovo
+
+### Requirement: CCLI-03 — La coda per sessione serializza, e un turno che solleva non la blocca
+
+Turni concorrenti sulla STESSA sessione SHALL essere SERIALIZZATI: sovrapporli
+significa intrecciare due scritture nello stesso processo.
+
+Un turno che SOLLEVA SHALL comunque passare la mano al successivo: senza,
+la sessione si blocca per sempre.
+
+Sessioni DIVERSE NON SHALL bloccarsi a vicenda.
+
+#### Scenario: un turno che fallisce
+- **GIVEN** un turno che solleva un'eccezione
+- **THEN** il turno in coda SHALL partire lo stesso
+
+#### Scenario: due turni sulla stessa sessione
+- **GIVEN** due invii sovrapposti
+- **THEN** SHALL essere eseguiti uno dopo l'altro
+
+### Requirement: CCLI-04 — Un turno sopravvive al riavvio: si RIADOTTA, non si riesegue
+
+Un turno in corso mentre il server riparte SHALL essere RIADOTTATO e portato a
+termine IN PLACE: il parziale SHALL essere ritrasmesso, il lavoro NON SHALL
+essere rieseguito. Un turno CONCLUSO mentre il server era giù SHALL chiudersi
+dalla ritrasmissione, senza ripartire.
+
+Lo stato del turno all'avvio SHALL essere letto da CHI TIENE IL PROCESSO, non
+dall'ombra a database: un turno fermo su una domanda è APERTO, e all'avvio non va
+ucciso.
+
+Un turno inviato DOPO un riavvio, verso il figlio che l'intermediario ha tenuto
+vivo, SHALL comunque completarsi: riconoscere il processo senza AGGANCIARE chi
+chiama significa che la risposta arriva a connessioni che non esistono più, e la
+chat resta appesa per sempre. Un agganciamento PERSO a metà volo SHALL poter
+essere RECUPERATO. Un intermediario che MUORE a metà volo SHALL far FINIRE il
+turno, non lasciarlo credere vivo.
+
+La ritrasmissione integrale di uno store all'avvio SHALL avvenire UNA volta sola:
+in produzione ventisette store fino a 6,9 MB sono ~166 MB spediti e ripiegati al
+posto di 83. La sonda che ispeziona SHALL poter PARCHEGGIARE l'aggancio per chi
+riadotterà, e SHALL parcheggiare SOLO quando la riadozione è promessa. Due sonde
+consecutive NON SHALL pestarsi.
+
+La ripresa mirata SHALL ripartire subito DOPO l'ultimo esito, o una domanda
+aperta non torna a schermo.
+
+Un intermediario MUTO durante una riadozione NON SHALL rigettare: SHALL uscire
+dall'errore, e il figlio NON SHALL essere bollato morto. Quel rigetto risaliva
+fino a scrivere un avviso di fallimento SOPRA il contenuto della riga — e proprio
+lì il danno è totale, perché la riadozione l'ha già svuotata per riusarla.
+
+#### Scenario: il server riparte a metà turno
+- **GIVEN** un turno in volo e un riavvio
+- **THEN** SHALL essere riadottato e completato, non rieseguito
+
+#### Scenario: l'intermediario muore a metà volo
+- **GIVEN** la morte del processo intermedio
+- **THEN** il turno SHALL finire, non restare appeso
+
+### Requirement: CCLI-05 — Un esito SENZA testo chiude comunque il turno
+
+Un esito finale privo di testo SHALL CHIUDERE il turno. Scartarlo perché vuoto è
+ciò che rendeva una compattazione un turno che non finisce MAI: la coda seriale
+resta presa, il messaggio successivo si accoda dietro, e mezz'ora dopo un
+guardiano uccide il figlio scrivendo in chat che il modello non dava segni di
+vita — sopra una compattazione perfettamente riuscita.
+
+L'unica riga che SHALL restare rumore è quella di attesa: NON SHALL chiudere
+niente.
+
+Un esito con testo SHALL continuare a chiudere il turno col proprio testo, e un
+esito d'ERRORE senza testo SHALL chiuderlo ugualmente: cadeva nello stesso buco.
+
+Dopo la chiusura, il messaggio in coda SHALL partire davvero.
+
+#### Scenario: una compattazione riuscita
+- **GIVEN** un esito finale senza testo
+- **THEN** il turno SHALL chiudersi e il messaggio in coda SHALL partire
+
+#### Scenario: la riga di attesa
+- **GIVEN** l'esito che dichiara di essere in attesa
+- **THEN** NON SHALL chiudere niente
+
+### Requirement: CCLI-06 — Persa la sessione, la conversazione si ricostruisce dal database
+
+Quando la sessione sul disco non esiste più, il messaggio successivo SHALL essere
+preceduto da un RIEPILOGO ricostruito dalle righe salvate, così il modello vede
+il filo del discorso.
+
+Il riepilogo SHALL essere costruito solo quando c'è davvero qualcosa da
+ricostruire: nessun messaggio, o il solo turno appena scritto, NON SHALL
+produrlo.
+
+SHALL essere percorso il RAMO ATTIVO in ordine, escludendo il turno appena
+aggiunto, e i turni A METÀ SHALL essere saltati.
+
+I marcatori interni SHALL essere RIMOSSI e le buste di contesto di altri
+fornitori SHALL essere SALTATE: sono nostre, non fanno parte della conversazione.
+
+Oltre un tetto di turni SHALL essere TRONCATO, e l'omissione SHALL essere
+DICHIARATA. Sotto il tetto NON SHALL essere troncato niente.
+
+#### Scenario: rami fratelli
+- **GIVEN** una conversazione con rami alternativi
+- **THEN** SHALL essere percorso il ramo attivo
+
+#### Scenario: oltre il tetto dei turni
+- **GIVEN** più turni del tetto
+- **THEN** SHALL essere troncato, dichiarando l'omissione
+
+### Requirement: CCLI-07 — L'argomentario è un contratto FOTOGRAFATO, e le leve del prefisso sono MISURATE
+
+Gli argomenti passati alla riga di comando SHALL essere fissati da un banco che
+li fotografa: se qualcuno tocca una bandiera, il rosso SHALL arrivare LÌ e non in
+produzione al primo turno — che è com'è andata finora, visto che nessun banco
+nominava le bandiere critiche.
+
+Ogni bandiera SHALL avere il proprio valore SUBITO DOPO: niente coppie spaiate.
+Il canale dei permessi SHALL esserci in OGNI modalità, inclusa quella che
+permette tutto.
+
+Le leve che riducono il prefisso SHALL viaggiare nello STESSO blocco di
+impostazioni e SHALL essere INDIPENDENTI: ognuna SHALL poter essere accesa da
+sola, e ognuna SHALL poter essere vista FALLIRE quando è spenta. Una bandiera
+condizionata da un'altra è come si desincronizza da sé stessa — ed è già costato
+tutti i comandi esterni per un giorno.
+
+Le impostazioni SHALL viaggiare come ARGOMENTO, non come ambiente: leggerle
+dalle sorgenti dell'utente farebbe vincere il file di chi usa l'applicazione su
+ciò che il prodotto ha deciso. Un valore nullo NON SHALL emettere la bandiera.
+
+Il taglio degli strumenti SHALL essere un elenco di soli NOMI in UN argomento, e
+SHALL essere DIVERSO fra lavoro dispacciato e chat. Gli strumenti che rendono
+CAPACE l'agente NON SHALL essere in nessuna delle due liste, e la lista della
+chat SHALL essere un SOTTOINSIEME di quella dispacciata. Il taglio SHALL poter
+essere spento del tutto.
+
+Il tetto ai risultati dei comandi esterni SHALL viaggiare come TESTO, perché è lì
+che la riga di comando lo legge, e in sua assenza NON SHALL essere imposto
+niente.
+
+Il troncamento delle descrizioni SHALL usare un valore che la riga di comando non
+IGNORA: lo zero viene ignorato e l'elenco resta intero.
+
+Le abilità NON SHALL sparire: la bandiera che le spegne NON SHALL comparire.
+
+Nella modalità a un colpo solo NON SHALL comparire la bandiera prolissa: con
+l'uscita strutturata renderebbe l'uscita un elenco di eventi. Una scrittura di
+configurazione FALLITA SHALL ripiegare senza restrizione, e NON SHALL inventare
+un percorso.
+
+#### Scenario: una bandiera modificata
+- **GIVEN** un cambiamento negli argomenti
+- **THEN** il banco della fotografia SHALL fallire
+
+#### Scenario: una leva spenta
+- **GIVEN** una leva del prefisso disattivata
+- **THEN** il banco SHALL poterla vedere fallire
+
+### Requirement: CCLI-08 — La riga di comando installata si DIAGNOSTICA, non si sbarra
+
+La versione della riga di comando SHALL essere CONSULTATA da una decisione, non
+solo mostrata: finiva unicamente dentro una diagnostica come testo, e una
+versione troppo vecchia si scopriva a turno morto, con un errore di argomento
+sconosciuto che nessuno collegava all'aggiornamento della settimana prima.
+
+Il verdetto SHALL essere una DIAGNOSI, NON un cancello: un falso negativo che
+spegne il fornitore è peggio del sintomo che evita.
+
+Sotto il minimo SHALL essere DETTO, senza essere un divieto. Le bandiere critiche
+mancanti SHALL essere ELENCATE, con dentro COSA si rompe: una bandiera assente
+che porta via ogni comando esterno e ogni scrittura fuori dalla cartella, in
+silenzio, non è una nota di versione.
+
+Una versione ILLEGGIBILE SHALL essere ASSENZA DI INFORMAZIONE, non un guasto. Una
+versione FUTURA SHALL restare compatibile finché non si dichiara una rimozione.
+Una versione senza l'ultima cifra SHALL valere zero.
+
+Il meccanismo delle rimozioni SHALL essere provato anche quando l'elenco è
+VUOTO: un cancello che nessuno ha ancora armato deve essere già verificabile.
+
+#### Scenario: una bandiera critica assente
+- **GIVEN** una riga di comando di generazione precedente
+- **THEN** SHALL essere elencata la bandiera e cosa si rompe
+
+#### Scenario: una versione illeggibile
+- **GIVEN** una stringa di versione non interpretabile
+- **THEN** SHALL valere «non lo so», senza motivo di allarme
+
+### Requirement: CCLI-09 — Il testo iniettato dalla riga di comando si stacca dal prefisso tecnico
+
+Il testo che la riga di comando inietta dopo l'esecuzione di un'abilità SHALL
+essere SEPARATO dal proprio prefisso tecnico prima di essere mostrato:
+inoltrarlo come risposta lo incollava DENTRO la risposta a schermo, senza
+nemmeno uno spazio in mezzo.
+
+Il corpo su più righe SHALL restare INTERO. Un prefisso SENZA corpo, e un testo
+vuoto, NON SHALL produrre niente da mostrare. La forma senza prefisso SHALL
+passare intera.
+
+#### Scenario: un'abilità con prefisso tecnico
+- **GIVEN** un testo iniettato con l'intestazione tecnica
+- **THEN** SHALL essere mostrato il solo corpo
+
+#### Scenario: solo il prefisso
+- **GIVEN** un prefisso senza corpo
+- **THEN** NON SHALL essere mostrato niente
+
+### Requirement: CCLI-10 — Il completamento a un colpo solo non restituisce MAI il testo grezzo
+
+Nel completamento senza streaming SHALL essere estratto il CONTENUTO e il
+CONSUMO dall'evento di esito. In un ELENCO di eventi SHALL vincere l'evento di
+esito, MAI il testo grezzo: l'evento di apertura porta l'identificativo del
+modello, e restituire il grezzo faceva leggere quel nome come se fosse la
+risposta.
+
+I gettoni della richiesta SHALL comprendere anche quelli riletti dalla memoria.
+
+Senza evento di esito il contenuto SHALL essere VUOTO — chi chiama ha un
+ripiego — non il testo grezzo. Un'uscita che non è strutturata SHALL passare come
+testo semplice.
+
+#### Scenario: un elenco di eventi
+- **GIVEN** più eventi con dentro l'apertura e l'esito
+- **THEN** SHALL vincere l'esito, e il grezzo NON SHALL comparire
+
+#### Scenario: nessun evento di esito
+- **GIVEN** un'uscita strutturata senza esito
+- **THEN** il contenuto SHALL essere vuoto
+
+### Requirement: CCLI-11 — I comandi esterni che si riscaricano a ogni avvio restano FUORI dalla sessione
+
+Un comando esterno configurato globalmente che si RISCARICA a ogni avvio SHALL
+essere ESCLUSO dall'inclusione automatica in sessione.
+
+La regola SHALL essere STRETTISSIMA, perché il rischio da tenere basso è il
+FALSO POSITIVO: escludere un comando che serviva è peggio che tenerne uno lento,
+perché chi usa l'applicazione perde una capacità senza capire perché. SHALL
+concorrere il tipo a processo, un avviatore che scarica, E la conferma
+automatica.
+
+Un comando che non ha un processo da far ripartire NON SHALL contare, anche se
+porta un comando scritto. Un binario locale NON SHALL contare. Un avviatore
+SENZA conferma automatica NON SHALL contare: non partirebbe nemmeno.
+
+Un ingresso malformato NON SHALL far esplodere la restrizione.
+
+Per il lavoro dispacciato SHALL essere scritta una configurazione che espone SOLO
+il nostro ponte, col profilo ridotto, in modo RESTRITTIVO: quel ramo NON SHALL
+leggere la configurazione personale, o smette di essere deterministico. Il profilo
+ridotto SHALL essere un SOTTOINSIEME stretto di quello pieno.
+
+#### Scenario: un avviatore che scarica, con conferma automatica
+- **GIVEN** un comando esterno di quella forma
+- **THEN** SHALL essere escluso dall'inclusione automatica
+
+#### Scenario: un binario locale
+- **GIVEN** un comando esterno che parte da un binario installato
+- **THEN** NON SHALL essere escluso
+
+### Requirement: CODEX-01 — Il consumo è quello dell'ULTIMA chiamata, e un errore incapsulato si apre
+
+Gli eventi del fornitore a riga di comando alternativo SHALL essere instradati
+verso il gestore del flusso senza avviare la riga di comando reale nei banchi:
+richiederebbe una sessione autenticata e un servizio deterministico, e la
+complessità vera sta comunque nei traduttori.
+
+Il consumo del CONTESTO SHALL essere letto dall'ULTIMA chiamata, MAI dal totale
+del turno: il totale somma tutte le chiamate, ed è esattamente l'errore che
+faceva dichiarare al divisore della compattazione un contesto ESPLOSO. L'uscita
+NON SHALL entrare nel contesto.
+
+I nomi dei campi del consumo sono CAMBIATI fra le versioni: SHALL essere accettate
+le varianti, comprese quelle di stile diverso e quelle annidate. Conteggi
+NEGATIVI o non finiti SHALL essere SCARTATI.
+
+Un consumo a ZERO NON SHALL accendere un indicatore vuoto, e un evento di
+conteggio senza il proprio blocco NON SHALL emettere niente. Il totale di FINE
+TURNO NON SHALL accendere l'indicatore: è un aggregato.
+
+Senza una finestra dichiarata SHALL essere passato «non lo so».
+
+Un messaggio d'errore incapsulato SHALL essere APERTO, fino a un tetto di
+livelli, e SHALL FERMARSI quando incontra qualcosa che non è più incapsulato o
+che non porta un messaggio. In assenza di tutto SHALL restare un testo
+predefinito, non un vuoto.
+
+L'uscita di un comando in corso SHALL essere ACCUMULATA per comando, e l'ultimo
+parziale SHALL fare da ripiego quando l'esito non porta l'uscita. Un tipo di
+evento SCONOSCIUTO SHALL essere IGNORATO.
+
+#### Scenario: il totale del turno
+- **GIVEN** un evento che porta sia l'ultima chiamata sia il totale
+- **THEN** SHALL essere letta l'ultima chiamata
+
+#### Scenario: un errore incapsulato due volte
+- **GIVEN** un messaggio d'errore codificato dentro un altro
+- **THEN** SHALL essere aperto fino al messaggio leggibile
+
+### Requirement: DELTA-01 — Il cumulativo si converte in pezzi per UN fornitore solo
+
+Un fornitore che manda il testo INTERO a ogni evento SHALL essere convertito in
+pezzi nuovi, e la conversione SHALL avvenire in UN posto dichiarato — non
+indovinata a valle.
+
+La conversione NON SHALL essere applicata a chi manda già i pezzi: su quelli è
+una PERDITA DI DATI MUTA. Due pezzi UGUALI di fila — una parola ripetuta, due
+ritorni a capo, due segni uguali in una tabella — diventerebbero uno solo, e la
+riga salvata e lo schermo direbbero la stessa cosa sbagliata.
+
+Il testo ricomposto dai pezzi SHALL essere IDENTICO all'ultimo cumulato. Un
+cumulato IDENTICO al precedente NON SHALL produrre niente. Il primo evento SHALL
+produrre tutto. Un cumulato che NON estende il precedente SHALL ripartire INTERO,
+non mutilato.
+
+Una conversazione con due turni consecutivi dello stesso ruolo SHALL essere
+RICUCITA prima di essere consegnata: l'interfaccia del modello la rifiuta con un
+errore secco e l'intero turno va perso. I turni VUOTI SHALL sparire — nel
+database vivo se ne contavano centosettanta — l'assistente in TESTA SHALL essere
+tolto, e il messaggio nuovo in coda SHALL fondersi col turno che lo precede.
+
+#### Scenario: due pezzi uguali di fila
+- **GIVEN** un fornitore che manda già i pezzi
+- **THEN** la conversione NON SHALL essere applicata, e nessun pezzo SHALL sparire
+
+#### Scenario: due turni dello stesso ruolo
+- **GIVEN** una conversazione non alternata
+- **THEN** SHALL essere ricucita prima della consegna
+
+### Requirement: FAST-MODE-06 — Lo stato della modalità rapida si LEGGE, e «non lo so» non è «spenta»
+
+Lo stato della modalità rapida SHALL essere letto dagli eventi che lo portano —
+sia all'apertura sia alla chiusura del turno — e il formato SHALL essere quello
+REALE della riga di comando, non uno inventato.
+
+Un evento che NON ne parla SHALL dare «non lo so», che NON SHALL essere
+confuso con «spenta»: finché non lo sappiamo il comando NON SHALL essere mandato
+al buio, ma il pulsante NON SHALL essere spento.
+
+Un motivo ASSENTE SHALL valere «niente la blocca». Valori FUORI dall'insieme
+noto NON SHALL essere inoltrati: chi guarda non deve indovinarli.
+
+Il comando SHALL essere mandato SOLO quando serve, e sempre ESPLICITO: se lo
+stato è già quello voluto NON SHALL essere mandato niente. Se la modalità è
+BLOCCATA NON SHALL esserle parlato: il rifiuto finirebbe nella chat.
+
+Un ri-annuncio IDENTICO NON SHALL essere trattato come un cambiamento.
+
+Il moltiplicatore di costo SHALL essere CALCOLATO dal listino, non scritto a
+mano: cambia il listino, cambia il numero. Fuori dalla famiglia che la offre NON
+SHALL esserci nessun numero, e un modello SENZA prezzo SHALL dare «nessun
+numero», non uno zero.
+
+#### Scenario: nessuno ha ancora parlato
+- **GIVEN** nessun evento che dichiari lo stato
+- **THEN** NON SHALL essere mandato nessun comando, e il pulsante SHALL restare vivo
+
+#### Scenario: un modello senza prezzo
+- **GIVEN** un modello di cui non si conosce il listino
+- **THEN** NON SHALL essere mostrato nessun moltiplicatore
+
+### Requirement: FAST-MODE-04 — Un comando che non si può usare NON occupa una riga
+
+Quando la riga di comando dichiara che la modalità rapida NON è disponibile — ad
+esempio perché la via usata dalle chat richiede un'adesione separata — il
+pulsante NON SHALL comparire affatto.
+
+NON SHALL essere mostrato disattivato, e NON SHALL fare in silenzio una cosa
+DIVERSA: prima, con lo stesso clic, il server sostituiva il modello con uno più
+piccolo — il comando prometteva una cosa e ne faceva un'altra.
+
+Gli ALTRI comandi della riga SHALL restare al loro posto: togliere quello
+indisponibile NON SHALL spostare né nascondere il resto.
+
+#### Scenario: la modalità è dichiarata non disponibile
+- **GIVEN** un motivo di indisponibilità dichiarato dalla riga di comando
+- **THEN** il pulsante NON SHALL essere presente
+
+#### Scenario: gli altri comandi
+- **GIVEN** il pulsante assente
+- **THEN** gli altri comandi della riga SHALL restare visibili
+
+### Requirement: FAST-MODE-05 — Sotto il comando c'è QUANTO COSTA, e il numero non è un bersaglio
+
+Quando la modalità rapida è disponibile, accanto al comando SHALL essere mostrato
+il MOLTIPLICATORE di costo: «più veloce» da solo non è un'informazione finché non
+si dice quanto costa.
+
+Il numero SHALL comparire ANCHE nella descrizione al passaggio: il solo
+distintivo non dice DI COSA è il multiplo.
+
+Il distintivo NON SHALL essere un bersaglio tattile a sé — gli eventi del
+puntatore SHALL essere spenti su di esso — e NON SHALL far crescere l'altezza del
+comando.
+
+#### Scenario: la modalità è disponibile
+- **GIVEN** un moltiplicatore dichiarato
+- **THEN** SHALL essere mostrato accanto al comando e nella descrizione
+
+#### Scenario: il distintivo
+- **GIVEN** il distintivo del costo
+- **THEN** NON SHALL ricevere eventi del puntatore né cambiare l'altezza del comando

@@ -6,6 +6,7 @@
  * serviva è peggio che tenerne uno lento, perché l'utente perde una capacità senza
  * capire perché. Quindi la regola è strettissima — `stdio` + un runner che scarica
  * (`npx`/`bunx`/`npm exec`) + il flag di auto-conferma — e questi test la tengono lì.
+  * @covers CCLI-11
  */
 import { describe, expect, test } from "bun:test";
 import { isColdBootServer } from "./claude-code";

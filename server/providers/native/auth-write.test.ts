@@ -10,6 +10,7 @@
  *
  * Qui si lavora su file finti in una directory temporanea: nessuna credenziale
  * vera viene letta o toccata.
+  * @covers RT-02
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";

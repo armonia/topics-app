@@ -5,6 +5,7 @@
  * One test per real provider verifies the declared strategy matches what
  * the design contract promises. A final synthetic-provider test covers the
  * fallback path (no `contextStrategy` declared).
+  * @covers CTX-STRAT-01
  */
 
 import { describe, expect, it } from "bun:test";

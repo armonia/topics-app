@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-COMPACT-01
+ */
 import { describe, expect, test } from "bun:test";
 import { parseCompactBoundary, isCompactBoundary } from "./compaction";
 

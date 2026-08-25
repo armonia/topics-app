@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-COMPACT-01
+ */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";

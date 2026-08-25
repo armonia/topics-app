@@ -1,3 +1,6 @@
+/**
+ * @covers CCLI-08
+ */
 import { describe, expect, test } from "bun:test";
 import { checkClaudeCliCompat, MIN_SUPPORTED_CLI, CRITICAL_CLAUDE_FLAGS, BARE_DEFAULT_IN } from "./cli-compat";
 

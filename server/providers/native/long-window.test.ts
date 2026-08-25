@@ -1,3 +1,6 @@
+/**
+ * @covers RT-05
+ */
 import { describe, test, expect } from 'bun:test';
 import { splitLongWindow, betaHeader, spiegaErrore } from './long-window';
 

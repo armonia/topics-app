@@ -9,6 +9,7 @@
  *
  * Si prova contro l'agente finto VERO (un processo), perché è lì che vive lo
  * scambio: un peer in-process salterebbe proprio lo spawn e lo stdio.
+  * @covers ACP-02
  */
 import { describe, expect, test, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";

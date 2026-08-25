@@ -13,6 +13,7 @@
  *    orologio che non sapeva niente di lui. Il ponte manda `notifications/
  *    progress` a ogni gamba (topics-mcp-server.ts) e quel timer si riazzera —
  *    questa è la cintura per un client che non le onori.
+  * @covers CCLI-02
  */
 import { describe, expect, test } from "bun:test";
 import { buildSafeEnv } from "./claude-code";

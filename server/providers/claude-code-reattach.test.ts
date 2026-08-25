@@ -3,6 +3,7 @@
  * daemon is ADOPTED and completed in place, not re-run. Two ClaudeCodeProvider
  * instances share the module-singleton bridge client (= "restart": provider A
  * dies, provider B reconnects to the surviving daemon session).
+  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "fs";

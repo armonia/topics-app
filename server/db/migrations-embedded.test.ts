@@ -1,3 +1,6 @@
+/**
+ * @covers SCHEMA-01
+ */
 // DRIFT GATE for the embedded-migrations manifest.
 //
 // The server sidecar (bun build --compile) can't read server/db/migrations/*.sql

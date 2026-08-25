@@ -16,6 +16,7 @@
  * il registro nello stato di quella macchina — jcode MAI registrato, perché
  * `initProviders` salta gli agenti ACP il cui binario non è nel PATH — e si
  * guarda cosa esce.
+  * @covers RT-10
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import {

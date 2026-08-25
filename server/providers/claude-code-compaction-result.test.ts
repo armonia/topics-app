@@ -33,6 +33,7 @@
  *
  * La sentinella `waiting for message` resta l'unica riga scartata: quella la
  * CLI la emette a vuoto, senza nessun turno in corso.
+  * @covers CCLI-05
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";

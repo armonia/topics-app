@@ -20,6 +20,7 @@
  * modello arriva con ogni turno, la radice si ri-deriva. L'unica cosa che NON
  * si può ricostruire è un turno in volo, ed è esattamente la cosa che la regola
  * protegge.
+  * @covers RT-08
  */
 import { describe, expect, test } from "bun:test";
 import { sessionIsEvictable } from "./provider";

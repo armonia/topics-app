@@ -1,3 +1,6 @@
+/**
+ * @covers CCLI-10
+ */
 import { describe, test, expect } from "bun:test";
 import { parseCompletionStdout } from "./claude-code";
 

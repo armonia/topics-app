@@ -14,6 +14,7 @@
  * suo scan) e la nuova (`park: true`: la sonda lo parcheggia, la riadozione lo
  * adotta e salta la fase 1). La differenza dev'essere esattamente un replay
  * integrale.
+  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "fs";

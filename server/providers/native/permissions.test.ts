@@ -10,6 +10,7 @@
  * qualunque perimetro. Provano che l'ERRORE si ferma, che è la cosa che succede
  * davvero: un `rm -rf` con il percorso sbagliato, un `reset --hard` su lavoro
  * non committato.
+  * @covers RT-07
  */
 import { describe, expect, test } from "bun:test";
 import { decide, levelFor, DEFAULT_AUTONOMY } from "./permissions";

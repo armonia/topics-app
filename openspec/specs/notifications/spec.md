@@ -216,3 +216,37 @@ scartano i singoli elementi storti, non l'intera preferenza.
 #### Scenario: elenco misto
 - **GIVEN** un elenco con dentro elementi validi e altri no
 - **THEN** SHALL essere tenuto ciò che è valido
+
+### Requirement: NOTIF-LOG-01 — Lo stesso evento da due mittenti è UNA riga, e il bersaglio si salva quando lo si conosce
+
+Un evento registrato più volte entro una FINESTRA di tempo SHALL lasciare UNA
+riga sola: due mittenti che raccontano lo stesso fatto sono un fatto, non due.
+FUORI dalla finestra la stessa chiave SHALL essere un evento NUOVO — altrimenti
+un fatto che si ripete davvero, a distanza, sparisce.
+
+Il BERSAGLIO SHALL essere salvato con la riga, non ricostruito quando qualcuno
+ci clicca: ricostruirlo dopo significa indovinare, e una notifica che porta nel
+posto sbagliato è peggio di una che non porta da nessuna parte. Senza bersaglio
+la riga SHALL esistere comunque, e NON SHALL essere cliccabile.
+
+Il RAGGRUPPAMENTO predefinito SHALL essere il bersaglio: ciò che porta allo
+stesso posto si legge insieme.
+
+Una lettura SHALL poter azzerare FINO A un certo punto, lasciandolo. Vista UNA
+del gruppo, SHALL essere considerato visto il GRUPPO: contare ancora ciò che la
+persona ha appena aperto è come nasce un contatore che non torna mai a zero.
+
+Una richiesta di lettura SENZA identificativi e senza un punto NON SHALL toccare
+niente: la lettura è un gesto esplicito.
+
+Oltre un TETTO SHALL restare le più recenti, e le righe più vecchie della
+SCADENZA SHALL sparire al primo inserimento: il registro non deve crescere per
+sempre.
+
+#### Scenario: due mittenti, un evento
+- **GIVEN** lo stesso evento registrato due volte dentro la finestra
+- **THEN** SHALL restare una riga sola
+
+#### Scenario: una del gruppo
+- **GIVEN** una notifica di un gruppo dichiarata vista
+- **THEN** il contatore del gruppo SHALL tornare a zero

@@ -15,6 +15,7 @@
  * partivano DOPO l'`onAborted` che qui non arrivava mai.
  *
  * Questi test partono da dove parte il guasto: un tool in volo.
+  * @covers RT-01
  */
 import { describe, expect, test } from "bun:test";
 import { executeTool } from "./tools";

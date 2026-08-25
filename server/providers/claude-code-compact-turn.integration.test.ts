@@ -18,6 +18,7 @@
  * scritto DOPO — quello che in pagina arriva dalla coda, che si drena alla fine
  * di uno stream. Se il turno di compattazione non finisce, questo non parte, e
  * il test scade invece di passare. È il «poi non manda più i messaggi in coda».
+  * @covers CCLI-05
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, cpSync, chmodSync } from "fs";

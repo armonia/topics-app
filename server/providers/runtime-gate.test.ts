@@ -12,6 +12,7 @@
  * I test non fanno partire nessun provider: leggono la lista che
  * `initProviders` userebbe. È la decisione, senza il costo di spawnare CLI vere
  * per osservarla.
+  * @covers RT-10
  */
 import { describe, expect, test, beforeEach, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from "fs";

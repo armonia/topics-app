@@ -5,6 +5,7 @@
  * stream-timeout-resilience change. The DB is in-memory (a fresh tmpdir per
  * test run) so we can verify retention semantics and the typed wrappers
  * without polluting the real topics.db.
+  * @covers SYSTEM-LOG-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

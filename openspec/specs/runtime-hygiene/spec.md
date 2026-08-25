@@ -282,3 +282,28 @@ punto in cui si può spiegare al punto in cui non si può.
 #### Scenario: qualcosa è stato risolto
 - **GIVEN** un percorso restituito non nullo
 - **THEN** SHALL esistere sul disco
+
+### Requirement: RUNTIME-09 — Chi può vivere senza un fornitore NON SHALL chiederlo in modo che SOLLEVI
+
+La ricerca di un fornitore SHALL avere DUE forme: una che SOLLEVA quando il nome
+non è registrato, e una che restituisce «niente». Chi può funzionare SENZA quel
+fornitore SHALL usare la seconda.
+
+Il costo della forma sbagliata è stato misurato: su una macchina dove l'unico
+fornitore registrato era un altro, lo spazzino dei flussi fermi ha sollevato da
+un TIMER, il processo è uscito con errore, il server di prova è sparito a metà
+corsa e quindici casi successivi sono falliti a zero millisecondi. Chi non ha
+quella riga di comando installata avrebbe incontrato lo stesso guasto la prima
+volta che un flusso restava zitto per qualche minuto.
+
+Il banco SHALL verificarlo SUL CODICE, non su un caso: OGNI ricerca di forma
+opzionale SHALL passare dalla variante che non solleva, e il timer dello spazzino
+SHALL essere uno di quelli.
+
+#### Scenario: un nome non registrato
+- **GIVEN** una ricerca opzionale di un fornitore assente
+- **THEN** SHALL restituire «niente», non sollevare
+
+#### Scenario: il codice, non il caso
+- **GIVEN** una nuova ricerca opzionale scritta con la forma che solleva
+- **THEN** il banco SHALL fallire

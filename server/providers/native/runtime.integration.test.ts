@@ -9,6 +9,7 @@
  *
  * Si salta da solo dove non ci sono credenziali: su una macchina senza login la
  * risposta giusta è «non applicabile», non un fallimento.
+  * @covers RT-11
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs";

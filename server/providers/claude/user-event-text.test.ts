@@ -5,6 +5,7 @@
  * (`claude --print --output-format stream-json`): uno con una skill a cartella,
  * uno con un comando — che è la forma di `/recap`, cioè il caso da cui è partito
  * tutto, e l'unica che NON porta il prefisso «Base directory».
+  * @covers CCLI-09
  */
 
 import { describe, expect, test } from "bun:test";

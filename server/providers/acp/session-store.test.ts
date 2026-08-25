@@ -5,6 +5,7 @@
  * server la chat mostra tutti i messaggi di prima e il modello non ne ricorda
  * nessuno. Quindi si prova la cosa che conta — che l'id SOPRAVVIVA — e la
  * regola meno ovvia: la `cwd` fa parte dell'identità.
+  * @covers ACP-04
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";

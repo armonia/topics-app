@@ -1,3 +1,6 @@
+/**
+ * @covers FAST-MODE-06
+ */
 import { describe, it, expect } from "bun:test";
 import { readFastMode, fastModeAvailable, sameFastMode, fastModeCommand, fastModeMultiplier } from "./fast-mode";
 

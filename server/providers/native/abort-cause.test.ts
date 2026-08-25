@@ -28,6 +28,7 @@
  * Le due prove qui sotto sono rosse contro il codice di prima: la prima perché
  * `cause` era la costante `"user"`, la seconda perché sul ramo dell'abort non
  * veniva chiamato nessun handler.
+  * @covers RT-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

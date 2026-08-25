@@ -13,6 +13,7 @@
  * parallelo, cioè «main guadagna una colonna mentre il tuo ramo aspetta la
  * review»: chi la aggiunge trova UN test rosso che NOMINA la colonna, invece
  * di quattordici harness con `no such column` al momento della fusione.
+  * @covers SCHEMA-03
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";

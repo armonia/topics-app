@@ -1,3 +1,6 @@
+/**
+ * @covers DELTA-01
+ */
 import { describe, expect, test } from "bun:test";
 import { normalizeAlternating } from "./normalize-history";
 
