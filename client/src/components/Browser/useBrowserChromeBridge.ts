@@ -27,6 +27,19 @@ import type { DeviceMode } from './browserDevTypes';
 
 export interface BrowserChromeBridgeInput {
   url: string;
+  /**
+   * The URL the pane is KNOWN to be on, from the store — which is not the same
+   * thing as the URL the live browser is currently showing.
+   *
+   * They diverge on a RESTORED pane, and that divergence is the whole reason
+   * this field exists. The store is rehydrated the moment the pane mounts; the
+   * browser has not navigated yet and still reports `about:blank`. Judging
+   * "is this a blank pane?" on the live URL alone therefore answered YES for a
+   * pane that is merely catching up, and the address row stayed on screen — on
+   * the very panes where the card that moved the address onto the tab said it
+   * should be gone.
+   */
+  knownUrl?: string;
   faviconUrl?: string;
   loading: boolean;
   canGoBack: boolean;
@@ -126,15 +139,51 @@ export function useBrowserChromeBridge(
     }
   }
 
-  const showChrome = revealed || !isRealUrl(url);
+  /**
+   * THE ROW SHOWS WHEN YOU ASKED FOR IT, OR WHEN THERE IS NOWHERE TO GO.
+   *
+   * The second half used to read the LIVE url alone, and that made a restored
+   * pane indistinguishable from a blank one: the store already knows the pane
+   * is on `…/rapporto` while `browser.url` is still `about:blank`, so the bar
+   * stayed up on exactly the panes where the address had already moved onto
+   * the tab. `knownUrl` is that store value, and consulting it is the fix.
+   *
+   * WHY HIDING IT HERE IS NOT A TRAP, which is the objection the original
+   * guard was written against. On a genuinely blank pane the row is the only
+   * way out, and that case still shows it — neither url is real. On a restored
+   * pane there are two other ways back to the address, both independent of the
+   * row: `⌘L` (`RemoteBrowserPanel`) and the tab menu's own "edit address"
+   * item (`browser-tab-edit-address`). And a navigation that FAILS lands on
+   * `chrome-error:`, which `isRealUrl` rejects, so the bar comes back by
+   * itself exactly when it is needed.
+   */
+  const showChrome = revealed || (!isRealUrl(url) && !isRealUrl(input.knownUrl));
 
   const {
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,
     zoom, deviceMode, shared, commands,
   } = input;
 
+  /**
+   * L'INDIRIZZO CHE LA TAB MOSTRA E' QUELLO CHE LA TAB SA, non quello che il
+   * browser ha finito di caricare.
+   *
+   * Stessa divergenza di `showChrome`, e stessa cura. Sulla pane ripristinata
+   * `url` e' `about:blank` per qualche istante, quindi `prettyUrl` non
+   * produceva niente e la riga dell'indirizzo dentro il menu dei tre pallini
+   * semplicemente non veniva disegnata: il menu si apriva monco proprio dove
+   * la card aveva spostato l'indirizzo.
+   *
+   * Non e' una bugia mostrare `knownUrl`: l'ETICHETTA della tab, un centimetro
+   * piu' su, legge gia' lo store e mostra gia' quell'indirizzo. Prima le due
+   * superfici dicevano cose diverse sulla stessa pane; adesso dicono la stessa.
+   * E resta un ripiego, non una sostituzione — appena il browser naviga, `url`
+   * e' reale e vince.
+   */
+  const urlDaMostrare = isRealUrl(url) ? url : (input.knownUrl ?? url);
+
   const chrome = useMemo(() => ({
-    url,
+    url: urlDaMostrare,
     faviconUrl,
     loading,
     canGoBack,
@@ -152,7 +201,7 @@ export function useBrowserChromeBridge(
       openDownloads: downloads > 0 ? openDownloads : undefined,
     },
   }), [
-    url, faviconUrl, loading, canGoBack, canGoForward,
+    urlDaMostrare, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
     commands, revealAddress, openConsole, openDownloads,
   ]);

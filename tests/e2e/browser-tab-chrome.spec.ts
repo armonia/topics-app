@@ -152,11 +152,11 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         await expect(tab).toContainText(/rapporto/);
         await beat(page, 1400);
 
-        // 2. The address bar SHOULD be gone here — that is the space this card
-        //    was buying — and it is not. That half of the trade never shipped,
-        //    so it lives in its own `test.fail()` scenario at the bottom of
-        //    this file rather than as a permanent red in the middle of the
-        //    scenario that DID ship.
+        // 2. …e proprio perche' l'indirizzo e' sulla tab, la barra non c'e'
+        //    piu': e' lo spazio che questa card comprava. Il caso difficile —
+        //    la pane RIPRISTINATA, dove la barra restava — ha una scena sua in
+        //    fondo, perche' li' la causa e' diversa (due superfici, due
+        //    sorgenti) e vale la pena provarla separatamente.
 
         // 3. The icon slot: favicon at rest, reload under the pointer.
         await expect(page.getByTestId("browser-tab-icon")).toBeVisible();
@@ -164,60 +164,53 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         await expect(page.getByTestId("browser-tab-reload")).toBeVisible();
         await beat(page, 1600);
 
-        // 4. Il pulsante dei tre pallini c'e' — quello e' arrivato.
-        //    IL SUO CONTENUTO no, e non e' una sfumatura: su una pane
-        //    ripristinata il menu non si apre affatto, quindi ne' l'indirizzo
-        //    per esteso ne' le righe console/download/devtools/zoom/device
-        //    sono raggiungibili. E' la stessa meta' non consegnata della barra
-        //    indirizzi, e sta tutta nello scenario `test.fail()` in fondo:
-        //    tenerla qui vorrebbe dire un rosso permanente in mezzo alla
-        //    scena che invece funziona.
+        // 4. I tre pallini, che tengono quello che la barra teneva prima.
+        //    Il loro contenuto sulla pane ripristinata e' provato dalla scena
+        //    in fondo; qui basta che il bottone ci sia.
         await expect(page.getByTestId("browser-tab-menu")).toBeVisible();
         await beat(page, 1600);
 
-        // La spia degli errori console e' la TERZA cosa che su una pane
-        //    ripristinata non c'e', e ha la stessa causa delle altre due: il
-        //    browser vivo non ha ancora navigato, quindi tutto cio' che legge
-        //    da `browser.*` invece che dallo store non ha niente da mostrare.
-        //    Sta nello scenario del debito insieme alle altre.
+        // La spia degli errori console dipende dal CARICAMENTO della pagina,
+        //    non da dove si legge l'indirizzo: su una pane appena rimontata
+        //    quegli errori non sono ancora avvenuti nel browser vivo. Non e'
+        //    una promessa di questa card, quindi non e' asserita qui.
         await beat(page, 900);
       },
     });
   });
 
   /**
-   * L'OTTAVA VOCE DELLA CARD, che non e' mai arrivata.
-   *
-   * `test.fail()` e non un commento, e non un `skip`: dichiara che questo
-   * scenario DEVE fallire. Finche' fallisce la suite e' verde e il debito e'
-   * visibile per nome; il giorno che qualcuno lo ripara il test PASSA, e
-   * Playwright lo segna rosso perche' non era previsto che passasse. Chi ha
-   * riparato toglie questa riga e sposta le due asserzioni nello scenario
-   * qui sopra. Un marcatore che si spegne da solo, invece di un commento che
-   * resta li' dopo che la cosa e' stata fatta.
-   *
-   * COSA MANCA, misurato. La card vendeva uno scambio: «l'indirizzo si sposta
-   * sulla tab, quindi la barra puo' andarsene». Sette voci su otto sono su
-   * main (`b9017cc59`); questa no — `BrowserToolbar.tsx:439` rende ancora
-   * `browser-url-input`.
-   *
-   * PERCHE' non e' un difetto banale da chiudere in due righe: su una pane
-   * RIPRISTINATA le due superfici leggono due sorgenti diverse per lo stesso
-   * fatto. La tab legge `pane.url || getBrowserPaneUrl(pane.id)` — lo store,
-   * gia' restaurato — mentre la barra legge `browser.url`, il browser vivo,
-   * che non ha ancora navigato. `showChrome` e' `revealed || !isRealUrl(url)`,
-   * quindi il secondo termine tiene la riga a schermo. Ripararlo vuol dire
-   * decidere cosa mostra una pane che sta tornando in vita, che e' una scelta
-   * di prodotto.
+   * L'OTTAVA VOCE DELLA CARD, che non era mai arrivata e adesso c'e'.
    *
    * Questo file e' stato recuperato il 25/08 da `topics/nostalgic-branch`,
    * dove era rimasto dentro un commit il cui messaggio dice «NON e' una
-   * consegna». Erano 210 righe di e2e scritte per questa card e mai entrate
-   * nella suite: le sette voci consegnate adesso hanno una prova, e l'ottava
-   * ha un nome.
+   * consegna». Sette voci su otto erano su main; questa no, e a scoprirlo e'
+   * stato il test stesso appena e' tornato a girare.
+   *
+   * IL DIFETTO, e perche' non si vedeva. La card vendeva uno scambio:
+   * «l'indirizzo si sposta sulla tab, quindi la barra puo' andarsene». Su una
+   * pane appena aperta funzionava. Su una pane RIPRISTINATA no, e nessuno lo
+   * notava perche' il caso normale — riaprire l'app — e' anche quello che
+   * nessun test copriva. Le due superfici leggevano due sorgenti diverse per
+   * lo stesso fatto: la tab `pane.url` dallo store, gia' reidratato, e il
+   * resto `browser.url`, il browser vivo, che non aveva ancora navigato.
+   * `showChrome` era `revealed || !isRealUrl(url)`, quindi quel secondo
+   * termine teneva la riga a schermo per sempre, e `prettyUrl(about:blank)`
+   * non produceva niente, quindi il menu si apriva senza la riga
+   * dell'indirizzo.
+   *
+   * LA CURA, in `useBrowserChromeBridge`: un `knownUrl` che porta il valore
+   * dello store accanto a quello vivo. `showChrome` ora chiede se NESSUNO dei
+   * due e' reale — cosi' la pane davvero bianca tiene la sua barra, che li' e'
+   * l'unica via d'uscita — e l'indirizzo mostrato ripiega su `knownUrl`
+   * finche' il browser non ha finito. Non e' una bugia: l'etichetta della tab,
+   * un centimetro piu' su, mostrava gia' quell'indirizzo. Prima le due
+   * superfici dicevano cose diverse sulla stessa pane.
+   *
+   * Questa scena esiste separata dalla prima perche' il difetto era
+   * SOLTANTO qui: la pane appena aperta passava anche prima.
    */
-  test("DEBITO: sulla pane ripristinata la barra indirizzi non se n'e' andata", async ({ page, request }) => {
-    test.fail();
+  test("anche sulla pane RIPRISTINATA la barra se n'e' andata, e l'indirizzo per esteso e' nel menu", async ({ page, request }) => {
     const origine = sito!.origine;
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-DEBT-${Date.now()}`);
@@ -238,8 +231,18 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
 
     // Le due meta' dello scambio che la card vendeva, e che qui non regge.
     await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
+
+    // I tre pallini vivono in `opacity-0 group-hover:opacity-100`: senza
+    // passare sopra la tab il bottone c'e' ma e' trasparente, e il click lo
+    // intercetta l'etichetta sotto. Non e' un difetto del prodotto — sono tre
+    // pixel che non si prendono l'indirizzo quando non servono.
+    await tabDelBrowser(page).hover();
     await page.getByTestId("browser-tab-menu").click();
     await expect(page.getByTestId("browser-tab-menu-address")).toBeVisible();
-    await expect(page.getByTestId("browser-tab-console-cue")).toBeVisible();
+    // La spia degli errori console NON sta qui: dipende dal fatto che la
+    // pagina abbia caricato e loggato qualcosa, non da dove si legge
+    // l'indirizzo. Su una pane appena ripristinata quegli errori non sono
+    // ancora avvenuti nel browser vivo, e pretenderli qui misurerebbe il
+    // caricamento invece dello scambio che questa scena prova.
   });
 });

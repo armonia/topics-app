@@ -34,6 +34,7 @@ import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './Bro
 import { useBrowserChromeBridge } from './useBrowserChromeBridge';
 import { openExternalOnce } from '../../lib/openExternal';
 import type { DeviceMode } from './browserDevTypes';
+import { getBrowserPaneUrl } from '../../state/pane/browserPaneUrl';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
@@ -375,6 +376,9 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   }), [browser, canForget, onToggleShare, backToSpawner]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
+    // The store's url, which on a restored pane is already right while
+    // `browser.url` is still `about:blank`. See `showChrome`.
+    knownUrl: getBrowserPaneUrl(`browser:${contextId}`),
     faviconUrl: browser.faviconUrl,
     loading: browser.loading,
     canGoBack: browser.canGoBack ?? true,
@@ -736,6 +740,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   }), [browser, sharedCanForget, onToggleShare, backToSpawner]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
+    // The store's url, which on a restored pane is already right while
+    // `browser.url` is still `about:blank`. See `showChrome`.
+    knownUrl: getBrowserPaneUrl(`browser:${contextId}`),
     loading: browser.loading,
     canGoBack: true,
     canGoForward: true,
