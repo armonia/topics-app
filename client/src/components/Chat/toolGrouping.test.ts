@@ -1,3 +1,9 @@
+/**
+ * @covers CHAT-TOOL-02
+ *
+ * Partial: aggregation of tool-call groups, as pure grouping. The rendered
+ * strip is elsewhere.
+ */
 import { describe, expect, test } from 'bun:test';
 import type { ToolCall } from '../../types';
 import {

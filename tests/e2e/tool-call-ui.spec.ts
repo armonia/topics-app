@@ -1,3 +1,8 @@
+/**
+ * @covers CHAT-TOOL-04
+ *
+ * Partial: formatted code inside tool bodies.
+ */
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";

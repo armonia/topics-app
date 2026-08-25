@@ -1,3 +1,9 @@
+/**
+ * @covers CHAT-DEF-04
+ *
+ * Partial: the composer controls are sensible and wired. The rendering half
+ * lives in the Chat component specs.
+ */
 import { describe, expect, test } from "bun:test";
 import { decideComposerAction } from "./composerAction";
 

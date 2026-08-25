@@ -1,3 +1,8 @@
+/**
+ * @covers TERM-02
+ *
+ * Partial: reloading a terminal session in place.
+ */
 import { expect } from "@playwright/test";
 import { test, type TerminalPage } from "./fixtures/terminal.fixture";
 import {

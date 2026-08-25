@@ -5,6 +5,10 @@
  * (sessione nuova, compattazione) e quello in cui deve disfare (invio fallito).
  * Sbagliare per eccesso costa ~2k token una volta; sbagliare per difetto lascia
  * un modello che non sa in che progetto si trova.
+ *
+ * @covers CTX-DEDUP-02
+ *
+ * The sent-state is valid only for the CURRENT CLI conversation.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import {

@@ -5,6 +5,10 @@
  * turno ripagava tools + system + conversazione a prezzo pieno invece di 0,1x.
  * Qui si fissa DOVE cadono i marker (l'ordine del prefisso è tools → system →
  * messages) e che non si sfondi mai il limite di quattro.
+ *
+ * @covers CHAT-CACHE-01
+ *
+ * SDK providers mark the stable prefix as cacheable.
  */
 import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";

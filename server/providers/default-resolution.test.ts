@@ -8,6 +8,11 @@
  *   2. `recomputeDefault()` prefers the subscription-backed CLI providers
  *      (`claude-code`, then `codex`) over the metered API paths, while still
  *      honoring an explicit `AI_PROVIDER` override.
+ *
+ * @covers CHAT-DEF-01, CHAT-DEF-02
+ *
+ * Chat works with no Settings toggle (CHAT-DEF-01) and the default provider is
+ * honest and subscription-first (CHAT-DEF-02).
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";

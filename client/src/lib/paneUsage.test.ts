@@ -6,8 +6,11 @@
  * tre cose diverse, e l'unica disonesta sarebbe mostrare uno zero per le prime
  * due — un numero inventato con l'aria di una misura.
  *
- * @covers RES-ATTR-04, RES-ATTR-05
+ * @covers RES-ATTR-02, RES-ATTR-04, RES-ATTR-05
  *
+ * RES-ATTR-02 is partial: the shell attributes each webview process to its
+ * pane. The Rust half of that contract lives in desktop-tauri and is tested
+ * there, inline.
  * RES-ATTR-04: attribution does not multiply the cost of sampling.
  * RES-ATTR-05: a pane with no process of its own is DECLARED as such instead of
  * being handed an invented share with the air of a measurement.

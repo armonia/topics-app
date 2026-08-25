@@ -6,6 +6,12 @@
  * conversazione, e riappenderlo costa in modo COMPOSTO. Qui si fissa che parta
  * solo ciò che è cambiato — e, altrettanto importante, che ciò che è cambiato
  * parta davvero.
+ *
+ * @covers CTX-DEDUP-01, CTX-DEDUP-03, CTX-GOAL-01
+ *
+ * CTX-DEDUP-01 is partial: the inline preamble carries only what changed.
+ * CTX-DEDUP-03 (a retired slot is declared) and CTX-GOAL-01 (the topic goal
+ * reaches the model) are covered.
  */
 import { describe, expect, it } from "bun:test";
 import type { ContextEnvelope, SystemBlock } from "./envelope";

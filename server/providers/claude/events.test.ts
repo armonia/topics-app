@@ -5,6 +5,11 @@
  * queste forme non arriva un errore, arriva un pezzo di interfaccia che smette
  * di aggiornarsi in silenzio — il divider di compattazione, l'anello del
  * contesto, la riga di un tool che resta vuota. Qui invece diventa rosso.
+ *
+ * @covers CHAT-TOOL-01
+ *
+ * Partial: the "running" state covers real tool use, seen from the event
+ * stream. The rendered row is in tool-call-ui.spec.ts.
  */
 import { describe, expect, test } from "bun:test";
 import {

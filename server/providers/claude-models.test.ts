@@ -1,3 +1,8 @@
+/**
+ * @covers CHAT-DEF-03
+ *
+ * The model list in the picker is current.
+ */
 import { describe, expect, test } from "bun:test";
 import { contextWindowFor } from "../../shared/context-window";
 import {
