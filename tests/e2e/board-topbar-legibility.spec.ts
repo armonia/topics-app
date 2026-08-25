@@ -63,6 +63,33 @@ import {
 
 hermetic(test);
 
+/**
+ * The bar has stopped redistributing when two consecutive reads of the chip
+ * count agree.
+ *
+ * A ResizeObserver decides that count, so the honest wait is its OUTPUT going
+ * quiet — not a stopwatch. This used to be spelled out inline with a fixed
+ * 120 ms nap inside the poll, and guessed at with a flat 400 ms before the
+ * layout audit; both are the same condition, so it lives in one place now.
+ */
+async function chipsSettled(page: import("@playwright/test").Page): Promise<number> {
+  let previous = -1;
+  let settled = -1;
+  await expect
+    .poll(
+      async () => {
+        const now = await inlineChips(page);
+        const quiet = now === previous;
+        previous = now;
+        if (quiet) settled = now;
+        return quiet;
+      },
+      { timeout: 8000, message: "la riga di chip non ha mai smesso di ridistribuirsi" },
+    )
+    .toBe(true);
+  return settled;
+}
+
 /** Created here, torn down here: cleanup state belongs to the spec, not to a
  *  helper module two specs could quietly corrupt for each other. */
 const topicIds: string[] = [];
@@ -127,12 +154,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       await page.setViewportSize({ width, height: 900 });
       // A ResizeObserver decides the count: wait for it to SETTLE, instead of
       // measuring the frame in which the row is still redistributing itself.
-      await expect.poll(async () => {
-        const a = await inlineChips(page);
-        await page.waitForTimeout(120);
-        return (await inlineChips(page)) === a ? a : -1;
-      }, { timeout: 8000 }).toBeGreaterThanOrEqual(0);
-      conteggi[etichetta] = await inlineChips(page);
+      conteggi[etichetta] = await chipsSettled(page);
 
       const g = await toolbarGeometry(page);
       geometrie[etichetta] = g;
@@ -192,6 +214,9 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await stubProbes(page, { running: 1 });
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
+    // DELIBERATE FIXED WAIT: the assertion is that the chip NEVER appears, and
+    // `toHaveCount(0)` is true of a board that has not finished loading too.
+    // This is the window in which the chip would have had time to light up.
     await page.waitForTimeout(1000);
     await expect(chip, "senza scarto il chip non deve comparire").toHaveCount(0);
   });
@@ -533,7 +558,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
 
     for (const [etichetta, width] of [["larga", 1440], ["media", 1000], ["stretta", 390]] as const) {
       await page.setViewportSize({ width, height: 900 });
-      await page.waitForTimeout(400);
+      await chipsSettled(page);
       const a = await audit(page);
       expect(a.overflowX.present, `${etichetta}: overflow orizzontale del documento — ${JSON.stringify(a.overflowX.offenders)}`).toBe(false);
       expect(a.findings.overlap, `${etichetta}: controlli sovrapposti`).toEqual([]);

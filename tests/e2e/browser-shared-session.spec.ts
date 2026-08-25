@@ -170,17 +170,16 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
     }, { ctx });
 
     // Poll until the server sees exactly the two viewers (delegate excluded).
-    let count = -1;
-    for (let i = 0; i < 40 && count !== 2; i++) { count = await readCount(); if (count !== 2) await page.waitForTimeout(150); }
-    expect(count).toBe(2); // 2 viewers, delegate NOT counted
+    // `expect.poll` instead of a hand-rolled loop with a sleep in it: same
+    // condition, but the failure message carries the last value seen instead of
+    // a bare `-1 !== 2`, and the wait ends on the value rather than on a tick.
+    await expect.poll(readCount, { timeout: 6_000, message: "il server deve contare i due viewer" }).toBe(2);
 
     // Close one viewer → the count drops to 1 (delegate still excluded).
     await page.evaluate(() => {
       (window as unknown as { __viewers: WebSocket[] }).__viewers[0].close();
     });
-    let after = -1;
-    for (let i = 0; i < 40 && after !== 1; i++) { after = await readCount(); if (after !== 1) await page.waitForTimeout(150); }
-    expect(after).toBe(1);
+    await expect.poll(readCount, { timeout: 6_000, message: "chiuso un viewer, il conto deve scendere a 1" }).toBe(1);
 
     // The surviving viewer says its pane left the screen (set_watching:false) —
     // WITHOUT closing the socket. It must drop out of the count: a phone with
@@ -192,18 +191,14 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
       (window as unknown as { __viewers: WebSocket[] }).__viewers[1]
         .send(JSON.stringify({ type: "set_watching", active: false }));
     });
-    let hidden = -1;
-    for (let i = 0; i < 40 && hidden !== 0; i++) { hidden = await readCount(); if (hidden !== 0) await page.waitForTimeout(150); }
-    expect(hidden).toBe(0);
+    await expect.poll(readCount, { timeout: 6_000, message: "una pane fuori schermo non è un viewer" }).toBe(0);
 
     // Back on screen → counted again (the same socket, no reconnect).
     await page.evaluate(() => {
       (window as unknown as { __viewers: WebSocket[] }).__viewers[1]
         .send(JSON.stringify({ type: "set_watching", active: true }));
     });
-    let shown = -1;
-    for (let i = 0; i < 40 && shown !== 1; i++) { shown = await readCount(); if (shown !== 1) await page.waitForTimeout(150); }
-    expect(shown).toBe(1);
+    await expect.poll(readCount, { timeout: 6_000, message: "tornata a schermo, la stessa socket torna contata" }).toBe(1);
 
     // Clean up.
     await page.evaluate(() => {

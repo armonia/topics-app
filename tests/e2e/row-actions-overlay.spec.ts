@@ -67,6 +67,35 @@ async function rett(l: Locator, nome: string): Promise<Rett> {
 }
 
 /**
+ * The same rectangle, read once the layout has STOPPED: re-read until two
+ * consecutive samples agree.
+ *
+ * Every geometric read here used to sit behind a fixed 200 ms sleep, betting
+ * that the hover transition was over. A CSS transition is not on anybody's
+ * clock: on a loaded machine that bet samples the rail mid-flight and produces a
+ * red nobody can reproduce, on an idle one it burns 200 ms for a rail that had
+ * already stopped. "It stopped moving" is the condition the sleep stood for.
+ */
+async function settledRectangle(l: Locator, nome: string): Promise<Rett> {
+  let previous = "";
+  let settled: Rett | null = null;
+  await expect
+    .poll(
+      async () => {
+        const r = await rett(l, nome);
+        const shot = JSON.stringify(r);
+        const quiet = shot === previous;
+        previous = shot;
+        if (quiet) settled = r;
+        return quiet;
+      },
+      { timeout: 5_000, message: `${nome}: il rettangolo non si è mai fermato` },
+    )
+    .toBe(true);
+  return settled!;
+}
+
+/**
  * IL COMANDO SI MISURA SUL CERCHIO, NON SULLA SUA SCATOLA.
  *
  * `.row-actions` è la scatola del bersaglio (28px col mouse, 36 col dito) e il
@@ -148,12 +177,10 @@ test("CODA-2: il binario quieto non si sposta fra riposo e passaggio del mouse",
   // A riposo: il puntatore va lontano dalla colonna, e si aspetta che il layout
   // si fermi prima di leggere (una transizione in corso dà misure a metà).
   await page.mouse.move(1200, 850);
-  await page.waitForTimeout(200);
-  const prima = await rett(trail, "binario a riposo");
+  const prima = await settledRectangle(trail, "binario a riposo");
 
   await riga.hover();
-  await page.waitForTimeout(200);
-  const dopo = await rett(trail, "binario in hover");
+  const dopo = await settledRectangle(trail, "binario in hover");
 
   expect(Math.abs(prima.x - dopo.x), `il binario si è spostato in x di ${(dopo.x - prima.x).toFixed(2)}px`).toBeLessThanOrEqual(EPS);
   expect(Math.abs(prima.w - dopo.w), `il binario ha cambiato larghezza di ${(dopo.w - prima.w).toFixed(2)}px`).toBeLessThanOrEqual(EPS);
@@ -216,9 +243,8 @@ test("CODA-6: una tessera fissata è alta ESATTAMENTE quanto una riga", async ({
   await expect(riga).toBeVisible();
 
   await page.mouse.move(1200, 850);
-  await page.waitForTimeout(200);
-  const rt = await rett(tessera, 'tessera fissata');
-  const rr = await rett(riga, 'riga');
+  const rt = await settledRectangle(tessera, 'tessera fissata');
+  const rr = await settledRectangle(riga, 'riga');
   expect(Math.abs(rt.h - rr.h), `tessera ${rt.h.toFixed(1)}px contro riga ${rr.h.toFixed(1)}px`).toBeLessThanOrEqual(EPS);
 });
 
@@ -234,10 +260,9 @@ test("CODA-4: fra due card adiacenti della colonna passa COLUMN_GAP", async ({ p
   // Il puntatore fuori: una riga in hover cambia solo il fondo, ma un test
   // geometrico si misura a layout FERMO.
   await page.mouse.move(1200, 850);
-  await page.waitForTimeout(200);
 
-  const ra = await rett(a, "prima riga");
-  const rb = await rett(b, "seconda riga");
+  const ra = await settledRectangle(a, "prima riga");
+  const rb = await settledRectangle(b, "seconda riga");
   const [sopra, sotto] = ra.y <= rb.y ? [ra, rb] : [rb, ra];
   const varco = sotto.y - (sopra.y + sopra.h);
   expect(Math.abs(varco - COLUMN_GAP), `fra le due card passano ${varco.toFixed(2)}px, attesi ${COLUMN_GAP}`).toBeLessThanOrEqual(EPS);

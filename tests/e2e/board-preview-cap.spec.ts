@@ -176,6 +176,48 @@ async function previewBoxes(page: Page): Promise<Box[]> {
   }) as Promise<Box[]>;
 }
 
+/**
+ * The same rectangles, read once the layout has STOPPED: re-read until two
+ * consecutive samples agree.
+ *
+ * Every measurement here used to sit behind a fixed 250-300 ms sleep after a
+ * `setViewportSize` or after the legacy CSS was injected. What decides when the
+ * rectangles are final is not the clock: it is the reflow plus the image decode.
+ * On a loaded machine that sleep measured a card mid-flight; on an idle one it
+ * burned three tenths of a second per row.
+ */
+async function settledPreviewMetrics(page: Page): Promise<Box[]> {
+  let previous = "";
+  let settled: Box[] = [];
+  await expect
+    .poll(
+      async () => {
+        const boxes = await previewBoxes(page);
+        const shot = JSON.stringify(boxes);
+        const same = boxes.length > 0 && shot === previous;
+        previous = shot;
+        if (same) settled = boxes;
+        return same;
+      },
+      { timeout: 15_000, message: "le anteprime non hanno mai smesso di muoversi" },
+    )
+    .toBe(true);
+  return settled;
+}
+
+/**
+ * An evidence page is ready to be shot when its images are DECODED and its fonts
+ * loaded — not three tenths of a second later. `setContent` returns on `load`,
+ * which covers neither the decode of a `data:` URI nor the font swap: those two
+ * are what the fixed sleep was blindly waiting for.
+ */
+async function readyToShoot(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => undefined)));
+    await document.fonts.ready;
+  });
+}
+
 /** Il tetto atteso su QUEL riquadro: il rapporto, e basta — è questo il punto. */
 function expectedCap(boxW: number): number {
   return PREVIEW_CARD_MAX_RATIO * boxW;
@@ -260,8 +302,7 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
     // cioè le due larghezze in cui il vecchio tetto fisso mentiva di più.
     for (const width of [1280, 2560]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.waitForTimeout(300);
-      const boxes = await previewBoxes(page);
+      const boxes = await settledPreviewMetrics(page);
       assertCapContract(boxes, `viewport ${width}`);
 
       // Il punto del task: la colonna review è LARGA, e prima di questo cambio
@@ -283,9 +324,8 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(page.getByTestId("preview-card").first()).toBeVisible({ timeout: 15000 });
-    await page.waitForTimeout(300);
 
-    assertCapContract(await previewBoxes(page), "mobile 390");
+    assertCapContract(await settledPreviewMetrics(page), "mobile 390");
 
     // (4) scansionabilità, sul viewport di riferimento — e sono DUE promesse
     // diverse, una per colonna, non un unico numero.
@@ -303,8 +343,7 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
     // In LAVORO: ce ne stanno DUE. Lì la colonna è una lista che si scorre, la
     // card non porta comandi, e la metà è un numero che il layout regge.
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.waitForTimeout(300);
-    for (const b of await previewBoxes(page)) {
+    for (const b of await settledPreviewMetrics(page)) {
       const share = b.status === "review" ? 1 : 1 / 2;
       expect(
         b.cardH,
@@ -320,7 +359,7 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(page.getByTestId("preview-card").first()).toBeVisible({ timeout: 15000 });
-    await page.waitForTimeout(300);
+    await settledPreviewMetrics(page);
 
     // "Prima" = il vecchio CSS rimesso addosso alla STESSA pagina: l'unica
     // differenza fra i due scatti sono queste due righe, quindi il confronto
@@ -344,8 +383,7 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
         },
         { css: LEGACY, on: phase === "prima" },
       );
-      await page.waitForTimeout(250);
-      for (const b of await previewBoxes(page)) {
+      for (const b of await settledPreviewMetrics(page)) {
         sizes.push(
           `${phase} · ${b.status} · ${b.shape}: ${Math.round(b.boxW)}×${Math.round(b.boxH)} = ${(b.boxH / b.boxW).toFixed(2)}`,
         );
@@ -386,7 +424,7 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
             </div>`).join("")}
         </body>`,
       );
-      await strip.waitForTimeout(300);
+      await readyToShoot(strip);
       OUT[col] = join(EVIDENCE_DIR, `prima-dopo-${col}.png`);
       await strip.screenshot({ path: OUT[col] });
       await strip.close();
@@ -413,7 +451,7 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
         </div>
       </body>`,
     );
-    await hero.waitForTimeout(300);
+    await readyToShoot(hero);
     const heroOut = join(EVIDENCE_DIR, "card-preview.png");
     await hero.screenshot({ path: heroOut });
     await hero.close();

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -25,19 +25,18 @@ async function openBrowserPaneWithRetry(
   page: import("@playwright/test").Page,
   topicId: string,
 ): Promise<boolean> {
+  const pane = page.locator('[data-browser-pane]').first();
   for (let i = 0; i < 10; i++) {
     await page.evaluate((tid) => {
       window.dispatchEvent(
         new CustomEvent("browser:open-and-navigate", { detail: { topicId: tid, url: "https://example.com" } }),
       );
     }, topicId);
-    const mounted = await page
-      .locator('[data-browser-pane]')
-      .first()
-      .isVisible()
-      .catch(() => false);
-    if (mounted) return true;
-    await page.waitForTimeout(1000);
+    // A dispatch that found nothing is a retry, not a verdict — but the pane may
+    // also mount a beat later, so this waits for the pane and gives up on the
+    // timeout instead of napping a fixed second between attempts. Same ceiling,
+    // and it returns the instant the pane is there.
+    if (await pane.waitFor({ state: "visible", timeout: 1000 }).then(() => true, () => false)) return true;
   }
   return false;
 }
@@ -57,16 +56,21 @@ test.describe("detached window is read-only toward the shared pane store", () =>
       });
 
       await page.goto(`/?topics=${topic.id}`);
-      // Detached windows hide the sidebar — settle on load + hydration instead.
+      // Detached windows hide the sidebar, so the readiness signal is the hosted
+      // topic itself reaching the DOM — which is exactly what the dispatch below
+      // needs and what the fixed sleep here was guessing at.
       await page.waitForLoadState("load");
-      await page.waitForTimeout(1500);
+      await waitForTopicVisible(page, topic.id, { timeout: 15_000 });
 
       // Exercise the exact leak path: open a browser pane inside the detached
       // window (persistBrowserPane fires on claim). Mount is best-effort — the
       // assertion below holds either way, but a mounted pane exercises more.
       const mounted = await openBrowserPaneWithRetry(page, topic.id);
 
-      // Outwait the sync debounce (500 ms) + retry backoff generously.
+      // DELIBERATE FIXED WAIT: the assertion is that a PUT never happens, and
+      // "never" has no condition to poll — `paneStorePuts === 0` is true the
+      // instant after the dispatch too. This is the window in which the write
+      // WOULD have landed: the sync debounce (500 ms) plus retry backoff.
       await page.waitForTimeout(3000);
       expect(paneStorePuts).toBe(0);
 

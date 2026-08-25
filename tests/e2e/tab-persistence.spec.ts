@@ -46,23 +46,12 @@ async function goWithPanels(page: import("@playwright/test").Page, panels: strin
 }
 
 test.describe("Tab Persistence", () => {
-  test("topic tab survives page reload", async ({ page }) => {
-    // Open topicA as a tab
-    await goWithPanels(page, [topicA.id]);
-
-    // Verify tab is visible
-    const tab = page.locator(`[data-pane-id="${topicA.id}"]`);
-    await expect(tab).toBeVisible({ timeout: 10000 });
-
-    // Reload the page
-    await page.reload();
-    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-
-    // Tab must still be present after reload
-    const tabAfter = page.locator(`[data-pane-id="${topicA.id}"]`);
-    await expect(tabAfter).toBeVisible({ timeout: 10000 });
-  });
-
+  // Absorbed "topic tab survives page reload": it seeded ONE topic, reloaded,
+  // and asserted that same pane id was still visible — the N=1 case of the test
+  // below, on the identical mechanism (goWithPanels → reload → assert by
+  // data-pane-id). Two topics prove everything one topic proved and one thing
+  // more (the set is not truncated on rehydrate), so the single-tab run was a
+  // second page load buying no new fact.
   test("multiple topic tabs survive reload", async ({ page }) => {
     await goWithPanels(page, [topicA.id, topicB.id]);
 

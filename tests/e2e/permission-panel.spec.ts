@@ -101,24 +101,41 @@ test.describe.serial("Pannello di permesso", () => {
     });
   }
 
-  /** Polla come il bridge: gambe corte, si torna dentro finché non si decide. */
+  /**
+   * Polla come il bridge: gambe corte, si torna dentro finché non si decide.
+   *
+   * `ready` resolves once the FIRST leg has come back — that is, the request is
+   * open server-side (`beginPermission`) and a click on the panel now has
+   * something to answer. Before that instant the very same click comes back 409
+   * `permission_not_pending` and the decision is dropped on the floor: that race
+   * is what the fixed sleeps in front of every click used to paper over, and a
+   * probe leg is the condition they were standing in for.
+   *
+   * The probe is deliberately short and is NOT counted in `legs`, so the leg
+   * counter still measures only how long the panel stayed open under a human.
+   */
   function registerBridgePermission(
     request: import("@playwright/test").APIRequestContext,
     toolUseId: string,
     legMs = 800,
-  ): Promise<{ decision?: string; cancelled?: boolean; legs: number }> {
-    return (async () => {
+  ): { ready: Promise<unknown>; decided: Promise<{ decision?: string; cancelled?: boolean; legs: number }> } {
+    const leg = (ms: number) =>
+      request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/permission`, {
+        data: { toolName: TOOL, input: TOOL_INPUT, toolUseId, legMs: ms },
+        ignoreHTTPSErrors: true,
+        timeout: 60_000,
+      });
+    const ready = leg(120);
+    const decided = (async () => {
+      await ready;
       for (let legs = 1; legs <= 200; legs++) {
-        const r = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/permission`, {
-          data: { toolName: TOOL, input: TOOL_INPUT, toolUseId, legMs },
-          ignoreHTTPSErrors: true,
-          timeout: 60_000,
-        });
+        const r = await leg(legMs);
         const body = (await r.json()) as { decision?: string; cancelled?: boolean; pending?: boolean };
         if (!body.pending) return { ...body, legs };
       }
       throw new Error("il bridge ha pollato 200 volte senza decisione");
     })();
+    return { ready, decided };
   }
 
   async function openChat(page: import("@playwright/test").Page, chatPage: { messageInput: import("@playwright/test").Locator }) {
@@ -154,12 +171,17 @@ test.describe.serial("Pannello di permesso", () => {
     await expect(panel.getByText("Altro")).toHaveCount(0);
     await expect(panel.locator("textarea")).toHaveCount(0);
 
+    // DELIBERATE FIXED WAIT: here the elapsed time IS the experiment. The
+    // `legs > 1` assertion below demands that the click land AFTER an 800 ms
+    // poll leg has expired — the very defect this test guards against. There is
+    // no condition to await: what must be proven is that the bridge's clock ran
+    // past a leg boundary while a person was still reading.
     await page.waitForTimeout(1500);
     // UN click, non «scegli poi invia»: su tre esiti esatti il secondo gesto non
     // aggiunge una scelta, aggiunge un modo di lasciare il pannello a metà.
     await panel.locator(`[data-testid="tool-permission-allow-${toolCallId}"]`).click();
 
-    const out = await bridge;
+    const out = await bridge.decided;
     expect(out.decision).toBe("allow");
     // Ed è passata da più di una gamba di poll: il difetto da cui questo giro ci
     // difende è una gamba che scade sotto una persona che sta leggendo.
@@ -211,9 +233,11 @@ test.describe.serial("Pannello di permesso", () => {
     await openChat(page, chatPage);
     const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
     await expect(panel).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(1000);
+    // No clock wait: the `expect.poll` above is already the proof that the route
+    // opened the request (it paints AFTER `beginPermission`), so the click has
+    // something to answer.
     await panel.locator(`[data-testid="tool-permission-allow-${toolCallId}"]`).click();
-    expect((await bridge).decision).toBe("allow");
+    expect((await bridge.decided).decision).toBe("allow");
   });
 
   test("«Consenti sempre» scrive la regola, e la volta dopo NESSUNO viene disturbato", async ({ page, chatPage, request }) => {
@@ -224,10 +248,10 @@ test.describe.serial("Pannello di permesso", () => {
     await openChat(page, chatPage);
     const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
     await expect(panel).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(1000);
+    await bridge.ready;
     await panel.locator(`[data-testid="tool-permission-allow_always-${toolCallId}"]`).click();
 
-    expect((await bridge).decision).toBe("allow_always");
+    expect((await bridge.decided).decision).toBe("allow_always");
 
     // La regola è scritta dove Topics comanda — non nel `.claude/settings.local.json`
     // gitignorato da cui, fino a ieri, dipendeva se una chat avesse o no i suoi
@@ -270,12 +294,12 @@ test.describe.serial("Pannello di permesso", () => {
     const free = panel.locator(`[data-testid="tool-permission-allow_free-${toolCallId}"]`);
     await expect(free).toBeVisible();
     await expect(panel.getByText("modalità libera")).toBeVisible();
-    await page.waitForTimeout(1200);
+    await bridge.ready;
     await free.click();
 
     // (a) La richiesta in corso è CONSENTITA, e alla CLI arriva un `allow`:
     // `allow_free` è una parola di Topics, non del processo figlio.
-    expect((await bridge).decision).toBe("allow");
+    expect((await bridge.decided).decision).toBe("allow");
 
     // (c) Nel thread resta scritto cosa è stato fatto — e si legge senza aprire
     // niente, perché non è l'esito di una riga: è il regime della chat.
@@ -300,6 +324,10 @@ test.describe.serial("Pannello di permesso", () => {
       ignoreHTTPSErrors: true,
     });
     expect((await dopo.json()).decision).toBe("allow");
+    // DELIBERATE FIXED WAIT: this observes that something does NOT happen — no
+    // panel opens for the next tool. `toHaveCount(0)` is true of an empty screen
+    // too, so without a window in which the panel WOULD have had time to appear
+    // the assertion cannot fail.
     await page.waitForTimeout(1500);
     await expect(page.locator('[data-testid="tool-permission-toolu_perm_free_2"]')).toHaveCount(0);
   });
@@ -335,10 +363,10 @@ test.describe.serial("Pannello di permesso", () => {
     await openChat(page, chatPage);
     const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
     await expect(panel).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(1000);
+    await bridge.ready;
     await panel.locator(`[data-testid="tool-permission-deny-${toolCallId}"]`).click();
 
-    expect((await bridge).decision).toBe("deny");
+    expect((await bridge.decided).decision).toBe("deny");
 
     // Un no non scrive nessuna regola: «no una volta» non è «no per sempre».
     const grants = (await (await request.get(`${BASE}/api/tool-grants`, { ignoreHTTPSErrors: true })).json()) as {
@@ -364,7 +392,6 @@ test.describe.serial("Pannello di permesso", () => {
 
     const row = settings.locator(`[data-testid="tool-grant-${TOOL}"]`);
     await expect(row).toBeVisible({ timeout: 5_000 });
-    await page.waitForTimeout(800);
     await settings.locator(`[data-testid="tool-grant-revoke-${TOOL}"]`).click();
     await expect(row).toHaveCount(0, { timeout: 5_000 });
 

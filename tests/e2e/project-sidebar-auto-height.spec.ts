@@ -87,6 +87,35 @@ async function scatola(win: import("@playwright/test").Locator, testid: string) 
   return b;
 }
 
+/**
+ * The same box, read once it has STOPPED moving: re-read until two consecutive
+ * samples agree.
+ *
+ * Opening a section reflows the column, and this spec measures a rectangle — a
+ * sample taken mid-reflow is a true number of a state that does not exist. That
+ * is what the fixed 600 ms after each open was standing in for, and it is the
+ * same bet the section-opening helper above already refused to make: wait for
+ * the condition, not for a duration.
+ */
+async function settledSection(win: import("@playwright/test").Locator, testid: string) {
+  let previous = "";
+  let settled: Awaited<ReturnType<typeof scatola>> | null = null;
+  await expect
+    .poll(
+      async () => {
+        const b = await scatola(win, testid);
+        const shot = JSON.stringify(b);
+        const quiet = shot === previous;
+        previous = shot;
+        if (quiet) settled = b;
+        return quiet;
+      },
+      { timeout: 10_000, message: `${testid}: la scatola non ha mai smesso di muoversi` },
+    )
+    .toBe(true);
+  return settled!;
+}
+
 test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
   const POCO = `/tmp/e2e-auto-poco-${Date.now()}`;
 
@@ -109,11 +138,10 @@ test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
 
     // Git aperta. `aria-expanded` è l'appiglio: l'etichetta è tradotta.
     await garantisciAperta(win.getByTestId("project-sidebar-processes"));
+
     // Il layout deve essersi fermato: una misura presa a metà del riflusso è un
     // numero vero di uno stato che non esiste.
-    await page.waitForTimeout(600);
-
-    const g = await scatola(win, "project-sidebar-processes");
+    const g = await settledSection(win, "project-sidebar-processes");
     const tetto = cb.height / 3;
 
     expect(
@@ -136,10 +164,9 @@ test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
     const cb = (await colonna.boundingBox())!;
 
     await garantisciAperta(win.getByTestId("project-sidebar-processes"));
-    await page.waitForTimeout(600);
 
     const tetto = cb.height / 3 + 2;
-    const b = await scatola(win, "project-sidebar-processes");
+    const b = await settledSection(win, "project-sidebar-processes");
     expect(b.height, `Processi è ${b.height.toFixed(0)}px, tetto ${tetto.toFixed(0)}`).toBeLessThanOrEqual(tetto);
 
     // …e Files, che assorbe il resto, non è stata schiacciata: è la ragione per

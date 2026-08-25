@@ -79,6 +79,29 @@ async function barre(page: Page) {
   });
 }
 
+/**
+ * Put the document in the requested shell/theme and WAIT UNTIL IT IS THERE.
+ *
+ * Each of these toggles used to be followed by a fixed 120-150 ms sleep. The
+ * thing it was waiting for is a state, not a duration: the app re-renders on a
+ * class change and can put its own classes back, so the honest wait is "the
+ * document really is in this shell". A sleep would pass on a document that had
+ * already reverted; this fails, which is the point.
+ */
+async function shell(page: Page, opts: { mac: boolean; dark: boolean }): Promise<void> {
+  await page.evaluate(({ mac, dark }) => {
+    document.documentElement.classList.toggle("electron-mac", mac);
+    document.documentElement.classList.toggle("dark", dark);
+  }, opts);
+  await page.waitForFunction(
+    ({ mac, dark }) =>
+      document.documentElement.classList.contains("electron-mac") === mac &&
+      document.documentElement.classList.contains("dark") === dark,
+    opts,
+    { timeout: 5_000 },
+  );
+}
+
 test.describe("continuità: le righe di chrome e il contenuto", () => {
   test.beforeAll(() => {
     mkdirSync(PROJ, { recursive: true });
@@ -97,11 +120,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
 
   for (const tema of ["dark", "light"] as const) {
     test(`CONT-1 (${tema}): la riga di chrome NON dipinge — il vetro è il blur`, async ({ page }) => {
-      await page.evaluate((t) => {
-        document.documentElement.classList.remove("electron-mac");
-        document.documentElement.classList.toggle("dark", t === "dark");
-      }, tema);
-      await page.waitForTimeout(120);
+      await shell(page, { mac: false, dark: tema === "dark" });
 
       // Il velo è passato per tre forme: la tinta del CHROME (che spostava il
       // colore, da cui il gradino di 13-14 livelli), poi la tinta della
@@ -122,11 +141,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
   }
 
   test("CONT-2: sotto la shell mac nessuna riga dipinge — né la prima né quella annidata", async ({ page }) => {
-    await page.evaluate(() => {
-      document.documentElement.classList.add("electron-mac");
-      document.documentElement.classList.add("dark");
-    });
-    await page.waitForTimeout(150);
+    await shell(page, { mac: true, dark: true });
 
     const righe = await barre(page);
     expect(righe.length, "servono almeno due righe di chrome per confrontarle").toBeGreaterThanOrEqual(2);
@@ -143,11 +158,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
   });
 
   test("CONT-3: sotto la shell dipinge UNA superficie sola — il guscio della finestra", async ({ page }) => {
-    await page.evaluate(() => {
-      document.documentElement.classList.add("electron-mac");
-      document.documentElement.classList.add("dark");
-    });
-    await page.waitForTimeout(150);
+    await shell(page, { mac: true, dark: true });
 
     // La tinta di una superficie non deve dipendere da DOVE sta nell'albero: è
     // stata la causa di ogni divergenza di questa famiglia (la barra annidata

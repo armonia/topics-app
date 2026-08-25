@@ -212,104 +212,15 @@ test.describe("Layout & Navigation", () => {
     await expect(layoutPage.mainContent).toBeVisible({ timeout: 5000 });
   });
 
-  test("LAYOUT-06: project window internal pane layout persists across reload", async ({
-    page,
-    layoutPage,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-    // Hermetic: reset the shared pane-store to EXACTLY our project pane so the
-    // top level holds only `[project]`. Two "Add pane" (+) buttons then exist —
-    // [0] on the top-level tab bar, [1] inside the ProjectWindowPane. Only the
-    // project-internal one persists to `topics-project-panes-<hash>`, which is
-    // what this test polls; the top-level one would add a standalone pane and
-    // leave nonChatPanes at 0.
-    await resetPaneStore(page.request, []);
-    await seedProjectPane(page.request, LAYOUT_PROJECT);
-    await goToApp(page);
-    await layoutPage.openProject(/topics-app/i);
-
-    // Wait for tab bar to be fully loaded
-    const tabBar = layoutPage.tabBar.first();
-    await expect(tabBar).toBeVisible({ timeout: 10000 });
-    const tabs = tabBar.locator('[draggable="true"]');
-    await expect(tabs.first()).toBeVisible({ timeout: 5000 });
-
-    // Click the PROJECT-INTERNAL Add pane (+) button (the last one) to add a
-    // non-chat pane INSIDE the project window.
-    const addPaneBtn = page.getByTitle("Add pane");
-    await expect(addPaneBtn.last()).toBeVisible({ timeout: 5000 });
-    await addPaneBtn.last().click();
-
-    // Wait for dropdown menu (G1: stable testid, not the stale z-[9999] class)
-    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
-    await expect(addMenu).toBeVisible({ timeout: 5000 });
-    const menuButtons = addMenu.locator("button");
-    const menuCount = await menuButtons.count();
-
-    // Select a non-chat pane type to add to the project layout
-    let clicked = false;
-    for (let i = 0; i < menuCount; i++) {
-      const text = ((await menuButtons.nth(i).textContent()) || "").trim();
-      if (/Terminal|Shell|Files|Git|Browser|Board|Dashboard/i.test(text) &&
-          !/Chat/i.test(text)) {
-        await menuButtons.nth(i).click();
-        clicked = true;
-        break;
-      }
-    }
-    if (!clicked) {
-      await menuButtons.nth(menuCount - 1).click();
-    }
-
-    // Project layout persistence is DEVICE-LOCAL now: savePersistedTabState /
-    // savePersistedLayoutState write `topics-project-panes-<hash>` +
-    // `topics-project-layout-<hash>` to localStorage — the old
-    // `PUT /api/ui-state/project-layout` never fires. Poll a project layout
-    // localStorage key until it reflects the added non-chat pane (mirrors the
-    // localStorage poll in split-screen-sync.spec.ts).
-    const readNonChatPaneCount = async () =>
-      page.evaluate(() => {
-        let max = 0;
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i)!;
-          if (!k.startsWith("topics-project-")) continue;
-          try {
-            const v = JSON.parse(localStorage.getItem(k) || "{}");
-            const panes = Array.isArray(v?.nonChatPanes) ? v.nonChatPanes : [];
-            if (panes.length > max) max = panes.length;
-          } catch {
-            /* not JSON */
-          }
-        }
-        return max;
-      });
-
-    await expect
-      .poll(readNonChatPaneCount, { timeout: 10000 })
-      .toBeGreaterThanOrEqual(1);
-    const paneCountBeforeReload = await readNonChatPaneCount();
-
-    // Record tab count before reload to compare against restored state
-    const tabCountBeforeReload = await tabs.count();
-    expect(tabCountBeforeReload).toBeGreaterThanOrEqual(1);
-
-    // Reload the page -- clears in-memory state, forces load from persistence
-    await page.reload({ waitUntil: "load" });
-
-    // Re-open the same project
-    await layoutPage.openProject(/topics-app/i);
-
-    // Verify project window loaded with tabs (proves layout was restored from persistence)
-    const restoredTabBar = layoutPage.tabBar.first();
-    await expect(restoredTabBar).toBeVisible({ timeout: 10000 });
-    const restoredTabs = restoredTabBar.locator('[draggable="true"]');
-    await expect(restoredTabs.first()).toBeVisible({ timeout: 5000 });
-
-    // The device-local layout survived the reload: the added non-chat pane is
-    // still recorded (localStorage persists across reload; the reopen re-reads it).
-    const paneCountAfterReload = await readNonChatPaneCount();
-    expect(paneCountAfterReload).toBeGreaterThanOrEqual(paneCountBeforeReload);
-  });
+  // LAYOUT-06 MERGED AWAY into project-tabs.spec.ts's "PROJECT-TABS-02:
+  // project pane tabs persist after reload". Both drove the same choreography
+  // — open a project window, add a non-chat pane through the PROJECT-INTERNAL
+  // (+), poll `topics-project-*` until nonChatPanes reflects it, reload,
+  // reopen the project — and both asserted the layout came back. This one's
+  // stronger edge (the recorded pane COUNT must survive, not merely "a tab bar
+  // with >= 1 tab", which a rebuilt-empty project window also satisfies) moved
+  // with it. LAYOUT-01 stays covered by this file through LAYOUT-01 and
+  // LAYOUT-07 below.
 
   test("LAYOUT-07: cross-device panel sync updates UI without stale overwrites", async ({
     page,

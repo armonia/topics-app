@@ -25,46 +25,6 @@ hermetic(test);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-/** Seed two topics as open panels and navigate to app */
-async function openTwoTopics(page: Page, topicIds: string[]) {
-  const [idA, idB] = topicIds;
-  await Promise.all([
-    page.request
-      .put(`${E2E_BASE}/api/ui-state/panels`, {
-        data: { openPanels: [idA, idB] },
-      })
-      .catch(() => {}),
-    page.request
-      .put(`${E2E_BASE}/api/ui-state/grid-layout`, {
-        data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
-      })
-      .catch(() => {}),
-    page.request
-      .put(`${E2E_BASE}/api/ui-state/panel-order`, {
-        data: { order: [idA, idB], pinned: [idA, idB] },
-      })
-      .catch(() => {}),
-  ]);
-  // Reset the authoritative pane channel too — legacy openPanels is UNIONED
-  // with pane-store-v2 on hydrate, so stale panes from the shared test DB
-  // otherwise leak in as extra tabs.
-  await resetPaneStore(page.request, [idA, idB]);
-  await page.goto("/");
-  await page.waitForSelector('[aria-label="Topics sidebar"]', {
-    state: "visible",
-    timeout: 15000,
-  });
-  await collapseSidebarSections(page);
-  // Le due tab seminate devono essere ENTRAMBE renderizzate: gli 800ms fissi di
-  // prima aspettavano la seconda senza dirlo, e su una run lenta lo split
-  // partiva da una tab sola (gruppo a pane singola = no-op).
-  await expect
-    .poll(() => page.locator('[role="main"] [draggable="true"]').count(), {
-      timeout: 10000,
-    })
-    .toBeGreaterThanOrEqual(2);
-}
-
 /** Open a project in the sidebar */
 async function openProjectInSidebar(page: Page, name: string | RegExp) {
   const projectsSection = page.getByRole("button", {
@@ -124,200 +84,15 @@ test.describe("Split Screen Sync & Correctness", () => {
     rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
-  // ── 2.1: Split Right creates side-by-side panels ──
-
-  test("Split Right creates side-by-side panels with col-resize divider and independent tab bars", async ({
-    page,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-    await openTwoTopics(page, topicIds);
-
-    const initialColDividers = await countColDividers(page);
-    const initialTabBars = await countTabBars(page);
-
-    await splitViaContextMenu(page, "Dividi a destra");
-
-    const afterColDividers = await countColDividers(page);
-    expect(afterColDividers).toBeGreaterThan(initialColDividers);
-
-    const afterTabBars = await countTabBars(page);
-    expect(afterTabBars).toBeGreaterThanOrEqual(2);
-    expect(afterTabBars).toBeGreaterThan(initialTabBars);
-  });
-
-  // ── 2.2: Split Down creates vertically stacked panels ──
-
-  test("Split Down creates vertically stacked panels with row-resize divider", async ({
-    page,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-    await openTwoTopics(page, topicIds);
-
-    const initialRowDividers = await countRowDividers(page);
-
-    await splitViaContextMenu(page, "Dividi in basso");
-
-    const afterRowDividers = await countRowDividers(page);
-    expect(afterRowDividers).toBeGreaterThan(initialRowDividers);
-
-    const afterTabBars = await countTabBars(page);
-    expect(afterTabBars).toBeGreaterThanOrEqual(2);
-  });
-
-  // ── 2.3: Split layout persists across reload ──
-
-  test("Split layout persists across reload (top-level)", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-    await openTwoTopics(page, topicIds);
-
-    await splitViaContextMenu(page, "Dividi a destra");
-
-    const preDividers = await countColDividers(page);
-    expect(preDividers).toBeGreaterThanOrEqual(1);
-
-    // Wait for the layout write. Grid geometry is DEVICE-LOCAL now: it
-    // persists to localStorage only (usePanelGridPersistence) — the old
-    // `PUT /api/ui-state/grid-layout` never fires anymore.
-    await expect
-      .poll(
-        async () =>
-          await page.evaluate(
-            () => localStorage.getItem("topics-panel-grid-layout") || ""
-          ),
-        { timeout: 10000 }
-      )
-      .toContain("solo:");
-
-    await page.reload({ waitUntil: "load" });
-    await page.waitForSelector('[aria-label="Topics sidebar"]', {
-      state: "visible",
-      timeout: 15000,
-    });
-    // Il divisore ricompare quando il layout è stato reidratato: si aspetta
-    // QUELLO, non due secondi a caso.
-    await expect.poll(() => countColDividers(page), { timeout: 10000 }).toBeGreaterThanOrEqual(1);
-
-    // Verify localStorage has grid layout
-    const layoutData = await page.evaluate(() =>
-      localStorage.getItem("topics-panel-grid-layout")
-    );
-    expect(layoutData).toContain("gridRows");
-  });
-
-  // ── 2.4: Project-internal split persists across reload ──
-
-  test("Project-internal split persists across reload", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-    // Open the project WINDOW pane server-side: the tab-driven sidebar only
-    // shows a project row while its `project:<path>` pane is open (seeding
-    // the project-linked topic id alone is purged by the client).
-    await seedProjectPane(page.request, PROJECT_PATH);
-    await goToApp(page);
-    await openProjectInSidebar(page, /e2e-split-sync/i);
-
-    // Scope to the project window's INNER tab bars (data-group-id `group:*`,
-    // set by GroupLayout). Bar 0 in the page is the standalone POOL bar —
-    // right-clicking ITS first tab split the project PANE in the top-level
-    // grid instead of splitting inside the project window.
-    const projectBars = page.locator('[data-testid="panel-tab-bar"][data-group-id^="group:"]');
-    const projectTabs = projectBars.locator('[draggable="true"]');
-    // A fresh project opens with an EMPTY placeholder group whose bar has NO
-    // group id yet ("No chats open", zero tabs) — populated `group:*` bars
-    // only appear once panes exist. Build up to 2 panes via the project
-    // window's "+" (any add button NOT on the pool / solo bars).
-    const projectAdd = page
-      .locator('[data-testid="panel-tab-bar"]:not([data-group-id="standalone"]):not([data-group-id^="solo:"])')
-      .getByTitle("Add pane");
-    for (let n = await projectTabs.count(); n < 2; n++) {
-      if ((await projectAdd.count()) === 0) break;
-      await projectAdd.last().click();
-      const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
-      await expect(addMenu).toBeVisible({ timeout: 5000 });
-      // Same pane type twice (first non-Chat entry, e.g. Shell) so both land
-      // in ONE group — Split Right needs a 2-tab group to split out of.
-      const menuButtons = addMenu.locator("button");
-      let clicked = false;
-      for (let i = 0; i < (await menuButtons.count()); i++) {
-        const text = ((await menuButtons.nth(i).textContent()) || "").trim();
-        if (!/Chat/i.test(text)) {
-          await menuButtons.nth(i).click();
-          clicked = true;
-          break;
-        }
-      }
-      if (!clicked) {
-        await page.keyboard.press("Escape");
-        break;
-      }
-      await expect.poll(() => projectTabs.count(), { timeout: 5000 }).toBeGreaterThan(n);
-    }
-
-    const tabs = projectBars.first().locator('[draggable="true"]');
-    if ((await tabs.count()) >= 2) {
-      // Split Right within project
-      await tabs.first().click({ button: "right" });
-      const menu = page.locator('[role="menu"]').first();
-      await expect(menu).toBeVisible({ timeout: 5000 });
-      const splitBtn = menu
-        .locator("button")
-        .filter({ hasText: /Dividi a destra/ })
-        .first();
-
-      if ((await splitBtn.count()) > 0) {
-        await splitBtn.click();
-
-        // Wait for split to render — a SECOND project-internal bar
-        const splitRendered = await projectBars
-          .nth(1)
-          .waitFor({ state: "visible", timeout: 5000 })
-          .then(() => true)
-          .catch(() => false);
-
-        if (splitRendered) {
-          // Wait for the layout write. Project split GEOMETRY is
-          // device-local now: savePersistedLayoutState writes it to
-          // localStorage (`topics-project-layout-<hash>`) synchronously —
-          // the old `PUT /api/ui-state/project-layout` never fires.
-          await expect
-            .poll(
-              async () =>
-                await page.evaluate(() => {
-                  for (let i = 0; i < localStorage.length; i++) {
-                    const k = localStorage.key(i)!;
-                    if (!k.startsWith("topics-project-layout-")) continue;
-                    try {
-                      const v = JSON.parse(localStorage.getItem(k) || "{}");
-                      const rows = Array.isArray(v?.rows) ? v.rows : [];
-                      const groups = rows.flatMap(
-                        (r: { groupIds?: string[] }) => r.groupIds ?? []
-                      );
-                      if (groups.length >= 2) return true;
-                    } catch {
-                      /* not JSON */
-                    }
-                  }
-                  return false;
-                }),
-              { timeout: 10000 }
-            )
-            .toBe(true);
-
-          // Reload
-          await page.reload({ waitUntil: "load" });
-          await page.waitForSelector('[aria-label="Topics sidebar"]', {
-            state: "visible",
-            timeout: 15000,
-          });
-
-          await openProjectInSidebar(page, /e2e-split-sync/i);
-
-          // The split (two project-internal groups) is restored from the
-          // device-local layout key.
-          await expect(projectBars.nth(1)).toBeVisible({ timeout: 10000 });
-        }
-      }
-    }
-  });
+  // 2.1-2.4 MERGED AWAY (top-level Split Right / Split Down / split survives
+  // reload / project-internal split survives reload). They asserted exactly the
+  // properties GRID-01, GRID-02 and GRID-04 in grid-split.spec.ts and
+  // PROJECT-TABS-02b in project-tabs.spec.ts already assert, on the same
+  // helpers and the same choreography; the extra edges they carried (tab-bar
+  // count must GROW, the layout key must be there unconditionally, the write
+  // must land before the reload) were folded into those tests. What is left in
+  // this file is what only this file does: COMPOSITE layouts — project + chat
+  // side by side, nested project splits, multi-row multi-column grids.
 
   // ── 3.1: Mixed project + chat split ──
 
@@ -341,7 +116,7 @@ test.describe("Split Screen Sync & Correctness", () => {
         data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
       })
       .catch(() => {});
-    // Deterministic tab set (see openTwoTopics), then the project pane on
+    // Deterministic tab set, then the project pane on
     // top — the tab-driven sidebar needs the `project:<path>` pane open to
     // show the project row this test clicks.
     await resetPaneStore(page.request, [topicIds[0]]);

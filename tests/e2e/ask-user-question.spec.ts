@@ -169,11 +169,17 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
 
     // Un umano legge prima di scegliere: qui è anche il tempo che rende il
     // video guardabile, e attraversa più di una gamba di poll del bridge.
+    // DELIBERATE FIXED WAIT: the elapsed time is part of what is under test —
+    // the panel must survive a poll leg boundary — and there is no condition
+    // that means "a person has been reading for a while".
     await page.waitForTimeout(2000);
 
-    // Pick OAuth and send.
-    await form.locator('input[type="radio"][value="OAuth"]').check();
-    await page.waitForTimeout(600);
+    // Pick OAuth and send. The wait is the radio actually taking the value —
+    // the form's send button reads React state, not the DOM, so what matters is
+    // that the change handler ran, not that 600 ms went by.
+    const oauth = form.locator('input[type="radio"][value="OAuth"]');
+    await oauth.check();
+    await expect(oauth).toBeChecked();
     await form.getByRole("button", { name: /Invia/ }).click();
 
     // THE contract: the answer returns to the model as the tool's result —
@@ -198,7 +204,10 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
 
     // The panel is gone — the turn moved on.
     await expect(form).toBeHidden({ timeout: 10_000 });
-    await page.waitForTimeout(800); // il video mostra la chat che riparte
+    // DELIBERATE FIXED WAIT: the .webm is the deliverable for this behaviour, and
+    // this is the tail frame that shows the chat moving on. Nothing is asserted
+    // after it.
+    await page.waitForTimeout(800);
   });
 
   test("l'opzione consigliata si vede, comunque il modello l'abbia detta", async ({ page, chatPage, request }) => {
@@ -366,6 +375,9 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await expect(form).toBeVisible({ timeout: 15_000 });
 
     // Nessuno tocca niente per un bel po': ~20 gambe da 150 ms.
+    // DELIBERATE FIXED WAIT: the assertion below is that NOTHING happened — the
+    // panel is still there and nobody invented an answer. A condition-wait
+    // cannot stand in for a window in which the failure would have shown up.
     await page.waitForTimeout(3000);
     // Il pannello è ancora lì, cliccabile, e nessuno ha inventato una risposta.
     await expect(form).toBeVisible();

@@ -298,27 +298,24 @@ test.describe("Project Tabs", () => {
     // `topics-project-panes-<hash>` to localStorage — the old
     // `PUT /api/ui-state/project-layout` never fires. Poll the localStorage key
     // until it reflects the added non-chat pane before reloading.
-    await expect
-      .poll(
-        async () =>
-          page.evaluate(() => {
-            let max = 0;
-            for (let i = 0; i < localStorage.length; i++) {
-              const k = localStorage.key(i)!;
-              if (!k.startsWith("topics-project-")) continue;
-              try {
-                const v = JSON.parse(localStorage.getItem(k) || "{}");
-                const panes = Array.isArray(v?.nonChatPanes) ? v.nonChatPanes : [];
-                if (panes.length > max) max = panes.length;
-              } catch {
-                /* not JSON */
-              }
-            }
-            return max;
-          }),
-        { timeout: 10000 }
-      )
-      .toBeGreaterThanOrEqual(1);
+    const readNonChatPaneCount = async () =>
+      page.evaluate(() => {
+        let max = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i)!;
+          if (!k.startsWith("topics-project-")) continue;
+          try {
+            const v = JSON.parse(localStorage.getItem(k) || "{}");
+            const panes = Array.isArray(v?.nonChatPanes) ? v.nonChatPanes : [];
+            if (panes.length > max) max = panes.length;
+          } catch {
+            /* not JSON */
+          }
+        }
+        return max;
+      });
+    await expect.poll(readNonChatPaneCount, { timeout: 10000 }).toBeGreaterThanOrEqual(1);
+    const paneCountBeforeReload = await readNonChatPaneCount();
 
     // Reload. Use "load" (not "networkidle"): we JUST spawned a Shell whose
     // PTY/WS streams the prompt, so the network never goes idle for 500ms and
@@ -337,6 +334,18 @@ test.describe("Project Tabs", () => {
     const restoredTabs = restoredTabBar.locator('[draggable="true"]');
     await expect(restoredTabs.first()).toBeVisible({ timeout: 10000 });
     expect(await restoredTabs.count()).toBeGreaterThanOrEqual(1);
+
+    // Merged here from layout-navigation.spec.ts's "LAYOUT-06: project window
+    // internal pane layout persists across reload", which drove the exact same
+    // choreography (open project → project-internal (+) → non-chat pane → poll
+    // nonChatPanes → reload → reopen) against a different project. Its one
+    // extra edge is this line: "a tab bar with >= 1 tab" is satisfied by the
+    // default pane a fresh project window always draws, so it cannot tell a
+    // restored layout from a rebuilt-empty one. The PANE COUNT can.
+    expect(
+      await readNonChatPaneCount(),
+      "the added non-chat pane must still be recorded after the reload"
+    ).toBeGreaterThanOrEqual(paneCountBeforeReload);
   });
 
   test("PROJECT-TABS-02b: project split layout persists after reload", async ({

@@ -130,6 +130,36 @@ async function rowMetrics(page: Page): Promise<Metrics> {
   });
 }
 
+/**
+ * The same metrics, read once the layout has STOPPED: re-read until two
+ * consecutive samples agree.
+ *
+ * Every `setViewportSize` here used to be followed by a fixed 250 ms sleep. What
+ * decides when the row is final is a ResizeObserver, and that is on nobody's
+ * clock: on a loaded machine 250 ms samples the row mid-reflow (a red that moves
+ * between runs), on an idle one it throws away a quarter second for a row that
+ * settled in 30 ms. The real condition is "the row stopped moving", and this is
+ * it.
+ */
+async function settledRowMetrics(page: Page): Promise<Metrics> {
+  let previous = "";
+  let settled: Metrics | null = null;
+  await expect
+    .poll(
+      async () => {
+        const m = await rowMetrics(page);
+        const shot = JSON.stringify(m);
+        const same = shot === previous;
+        previous = shot;
+        if (same) settled = m;
+        return same;
+      },
+      { timeout: 10_000, message: "la riga di colonne non ha mai smesso di muoversi" },
+    )
+    .toBe(true);
+  return settled!;
+}
+
 /** Il contratto, uguale a ogni larghezza. */
 function assertWidthContract(m: Metrics, viewportWidth: number) {
   expect(m.columns.length, "il board deve avere le sue colonne").toBeGreaterThan(0);
@@ -191,9 +221,7 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
     // colonne si espandono finché non toccano il soffitto.
     for (const width of [1100, 1280, 1600, 2000, 2560]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.waitForTimeout(250);
-      const m = await rowMetrics(page);
-      assertWidthContract(m, width);
+      assertWidthContract(await settledRowMetrics(page), width);
     }
   });
 
@@ -201,9 +229,8 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
     await page.setViewportSize({ width: 2560, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);
-    await page.waitForTimeout(250);
 
-    const m = await rowMetrics(page);
+    const m = await settledRowMetrics(page);
     assertWidthContract(m, 2560);
 
     // La crescita è il punto del task: su un board largo la colonna di lavoro
@@ -231,9 +258,8 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
     await page.setViewportSize({ width: 900, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);
-    await page.waitForTimeout(250);
 
-    const m = await rowMetrics(page);
+    const m = await settledRowMetrics(page);
     assertWidthContract(m, 900);
     expect(
       m.scrollWidth,
@@ -255,8 +281,7 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
     // diventava un taglio.
     for (const width of [430, 390, 360]) {
       await page.setViewportSize({ width, height: 844 });
-      await page.waitForTimeout(250);
-      const m = await rowMetrics(page);
+      const m = await settledRowMetrics(page);
       const review = m.columns.find((c) => c.status === "review")!;
       const visibile = m.clientWidth - m.paddingX;
       expect(
@@ -277,8 +302,7 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
 
     // La riprova del confine: appena sopra `sm` la review torna 22rem esatti.
     await page.setViewportSize({ width: 700, height: 844 });
-    await page.waitForTimeout(250);
-    const sopra = await rowMetrics(page);
+    const sopra = await settledRowMetrics(page);
     expect(
       Math.round(sopra.columns.find((c) => c.status === "review")!.width),
       "sopra sm il pavimento torna quello di sempre (22rem)",

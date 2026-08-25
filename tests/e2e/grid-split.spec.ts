@@ -7,6 +7,7 @@ import {
   collapseSidebarSections,
   countColDividers,
   countRowDividers,
+  countTabBars,
   getVisibleTabLabels,
   splitViaContextMenu,
 } from "./helpers/layout";
@@ -404,6 +405,8 @@ test.describe("Grid Split System", () => {
       await openTwoTopics(page);
 
       const initialColDividers = await countColDividers(page);
+      const tabBars = page.locator('[role="main"] [data-testid="panel-tab-bar"]');
+      const initialTabBars = await tabBars.count();
 
       await splitViaContextMenu(page, 'Dividi a destra');
 
@@ -411,9 +414,15 @@ test.describe("Grid Split System", () => {
       const afterColDividers = await countColDividers(page);
       expect(afterColDividers, 'Split Right should create a col-resize divider').toBeGreaterThan(initialColDividers);
 
-      // Should have multiple tab bar regions (standalone group + solo panel)
-      const tabBars = page.locator('[role="main"] [data-testid="panel-tab-bar"]');
-      expect(await tabBars.count(), 'Should have multiple tab bars after split').toBeGreaterThanOrEqual(2);
+      // Should have multiple tab bar regions (standalone group + solo panel).
+      // Merged here from split-screen-sync.spec.ts's "Split Right creates
+      // side-by-side panels with col-resize divider and independent tab bars",
+      // which asserted the same fact with one extra edge: the bar count must
+      // GROW, not merely be >= 2 — a layout that already had two cells before
+      // the split satisfied the weaker bound without splitting anything.
+      const afterTabBars = await tabBars.count();
+      expect(afterTabBars, 'Should have multiple tab bars after split').toBeGreaterThanOrEqual(2);
+      expect(afterTabBars, 'Split Right should ADD a tab bar, not just leave >= 2').toBeGreaterThan(initialTabBars);
     });
 
     test("GRID-02: Split Down via context menu creates above/below panels", async ({ page }) => {
@@ -428,6 +437,12 @@ test.describe("Grid Split System", () => {
       // After split, should have more row-resize dividers
       const afterRowDividers = await countRowDividers(page);
       expect(afterRowDividers, 'Split Down should create a row-resize divider').toBeGreaterThan(initialRowDividers);
+
+      // Merged here from split-screen-sync.spec.ts's "Split Down creates
+      // vertically stacked panels with row-resize divider": the divider alone
+      // does not prove the pane moved into a cell of its own — the second tab
+      // bar does.
+      expect(await countTabBars(page), 'Split Down should leave two tab bars').toBeGreaterThanOrEqual(2);
     });
 
     test("GRID-02b: Split Down survives a page reload (persistence) @nightly", async ({ page }) => {
@@ -632,6 +647,19 @@ test.describe("Grid Split System", () => {
       const preDividers = await countColDividers(page);
       expect(preDividers, 'Should have at least 1 col divider before reload').toBeGreaterThanOrEqual(1);
 
+      // Wait for the layout WRITE before reloading. Merged from
+      // split-screen-sync.spec.ts's "Split layout persists across reload
+      // (top-level)": without this poll the reload can start before the solo
+      // cell reaches localStorage, and the test then measures a race instead
+      // of persistence. Grid geometry is device-local (usePanelGridPersistence
+      // → localStorage), so `solo:` appearing in the key IS the write.
+      await expect
+        .poll(
+          () => page.evaluate(() => localStorage.getItem('topics-panel-grid-layout') || ''),
+          { message: 'the solo cell must reach localStorage before the reload', timeout: 10_000 },
+        )
+        .toContain('solo:');
+
       // Reload and wait for layout restore. Era waitForTimeout(3000) — il
       // segnale reale è che i divider siano tornati, che è anche l'asserzione.
       await page.reload({ waitUntil: 'load' });
@@ -642,11 +670,13 @@ test.describe("Grid Split System", () => {
         })
         .toBeGreaterThanOrEqual(preDividers);
 
-      // Also verify localStorage has grid layout data
+      // The saved layout must still hold grid rows. This was `if (layoutData)`
+      // — i.e. a missing key, the very failure this test exists to catch, made
+      // the assertion vanish. The merged split-screen-sync version asserted it
+      // unconditionally; that is the version kept.
       const layoutData = await page.evaluate(() => localStorage.getItem('topics-panel-grid-layout'));
-      if (layoutData) {
-        expect(layoutData, 'Layout data should contain grid rows').toContain('gridRows');
-      }
+      expect(layoutData, 'the grid layout key must survive the reload').toBeTruthy();
+      expect(layoutData!, 'Layout data should contain grid rows').toContain('gridRows');
     });
 
     test("GRID-05: Splitting works in project windows", async ({ page }) => {
