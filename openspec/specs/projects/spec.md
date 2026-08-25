@@ -234,3 +234,67 @@ condivisione.
 #### Scenario: annuncio a chi non vede
 - **GIVEN** un annuncio di progetto verso chi non ha visibilità
 - **THEN** SHALL contenere il solo identificativo
+
+### Requirement: PROJECT-08 — «Apri il progetto Pix» si risolve senza toccare il disco, e le omonimie si dichiarano tutte
+
+Un riferimento UMANO a un progetto — il nome che gli ha dato chi lo usa, la sua
+sigla, il nome della cartella — SHALL essere risolto contro un elenco di
+candidati SENZA toccare il filesystem: la verifica su disco appartiene a chi
+costruisce l'elenco, non a chi confronta.
+
+Il confronto SHALL ignorare le maiuscole e SHALL provare nell'ordine: sigla
+esatta, nome esatto, nome della cartella. La FORZA del livello SHALL essere
+mantenuta: una corrispondenza di sigla viene prima di una di nome, che viene
+prima di una di cartella — così una corrispondenza casuale sul nome della
+cartella non scavalca quella che chi parla intendeva.
+
+**Le omonimie SHALL essere restituite TUTTE**, nell'ordine dei candidati: due
+progetti che si chiamano allo stesso modo esistono davvero, e sceglierne uno per
+conto di chi ha parlato è indovinare. I percorsi ripetuti SHALL essere
+deduplicati — molti topic legati allo stesso repo sono lo stesso progetto.
+
+Un riferimento sconosciuto o vuoto SHALL dare NIENTE.
+
+#### Scenario: due progetti con lo stesso nome di cartella
+- **GIVEN** due candidati la cui cartella si chiama allo stesso modo
+- **THEN** SHALL essere restituiti entrambi, nell'ordine dei candidati
+
+#### Scenario: sigla contro cartella
+- **GIVEN** una corrispondenza di sigla e una di nome cartella più avanti nell'elenco
+- **THEN** SHALL vincere la sigla
+
+### Requirement: PROJECT-09 — L'icona di un progetto si cerca dove i progetti veri la mettono
+
+L'immagine che rappresenta un progetto SHALL essere cercata per PRIORITÀ
+dichiarata: prima i file convenzionali dei vari impianti, poi le icone
+dichiarate in un manifesto, poi il collegamento nella pagina iniziale, e infine
+una scansione per nome nelle cartelle di risorse più comuni — che è ciò che
+trova i file di marchio nominati liberamente, spediti senza nessuna impalcatura
+attorno.
+
+Fra le icone di un manifesto SHALL essere scelta la PIÙ GRANDE dichiarata.
+
+Le sorgenti REMOTE SHALL essere ignorate, sia nel manifesto sia nel collegamento
+della pagina: servire un'immagine presa dalla rete per conto di un progetto è
+un'altra cosa da mostrare la sua icona.
+
+Un'icona INCORPORATA nel collegamento SHALL essere servita — è uno schema molto
+comune — e SHALL funzionare anche quando contiene virgolette singole e caratteri
+di parentesi angolare al proprio interno. Un contenuto incorporato che NON è
+un'immagine SHALL essere rifiutato.
+
+La lettura del collegamento SHALL reggere l'ordine degli attributi invertito, e
+SHALL saltare i collegamenti che non sono icone senza fermarsi al primo trovato.
+
+Un manifesto malformato NON SHALL far fallire la ricerca: si passa alla fonte
+successiva.
+
+Una cartella qualunque SHALL dare NIENTE, non un'icona inventata.
+
+#### Scenario: un'icona incorporata con caratteri ostili
+- **GIVEN** un'icona incorporata che contiene virgolette e parentesi angolari
+- **THEN** SHALL essere servita intera
+
+#### Scenario: un manifesto rotto
+- **GIVEN** un manifesto che non si riesce a interpretare
+- **THEN** la ricerca SHALL proseguire con le fonti successive

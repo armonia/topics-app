@@ -1,3 +1,6 @@
+/**
+ * @covers RETIRE-08
+ */
 import { describe, test, expect } from "bun:test";
 import {
   BROWSER_MARK_FLAG,

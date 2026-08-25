@@ -1,3 +1,6 @@
+/**
+ * @covers RETIRE-10
+ */
 import { describe, expect, it } from "bun:test";
 import { ORPHAN_ERRORS, finalizeOrphanTool } from "./orphan-tool-sweep";
 

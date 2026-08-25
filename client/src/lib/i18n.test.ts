@@ -3,6 +3,8 @@
  * mancante NON finisca a schermo, e che le due lingue restino allineate — una
  * lingua incompleta è un fatto da scoprire qui, non guardando l'interfaccia a
  * caso.
+ *
+ * @covers I18N-01
  */
 import { describe, test, expect, afterEach, beforeAll } from 'bun:test';
 import {

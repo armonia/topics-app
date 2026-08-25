@@ -295,3 +295,104 @@ un permesso a svuotare tutto.
 #### Scenario: la tabella dei task è vuota
 - **GIVEN** un ripasso all'avvio con zero task in tabella
 - **THEN** NON SHALL essere considerata orfana nessuna chiave
+
+### Requirement: RETIRE-08 — Si spazza solo ciò che porta il NOSTRO marchio, e «zero righe» non è «tutto pulito»
+
+I processi di browser che il sistema avvia SHALL portare un MARCHIO che ne
+dichiara il ruolo e chi li possiede, e la spazzata SHALL toccare SOLO quelli.
+Un processo che non porta quel marchio NON SHALL essere toccato MAI: sulla stessa
+macchina girano browser di altri strumenti, e ucciderli è un danno fuori dal
+proprio dominio.
+
+**Essere senza padre NON vuol dire essere orfani.** Dei cinque processi senza
+padre trovati il 12/08/2026 — sulla stessa macchina dove ne erano vivi 28 per
+1.461 MB — DUE erano ausiliari di un browser VIVO e legittimo. Il criterio SHALL
+essere il possessore scritto nel marchio, non la parentela.
+
+Un marchio che nomina il processo CORRENTE, all'avvio, SHALL essere trattato come
+un identificativo RICICLATO: quel processo non può averlo scritto.
+
+Due server vivi in parallelo SHALL risparmiarsi a vicenda.
+
+Gli ausiliari SHALL essere attribuiti al proprio browser; quelli che non sono
+attribuibili a nessuno NON SHALL essere toccati — muoiono da soli col processo
+che li ha creati. Il profilo condiviso NON SHALL portare a uccidere l'ausiliario
+di un browser vivo.
+
+**Un'uscita VUOTA NON SHALL valere «tutto pulito»**: il piano SHALL dichiarare
+quante righe ha letto, o «non ho trovato niente» e «non ho guardato» si leggono
+uguali.
+
+Il piano SHALL essere DETERMINISTICO e ORDINATO, e SHALL nominare gli
+identificativi con il proprio motivo: un elenco senza motivi non è contestabile
+da nessuno.
+
+#### Scenario: un browser di un altro strumento
+- **GIVEN** un processo di browser senza il nostro marchio
+- **THEN** NON SHALL essere toccato
+
+#### Scenario: nessuna riga letta
+- **GIVEN** una lettura che non ha prodotto righe
+- **THEN** il piano SHALL dichiarare di non aver visto niente, distinto da «pulito»
+
+### Requirement: RETIRE-09 — Si parcheggia alla SECONDA conferma, e uno stato vuoto non è una conferma
+
+Una sessione giudicata orfana NON SHALL essere parcheggiata alla PRIMA
+osservazione: SHALL servire una seconda conferma in un giro successivo. Una
+sessione ricomparsa fra i due giri NON SHALL essere parcheggiata.
+
+**Uno stato dell'interfaccia VUOTO NON È «nessuno la mostra».** È l'errore che
+trasforma questo meccanismo in un massacro: zero righe lette danno un insieme di
+riferimenti vuoto, e quindi TUTTE le sessioni risultano orfane. Un giro che non
+ha visto nessuna struttura NON HA GUARDATO, e NON SHALL agire.
+
+Un giro BLOCCATO NON SHALL lasciare conferme al giro successivo, e SHALL dire
+PERCHÉ si è bloccato.
+
+Con l'interruttore spento SHALL essere fatto il censimento e NON SHALL essere
+toccato niente.
+
+Con più orfane insieme SHALL essere parcheggiata solo quella che ha la seconda
+conferma.
+
+Il resoconto SHALL NOMINARE gli identificativi parcheggiati — «due orfane» non è
+smentibile da nessuno — e SHALL distinguere «non ho parcheggiato» da «aspetto la
+conferma».
+
+#### Scenario: lo stato dell'interfaccia è vuoto
+- **GIVEN** un giro in cui non si legge nessuna struttura di riferimento
+- **THEN** NON SHALL essere parcheggiato niente
+
+#### Scenario: ricomparsa fra i due giri
+- **GIVEN** una sessione orfana al primo giro e presente al secondo
+- **THEN** NON SHALL essere parcheggiata
+
+### Requirement: RETIRE-10 — Una riga appesa si chiude solo se nessuno può più rispondere — tranne il permesso
+
+Una chiamata di attrezzo rimasta APPESA SHALL essere chiusa con un errore SOLO
+quando la sessione che la teneva è morta. Bollarla interrotta mentre la sessione
+è viva è il modo in cui una domanda VIVA diventava un avviso col tasto «riprova»
+al primo ricaricamento del codice.
+
+Su una sessione VIVA un attrezzo in corso può ancora consegnare e una domanda può
+ancora essere risposta: NON SHALL essere toccati.
+
+**Il PERMESSO è l'eccezione, e ha una ragione:** il suo appuntamento muore col
+processo, quindi resta a schermo un pannello che invita a un gesto che non può
+più arrivare — successo il 07/08/2026 con due pannelli rimasti su turni morti,
+mentre il processo continuava a elencare la sessione. Il permesso SHALL essere
+chiuso anche a sessione viva: il peggio che può fare è un lampo, mentre non
+chiuderlo lascia una bugia permanente — e se la sessione è davvero viva, il
+pannello si ridisegna da sé.
+
+Ciò che è GIÀ finito NON SHALL essere riscritto: un errore già scritto da chi
+sapeva di più SHALL restare, e un istante di fine già registrato NON SHALL essere
+spostato.
+
+#### Scenario: una domanda su una sessione viva
+- **GIVEN** una domanda a schermo e la sessione ancora viva
+- **THEN** NON SHALL essere chiusa
+
+#### Scenario: un permesso su una sessione viva
+- **GIVEN** un pannello di permesso e la sessione ancora viva
+- **THEN** SHALL essere chiuso comunque

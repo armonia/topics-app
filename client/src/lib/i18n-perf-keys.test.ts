@@ -15,6 +15,8 @@
  * La conclusione sbagliata a portata di mano era «la traduzione manca»; la
  * risposta vera l'ha data `missingKeys('en')`, che ASPETTA il catalogo — ed è
  * la funzione che questo file usa, invece di leggere i dizionari a mano.
+ *
+ * @covers I18N-02
  */
 import { describe, it, expect } from 'bun:test';
 import { t, missingKeys } from './i18n';

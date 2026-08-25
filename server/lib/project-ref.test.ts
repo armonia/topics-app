@@ -1,3 +1,6 @@
+/**
+ * @covers PROJECT-08
+ */
 import { describe, expect, it } from "bun:test";
 import { matchProjectRef, matchProjectRefAll, type ProjectRefCandidate } from "./project-ref";
 

@@ -9,6 +9,8 @@ import { ensureLocaleLoaded, loadedLocales, t, subscribeCatalogues, FALLBACK_LOC
  * The price of that split is a window: between "the user picked English" and
  * "the dictionary arrived" the app can only draw Italian. These pin that the
  * window is a degraded state and not a broken one, and that it closes.
+ *
+ * @covers I18N-01
  */
 describe("the English catalogue arrives on demand", () => {
   test("Italian is there from the first frame, without asking", () => {

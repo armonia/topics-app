@@ -2,6 +2,8 @@
  * Come per il censimento, il rischio è a senso unico: parcheggiare una sessione
  * viva costa il lavoro di qualcuno, risparmiarne una davvero orfana costa un
  * processo. I test insistono quindi su ciò che NON dev'essere parcheggiato.
+ *
+ * @covers RETIRE-09
  */
 import { describe, test, expect } from "bun:test";
 import { planOrphanPark, formatOrphanParkPlan } from "./orphan-park-policy";
