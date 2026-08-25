@@ -8,6 +8,8 @@
  * I nuovi test coprono:
  *  · `runningCount()` - il contatore che il dispatcher usa per il freno
  *  · serializzazione - `maxConcurrent` limita le corse parallele
+ *
+ * @covers KANBAN-15
  */
 import { test, expect, describe } from "bun:test";
 import { CHECKS_LEG_MS, clampLegMs, CHECKS_LEG_MS_MAX, DEFAULT_MAX_CONCURRENT_CHECKS, createChecksGate } from "./checks-gate";

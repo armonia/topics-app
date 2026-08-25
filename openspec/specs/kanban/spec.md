@@ -951,3 +951,106 @@ riga e la loro fotografia, non le loro risorse.
 #### Scenario: si sceglie a corsa finita
 - **GIVEN** un tentativo ancora in corsa
 - **THEN** la scelta SHALL essere rifiutata
+
+### Requirement: KANBAN-15 — Prima della review i comandi girano, e un rosso che non ha misurato niente non è un rosso
+
+Una board SHALL poter dichiarare fino a `MAX_CHECKS` comandi che una consegna
+deve far passare prima di entrare in review. I comandi SHALL essere DICHIARATI da
+una persona nelle impostazioni della board: nessun default SHALL essere dedotto
+dal progetto. SHALL girare nel worktree DELLA CONSEGNA, in sequenza e
+nell'ordine dichiarato, e SHALL fermarsi al primo rosso.
+
+Quando al worktree mancano le dipendenze, il sistema SHALL installarle PRIMA dei
+comandi dichiarati. Senza, i cancelli morivano su un'uscita 127 indistinguibile
+da un rosso vero — otto task in un giorno, il 13/08/2026.
+
+Il verdetto SHALL avere TRE valori e mai due: `pass`, `fail`, `unknown`. Un
+comando SCADUTO, uno che NON È PARTITO, e un elenco di esiti più corto dei
+comandi dichiarati SHALL dare `unknown`. Misurato il 18/08/2026 sul database
+vivo: sei card su quindici marcate `fail` erano soltanto scadute — il 40% dei
+rossi accusava il codice per un guasto della macchina.
+
+Un rosso VERO accanto a uno scaduto SHALL restare `fail`: il dubbio non
+cancella una prova.
+
+Il cancello NON SHALL vivere dentro la richiesta HTTP. Una suite può durare più
+del tempo che una socket resta aperta, e quando quel tempo scadeva lo stato
+restava «in corso» per sempre. Mentre i comandi girano la richiesta SHALL
+rispondere «in corso» con un codice proprio, e la card SHALL restare dov'era.
+Un rosso SHALL rifiutare la transizione con un codice proprio, e la card SHALL
+tornare all'agente.
+
+Le corse SHALL essere condivise per chiave: N richieste sullo stesso task
+producono UN giro di comandi. Un commit diverso SHALL far rimisurare. Una corsa
+che esplode SHALL liberare la chiave invece di avvelenare la successiva. Il
+numero di corse simultanee SHALL avere un tetto, e il default SHALL essere UNO:
+il 18/08/2026 sei barre in parallelo hanno portato il carico a 78,83 su dodici
+core.
+
+Il verdetto SHALL sopravvivere alla richiesta che l'ha chiesto per una finestra
+dichiarata.
+
+Sulla card SHALL essere scritto lo stato, gli esiti parziali e il commit
+misurato. Il commento del VERDE SHALL essere una riga sola e di specie servizio:
+l'elenco completo su ogni consegna verde erano 92 copie identiche in sette
+giorni. Il commento del ROSSO SHALL essere per esteso e di specie ordinaria — è
+la sola cosa che l'agente deve leggere.
+
+Il progresso SHALL essere «fatti su totale» fin dal primo istante, e numeri
+incoerenti SHALL essere scartati invece che mostrati.
+
+Una configurazione illeggibile SHALL spegnere il cancello, non sollevare un
+errore.
+
+#### Scenario: un comando che non è mai partito
+- **GIVEN** un worktree in cui un comando non può nemmeno avviarsi
+- **THEN** l'esito SHALL essere `unknown`, non `fail`
+- **AND** il testo SHALL dire che non è partito, e NON SHALL parlare di tempo massimo
+
+#### Scenario: dieci richieste sullo stesso task
+- **GIVEN** dieci richieste concorrenti sulla stessa chiave
+- **THEN** SHALL girare un solo giro di comandi
+
+#### Scenario: la configurazione è rotta
+- **GIVEN** impostazioni di board illeggibili
+- **THEN** il cancello SHALL essere spento, e la consegna SHALL procedere come
+  su una board che non ne dichiara
+
+### Requirement: KANBAN-16 — Un task pesante aspetta il carico NOSTRO, e non aspetta per sempre
+
+Un task dichiarato PESANTE SHALL partire solo quando la macchina è libera, e la
+misura di «libera» SHALL essere il carico prodotto DAI NOSTRI agenti — non il
+carico di sistema. Il carico di sistema comprende le applicazioni di chi possiede
+la macchina: la notte del 12/08/2026 stava fra 37 e 48 mentre la flotta usava
+0,75 core, e frenava noi per colpa di altri.
+
+Quando la sonda propria non risponde, il sistema SHALL ricadere sulla misura di
+sistema; quando NESSUNA delle due risponde, il cancello SHALL essere DISATTIVATO.
+«Non lo so» non è «no»: un cancello che si chiude senza sonda diventa una
+trappola permanente su ogni host che non ne ha una.
+
+Un pesante in attesa SHALL fermare la coda dietro di sé, e questo è voluto: se i
+leggeri passassero avanti alzerebbero il carico, e la macchina non risulterebbe
+mai scarica.
+
+L'attesa SHALL avere un TETTO, superato il quale il pesante parte comunque. Un
+freno senza scadenza è un task perso.
+
+L'attesa per «un altro pesante sta lavorando» SHALL essere contata SEPARATAMENTE
+da quella per il carico: sommarle farebbe scadere il tetto del carico prima che
+sia mai stato valutato.
+
+La card SHALL dire perché è ferma, e SHALL distinguere «sono io il tappo, con N
+dietro» da «un altro pesante sta lavorando».
+
+#### Scenario: carico esterno alto, flotta ferma
+- **GIVEN** una macchina carica di lavoro altrui e nessun agente nostro attivo
+- **THEN** il pesante SHALL partire
+
+#### Scenario: nessuna sonda
+- **GIVEN** un host senza sonde di carico
+- **THEN** il cancello SHALL essere disattivato, non chiuso
+
+#### Scenario: l'attesa è troppo lunga
+- **GIVEN** un pesante fermo oltre il tetto
+- **THEN** SHALL partire comunque, e la card SHALL dirlo

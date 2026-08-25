@@ -19,6 +19,8 @@
  * davanti alzerebbero il carico, e il momento in cui la macchina è scarica non
  * arriverebbe mai. Quello che cambia è QUALE carico guarda il gate, e il fatto
  * che l'attesa adesso finisce.
+ *
+ * @covers KANBAN-16
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

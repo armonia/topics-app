@@ -1,3 +1,6 @@
+/**
+ * @covers PROJECT-05
+ */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";

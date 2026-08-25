@@ -62,3 +62,28 @@ Il lock di chi sta smontando NON SHALL proteggerlo da sé stesso: il caso normal
 - **GIVEN** un file di lock scritto a metà
 - **WHEN** il teardown lo legge
 - **THEN** non lo tratta come una run viva e procede
+
+### Requirement: E2E-GATE-01 — La superficie di test non esiste, fuori dal banco
+
+Le rotte di test — quelle che fotografano e RIPRISTINANO il database riga per
+riga, e quelle che seminano stato a cui le API pubbliche non arrivano — SHALL
+esistere solo quando una variabile d'ambiente lo dichiara con un valore ESATTO.
+Fuori da quel caso SHALL rispondere come rotte che non esistono: un 404, non un
+403 e non una rotta disarmata.
+
+Il riconoscimento SHALL essere per valore esatto: nessuna variabile, il valore
+spento, una parola che «sembra» accesa, o un ambiente di test dichiarato per
+altra via NON SHALL accendere niente. Un default «acceso quando non so»
+riaprirebbe il buco senza che nessun test diventi rosso.
+
+> Il difetto era reale e vissuto: una rotta di semina era registrata senza
+> condizione, ed è stata l'unica superficie di test raggiungibile anche in
+> produzione.
+
+#### Scenario: nessuna variabile
+- **GIVEN** un ambiente che non dichiara niente
+- **THEN** le rotte di test NON SHALL esistere
+
+#### Scenario: un valore che somiglia a un sì
+- **GIVEN** la variabile impostata a una parola diversa dal valore esatto
+- **THEN** le rotte di test NON SHALL esistere

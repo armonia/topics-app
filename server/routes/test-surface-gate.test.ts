@@ -1,3 +1,6 @@
+/**
+ * @covers E2E-GATE-01
+ */
 import { describe, test, expect } from "bun:test";
 import { e2eRoutesEnabled } from "./e2e";
 

@@ -128,3 +128,40 @@ The condition is deliberately narrower than `projects.org_id != null`: every pro
 - **WHEN** the project is marked `incognito` and the server emits `project:updated`
 - **THEN** the mark SHALL disappear without a page reload
 - **AND** clearing `incognito` again SHALL bring it back the same way
+
+### Requirement: PROJECT-05 — L'icona di un progetto si serve solo per cartelle già conosciute
+
+La rotta che serve l'icona di un progetto SHALL accettare un percorso scelto dal
+client, e per questo SHALL servirla SOLO per cartelle che il server già conosce
+per altra via. Senza quel vincolo la rotta è un modo per enumerare il disco di
+chi ospita il server.
+
+L'elenco delle cartelle conosciute SHALL essere l'UNIONE di ogni sorgente in cui
+un progetto può comparire — l'indice dei progetti, i percorsi dei topic, i
+worktree, le cartelle di lavoro dei terminali, i riferimenti nello stato
+dell'interfaccia, e i progetti del workspace che portano un marcatore. Un
+cancello sul solo indice dei progetti negherebbe quasi tutto: quasi nessun
+progetto è registrato lì.
+
+Il confronto SHALL essere ESATTO e mai per prefisso: «dentro un progetto noto»
+aprirebbe ogni discendente all'enumerazione.
+
+L'elenco SHALL essere ricalcolato a ogni richiesta e mai messo in cache: una
+cache che memorizza un DINIEGO lo cristallizza, e una cartella appena aperta è
+già legittima.
+
+Una cartella conosciuta ma senza icona SHALL rispondere «niente da mostrare»,
+non «non esiste»: sono due fatti diversi e il secondo sarebbe falso.
+
+#### Scenario: una cartella che diventa nota
+- **GIVEN** una cartella rifiutata perché sconosciuta
+- **WHEN** diventa nota per una qualunque delle sorgenti
+- **THEN** l'icona SHALL essere servita, senza bisogno di ricostruire niente
+
+#### Scenario: una sottocartella
+- **GIVEN** un progetto noto e una sua sottocartella
+- **THEN** il progetto SHALL essere servito e la sottocartella SHALL essere rifiutata
+
+#### Scenario: nota ma senza icona
+- **GIVEN** una cartella nota che non porta nessuna icona
+- **THEN** la risposta SHALL dire «niente», non «non trovato»

@@ -12,6 +12,8 @@
  * forme diverse. Un parser che le confonde e' il modo esatto in cui questo
  * cambiamento puo' rompere qualcosa di vecchio — e lo farebbe in silenzio, con
  * i risultati dei controlli che spariscono da un drawer.
+ *
+ * @covers KANBAN-15
  */
 import { describe, test, expect } from "bun:test";
 import { parseChecksJson, parseChecksProgress } from "./tasks";
