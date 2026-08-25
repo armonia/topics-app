@@ -116,3 +116,45 @@ suo.
 #### Scenario: configurazione che non combacia
 - **GIVEN** un'inclusione che non corrisponde a nessun file
 - **THEN** SHALL essere rilevata, perché l'elenco letto è vuoto
+
+### Requirement: E2E-UAT-01 — I video esistono già: quello che mancava era l'elenco, e un video non è un verde
+
+La suite E2E SHALL poter essere GUARDATA senza riscrivere nessun test. Ciò che
+serve al generatore della pagina di collaudo non è Gherkin: è un ELENCO dei
+video prodotti, con titolo, percorso, esito e durata. La suite ne produce già
+centinaia a ogni passata in modalità evidenza — mancava solo la lista.
+
+Un file `.feature` NON SHALL essere richiesto per vedere le prove. Il testo
+GIVEN/WHEN/THEN dei requisiti SHALL essere letto come RIPIEGO per il dettaglio
+tecnico, non come fonte dei video: senza, la scheda mostra il titolo del test e
+il suo esito, che è esattamente ciò che serve per guardarli.
+
+**Un video NON SHALL mai valere come esito positivo.** L'esito SHALL venire dal
+rapporto della passata; in sua assenza SHALL essere dichiarato SCONOSCIUTO, mai
+verde. La ragione è che il default della suite conserva i video proprio dei
+ROSSI: «c'è un video» non può voler dire «è passato», e una pagina di prove che
+dichiara verde ciò che non sa è peggio di nessuna pagina.
+
+Un tempo scaduto SHALL contare come fallimento, non come esito sconosciuto.
+
+La regola sull'esito SHALL essere ESPOSTA e non sepolta in un valore di ripiego
+scritto in linea: deve essere possibile toglierla e vedere una prova diventare
+rossa.
+
+I video SHALL essere COLLEGATI nella cartella che la configurazione già
+dichiara, non copiati — sono decine di megabyte a passata — e la copia SHALL
+essere il ripiego quando il collegamento non è possibile. La configurazione NON
+SHALL essere piegata ai file: sarebbe stato più rapido e avrebbe rotto una
+convenzione che il repo si è già dato.
+
+Un titolo SHALL essere ricostruito dal nome della cartella solo quando il
+rapporto manca, e NON SHALL essere indovinato: si tolgono il suffisso del
+motore e l'impronta, e il resto resta leggibile.
+
+#### Scenario: nessun rapporto
+- **GIVEN** un video senza nessuna riga di rapporto che lo riguardi
+- **THEN** SHALL essere marcato sconosciuto, mai passato
+
+#### Scenario: un tempo scaduto
+- **GIVEN** una prova terminata per tempo scaduto
+- **THEN** SHALL contare come fallimento
