@@ -12,6 +12,8 @@
  * Il test è mirato: si strippa SOLO sotto la chiave `settings`, e SOLO quei due
  * campi — un pane-store che avesse per caso un campo con lo stesso nome non
  * deve perderlo.
+ *
+ * @covers APPSET-02
  */
 import { describe, test, expect } from "bun:test";
 import { stripDeviceLocalFields, SETTINGS_KEY, DEVICE_LOCAL_SETTINGS_FIELDS } from "./ui-state";

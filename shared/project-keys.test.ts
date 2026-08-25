@@ -1,3 +1,6 @@
+/**
+ * @covers PROJECT-06
+ */
 import { describe, test, expect } from "bun:test";
 import {
   projectHash,

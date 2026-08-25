@@ -13,6 +13,8 @@
  * Qui il registro è VUOTO (nessun provider avviato in un test), che è
  * esattamente il caso limite: nessun nome è accettabile, e il messaggio deve
  * dirlo invece di elencare un insieme vuoto.
+ *
+ * @covers APPSET-01
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";

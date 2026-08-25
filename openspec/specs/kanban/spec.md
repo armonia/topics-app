@@ -1279,3 +1279,86 @@ toccare», mai «cancella».
 #### Scenario: il fornitore esce male
 - **GIVEN** una risposta che è un messaggio di errore del fornitore
 - **THEN** NON SHALL diventare un titolo
+
+### Requirement: KANBAN-23 — Un'anteprima è evidenza di QUESTA card, o non è un'anteprima
+
+Prima di allegare un'immagine come risultato, il sistema SHALL verificare DUE
+cose distinte: che la porta che sta fotografando sia SUA, e che quello che si
+vede sia una pagina vera.
+
+L'appartenenza SHALL essere decisa per identità del processo, e in mancanza per
+cartella di lavoro CANONICA — con i collegamenti simbolici risolti, perché due
+scritture dello stesso percorso non sono due percorsi. Quando non si può sapere,
+il sistema SHALL accettare e DIRLO, invece di rifiutare in silenzio.
+
+Un indirizzo locale già registrato SHALL essere riusato solo se risulta ancora
+proprio; altrimenti SHALL essere azzerato.
+
+Il CONTENUTO SHALL essere respinto quando la risposta è un errore o quando la
+pagina è un segnaposto — un bundle non costruito, una rotta che non esiste, una
+connessione rifiutata, un corpo vuoto.
+
+Uno screenshot RIUSCITO ma BIANCO NON SHALL essere evidenza, e questo controllo
+SHALL essere separato da quello sul contenuto.
+
+Quando l'anteprima viene respinta, il sistema SHALL RITIRARLA con un motivo
+scritto, e NON SHALL semplicemente svuotare il campo: un'assenza senza motivo non
+si può verificare.
+
+Il peso della nota SHALL dipendere da CHI ha aperto la porta: se l'ha aperta il
+sistema è una riga di servizio, se l'ha messa una persona è una nota da leggere.
+
+La nota SHALL occupare uno SLOT, comprese le sue formulazioni vecchie, così che
+non se ne accumulino.
+
+Le porte SHALL essere PRENOTATE fra la scelta e l'avvio, per non essere raccolte
+dalla spazzata durante il proprio boot; e la chiusura SHALL abbattere l'ALBERO di
+processi e non il solo processo capo — con il solo capo, il pool di porte si
+esauriva.
+
+Solo quando una PERSONA chiede di ricatturare, il sistema SHALL scrivere il
+motivo anche quando non c'è niente da ritirare: a una consegna normale quel ramo
+resta muto.
+
+#### Scenario: la porta è di qualcun altro
+- **GIVEN** un indirizzo locale servito da un processo che non è nostro
+- **THEN** NON SHALL essere fotografato
+
+#### Scenario: uno screenshot bianco
+- **GIVEN** uno screenshot riuscito ma vuoto
+- **THEN** l'anteprima SHALL essere ritirata CON un motivo
+
+### Requirement: KANBAN-24 — Il modello si sceglie a maggioranza, e non si scende sotto il pavimento
+
+La scelta del modello per un task SHALL essere presa a più VOTI indipendenti e
+risolta per mediana. Un voto solo non basta: misurato il 10/08/2026 su venti
+task, due giudizi indipendenti sullo stesso task davano sforzo diverso nel 33,7%
+dei casi e piano diverso nel 54,2%; con la mediana di tre voti il disaccordo
+sullo sforzo scende al 10,0%.
+
+Su un numero pari di voti SHALL essere scelto il più economico dei due centrali.
+
+Il livello più economico SHALL essere solo un GIUDICE e mai un bersaglio di
+esecuzione: SHALL essere tolto dai candidati prima della risoluzione.
+
+Lo sforzo scelto NON SHALL poter scendere sotto quello già impostato sulla board:
+la scelta automatica può alzare, mai abbassare.
+
+Il testo dato ai giudici SHALL essere tagliato a CONFINE DI RIGA quando possibile
+e SHALL dichiarare di essere un estratto: un taglio a metà frase rendeva due
+risposte su tre illeggibili.
+
+Un voto ILLEGGIBILE NON SHALL contare né come astensione né come valore di
+mezzo, e il verdetto SHALL essere nullo solo quando nessun voto è leggibile.
+
+Qualunque fallimento — classificatore muto, tempo scaduto, risposta non
+interpretabile, livello non disponibile — SHALL ricadere sul modello di ripiego e
+NON SHALL mai bloccare il dispatch.
+
+#### Scenario: due voti su tre illeggibili
+- **GIVEN** tre voti di cui due non interpretabili
+- **THEN** il verdetto SHALL essere quello dell'unico leggibile
+
+#### Scenario: il classificatore non risponde
+- **GIVEN** un classificatore che va in errore
+- **THEN** SHALL essere usato il modello di ripiego, e il task SHALL partire

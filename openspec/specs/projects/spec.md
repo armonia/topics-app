@@ -165,3 +165,42 @@ non «non esiste»: sono due fatti diversi e il secondo sarebbe falso.
 #### Scenario: nota ma senza icona
 - **GIVEN** una cartella nota che non porta nessuna icona
 - **THEN** la risposta SHALL dire «niente», non «non trovato»
+
+### Requirement: PROJECT-06 — Il percorso di un progetto si ri-deduce, e non si indovina mai
+
+L'identificativo di un progetto SHALL essere ricondotto al suo percorso
+ri-calcolando l'identificativo di ogni candidato, e NON tenendo una mappa
+inversa: una mappa è una seconda verità che un giorno diverge.
+
+Il riconoscimento di una cartella come progetto SHALL richiedere un MARCATORE, e
+l'elenco delle cartelle nascoste da escludere SHALL essere dichiarato per nome —
+con l'eccezione, esplicita, della cartella di lavoro dell'agente, i cui figli
+sono progetti legittimi.
+
+Dedurre un percorso da una CONVERSAZIONE SHALL avvenire in due giri: prima si
+cerca un percorso che ESISTE ed è una cartella, su tutto il testo; poi, solo sui
+messaggi di una PERSONA, un percorso che ancora non esiste ma il cui genitore sì
+— è il caso di «creami un progetto in…».
+
+Il secondo giro NON SHALL poter contraddire il primo: un percorso che esiste ma
+NON è una cartella SHALL essere saltato, mai restituito. Senza questa regola un
+eseguibile da sedici kilobyte è diventato un progetto fantasma.
+
+Senza nessun riscontro la risposta SHALL essere «non lo so», mai un default.
+
+La cartella in cui NASCE un progetto nuovo SHALL essere dedotta dal genitore
+comune dei progetti già noti, SHALL richiedere una maggioranza di almeno due, e
+il genitore scelto SHALL esistere. Le cartelle nascoste e la home nuda NON SHALL
+essere candidate.
+
+Le chiavi derivate da un percorso SHALL essere calcolate in UN punto solo. Erano
+in tre copie indipendenti, e una derivazione fuori sincrono fa sparire una pane
+senza nessun errore.
+
+#### Scenario: un file che sembra un progetto
+- **GIVEN** un testo che nomina un percorso esistente che è un file
+- **THEN** NON SHALL essere restituito come progetto
+
+#### Scenario: un solo progetto conosciuto
+- **GIVEN** un solo progetto noto
+- **THEN** la cartella per i nuovi NON SHALL essere dedotta dal suo genitore

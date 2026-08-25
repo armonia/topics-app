@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-23
+ */
 import { describe, it, expect } from "bun:test";
 import { createPreviewManager, isLocalUrl, isEvidencePage, isPlaceholderPage, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree, PREVIEW_NOTE_PREFIX, PREVIEW_NOTE_SLOT } from "./preview-manager";
 

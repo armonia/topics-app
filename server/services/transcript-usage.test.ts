@@ -1,3 +1,6 @@
+/**
+ * @covers USAGE-15
+ */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";

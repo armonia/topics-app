@@ -7,6 +7,8 @@
  *   • otherwise the built-in default.
  * The DB is an in-memory copy of the real migrations so migration 054's schema
  * (and the singleton seed row) exist exactly as they will in production.
+ *
+ * @covers APPSET-01
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";

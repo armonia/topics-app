@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-24
+ */
 import { describe, test, expect } from "bun:test";
 import {
   parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort, medianTier, medianEffort, JUDGE_VOTES, parseWeight, medianWeight,

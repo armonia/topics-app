@@ -1,3 +1,6 @@
+/**
+ * @covers PROJECT-06
+ */
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";

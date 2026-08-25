@@ -554,3 +554,57 @@ be its own: hovering a sibling row SHALL NOT light up the group summary.
 - **WHEN** the pointer moves onto a single row
 - **THEN** the group summary SHALL stay unpainted
 - **AND** it SHALL light up only when the group's own summary is hovered
+
+### Requirement: USAGE-15 — Il consumo di un turno si legge in avanti, e non si conta due volte
+
+Il consumo SHALL essere letto dal transcript in modo INCREMENTALE, ripartendo
+soltanto dai byte aggiunti: il file è in sola aggiunta e viene interrogato ogni
+pochi secondi.
+
+Le righe di consumo SHALL essere DEDUPLICATE per identificativo del messaggio. La
+riga di comando ne scrive UNA per ogni blocco di contenuto della stessa risposta,
+con gli stessi numeri: sommarle tutte sovracconta di due volte e mezzo.
+
+Il conteggio fatturabile SHALL comprendere ingresso, uscita e scrittura di cache,
+e NON la lettura di cache.
+
+La cache a lunga durata SHALL essere letta dal campo che la dichiara e NON
+dedotta dal tempo fra due richieste. Prima si tariffava tutto assumendo
+l'aggregazione: su una sessione vera il costo passa da 149,69 a 175,75 dollari.
+
+Un file che è DIVENTATO più piccolo dell'offset noto SHALL far ripartire il
+conteggio da capo: è stato compattato, non è tornato indietro.
+
+Una riga scritta a metà SHALL essere tenuta da parte come byte grezzi fino al
+completamento, perché un carattere multi-byte può essere spezzato dal taglio.
+
+Un file assente SHALL dare zero e NON un errore.
+
+#### Scenario: tre righe per una risposta
+- **GIVEN** tre righe di consumo con lo stesso identificativo di messaggio
+- **THEN** SHALL contare una volta sola
+
+### Requirement: USAGE-16 — Il consumo di un task comprende le sue sessioni figlie, e non torna mai indietro
+
+Il consumo attribuito a un task SHALL comprendere quello delle sessioni FIGLIE.
+Con un coordinatore il lavoro vero gira nelle figlie, ognuna col proprio
+transcript: contare solo il padre mostrerebbe le card che delegano di più come
+le più economiche.
+
+Il registro NON SHALL mai decrescere. Una figlia MORTA SHALL restare sommata con
+il suo ultimo valore noto, e un transcript diventato illeggibile o azzerato SHALL
+valere l'ultimo valore noto e MAI zero. Il consumo di un turno si calcola come
+differenza con un pavimento a zero: una lettura calante sparirebbe in silenzio.
+
+Solo le figlie di QUELLA sessione SHALL entrare nel conto.
+
+Una interrogazione fallita SHALL rispondere con quello che il registro ha, mai
+con un'eccezione.
+
+#### Scenario: una figlia che muore
+- **GIVEN** una sessione figlia sparita dal registro delle sessioni
+- **THEN** il suo ultimo consumo noto SHALL restare nel totale
+
+#### Scenario: un transcript azzerato
+- **GIVEN** una figlia il cui transcript torna un valore più basso di prima
+- **THEN** SHALL valere il valore più alto già letto

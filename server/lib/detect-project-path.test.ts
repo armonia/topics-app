@@ -1,3 +1,6 @@
+/**
+ * @covers PROJECT-06
+ */
 import { describe, expect, test } from "bun:test";
 import { detectProjectPath, type FsProbe } from "./detect-project-path";
 

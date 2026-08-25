@@ -1,3 +1,6 @@
+/**
+ * @covers USAGE-16
+ */
 // La BARRA numero 2: il consumo delle figlie compare su `agent_tokens` del task
 // padre.
 //
