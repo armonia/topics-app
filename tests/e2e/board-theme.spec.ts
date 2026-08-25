@@ -122,6 +122,7 @@ test.describe("Board — leggibilità nei due temi", () => {
   // dicendo QUALE tema è rotto.
   for (const scheme of ["dark", "light"] as const) {
     test(`BOARD-THEME-01 (${scheme}): la card della board è leggibile`, async ({ page }, testInfo) => {
+      test.info().annotations.push({ type: "spec", description: "KANBAN-46" });
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto("/");
       await openProjectBoard(page);

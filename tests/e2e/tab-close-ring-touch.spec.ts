@@ -117,6 +117,7 @@ test.describe("La spunta-cerchio della tab, col dito", () => {
    * stanno in una `evaluate` sola apposta.
    */
   test("TAB-RING-01: la spunta-cerchio ha l'area di un dito, e col dito si chiude e si annulla", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-04" });
     const chiudi = page.locator(TAB_CLOSE);
     await expect(chiudi, "la tab della chat non è montata: non c'è spunta da misurare").toHaveCount(1, { timeout: 10_000 });
     const [vuota] = await misuraBersagli(page, [TAB_CLOSE]);

@@ -4,6 +4,7 @@
  * parcheggiati, tre figli sotto) e quella dopo che i cinque stati sono stati
  * mossi a mano. Una sonda che non sa tornare a zero è un allarme rotto; una che
  * non sa salire a cinque non è una sonda.
+  * @covers DOCTOR-02
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";

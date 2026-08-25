@@ -196,6 +196,8 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
   });
 
   test("I18N-PANELS-01: Checks, Changes e Attempts rendono in inglese", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "I18N-03" });
     // La lingua si scrive nei DUE depositi che l'app legge: localStorage (che
     // dipinge il primo frame) e `ui_state` (da cui idrata subito dopo). Scriverne
     // uno solo significa vedere l'inglese e poi guardarlo tornare italiano.

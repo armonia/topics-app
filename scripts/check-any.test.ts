@@ -7,6 +7,7 @@
  * The script runs as a PROCESS, not as an import: what has to be proven is the
  * exit code that stops CI, and `main()` runs at import time and calls
  * `process.exit`.
+  * @covers GATE-01 @covers GATE-02
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync, writeFileSync } from "fs";

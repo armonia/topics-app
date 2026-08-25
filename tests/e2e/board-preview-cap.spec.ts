@@ -293,6 +293,8 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
   });
 
   test("PREVIEW-CAP-01: lo stesso rapporto a ogni larghezza di colonna", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-40" });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);

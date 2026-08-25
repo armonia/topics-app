@@ -154,6 +154,7 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
 
 test.describe("I widget in coda a una tab", () => {
   test("GEO-1: il cerchio di chiusura atterra ESATTAMENTE sul badge che sostituisce", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-04" });
     await resetPaneStore(request, [a.id, b.id]);
     const tab = await tabCarica(page);
     const riposo = await misura(page, a.id);

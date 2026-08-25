@@ -139,6 +139,8 @@ test.describe.serial("Composer della board — non sparisce", () => {
   });
 
   test("COMPOSER-01: il fuoco fuori dalla kanban non porta via il composer", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-30" });
     const draft = `Bozza fuori fuoco ${STAMP}`;
     await page.goto("/");
     await openGlobalBoard(page);

@@ -128,6 +128,8 @@ test.describe("Kanban card — mobile font legibility", () => {
   });
 
   test("CARDFONT-01: no card text below 12px at a 390px mobile viewport", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-48" });
     // The sidebar/project-window flow needs desktop width to reach the board;
     // open there, then shrink to a phone viewport before measuring.
     await page.setViewportSize({ width: 1280, height: 900 });

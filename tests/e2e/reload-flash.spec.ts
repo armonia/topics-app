@@ -27,6 +27,7 @@ hermetic(test);
  */
 test.describe("flash «Ricaricata»", () => {
   test("un reload marcato dal guscio si annuncia", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "RELOAD-01" });
     await goToApp(page);
 
     // Nessun toast a freddo: il flash è un ACK, non un saluto di benvenuto.

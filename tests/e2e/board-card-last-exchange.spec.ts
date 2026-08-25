@@ -128,6 +128,8 @@ test.describe("L'ultimo scambio, visto dalla review", () => {
   });
 
   test("la domanda in attesa e la cronaca dichiarata, sulla stessa colonna", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-27" });
     const colonna = page.getByTestId("kanban-column-body-review");
 
     // 1. LA MIA DOMANDA È A SCHERMO senza che nessuno abbia risposto.

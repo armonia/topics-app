@@ -189,6 +189,8 @@ test.describe("Board · revisione del diff riga per riga", () => {
   });
 
   test("BOARD-DIFF-01: una nota su una riga parte come UN commento con path e riga giusti", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-33" });
     await page.goto("/");
     await openProjectBoard(page);
 

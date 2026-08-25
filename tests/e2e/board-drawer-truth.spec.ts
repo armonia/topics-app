@@ -153,6 +153,8 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
   });
 
   test("TRUTH-01: con l'accordion chiuso una descrizione da 2.578 caratteri non sembra assente", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-36" });
     await page.setViewportSize({ width: 1280, height: 800 });
     const desc = longDescription();
     expect(desc.length, "il caso è quello misurato: 2.578 caratteri").toBe(2578);

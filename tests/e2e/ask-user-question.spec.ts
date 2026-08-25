@@ -119,6 +119,8 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
   }
 
   test("scelta singola: clic → Send → la risposta torna al bridge e il turno riprende", async ({ page, chatPage, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "ASK-06" });
     const toolCallId = "toolu_ask_single";
     const question = "Quale metodo di auth?";
     const options = [

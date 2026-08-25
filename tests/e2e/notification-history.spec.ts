@@ -89,6 +89,8 @@ test.describe("Cronologia notifiche", () => {
   });
 
   test("NH-01: la notifica arriva, il contatore sale, il click porta al task", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "UNREAD-01" });
     await page.goto("/");
     await expect(bell(page)).toBeVisible({ timeout: 15_000 });
     // Si parte da zero: il badge non esiste proprio quando non c'è nulla da

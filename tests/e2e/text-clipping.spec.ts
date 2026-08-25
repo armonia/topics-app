@@ -91,6 +91,7 @@ async function tagliati(page: Page): Promise<unknown[]> {
 
 test.describe("Tipografia — nessuna lettera tagliata", () => {
   test("TYPO-1: le code e gli accenti stanno dentro la riga, in sidebar e nelle tessere", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TYPO-01" });
     // Le due stringhe non sono decorative: `gg`/`ggi` scendono sotto la
     // baseline e `Ã` sale sopra le maiuscole. Un nome tutto minuscolo senza
     // discendenti non farebbe fallire il test nemmeno col difetto presente.

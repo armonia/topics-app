@@ -47,6 +47,7 @@ async function uncovered(page: import("@playwright/test").Page) {
 
 test.describe("Zone di trascinamento della finestra", () => {
   test("DRAG-01: nessuna chrome della shell resta senza il suo attributo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-08" });
     await goToApp(page);
     // L'intestazione dell'app, la barra degli Spazi e la sidebar sono montate.
     await expect(page.locator(".app-drag-region").first()).toBeAttached({ timeout: 15000 });

@@ -3,6 +3,7 @@
  * per DIFETTO — non conta una stringa che l'utente legge — dichiara finita una
  * migrazione che non lo è, ed è l'unico errore che fa danno. I test guardano
  * quello, più i falsi positivi più tipici (classi CSS, chiavi, URL).
+  * @covers GATE-03
  */
 import { describe, test, expect } from "bun:test";
 import { scanFile } from "./i18n-coverage";

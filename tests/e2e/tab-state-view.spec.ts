@@ -76,6 +76,8 @@ test.describe("Stato delle tab: i tre stati e il raggruppamento", () => {
   });
 
   test("i tre stati si distinguono su tab e righe", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHROME-07" });
     // L'intercetto va installato PRIMA del goto, o la connessione iniziale sfugge.
     const ws = await interceptWebSocket(page);
     await goToApp(page);

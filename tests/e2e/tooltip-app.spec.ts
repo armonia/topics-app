@@ -24,6 +24,7 @@ const CON_TITLE = '[data-testid="metrics-total"]';
 
 test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
   test('passando il mouse compare il nostro, e il nativo viene disinnescato', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOOLTIP-01" });
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 

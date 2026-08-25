@@ -101,6 +101,8 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
   });
 
   test("il chip c'è anche se il bloccante è un sottotask, e si spegne quando chiude", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-26" });
     // Un'epica con un suo step: lo step NON è mai una card (la board fetcha
     // rootsOnly), quindi il client non ce l'ha in mano. È il caso che rompeva.
     const epica = await createTask(request, { text: EPICA, status: "in_progress" });

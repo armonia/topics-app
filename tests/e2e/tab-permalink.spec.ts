@@ -115,6 +115,8 @@ test.describe("Permalink di una tab — il produttore", () => {
   });
 
   test("TABLINK-01: il menu della tab copia il TOPIC, non l'id della pane", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHROME-06" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 

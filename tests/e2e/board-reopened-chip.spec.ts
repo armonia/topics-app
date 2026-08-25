@@ -153,6 +153,8 @@ test.describe("Chip «riaperta» · una card che esce da Done lo dice", () => {
   });
 
   test("l'agent rimbalza sulla card approvata; quando l'umano la riapre la board lo dice", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-42" });
     // Consegna + APPROVAZIONE UMANA: è la decisione di Attilio, ed è ciò che il
     // cancello protegge.
     const task = await createTask(request, { text: TASK, status: "in_progress" });

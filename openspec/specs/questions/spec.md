@@ -243,3 +243,121 @@ testo libero.
 #### Scenario: un turno interrotto
 - **GIVEN** un turno in pianificazione terminato per interruzione
 - **THEN** NON SHALL essere chiesta nessuna approvazione
+
+### Requirement: ASK-05 — Rispondere si può SCRIVENDO in chat, e il testo va alla domanda
+
+Chi risponde a una domanda SCRIVENDO nel campo della chat SHALL vedere il proprio
+testo arrivare ALLA DOMANDA, non finire in coda: la coda si svuoterebbe solo dopo
+aver fatto la cosa che l'agente non sta facendo, e chi ha risposto resta fermo
+fino allo scadere dell'attesa — un'ora e mezza, col cronometro che scorre.
+
+Con una domanda a schermo il campo SHALL DICHIARARLO — nell'invito e nel comando
+di invio — e NON SHALL comparire nessuna bolla in coda.
+
+#### Scenario: si scrive con una domanda aperta
+- **GIVEN** una domanda a schermo e del testo scritto in chat
+- **THEN** il testo SHALL essere consegnato come risposta, non accodato
+
+#### Scenario: l'invito del campo
+- **GIVEN** una domanda a schermo
+- **THEN** il campo SHALL dichiarare che si sta rispondendo
+
+### Requirement: ASK-06 — Il pannello si risponde a STEP, il consiglio si vede, e nulla è preselezionato
+
+Un pannello di domanda SHALL essere azionabile a schermo e la risposta SHALL
+tornare a chi l'ha chiesta, facendo RIPRENDERE il turno.
+
+Più domande insieme SHALL essere presentate UNA ALLA VOLTA, con l'avanzamento
+dichiarato, il passo avanti DISABILITATO finché non c'è una risposta, il ritorno
+indietro che CONSERVA quanto scelto, e UN SOLO invio finale con tutte le
+risposte.
+
+L'opzione CONSIGLIATA SHALL essere segnalata come tale, comunque il modello
+l'abbia dichiarata, e il segnale NON SHALL restare dentro il titolo dell'opzione.
+NESSUNA opzione SHALL essere PRESELEZIONATA: una scelta preselezionata è una
+scelta che qualcuno non ha fatto.
+
+La possibilità di rispondere LIBERAMENTE SHALL esistere, e scrivere nel campo
+libero SHALL selezionarla da sé.
+
+Mentre il pannello è a schermo NON SHALL comparire un cronometro di lavoro: non si
+sta lavorando, si sta aspettando una persona.
+
+Il pannello SHALL SOPRAVVIVERE a un'attesa lunga, attraverso decine di tratti
+brevi: chi si alza dalla scrivania deve ritrovarlo lì.
+
+#### Scenario: tre domande insieme
+- **GIVEN** più domande in una sola richiesta
+- **THEN** SHALL essere presentate una alla volta, con un solo invio finale
+
+#### Scenario: l'opzione consigliata
+- **GIVEN** un'opzione dichiarata consigliata
+- **THEN** SHALL essere segnalata, e NON SHALL essere preselezionata
+
+### Requirement: PERM-04 — I tre esiti di un permesso, e quello che libera la sessione libera SOLO questa
+
+Un pannello di permesso SHALL dire COSA si sta per fare e con QUALI argomenti, e
+SHALL risolversi in un CLICK. NON SHALL offrire una risposta libera: non è una
+domanda, è una decisione.
+
+Gli esiti SHALL essere DISTINTI: consentire ORA, consentire SEMPRE, liberare la
+SESSIONE, e NEGARE. Negare SHALL tornare a chi ha chiesto come un NO, non come un
+silenzio — ogni richiesta senza canale di risposta diventava un no muto.
+
+«Sempre» SHALL scrivere una regola, e la volta successiva NESSUNO SHALL essere
+disturbato. La regola SHALL essere RITROVABILE e RITIRABILE dalle impostazioni, e
+dopo il ritiro la richiesta SHALL tornare a essere posta.
+
+Liberare QUESTA conversazione NON SHALL liberare le altre.
+
+Il pannello SHALL essere dipinto dal SERVER e SHALL sopravvivere a un
+caricamento da zero: seminarlo già pronto prova che il pannello funziona, non che
+il server sappia produrlo — ed è esattamente il caso in cui non compariva.
+
+Una decisione NON RICONOSCIUTA SHALL essere un rifiuto dichiarato: né un sì per
+inerzia, né un no muto. Un click su un pannello che non ha più nessuno sotto
+SHALL DIRLO, invece di sparire.
+
+Gli strumenti PROPRI di Topics NON SHALL MAI chiedere il permesso di essere sé
+stessi: per mostrare un pannello servirebbe il permesso di mostrare un pannello.
+
+#### Scenario: «sempre», poi il ritiro
+- **GIVEN** una regola scritta e poi ritirata dalle impostazioni
+- **THEN** la richiesta successiva SHALL tornare a essere posta
+
+#### Scenario: una decisione sconosciuta
+- **GIVEN** un esito non riconosciuto
+- **THEN** SHALL essere rifiutato esplicitamente
+
+### Requirement: PERM-05 — Un piano si fa approvare anche quando lo strumento per chiederlo non esiste
+
+Nella modalità in cui il modello può solo pianificare, lo strumento per chiedere
+l'approvazione NON è fra quelli esposti: il modello non può agire e non può
+chiedere. A schermo restava il cartello che dichiara un turno chiuso senza
+prodotto, sopra una colonna di azioni riuscite, e il piano non si vedeva.
+
+Topics SHALL chiedere l'approvazione LEI, con lo STESSO pannello di ogni altra
+domanda.
+
+Il piano SHALL essere MOSTRATO e RESO come testo formattato, non come blocco
+grezzo. Lo strumento dichiarato SHALL essere il PIANO, non l'azione che il
+modello avrebbe voluto compiere, e NON SHALL nominare il file che avrebbe
+toccato.
+
+Su un piano NON SHALL essere offerta una risposta libera.
+
+La domanda SHALL comparire SOPRA il campo di scrittura e ACCANTO ad esso, non
+persa in mezzo alla conversazione.
+
+Approvare SHALL ALZARE l'autonomia, o il turno riparte nella stessa trappola.
+
+Lo stesso cancello SHALL valere per un piano scritto in sola PROSA, dove non
+esiste nessuna riga di strumento a cui appendere la domanda.
+
+#### Scenario: un piano in sola prosa
+- **GIVEN** un piano senza nessuna riga di strumento
+- **THEN** l'approvazione SHALL essere chiesta lo stesso
+
+#### Scenario: approvare
+- **GIVEN** un piano approvato
+- **THEN** l'autonomia SHALL essere alzata

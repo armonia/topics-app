@@ -350,3 +350,24 @@ mentire.
 #### Scenario: controllo negativo
 - **GIVEN** una card in `done` il cui lavoro è su `main`
 - **THEN** NON SHALL comparire nessun allarme
+
+### Requirement: LAND-08 — La regola che autorizza a CANCELLARE si prova su repository veri
+
+La regola che dichiara un ramo eliminabile SHALL essere provata su repository
+VERI e minuscoli, non su finzioni: è l'unico posto dove si può sbagliare in modo
+CARO.
+
+Il caso che conta SHALL essere il ramo ATTERRATO PER SCHIACCIAMENTO, che il
+criterio di antenato comune chiama vivo per sempre e che solo il criterio per
+CONTENUTO riconosce: se quel caso si rompe, il mucchio dei rami non cala mai.
+
+Il caso SIMMETRICO SHALL essere provato con la stessa cura: del LAVORO VERO letto
+come atterrato significa cancellare qualcosa che serviva.
+
+#### Scenario: un ramo atterrato per schiacciamento
+- **GIVEN** un ramo il cui contenuto è già su quello principale
+- **THEN** SHALL essere dichiarato eliminabile
+
+#### Scenario: lavoro non ancora atterrato
+- **GIVEN** un ramo con lavoro assente da quello principale
+- **THEN** NON SHALL essere dichiarato eliminabile

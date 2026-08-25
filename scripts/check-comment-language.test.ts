@@ -7,6 +7,7 @@
  * string would be charged to the comment budget), or the detector could call
  * English Italian (`non-empty`, which appears in this tree's comments by the
  * hundred). Both are silent: the gate stays green, the number drifts.
+  * @covers GATE-03
  */
 import { describe, expect, it } from "bun:test";
 import { commentLines, italianWords } from "./check-comment-language";

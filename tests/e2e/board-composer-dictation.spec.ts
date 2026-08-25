@@ -166,6 +166,8 @@ test.describe("Board: dettare il task invece di scriverlo", () => {
   });
 
   test("tenendo premuto parlo, e mollando la frase è nel campo", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-31" });
     await page.goto("/");
     await openProjectBoard(page);
 

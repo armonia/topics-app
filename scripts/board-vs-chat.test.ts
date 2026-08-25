@@ -1,3 +1,6 @@
+/**
+ * @covers BENCH-04
+ */
 import { describe, test, expect } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";

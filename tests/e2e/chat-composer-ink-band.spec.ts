@@ -144,6 +144,8 @@ test.describe("Chat — la fascia dietro il composer resta senza inchiostro", ()
   });
 
   test("INK-BAND-01: a 390px nessun testo dipinge dietro l'input, a nessuna posizione di scroll", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-LAYOUT-01" });
     // Si naviga da desktop e si stringe DOPO: sotto i 768 la sidebar è un
     // overlay chiuso e `goToApp` la aspetta visibile (stessa nota di
     // chat-layout-audit.spec.ts).

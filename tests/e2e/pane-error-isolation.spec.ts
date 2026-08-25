@@ -143,6 +143,8 @@ test.describe("Isolamento dei guasti fra pane", () => {
   });
 
   test("senza guasti nessuna pane mostra un errore (controprova)", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "PANE-01" });
     await goToApp(page);
     await expect(page.locator('[data-testid="chat-message-input"]')).toBeVisible({
       timeout: 30_000,

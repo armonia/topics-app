@@ -6,6 +6,7 @@
  * vivo per sempre e che il criterio per contenuto riconosce. Se quel caso si
  * rompe, il mucchio di rami non cala; se si rompe il QUARTO (lavoro vero letto
  * come landato), si cancella qualcosa che serviva.
+  * @covers LAND-08
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";

@@ -138,6 +138,7 @@ async function densitaIcone(page: Page) {
 
 test.describe('le icone piccole della kanban restano leggibili', () => {
   test('nessuna icona stipa piu\' disegno di quanto il suo lato regga', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-48" });
     await apriBoard(page);
     await expect(page.locator('[data-testid^="card-"]').first()).toBeVisible({ timeout: 20_000 });
 

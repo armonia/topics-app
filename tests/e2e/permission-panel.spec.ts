@@ -146,6 +146,8 @@ test.describe.serial("Pannello di permesso", () => {
   }
 
   test("è un pannello di PERMESSO: dice cosa, con quali argomenti, e si decide in un click", async ({ page, chatPage, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "PERM-04" });
     const toolCallId = "toolu_perm_shape";
     await seedPermission(request, toolCallId);
     const bridge = registerBridgePermission(request, toolCallId);

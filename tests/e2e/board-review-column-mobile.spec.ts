@@ -195,6 +195,7 @@ test.describe("Board mobile — la colonna Review sta nello schermo", () => {
 
   for (const vp of [{ w: 390, h: 844 }, { w: 360, h: 800 }]) {
     test(`REVCOL-${vp.w}: la colonna Review non esce dalla riga a ${vp.w}px`, async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "KANBAN-28" });
       // Il percorso sidebar → progetto → pane kanban vuole larghezza desktop:
       // si apre lì e si stringe al telefono prima di misurare.
       await page.setViewportSize({ width: 1280, height: 900 });

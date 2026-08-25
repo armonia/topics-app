@@ -1,3 +1,6 @@
+/**
+ * @covers GATE-06
+ */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { spawnSync } from "child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, copyFileSync, existsSync, rmSync } from "fs";

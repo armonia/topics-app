@@ -216,6 +216,8 @@ test.describe("Barra delle tab a 1280px", () => {
   });
 
   test("ARIA-1: il comando e la tab hanno LA STESSA misura, quindi lo stesso respiro", async () => {
+
+    test.info().annotations.push({ type: "spec", description: "CHROME-03" });
     // Il cuore della faccenda: il verticale non si sceglie — (40 − box)/2 —
     // quindi comando e tab respirano uguale solo se hanno lo stesso box sullo
     // stesso breakpoint. È il test che sarebbe stato rosso col predicato

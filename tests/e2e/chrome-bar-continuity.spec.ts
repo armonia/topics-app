@@ -120,6 +120,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
 
   for (const tema of ["dark", "light"] as const) {
     test(`CONT-1 (${tema}): la riga di chrome NON dipinge — il vetro è il blur`, async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "CHROME-01" });
       await shell(page, { mac: false, dark: tema === "dark" });
 
       // Il velo è passato per tre forme: la tinta del CHROME (che spostava il

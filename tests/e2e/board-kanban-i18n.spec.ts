@@ -111,6 +111,8 @@ test.describe.serial("Kanban in inglese", () => {
   });
 
   test("KANBAN-I18N-01: barra dei filtri e composer parlano inglese", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "I18N-03" });
     await page.goto("/");
     await openProjectBoard(page);
 

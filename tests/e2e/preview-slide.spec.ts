@@ -140,6 +140,7 @@ async function apriBoard(page: Page): Promise<void> {
 
 test.describe('anteprima a piu\' slide', () => {
   test('i puntini dicono quante evidenze ci sono', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PREVIEW-01" });
     await apriBoard(page);
     const slides = page.locator('[data-testid="preview-slides"]').first();
     await expect(slides).toBeVisible({ timeout: 20_000 });

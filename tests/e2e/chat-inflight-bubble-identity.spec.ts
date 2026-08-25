@@ -102,6 +102,8 @@ test.describe("Un turno in volo è UNA bolla sola", () => {
   };
 
   test("il segnaposto porta l'id che il server ha annunciato", async ({ page, chatPage }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-BUBBLE-01" });
     const send = await apri(page, chatPage, () => ({ messages: [rigaUtente] }));
     send({ type: "stream:start", messageId: DURABLE });
     send({ type: "stream:content_chunk", content: TESTO });

@@ -78,6 +78,8 @@ test.describe.serial("Approvazione del piano", () => {
   }
 
   test("il piano si vede, e la domanda è il pannello di sempre", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "PERM-05" });
     const toolCallId = "toolu_plan_vista";
     await seedPlan(request, toolCallId);
     await goToApp(page);

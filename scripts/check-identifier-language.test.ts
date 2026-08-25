@@ -7,6 +7,7 @@
  * and `PREFISSO_NOTA_ANTEPRIMA` are not on that list. So the first test here is  allow-italian: the Italian names ARE the subject
  * not decoration: it is the proof that asking "is this English?" answers a
  * question the other phrasing could not.
+  * @covers GATE-03
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";

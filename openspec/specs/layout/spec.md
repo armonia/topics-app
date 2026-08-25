@@ -298,3 +298,353 @@ The system SHALL support sidebar toggle, pane tab bar interactions including clo
 - **THEN** each clicked tab becomes the active tab
 - **AND** the content area updates to show the selected pane
 - **AND** the total tab count remains stable
+
+### Requirement: CHROME-01 — Le righe di chrome NON dipingono: la continuità è il vetro
+
+Le righe di chrome NON SHALL dipingere uno sfondo proprio: fra contenuto e barre
+ci deve essere CONTINUITÀ, e uno sfondo proprio produce un gradino visibile —
+misurato su entrambi i temi e su entrambi i gusci, fino a quattordici livelli di
+differenza.
+
+La tinta SHALL venire dalla superficie SOTTO, attraverso la sfocatura.
+
+Sotto il guscio nativo SHALL dipingere UNA SOLA superficie — il guscio della
+finestra — e NESSUNA riga, né la prima né quella annidata.
+
+La barra delle schede SHALL essere FUORI dal flusso, e la conversazione SHALL
+cominciare SOTTO di lei: il varco in cima SHALL valere ESATTAMENTE l'altezza della
+barra, e scorrendo i messaggi SHALL passare davvero dietro. Risalendo in cima, il
+primo messaggio SHALL fermarsi al fondo della barra.
+
+#### Scenario: una riga di chrome
+- **GIVEN** una qualunque riga di chrome, in entrambi i temi
+- **THEN** NON SHALL avere uno sfondo opaco proprio
+
+#### Scenario: la conversazione che scorre
+- **GIVEN** una chat che scorre sotto la barra
+- **THEN** i messaggi SHALL passare dietro, e il varco in cima SHALL valere l'altezza della barra
+
+### Requirement: CHROME-02 — Fra due righe impilate passa UN passo, e uno split le allinea
+
+Fra due righe di chrome impilate SHALL passare UN SOLO passo, non due sommati:
+sono state segnalate come «troppo lontane».
+
+L'altezza della riga figlia e la variabile che il resto della pagina usa per
+scostarsene SHALL COINCIDERE, o sotto la barra resta un vuoto.
+
+In uno SPLIT le barre della STESSA riga SHALL essere ALLINEATE: stessa altezza,
+stessa posizione, stesse schede alla stessa quota.
+
+Col DITO la riga NON SHALL stringersi, e il varco SHALL restare quello della riga.
+
+#### Scenario: due righe impilate
+- **GIVEN** la riga dell'applicazione e quella del progetto
+- **THEN** fra loro SHALL passare un solo passo
+
+#### Scenario: uno split
+- **GIVEN** due barre affiancate
+- **THEN** SHALL avere la stessa altezza e la stessa quota
+
+### Requirement: CHROME-03 — Il comando e la scheda hanno la STESSA misura, e la stessa aria
+
+I comandi ai capi della barra e le schede SHALL avere la STESSA misura: comandi
+più grandi delle schede nella stessa riga producono arie diverse, ed è stato
+segnalato due volte.
+
+L'aria sopra e sotto SHALL essere la stessa per entrambi, e ogni comando SHALL
+stare alla STESSA distanza dal proprio bordo, specchiata ai due capi. La striscia
+delle schede SHALL fermarsi alla stessa distanza prima del comando, ai due capi, e
+a inizio scorrimento la prima scheda NON SHALL toccarlo.
+
+La misura SHALL cambiare col MODO D'USO — puntatore o dito — e la coerenza SHALL
+valere in entrambi.
+
+Su TELEFONO la striscia SHALL sparire e al suo posto SHALL comparire il NOME della
+superficie; l'unico comando SHALL avere la misura da dito e la stessa aria, e la
+riga svuotata NON SHALL spostarsi.
+
+#### Scenario: un comando e una scheda nella stessa riga
+- **GIVEN** entrambi
+- **THEN** SHALL avere la stessa misura e la stessa aria
+
+#### Scenario: il telefono
+- **GIVEN** una finestra da telefono
+- **THEN** SHALL restare un comando solo, con la misura da dito
+
+### Requirement: CHROME-04 — Il cerchio di chiusura cade dove cadeva il segno che sostituisce
+
+Il comando che chiude una scheda SHALL atterrare ESATTAMENTE dove stava il segno
+che sostituisce: se compare spostato, l'occhio vede il contenuto saltare.
+
+Nessuna riga di testo SHALL nascere su una FRAZIONE di pixel: ereditare
+l'interlinea del corpo del documento produce quote frazionarie, e il testo si vede
+sfocato.
+
+Un numero dentro un pallino SHALL essere centrato sui DUE assi, e la centratura
+SHALL reggere con un carattere tipografico OSTILE: centrare sulla scatola del
+testo invece che sui glifi produce uno scarto che cambia col font, e il banco
+SHALL provarlo con un riferimento costruito apposta.
+
+Il glifo di caricamento SHALL nascere su coordinate INTERE.
+
+Col DITO l'area del comando di chiusura SHALL raggiungere la misura minima, il
+glifo disegnato SHALL restare piccolo, e il tocco SHALL chiudere e poter ANNULLARE
+senza colpire la scheda sottostante.
+
+#### Scenario: un carattere tipografico ostile
+- **GIVEN** un font con metriche diverse
+- **THEN** il numero SHALL restare centrato
+
+#### Scenario: il dito sul comando di chiusura
+- **GIVEN** un tocco
+- **THEN** SHALL chiudere, e l'annullamento SHALL essere raggiungibile
+
+### Requirement: CHROME-05 — Le tre facce di una scheda sono la STESSA superficie
+
+Una scheda ha tre facce — la tessera fissata, la riga nell'elenco, la scheda nella
+barra — e SHALL condividere fondo, margini interni, corpo del testo e raggio: le
+spaziature e i colori sono stati segnalati come incoerenti, e le misure lo
+confermavano su tutti e tre gli assi.
+
+Una riga SELEZIONATA SHALL distinguersi da una a riposo: entrambe dipinte, e con
+fondi DIVERSI.
+
+Fra due righe adiacenti SHALL passare lo stesso varco che passa fra due tessere, e
+il filo che separa i fissati SHALL avere lo stesso spazio SOPRA e SOTTO.
+
+Una tessera fissata SHALL essere alta esattamente quanto una riga.
+
+Il comando di riga SHALL cadere alla stessa distanza dal bordo su riga e su
+scheda, SHALL essere sempre l'ULTIMO elemento — nessun segnale alla sua destra —
+e i segnali quieti che copre NON SHALL SPOSTARSI al passaggio del puntatore: SHALL
+solo sbiadire.
+
+#### Scenario: tessera e riga
+- **GIVEN** la stessa scheda nelle due forme
+- **THEN** SHALL avere lo stesso fondo, gli stessi margini e lo stesso corpo
+
+#### Scenario: il passaggio del puntatore
+- **GIVEN** i segnali quieti coperti dal comando
+- **THEN** NON SHALL spostarsi, SHALL solo sbiadire
+
+### Requirement: CHROME-06 — Un permalink apre IN-APP, e uno morto lo dice
+
+Il collegamento permanente a una superficie SHALL essere lo STESSO da OGNI strada
+che lo offre — il menu della scheda, il menu nell'elenco, la tavolozza dei
+comandi — e SHALL identificare il SOGGETTO, non la finestra che lo mostra.
+
+Un collegamento verso QUESTA applicazione, aperto dalla chat, SHALL aprirsi
+DENTRO, senza passare dal navigatore di sistema e senza cambiare l'indirizzo della
+pagina. La regola SHALL valere per TUTTE le forme: intercettarne una sola era
+un'asimmetria.
+
+Un collegamento MORTO SHALL ricadere sul navigatore esterno invece di restare
+MUTO, e NON SHALL coniare una superficie fantasma.
+
+A FREDDO un collegamento SHALL aprire la superficie giusta e LASCIARLE il fuoco,
+anche quando l'idratazione della pagina arriva dopo e proverebbe a riprenderselo.
+L'indirizzo SHALL essere CONSUMATO.
+
+Una superficie GIÀ APERTA ma non a fuoco SHALL riceverlo.
+
+Un soggetto INESISTENTE SHALL essere DICHIARATO tale. Una CARTELLA che esiste sul
+disco SHALL essere un soggetto valido anche se non è mai stata registrata: la
+risoluzione è asimmetrica fra ciò che vive sul disco e ciò che vive nel database.
+
+Il gesto di copia SHALL scrivere negli appunti VERI.
+
+#### Scenario: un collegamento verso questa applicazione
+- **GIVEN** un permalink self-origin in chat
+- **THEN** SHALL aprirsi dentro, senza navigatore esterno
+
+#### Scenario: un soggetto inesistente
+- **GIVEN** un permalink verso qualcosa che non c'è
+- **THEN** SHALL essere dichiarato, senza coniare niente
+
+### Requirement: CHROME-07 — I tre stati di una superficie si distinguono, e si raggruppano
+
+Gli stati di una sessione — chi ASPETTA una decisione, chi ASPETTA una risposta,
+chi LAVORA — SHALL essere distinguibili sulla scheda e nella riga, per segno E per
+testo.
+
+SHALL esistere una vista che li RAGGRUPPA: chi aspetta te, chi sta lavorando, il
+resto.
+
+La differenza fra chi aspetta e chi lavora SHALL essere visibile come TINTA e
+RITMO, non solo come attributo: un esito verde non la dimostra a nessuno.
+
+#### Scenario: le tre sessioni insieme
+- **GIVEN** una in attesa di decisione, una in attesa di risposta, una al lavoro
+- **THEN** SHALL essere distinguibili per segno e per testo
+
+#### Scenario: la vista per stato
+- **GIVEN** più sessioni
+- **THEN** SHALL essere raggruppate per chi aspetta e chi lavora
+
+### Requirement: PANE-01 — Il crollo di UNA superficie non porta giù le altre
+
+Ogni superficie della griglia SHALL avere il PROPRIO recinto d'errore. Con un
+recinto solo attorno all'INTERA griglia, insieme alla superficie rotta sparivano
+quelle sane: terminali attaccati, chat in streaming, navigatori.
+
+La superficie rotta SHALL mostrare il proprio errore e un modo per RIPROVARE; la
+barra delle schede SHALL restare viva; le altre superfici SHALL continuare a
+funzionare.
+
+Una superficie il cui SOGGETTO non esiste più NON SHALL abbattere la finestra:
+la barra SHALL restare, il corpo SHALL DEGRADARE dichiarando che non si trova, e
+si SHALL poter navigare altrove.
+
+SHALL esistere la CONTROPROVA: senza guasti, NESSUNA superficie SHALL mostrare un
+errore.
+
+#### Scenario: un pezzo di codice che non carica
+- **GIVEN** una superficie il cui codice fallisce il caricamento
+- **THEN** solo quella SHALL mostrare l'errore
+
+#### Scenario: un soggetto che non esiste
+- **GIVEN** una superficie attiva il cui soggetto non risolve
+- **THEN** la finestra SHALL restare viva
+
+### Requirement: CHROME-08 — La zona di trascinamento la mette il DISEGNO, e nessuna resta scoperta
+
+L'attributo che rende una zona trascinabile SHALL essere messo dal DISEGNO della
+pagina, non da un osservatore delle modifiche: con molti terminali attivi quello
+produceva migliaia di eventi al secondo.
+
+Spostato il costo, il rischio diventa la DIMENTICANZA: NESSUNA zona dichiarata
+SHALL restare senza il proprio attributo, comprese quelle montate DOPO l'avvio.
+
+Le SCHEDE NON SHALL trascinare la finestra.
+
+Sotto la preferenza di MOTO RIDOTTO i comandi NON SHALL spostarsi, e l'angolo
+della barra SHALL restare raggiungibile: un comando incollato a mezzo pixel dal
+bordo intercetta il gesto e fa scadere ciò che ci prova.
+
+#### Scenario: una zona montata dopo l'avvio
+- **GIVEN** chrome che compare dopo il primo disegno
+- **THEN** SHALL portare il proprio attributo
+
+#### Scenario: il moto ridotto
+- **GIVEN** la preferenza attiva
+- **THEN** i comandi NON SHALL spostarsi, e l'angolo SHALL restare raggiungibile
+
+### Requirement: SHEET-01 — Il foglio SEGUE il dito, e il tocco che chiude non aziona
+
+Un foglio che entra dal basso SHALL SEGUIRE il dito durante il gesto: il bordo
+SHALL stare dove è il dito, entro una tolleranza stretta.
+
+Al RILASCIO SHALL decidere il GESTO, non solo la posizione: una corsa BREVE e
+LENTA NON SHALL chiudere niente, e il foglio SHALL tornare al suo posto.
+
+Con un pannello aperto, il PRIMO tocco fuori SHALL solo CHIUDERE, e il SECONDO
+SHALL azionare: prima si chiude quello che sta davanti, perché non si vede
+nemmeno dove si sta toccando.
+
+#### Scenario: il gesto in corso
+- **GIVEN** un dito che trascina il foglio
+- **THEN** il bordo SHALL seguirlo entro la tolleranza
+
+#### Scenario: un pannello aperto
+- **GIVEN** un tocco fuori dal pannello
+- **THEN** SHALL chiudere soltanto, senza azionare ciò che c'è sotto
+
+### Requirement: PREVIEW-01 — Più evidenze si sfogliano, e la scheda di consegna non si ripete sulla card
+
+Quando le evidenze sono più di una SHALL essere SFOGLIABILI: puntini che dicono
+QUANTE sono, la ROTELLA che le muove — con il gestore NON passivo, o la pagina
+scorre invece — un puntino che porta dritto alla sua, e il click che apre la vista
+ingrandita SENZA aprire il pannello del task.
+
+Nella vista ingrandita SHALL essere possibile navigare da TASTIERA, con un
+contatore che dice dove si è.
+
+La scheda riassuntiva della consegna NON SHALL comparire sulla card, dove
+ripeterebbe ciò che c'è già — misurata sulla bacheca vera, quasi metà delle card
+in review ne mostrava una. Il controllo SHALL essere accompagnato dalla
+CONTROPROVA che le anteprime VERE restano.
+
+I file della consegna SHALL stare in un elenco APRIBILE: chiuso mostra il
+CONTEGGIO, aperto i PERCORSI. Aprirlo NON SHALL aprire il pannello del task, e non
+SHALL restare in uno stato di attesa perpetua.
+
+#### Scenario: tre evidenze
+- **GIVEN** più evidenze sulla stessa card
+- **THEN** SHALL essere sfogliabili, e i puntini SHALL dire quante sono
+
+#### Scenario: l'elenco dei file
+- **GIVEN** l'elenco chiuso
+- **THEN** SHALL mostrare il conteggio, e aprirlo NON SHALL aprire il pannello
+
+### Requirement: TYPO-01 — Nessun glifo viene tagliato dalla propria riga
+
+Nessuna coda e nessun accento SHALL essere TAGLIATO dalla riga che lo contiene:
+un'interlinea pari esatta al corpo del testo crea una riga alta quanto il
+carattere, ma i glifi vivono nella scatola del FONT e ne escono sopra e sotto — a
+tagliare è il contenitore che nasconde l'eccedenza.
+
+La verifica SHALL guardare i glifi VERI — code discendenti e lettere accentate —
+non l'altezza dichiarata.
+
+#### Scenario: una coda discendente
+- **GIVEN** un testo con lettere che scendono sotto la linea di base
+- **THEN** NON SHALL essere tagliato
+
+#### Scenario: una lettera accentata
+- **GIVEN** un accento sopra la linea del corpo
+- **THEN** NON SHALL essere tagliato
+
+### Requirement: TOOLTIP-01 — Il suggerimento nostro sostituisce quello nativo, e lo RIMETTE
+
+Il suggerimento dell'applicazione SHALL sostituire quello nativo al passaggio del
+puntatore, e SHALL RIMETTERE l'attributo nativo quando il puntatore esce: toglierlo
+e non rimetterlo è una regressione di accessibilità SILENZIOSA — a schermo sembra
+tutto a posto, anzi meglio, e intanto chi legge con un lettore di schermo ha perso
+il testo.
+
+Un click SHALL chiuderlo SUBITO, invece di lasciarlo appeso.
+
+SHALL essere MULTIRIGA: è metà della ragione per cui esiste. E NON SHALL mostrare
+una chiave di traduzione grezza.
+
+#### Scenario: il puntatore esce
+- **GIVEN** un elemento che aveva un suggerimento nativo
+- **THEN** l'attributo nativo SHALL tornare
+
+#### Scenario: un click
+- **GIVEN** il suggerimento aperto
+- **THEN** SHALL chiudersi subito
+
+### Requirement: EMPTY-01 — Il vuoto è una PRIMITIVA, leggibile nelle sue varianti e nei due temi
+
+Lo stato VUOTO SHALL essere una primitiva condivisa, non scritto a mano da ogni
+pannello.
+
+Le sue varianti SHALL essere LEGGIBILI in ENTRAMBI i temi, raggiungendo il
+contrasto minimo per il loro ruolo.
+
+#### Scenario: le due varianti insieme
+- **GIVEN** una ricerca senza risultati che mostra entrambe
+- **THEN** entrambe SHALL raggiungere il contrasto minimo
+
+#### Scenario: il tema chiaro
+- **GIVEN** il tema chiaro
+- **THEN** il vuoto SHALL restare leggibile
+
+### Requirement: RELOAD-01 — Un ricaricamento CHIESTO si annuncia, uno non chiesto resta muto
+
+Un ricaricamento marcato dal guscio nativo SHALL ANNUNCIARSI a schermo: il difetto
+non era il ricaricamento, era il SILENZIO — l'applicazione aveva obbedito, e
+nessuno dei due lo sapeva.
+
+Un ricaricamento NON marcato SHALL restare MUTO.
+
+Il segno SHALL valere UNA volta sola.
+
+#### Scenario: un ricaricamento chiesto dal guscio
+- **GIVEN** il segno lasciato dal guscio
+- **THEN** SHALL comparire l'annuncio
+
+#### Scenario: un secondo ricaricamento
+- **GIVEN** nessun segno nuovo
+- **THEN** NON SHALL comparire niente

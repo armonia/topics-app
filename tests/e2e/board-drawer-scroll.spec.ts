@@ -267,6 +267,8 @@ test.describe("Drawer del task — un solo scroll", () => {
   });
 
   test("DRAWER-01: un solo contenitore di scroll, e Approva resta dentro il viewport", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-35" });
     await page.setViewportSize({ width: 1280, height: 720 });
     const task = await seedWorstCaseTask(page.request, previewPath);
 

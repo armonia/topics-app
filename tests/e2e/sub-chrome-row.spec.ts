@@ -102,6 +102,7 @@ async function apri(page: Page, request: Parameters<typeof seedProjectPane>[0], 
 
 test.describe("La riga di chrome subordinata", () => {
   test("SUB-1: col mouse fra le due righe passa UN passo, chiusa e aperta", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-02" });
     await page.setViewportSize({ width: 1400, height: 900 });
     await apri(page, request, "-a");
 

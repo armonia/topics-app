@@ -99,6 +99,8 @@ test.describe("Intake che collega", () => {
   });
 
   test("un feedback nuovo si aggancia dove il lavoro è già in corso", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-37" });
     // Una card sul tema, in corso: è lo scenario della richiesta (una lista di
     // feedback grafici già aperta, e ne arrivano altri).
     const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {

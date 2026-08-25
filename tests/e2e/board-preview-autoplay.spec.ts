@@ -191,6 +191,8 @@ test.describe("Kanban — l'anteprima video si muove solo in vista", () => {
   });
 
   test("PREVIEWPLAY-01: in vista si muove, fuori sta ferma, e cio' che non hai mai visto non e' stato scaricato", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-40" });
     await page.goto("/");
     await openProjectBoard(page);
 

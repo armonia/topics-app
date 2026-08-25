@@ -148,6 +148,8 @@ test.describe.serial("message:new — una consegna per messaggio, non per finest
   });
 
   test("due finestre nascoste, un messaggio → un banner solo", async ({ browser, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-BANNER-01" });
     const ctx = await browser.newContext({
       recordVideo: { dir: VIDEO_DIR, size: { width: 1280, height: 800 } },
     });

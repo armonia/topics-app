@@ -106,6 +106,8 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
   });
 
   test("dal drawer copia titolo + descrizione, e la spunta dice che è successo", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-32" });
     const task = await createTask(request, { text: TITOLO, description: DESCRIZIONE, status: "todo" });
 
     await page.goto("/");

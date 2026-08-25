@@ -10,6 +10,7 @@
  * Qui il tsc è finto — uno shell script in una dir temporanea — così i quattro
  * esiti (assente / crash muto / errori veri / pulito) si provano tutti senza
  * dipendere da cosa è installato sulla macchina che gira i test.
+  * @covers GATE-04
  */
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";

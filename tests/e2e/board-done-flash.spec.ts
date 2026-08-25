@@ -139,6 +139,8 @@ test.describe("Done: ordine e lampo", () => {
   });
 
   test("DONEFLASH-01: l'ultimo chiuso sta in cima, qualunque fosse la sua posizione", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-34" });
     const stamp = Date.now();
     const primo = `Chiuso per primo ${stamp}`;
     const secondo = `Chiuso per secondo ${stamp}`;

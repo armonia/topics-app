@@ -85,6 +85,7 @@ test.describe("EmptyState", () => {
 
   for (const scheme of ["dark", "light"] as const) {
     test(`EMPTY-01 (${scheme}): le due varianti sono leggibili`, async ({ commandPalettePage, page }, testInfo) => {
+      test.info().annotations.push({ type: "spec", description: "EMPTY-01" });
       await page.emulateMedia({ colorScheme: scheme });
       await goToApp(page);
 

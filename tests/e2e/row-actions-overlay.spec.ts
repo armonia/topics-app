@@ -134,6 +134,8 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test("CODA-1: il comando finisce a ROW_PX dal bordo della card, su riga E tab", async ({ page }) => {
+
+  test.info().annotations.push({ type: "spec", description: "CHROME-05" });
   await openTopic(page, nomi[0]);
 
   const riga = rigaDi(page, nomi[0]);

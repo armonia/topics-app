@@ -1,3 +1,6 @@
+/**
+ * @covers GATE-05
+ */
 import { describe, test, expect } from "bun:test";
 import {
   ROUTE_KEYS,

@@ -1,3 +1,6 @@
+/**
+ * @covers GATE-03
+ */
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";

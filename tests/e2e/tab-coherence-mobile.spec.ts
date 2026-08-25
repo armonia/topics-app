@@ -58,6 +58,7 @@ async function apriColonna(page: Page): Promise<void> {
 
 test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", () => {
   test("TAB-COERENZA-1: tessera fissata e riga della lista sono la STESSA superficie", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-05" });
     const stamp = Date.now();
     const fissata = await createTopic(request, `E2E-Coer-Fissata-${stamp}`);
     creati.push(fissata.id);

@@ -34,8 +34,10 @@ test.describe("Pane identity — una pane rotta non abbatte la finestra", () => 
   });
 
   test("un pane di chat con topic mancante (attivo) → tab strip viva + body d'errore, finestra viva", async ({
+
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "PANE-01" });
     // 1) Un topic REALE, così accanto al pane rotto c'è una tab sana su cui
     //    ripiegare (prova che la strip è viva e navigabile).
     const good = await createTopic(page.request, `PANE-IDENTITY-good-${Date.now()}`);

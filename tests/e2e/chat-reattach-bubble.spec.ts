@@ -120,6 +120,8 @@ test.describe("Riadozione: la bolla si svuota, il record no", () => {
   }
 
   test("il replay riscrive la bolla senza raddoppiarla", async ({ page, chatPage }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-BUBBLE-01" });
     const send = await apri(page, chatPage);
     const bolla = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
 

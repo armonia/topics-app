@@ -149,6 +149,7 @@ test.describe("Chat layout — audit misurato (1b.4)", () => {
     { name: "mobile", width: 390, height: 844 },
   ]) {
     test(`geometria della pane di chat — ${vp.name}`, async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "CHAT-LAYOUT-01" });
       // Si NAVIGA sempre da desktop e si stringe DOPO: sotto i 768px la
       // sidebar è un overlay chiuso, e `goToApp` la aspetta visibile. È anche
       // il percorso reale — l'utente rimpicciolisce una finestra già aperta —

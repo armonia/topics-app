@@ -1389,3 +1389,539 @@ errore a schermo.
 #### Scenario: la riscrittura riesce
 - **GIVEN** una card riscritta con successo
 - **THEN** la card riletta SHALL portare il titolo nuovo, e la risposta SHALL nominare quello vecchio
+
+### Requirement: KANBAN-26 — Un legame si legge dal LEGAME, non cercandolo fra le card disegnate
+
+Un legame di dipendenza fra task SHALL essere risolto dal SERVER, sul database, e
+consegnato con la card. NON SHALL essere ricavato cercando l'altro capo fra le
+card già scaricate: quell'elenco è tagliato — un progetto, solo le radici, non
+archiviati — e un capo fuori dal taglio, tipicamente un SOTTOTASK che per
+contratto non è mai una card, non si trova.
+
+Il chip che dichiara l'attesa SHALL comparire anche quando chi blocca non è a
+schermo, e SHALL spegnersi quando quello chiude.
+
+Il contatore di chi aspetta SHALL contare anche i dipendenti che non sono card:
+altrimenti chi blocca si presenta LIBERO proprio da dove si decide se chiudere il
+lavoro.
+
+La stessa regola SHALL valere per i comandi di una notifica: un tasto che deve
+risolvere il progetto di un task NON SHALL cercarlo nel feed globale, che è
+anch'esso solo radici. Per qualunque sottotask quella ricerca non trova niente, e
+il comando ripiega in silenzio su «apri il task» invece di fare ciò che
+prometteva.
+
+#### Scenario: chi blocca è un sottotask
+- **GIVEN** una card bloccata da un task che non è una card
+- **THEN** il chip dell'attesa SHALL comparire lo stesso
+
+#### Scenario: un comando di notifica su un sottotask
+- **GIVEN** un tasto di notifica riferito a un sottotask
+- **THEN** SHALL eseguire la propria azione, non ripiegare sull'apertura
+
+### Requirement: KANBAN-27 — L'ultimo scambio si legge sulla card, e la contabilità non si spaccia per la consegna
+
+Una card in review SHALL mostrare l'ULTIMO SCAMBIO del suo filo — la domanda in
+attesa o la cronaca dichiarata — direttamente a schermo: una domanda che sparisce
+senza risposta è lavoro fermo che nessuno vede.
+
+Il riconoscimento di ciò che è uno scambio NON SHALL escludere per tipo alcune
+risposte legittime: un predicato troppo stretto fa sparire proprio le risposte
+che contano.
+
+La CONTABILITÀ dell'automatismo — quanti tentativi, quanti con modifiche — NON
+SHALL essere presentata come la CONSEGNA: è la registrazione di un meccanismo, e
+occupare con essa la riga che dovrebbe dire cosa è stato fatto è come una card si
+presenta muta.
+
+#### Scenario: una domanda in attesa
+- **GIVEN** una card il cui filo si chiude con una domanda
+- **THEN** la domanda SHALL essere leggibile sulla card
+
+#### Scenario: una riga di contabilità
+- **GIVEN** un messaggio che registra i tentativi dell'automatismo
+- **THEN** NON SHALL occupare il posto della consegna
+
+### Requirement: KANBAN-28 — La colonna ha un PAVIMENTO, una crescita e un SOFFITTO
+
+La larghezza di una colonna SHALL essere elastica fra un pavimento e un soffitto,
+non fissa: con larghezze fisse l'avanzo su uno schermo largo resta un vuoto morto
+a destra.
+
+Il contratto SHALL reggere a OGNI larghezza di finestra. Su una finestra larga le
+colonne SHALL crescere e il soffitto SHALL essere davvero applicato; su una
+stretta il pavimento SHALL reggere e la riga SHALL tornare a scorrere.
+
+Sul TELEFONO la colonna su cui si decide SHALL valere UNA SCHERMATA INTERA, non
+una larghezza pensata per il desktop, e sopra la soglia SHALL tornare alla propria
+misura.
+
+Una colonna NON SHALL uscire dalla riga: un elemento flessibile senza minimo
+esplicito prende come minimo il proprio contenuto, che può spingere oltre la base
+dichiarata. Il rimedio SHALL essere verificabile TOGLIENDOLO — rimetterlo com'era
+SHALL far tornare lo sfondamento — e NON SHALL ridurre la colonna sul desktop.
+
+#### Scenario: una finestra molto larga
+- **GIVEN** una finestra oltre il soffitto
+- **THEN** le colonne SHALL crescere fino al soffitto e non oltre
+
+#### Scenario: il telefono
+- **GIVEN** una finestra da telefono
+- **THEN** la colonna della decisione SHALL valere una schermata, senza uscire dalla riga
+
+### Requirement: KANBAN-29 — Le colonne d'ARCHIVIO paginano, quelle di LAVORO restano intere
+
+Una colonna che raccoglie ciò che è CHIUSO SHALL disegnare una PAGINA per volta,
+non l'intero volume. Misurato sulla macchina viva: su 467 task radice, 449 erano
+chiusi, e la colonna li disegnava tutti — un sottoalbero pagato a ogni ridisegno
+e dentro ogni trascinamento.
+
+Il conteggio in testa SHALL continuare a dichiarare il TOTALE: paginare non è
+nascondere. Il comando che tira su la pagina successiva SHALL dichiarare QUANTI
+ne restano, e il numero SHALL calare a ogni pagina.
+
+Le colonne di LAVORO SHALL restare INTERE, senza tetto: sono poche card e ci si
+lavora sopra. La card in fondo a una colonna di lavoro SHALL restare
+trascinabile.
+
+#### Scenario: trecento task chiusi
+- **GIVEN** una colonna d'archivio con molte più card di una pagina
+- **THEN** SHALL esserne disegnata una pagina, e il totale SHALL essere dichiarato
+
+#### Scenario: una colonna di lavoro
+- **GIVEN** una colonna di lavoro con molte card
+- **THEN** SHALL essere disegnata intera, senza comando di paginazione
+
+### Requirement: KANBAN-30 — Il composer non si smonta perché il fuoco è andato altrove
+
+Il campo di scrittura della bacheca NON SHALL essere smontato — perdendo ciò che
+è scritto dentro — perché il fuoco è finito su un altro campo del documento. La
+condizione SHALL guardare SOLO dentro le colonne: la ricerca, la tavolozza dei
+comandi e gli altri campi non gli stanno sopra.
+
+Aprire una card NON SHALL smontarlo su una finestra larga, dove il pannello è un
+FRATELLO nel flusso e non lo copre.
+
+Dove il campo va nascosto — un campo dentro una colonna, una finestra stretta —
+SHALL essere nascosto per stile e NON SHALL essere DISTRUTTO: alla riapertura il
+testo SHALL essere ancora lì.
+
+#### Scenario: la ricerca della bacheca
+- **GIVEN** il fuoco su un campo fuori dalle colonne
+- **THEN** il testo scritto SHALL sopravvivere
+
+#### Scenario: un campo dentro una colonna
+- **GIVEN** un campo che apre dentro una colonna
+- **THEN** il composer SHALL essere nascosto ma non distrutto
+
+### Requirement: KANBAN-31 — La dettatura ha DUE gesti, e il microfono sta in OGNI ingresso
+
+La voce SHALL essere un modo per dare un lavoro a un agente: senza, l'unico
+ingresso è la tastiera.
+
+SHALL esistere DUE gesti distinti: il TOCCO lascia il microfono acceso finché non
+lo si tocca di nuovo; la PRESSIONE TENUTA dura quanto il dito. La trascrizione
+SHALL atterrare nel campo, e il testo di una seconda dettatura SHALL essere
+AGGIUNTO al precedente, non sostituirlo.
+
+Il microfono SHALL esserci in TUTTI gli ingressi verso un agente — il campo della
+bacheca e il filo di un task — non solo nel primo: gli ingressi devono essere
+coerenti fra loro, dalla voce ai file.
+
+#### Scenario: il tocco
+- **GIVEN** un tocco breve sul microfono
+- **THEN** SHALL restare in ascolto fino al tocco successivo
+
+#### Scenario: il filo di un task
+- **GIVEN** il campo di scrittura dentro un task
+- **THEN** SHALL avere il microfono come quello della bacheca
+
+### Requirement: KANBAN-32 — Copiare un task: il TESTO e il LINK, da due strade
+
+SHALL essere possibile copiare il CONTENUTO di un task — titolo, riga vuota,
+descrizione — non solo il suo collegamento: prima esisteva solo il secondo, e
+portare un task altrove significava ricopiarlo a mano.
+
+Il gesto SHALL esistere su ALMENO due strade: il menu del pannello e il menu
+contestuale sulla card. Dal menu contestuale NON SHALL aprirsi il pannello.
+
+Il risultato SHALL essere CONFERMATO a schermo: una copia silenziosa non si
+distingue da una mancata.
+
+Il pannello di condivisione SHALL stare DENTRO la finestra e NON SHALL essere
+tagliato dal contenitore che lo ospita: un posizionamento assoluto dentro una
+testata che nasconde l'eccedenza lo riduce a una striscia.
+
+#### Scenario: il menu contestuale
+- **GIVEN** il tasto destro su una card
+- **THEN** SHALL copiare titolo e descrizione senza aprire il pannello
+
+#### Scenario: il pannello di condivisione
+- **GIVEN** il pannello aperto
+- **THEN** SHALL essere interamente dentro la finestra
+
+### Requirement: KANBAN-33 — Una revisione riga per riga parte in UN commento solo
+
+Ogni riga di una differenza SHALL avere un aggancio per commentarla, e le note
+raccolte SHALL partire in UN SOLO commento: su un task in review OGNI commento
+risveglia l'agente, e mandarne cinque è chiamarlo cinque volte.
+
+Il commento SHALL portare le ANCORE — percorso e riga — e la riga citata, così
+chi legge sa a cosa si riferisce senza aprire niente.
+
+La BOZZA di revisione SHALL sopravvivere a un ricaricamento della pagina, e il
+pannello SHALL riaprirsi da sé: una revisione a metà persa è lavoro rifatto.
+
+#### Scenario: tre note su tre righe
+- **GIVEN** più note in una sola revisione
+- **THEN** SHALL partire un solo commento, con tutte le ancore
+
+#### Scenario: un ricaricamento a metà revisione
+- **GIVEN** una bozza non ancora inviata
+- **THEN** SHALL sopravvivere, e il pannello SHALL riaprirsi
+
+### Requirement: KANBAN-34 — Done si ordina per CRONOLOGIA, e l'arrivo si vede
+
+La colonna di ciò che è chiuso SHALL essere ordinata per QUANDO è stato chiuso,
+l'ultimo in cima: l'ordine manuale a un task chiuso non dice niente, e la card
+conservava la posizione della colonna da cui veniva.
+
+L'approvazione SHALL produrre qualcosa di VISIBILE: chiudere il pannello e basta
+non dice che è successo. La card SHALL LAMPEGGIARE, e il lampo SHALL prendere il
+COLORE della colonna di DESTINAZIONE — è così che si legge dove è andata.
+
+Il lampo SHALL stare DENTRO lo spazio della colonna: un alone più largo del
+margine viene tagliato, e il taglio si vede come una riga netta ai lati.
+
+La curva SHALL SALIRE, TENERE e SCENDERE: accesa a piena intensità dal primo
+fotogramma non è un lampo, è uno stacco. Al primo istante SHALL essere quasi
+spenta, in cima quasi piena, e alla fine spenta.
+
+La card che arriva SHALL essere DENTRO la finestra: se la colonna di
+destinazione è fuori schermo, il lampo lo vede solo chi scorre.
+
+#### Scenario: una card approvata
+- **GIVEN** un'approvazione
+- **THEN** la card SHALL andare in cima a Done e lampeggiare, dentro la finestra
+
+#### Scenario: il primo fotogramma
+- **GIVEN** l'inizio del lampo
+- **THEN** SHALL essere quasi spento, non a piena intensità
+
+### Requirement: KANBAN-35 — Nel pannello c'è UN SOLO contenitore che scorre, e la decisione resta in vista
+
+Nel pannello di un task SHALL esistere UN SOLO contenitore che scorre in
+verticale. Quando nessuno possiede l'altezza, ogni sezione si mette un tetto
+addosso, e il primo pezzo tagliato è l'ULTIMO figlio — cioè proprio i comandi
+della decisione.
+
+I comandi della decisione SHALL restare DENTRO la finestra, PRIMA e DOPO lo
+scorrimento, anche nel caso peggiore: un'evidenza altissima, decine di commenti,
+tutte le sezioni aperte.
+
+L'anteprima SHALL avere un tetto proporzionato al pannello, non un'altezza che se
+lo mangia.
+
+Chiudere una sezione SHALL nascondere ciò che le appartiene e NON SHALL muovere i
+comandi della decisione.
+
+In modo LARGO la sessione dell'agente SHALL stare da una parte e il resto
+dall'altra, con l'intestazione a piena larghezza sopra entrambe, e nessuna delle
+due colonne SHALL essere annidata nell'altra. La sessione dell'agente SHALL
+essere una SCHEDA, presente solo quando c'è davvero una sessione.
+
+#### Scenario: il caso peggiore
+- **GIVEN** un'evidenza altissima, molti commenti e tutte le sezioni aperte
+- **THEN** i comandi della decisione SHALL restare dentro la finestra
+
+#### Scenario: chiudere una sezione
+- **GIVEN** una sezione chiusa
+- **THEN** i comandi della decisione NON SHALL spostarsi
+
+### Requirement: KANBAN-36 — CHIUSO non è VUOTO, e uno stato scritto come messaggio non invecchia
+
+Una sezione CHIUSA NON SHALL leggersi come ASSENTE: chiusa una volta, una
+descrizione lunga si legge come «non c'è niente di utile». Il sommario di una
+sezione chiusa SHALL DICHIARARE quanto c'è dentro e darne un assaggio LEGGIBILE,
+senza la punteggiatura del formato.
+
+Uno STATO NON SHALL essere scritto come un MESSAGGIO nel filo: un messaggio non
+invecchia. Una nota che dichiara un'assenza SHALL SPARIRE DALLA VISTA quando
+l'assenza finisce, e SHALL restare nel registro: si toglie dagli occhi, non dalla
+storia.
+
+#### Scenario: una descrizione lunga con l'accordion chiuso
+- **GIVEN** una descrizione di migliaia di caratteri, sezione chiusa
+- **THEN** il sommario SHALL dichiarare la sua misura e darne un assaggio
+
+#### Scenario: l'assenza che finisce
+- **GIVEN** una nota che dichiarava l'assenza di un'evidenza, e l'evidenza che torna
+- **THEN** la nota SHALL sparire dalla vista e restare nel registro
+
+### Requirement: KANBAN-37 — Un feedback nuovo genera una PROPOSTA, e il legame si vede da entrambe le parti
+
+Un feedback scritto sullo stesso tema di un lavoro già in corso SHALL produrre
+una PROPOSTA di collegamento, MAI un'attribuzione automatica: finché non è
+accettata la bacheca NON SHALL cambiare.
+
+Accettata, il legame SHALL essere visibile su ENTRAMBE le card — quella che
+aspetta e quella che è aspettata — e SHALL essere spiegato nel filo.
+
+Il feedback collegato NON SHALL essere assegnato a nessun discorso: è agganciato
+a un lavoro, non a una conversazione.
+
+#### Scenario: il tema coincide
+- **GIVEN** un feedback nuovo sullo stesso tema di una card aperta
+- **THEN** SHALL comparire una proposta, e la bacheca NON SHALL cambiare
+
+#### Scenario: la proposta accettata
+- **GIVEN** l'accettazione
+- **THEN** il legame SHALL essere visibile su entrambe le card
+
+### Requirement: KANBAN-38 — Le etichette si vedono e filtrano, e una un agente non se la può dare
+
+Le etichette SHALL comparire sulle card, e il filtro SHALL lasciare esattamente
+quelle che le portano. È l'alternativa all'aprire una per una decine di
+differenze a mano.
+
+Un agente NON SHALL potersi assegnare l'etichetta che lo rende invisibile: il
+rifiuto SHALL essere ESPLICITO, con il proprio codice, non un silenzio. Le
+etichette LECITE SHALL continuare a passare.
+
+#### Scenario: un agente che si marca invisibile
+- **GIVEN** una richiesta di un agente per quell'etichetta
+- **THEN** SHALL essere rifiutata con il proprio codice
+
+#### Scenario: il filtro
+- **GIVEN** un filtro su un'etichetta
+- **THEN** SHALL restare solo le card che la portano
+
+### Requirement: KANBAN-39 — Una consegna che fa conflitto porta la RAGIONE e la firma del SISTEMA
+
+Quando la fusione fallisce, la card SHALL tornare in lavorazione — è giusto — ma
+la riga di storico NON SHALL essere identica a quella che scrive una persona
+quando ritira una consegna a mano.
+
+La transizione SHALL portare la RAGIONE del ritorno, e SHALL essere FIRMATA dal
+SISTEMA: chi legge lo storico deve poter distinguere una decisione umana da un
+conflitto tecnico.
+
+La card NON SHALL essere promossa PRIMA di aver fuso: promuovere e poi fondere ha
+lasciato card chiuse con i rami mai arrivati a destinazione.
+
+#### Scenario: un conflitto in fusione
+- **GIVEN** una fusione che fallisce
+- **THEN** la transizione SHALL portare la ragione ed essere firmata dal sistema
+
+#### Scenario: l'ordine fra promozione e fusione
+- **GIVEN** una consegna
+- **THEN** la card NON SHALL essere promossa prima che la fusione sia riuscita
+
+### Requirement: KANBAN-40 — Un'anteprima si muove SOLO in vista, e il suo tetto è un RAPPORTO
+
+Un'anteprima in movimento su una card SHALL essere in moto SOLO quando è nel
+campo visivo, e SHALL fermarsi quando ne esce. Altrimenti ogni card con una clip
+tiene un ciclo di decodifica aperto per sempre: N clip in moto per UNA che
+qualcuno sta guardando.
+
+Ciò che non è MAI stato guardato NON SHALL essere stato SCARICATO.
+
+Il moto SHALL SEGUIRE lo sguardo: scorrendo, ciò che esce si ferma e ciò che
+entra riparte.
+
+Il tetto dell'anteprima sulla card SHALL essere un RAPPORTO rispetto alla card,
+NON un'altezza fissa: la colonna ha una larghezza elastica, quindi un numero
+fisso di pixel è vero in UNA configurazione e falso in tutte le altre — e falso
+proprio nella colonna su cui si decide. Il rapporto SHALL essere lo STESSO a ogni
+larghezza, e SHALL essere quello che il protocollo promette agli agenti.
+
+#### Scenario: una clip fuori dal campo visivo
+- **GIVEN** una card lontana dalla vista
+- **THEN** la sua clip SHALL essere ferma e non scaricata
+
+#### Scenario: due larghezze di colonna
+- **GIVEN** la stessa card a due larghezze
+- **THEN** il rapporto dell'anteprima SHALL essere lo stesso
+
+### Requirement: KANBAN-41 — Ricatturare l'evidenza non consuma tentativi e non inventa foto
+
+SHALL essere possibile RIFARE l'evidenza di una card in review con un gesto, senza
+farla uscire e rientrare: la preparazione avveniva solo al bordo d'ingresso, e una
+card che l'evidenza l'aveva PERSA poteva riaverla solo spendendo un turno di
+agente per una foto.
+
+La ricattura NON SHALL consumare tentativi di dispacciamento, NON SHALL muovere la
+card, e NON SHALL scrivere un commento nel filo — che risveglierebbe l'agente.
+
+Se non c'è NIENTE da avviare, NON SHALL essere prodotta una foto FINTA: SHALL
+essere lasciata una NOTA col MOTIVO.
+
+#### Scenario: una ricattura riuscita
+- **GIVEN** una card senza evidenza
+- **THEN** l'anteprima SHALL comparire, senza consumare tentativi né muovere la card
+
+#### Scenario: niente da avviare
+- **GIVEN** nessun modo di produrre l'evidenza
+- **THEN** SHALL essere lasciata una nota col motivo, non una foto finta
+
+### Requirement: KANBAN-42 — Una card approvata la riapre una PERSONA, e la board lo dice
+
+Una card che esce da CHIUSO SHALL portare un segno che dichiara CHI l'ha riaperta
+e QUANDO: in sei ore undici card erano uscite da chiuso, quasi tutte per mano di
+agenti, e chi guardava pensava che il lavoro fatto si stesse perdendo.
+
+Un AGENTE NON SHALL poter riaprire una card approvata da una persona: SHALL essere
+rifiutato con il proprio codice, e il tentativo NON SHALL lasciare il segno della
+riapertura.
+
+Il segno SHALL sparire quando la card torna chiusa.
+
+#### Scenario: un agente che riapre
+- **GIVEN** un agente che tenta di riaprire una card approvata
+- **THEN** SHALL essere rifiutato, e nessun segno SHALL comparire
+
+#### Scenario: una persona che riapre
+- **GIVEN** la riapertura da parte di una persona
+- **THEN** il segno SHALL dichiarare chi e quando
+
+### Requirement: KANBAN-43 — «Modifiche» elenca i file DELLA CARD, e sopravvive alla consegna
+
+Il pannello delle modifiche SHALL elencare i file di QUESTA card. Il ramo nasce da
+un altro ramo e porta commit che non sono suoi: un confronto con l'antenato comune
+li conta, e la card si intesta il lavoro di un'altra sessione.
+
+Il totale in testa SHALL corrispondere all'elenco sotto.
+
+Dopo la CONSEGNA il pannello SHALL RESTARE, leggendo dalla fusione, e SHALL
+DICHIARARE da dove legge: sparire proprio quando serve di più è il comportamento
+peggiore possibile.
+
+Quando non c'è NIENTE da cui ricostruire, SHALL essere DETTO, non fatto sparire il
+pannello.
+
+#### Scenario: un commit ereditato
+- **GIVEN** un ramo nato da un altro ramo con lavoro altrui
+- **THEN** SHALL essere elencato solo il file della card
+
+#### Scenario: dopo la consegna
+- **GIVEN** un ramo già fuso e la copia di lavoro rimossa
+- **THEN** il pannello SHALL restare, dichiarando da dove legge
+
+### Requirement: KANBAN-44 — Il riferimento a un task è un GLIFO, con un bersaglio da dito
+
+Il riferimento a un task sulla card SHALL essere un GLIFO COMPATTO, non
+l'identificativo per esteso: un chip che non si comprime mai si prende una fetta
+della riga e costringe il nome del progetto a troncare.
+
+Il glifo SHALL stare DENTRO la riga e SHALL essere CENTRATO sul testo, e
+l'allineamento SHALL REGGERE anche con un altro carattere tipografico: centrare
+sulla scatola invece che sul glifo produce uno scarto che cambia con il font.
+
+Col PUNTATORE l'area sensibile SHALL essere quella del glifo; col DITO SHALL
+essere allargata almeno alla misura minima raccomandata, restando un glifo
+piccolo a schermo.
+
+Il gesto SHALL copiare l'identificativo PIENO e confermarlo, e NON SHALL aprire la
+card.
+
+Un titolo lungo SHALL andare a capo AL BORDO, non rientrato sotto il glifo: un
+titolo che si incolonna sotto un simbolo diventa una colonna stretta.
+
+#### Scenario: un altro carattere tipografico
+- **GIVEN** un font diverso montato
+- **THEN** il glifo SHALL restare centrato sul testo
+
+#### Scenario: il dito
+- **GIVEN** un dispositivo a tocco
+- **THEN** l'area sensibile SHALL raggiungere la misura minima, e il glifo restare piccolo
+
+### Requirement: KANBAN-45 — Il testo scritto NON fa atterrare niente
+
+Premere invio con del TESTO scritto su una card in review SHALL RIMANDARE
+all'agente, MAI fondere il ramo.
+
+L'incidente per cui questa regola esiste: qualcuno scrisse un commento e premette
+invio; invio eseguiva la PRIMA delle scelte disponibili, e su una card consegnata
+la prima scelta è la fusione. Il ramo finì sul principale e il task si chiuse da
+solo.
+
+Il comando primario, con del testo scritto, SHALL DICHIARARSI come il rinvio
+all'agente e NON SHALL portare l'etichetta della fusione.
+
+Dopo il gesto la card SHALL essere in lavorazione, e il ramo principale SHALL
+essere ESATTAMENTE dove era — verificato sul repository, non sull'interfaccia.
+
+#### Scenario: invio con del testo scritto
+- **GIVEN** una card consegnata e del testo nel campo
+- **THEN** SHALL essere rimandata all'agente, e il ramo principale NON SHALL cambiare
+
+#### Scenario: l'etichetta del comando
+- **GIVEN** del testo scritto
+- **THEN** il comando primario SHALL dichiarare il rinvio, non la fusione
+
+### Requirement: KANBAN-46 — La board si legge in ENTRAMBI i temi, e il rialzo si vede
+
+Ogni superficie della bacheca — card, superfici rialzate, albero dei file,
+barra di stato — SHALL raggiungere il contrasto minimo di leggibilità in
+ENTRAMBI i temi.
+
+La bacheca era l'unico pezzo scritto su una tavolozza scura cablata: in chiaro il
+testo arrivava a poco più di uno a uno, cioè quasi-bianco su bianco. Non «poco
+elegante»: ILLEGGIBILE.
+
+Il RIALZO di una superficie SHALL essere PERCEPIBILE dove deve esserlo, e SHALL
+essere verificato anche il caso NEGATIVO — una superficie che nel tema chiaro non
+si distingue dallo sfondo SHALL essere riconosciuta come invisibile, o il banco
+non sa distinguere i due casi.
+
+Le tinte che portano uno STATO — le lettere dello stato di un file, i segnali
+della barra — SHALL essere leggibili in entrambi i temi: una tinta scelta sul
+tema scuro può scendere sotto due a uno su quello chiaro.
+
+#### Scenario: il tema chiaro
+- **GIVEN** la bacheca in tema chiaro
+- **THEN** ogni testo SHALL raggiungere il contrasto minimo
+
+#### Scenario: una superficie che non si distingue
+- **GIVEN** un rialzo invisibile nel tema chiaro
+- **THEN** il banco SHALL riconoscerlo come tale
+
+### Requirement: KANBAN-47 — Ciò che scorre lo DICHIARA, e una colonna ha UNA barra sola
+
+Una striscia che SCORRE in orizzontale con la barra nascosta SHALL dichiararlo con
+un segno visibile, e il segno SHALL SPARIRE quando si è arrivati in fondo. Su ogni
+finestra da telefono provata la striscia eccedeva la larghezza e NIENTE lo
+segnalava.
+
+Su desktop, dove non scorre, il segno NON SHALL comparire mai.
+
+Una colonna SHALL avere UNA sola barra di scorrimento: due implementazioni
+sovrapposte ne disegnano due, e si vedono entrambe al passaggio del puntatore.
+
+#### Scenario: una striscia che scorre su telefono
+- **GIVEN** contenuto più largo della finestra
+- **THEN** SHALL comparire il segno, e sparire a fine scorrimento
+
+#### Scenario: la colonna
+- **GIVEN** una colonna che scorre
+- **THEN** SHALL avere una sola barra
+
+### Requirement: KANBAN-48 — Sul telefono nessun testo di card scende sotto il minimo leggibile, e le icone non stipano
+
+A larghezza da TELEFONO nessun testo di una card SHALL scendere sotto il minimo
+di leggibilità: il testo secondario toccava il fondo proprio sui dati che
+servono a riconoscere una card. Su DESKTOP i valori compatti SHALL restare.
+
+Un'icona piccola NON SHALL stipare più disegno di quanto il suo lato regga: il
+difetto segnalato come «sgranata» era una questione di DENSITÀ di tratto, non di
+risoluzione. SHALL esistere un rapporto massimo fra lunghezza del tratto e lato, e
+la misura SHALL essere LETTA DAL DISEGNO, non da una costante — o il controllo
+diventa un non-fare silenzioso.
+
+#### Scenario: una card su telefono
+- **GIVEN** una finestra da telefono
+- **THEN** nessun testo SHALL scendere sotto il minimo
+
+#### Scenario: un'icona troppo densa
+- **GIVEN** un'icona il cui tratto supera il rapporto
+- **THEN** il banco SHALL fallire

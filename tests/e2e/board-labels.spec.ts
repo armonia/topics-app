@@ -108,6 +108,8 @@ test.describe("Etichette · chi chiude la card, e il filtro che la trova", () =>
   });
 
   test("le etichette si vedono sulle card, e il filtro lascia solo le visibili", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-38" });
     const visibile = await createTask(request, { text: VISIBILE, status: "review" });
     const invisibile = await createTask(request, { text: INVISIBILE, status: "review" });
     const altra = await createTask(request, { text: ALTRA, status: "review" });

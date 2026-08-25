@@ -82,3 +82,25 @@ questa verifica non si ferma alla presenza della chiave.
 #### Scenario: una chiave assente nella seconda lingua
 - **GIVEN** una chiave presente solo nella lingua predefinita
 - **THEN** SHALL essere segnalata come mancante
+
+### Requirement: I18N-03 — Le superfici della bacheca esistono DAVVERO nella seconda lingua
+
+Tutta la suite della bacheca gira in una lingua, quindi ogni banco àncora i valori
+di quella. SHALL esistere l'altra metà: un banco che DIMOSTRA che la seconda
+lingua esiste davvero sulle superfici della bacheca — la barra dei filtri, il
+campo di scrittura, testa e piede delle colonne, il menu di una card.
+
+SHALL essere coperti anche i pannelli CONDIZIONALI del task — controlli, modifiche,
+tentativi — che lo scanner della copertura NON vede, perché il loro testo sta
+dentro espressioni composte e non fra due tag.
+
+I DATI NON SHALL essere tradotti: i nomi delle etichette, gli stati e il testo che
+scrivono gli agenti sono contenuto, non interfaccia.
+
+#### Scenario: la bacheca nella seconda lingua
+- **GIVEN** la seconda lingua selezionata
+- **THEN** filtri, campo di scrittura, colonne e menu SHALL leggersi in quella lingua
+
+#### Scenario: un nome di etichetta
+- **GIVEN** un'etichetta definita dall'utente
+- **THEN** NON SHALL essere tradotta

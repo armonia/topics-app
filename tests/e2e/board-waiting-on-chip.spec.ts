@@ -110,6 +110,8 @@ test.describe("Chip «N la aspettano» · dipendenti fuori dalla lista", () => {
   });
 
   test("conta anche il dipendente che è un sottotask, e si spegne quando l'ultimo chiude", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-26" });
     const bloccante = await createTask(request, { text: BLOCCANTE, status: "in_progress" });
     const epica = await createTask(request, { text: EPICA, status: "in_progress" });
     // Dipendente n.1: un SOTTOTASK dell'epica — la board fetcha `rootsOnly`,

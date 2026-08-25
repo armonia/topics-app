@@ -161,6 +161,7 @@ test.describe.serial("Coda dei messaggi", () => {
    * cui il messaggio finirà: le azioni vivono sulla bolla che riguardano.
    */
   test("la coda si vede UNA volta sola, e ci si corregge sopra", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-03" });
     const { sent, state } = await interceptSends(page);
     await openChat(page, chatPage);
     await svuotaCoda(page);

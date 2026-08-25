@@ -1,3 +1,6 @@
+/**
+ * @covers GATE-05
+ */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";

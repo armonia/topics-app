@@ -10,6 +10,7 @@
  *  2. Il BUNDLE dei risultati: `workTokens` deve restare input+output+cacheWrite
  *     e i cache-read devono restare fuori. Il giorno che qualcuno li somma «per
  *     comodità» il totale gonfia ~2,5× e il confronto mente.
+  * @covers BENCH-01
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

@@ -198,6 +198,8 @@ test.describe.serial("Board · il pannello Modifiche", () => {
   });
 
   test("CHANGES-01: elenca i file DELLA CARD, non quelli ereditati, col totale in testa", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-43" });
     await page.goto("/");
     await openProjectBoard(page);
     const drawer = await openTask(page, "Card con worktree");

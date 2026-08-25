@@ -58,6 +58,8 @@ test.describe("Domanda a schermo · si risponde dal composer", () => {
   });
 
   test("il testo va alla domanda, non nella coda", async ({ page, chatPage }) => {
+
+    test.info().annotations.push({ type: "spec", description: "ASK-05" });
     const toolResponses: Array<Record<string, unknown>> = [];
     await page.route("**/api/chat/tool-response", async (route) => {
       toolResponses.push(JSON.parse(route.request().postData() ?? "{}"));

@@ -87,6 +87,8 @@ test.describe("Banner · il tasto su un sottotask esegue davvero", () => {
   });
 
   test("«Rimetti in coda» preso sul banner di uno STEP lo rimette in coda davvero", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-26" });
     // Un'epica con un suo step. Lo step ha una descrizione perché l'albero del
     // drawer rende apribile solo un nodo che ha qualcosa da mostrare — serve a
     // farlo VEDERE nella clip, non all'asserzione.

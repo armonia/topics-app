@@ -288,6 +288,7 @@ test.describe("@reduced-motion-chrome comandi del chrome sotto movimento ridotto
     browser,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-08" });
     const normale = await apriEMisura(browser, request, "no-preference");
     const ridotto = await apriEMisura(browser, request, "reduce");
 

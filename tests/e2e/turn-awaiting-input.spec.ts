@@ -54,6 +54,8 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
   });
 
   test("dice «in attesa della tua risposta», non una frase di lavoro in corso", async ({ page, chatPage }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-01" });
     const ws = await interceptWebSocket(page);
     await goToApp(page);
     await page.keyboard.press("Escape");

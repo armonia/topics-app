@@ -156,6 +156,8 @@ test.describe.serial("push · una voce sola ad app aperta", () => {
   test.describe.configure({ timeout: 90_000 });
 
   test("«solo native» parla il sistema, «banner in Topics» parla la pagina", async ({ browser }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-BANNER-01" });
     const ctx = await browser.newContext({
       viewport: { width: 900, height: 480 },
       recordVideo: { dir: VIDEO_DIR, size: { width: 900, height: 480 } },

@@ -9,6 +9,7 @@
  * exit code that stops CI, and `main()` runs at import time and calls
  * `process.exit`. `--root` exists for exactly this, so the fixture is a real
  * repo with a real git index rather than a mocked file list.
+  * @covers GATE-02
  */
 import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

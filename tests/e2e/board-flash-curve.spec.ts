@@ -178,6 +178,8 @@ test.describe("Il lampo di una card", () => {
   });
 
   test("FLASH-01: sta nella colonna, sale e tiene, e prende il colore dove arriva", async ({ browser, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-34" });
     await resetPaneStore(request, []);
     await resetProjectPanes(request, PROJECT_PATH);
     await seedProjectPane(request, PROJECT_PATH);

@@ -147,6 +147,8 @@ test.describe("Kanban — il volume di una colonna", () => {
   });
 
   test("COLVOL-01: trecento task chiusi non sono trecento card vive", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-29" });
     await page.goto("/");
     await openProjectBoard(page);
 

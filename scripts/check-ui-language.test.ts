@@ -10,6 +10,7 @@
  * Passing file paths puts the script in ABSOLUTE mode, so these cases never
  * touch `scripts/ui-language-baseline.json` and cannot be made green by the
  * frozen debt of the real tree.
+  * @covers GATE-03
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

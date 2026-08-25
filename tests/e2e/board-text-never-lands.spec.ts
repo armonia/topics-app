@@ -160,6 +160,8 @@ test.describe("Una frase scritta su una card in review non fonde il ramo", () =>
   });
 
   test("Invio manda indietro all'agente e main resta dov'era", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-45" });
     await page.goto("/");
     await openProjectBoard(page);
 

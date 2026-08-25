@@ -242,6 +242,8 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
   });
 
   test("RECAPTURE-01: card senza evidenza → un click → l'anteprima sulla card", async ({ request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-41" });
     const taskId = seeded!.taskId;
     await resetProjectPanes(request, REPO);
     await seedProjectPane(request, REPO);

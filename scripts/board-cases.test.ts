@@ -7,6 +7,7 @@
  * eterni travestiti da prova. Questi test pinzano proprio quelle tre trappole,
  * perché sono le uniche con cui il file può mentire senza che nessuno se ne
  * accorga.
+  * @covers BENCH-03
  */
 
 import { describe, expect, test } from "bun:test";

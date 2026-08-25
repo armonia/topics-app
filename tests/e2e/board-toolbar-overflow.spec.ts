@@ -91,6 +91,8 @@ test.describe("Kanban board toolbar — mobile overflow affordance", () => {
   });
 
   test("TOOLBAR-OVERFLOW-01: fade+chevron appears when scrollable and hides at scroll end (390px)", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-47" });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);

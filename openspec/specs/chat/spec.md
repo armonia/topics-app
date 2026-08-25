@@ -1978,3 +1978,166 @@ comando.
 #### Scenario: il distintivo
 - **GIVEN** il distintivo del costo
 - **THEN** NON SHALL ricevere eventi del puntatore né cambiare l'altezza del comando
+
+### Requirement: CHAT-QUEUE-03 — «Ferma» ferma, e tre messaggi in coda partono in UN turno
+
+La coda dei messaggi SHALL essere disegnata UNA volta sola: due rappresentazioni
+della stessa coda a due centimetri di distanza sono due verità da tenere
+allineate.
+
+Premere FERMA NON SHALL far partire il messaggio successivo. Lo svuotamento della
+coda NON SHALL avere come unica condizione «non sta più scrivendo»: si preme
+fermare per fermare l'agente, e partiva il messaggio dopo senza che nessuno
+l'avesse chiesto. A coda ferma il comando che manda subito NON SHALL essere
+offerto.
+
+Un messaggio in coda SHALL essere MODIFICABILE e RIMUOVIBILE prima di partire.
+SHALL esistere un comando per mandarlo SUBITO senza aspettare la fine del turno.
+
+Alla ripresa la coda SHALL ripartire dalla TESTA: nessun sorpasso. Più messaggi
+accodati SHALL partire INSIEME, in UN SOLO turno, e comparire come UNA bolla:
+estrarne uno per volta significa tre giri di modello e tre volte il contesto per
+una cosa sola.
+
+Un COMANDO NON SHALL essere accodato: agisce subito.
+
+Un rifiuto per «turno già in volo» SHALL mettere il messaggio in TESTA alla coda e
+farlo partire a fine turno, e NON SHALL lasciare a schermo una bolla fantasma.
+
+#### Scenario: si preme ferma
+- **GIVEN** un messaggio in coda e il turno fermato
+- **THEN** il messaggio SHALL restare in coda
+
+#### Scenario: tre messaggi accodati
+- **GIVEN** tre messaggi in coda e un turno che finisce
+- **THEN** SHALL partire insieme, in un turno solo
+
+### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
+
+Il segnaposto disegnato quando parte un turno SHALL portare l'IDENTIFICATIVO che
+il server ha annunciato, non uno coniato in locale. Con due identificativi per la
+stessa riga, il primo ricaricamento della storia A TURNO APERTO mostra la stessa
+risposta DUE volte — una ferma e una che continua a crescere sotto.
+
+Un ricaricamento a metà turno NON SHALL raddoppiare la risposta, e i pezzi
+successivi SHALL continuare ad aggiungersi DENTRO la stessa bolla.
+
+Una RIADOZIONE SHALL essere DICHIARATA nel segnale di apertura, e il client SHALL
+SVUOTARE la bolla prima di riscriverla. Senza quel segnale la ritrasmissione si
+SOMMA a ciò che c'è già — ed è la ragione per cui il segnale esiste. La pulizia
+NON SHALL essere fatta cancellando il corpo della riga sul database: se il turno
+muore prima di rimetterla a posto, la cancellazione diventa definitiva e resta una
+bolla vuota per sempre.
+
+#### Scenario: un ricaricamento a turno aperto
+- **GIVEN** un turno in corso e la storia ricaricata
+- **THEN** SHALL comparire una sola risposta
+
+#### Scenario: una riadozione dichiarata
+- **GIVEN** un'apertura marcata come riadozione
+- **THEN** la bolla SHALL essere svuotata prima di essere riscritta
+
+### Requirement: CHAT-WAIT-01 — Fermo su una domanda NON è «sta lavorando»
+
+Un turno parcheggiato su una domanda SHALL smettere di dichiararsi in lavoro: il
+puntino che pulsa, la frase di fatica che ruota, il bagliore. Chi guarda legge
+«sto elaborando» e aspetta, mentre la palla è sua da mezz'ora.
+
+La riga SHALL dire che si è IN ATTESA DI UNA RISPOSTA, e il cronometro del lavoro
+NON SHALL scorrere. Ricevuta la risposta, il cronometro SHALL tornare a
+dichiarare il lavoro fatto.
+
+Un turno parcheggiato SHALL CHIUDERSI VISIVAMENTE come un messaggio finito, con il
+proprio conto: gettoni distinti fra rilettura e nuovi, e il costo. Un aggiornamento
+PARZIALE del consumo NON SHALL azzerare un costo già noto.
+
+Anche FUORI dalla chat il segnale SHALL dire FERMA, non «sta lavorando».
+
+#### Scenario: parcheggiato su una domanda
+- **GIVEN** un turno fermo su una domanda
+- **THEN** la riga SHALL dire che aspetta, e il cronometro NON SHALL scorrere
+
+#### Scenario: il segnale fuori dalla chat
+- **GIVEN** lo stesso turno
+- **THEN** il segnale esterno SHALL dire «ferma»
+
+### Requirement: CHAT-BANNER-01 — Un messaggio genera UN banner, anche con due finestre aperte
+
+Un avviso nato da un frame diffuso a TUTTE le finestre SHALL produrre UN SOLO
+banner, non uno per finestra. L'effetto che lo ascolta è montato una volta per
+finestra, quindi due finestre aperte producevano due avvisi per lo stesso
+messaggio — e nessun cancello poteva risolverlo, perché in ogni finestra sono
+tutte vere contemporaneamente.
+
+Il silenziamento di un discorso SHALL valere per TUTTE le finestre.
+
+Con l'applicazione APERTA la preferenza su chi parla SHALL produrre UNA voce
+sola — quella di sistema oppure quella nella pagina — MAI entrambe. I comandi
+d'azione SHALL essere gli STESSI nelle due forme.
+
+#### Scenario: due finestre aperte
+- **GIVEN** lo stesso messaggio diffuso a entrambe
+- **THEN** SHALL comparire un solo banner
+
+#### Scenario: un discorso silenziato
+- **GIVEN** il silenziamento attivo
+- **THEN** nessuna finestra SHALL mostrare il banner
+
+### Requirement: CHAT-DIALOG-01 — Una conferma NON congela il resto dell'applicazione
+
+Le conferme SHALL essere disegnate DENTRO l'applicazione e NON SHALL usare il
+dialogo modale del sistema: quello CONGELA il filo della vista finché non lo si
+chiude a mano — chat in streaming ferme, cronometri fermi, l'applicazione in
+ostaggio.
+
+Con una conferma aperta, un turno accanto SHALL CONTINUARE a scrivere e il suo
+cronometro SHALL avanzare.
+
+Annullare SHALL essere possibile da tastiera e NON SHALL eseguire l'azione.
+
+#### Scenario: una conferma aperta
+- **GIVEN** un turno in streaming e una conferma a schermo
+- **THEN** il turno SHALL continuare e il cronometro SHALL avanzare
+
+#### Scenario: annullare
+- **GIVEN** la conferma annullata
+- **THEN** l'azione NON SHALL essere eseguita
+
+### Requirement: CHAT-LAYOUT-01 — La chat si MISURA: varchi, allineamenti, contrasto e bersagli
+
+La geometria della conversazione SHALL essere MISURATA, non guardata: sono cose
+che a occhio si giudicano male, e uno scatto non le prenderebbe.
+
+La bolla dei propri messaggi SHALL essere un grigio di sistema, non il colore del
+marchio, e SHALL raggiungere il contrasto minimo.
+
+Sotto l'ultima risposta SHALL restare SEMPRE un varco, anche quando l'area di
+scrittura CAMBIA ALTEZZA: misurato prima del rimedio, bastava che si RESTRINGESSE
+perché il varco andasse a zero.
+
+Le strisce sopra il campo SHALL essere allineate FRA LORO e col campo.
+
+Il comando che riporta in fondo SHALL essere centrato sulla colonna, non appeso
+al bordo.
+
+La chat VUOTA SHALL mostrare a schermo le scelte del discorso — chi risponde e con
+quale modello — e sotto una soglia di altezza NON SHALL mostrarle affatto. La
+verifica SHALL guardare il DOCUMENTO: provare la funzione che compone la stringa
+lascia scoperto il caso in cui il componente non la disegna mai.
+
+Su TELEFONO nessun testo SHALL dipingere DIETRO il campo di scrittura, a NESSUNA
+posizione di scorrimento: il difetto segnalato era il BORDO — la riga tagliata di
+netto che restava mezza e illeggibile.
+
+La misura SHALL essere accompagnata da una CONTROPROVA che inietta i difetti
+apposta: un misuratore che non si è visto fallire non misura.
+
+Le violazioni gravi di accessibilità SHALL essere ZERO.
+
+#### Scenario: l'area di scrittura si restringe
+- **GIVEN** il campo che cambia altezza
+- **THEN** il varco sotto l'ultima risposta SHALL restare
+
+#### Scenario: la controprova
+- **GIVEN** difetti iniettati di proposito
+- **THEN** il misuratore SHALL segnalarli tutti

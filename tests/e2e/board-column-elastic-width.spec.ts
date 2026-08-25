@@ -213,6 +213,8 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
   });
 
   test("COLUMN-WIDTH-01: il contratto pavimento/crescita/soffitto tiene a ogni larghezza", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-28" });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);

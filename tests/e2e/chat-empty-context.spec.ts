@@ -50,6 +50,8 @@ test.describe("la chat vuota dice come risponderà", () => {
   });
 
   test("CHATEMPTY-01: le scelte del topic si leggono nel vuoto", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-LAYOUT-01" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await ensureTopicVisible(page, new RegExp(NOME));

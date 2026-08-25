@@ -77,6 +77,8 @@ test.describe("Dopo /compact la coda riparte", () => {
   });
 
   test("lo stream:end di una compattazione (con riga scartata) fa partire la coda", async ({ page, chatPage }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-03" });
     // La presa sul WS: serve a iniettare lo `stream:end` esattamente com'è
     // quello vero di un turno di compattazione — con `discardedMessageId`, che
     // è la riga vuota che il server cancella perché una compattazione non

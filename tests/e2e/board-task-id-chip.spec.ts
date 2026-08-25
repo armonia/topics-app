@@ -242,6 +242,8 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
   });
 
   test("IDCHIP-01: il segno sta nella riga, centrato, e non la occupa", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-44" });
     const g = await measureChip(page, createdTasks[0]);
 
     expect(g.chip.w, `il segno deve pesare ≤${CHIP_MAX_W}px sulla riga`).toBeLessThanOrEqual(CHIP_MAX_W);

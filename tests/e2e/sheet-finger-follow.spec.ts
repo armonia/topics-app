@@ -153,6 +153,7 @@ test.describe("Il foglio dal basso sta sotto il dito", () => {
    * la clip non prova una strada diversa da quella che gira nel gate.
    */
   test("SHEET-01: il bordo del foglio è dove è il dito, e se ne va con lui", async () => {
+    test.info().annotations.push({ type: "spec", description: "SHEET-01" });
     await clipDiConsegna({
       nome: "sheet-finger-follow-01",
       context: {

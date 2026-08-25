@@ -91,6 +91,7 @@ async function apri(page: Page, request: APIRequestContext, id: string, nome: st
 
 test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
   test("OVERLAY-1: la barra è fuori dal flusso e la conversazione le comincia sotto", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-01" });
     await apri(page, request, lungaId, lungaNome);
     const b = barra(page);
     await expect(b).toBeVisible({ timeout: 15000 });

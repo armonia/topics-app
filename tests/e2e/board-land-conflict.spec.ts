@@ -181,6 +181,8 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
   });
 
   test("BOARD-LAND-01: la transizione che ritira la consegna porta la ragione, e la firma è del sistema", async ({ page, request }) => {
+
+    test.info().annotations.push({ type: "spec", description: "KANBAN-39" });
     await page.goto("/");
     await openProjectBoard(page);
 

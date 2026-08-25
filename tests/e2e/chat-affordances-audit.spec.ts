@@ -62,6 +62,8 @@ test.describe("Chat — superfici e affordance, misurate", () => {
   });
 
   test("la bolla dei propri messaggi è un grigio di sistema, non il blu del marchio", async ({ page }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-LAYOUT-01" });
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
 

@@ -15,6 +15,7 @@
  *   F. migration ROTTA senza DATA_DIR nell'env → exit 1 (percorso default corretto)
  *
  * Il cancello NON tocca il DB vivo: tutte le prove usano una copia.
+  * @covers GATE-04
  */
 import { describe, it, expect, afterEach } from "bun:test";
 import { readdirSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync } from "fs";

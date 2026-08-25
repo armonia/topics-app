@@ -44,6 +44,8 @@ test.describe("ConfirmDialog non blocca il thread", () => {
   });
 
   test("con il dialog di /clear aperto, il turno accanto continua a streammare", async ({ page, chatPage }) => {
+
+    test.info().annotations.push({ type: "spec", description: "CHAT-DIALOG-01" });
     test.setTimeout(60_000);
     await goToApp(page);
     await page.keyboard.press("Escape");

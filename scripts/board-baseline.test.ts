@@ -5,6 +5,7 @@
  * board↔chat senza che nessuno se ne accorga.
  *
  *   bun test scripts/board-baseline.test.ts
+  * @covers BENCH-02
  */
 import { describe, expect, it } from "bun:test";
 import {

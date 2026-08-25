@@ -6,6 +6,7 @@
  * Lo script si lancia come processo invece di importarne le funzioni di
  * proposito: `main()` gira all'import e chiama `process.exit`, e comunque ciò
  * che va provato è il cancello, cioè il codice di uscita che ferma la CI.
+  * @covers GATE-01
  */
 import { describe, test, expect, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';

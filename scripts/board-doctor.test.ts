@@ -11,6 +11,7 @@
  * davvero da quel fatto e non da un dettaglio della fixture.
  *
  *   bun test scripts/board-doctor.test.ts
+  * @covers DOCTOR-01
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
