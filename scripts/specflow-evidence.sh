@@ -149,7 +149,10 @@ fi
 
 step "mappa di copertura (dal cancello che possiede le regole)"
 t=$(date +%s)
-bun run scripts/check-spec-coverage.ts --json "$MAP" --junit "$JUNIT"
+# Due sorgenti di esito PER FILE: JUnit per i runner non-browser, il report Playwright per i file
+# e2e dichiarati con @covers. Senza la seconda, 43 requisiti di topics-app restavano grigi anche
+# dopo la suite intera: il loro esito per-requisito nascerebbe dalle annotazioni, che non hanno.
+bun run scripts/check-spec-coverage.ts --json "$MAP" --junit "$JUNIT" --pw-report "$MERGED"
 gate=$?
 since "$t"
 [ "$gate" -ne 0 ] && echo "  ⚠ il cancello di tracciabilità è rosso: la mappa è comunque scritta, ma guardalo."

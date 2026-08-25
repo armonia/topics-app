@@ -64,7 +64,7 @@
  *   bun run scripts/check-spec-coverage.ts --write-baseline
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const SPECS = join(ROOT, "openspec", "specs");
@@ -318,6 +318,53 @@ function readJUnitOutcomes(path: string): Map<string, { outcome: "passed" | "fai
   return out;
 }
 
+/**
+ * Esiti per FILE dal report JSON di Playwright.
+ *
+ * Gemello di readJUnitOutcomes, per l'altra meta' della suite. Un requisito dichiarato con
+ * `@covers` da un file e2e che passa INTERO ha la stessa forza di prova di uno dichiarato da un
+ * file unitario verde: per file, non per requisito. Senza questo, i 43 requisiti che topics-app
+ * copre solo cosi' restavano «non eseguito qui» anche dopo aver lanciato la suite intera — perche'
+ * l'esito per-requisito nasce dalle annotazioni per-test, e quei file non ne hanno.
+ *
+ * `spec.file` nel report e' relativo a `config.rootDir` (il testDir), mentre i claim della mappa
+ * sono relativi alla radice del repo: senza ricomporre il prefisso nessuna chiave combacerebbe, in
+ * silenzio e senza un errore da nessuna parte.
+ */
+function readPlaywrightOutcomes(path: string): Map<string, { outcome: "passed" | "failed"; tests: number }> {
+  const out = new Map<string, { outcome: "passed" | "failed"; tests: number }>();
+  if (!existsSync(path)) return out;
+  let report: unknown;
+  try {
+    report = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return out;
+  }
+  const r = report as { config?: { rootDir?: string }; suites?: unknown[] };
+  const rootDir = r.config?.rootDir ?? "";
+  // relative() da cwd: se il report viene da un'altra macchina il prefisso non risolve e si
+  // preferisce nessun esito a un esito attaccato al file sbagliato.
+  const prefix = rootDir ? relative(process.cwd(), rootDir).replaceAll("\\", "/") : "";
+  type Spec = { file?: string; tests?: Array<{ status?: string }> };
+  const specs: Spec[] = [];
+  const walk = (node: { specs?: Spec[]; suites?: unknown[] }): void => {
+    for (const sp of node.specs ?? []) specs.push(sp);
+    for (const sub of node.suites ?? []) walk(sub as { specs?: Spec[]; suites?: unknown[] });
+  };
+  for (const su of r.suites ?? []) walk(su as { specs?: Spec[]; suites?: unknown[] });
+  for (const sp of specs) {
+    if (!sp.file) continue;
+    const file = prefix ? `${prefix}/${sp.file}` : sp.file;
+    // "flaky" = caduto e poi passato al retry: l'esito finale e' passato, come fa il toolkit
+    // quando legge l'ultimo tentativo. "skipped" non e' un fallimento e non e' una prova: conta
+    // come test eseguito ma non sposta l'esito.
+    const failed = (sp.tests ?? []).some((t) => t.status === "unexpected");
+    const prev = out.get(file) ?? { outcome: "passed" as const, tests: 0 };
+    out.set(file, { outcome: failed ? "failed" : prev.outcome, tests: prev.tests + (sp.tests?.length ?? 0) });
+  }
+  return out;
+}
+
 function writeCoverageMap(dest: string): void {
   const byId = new Map<string, { file: string; channel: "annotation" | "covers" }[]>();
   for (const t of fileTest) {
@@ -327,7 +374,16 @@ function writeCoverageMap(dest: string): void {
     }
   }
   const junitFlag = process.argv.indexOf("--junit");
+  const pwFlag = process.argv.indexOf("--pw-report");
   const outcomes = junitFlag >= 0 ? readJUnitOutcomes(process.argv[junitFlag + 1] ?? "") : new Map();
+  // I due runner non si sovrappongono (bun:test non gira tests/e2e), ma se mai lo facessero vince
+  // il rosso: un file verde sotto un runner e rotto sotto l'altro e' rotto.
+  if (pwFlag >= 0) {
+    for (const [file, o] of readPlaywrightOutcomes(process.argv[pwFlag + 1] ?? "")) {
+      const prev = outcomes.get(file);
+      outcomes.set(file, prev ? { outcome: prev.outcome === "failed" || o.outcome === "failed" ? "failed" : "passed", tests: prev.tests + o.tests } : o);
+    }
+  }
   type Claim = { file: string; channel: string; outcome?: string; tests?: number };
   const requirementsOut: Record<string, { notBuilt: boolean; claims: Claim[] }> = {};
   for (const r of [...requirements].sort((a, b) => a.id.localeCompare(b.id))) {
@@ -348,7 +404,7 @@ function writeCoverageMap(dest: string): void {
   if (outcomes.size) {
     const withUnit = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.outcome)).length;
     const redUnit = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.outcome === "failed")).length;
-    console.log(`  esiti unitari da JUnit: ${outcomes.size} file letti -> ${withUnit} requisiti con un esito${redUnit ? `, ${redUnit} con almeno un file rosso` : ""}`);
+    console.log(`  esiti per file: ${outcomes.size} file di prova letti -> ${withUnit} requisiti con un esito${redUnit ? `, ${redUnit} con almeno un file rosso` : ""}`);
   }
 }
 
