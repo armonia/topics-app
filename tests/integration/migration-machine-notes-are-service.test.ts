@@ -24,6 +24,8 @@
  *
  * Il test esegue il FILE della migration, non una sua copia: se il predicato
  * cambia, cambia sotto questi casi.
+ *
+ * @covers THREAD-05
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

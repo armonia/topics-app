@@ -1,3 +1,8 @@
+/**
+ * Which rows fold away, and which are speech.
+ *
+ * @covers THREAD-03, THREAD-05
+ */
 import { describe, expect, it } from 'bun:test';
 
 import {

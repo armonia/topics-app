@@ -188,3 +188,62 @@ conteggio diverso — ed è proprio il caso in cui le copie si accumulano.
 - **GIVEN** una nota vecchia scritta con un'apertura diversa, e uno slot che la
   dichiara fra le proprie
 - **THEN** SHALL restare una riga sola
+
+### Requirement: THREAD-05 — La contabilità si ripiega, la parola no — comprese le righe già scritte
+
+Le righe di contabilità del dispatcher SHALL potersi riconoscere anche quando
+NESSUNA marcatura le accompagna: sono già scritte sul filo, e nessuna
+migrazione torna a marcarle tutte. Il riconoscimento SHALL valere per le righe
+scritte dalla MACCHINA soltanto — una persona che cita il dispatcher sta
+parlando, e la sua riga resta.
+
+Il riconoscimento NON SHALL guardare NESSUN orologio. Una prima versione
+recintava la regola dietro «scritta prima che la marcatura esistesse», con
+l'istante scritto a mano: ogni nota prodotta fra quell'istante e la messa in
+opera — fra cinquecento e ottocento al giorno, misurate — è rimasta né marcata
+né riconoscibile, e per quelle non passa nessuna migrazione. La proprietà SHALL
+essere STRUTTURALE: il dato che si classifica non porta una data addosso.
+
+Le frasi riconosciute SHALL essere ANCORATE all'inizio o alla fine della riga.
+Un riconoscimento a metà frase si porta via il messaggio di una persona che
+quella frase la stava citando.
+
+Il confine NON SHALL essere «chi l'ha scritta» ma «cambia cosa fai». Un esito e
+una decisione RESTANO parola, anche quando li scrive la macchina e anche quando
+cominciano con le stesse parole di una riga di contabilità: un atterraggio non
+riuscito, dei controlli rossi, un fan-out da scegliere, e soprattutto la riga
+che dice PERCHÉ una card è parcheggiata. Sulla base viva quelle aperture contano
+344 e 245 righe, e tre di quelle sono la nota che si vorrebbe piegare.
+
+Una nota di consegna che porta APPESE le ultime parole dell'agente NON SHALL
+essere piegata: su centoventotto righe vive è l'unica cosa che l'agente ha detto
+su quella card, e piegarla seppellisce esattamente la parola che tutto questo
+meccanismo esiste per far emergere.
+
+Una riga NON riconosciuta SHALL restare a schermo. Il modo di sbagliare SHALL
+essere una riga in più, MAI una riga nascosta.
+
+Il raggruppamento SHALL essere per righe ADIACENTI e NON SHALL perdere niente:
+i gruppi rimessi in fila SHALL ridare il filo di partenza. Chi legge SHALL poter
+TAGLIARE un gruppo dove l'agente ha parlato, perché fra un commento e l'altro il
+filo intercala i passi della sessione, e un muro che li inghiottisse
+nasconderebbe quella parola.
+
+Una riga di servizio SOLA NON SHALL essere piegata: «1 riga di servizio»
+nasconde un messaggio senza compattare niente.
+
+La bonifica delle righe già scritte SHALL essere provata ESEGUENDO il file di
+migrazione, non una sua copia, e SHALL essere giudicata su ciò che LASCIA STARE
+prima che su ciò che cambia.
+
+#### Scenario: una persona cita il dispatcher
+- **GIVEN** una riga con il testo di una nota di contabilità, scritta da una persona
+- **THEN** NON SHALL essere piegata
+
+#### Scenario: la stessa riga, letta domani
+- **GIVEN** la stessa riga classificata in due momenti diversi
+- **THEN** SHALL dare lo stesso esito
+
+#### Scenario: contabilità con le parole dell'agente appese
+- **GIVEN** una nota di consegna seguita dalle ultime parole dell'agente
+- **THEN** NON SHALL essere piegata

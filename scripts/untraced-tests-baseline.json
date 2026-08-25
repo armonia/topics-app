@@ -7,7 +7,7 @@
   "Un file NUOVO senza dichiarazione e' rosso, e la cura non e' aggiungerlo",
   "a questa lista: e' scrivere il requisito che quel test prova gia'."
  ],
- "count": 614,
+ "count": 612,
  "files": [
   "cli/topics.test.ts",
   "client/src/components/Auth/PairingGate.test.ts",
@@ -392,7 +392,6 @@
   "shared/notify-actions.test.ts",
   "shared/permission-decision.test.ts",
   "shared/tab-link.test.ts",
-  "shared/task-comment-service.test.ts",
   "shared/task-tab-context.test.ts",
   "shared/tray-board.test.ts",
   "tests/e2e/answer-question-from-composer.spec.ts",
@@ -533,7 +532,6 @@
   "tests/integration/migration-095-message-author.test.ts",
   "tests/integration/migration-098-task-reopen-trace.test.ts",
   "tests/integration/migration-20260815013610-task-comments-index.test.ts",
-  "tests/integration/migration-machine-notes-are-service.test.ts",
   "tests/integration/migration-timeout-is-not-a-red.test.ts",
   "tests/integration/native-shutdown-notice.test.ts",
   "tests/integration/preview-image-nonexistent.test.ts",
