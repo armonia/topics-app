@@ -658,7 +658,7 @@ export type ToolCallDetail =
   | { type: 'read'; filePath: string; content?: string; offset?: number; limit?: number }
   | { type: 'edit'; filePath: string; oldString?: string; newString?: string; unifiedDiff?: string }
   | { type: 'write'; filePath: string; content?: string }
-  | { type: 'search'; query: string; toolName?: 'search' | 'grep' | 'glob' | 'web_search'; content?: string; filePaths?: string[]; numFiles?: number; numMatches?: number; mode?: 'content' | 'files_with_matches' | 'count' }
+  | { type: 'search'; query: string; toolName?: 'search' | 'grep' | 'glob' | 'web_search' | 'tool_search'; content?: string; filePaths?: string[]; numFiles?: number; numMatches?: number; mode?: 'content' | 'files_with_matches' | 'count' }
   | { type: 'fetch'; url: string; prompt?: string; result?: string; statusCode?: number; bytes?: number }
   | { type: 'todo'; items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> }
   | {
@@ -688,6 +688,22 @@ export type ToolCallDetail =
   | { type: 'skill'; skill: string; args?: string; result?: string }
   | { type: 'slash_command'; command: string; result?: string }
   | { type: 'lsp'; operation: string; filePath?: string; symbol?: string; result?: string }
+  // Harness tools of the AGENT FLEET. Same reason as the block above: measured
+  // 2026-08-25 on 40 real transcripts, these were emitted by the CLI and every
+  // one of them rendered as a raw JSON blob. `Agent` alone appeared 58 times.
+  /** `SendMessage`: one agent writing to another. The summary is what the row
+   *  shows; the body is behind the disclosure. */
+  | { type: 'agent_message'; to: string; summary?: string; message?: string; result?: string }
+  /** `ListAgents` / `TaskOutput` / `TaskStop`: three ways of asking the fleet
+   *  about itself. One type because the row says the same shape of thing -
+   *  which operation, on whom, and what came back. */
+  | { type: 'agent_control'; op: 'list' | 'output' | 'stop'; target?: string; result?: string }
+  /** `Artifact`: publishing a page is neither a write nor a fetch. It has an
+   *  action, and usually a URL that the reader wants to click. */
+  | { type: 'artifact'; action: string; title?: string; url?: string; filePath?: string; result?: string }
+  /** `AskUserQuestion`: a question put TO the person reading. Rendering it as
+   *  JSON hid the one tool whose whole purpose is to be read by a human. */
+  | { type: 'ask_user'; questions: Array<{ question: string; header?: string; options?: string[] }>; result?: string }
   | { type: 'unknown'; raw: { args?: Record<string, unknown>; result?: string } };
 
 export interface ToolCall {

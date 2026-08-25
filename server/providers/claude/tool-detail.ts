@@ -233,6 +233,65 @@ export function deriveToolDetail(
   // one of them rendered as a generic JSON blob, while `Task` - the older name
   // for the identical call - rendered properly. Two names for one operation,
   // one of them invisible.
+  // ── Agent-fleet harness tools ──────────────────────────────────────────────
+  // Measured 2026-08-25 on 40 real transcripts: all of these were emitted by
+  // the CLI and every one rendered as a raw JSON blob.
+  if (c === "sendmessage" || c === "send_message") {
+    return {
+      type: "agent_message",
+      to: s(a.to) ?? "",
+      ...(s(a.summary) ? { summary: s(a.summary)! } : {}),
+      ...(typeof a.message === "string" ? { message: a.message } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === "listagents" || c === "list_agents") {
+    return { type: "agent_control", op: "list", ...(result ? { result } : {}) };
+  }
+  if (c === "taskoutput" || c === "task_output") {
+    return {
+      type: "agent_control", op: "output",
+      ...(s(a.task_id) ?? s(a.taskId) ? { target: (s(a.task_id) ?? s(a.taskId))! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === "taskstop" || c === "task_stop") {
+    return {
+      type: "agent_control", op: "stop",
+      ...(s(a.task_id) ?? s(a.taskId) ?? s(a.shell_id) ? { target: (s(a.task_id) ?? s(a.taskId) ?? s(a.shell_id))! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === "artifact") {
+    return {
+      type: "artifact",
+      action: s(a.action) ?? "publish",
+      ...(s(a.title) ? { title: s(a.title)! } : {}),
+      ...(s(a.url) ? { url: s(a.url)! } : {}),
+      ...(s(a.file_path) ?? s(a.filePath) ? { filePath: (s(a.file_path) ?? s(a.filePath))! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === "askuserquestion" || c === "ask_user_question") {
+    const qs = Array.isArray(a.questions) ? (a.questions as Array<Record<string, unknown>>) : [];
+    return {
+      type: "ask_user",
+      questions: qs.map((q) => ({
+        question: s(q.question) ?? "",
+        ...(s(q.header) ? { header: s(q.header)! } : {}),
+        ...(Array.isArray(q.options)
+          ? { options: (q.options as Array<Record<string, unknown>>).map((o) => s(o?.label) ?? String(o)) }
+          : {}),
+      })),
+      ...(result ? { result } : {}),
+    };
+  }
+  // ToolSearch IS a search - a query that returns tools - so it reuses the
+  // search row instead of inventing a category for it.
+  if (c === "toolsearch" || c === "tool_search") {
+    return { type: "search", query: s(a.query) ?? "", toolName: "tool_search", ...(result ? { content: result } : {}) };
+  }
+
   if (c === "task" || c === "agent") {
     return {
       type: "sub_agent",

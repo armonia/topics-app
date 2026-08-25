@@ -197,6 +197,65 @@ export function deriveToolDetail(
     return { type: 'plan', text: s(a.plan) ?? s(a.text) ?? '' };
   }
 
+  // ── Agent-fleet harness tools ──────────────────────────────────────────────
+  // Measured 2026-08-25 on 40 real transcripts: all of these were emitted by
+  // the CLI and every one rendered as a raw JSON blob.
+  if (c === 'sendmessage' || c === 'send_message') {
+    return {
+      type: 'agent_message',
+      to: s(a.to) ?? '',
+      ...(s(a.summary) ? { summary: s(a.summary)! } : {}),
+      ...(typeof a.message === 'string' ? { message: a.message } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'listagents' || c === 'list_agents') {
+    return { type: 'agent_control', op: 'list', ...(result ? { result } : {}) };
+  }
+  if (c === 'taskoutput' || c === 'task_output') {
+    return {
+      type: 'agent_control', op: 'output',
+      ...(s(a.task_id) ?? s(a.taskId) ? { target: (s(a.task_id) ?? s(a.taskId))! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'taskstop' || c === 'task_stop') {
+    return {
+      type: 'agent_control', op: 'stop',
+      ...(s(a.task_id) ?? s(a.taskId) ?? s(a.shell_id) ? { target: (s(a.task_id) ?? s(a.taskId) ?? s(a.shell_id))! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'artifact') {
+    return {
+      type: 'artifact',
+      action: s(a.action) ?? 'publish',
+      ...(s(a.title) ? { title: s(a.title)! } : {}),
+      ...(s(a.url) ? { url: s(a.url)! } : {}),
+      ...(s(a.file_path) ?? s(a.filePath) ? { filePath: (s(a.file_path) ?? s(a.filePath))! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'askuserquestion' || c === 'ask_user_question') {
+    const qs = Array.isArray(a.questions) ? (a.questions as Array<Record<string, unknown>>) : [];
+    return {
+      type: 'ask_user',
+      questions: qs.map((q) => ({
+        question: s(q.question) ?? '',
+        ...(s(q.header) ? { header: s(q.header)! } : {}),
+        ...(Array.isArray(q.options)
+          ? { options: (q.options as Array<Record<string, unknown>>).map((o) => s(o?.label) ?? String(o)) }
+          : {}),
+      })),
+      ...(result ? { result } : {}),
+    };
+  }
+  // ToolSearch IS a search - a query that returns tools - so it reuses the
+  // search row instead of inventing a category for it.
+  if (c === 'toolsearch' || c === 'tool_search') {
+    return { type: 'search', query: s(a.query) ?? '', toolName: 'tool_search', ...(result ? { content: result } : {}) };
+  }
+
   if (c === 'task' || c === 'agent') {
     return {
       type: 'sub_agent',
@@ -361,7 +420,7 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     case 'write':
       return { name: 'Write', summary: stripCwd(detail.filePath) };
     case 'search': {
-      const map = { search: 'Search', grep: 'Grep', glob: 'Glob', web_search: 'WebSearch' } as const;
+      const map = { search: 'Search', grep: 'Grep', glob: 'Glob', web_search: 'WebSearch', tool_search: 'ToolSearch' } as const;
       return { name: detail.toolName ? map[detail.toolName] : 'Search', summary: detail.query };
     }
     case 'fetch':
@@ -404,6 +463,17 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
       return { name: 'SlashCommand', summary: detail.command };
     case 'lsp':
       return { name: 'LSP', summary: detail.symbol ? `${detail.operation} · ${detail.symbol}` : detail.operation };
+    case 'agent_message':
+      return { name: 'SendMessage', summary: detail.summary ?? detail.to };
+    case 'agent_control': {
+      const names = { list: 'ListAgents', output: 'TaskOutput', stop: 'TaskStop' } as const;
+      return { name: names[detail.op], ...(detail.target ? { summary: detail.target } : {}) };
+    }
+    case 'artifact':
+      return { name: 'Artifact', summary: detail.title ?? detail.url ?? detail.action };
+    case 'ask_user':
+      // The question itself: the one tool whose purpose is to be read.
+      return { name: 'AskUserQuestion', summary: detail.questions[0]?.question };
     case 'unknown':
       // A bare "Tool" row is unreadable — surface the provider's actual tool
       // name plus a scalar-args digest so the collapsed row stands on its own.

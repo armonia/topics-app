@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useT } from '../../hooks/useT';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
+import { AgentMessageCard, AgentControlCard, ArtifactCard, AskUserCard } from './ToolCardsFleet';
 import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
@@ -231,7 +232,7 @@ export function WriteCard({ filePath, content }: { filePath: string; content?: s
 // ── Search (Grep / Glob / WebSearch) ────────────────────────────────────────
 
 export function SearchCard({ query, content, mode, numFiles, numMatches }: {
-  query: string; toolName?: 'search' | 'grep' | 'glob' | 'web_search';
+  query: string; toolName?: 'search' | 'grep' | 'glob' | 'web_search' | 'tool_search';
   content?: string; mode?: 'content' | 'files_with_matches' | 'count';
   numFiles?: number; numMatches?: number;
 }) {
@@ -443,7 +444,7 @@ export function McpCard({ args, result }: {
  * pathological tool output never lays out megabytes of text inline. Shared by
  * every result-bearing card; preserves the `tool-call-result` test hook.
  */
-function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' }: {
+export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' }: {
   text: string; testId?: string; maxH?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -475,7 +476,7 @@ function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' 
 }
 
 /** Back-compat alias used by the background/harness cards. */
-function ResultPre({ text }: { text: string }) {
+export function ResultPre({ text }: { text: string }) {
   return <ClampedPre text={text} />;
 }
 
@@ -739,6 +740,14 @@ export function ToolCardBody({ detail, isError, isRunning, sessionKey }: {
       return <SlashCommandCard result={detail.result} />;
     case 'lsp':
       return <LspCard operation={detail.operation} filePath={detail.filePath} symbol={detail.symbol} result={detail.result} />;
+    case 'agent_message':
+      return <AgentMessageCard to={detail.to} summary={detail.summary} message={detail.message} result={detail.result} />;
+    case 'agent_control':
+      return <AgentControlCard op={detail.op} target={detail.target} result={detail.result} />;
+    case 'artifact':
+      return <ArtifactCard action={detail.action} title={detail.title} url={detail.url} filePath={detail.filePath} result={detail.result} />;
+    case 'ask_user':
+      return <AskUserCard questions={detail.questions} result={detail.result} />;
     case 'unknown':
       return <UnknownCard args={detail.raw.args} result={detail.raw.result} />;
   }

@@ -6,7 +6,7 @@
  * (react-refresh/only-export-components).
  */
 
-import { Terminal as TerminalIcon, FileText, FilePen, FilePlus, Search, Globe, ListChecks, Bot, Brain, Sparkles, Wrench, Activity, Hourglass, ScrollText, Ban, NotebookPen, Wand2, Slash, Braces, type LucideIcon } from 'lucide-react';
+import { Terminal as TerminalIcon, FileText, FilePen, FilePlus, Search, Globe, ListChecks, Bot, Brain, Sparkles, Wrench, Activity, Hourglass, ScrollText, Ban, NotebookPen, Wand2, Slash, Braces, Send, Users, LayoutTemplate, MessageCircleQuestion, type LucideIcon } from 'lucide-react';
 import type { ToolCallDetail } from '../../types';
 
 export function iconForDetail(detail: ToolCallDetail): LucideIcon {
@@ -29,6 +29,10 @@ export function iconForDetail(detail: ToolCallDetail): LucideIcon {
     case 'skill': return Wand2;
     case 'slash_command': return Slash;
     case 'lsp': return Braces;
+    case 'agent_message': return Send;
+    case 'agent_control': return Users;
+    case 'artifact': return LayoutTemplate;
+    case 'ask_user': return MessageCircleQuestion;
     case 'unknown': return Wrench;
   }
 }

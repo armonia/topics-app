@@ -414,16 +414,23 @@ describe("parity with the CLI's tools", () => {
     "Skill", "Task", "Agent", "Monitor", "TodoWrite", "ExitPlanMode",
     "EnterPlanMode", "NotebookEdit", "MultiEdit", "BashOutput", "KillShell",
     "SlashCommand", "mcp__gateway__topics-board__board_comment",
-  ];
-
-  /**
-   * Emitted by the CLI and STILL rendered as raw JSON. Each needs a new type on
-   * the server and a row in the renderer: that is on the parity card.
-   */
-  const DEBT = [
+    // The seven that were still raw JSON on the first run of this file, and are
+    // not any more. Each got a type in `shared/types.ts`, a mapping on both
+    // sides, an icon and a card - the same pass someone already did for
+    // monitor/wait/bash_output/lsp.
     "SendMessage", "ListAgents", "TaskOutput", "TaskStop", "ToolSearch",
     "Artifact", "AskUserQuestion",
   ];
+
+  /**
+   * Emitted by the CLI and STILL rendered as raw JSON.
+   *
+   * EMPTY, and that is a measurement rather than a decoration: every name read
+   * out of the real transcripts now has a row. The list stays here because the
+   * next new CLI tool goes in it, and because the test below proves an empty
+   * list is not the same as an absent check.
+   */
+  const DEBT: string[] = [];
 
   const kind = (n: string) => (deriveToolDetail(n, (ARG[n] ?? {}) as never, undefined) as { type: string }).type;
 
@@ -440,17 +447,48 @@ describe("parity with the CLI's tools", () => {
 
   test("the debt list is still true, entry by entry", () => {
     // SELF-CLEARING, and that is the point: when one of these gets rendered the
-    // test goes red and forces its removal. Without it the list ages silently
-    // and keeps declaring debt that no longer exists.
+    // test goes red and forces its removal. It is how the list emptied.
     const solved = DEBT.filter((n) => kind(n) !== "unknown");
     expect(solved, "these render now: drop them from DEBT, the debt went down").toEqual([]);
+  });
+
+  test("an unknown name still falls back rather than vanishing", () => {
+    // The check that keeps the empty DEBT list honest. `unknown` is the safety
+    // net, and it has to keep working: the renderer switch has no `default`,
+    // so a type with no case returns undefined and the row draws NOTHING -
+    // which is worse than a JSON blob, because nothing looks like nothing
+    // happened. Found while adding the seven: the types compiled before the
+    // cards existed.
+    expect(kind("SomeToolShippedNextMonth")).toBe("unknown");
+  });
+
+  test("the new rows carry content, not just a type name", () => {
+    // A mapping that returns the right `type` and drops every field would pass
+    // the loop above while rendering an empty card. Each of these asserts the
+    // one field the row is actually built around.
+    const d = (n: string, a: unknown) => deriveToolDetail(n, a as never, undefined) as Record<string, unknown>;
+    expect(d("SendMessage", { to: "scout", summary: "s" }).to).toBe("scout");
+    expect(d("TaskOutput", { task_id: "a1" }).target).toBe("a1");
+    expect(d("TaskStop", { task_id: "a1" }).op).toBe("stop");
+    expect(d("Artifact", { action: "publish", url: "https://x" }).url).toBe("https://x");
+    expect(d("ToolSearch", { query: "q" }).toolName).toBe("tool_search");
+    const ask = d("AskUserQuestion", {
+      questions: [{ question: "q?", header: "H", options: [{ label: "A" }, { label: "B" }] }],
+    });
+    const q0 = (ask.questions as Array<Record<string, unknown>>)[0]!;
+    expect(q0.question).toBe("q?");
+    expect(q0.header).toBe("H");
+    // Options arrive as `{label}` objects and must come out as strings: the
+    // only piece of real transformation in this mapping.
+    expect(q0.options).toEqual(["A", "B"]);
   });
 
   test("the inventory does not overlap and is not empty", () => {
     // Non-vacuity: two empty lists, or a name in both, would make everything
     // pass while measuring nothing.
     expect(RENDERED.length).toBeGreaterThan(15);
-    expect(DEBT.length).toBeGreaterThan(0);
+    // DEBT is empty today; the assertion that keeps this block non-vacuous is
+    // the fallback test above, not a minimum length here.
     expect(RENDERED.filter((n) => DEBT.includes(n)), "a name cannot be both rendered and in debt").toEqual([]);
   });
 
@@ -463,7 +501,7 @@ describe("parity with the CLI's tools", () => {
       join(import.meta.dir, "..", "..", "..", "client/src/components/Chat/toolDetail.ts"),
       "utf8",
     );
-    for (const n of ["agent", "task", "enterplanmode", "exitplanmode"]) {
+    for (const n of ["agent", "task", "enterplanmode", "exitplanmode", "sendmessage", "artifact", "askuserquestion", "toolsearch"]) {
       expect(mirror, `the client mirror does not know \`${n}\``).toContain(`'${n}'`);
     }
   });
