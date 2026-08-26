@@ -162,6 +162,11 @@ export const PROJECT_WORDS = new Set([
   // carry (it has `short` and `cut` separately), and `ctrl` is the name the
   // keyboard gives itself — it belongs next to `cmd` and `alt` for that reason.
   "shortcut", "shortcuts", "ctrl",
+  // `mtime` is the name the filesystem gives that field — `stat` prints it,
+  // Node exposes it as `mtimeMs`. Spelling it `modificationTime` in a helper
+  // that reads `st.mtimeMs` would make the code harder to follow, not more
+  // English.
+  "mtime",
 ]);
 
 function trackedFiles(): string[] {

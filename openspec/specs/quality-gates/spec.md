@@ -105,6 +105,42 @@ impone SHALL essere provato su sé stesso.
 - **GIVEN** un nome che non contiene nessuna parola comune
 - **THEN** SHALL essere riconosciuto lo stesso
 
+### Requirement: GATE-BUNDLE-FRESH-01 — Un cancello che misura una CARTELLA rifiuta di certificarne una vecchia
+
+I budget del pacchetto si leggono da `public/`, non dai sorgenti. Quindi
+lanciare quel cancello senza aver ricostruito misura ciò che è stato compilato
+l'ultima volta e NON DICE NIENTE sul codice che c'è nell'albero — pur uscendo
+verde, con dei numeri sopra.
+
+Non è un rischio teorico: il lavoro che ricostruisce `public/` a ogni salvataggio
+è spento dal 04/08/2026, quindi quella cartella si muove solo se qualcuno digita
+il comando. Il 25/08 le due misure differivano di 309 byte per puro caso — quel
+giro era quasi tutto lato server; un giro a maggioranza client avrebbe dato un
+verdetto sulla build sbagliata. L'unica traccia del pericolo era prosa dentro un
+file di riferimento: un avvertimento che si legge solo se apri il file giusto,
+cioè esattamente il fallimento che descrive.
+
+Prima di misurare, il cancello SHALL confrontare l'età della cartella costruita
+con quella dei SORGENTI, e SHALL RIFIUTARE di proseguire quando la costruzione è
+più vecchia.
+
+Il rifiuto SHALL essere il TERZO ESITO di [[GATE-04]], non un fallimento: un
+pacchetto stantio non è un pacchetto fuori budget. Il messaggio SHALL NOMINARE
+entrambi gli istanti e il comando che ricostruisce — un rifiuto che non dice
+come uscirne insegna a rilanciare a caso.
+
+Il confronto SHALL usare l'età dei FILE, non la data dell'ultimo commit: le
+modifiche non ancora committate sono il caso locale più comune, ed è
+precisamente quello che un confronto sui commit non vede.
+
+#### Scenario: sorgenti più recenti del pacchetto
+- **GIVEN** una costruzione più vecchia di un file sorgente
+- **THEN** il cancello SHALL rifiutare col terzo esito, senza misurare niente
+
+#### Scenario: pacchetto appena costruito
+- **GIVEN** una costruzione più recente di ogni sorgente
+- **THEN** il cancello SHALL misurare i budget normalmente
+
 ### Requirement: GATE-04 — «Non ho misurato» è un TERZO esito, mai verde
 
 Un cancello che non ha potuto girare — strumento assente, misura assente, linea

@@ -2,6 +2,8 @@
 /**
  * Bundle-size RATCHET.
  *
+ * @covers GATE-BUNDLE-FRESH-01
+ *
  * Every other quality gate in this repo is a ratchet — server types
  * (scripts/typecheck-server.ts), `any` density (scripts/check-any.ts), idle
  * frames (tests/e2e/idle-frame-budget.spec.ts). Bundle size was the one metric
@@ -54,6 +56,76 @@ function assertBuilt(): void {
     console.error(`✗ ${ASSETS_DIR} contains no .js — stale or half-written build.`);
     process.exit(2);
   }
+}
+
+/** Newest mtime under a directory tree, in epoch ms. 0 when nothing is there. */
+export function newestMtime(dir: string): { at: number; file: string } {
+  let best = { at: 0, file: "" };
+  const walk = (d: string): void => {
+    let entries: string[];
+    try { entries = readdirSync(d); } catch { return; }
+    for (const name of entries) {
+      if (name === "node_modules" || name === "dist" || name.startsWith(".")) continue;
+      const full = join(d, name);
+      let st;
+      try { st = statSync(full); } catch { continue; }
+      if (st.isDirectory()) { walk(full); continue; }
+      if (st.mtimeMs > best.at) best = { at: st.mtimeMs, file: full };
+    }
+  };
+  walk(dir);
+  return best;
+}
+
+/**
+ * REFUSE TO CERTIFY A BUILD OLDER THAN ITS SOURCES.
+ *
+ * `assertBuilt()` above answers "is there a build?". It does not answer "is it
+ * THIS build?", and the difference is the whole value of the number printed
+ * below: every budget here is read off `public/`, so running this gate without
+ * rebuilding measures whatever was compiled last time and says nothing about
+ * the code in the working tree.
+ *
+ * That is not hypothetical. The launchd `build:watch` job has been off since
+ * 2026-08-04, so `public/` only moves when somebody types `build:client`. On
+ * 2026-08-25 the two measurements happened to differ by 309 bytes purely
+ * because that round was almost all server-side; a round weighted towards the
+ * client would have delivered a verdict on the wrong build. The only trace of
+ * the risk was prose inside `scripts/bundle-baseline.json` — a warning you
+ * read only if you open the right file, which is precisely the failure it
+ * describes.
+ *
+ * EXIT 2, like `assertBuilt`, not 1: a stale bundle is not a bundle over
+ * budget. It is "I could not measure this tree", and a gate that cannot
+ * measure must never be green and must never be red.
+ *
+ * MTIME, not the last commit date. Uncommitted client edits are the common
+ * local case and a commit-based comparison is blind to exactly those; the
+ * question worth asking is whether the bundle on this disk is older than the
+ * sources on this disk.
+ */
+export function isStale(builtAt: number, srcAt: number): boolean {
+  // Nothing to compare is NOT stale: `assertBuilt` already spoke about an
+  // absent build, and answering twice about the same thing in two voices is
+  // how a gate starts contradicting itself.
+  if (!builtAt || !srcAt) return false;
+  return srcAt > builtAt;
+}
+
+function assertFresh(): void {
+  const built = Math.max(newestMtime(ASSETS_DIR).at, (() => {
+    try { return statSync(join(PUBLIC_DIR, "index.html")).mtimeMs; } catch { return 0; }
+  })());
+  const src = [newestMtime(join("client", "src")), newestMtime("shared")]
+    .reduce((a, b) => (b.at > a.at ? b : a));
+  if (!isStale(built, src.at)) return;
+
+  const iso = (ms: number) => new Date(ms).toISOString().replace("T", " ").slice(0, 19);
+  console.error(`✗ il bundle e' PIU' VECCHIO dei sorgenti: quello che segue misurerebbe un'altra build.`);
+  console.error(`    build in ${PUBLIC_DIR}:  ${iso(built)}`);
+  console.error(`    sorgente piu' recente:  ${iso(src.at)}  (${src.file})`);
+  console.error(`    ricostruisci con \`bun run build:client\`, poi rilancia.`);
+  process.exit(2);
 }
 
 /** Assets referenced directly by index.html = the cold-load critical path. */
@@ -165,7 +237,12 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+if (!import.meta.main) {
+  // Imported by its bench: the pure pieces above are what gets verified, and an
+  // import must not scan the tree nor call `process.exit` as a side effect.
+} else {
 assertBuilt();
+assertFresh();
 
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline;
 const tol = 1 + baseline.tolerance_pct / 100;
@@ -242,3 +319,4 @@ if (shrunk) {
 }
 console.log("\n✓ Bundle within budget.");
 process.exit(0);
+}

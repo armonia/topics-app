@@ -31,6 +31,9 @@
 # I due che restano fuori con un motivo, e non per dimenticanza:
 #   `check:bundle`       pretende `public/` gia' costruito (`bun run build:client`,
 #                        minuti): in CI viene dopo una build che qui non c'e'.
+#                        Dal 26/08 non puo' piu' mentire su una build vecchia:
+#                        se i sorgenti sono piu' recenti esce 2 e non misura
+#                        (GATE-BUNDLE-FRESH-01).
 #   `check:previews`     misura il DATABASE VIVO della board e la cartella media
 #                        di questo utente, non il checkout. In una barra deve
 #                        dare la stessa risposta su qualunque macchina; questo
