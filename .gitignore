@@ -228,6 +228,8 @@ videos/**/*.webm
 # fra i non tracciati dopo ogni corsa con evidenza.
 videos/**/*.zip
 videos/INDEX.md
+# Manifest delle sessioni per file: lo rigenera build-uat-index a ogni corsa, come i trace.
+videos/_sessioni/INDEX.json
 
 # Session-local .env backups
 .env.bak*
