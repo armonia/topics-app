@@ -52,7 +52,7 @@ describe("isStale — la decisione", () => {
   });
 
   it("niente da confrontare NON e' stantio: di una build assente parla assertBuilt", () => {
-    // Due voci sulla stessa cosa sono il modo in cui un cancello si contraddice.
+    // Two voices on the same thing is how a gate contradicts itself.
     expect(isStale(0, 5_000)).toBe(false);
     expect(isStale(5_000, 0)).toBe(false);
   });
@@ -83,9 +83,9 @@ describe("newestMtime — la misura", () => {
 
 describe("il cancello lo usa davvero", () => {
   it("assertFresh viene chiamata, e PRIMA di misurare", () => {
-    // NON `indexOf("assertFresh();")`: quella stringa la trova anche dentro una
-    // riga commentata, ed e' esattamente cosi' che si disarma una chiamata.
-    // Si ancora a una chiamata VIVA: inizio riga, nessuno slash davanti.
+    // NOT `indexOf("assertFresh();")`: that string is found inside a commented
+    // line too, and commenting it out is exactly how such a call gets disarmed.
+    // Anchor on a LIVE call instead: start of line, no slash in front.
     const viva = /^[ \t]*assertFresh\(\);/m.exec(SRC);
     const chiamata = viva?.index ?? -1;
     const misura = SRC.indexOf("const measured");
@@ -95,8 +95,8 @@ describe("il cancello lo usa davvero", () => {
   });
 
   it("rifiuta col TERZO esito, non con un rosso", () => {
-    // Un pacchetto stantio non e' un pacchetto fuori budget: exit 2, come
-    // assertBuilt. Vedi GATE-04.
+    // A stale bundle is not an over-budget bundle: exit 2, like assertBuilt.
+    // See GATE-04.
     const blocco = SRC.slice(SRC.indexOf("function assertFresh"), SRC.indexOf("function assertFresh") + 1600);
     expect(blocco).toContain("process.exit(2)");
     expect(blocco).not.toContain("process.exit(1)");
