@@ -141,6 +141,13 @@ export const PROJECT_WORDS = new Set([
   // English: web2 carries `new` and `overlap` but not those forms, and
   // renaming them would make the name worse, not more English.
   "lsof", "pgid", "pgids", "xml", "junit", "selftest", "newest", "overlapping",
+  // `unix` is a proper noun, and the code has to name it to tell the two PATH
+  // separators apart (`:` there, `;` on Windows) — web2 carries neither it nor
+  // `darwin`, `macos` and `ios`, which are already up there for the same
+  // reason. `sep` is this repo's abbreviation for a separator and reads like
+  // `cfg`, `msg` and `ctx` above it: spelling it out would not make the name
+  // more English, only longer.
+  "unix", "sep",
 ]);
 
 function trackedFiles(): string[] {

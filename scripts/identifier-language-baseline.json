@@ -344,9 +344,7 @@
       "builtin",
       "builtinNames",
       "cursorPos",
-      "onEsc",
-      "sepAfter",
-      "sepBefore"
+      "onEsc"
     ],
     "client/src/components/Chat/ChatPane.tsx": [
       "TYPING_THROTTLE_MS",
@@ -372,7 +370,6 @@
     ],
     "client/src/components/Chat/MessageBubble.tsx": [
       "EMOJI_REGEX",
-      "dateSep",
       "emojiMsg",
       "isEmojiOnly",
       "trimmed"
@@ -668,9 +665,6 @@
       "unsub",
       "writeStandaloneActivePane"
     ],
-    "client/src/components/Layout/hooks/usePaneResidency.ts": [
-      "KEY_SEP"
-    ],
     "client/src/components/Layout/hooks/useProjectBrowserPanes.ts": [
       "fgid",
       "grp",
@@ -738,7 +732,6 @@
       "pct",
       "resto",
       "ripreso",
-      "sep",
       "woken"
     ],
     "client/src/components/MessageParts.tsx": [
@@ -1356,7 +1349,6 @@
       "primo"
     ],
     "client/src/components/Sidebar/useSpaceCards.ts": [
-      "SEP",
       "enc"
     ],
     "client/src/components/Sidebar/verdict.test.ts": [
@@ -1659,7 +1651,6 @@
       "inVolo"
     ],
     "client/src/hooks/usePanelLifecycle.ts": [
-      "PRESENCE_TAB_SEP",
       "UsePanelLifecycleArgs",
       "UsePanelLifecycleReturn",
       "bctx",
@@ -2269,9 +2260,7 @@
       "img"
     ],
     "client/src/lib/insertAtCaret.ts": [
-      "pos",
-      "sepAfter",
-      "sepBefore"
+      "pos"
     ],
     "client/src/lib/livello-audio.test.ts": [
       "SondaLivello",
@@ -2343,7 +2332,6 @@
       "popstateCbs"
     ],
     "client/src/lib/openTaskLink.ts": [
-      "LEGACY_SEP",
       "subscribePopstateTask"
     ],
     "client/src/lib/osOpenPath.test.ts": [
@@ -3739,8 +3727,7 @@
     "scripts/slot.ts": [
       "TIMEOUT_EXIT_CODE",
       "argv",
-      "cmd",
-      "sep"
+      "cmd"
     ],
     "scripts/stalled-parents.test.ts": [
       "SCHEMA_COMMENTI",
@@ -4180,8 +4167,7 @@
       "listChromeCookieHosts",
       "pExecFile",
       "pfx",
-      "toCdpCookie",
-      "toUnixSeconds"
+      "toCdpCookie"
     ],
     "server/integrations/moondream-client.ts": [
       "MoondreamCaptionResponse",
@@ -7638,13 +7624,11 @@
       "PARKED_REQUEUED_TAIL",
       "PARKED_REQUEUE_NOTE_LIKE",
       "REQUEUE_PARKED_LABEL",
-      "STATUS_EVENT_SEP",
       "SubtaskWork",
       "deriveSubtaskWork",
       "dietro",
       "isRequeueParkedLabel",
-      "isUnattributedSubtask",
-      "sep"
+      "isUnattributedSubtask"
     ],
     "shared/browser-login-state.ts": [
       "StorageCookie",
@@ -7727,8 +7711,7 @@
     ],
     "shared/os-open-path.ts": [
       "VCS_MARKERS",
-      "deepestContaining",
-      "sep"
+      "deepestContaining"
     ],
     "shared/parked-question.test.ts": [
       "SECONDA",

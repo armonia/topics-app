@@ -1,4 +1,6 @@
 /**
+ * @covers RUNTIME-16
+ *
  * The PATH we hand to child processes must stay a VALID PATH on every system.
  *
  * These tests exist for a defect that is invisible on macOS and that, on Windows,

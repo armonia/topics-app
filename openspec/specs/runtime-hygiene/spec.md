@@ -480,6 +480,36 @@ togliere.
 - **GIVEN** un percorso che somiglia ma sta altrove
 - **THEN** NON SHALL essere isolato
 
+### Requirement: RUNTIME-16 — Il PATH consegnato a un figlio resta un PATH VALIDO su ogni sistema
+
+L'ambiente passato a un processo figlio SHALL usare il separatore di percorso DEL
+SISTEMA su cui gira, non uno fisso. Su Windows il carattere `:` non separa: e' la
+punteggiatura della LETTERA DI UNITA', e spezzarci sopra un PATH non e' una
+divisione fallita — TAGLIA A META' ogni voce sulla sua lettera, e il rimontaggio
+produce una stringa sola che il sistema legge come una cartella inesistente.
+
+Il guasto SHALL essere invisibile solo finche' non si cambia sistema: misurato su
+Windows 11 il 2026-08-26 dentro un terminale di Topics, `ping` — un comando di
+sistema — rispondeva «not recognized». Il PATH del figlio conteneva
+`C:\WINDOWS\system32`, ma non come voce propria: incollato dentro un frammento
+piu' lungo, e per il sistema quindi inesistente.
+
+Nessuna voce SHALL comparire DUE volte nel PATH arricchito, su nessun sistema: un
+PATH che cresce a ogni giro e' un guasto che si vede solo dopo molte aperture.
+
+Le cartelle aggiunte SHALL essere scritte nella grafia del sistema di
+destinazione: aggiungere percorsi unix a un PATH di Windows non lo arricchisce,
+lo sporca.
+
+#### Scenario: un PATH di Windows non si spezza sulla lettera di unita'
+- **GIVEN** un PATH con voci come `C:\WINDOWS\system32`
+- **WHEN** l'ambiente del figlio viene arricchito
+- **THEN** ogni voce SHALL restare INTERA
+
+#### Scenario: la stessa cartella non entra due volte
+- **GIVEN** una cartella gia' presente nel PATH
+- **THEN** NON SHALL essere aggiunta di nuovo, su nessun sistema
+
 ### Requirement: BUNDLE-RELOAD-01 — Un pacchetto nuovo si PROPONE, non si impone
 
 Un fotogramma che dichiara una revisione DIVERSA da quella caricata SHALL soltanto
