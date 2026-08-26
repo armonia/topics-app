@@ -11,6 +11,8 @@ import {
   resolveFleetRoots,
   registerFleetSocket,
   _resetFleetSockets,
+  _resetFleetUsageCache,
+  getFleetUsage,
   type PsRow,
 } from "./fleet-usage";
 
@@ -402,5 +404,79 @@ describe("il buco da 911 MB: responsible pid E ppid, non l'uno O l'altro", () =>
     );
     const sessioni = out.sessions.reduce((a, s) => a + s.memoryMB, 0);
     expect(sessioni).toBeLessThanOrEqual(out.memoryMB);
+  });
+});
+
+/**
+ * THE COLD-CACHE STAMPEDE.
+ *
+ * The comment above `cached` states the contract in its own words: "one
+ * snapshot shared by every caller in a window ... it is not run per request".
+ * With a WARM cache that held. With a cold one it did not, and nothing here
+ * looked: `fleetLoadSync` fires `void getFleetUsage()` on every request that
+ * finds the cache stale, none of those callers could see the others, and each
+ * one ran its own `ps -axo` over ~500 processes plus one `proc_pid_rusage` per
+ * row. A freshly started server taking a burst paid that tens of times over
+ * for a single answer.
+ *
+ * Measured here before it was fixed: twenty concurrent callers made FORTY
+ * readings. One fault, not two — and the second suspect is worth naming
+ * because it looked guilty. The first-sample path returns early, so it seems
+ * to skip writing the cache; it does not, because it returns through
+ * `finish()`, which writes it. The second test below pins exactly that, and it
+ * has never been red: it is not a defect closed, it is the invariant the fix
+ * leans on, held in place.
+ *
+ * The two readings of a first sample are BY DESIGN and stay: instantaneous CPU
+ * is a difference between two readings, and one alone would only give `ps
+ * pcpu`, the process's whole-life average — the very defect this module was
+ * built to remove. So the bar is TWO, not one.
+ */
+describe("fleet cache · la valanga a freddo", () => {
+  const ROWS: PsRow[] = [
+    { pid: 1, ppid: 0, rssKB: 1000, cpu: 0.1, cpuSeconds: 1, command: "/sbin/launchd" },
+    { pid: 2, ppid: 1, rssKB: 2000, cpu: 0.2, cpuSeconds: 2, command: "/usr/bin/node server.ts" },
+  ];
+
+  beforeEach(() => _resetFleetUsageCache());
+
+  it("venti chiamanti a cache fredda fanno DUE letture, non quaranta", async () => {
+    let readings = 0;
+    const take = async (): Promise<PsRow[]> => {
+      readings++;
+      await new Promise((r) => setTimeout(r, 10));
+      return ROWS;
+    };
+
+    await Promise.all(Array.from({ length: 20 }, () => getFleetUsage(take)));
+
+    expect(
+      readings,
+      "ogni chiamante a freddo ha lanciato il suo `ps`: e' la valanga, e su una macchina vera sono ~500 processi letti per ognuno",
+    ).toBeLessThanOrEqual(2);
+  });
+
+  it("dopo la prima lettura la cache e' PIENA, o il chiamante dietro ne lancia un'altra", async () => {
+    let readings = 0;
+    const take = async (): Promise<PsRow[]> => { readings++; return ROWS; };
+
+    await getFleetUsage(take);
+    const afterFirstRead = readings;
+    await getFleetUsage(take);
+
+    expect(
+      readings,
+      "la seconda chiamata subito dopo la prima ha riletto: il percorso del primo campione torna senza scrivere `cached`",
+    ).toBe(afterFirstRead);
+  });
+
+  it("e il banco sa diventare rosso: senza cache ogni chiamata rilegge", async () => {
+    // The non-vacuous half, asserted instead of trusted. If `take` were not
+    // really wired in, `readings` would stay at zero and the two cases above
+    // would pass while looking at nothing at all.
+    let readings = 0;
+    const take = async (): Promise<PsRow[]> => { readings++; return ROWS; };
+    await getFleetUsage(take);
+    expect(readings, "la sonda iniettata non e' stata chiamata: le prove qui sopra non misurano nulla").toBeGreaterThan(0);
   });
 });

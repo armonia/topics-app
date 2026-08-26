@@ -629,13 +629,61 @@ export function fleetLoadSync(): { coreUnits: number; cores: number } | null {
   return { coreUnits: (cached.cpuPercent / 100) * cores, cores };
 }
 
-export async function getFleetUsage(): Promise<FleetUsage> {
+/**
+ * Clears the fleet cache and the CPU base. It exists for the bench: without it
+ * every case would inherit the reading of the one before, and the COLD path —
+ * the only one that can stampede — would never be reachable twice.
+ */
+export function _resetFleetUsageCache(): void {
+  cached = null;
+  cachedAt = 0;
+  prevSample = null;
+  inFlight = null;
+}
+
+/**
+ * The read in flight, shared with everyone who arrives while it is running.
+ *
+ * THE DEFECT THIS CLOSES, measured 2026-08-26. The comment above `cached`
+ * states the contract in its own words: "one snapshot shared by every caller in
+ * a window ... it is not run per request". With a FULL cache that held. With an
+ * EMPTY one it did not: `fleetLoadSync` fires `void getFleetUsage()` on every
+ * request that finds the cache cold, none of those callers could see the
+ * others, and each ran its own `ps -axo` over ~500 processes plus one
+ * `proc_pid_rusage` per row. Measured on the bench: twenty concurrent callers
+ * made FORTY readings. A freshly started server taking a burst pays that dozens
+ * of times over for a single answer.
+ *
+ * Writing the cache was NOT the problem, and that is worth saying because it
+ * looked like it was: the first-sample path returns early, but it returns
+ * through `finish()`, which writes `cached`. The hole was only the missing
+ * sharing between callers arriving while a read is already under way.
+ *
+ * HOW IT SURFACED: `check:route-latency` refused to measure
+ * (`dispatch_capacity` 1.34 ms against a 0.8 ms ceiling) and said "remeasure on
+ * a quiet machine". It was not the machine: the SECOND pass read 0.34 ms — the
+ * baseline — at load 14 as at load 8, three runs out of three. Between the two
+ * passes exactly one thing changes: the cache.
+ */
+let inFlight: Promise<FleetUsage> | null = null;
+
+export async function getFleetUsage(take: () => Promise<PsRow[]> = snapshot): Promise<FleetUsage> {
   const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES(), memMetric: "rss", roots: [], sessions: [], scriptsMB: 0, scriptsProcessCount: 0, supported: false };
   if (isWindows) return unsupported;
+  if (cached && Date.now() - cachedAt < FLEET_TTL_MS) return cached;
+  // A caller arriving mid-read WAITS for that one instead of opening its own:
+  // this is the single line that turns "one snapshot per window" from a comment
+  // into a fact. Cleared in `finally`, so a failure cannot leave a settled
+  // promise standing that would then be served forever.
+  if (inFlight) return inFlight;
+  inFlight = readFleet(take, unsupported).finally(() => { inFlight = null; });
+  return inFlight;
+}
+
+async function readFleet(take: () => Promise<PsRow[]>, unsupported: FleetUsage): Promise<FleetUsage> {
   const now = Date.now();
-  if (cached && now - cachedAt < FLEET_TTL_MS) return cached;
   try {
-    const rows = await snapshot();
+    const rows = await take();
     if (!rows.length) return cached ?? unsupported;
 
     // CPU ISTANTANEA, non la media di vita.
@@ -654,7 +702,7 @@ export async function getFleetUsage(): Promise<FleetUsage> {
     let base = prevSample;
     if (!base) {
       await new Promise((r) => setTimeout(r, 200));
-      const second = await snapshot();
+      const second = await take();
       if (second.length) {
         base = { at: now, byPid: new Map(rows.map((r) => [r.pid, r.cpuSeconds])) };
         prevSample = { at: Date.now(), byPid: new Map(second.map((r) => [r.pid, r.cpuSeconds])) };
