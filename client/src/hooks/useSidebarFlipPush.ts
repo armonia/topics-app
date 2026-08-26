@@ -101,27 +101,33 @@ export function useSidebarFlipPush(
     //
     // AND WIDEN IT BY THE SAME AMOUNT, which is the part that was missing.
     //
-    // The layer is a flex child: committing the pad in step (2) SHRINKS it by
-    // `expandedPad` before it is shifted. Shifting a narrower box left therefore
-    // uncovers a strip on the RIGHT, of exactly the width still to travel — and
-    // what shows through is the page background, i.e. the grey band reported on
-    // 2026-08-26 ("reopening the sidebar, a grey appears on the right while it
-    // closes"). Measured through CDP on the installed Windows build: at +45ms of
-    // the reveal the layer was 1000px wide inside a 1400px window with its right
-    // edge at 1230 — 170 uncovered pixels, shrinking to 0 as the slide ended.
+    // The layer is a flex child: committing the pad in step (2) resizes it before
+    // it is shifted. On the REVEAL the pad grows, so the layer SHRINKS, and the
+    // Invert then pushes it LEFT (negative delta) to where it visually was.
+    // A narrower box, moved left, leaves a strip uncovered on the RIGHT — exactly
+    // as wide as the distance still to travel — and what shows through is the page
+    // background. That is the grey band reported on 2026-08-26 ("reopening the
+    // sidebar, a grey appears on the right").
+    //
+    // Measured through CDP on the installed Windows build: at +35ms of the reveal
+    // the layer was 1144px wide in a 1400px window with its right edge at 1174 —
+    // 226 uncovered pixels, closing to 0 as the slide ended.
     //
     // `overflow:hidden` on the parent (see the note at #main-content) clips what
-    // OVERFLOWS; it cannot fill what is not painted. Growing the layer by `delta`
-    // for the duration of the slide makes its right edge land on the window edge
-    // from the first frame: nothing to uncover, and the extra width goes away with
-    // the same transition that carries the shift.
+    // OVERFLOWS; it cannot fill what is not painted. Adding `|delta|` of width for
+    // the duration of the slide puts the right edge back on the window edge from
+    // the first frame. Verified in the live window before writing it, because the
+    // sign is easy to get backwards and I did get it backwards once: at
+    // translateX(-256px) the uncovered strip is 256px, and with `calc(100% +
+    // 256px)` it is 0 — measured at three offsets, exact every time.
     //
-    // Only on the reveal (`delta > 0`). On collapse the layer GROWS and its right
-    // edge is already at the window edge; adding width there would push content
-    // out to be clipped, which is the opposite mistake.
+    // Only when the shift is NEGATIVE. A positive delta moves the layer right, so
+    // its right edge already overhangs the window and extra width would just push
+    // more content out to be clipped: the opposite mistake.
+    const extra = delta < 0 ? -delta : 0;
     layer.style.willChange = 'transform';
     layer.style.transform = `translateX(${delta}px)`;
-    if (delta > 0) layer.style.width = `calc(100% + ${delta}px)`;
+    if (extra) layer.style.width = `calc(100% + ${extra}px)`;
     void layer.getBoundingClientRect(); // flush the inverted transform before arming Play
 
     // (5) Play — next frame, slide translateX → 0 on the compositor, matching the sidebar's
@@ -130,11 +136,16 @@ export function useSidebarFlipPush(
       const l = flipLayer.current;
       if (!l) return;
       // `width` rides the same transition as `transform`: the extra width has to
-      // disappear exactly as the shift does, or the last frames would go back to
+      // shrink exactly as the shift does, or the last frames would go back to
       // uncovering the strip they were added to cover.
+      //
+      // The end value is `100%` WRITTEN OUT, not `''`. Clearing the property does
+      // not animate: it drops the inline value on the spot, the layer snaps back
+      // to its flex width in one frame, and the widening is undone before it has
+      // covered anything. A transition needs two values; `''` is not one of them.
       l.style.transition = `transform ${SLIDE_MS}ms ease, width ${SLIDE_MS}ms ease`;
       l.style.transform = 'translateX(0)';
-      l.style.width = '';
+      if (extra) l.style.width = '100%';
     });
 
     // Drop will-change after the slide — never pin a GPU layer (all N terminal canvases)
