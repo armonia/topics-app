@@ -397,9 +397,28 @@ jobs:
       # e un altro rischio. Chi vuole armare il cancello scarica l'artifact e lo
       # committa a mano, UNA volta. Fino ad allora costa una corsa del banco e
       # non fallisce mai (`|| true`): un passo informativo non ferma la pipeline.
+      # UN PASSO CHE NON PUO' FALLIRE NON DICE NIENTE, ed e' quello che e'
+      # successo: `|| true` qui e `if-no-files-found: ignore` sotto lo facevano
+      # riportare «success» anche quando non produceva un bel niente. Sulla run
+      # 32992127191 (26/08) e' morto in mezzo secondo — «sulla 15234 ascolta un
+      # processo che non e' del banco» — perche' il passo del budget qui sopra usa
+      # LO STESSO checkout, quindi `benchPortFor` gli da' LA STESSA porta, e il suo
+      # server non aveva ancora mollato il socket. Risultato: il cancello non e'
+      # mai stato armabile sul runner, e la spunta verde diceva il contrario.
+      #
+      # Il passo resta informativo — non deve fermare la pipeline per una baseline
+      # che manca — ma ora se non produce il file lo DICE, annotato sulla run.
       - name: Record CI route-latency baseline (only if missing)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && (hashFiles('scripts/route-latency-baseline.ci.json') == '') }}
-        run: bun run check:route-latency -- --update-baseline --samples=40 || true
+        run: |
+          set +e
+          bun run check:route-latency -- --update-baseline --samples=40
+          rc=$?
+          set -e
+          if [ ! -f scripts/route-latency-baseline.ci.json ]; then
+            echo "::warning title=Baseline del runner NON registrata::Il banco e' uscito $rc senza scrivere scripts/route-latency-baseline.ci.json. Finche' quel file manca, il cancello confronta questo runner con la baseline di un Mac: uscira' 2 («non misurabile») quasi sempre, e non protegge niente."
+          fi
+          exit 0
 
       - name: Upload CI route-latency baseline
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && (hashFiles('scripts/route-latency-baseline.ci.json') == '') }}

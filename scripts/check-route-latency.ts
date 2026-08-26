@@ -426,6 +426,41 @@ function listenerPgids(port: number): number[] | null {
   return out;
 }
 
+/**
+ * Waits for the port to become FREE before the bench spawns its own server.
+ *
+ * NOT the same thing as tolerating a foreign server — that check stays below and
+ * still kills the run. This closes a race the teardown cannot: `stop()` hangs off
+ * `process.on("exit")`, which must be SYNCHRONOUS, so it can send SIGTERM and
+ * nothing more. The signal lands, the process leaves, and the listening socket is
+ * still held for a moment after.
+ *
+ * Measured on CI run 32992127191 (26/08): the "Route latency budget" step exited
+ * 1, and the "Record CI route-latency baseline" step right behind it — same
+ * checkout, so `benchPortFor` hands it the SAME port — found 15234 still taken
+ * and refused in half a second. That step is the only way the gate ever gets a
+ * baseline measured ON the runner, and it had never once produced its file: its
+ * `|| true` swallowed the refusal, `if-no-files-found: ignore` swallowed the
+ * missing artifact, and the step reported success. The gate could not be armed,
+ * and nothing said so.
+ *
+ * Ten seconds is generous for a socket already SIGTERMed and stingy against a
+ * server someone genuinely left running: past it, the run dies exactly as before.
+ */
+async function waitForPortFree(port: number, timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  for (;;) {
+    const taken = await new Promise<boolean>((res) => {
+      const socket = connect({ port, host: "127.0.0.1" }, () => { socket.destroy(); res(true); });
+      socket.on("error", () => res(false));
+      socket.setTimeout(1000, () => { socket.destroy(); res(false); });
+    });
+    if (!taken) return true;
+    if (Date.now() - start >= timeoutMs) return false;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
 async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -628,6 +663,10 @@ async function main(): Promise<void> {
   rmSync(dataDir, { recursive: true, force: true }); // fresh DB: the corpus has to be ours alone
 
   log(`Banco rotte · porta ${port} · DATA_DIR ${dataDir} · ${samples} campioni x 2 passate`);
+
+  if (!(await waitForPortFree(port, 10_000))) {
+    log(`  la ${port} e' ancora occupata dopo 10s: se e' il banco di prima, non si e' spento.`);
+  }
 
   const child = spawn("bash", [resolve(REPO_ROOT, "scripts/start-test-server.sh")], {
     cwd: REPO_ROOT,
